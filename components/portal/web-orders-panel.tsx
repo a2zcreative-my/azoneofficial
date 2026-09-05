@@ -8,7 +8,7 @@
    stock movements the order caused, so "what did this order do to my count"
    is one click. */
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -20,7 +20,8 @@ import { getLang } from "@/lib/i18n";
    the reason it does is that a domain written in twelve files is a domain
    that cannot be changed. */
 import { brandByCode } from "@/constants/brands";
-import { Skel, SkelText } from "@/components/ui/skeleton";
+import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
+import { useCachedApi } from "@/lib/cached-api";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -79,8 +80,6 @@ export function WebOrdersPanel() {
      the browser's own box. The CEO, 27-08: "when cancel the order, this
      box popup instead using the Globally popup!" */
   const { confirm, node: confirmNode } = useConfirm();
-  const [orders, setOrders] = useState<WebOrder[]>([]);
-  const [pending, setPending] = useState(false); // pending_migration flag
   const [statusF, setStatusF] = useState<string>("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<number | null>(null);
@@ -145,22 +144,25 @@ export function WebOrdersPanel() {
   };
   const [detail, setDetail] = useState<{ lines: WebOrderLine[]; movements: Movement[] } | null>(null);
   const [syncing, setSyncing] = useState(false);
-  /* v1.77.0 — true once the first list request settles (ok or not); until
-     then the table body is a skeleton, never "No web orders yet". */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. The list you
+     had last time paints from the device before the request lands; each
+     (status, search) pair is its own entry. Any write on an order - here, or
+     the bridge pulling new ones - bumps the "web-orders" topic and the open
+     view refetches by itself.
+     v1.77.0 (kept): until the first EVER response the table body is a
+     skeleton, never "No web orders yet". */
+  const listPath = (() => {
     const params = new URLSearchParams();
     if (statusF) params.set("status", statusF);
     if (q.trim()) params.set("q", q.trim());
-    const res = await api<{ orders: WebOrder[]; pending_migration?: boolean }>(`/web-orders?${params}`);
-    if (res.ok && res.data) {
-      setOrders(res.data.orders ?? []);
-      setPending(!!res.data.pending_migration);
-    }
-    setLoaded(true);
-  }, [statusF, q]);
-  useEffect(() => { void load(); }, [load]);
+    return `/staff/web-orders?${params}`;
+  })();
+  const list = useCachedApi<{ orders: WebOrder[]; pending_migration?: boolean }>(listPath, true, ["web-orders"]);
+  const orders = useMemo(() => list.data?.orders ?? [], [list.data]);
+  const pending = Boolean(list.data?.pending_migration); // pending_migration flag
+  const loaded = !list.loading;
+  const refreshList = list.refresh;
+  const load = useCallback(async () => { refreshList(); }, [refreshList]);
 
   const openDetail = async (id: number) => {
     if (open === id) { setOpen(null); setDetail(null); return; }
@@ -186,7 +188,7 @@ export function WebOrdersPanel() {
       {toastNode}
       {confirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">{L("Web Orders", "Pesanan Web")} <span className="text-muted-foreground text-xs font-normal">ELFIA</span></h2>
+        <h2 className="text-base font-semibold">{L("Web Orders", "Pesanan Web")} <span className="text-muted-foreground text-xs font-normal">ELFIA</span> <StaleHint show={list.stale} className="ml-1" /></h2>
         <button type="button" className={btnSm} disabled={syncing} onClick={() => void syncNow()}
           title={L("The store is polled every 5 minutes anyway — this just pulls now", "Kedai ditarik setiap 5 minit — butang ini menarik sekarang sahaja")}>
           {syncing ? L("Pulling…", "Menarik…") : L("Pull now", "Tarik sekarang")}

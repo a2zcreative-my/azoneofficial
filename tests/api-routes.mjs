@@ -161,11 +161,15 @@ let runtimeChosen = 0;
 
 for (const rel of files) {
   const src = read(rel);
-  if (!/from "@\/lib\/api"/.test(src)) continue;
+  if (!/from "@\/lib\/api"/.test(src) && !/from "@\/lib\/cached-api"/.test(src)) continue;
 
   /* Which helper name carries which base. `api` imported bare is the root. */
   const bases = new Map();
   if (/import \{[^}]*\bapi\b[^}]*\} from "@\/lib\/api"/.test(src)) bases.set("api", "/api/v1");
+  /* v1.104.0 - a remembered view (lib/cached-api) names its FULL path, so
+     the hook is a caller too. Without this line every card converted in
+     roadmap phase 02 silently left this guard's sight. */
+  if (/import \{[^}]*\buseCachedApi\b[^}]*\} from "@\/lib\/cached-api"/.test(src)) bases.set("useCachedApi", "/api/v1");
   for (const m of src.matchAll(/const (\w+)\s*=\s*makeApi\("([^"]*)"\)/g)) {
     bases.set(m[1], `/api/v1${m[2]}`);
   }
@@ -228,8 +232,13 @@ ok("the handful of runtime-chosen paths stays a handful", runtimeChosen <= 6,
      "makeApi(\"/staff\") sent it to /api/v1/staff/users/42/offboard, which nothing serves");
   ok("the route it now calls is the audited one that clears 2FA and sessions",
      /path\.startsWith\("\/api\/v1\/users\/"\) && path\.endsWith\("\/offboard"\)/.test(index));
+  /* v1.104.0 - the staff LIST now arrives through useCachedApi, which takes
+     the full path ("/staff/users"); every other call in the file still goes
+     through the staff-prefixed helper. Either spelling reaches the same
+     route, and that route is the property. */
   ok("the staff directory still uses the staff prefix for everything else",
-     /const api = makeApi\("\/staff"\)/.test(dir) && /api<[^>]*>\(`\/users`\)/.test(dir),
+     /const api = makeApi\("\/staff"\)/.test(dir) &&
+     (/api<[^>]*>\(`\/users`\)/.test(dir) || /useCachedApi<[^(]*\("\/staff\/users"/.test(dir)),
      "the fix was one call site, not a base change for the whole file");
 }
 

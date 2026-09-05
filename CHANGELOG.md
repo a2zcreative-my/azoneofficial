@@ -2,6 +2,84 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.105.0] - 2026-09-05 - roadmap phase 03: the outbox
+
+**CEO**, 05-09-2026, on how an offline clock-in should be recorded: *phone's time, marked pending* - and on what may queue: *attendance punches, task updates, leave and claim submissions, hotel call notes*.
+
+### A correction first
+The roadmap said push was "built but almost nothing sends through it". Wrong: every one of the 36 in-app notifications already reaches the phone through `notify()`. What was missing was smaller and is fixed below - a tap always opened the Dashboard, never the tab the notice was about.
+
+### What was wrong
+The offline banner said *"Changes cannot be saved until connectivity is restored"*, and meant it. A clock-in pressed in a lift was gone, and the person found out at payroll.
+
+### The outbox
+A write on a **queueable** route that cannot reach the server is kept on the phone (IndexedDB, so it survives the tab and the browser closing) and sent, in order, the moment the signal is back - on the `online` event, when the app comes to the front, and every 45 s while something waits. Three rules make it safe rather than clever:
+
+1. **The list is explicit.** Seven routes, named in `lib/outbox.ts` and again in `worker/src/outbox.ts`; guard #40 fails the build if the two ever differ. A sign-in, a 2FA code, an approval, a "pull now" - none of those may queue, because replaying any of them later is wrong.
+2. **Every queueable write carries an idempotency key, queued or not.** Minted once when the button is pressed, sent with every attempt. The worker stores the first answer under `(key, person)` and returns the *same* answer to any repeat - so a request that reached the server but whose reply died in the tunnel cannot become a second clock-in when the queue replays it. A replayed answer does not bump the live version either; nothing changed.
+3. **The phone says when.** `X-Client-At` carries the moment the button was pressed. A punch sent late is recorded at **that** time - the day, the duplicate check and late/half-day are all judged against it - and **marked pending**, exactly like a forgotten punch (v1.76.0): it counts for nothing until the CEO approves it. The approver sees *pressed 09:02 · arrived 09:41*, which is a different thing from a punch typed in at 09:41. A timestamp is only trusted when it travels with a key, is more than a minute old (otherwise this is a live request and now is the truth) and less than 48 h old (a phone clock a week out is not a punch).
+
+**Every kept write says so.** The punch, leave, task status, task tick and claim each got a `queued` branch whose toast reads *"Kept — no signal"* - because "saved" would be a lie for a few minutes. A claim kept offline cannot carry its receipt (the receipt needs the claim's id, which does not exist yet); the toast says to attach it with Edit once it has gone. The banner now reads *"N changes kept on this phone, sending when you are back"*, and a kept change the server later **refuses** - an offline clock-in that turned out to be the day's second - is shown with the server's own words until dismissed, never dropped silently.
+
+### A push lands on its tab
+`notify()` deep-links by kind: *leave approved* opens Leave, *task assigned* opens Tasks, a stock alert opens Inventory. The portal reads `?tab=` once and removes it from the address; the service worker now **navigates an open portal window** to the tab instead of matching by substring and opening a second one. Shell bumped to v32 so installed phones pick it up.
+
+### iPhone coaching
+Safari on iOS has no install prompt, and iOS push works only once the site is on the Home Screen - so the two features this phase most wants a phone to have were a Share-sheet away from anyone never told. One card on the Dashboard, phones only, iOS + Safari + not installed, dismissed once and never again.
+
+### Guards
+**#40** (`tests/outbox.mjs`, 71 checks) runs the real worker module against a fake D1: one key runs the handler once; the second call returns the first answer with the replay header; a different person with the same key is a different request; a 5xx is not stored so a retry really retries; a 409 *is* stored so a third attempt still says "already punched"; no key, a malformed key, or a key on a non-queueable route runs every time; a database without 0114 runs the handler rather than failing. `clientAt` is run against now, 20 s ago, 5 min ago, 40 h ago, 3 days ago, the future and garbage. Negative-tested seven ways - a route on one list only, storing a 500, dropping the one-minute floor, removing the key header, judging the day from the server clock, deleting the leave toast, reverting the shell version - each fails.
+
+Migration **0114** adds `idempotency_keys` (purged nightly after 7 days) and `attendance_records.offline_sent_at`.
+
+## [1.104.0] - 2026-09-05 - roadmap phase 02: views are remembered
+
+### What was wrong
+`lib/cached-api.ts` has existed since v1.25.0 - paint the last known figures at once, refresh quietly behind them, say "updating…" on anything financial. It was wired into **two files out of ninety-two**. Every other card showed a grey skeleton on every single visit, including the tabs people open forty times a day.
+
+### What changed
+Nine views now open from the device first and refresh behind: **News, Tasks, Leave** (the three everyone opens daily), the **Staff** directory, **Hotels**, **Assets**, **Web Orders**, **ELFIA Traffic**, and the month-end **attendance reconciliation**. The second visit to any of them is instant, including a cold open on a phone in the morning; the first-ever visit still shows the skeleton it always did.
+
+Three things had to change in the hook itself for that to be safe:
+
+- **It is live.** `useCachedApi(path, enabled, topics)` now takes the SSE topics a view depends on and refetches when one moves. A remembered view is never stale for longer than the stream takes to say so - and the topic wiring the converted tabs used to carry by hand (`useLiveRefresh(["tasks"], load)`) moved inside.
+- **It is honest.** It reports `failed`, so a card can tell "nothing to show" from "showing yesterday's". The Staff directory only says the list could not load when there is nothing remembered to show; a stale-but-present list is better than a warning over an empty one.
+- **It fits real views.** The 120 KB ceiling silently refused the very views that gain most - the whole hotel directory is ~230 KB of JSON. The ceiling is 400 KB, and a write that trips the browser's quota now evicts the **oldest** entries and tries once more, so the cache degrades to *remembering less* instead of *remembering nothing* as it fills.
+
+The **Leave** tab also got faster in a second way: its three requests (balance, mine, everyone's) used to run in series, so an approver waited three round-trips before the board drew. They run at once now.
+
+**Money still says so.** The reconciliation wears the "updating…" mark while remembered figures refresh - the CEO's rule from v1.25.0, kept.
+
+### Guards
+**#39** (`tests/remembered-views.mjs`, 44 checks) runs the real cache module against a fake localStorage with a quota: an entry over the ceiling is refused rather than thrown; a write that trips the quota evicts oldest-first and lands; an entry past 24 h reads as nothing; one account can never read another's; a genuine account switch wipes the store and a same-account reload does not. It then holds each converted view to reading through the hook with its topic. Negative-tested by removing the eviction retry, dropping the live wiring, putting `setLoaded` back into the hotel panel, and removing the StaleHint from the reconciliation - each fails.
+
+`tests/api-routes.mjs` learned that `useCachedApi` names a full path and is a caller: 352 → **368** client calls now checked against the routes the worker actually serves. Without that line, every card converted here would have silently left the guard's sight.
+
+## [1.103.0] - 2026-09-05 - roadmap phase 01: the bundle is split
+
+**CEO**, 05-09-2026, on the roadmap: *"Proceed with phase by phase."*
+
+### What was wrong
+Nothing in the project was code-split - zero dynamic imports. The portal shipped as one bundle carrying every tab for every person: a live host opening the roster downloaded Payroll, Accounting, Purchasing, the ELFIA catalogue editor and the Threads study room to get there, none of which her role can open, all of which she paid for in download and parse time on a phone.
+
+### What changed
+`components/portal/lazy-panels.tsx` wraps every tab panel that is not on the first screen in `next/dynamic` - **30 panels from 20 modules**, each its own chunk, fetched the first time its tab is opened and cached after. They are the same components under the same names with the same props, so the thirty render sites in `page.tsx` did not change; only the import lines did. The fallback while a chunk arrives is a skeleton, not the word "Loading" (house rule #28), and `ssr: false` because the page is behind sign-in and prerenders to a skeleton anyway.
+
+What stayed static, on purpose: everything the Dashboard paints on first load (`dashboard-cards`, `company-monitor`, `side-columns`, `ops-map`). Deferring the first screen would add a round-trip to the one moment that matters most.
+
+### Measured, on a real `next build` of this tree
+| | route chunk | first-load JS |
+|---|---|---|
+| before | 280 kB | 435 kB |
+| after | **120 kB** | **252 kB** |
+
+That is 42% less JavaScript before the portal can draw, and the route's own chunk down 57%. The heaviest things now load only when asked for: the payroll and payslip code is its own chunk, the Threads study room another, and the PDF library only arrives when somebody actually prints a document. On a phone on hotel wifi the difference is the part of the wait you notice.
+
+**Guard #38** (`tests/lazy-panels.mjs`, 152 checks) is what keeps it this way. It reads the list of wrapped modules out of `lazy-panels.tsx` and asserts that `page.tsx` imports none of them statically (a static import anywhere pulls the module back into the first bundle and the `dynamic()` beside it becomes decoration), that every wrapper points at a module and a named export that exist (a misspelt `m.Foo` is `undefined` at runtime - a blank tab, not a type error), that every wrapper is rendered and imported through the wrapper, and that the first-screen modules are *not* wrapped. Negative-tested by re-adding a static import, misspelling an export, wrapping `dashboard-cards`, and replacing the skeleton with "Loading…" - each fails.
+
+### Not in this phase
+The panels written inside `page.tsx` itself (Dashboard, Leave, Tasks, Sales, Announcements, Profile) cannot be split until they are extracted into their own files - the page chunk is still 433 kB unminified for that reason. That is the housekeeping item on the roadmap, not phase 01.
+
 ## [1.102.0] - 2026-09-05 - the CEO's own tab order, and two tabs parked
 
 **CEO**, 05-09-2026, writing the entire tab list out himself, in the order he wants to read it, ending: *"Stokis - inactive this for future usage. Content - inactive this for future usage."*

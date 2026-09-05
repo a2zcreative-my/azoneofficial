@@ -40,10 +40,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { Skel } from "@/components/ui/skeleton";
+import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { card, inputClass, inputClassSm, fieldLabel, btnSmPrimary, btnSm } from "@/lib/ui-styles";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
+import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
 /* v1.100.3 — one country, one geometry: the same module the Operations map
    and the ELFIA Traffic map draw from. Its names are Title Case; the hotel
@@ -88,12 +89,6 @@ export function HotelsPanel() {
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
 
-  const [hotels, setHotels] = useState<Hotel[]>([]);
-  const [byState, setByState] = useState<Record<string, number>>({});
-  const [states, setStates] = useState<string[]>([]);
-  const [canManage, setCanManage] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [loaded, setLoaded] = useState(false);
   const [state, setState] = useState<string>("");     // "" = every state
   const [qLive, setQLive] = useState("");
   const [q, setQ] = useState("");
@@ -107,21 +102,25 @@ export function HotelsPanel() {
     return () => window.clearTimeout(t);
   }, [qLive]);
 
-  const load = useCallback(async () => {
-    setLoaded(false);
-    const r = await api<{ hotels: Hotel[]; states: string[]; by_state: Record<string, number>; can_manage?: boolean; pending_migration?: boolean }>(
-      `?${state ? `state=${encodeURIComponent(state)}&` : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`,
-    );
-    if (r.ok && r.data) {
-      setHotels(r.data.hotels ?? []);
-      setStates(r.data.states ?? []);
-      setByState(r.data.by_state ?? {});
-      setCanManage(Boolean(r.data.can_manage));
-      setPending(Boolean(r.data.pending_migration));
-    }
-    setLoaded(true);
-  }, [state, q]);
-  useEffect(() => { void load(); }, [load]);
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. The view you
+     had last time paints at once from the device; the fetch runs behind it
+     and swaps the figures in. Every (state, search) pair is its own entry,
+     so pressing Johor and then Selangor and then Johor again shows Johor
+     instantly the second time. A write on any hotel bumps the "hotels" topic
+     and the open view refetches by itself, so nobody works from a list a
+     colleague changed a minute ago. */
+  const view = useCachedApi<{ hotels: Hotel[]; states: string[]; by_state: Record<string, number>; can_manage?: boolean; pending_migration?: boolean }>(
+    `/staff/hotels?${state ? `state=${encodeURIComponent(state)}&` : ""}${q ? `q=${encodeURIComponent(q)}` : ""}`,
+    true, ["hotels"],
+  );
+  const hotels = useMemo(() => view.data?.hotels ?? [], [view.data]);
+  const states = useMemo(() => view.data?.states ?? [], [view.data]);
+  const byState = useMemo(() => view.data?.by_state ?? {}, [view.data]);
+  const canManage = Boolean(view.data?.can_manage);
+  const pending = Boolean(view.data?.pending_migration);
+  const loaded = !view.loading;
+  const refresh = view.refresh;
+  const load = useCallback(async () => { refresh(); }, [refresh]);
 
   const total = useMemo(() => Object.values(byState).reduce((a, b) => a + b, 0), [byState]);
   const maxState = useMemo(() => Math.max(1, ...Object.values(byState)), [byState]);
@@ -337,6 +336,7 @@ export function HotelsPanel() {
             <span className="text-muted-foreground ml-2 text-xs font-normal">
               {loaded ? `${hotels.length} ${L("shown", "dipaparkan")}${hotels.length > 12 ? L(" — scroll the list", " — tatal senarai") : ""}` : ""}
             </span>
+            <StaleHint show={view.stale} className="ml-2" />
           </p>
           <span className="flex flex-wrap items-center gap-1.5">
             <input className={`${inputClassSm} w-44`} value={qLive} placeholder={L("Find hotel, company or person", "Cari hotel, syarikat atau orang")}

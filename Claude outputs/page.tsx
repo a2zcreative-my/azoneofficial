@@ -10,7 +10,9 @@
 
 import Link from "next/link";
 
-import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { api, csrfFetch, sendOutboxEntry } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { setOutboxScope, startOutbox } from "@/lib/outbox"; // v1.105.0 - kept-on-the-phone writes
+import { InstallCoach } from "@/components/ui/install-coach"; // v1.105.0 - iOS Home Screen coaching
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
 // v1.65.0 — live cards: the version store, and the hook that watches it.
@@ -20,6 +22,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -48,18 +51,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
-import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { RowCell, SubR } from "@/components/ui/sub-label"; // v1.79.0 - a placeholder is not a label
-import { MyPayslip, PayrollPanel } from "@/components/portal/payroll-panel";
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
-import { AssetsPanel } from "@/components/portal/assets-panel";
-import { ThreadsPanel } from "@/components/portal/threads-panel";
-import { HotelsPanel } from "@/components/portal/hotels-panel";
-import { VerificationCard } from "@/components/portal/verification-card"; // v1.84.0 - the month, reconciled
 import { SITE_CONFIG } from "@/constants/site";
 import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
@@ -105,26 +102,12 @@ import {
   TaskProgressCard,
   InventoryStatusCard,
 } from "@/components/portal/company-monitor";
-import {
-  CashFlowPanel,
-  ReconciliationPanel,
-} from "@/components/portal/finance-panels";
-import {
-  CommissionPanel,
-  AdsFundPanel,
-} from "@/components/portal/commission-panels";
-import {
-  PurchasingPanel,
-  AccountingPanel,
-} from "@/components/portal/purchasing-panels";
 import { NextEventCard } from "@/components/portal/next-event-card";
-import { RosterBoard } from "@/components/portal/roster-board";
 import {
   AttendanceDonutCard,
   TodayAssignmentsCard,
   MonthlyBarsCard,
 } from "@/components/portal/dashboard-cards";
-import { GeofenceCard } from "@/components/portal/geofence-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import {
   getLang,
@@ -134,26 +117,24 @@ import {
 } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
-import { ContentPanel } from "@/components/portal/content-panel";
-import { StokisPanel } from "@/components/portal/stokis-panel";
-import { WebOrdersPanel } from "@/components/portal/web-orders-panel"; // v1.37.0
-import { ElfiaTrafficPanel } from "@/components/portal/elfia-traffic-panel"; // v1.43.0
-import { ElfiaStorePanel } from "@/components/portal/elfia-store-panel"; // v1.45.0
-import { DocumentsPanel } from "@/components/portal/documents-panel";
-import { TabAccessCard } from "@/components/portal/tab-access-card";
-import { AccessReviewCard } from "@/components/portal/access-review-card";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
-import {
-  AttendanceAdminPanel,
-  HrPanel,
-  InventoryPanel,
-  ClaimsPanel,
-  ExpensesPanel,
-  TikTokOrdersCard,
-} from "@/components/portal/role-panels";
-import { StaffDirectory } from "@/components/staff/staff-directory";
 import { RestDayCreditCard } from "@/components/portal/rest-day-credits"; // v1.86.0 - on the Leave tab now
+/* v1.103.0 (roadmap phase 01) - every tab panel that is NOT on the first
+   screen now arrives through next/dynamic, one chunk per module, fetched the
+   first time its tab is opened. Same components, same names, same props; only
+   these import lines moved. components/portal/lazy-panels.tsx explains why,
+   and tests/lazy-panels.mjs fails the build if one of them is ever imported
+   statically here again. What stays static above is what the Dashboard paints
+   on first load. */
+import {
+  AccessReviewCard, HrAdminPanel, AssetsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
+  DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
+  GeofenceCard, HotelsPanel, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
+  AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
+  RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
+  StaffDirectory,
+} from "@/components/portal/lazy-panels";
 import {
   card,
   rowHead,
@@ -903,6 +884,18 @@ function Dashboard({
         }
       );
       setBusy("");
+      if (res0.queued) {
+        setPunchToast({
+          title: L("Kept — no signal", "Disimpan — tiada isyarat"),
+          sub: L(
+            "Saved on this phone with the time you pressed it. It will be sent the moment you are back online, and goes to the CEO to approve.",
+            "Disimpan pada telefon ini dengan masa anda menekannya. Ia akan dihantar sebaik sahaja anda kembali dalam talian, dan dihantar kepada CEO untuk kelulusan.",
+          ),
+          variant: "notice",
+        });
+        window.setTimeout(() => setPunchToast(null), 6000);
+        return;
+      }
       if (res0.ok) {
         setPunchToast({
           title:
@@ -955,6 +948,23 @@ function Dashboard({
     );
     setBusy("");
     setForgotArmed(false);
+    /* v1.105.0 (roadmap phase 03) - no signal: the punch is KEPT on this
+       phone (lib/outbox.ts) and sent when the network is back, carrying the
+       time it was pressed. The CEO's decision: it is recorded at that time
+       and goes to him to approve, like a forgotten punch. Say exactly that -
+       "clocked in" would be a lie for another few minutes. */
+    if (res.queued) {
+      setPunchToast({
+        title: type === "clock_in" ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Kept — no signal", "Disimpan — tiada isyarat"),
+        sub: L(
+          "Saved on this phone with the time you pressed it. It will be sent the moment you are back online, and goes to the CEO to approve.",
+          "Disimpan pada telefon ini dengan masa anda menekannya. Ia akan dihantar sebaik sahaja anda kembali dalam talian, dan dihantar kepada CEO untuk kelulusan.",
+        ),
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 6000);
+      return;
+    }
     if (res.ok && res.data?.pending) {
       setPunchToast({
         title: L("Sent to the CEO", "Dihantar kepada CEO"),
@@ -5964,13 +5974,6 @@ function waitingOnLabel(l: LeaveReq): string {
 
 function Leave({ user }: { user: User }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
-  const [balances, setBalances] = useState<
-    Record<string, { entitled: number; used: number; accrued?: number }>
-  >({});
-  const [mine, setMine] = useState<LeaveReq[]>([]);
-  const [all, setAll] = useState<LeaveReq[]>([]);
-  /* v1.93.0 — a part-time host: no entitlement, no form; one line says why. */
-  const [hourly, setHourly] = useState(false);
   const [draft, setDraft] = useState({
     type: "annual",
     start_date: "",
@@ -6004,32 +6007,34 @@ function Leave({ user }: { user: User }) {
      day: it can move a day between payroll months or turn a paid one unpaid.
      The server enforces the same list; this only decides what is drawn. */
   const canAmend = ["ceo", "super_admin"].includes(user.role);
-  /* v1.77.0 — skeleton until the first fetch lands. */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    const b = await api<{ balances: typeof balances; hourly?: boolean }>(`/staff/leave/balance`);
-    setBalances(b.data?.balances ?? {});
-    setHourly(Boolean(b.data?.hourly));
-    const m = await api<{ leave: LeaveReq[] }>(`/staff/leave`);
-    setMine(m.data?.leave ?? []);
-    if (!canApprove) setLoaded(true);
-    if (canApprove) {
-      /* v1.21.0 (CEO: "I still cant see any list applied… who is the person
-         that apply leave and waiting for their Head approval"): keep the
-         WHOLE list. The board below shows every in-progress application
-         with whose approval it waits on; the action buttons appear only on
-         rows this viewer can act on (the old filter hid everything else,
-         so COO/CEO saw an empty board while requests sat at HR). */
-      const a = await api<{ leave: LeaveReq[] }>(`/staff/leave?all=1`);
-      setAll(a.data?.leave ?? []);
-      setLoaded(true);
-    }
-  }, [canApprove, user.role, user.id]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useLiveRefresh(["leave"], load);
+  /* v1.104.0 (roadmap phase 02) - three remembered views, each its own
+     entry: balance, my applications, and (for an approver) everyone's. They
+     used to load in SERIES - balance, then mine, then all - so an approver
+     waited three round-trips before the board drew; now they run at once,
+     and the last-seen figures paint before any of them returns. A write on
+     any leave bumps "leave" and all three refetch (the topic wiring moved
+     INTO the hook).
+     v1.77.0 (kept): skeleton until the first EVER fetch lands - for an
+     approver that means all three, since the board is the point. */
+  const balanceView = useCachedApi<{ balances: Record<string, { entitled: number; used: number; accrued?: number }>; hourly?: boolean }>(
+    "/staff/leave/balance", true, ["leave"],
+  );
+  const mineView = useCachedApi<{ leave: LeaveReq[] }>("/staff/leave", true, ["leave"]);
+  /* v1.21.0 (CEO: "I still cant see any list applied… who is the person
+     that apply leave and waiting for their Head approval"): keep the WHOLE
+     list. The board below shows every in-progress application with whose
+     approval it waits on; the action buttons appear only on rows this viewer
+     can act on (the old filter hid everything else, so COO/CEO saw an empty
+     board while requests sat at HR). */
+  const allView = useCachedApi<{ leave: LeaveReq[] }>("/staff/leave?all=1", canApprove, ["leave"]);
+  const balances = useMemo(() => balanceView.data?.balances ?? {}, [balanceView.data]);
+  /* v1.93.0 — a part-time host: no entitlement, no form; one line says why. */
+  const hourly = Boolean(balanceView.data?.hourly);
+  const mine = useMemo(() => mineView.data?.leave ?? [], [mineView.data]);
+  const all = useMemo(() => allView.data?.leave ?? [], [allView.data]);
+  const loaded = !balanceView.loading && !mineView.loading && (!canApprove || !allView.loading);
+  const refreshBalance = balanceView.refresh, refreshMine = mineView.refresh, refreshAll = allView.refresh;
+  const load = useCallback(async () => { refreshBalance(); refreshMine(); if (canApprove) refreshAll(); }, [refreshBalance, refreshMine, refreshAll, canApprove]);
 
   /* v1.90.2 — CEO, 04-09-2026: *"One of my staff unable to update their
      leave application, please check any bug?"* Her screenshot: start date
@@ -6063,9 +6068,14 @@ function Leave({ user }: { user: User }) {
         res.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "notice");
       return;
     }
+    /* v1.105.0 - kept on the phone (lib/outbox.ts); sent when the signal is
+       back. Not "requested" yet, and the toast must not say it is. */
     showLeaveToast(
-      L("Leave requested", "Cuti dimohon"),
-      `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${L("waiting for HR", "menunggu HR")}`,
+      res.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Leave requested", "Cuti dimohon"),
+      res.queued
+        ? L("Saved on this phone. It will be sent to HR the moment you are back online.", "Disimpan pada telefon ini. Ia akan dihantar kepada HR sebaik sahaja anda kembali dalam talian.")
+        : `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${L("waiting for HR", "menunggu HR")}`,
+      res.queued ? "notice" : "success",
     );
     setDraft({
       type: "annual",
@@ -6723,8 +6733,6 @@ function Leave({ user }: { user: User }) {
 /* ================= Tasks ================= */
 
 function Tasks({ user }: { user: User }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [team, setTeam] = useState<{ id: number; name: string }[]>([]);
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -6740,30 +6748,23 @@ function Tasks({ user }: { user: User }) {
   const canManage = MANAGE_ROLES.includes(user.role);
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
-  /* v1.77.0 — skeleton until the first fetch lands. */
-  const [loaded, setLoaded] = useState(false);
-  const load = useCallback(async () => {
-    const r = await api<{ tasks: Task[] }>(
-      `/staff/tasks${canManage ? "?all=1" : ""}`
-    );
-    setTasks(r.data?.tasks ?? []);
-    setLoaded(true);
-    if (canManage) {
-      /* v1.21.0 (CEO: "populate list of users instead of staff list data…
-         staff name list should be populate full staff name"): the assignee
-         picker read /staff/users — EVERY account, dupes, Super Admin and
-         all. /staff-list is the one picker source: active staff only,
-         full_name preferred. Used by Content/Sales already; now here too. */
-      const u = await api<{ staff: { id: number; name: string }[] }>(
-        `/staff/staff-list`
-      );
-      setTeam(u.data?.staff ?? []);
-    }
-  }, [canManage]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useLiveRefresh(["tasks"], load);
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. Yesterday's
+     board paints from the device at once; the fetch swaps the live one in
+     behind it, and any write on a task bumps "tasks" so every open board
+     refetches (the topic wiring moved INTO the hook).
+     v1.77.0 (kept): skeleton until the first EVER fetch lands. */
+  const board = useCachedApi<{ tasks: Task[] }>(`/staff/tasks${canManage ? "?all=1" : ""}`, true, ["tasks"]);
+  const tasks = useMemo(() => board.data?.tasks ?? [], [board.data]);
+  const loaded = !board.loading;
+  /* v1.21.0 (CEO: "populate list of users instead of staff list data…
+     staff name list should be populate full staff name"): the assignee
+     picker read /staff/users — EVERY account, dupes, Super Admin and
+     all. /staff-list is the one picker source: active staff only,
+     full_name preferred. Used by Content/Sales already; now here too. */
+  const roster = useCachedApi<{ staff: { id: number; name: string }[] }>("/staff/staff-list", canManage, ["users"]);
+  const team = useMemo(() => roster.data?.staff ?? [], [roster.data]);
+  const refreshBoard = board.refresh;
+  const load = useCallback(async () => { refreshBoard(); }, [refreshBoard]);
 
   const create = async () => {
     if (!draft.title) return;
@@ -6799,7 +6800,12 @@ function Tasks({ user }: { user: User }) {
       `/staff/tasks/${taskId}/items/${itemId}/toggle`,
       { method: "POST", body: JSON.stringify({}) }
     );
-    if (r.ok) {
+    if (r.queued) {
+      /* v1.105.0 - the tick is kept on the phone and will land when the
+         signal is back; until then the box cannot move, so say why. */
+      showTaskToast(L("Kept — no signal", "Disimpan — tiada isyarat"),
+        L("The tick is saved on this phone and will be sent when you are back online.", "Tanda disimpan pada telefon ini dan akan dihantar apabila anda kembali dalam talian."), "notice");
+    } else if (r.ok) {
       const rr = await api<{ items: TaskItem[] }>(`/staff/tasks/${taskId}/items`);
       if (rr.ok && rr.data) setItems(rr.data.items ?? []);
       void load();
@@ -6831,7 +6837,11 @@ function Tasks({ user }: { user: User }) {
       body: JSON.stringify(patch),
     });
     const st = typeof patch.status === "string" ? patch.status : "";
-    if (r.ok) {
+    if (r.queued) {
+      /* v1.105.0 - kept on the phone; the board will show it once sent */
+      showTaskToast(L("Kept — no signal", "Disimpan — tiada isyarat"),
+        L("Saved on this phone. It will be sent the moment you are back online.", "Disimpan pada telefon ini. Ia akan dihantar sebaik sahaja anda kembali dalam talian."), "notice");
+    } else if (r.ok) {
       showTaskToast(
         st === "completed" ? L("Task closed", "Tugasan ditutup")
           : st === "in_progress" ? L("Marked pending", "Ditanda belum selesai")
@@ -7234,7 +7244,6 @@ function MemoBody({ body }: { body: string }) {
 }
 
 function Announcements({ user }: { user: User }) {
-  const [anns, setAnns] = useState<Announcement[]>([]);
   const [draft, setDraft] = useState({ title: "", body: "", category: "news" });
   /* v1.4.223 (CEO: "placement textbox I want: Subject, To: From: and
      Body"): To/From on EVERY post — labels switch to Kepada/Daripada in
@@ -7250,19 +7259,16 @@ function Announcements({ user }: { user: User }) {
   const [memo, setMemo] = useState({ tarikh: todayMalay() });
   const canPost = MANAGE_ROLES.includes(user.role);
 
-  /* v1.77.0 — skeleton until the first fetch lands. */
-  const [loaded, setLoaded] = useState(false);
-  const load = useCallback(async () => {
-    const r = await api<{ announcements: Announcement[] }>(
-      `/staff/announcements`
-    );
-    setAnns(r.data?.announcements ?? []);
-    setLoaded(true);
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useLiveRefresh(["announcements"], load);
+  /* v1.104.0 (roadmap phase 02) - the feed everybody opens first thing,
+     remembered on the device: last time's posts paint at once and the fresh
+     ones swap in behind. A publish bumps "announcements" and every open feed
+     refetches (the topic wiring moved INTO the hook).
+     v1.77.0 (kept): skeleton until the first EVER fetch lands. */
+  const feed = useCachedApi<{ announcements: Announcement[] }>("/staff/announcements", true, ["announcements"]);
+  const anns = useMemo(() => feed.data?.announcements ?? [], [feed.data]);
+  const loaded = !feed.loading;
+  const refreshFeed = feed.refresh;
+  const load = useCallback(async () => { refreshFeed(); }, [refreshFeed]);
 
   const post = async () => {
     if (!draft.title || !draft.body) return;
@@ -12827,6 +12833,19 @@ export default function PortalPage() {
     try {
       if (!user) return;
       window.localStorage.removeItem(`azone-tab:${user.id}`); // retired v1.4.231 scheme
+      /* v1.105.0 - a push notification now deep-links to its tab
+         (/portal?tab=Leave). The link wins over the remembered tab, once,
+         and is then removed from the address so a reload does not keep
+         dragging the person back to it. The visibility clamp below still
+         applies: a tab this account cannot see snaps to the Dashboard. */
+      const wanted = new URL(window.location.href).searchParams.get("tab");
+      if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {
+        setTab(wanted as TabName);
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete("tab");
+        window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
+        return;
+      }
       const saved = window.sessionStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved))
         setTab(saved as TabName);
@@ -12916,10 +12935,21 @@ export default function PortalPage() {
         setUser(r.data.user);
         // v1.25.0: remembered data is per-account — switching users wipes it.
         setCacheScope(r.data.user.id);
-      } else setCacheScope(null);
+        /* v1.105.0 - the outbox is per-account too, and it drains only once
+           we know who is signed in: a queued clock-in sent under the wrong
+           session would be refused, and rightly. */
+        setOutboxScope(r.data.user.id);
+      } else { setCacheScope(null); setOutboxScope(null); }
       setChecked(true);
     });
   }, []);
+  /* v1.105.0 (roadmap phase 03) - start draining whatever waited on this
+     phone: on `online`, when the app comes to the front, every 45 s while
+     something is queued, and once now. Stopped when the page unmounts. */
+  useEffect(() => {
+    if (!user) return;
+    return startOutbox(sendOutboxEntry);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -14031,7 +14061,12 @@ export default function PortalPage() {
 
         <main key={tab} className="screen-enter mt-4 md:mt-6">
           {activeTab === "Dashboard" && (
-            <Dashboard user={user} go={setTab} lang={lang} />
+            <>
+              {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
+                  the portal on the Home Screen. Phones only (md:hidden). */}
+              <div className="mb-4 md:hidden"><InstallCoach /></div>
+              <Dashboard user={user} go={setTab} lang={lang} />
+            </>
           )}
           {activeTab === "Claims" && (
             <ClaimsPanel userId={user.id} role={user.role} />
@@ -14181,6 +14216,12 @@ export default function PortalPage() {
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}
+                /* v1.101.0 - the organisation view needs to know who is
+                   looking: only the CEO, COO and CCO may set a reporting
+                   line. readOnly above is about staff RECORDS - the COO and
+                   CCO may not amend those, and may set reporting lines - so
+                   the two cannot be folded into one flag. */
+                role={user.role}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and

@@ -7,6 +7,7 @@ import type { Env } from "./index";
 import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
+import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
@@ -25,7 +26,7 @@ function pushKeys(env: Env): PushKeys | null {
 
 /** v1.6.0: fire a web-push to every device a user has registered. Best-effort;
     dead subscriptions (404/410) are pruned. Never throws. */
-export async function pushToUser(env: Env, userId: number, title: string, body: string, ref?: string): Promise<void> {
+export async function pushToUser(env: Env, userId: number, title: string, body: string, ref?: string, url = "/portal"): Promise<void> {
   const keys = pushKeys(env);
   if (!keys) return;
   try {
@@ -33,7 +34,7 @@ export async function pushToUser(env: Env, userId: number, title: string, body: 
       `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?1`,
     ).bind(userId).all<{ id: number; endpoint: string; p256dh: string; auth: string }>();
     for (const s of results) {
-      const status = await sendPush(keys, s, { title, body, ref: ref ?? null, url: "/portal" });
+      const status = await sendPush(keys, s, { title, body, ref: ref ?? null, url });
       if (status === 404 || status === 410) {
         await env.DB.prepare(`DELETE FROM push_subscriptions WHERE id = ?1`).bind(s.id).run();
       }
@@ -769,6 +770,18 @@ async function gateGeofence(
   return { gps: gpsRaw };
 }
 
+/** v1.105.0 (roadmap phase 03) - where a tap on the notification lands. It
+    used to be the Dashboard for all ten kinds, so a "leave approved" push
+    opened the portal and left the person to find the Leave tab themselves.
+    The tab names are the registry's (lib/portal-tabs.ts); the portal reads
+    ?tab= once and then removes it from the address. A kind not listed here
+    still opens the Dashboard. */
+const PUSH_TAB: Record<string, string> = {
+  task: "Tasks", leave: "Leave", attendance: "Attendance", ot: "Attendance",
+  claim: "Claims", live: "Attendance", stock: "Inventory", event: "Dashboard",
+  content: "Content", announcement: "Announcements",
+};
+
 export async function notify(
   env: Env, userId: number, kind: string, message: string, ref?: string,
 ): Promise<void> {
@@ -779,7 +792,9 @@ export async function notify(
   // v1.6.0: web-push to the person's devices (best-effort, off when no VAPID).
   // v1.27.0: this one string is the title on every staff lock screen, for all
   // ~20 notification kinds — the portal is A2Z CREATIVE MARKETING's.
-  await pushToUser(env, userId, "A2Z CREATIVE MARKETING", message, ref);
+  const tab = PUSH_TAB[kind];
+  await pushToUser(env, userId, "A2Z CREATIVE MARKETING", message, ref,
+    tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal");
 
   // Off-platform delivery (email / WhatsApp relay). Only fires when a webhook
   // is configured; otherwise this is a no-op and notifications stay in-app.
@@ -1701,22 +1716,36 @@ export async function handleStaff(
        columns: if the profile columns don't exist yet, fall back to the
        pre-0059 column list so the directory always renders; the seven
        profile fields simply arrive after `wrangler d1 migrations apply`. */
+    /* v1.101.0 - reports_to (0113) gets its OWN rung on this ladder. Bolting
+       it onto the full SELECT would mean that between the code deploying and
+       0113 applying, "no such column: reports_to" dropped the request all the
+       way to the pre-0059 list and the Staff tab silently lost seven profile
+       fields it has had since v1.4.213. One new column should cost one new
+       column, so the fallback here is the SAME list minus reports_to. */
     let results: unknown[];
+    const CORE = `u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
+                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled`;
     try {
       ({ results } = await env.DB.prepare(
-        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
-                u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
-                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        `SELECT ${CORE}, u.reports_to FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
       ).all());
-    } catch (e) {
-      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
-      await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
-      ({ results } = await env.DB.prepare(
-        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
-                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
-      ).all());
+    } catch (e0) {
+      if (!(e0 instanceof Error && e0.message.includes("no such column"))) throw e0;
+      await logError(env, "migration_skew", "GET /users: 0113 reports_to missing - run wrangler d1 migrations apply");
+      try {
+        ({ results } = await env.DB.prepare(
+          `SELECT ${CORE} FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        ).all());
+      } catch (e) {
+        if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+        await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
+        ({ results } = await env.DB.prepare(
+          `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                  CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+           FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        ).all());
+      }
     }
     return json({ users: results, staff: results });
   }
@@ -1796,6 +1825,92 @@ export async function handleStaff(
     return json({ ok: true });
   }
 
+  /* ---- the organisation: who reports to whom (v1.101.0) ----
+     CEO, 05-09-2026: *"I want to add infographic for each staff reported to
+     who which is either CEO, COO or CCO. I will assigned by myself and
+     organized it based on who is their HOD to make it like organisation."*
+
+     Its own route rather than a field on PATCH /users/:id, for two reasons.
+     PATCH is the HR tier and carries the AMENDMENT LOCK - fill once, then an
+     admin is needed to change it - and a reporting line is the opposite kind
+     of fact: it is meant to be changed, every time somebody moves. And the
+     people who may set it are not the HR tier; they are the three the CEO
+     named. Different rule, different door.
+
+     THE ONLY FAILURE THAT MATTERS IS A LOOP. The chart is drawn by walking
+     UP the line, so a cycle - A reports to B reports to A - is not a wrong
+     picture, it is a page that never finishes. It cannot be checked by
+     looking at the two people involved, so the walk is done here, on the
+     database, before the write. */
+  const reportsTo = path.match(/^\/users\/(\d+)\/reports-to$/);
+  if (reportsTo && (method === "PUT" || method === "PATCH")) {
+    if (!can(user.role, "org_assign")) {
+      return err("forbidden", "Only the CEO, COO or CCO set reporting lines", 403);
+    }
+    const id = Number(reportsTo[1]);
+    /* "" and null both mean unassign - the select's blank option sends one or
+       the other depending on how the browser feels about an empty value. */
+    const raw = (body as Record<string, unknown> | null)?.reports_to;
+    const managerId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    if (managerId !== null && (!Number.isInteger(managerId) || managerId <= 0)) {
+      return err("invalid_input", "reports_to must be a staff id, or null to clear it", 400);
+    }
+    let person: { id: number; name: string; reports_to: number | null } | null;
+    try {
+      person = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, reports_to FROM users WHERE id = ?1`,
+      ).bind(id).first();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("no such column")) {
+        return err("pending_migration", "The reporting-line column is not on this database yet - run the deploy so migration 0113 applies", 409);
+      }
+      throw e;
+    }
+    if (!person) return err("not_found", "Staff not found", 404);
+    if (managerId === id) {
+      return err("invalid_input", "Nobody reports to themselves", 400);
+    }
+    let manager: { id: number; name: string } | null = null;
+    if (managerId !== null) {
+      manager = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`,
+      ).bind(managerId).first();
+      if (!manager) return err("not_found", "That manager is not a staff record", 404);
+      /* Walk up from the proposed manager. If the person we are assigning is
+         anywhere on that path, this assignment closes a loop. The hop limit
+         is belt and braces: if a cycle somehow already exists in the data,
+         this walk must still end. */
+      let cursor: number | null = managerId;
+      for (let hop = 0; cursor !== null && hop < 64; hop++) {
+        if (cursor === id) {
+          return err("invalid_input",
+            `That would make a loop - ${manager.name} already reports up through ${person.name}`, 400);
+        }
+        const up: { reports_to: number | null } | null = await env.DB.prepare(
+          `SELECT reports_to FROM users WHERE id = ?1`,
+        ).bind(cursor).first();
+        cursor = up?.reports_to ?? null;
+      }
+    }
+    const before = person.reports_to;
+    await env.DB.prepare(`UPDATE users SET reports_to = ?1 WHERE id = ?2`).bind(managerId, id).run();
+    /* The audit records NAMES, not only ids: an id nobody can resolve a year
+       later is a line in a log nobody reads. */
+    let beforeName: string | null = null;
+    if (before !== null) {
+      const b = await env.DB.prepare(
+        `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`,
+      ).bind(before).first<{ name: string }>();
+      beforeName = b?.name ?? null;
+    }
+    await audit(env, user.id, "staff.reports_to", "users", String(id), {
+      staff_name: person.name,
+      from_id: before, from_name: beforeName,
+      to_id: managerId, to_name: manager?.name ?? null,
+    });
+    return json({ ok: true, reports_to: managerId, manager_name: manager?.name ?? null });
+  }
+
   /* ---- attendance ---- */
 
   if (path === "/attendance" && method === "POST") {
@@ -1804,9 +1919,21 @@ export async function handleStaff(
     if (!body || typeof body.type !== "string" || !types.includes(body.type)) {
       return err("invalid_input", `type must be one of: ${types.join(", ")}`, 400);
     }
+    /* v1.105.0 (roadmap phase 03) - A PUNCH SENT LATE. The phone kept this
+       request because it had no signal (lib/outbox.ts) and is sending it now;
+       X-Client-At is when the button was actually pressed. The CEO's decision,
+       05-09-2026: record it at THAT time, and mark it pending like a forgotten
+       punch, so it counts for nothing until he approves it. `punchAt` is the
+       one clock this handler reads from here on - the day, the duplicate
+       check and late/half-day are all judged against when it was pressed,
+       not when the lift doors opened. clientAt() is null for a live request
+       and for anything implausible (a phone clock a year out), and then now
+       is the truth exactly as before. */
+    const sentLateFrom = clientAt(request, path);
+    const punchAt = sentLateFrom ?? new Date();
     // One clock-in and one clock-out per day (v1.4.29). Enforced here, not
     // just in the UI — a double-click or stale tab can't duplicate a punch.
-    const todayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const todayMYT = new Date(punchAt.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const dup = await env.DB.prepare(
       `SELECT id, created_at FROM attendance_records
        WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
@@ -1862,7 +1989,7 @@ export async function handleStaff(
        pattern gives no hours to is a rest day: worked, but outside the
        working week, and flagged as such rather than as an early-out against
        hours that do not apply. */
-    const myt = new Date(Date.now() + 8 * 3600 * 1000);
+    const myt = new Date(punchAt.getTime() + 8 * 3600 * 1000);
     const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
     const sh = await shiftOn(env, user.id, todayMYT);
     /* v1.80.0 — ASSIGNED WORK OUTRANKS THE PATTERN. The CEO: *"If user clock
@@ -1905,18 +2032,36 @@ export async function handleStaff(
     /* A punch is pending when the person says they forgot - either flagged
        explicitly, or a clock-out with no clock-in behind it. It is stored
        either way; it simply counts for nothing until the CEO approves it. */
-    const pending = body.forgot === true ? 1 : null;
+    /* v1.105.0 - a punch sent late is pending too: the CEO approves it and
+       the register shows both the pressed time and the arrival time. */
+    const pending = body.forgot === true || sentLateFrom ? 1 : null;
     let storedPending = false;
     try {
-      await env.DB.prepare(
-        `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-      ).bind(
-        user.id, body.type,
-        request.headers.get("CF-Connecting-IP"),
-        (request.headers.get("User-Agent") ?? "").slice(0, 300),
-        gpsVal, pending,
-      ).run();
+      if (sentLateFrom) {
+        /* created_at is WHEN IT WAS PRESSED (the phone's clock, already
+           checked plausible); offline_sent_at is when it reached us. SQLite
+           datetime form, UTC, like every other created_at in this table. */
+        const sqlAt = sentLateFrom.toISOString().slice(0, 19).replace("T", " ");
+        await env.DB.prepare(
+          `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval, created_at, offline_sent_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, datetime('now'))`,
+        ).bind(
+          user.id, body.type,
+          request.headers.get("CF-Connecting-IP"),
+          (request.headers.get("User-Agent") ?? "").slice(0, 300),
+          gpsVal, sqlAt,
+        ).run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        ).bind(
+          user.id, body.type,
+          request.headers.get("CF-Connecting-IP"),
+          (request.headers.get("User-Agent") ?? "").slice(0, 300),
+          gpsVal, pending,
+        ).run();
+      }
       storedPending = pending === 1;
     } catch (ePend) {
       if (!String(ePend).includes("no such column")) throw ePend;
@@ -1942,13 +2087,17 @@ export async function handleStaff(
         const { results } = await env.DB.prepare(
           `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','super_admin')`,
         ).all<{ id: number }>();
+        const hhmm = (d: Date) => new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
         for (const r of results) {
           await notify(env, r.id, "attendance",
-            `Forgotten ${body.type === "clock_in" ? "clock-in" : "clock-out"} to approve - ${whoP?.n ?? "staff"}, ${todayMYT}. Set the real time when you approve it.`,
+            sentLateFrom
+              ? `${body.type === "clock_in" ? "Clock-in" : "Clock-out"} sent late from offline to approve - ${whoP?.n ?? "staff"}, ${todayMYT}: pressed ${hhmm(sentLateFrom)}, reached us ${hhmm(new Date())}.`
+              : `Forgotten ${body.type === "clock_in" ? "clock-in" : "clock-out"} to approve - ${whoP?.n ?? "staff"}, ${todayMYT}. Set the real time when you approve it.`,
             `punch:${user.id}:${todayMYT}:${body.type}`);
         }
       } catch { /* alerting never breaks a punch */ }
-      await audit(env, user.id, "attendance.forgot", "attendance_records", todayMYT, { type: body.type });
+      await audit(env, user.id, sentLateFrom ? "attendance.offline_punch" : "attendance.forgot", "attendance_records", todayMYT,
+        sentLateFrom ? { type: body.type, pressed_at: sentLateFrom.toISOString(), late_by_s: Math.round((Date.now() - sentLateFrom.getTime()) / 1000) } : { type: body.type });
     }
     if (gate.noLocation) {
       // Tell the people who own attendance, once per punch, with the person's
@@ -4645,7 +4794,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Attendance", "Ecommerce", "Inventory", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Sales", "Announcements", "HR", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Tasks", "Content", "Threads", "Hotels", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Stokis", "Assets", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
@@ -6712,13 +6861,29 @@ export async function handleStaff(
   if (path === "/attendance/pending" && method === "GET") {
     if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT a.id, a.user_id, a.type, a.created_at,
-                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
-           FROM attendance_records a JOIN users u ON u.id = a.user_id
-          WHERE a.pending_approval = 1
-          ORDER BY a.created_at DESC LIMIT 100`,
-      ).all();
+      /* v1.105.0 - offline_sent_at (0114) rides along so the approver can
+         see a punch that was PRESSED at 09:02 and DELIVERED at 09:41, which
+         is a different thing from one typed in at 09:41. Falls back to the
+         0100 shape on a database without 0114 yet. */
+      let results: unknown[];
+      try {
+        ({ results } = await env.DB.prepare(
+          `SELECT a.id, a.user_id, a.type, a.created_at, a.offline_sent_at,
+                  COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+             FROM attendance_records a JOIN users u ON u.id = a.user_id
+            WHERE a.pending_approval = 1
+            ORDER BY a.created_at DESC LIMIT 100`,
+        ).all());
+      } catch (e114) {
+        if (!String(e114).includes("no such column")) throw e114;
+        ({ results } = await env.DB.prepare(
+          `SELECT a.id, a.user_id, a.type, a.created_at,
+                  COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+             FROM attendance_records a JOIN users u ON u.id = a.user_id
+            WHERE a.pending_approval = 1
+            ORDER BY a.created_at DESC LIMIT 100`,
+        ).all());
+      }
       return json({ pending: results });
     } catch {
       return json({ pending: [], pending_migration: true }); // pre-0100

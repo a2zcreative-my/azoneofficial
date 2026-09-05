@@ -6,12 +6,13 @@
    text placement box"): 🏷 Identification → 🧾 Purchase → 📍 Assignment &
    status. Assets are never deleted; status moves to lost/disposed. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn } from "@/components/ui/row-button";
-import { Skel } from "@/components/ui/skeleton";
+import { Skel, StaleHint } from "@/components/ui/skeleton";
+import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -48,35 +49,28 @@ const STATUS_CHIP: Record<string, string> = {
 };
 
 export function AssetsPanel() {
-  const [assets, setAssets] = useState<Asset[]>([]);
   type AssetCol = "tag" | "item" | "assigned" | "location" | "status" | "value";
   const [assetSort, setAssetSort] = useState<{ col: AssetCol; asc: boolean }>({ col: "tag", asc: true });
   const cycleAsset = (col: AssetCol) => setAssetSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
-  const [staff, setStaff] = useState<StaffLite[]>([]);
   const [form, setForm] = useState({ ...EMPTY });
   const [editId, setEditId] = useState<number | null>(null);
   const [openForm, setOpenForm] = useState(false);
-  const [msg, setMsg] = useState("");
   const { show: showToast, node: toastNode } = useSaveToast(); // v1.4.221 standard save popup
-  /* v1.77.0 — true once the first register request settles (ok or not);
-     until then the count chips and the table are skeletons, never
-     "No assets yet". */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(() => {
-    void fetch("/api/v1/staff/assets", { credentials: "include" })
-      .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => setAssets((d as { assets: Asset[] }).assets ?? []))
-      .catch(() => setMsg(L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")))
-      .finally(() => setLoaded(true));
-    /* v1.21.0: assignment picker reads /staff-list — the one picker source
-       (active staff only, full names) instead of the raw account list. */
-    void fetch("/api/v1/staff/staff-list", { credentials: "include" })
-      .then(async (r) => (r.ok ? await r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => setStaff((d as { staff: StaffLite[] }).staff ?? []))
-      .catch(() => setStaff([]));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed: the register
+     you saw last time paints from the device before the request lands. A
+     write on any asset bumps the "assets" topic and the view refetches.
+     v1.77.0 (kept): until the first EVER response the count chips and the
+     table are skeletons, never "No assets yet". */
+  const register = useCachedApi<{ assets: Asset[] }>("/staff/assets", true, ["assets"]);
+  /* v1.21.0: assignment picker reads /staff-list — the one picker source
+     (active staff only, full names) instead of the raw account list. */
+  const people = useCachedApi<{ staff: StaffLite[] }>("/staff/staff-list", true, ["users"]);
+  const assets = useMemo(() => register.data?.assets ?? [], [register.data]);
+  const staff = useMemo(() => people.data?.staff ?? [], [people.data]);
+  const loaded = !register.loading;
+  const unavailable = register.failed && !register.data;
+  const refreshRegister = register.refresh;
+  const load = useCallback(() => { refreshRegister(); }, [refreshRegister]);
 
   const f = (k: keyof typeof EMPTY) => ({
     value: form[k],
@@ -197,7 +191,8 @@ export function AssetsPanel() {
             </button>
           </div>
         )}
-        {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+        {unavailable && <p className="text-warning mt-2 text-xs font-medium">{L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")}</p>}
+        <StaleHint show={register.stale} className="mt-2" />
         {toastNode}
       </div>
 

@@ -24,10 +24,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 const PREFIX = "azone-cache:";
 const TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_BYTES = 120_000; // don't fill the device with giant payloads
+/* v1.104.0 (roadmap phase 02) - 120 KB was chosen for a handful of dashboard
+   figures. It silently refused the views that would gain most from being
+   remembered: the whole hotel directory (442 hotels with their contacts is
+   ~230 KB of JSON) and a month of web orders. The ceiling is now 400 KB per
+   entry, and a write that trips the browser quota evicts the OLDEST entries
+   and tries once more rather than giving up - so the cache degrades to
+   "remembers less" instead of "remembers nothing" as it fills. */
+const MAX_BYTES = 400_000;
 
 let scope = "anon"; // set to the signed-in user id
 
@@ -95,13 +103,47 @@ function readCache<T>(path: string): T | null {
   }
 }
 
-function writeCache<T>(path: string, data: T): void {
+/** Oldest first: every entry of ours, with the time it was written. */
+function ourEntries(): { key: string; t: number }[] {
+  const out: { key: string; t: number }[] = [];
   try {
-    const raw = JSON.stringify({ t: Date.now(), d: data });
-    if (raw.length > MAX_BYTES) return;
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || !k.startsWith(PREFIX) || k === `${PREFIX}account`) continue;
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(k) ?? "") as { t?: number };
+        out.push({ key: k, t: typeof parsed?.t === "number" ? parsed.t : 0 });
+      } catch { out.push({ key: k, t: 0 }); }
+    }
+  } catch { /* private mode */ }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+function writeCache<T>(path: string, data: T): void {
+  let raw: string;
+  try {
+    raw = JSON.stringify({ t: Date.now(), d: data });
+  } catch { return; }
+  if (raw.length > MAX_BYTES) return;
+  try {
+    window.localStorage.setItem(keyFor(path), raw);
+    return;
+  } catch {
+    /* quota (or private mode, in which case the retry fails the same way and
+       we stop). Make room by forgetting the oldest views first - the ones
+       least likely to be opened next - then try exactly once more. */
+  }
+  try {
+    let freed = 0;
+    for (const e of ourEntries()) {
+      if (e.key === keyFor(path)) continue;
+      freed += (window.localStorage.getItem(e.key) ?? "").length;
+      window.localStorage.removeItem(e.key);
+      if (freed >= raw.length * 2) break;
+    }
     window.localStorage.setItem(keyFor(path), raw);
   } catch {
-    /* quota or private mode — caching is an optimisation, never a requirement */
+    /* still no room, or private mode - caching is an optimisation, never a requirement */
   }
 }
 
@@ -112,6 +154,10 @@ export interface CachedState<T> {
   stale: boolean;
   /** True only when there is nothing to show at all (first ever load). */
   loading: boolean;
+  /** v1.104.0 - the most recent fetch did not succeed. With `data` still set
+      the card is showing remembered figures it could not refresh; with `data`
+      null there is nothing to show and the card should say why. */
+  failed: boolean;
   /** Re-fetch now (after a save, or on a sync event). */
   refresh: () => void;
 }
@@ -122,10 +168,17 @@ export interface CachedState<T> {
  * @param path   API path, e.g. "/staff/roster" — also the cache key.
  * @param enabled  Skip entirely when false (role-gated cards).
  */
-export function useCachedApi<T>(path: string | null, enabled = true): CachedState<T> {
+/**
+ * v1.104.0 - `topics`: the live-version topics (lib/live.ts) this view
+ * depends on. When one moves, the card refetches through this same hook, so
+ * a remembered view is never stale for longer than the SSE stream takes to
+ * say so. Optional, because not every endpoint has a topic yet.
+ */
+export function useCachedApi<T>(path: string | null, enabled = true, topics: string[] = []): CachedState<T> {
   const [data, setData] = useState<T | null>(() => (path && enabled ? readCache<T>(path) : null));
   const [stale, setStale] = useState<boolean>(() => Boolean(path && enabled && readCache<T>(path)));
   const [loading, setLoading] = useState<boolean>(() => !(path && enabled && readCache<T>(path)));
+  const [failed, setFailed] = useState(false);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -143,6 +196,9 @@ export function useCachedApi<T>(path: string | null, enabled = true): CachedStat
       if (r.ok && r.data != null) {
         setData(r.data);
         writeCache(path, r.data);
+        setFailed(false);
+      } else {
+        setFailed(true);
       }
       setStale(false);
       setLoading(false);
@@ -150,6 +206,7 @@ export function useCachedApi<T>(path: string | null, enabled = true): CachedStat
   }, [path, enabled]);
 
   useEffect(() => { run(); }, [run]);
+  useLiveRefresh(topics, run, enabled && Boolean(path));
 
-  return { data, stale, loading, refresh: run };
+  return { data, stale, loading, failed, refresh: run };
 }

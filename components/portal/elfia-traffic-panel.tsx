@@ -18,7 +18,8 @@ import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
-import { Skel, SkelCard, SkelText } from "@/components/ui/skeleton";
+import { Skel, SkelCard, SkelText, StaleHint } from "@/components/ui/skeleton";
+import { useCachedApi } from "@/lib/cached-api";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -48,39 +49,33 @@ const SPANS: { days: number; en: string; ms: string }[] = [
 
 export function ElfiaTrafficPanel() {
   const [span, setSpan] = useState(7);
-  const [data, setData] = useState<TrafficSummary | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [detail, setDetail] = useState<TrafficDetail | null>(null);
-  const [orders, setOrders] = useState<WebOrder[] | null>(null);
-  const [marketing, setMarketing] = useState<MarketingData | null>(null);
   const [showList, setShowList] = useState(false);
   /* v1.88.0 — which state the consented-customer list is scoped to. */
   const [stateF, setStateF] = useState("");
   const [copied, setCopied] = useState(false);
-  /* v1.77.0 — true once the first summary request settles (ok or not), so
-     the skeleton ends even when the request fails. */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(() => {
-    void api<TrafficSummary>(`/web-traffic?days=${span}`)
-      .then((r) => setData(r.ok && r.data ? r.data : null))
-      .finally(() => setLoaded(true));
-  }, [span]);
-  useEffect(() => { setSel(null); setDetail(null); load(); }, [load]);
-
+  /* v1.104.0 (roadmap phase 02) - three remembered views. The map you saw
+     last time paints from the device before /web-traffic answers, per span;
+     the orders (the conversion denominator) and the consented-marketing list
+     ride the same cache. Each refetches when its topic moves.
+     v1.77.0 (kept): the skeleton ends once the first EVER request settles,
+     even when it fails - `failed` is what the "try again" line reads. */
+  const summary = useCachedApi<TrafficSummary>(`/staff/web-traffic?days=${span}`, true, ["web-traffic"]);
+  const data = summary.data;
+  const loaded = !summary.loading;
   /* The conversion line's denominator: ELFIA web orders, mapped to states by
      address text. Best-effort — a role without the Web Orders permission, or
      a pre-0081 database, simply shows the map without conversion. */
-  useEffect(() => {
-    void api<{ orders: WebOrder[] }>(`/web-orders`)
-      .then((r) => setOrders(r.ok && r.data?.orders ? r.data.orders : null))
-      .catch(() => setOrders(null));
-    /* v1.44.0 — the consented-marketing list (PDPA: consent-flagged rows
-       only; the worker builds it, this card only displays it). */
-    void api<MarketingData>(`/web-marketing`)
-      .then((r) => setMarketing(r.ok && r.data ? r.data : null))
-      .catch(() => setMarketing(null));
-  }, []);
+  const ordersView = useCachedApi<{ orders: WebOrder[] }>("/staff/web-orders", true, ["web-orders"]);
+  const orders = ordersView.data?.orders ?? null;
+  /* v1.44.0 — the consented-marketing list (PDPA: consent-flagged rows only;
+     the worker builds it, this card only displays it). */
+  const marketingView = useCachedApi<MarketingData>("/staff/web-marketing", true, ["web-marketing", "web-orders"]);
+  const marketing = marketingView.data;
+  const refreshSummary = summary.refresh;
+  const load = useCallback(() => { refreshSummary(); }, [refreshSummary]);
+  useEffect(() => { setSel(null); setDetail(null); }, [span]);
 
   useEffect(() => {
     if (!sel) { setDetail(null); return; }
@@ -159,7 +154,7 @@ export function ElfiaTrafficPanel() {
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
-        <p className="text-sm font-semibold">{L("ELFIA Traffic — visitors by state", "Trafik ELFIA — pelawat mengikut negeri")}</p>
+        <p className="text-sm font-semibold">{L("ELFIA Traffic — visitors by state", "Trafik ELFIA — pelawat mengikut negeri")} <StaleHint show={summary.stale} className="ml-1" /></p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Where the ELFIA store's visitors browse from and what they look at — anonymous by design: locations and counts only, never identities.",
              "Dari mana pelawat kedai ELFIA melayari dan apa yang mereka lihat — tanpa nama secara reka bentuk: lokasi dan bilangan sahaja, bukan identiti.")}

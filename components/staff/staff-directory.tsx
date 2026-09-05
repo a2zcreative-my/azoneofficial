@@ -41,6 +41,7 @@ import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
    button. */
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { RecordToggle } from "@/components/ui/record-row";
+import { useCachedApi } from "@/lib/cached-api";
 /* v1.28.0 — the ID badge identifies the CURRENT employer, so it carries
    DOCUMENT_ISSUER (lib/issuers.ts), not a hardcoded company block. */
 import { DOCUMENT_ISSUER } from "@/lib/issuers";
@@ -648,43 +649,38 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [existing, setExisting] = useState<Staff | null>(null);
 
-  const [loadError, setLoadError] = useState("");
-  /* v1.77.0 — skeleton until the first fetch lands. `staff` starts [], so the
-     directory drew an empty list (and "Select all" over nothing) until /users
-     answered. Set right after the await so a failed load clears it too. */
-  const [loaded, setLoaded] = useState(false);
-  const load = useCallback(async () => {
-    const res = await api<{ users?: Staff[]; staff?: Staff[] }>(`/users`);
-    setLoaded(true);
-    /* v1.4.218: a failed load previously rendered a silently EMPTY
-       directory — which read as "all staff details was gone!". Say why. */
-    if (!res.ok) {
-      setLoadError(L(
-        "Couldn't load the staff list from the server — the data is safe. Usually this means the worker and database are out of step: run the pending migrations + deploy, then refresh.",
-        "Tidak dapat memuatkan senarai kakitangan daripada pelayan — data selamat. Biasanya ini bermakna worker dan pangkalan data tidak selari: jalankan migrasi tertunda + deploy, kemudian muat semula.",
-      ));
-      return;
-    }
-    setLoadError("");
-    if (res.ok && res.data) {
-      const list = res.data.users ?? res.data.staff ?? [];
-      setAllStaff(list);
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. The directory
+     you saw last time paints from the device before /users answers; the fetch
+     runs behind it and swaps the list in. `staff` and `allStaff` stay local
+     state on purpose - assignReportsTo patches a row the moment the server
+     says yes, and that patch must not wait for a refetch - so they are DERIVED
+     from the cached view rather than replaced by it. A write on any account
+     bumps the "users" topic and the view refetches itself.
+
+     v1.77.0 (kept) - skeleton until the first EVER fetch lands; `staff`
+     starts [] and the directory used to draw an empty list and "Select all"
+     over nothing until /users answered. */
+  const users = useCachedApi<{ users?: Staff[]; staff?: Staff[] }>("/staff/users", true, ["users"]);
+  const loaded = !users.loading;
+  /* v1.4.218: a failed load previously rendered a silently EMPTY directory —
+     which read as "all staff details was gone!". Say why. Only when there is
+     nothing remembered to show; a stale-but-present list is better than a
+     warning over an empty one. */
+  const loadError = users.failed && !users.data ? L(
+    "Couldn't load the staff list from the server — the data is safe. Usually this means the worker and database are out of step: run the pending migrations + deploy, then refresh.",
+    "Tidak dapat memuatkan senarai kakitangan daripada pelayan — data selamat. Biasanya ini bermakna worker dan pangkalan data tidak selari: jalankan migrasi tertunda + deploy, kemudian muat semula.",
+  ) : "";
+  useEffect(() => {
+    if (!users.data) return;
+    const list = users.data.users ?? users.data.staff ?? [];
+    setAllStaff(list);
     /* v1.78.0 - the rank order that used to be written out here now lives in
        lib/staff-order.ts, because the Payroll tab needed the same one and two
-       copies of an order drift. It also gained the two levels the CEO named
-       on 31-08 that this version flattened: marketing and editor were one
-       bucket with live_host, and a part-time contract sorted with the
-       full-timers. */
-    setStaff(
-      list
-        .filter((u) => isStaffRole(u.role))
-        .sort(bySeniority),
-    );
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
+       copies of an order drift. */
+    setStaff(list.filter((u) => isStaffRole(u.role)).sort(bySeniority));
+  }, [users.data]);
+  const refreshView = users.refresh;
+  const load = useCallback(async () => { refreshView(); }, [refreshView]);
 
   /* v1.101.0 - set (or clear) a reporting line. The row is written locally
      the moment the server says yes rather than re-fetching the whole

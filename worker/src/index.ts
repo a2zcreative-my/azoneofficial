@@ -2,6 +2,7 @@
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, type StaffUser } from "./staff";
+import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
@@ -274,7 +275,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0113_reports_to";
+const LATEST_MIGRATION = "0114_outbox";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1999,6 +2000,7 @@ export default {
     try {
       await env.DB.prepare(`DELETE FROM twofa_challenges WHERE expires_at <= datetime('now')`).run();
       await env.DB.prepare(`DELETE FROM rate_limits WHERE window_start <= datetime('now', '-1 day')`).run();
+      await purgeIdempotencyKeys(env); // v1.105.0 - a week is longer than any phone keeps its queue
     } catch { /* pre-migration — silent */ }
     await bridgeHousekeeping(env);
     /* v1.42.0 (CEO: "everyone is alert on their task and the task being
@@ -3802,7 +3804,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
     if (user.role === "customer") return errorResponse("forbidden", "Staff access only", 403);
     const sub = path.slice("/api/v1/staff".length);
-    const staffRes = await handleStaff(request, env, sub, user as StaffUser);
+    /* v1.105.0 (roadmap phase 03) - a queueable write with an Idempotency-Key
+       runs once and answers the same way forever after (worker/src/outbox.ts).
+       Every other request passes straight through. */
+    const staffRes = await replayOrRun(env, request, user.id, sub, () => handleStaff(request, env, sub, user as StaffUser));
     /* v1.65.0 — THE ONE PLACE a write is noticed.
        Every staff mutation already passes through this line, so the version
        bump lives here rather than in three hundred route handlers. Putting it
@@ -3812,7 +3817,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        Only successful writes count: a rejected save changed nothing, and
        telling every open tab to reload after a 403 would be a lie plus a
        stampede. */
-    if (staffRes && method !== "GET" && staffRes.status >= 200 && staffRes.status < 300) {
+    /* v1.105.0 - a replayed answer changed nothing; telling every open tab to
+       reload for it would be a stampede over a no-op. */
+    if (staffRes && method !== "GET" && staffRes.status >= 200 && staffRes.status < 300 && !staffRes.headers.get(REPLAY_HEADER)) {
       await bumpVersion(env, topicOf(sub));
     }
     if (staffRes) return staffRes;
@@ -4401,6 +4408,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0111 (the hotel directory)", `SELECT state, hotel_name FROM hotels LIMIT 1`],
       ["0112 (the hotel list, seeded)", `SELECT person_name, phone FROM hotel_contacts LIMIT 1`],
       ["0113 (who reports to whom)", `SELECT reports_to FROM users LIMIT 1`],
+      ["0114 (the outbox)", `SELECT key FROM idempotency_keys LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4533,6 +4541,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0111_hotels",
       "0112_hotels_seed",
       "0113_reports_to",
+      "0114_outbox",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

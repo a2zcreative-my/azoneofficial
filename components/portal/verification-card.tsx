@@ -32,10 +32,10 @@
  * because "full report is require and a must".
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { useMemo, useState } from "react";
+import { useCachedApi } from "@/lib/cached-api";
 import { card, th, td } from "@/lib/ui-styles";
-import { Skel } from "@/components/ui/skeleton";
+import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { properName } from "@/lib/names";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
@@ -120,7 +120,6 @@ function Pill({ active, on, tone, label, hint, onPick }: {
 
 export function VerificationCard() {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
-  const [rows, setRows] = useState<VRow[]>([]);
   const [open, setOpen] = useState<number | null>(null);
   /* v1.84.1 (CEO: "pill above there should clickable to get the data") — the
      three figures at the top were the answer to "is anything wrong this
@@ -129,20 +128,19 @@ export function VerificationCard() {
      the table, the expanded dates and the CSV all follow it — a summary that
      cannot be opened is a summary you have to verify by hand. */
   const [pill, setPill] = useState<"" | "unbalanced" | "leave" | "absent" | "open">("");
-  const [loaded, setLoaded] = useState(false);
-  const [err, setErr] = useState("");
-
-  const load = useCallback(async () => {
-    setLoaded(false);
-    setErr("");
-    const r = await api<{ staff: VRow[]; error?: { message?: string } }>(
-      `/staff/attendance/verification?month=${month}`,
-    );
-    if (r.ok && r.data) setRows(r.data.staff ?? []);
-    else setErr(r.data?.error?.message ?? L("Could not load the report.", "Laporan tidak dapat dimuatkan."));
-    setLoaded(true);
-  }, [month]);
-  useEffect(() => { void load(); }, [load]);
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed, per month.
+     This is a reconciliation, so the remembered figures wear the "updating"
+     mark until the fresh ones land (the CEO's rule: instant everywhere, but
+     MONEY says so). A punch corrected on the Attendance card bumps
+     "attendance" and this refetches by itself. */
+  const report = useCachedApi<{ staff: VRow[]; error?: { message?: string } }>(
+    `/staff/attendance/verification?month=${month}`, true, ["attendance", "leave"],
+  );
+  const rows = useMemo(() => report.data?.staff ?? [], [report.data]);
+  const loaded = !report.loading;
+  const err = report.failed && !report.data
+    ? L("Could not load the report.", "Laporan tidak dapat dimuatkan.")
+    : (report.data?.error?.message ?? "");
 
   /* The one figure a reconciliation is for: how many rows do not add up. */
   const unbalanced = rows.filter((r) => !r.balances).length;
@@ -267,6 +265,7 @@ export function VerificationCard() {
       )}
 
       {err && <p className="text-danger mt-2 text-xs font-medium">{err}</p>}
+      <StaleHint show={report.stale} className="mt-2" />
 
       <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
         <table className="tbl-sticky w-full min-w-[720px] border-collapse text-sm">
