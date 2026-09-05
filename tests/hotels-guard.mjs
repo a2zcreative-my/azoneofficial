@@ -9,17 +9,20 @@
  * Four properties, each of which is a way the list could quietly go wrong:
  *
  *   1. ONE STATE VOCABULARY. The workbook's fifteen sheet names live in the
- *      migration's CHECK constraint, in MY_STATES in the worker, and in the
- *      map's tiles. Three copies of a closed list is three chances to lose a
- *      state - and a hotel filed under a state no view groups by is a hotel
- *      nobody rings. The three are compared here, name for name.
+ *      migration's CHECK constraint and in MY_STATES in the worker, and the
+ *      map must have a shape for each of them. Two copies of a closed list is
+ *      two chances to lose a state - and a hotel filed under a state no view
+ *      groups by is a hotel nobody rings. They are compared here, name for
+ *      name, against each other and against lib/malaysia-map.
  *   2. A PHONE IS MALAYSIAN. formatMyPhone is run, for real, over the shapes
  *      the workbook actually contained.
  *   3. THE TIER THE CEO NAMED. hotels_view and hotels_manage, in the worker
  *      matrix and in the client's TAB_ROLES, are exactly the six roles.
  *   4. DELETE IS SOFT AND EVERY MUTATION IS AUDITED.
  *
- * Negative-tested by: dropping SARAWAK from MY_STATES; returning the raw
+ * Negative-tested by: dropping SARAWAK from MY_STATES; deleting Perlis from
+ * lib/malaysia-map; emptying NOT_A_WORKBOOK_STATE so the picker offers
+ * Labuan; returning the raw
  * string from formatMyPhone; adding sales_marketing to hotels_view; turning
  * the soft delete into a DELETE FROM.
  */
@@ -59,10 +62,31 @@ const { MY_STATES, formatMyPhone, cleanEmail } = await import(pathToFileURL(out)
   ok("the migration's CHECK holds the same fifteen, name for name",
      inMigration.length === 15 && MY_STATES.every((s) => inMigration.includes(s)),
      `migration has ${inMigration.length}: ${inMigration.filter((s) => !MY_STATES.includes(s)).join(", ") || "same names"}`);
-  const tiles = [...panel.matchAll(/\{ state: "([^"]+)", short:/g)].map((m) => m[1]);
-  ok("the map draws a tile for every state and invents none",
-     tiles.length === 15 && MY_STATES.every((s) => tiles.includes(s)),
-     `map has ${tiles.length}: ${tiles.filter((s) => !MY_STATES.includes(s)).join(", ") || "same names"}`);
+  /* v1.100.3 - the map is no longer a third copy of the list. It draws the
+     portal's one geometry, so the property is now: the panel imports that
+     geometry rather than defining shapes of its own, every state the worker
+     accepts HAS a shape there, and the picker offers nothing the worker will
+     refuse. (The geometry is the country - sixteen units, Labuan included;
+     the workbook is the territory - fifteen sheets. The panel names the
+     difference in one place and this reads that place, so adding a Labuan
+     sheet later is one edit, not a hunt.) */
+  const geometry = [...read("lib/malaysia-map.ts").matchAll(/name: "([^"]+)"/g)].map((m) => m[1].toUpperCase());
+  ok("the panel draws the portal's own geometry, not a map of its own",
+     /import \{ STATES \} from "@\/lib\/malaysia-map"/.test(panel) && !/\bshort:/.test(panel),
+     "three maps of one country in one product is how the CEO noticed");
+  ok("every state the worker accepts has a shape on that map",
+     MY_STATES.every((s) => geometry.includes(s)),
+     MY_STATES.filter((s) => !geometry.includes(s)).join(", ") || "");
+  const excluded = (() => {
+    const m = /NOT_A_WORKBOOK_STATE = new Set\(\[([^\]]*)\]\)/.exec(panel);
+    return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : null;
+  })();
+  ok("the panel names which shapes are not workbook states", excluded !== null,
+     "without it the picker offers a state the migration's CHECK refuses");
+  ok("the picker offers exactly the fifteen the worker accepts",
+     excluded !== null
+     && JSON.stringify(geometry.filter((s) => !excluded.includes(s)).sort()) === JSON.stringify([...MY_STATES].sort()),
+     excluded ? geometry.filter((s) => !excluded.includes(s) && !MY_STATES.includes(s)).join(", ") : "");
   ok("a state off the list is refused with the list in the message",
      /state must be one of: \$\{MY_STATES\.join\(", "\)\}/.test(src),
      "a hotel filed under an invented state disappears from every view that groups by state");

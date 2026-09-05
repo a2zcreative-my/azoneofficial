@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.100.3] - 2026-09-05 - the hotel map is the real map
+
+**CEO**, with a screenshot of the Operations map beside the Hotels tab: *"why Hotel mapped doesnt looks like this?!!!!"*
+
+He was right, and v1.100.2 fixed the wrong thing. I had made the grid of tiles wider and darker when the problem was that it was a grid of tiles at all.
+
+### There was already a map of Malaysia in this portal
+`lib/malaysia-map.ts` has held real Malaysian geometry since v1.20.1 - sixteen state outlines, the two standard insets, a dashed divider between the peninsula and Borneo. The **Operations map** draws it. The **ELFIA Traffic map** draws it. I built the hotel map as a cartogram of rounded squares instead, reasoning that an outline makes Perlis a speck and Sarawak a third of the picture. That reasoning is fine in the abstract and worthless here: three maps of one country inside one product do not look like one product, and that is exactly what he saw.
+
+**The Hotels card is now the third consumer of the same geometry**, drawn in the same visual language as the other two: gold fill whose weight is the count, a navy bubble carrying the number, the same insets, the same divider, the same theme tokens. Change the brand and all three follow.
+
+### The one thing the tiles were better at is kept
+A tile made Kuala Lumpur - 104 hotels, the largest entry in the directory - as easy to press as Pahang. On the real map it is a shape a few pixels wide, and Putrajaya is smaller still. So on this map **the count bubbles are buttons**, not decoration as they are on the Operations map. The number you can read is the thing you press, and the two federal territories are reachable.
+
+### Sixteen shapes, fifteen states
+The geometry is the country and includes Labuan; the workbook is the sales territory and has fifteen sheets, no Labuan. The map draws all sixteen - Labuan shades as empty, which is true - while the "which state" picker offers only the fifteen the server will accept, because an option that is refused on save is a bug with a shrug for an error message. The panel names that difference in one place (`NOT_A_WORKBOOK_STATE`) and **guard #36 now reads that place**: it asserts the panel imports the shared geometry rather than defining shapes of its own, that every state the worker accepts has a shape, and that the picker offers exactly the fifteen. Negative-tested by renaming Perlis in the geometry, by emptying the exclusion set, and by replacing the import - each fails.
+
 ## [1.100.2] — 2026-09-05 — the hotel map, fixed
 
 **CEO**, on the Hotels tab: *"why map looks like this!"*

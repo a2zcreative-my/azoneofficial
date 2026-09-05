@@ -8,15 +8,20 @@
  * infographic map for me to easier clickable and also professional with nice
  * futuristic. Also make sure that I can a function to edit or to delete it."*
  *
- * THE MAP IS A TILE CARTOGRAM, NOT A TRACING. Every state is one rounded
- * tile, laid out in the country's rough geography — Perlis and Kedah at the
- * top left, Johor at the foot of the peninsula, Sarawak and Sabah out to the
- * east. That is a deliberate choice over an outline of Malaysia: an outline
- * makes Perlis a speck nobody can hit and Sarawak a third of the picture,
- * which is the opposite of what a list of 442 hotels needs. A tile is the
- * same size for every state, always legible, always clickable, and it can
- * carry its own count and a shade for how many hotels are in it — which is
- * what makes this an infographic rather than a decoration.
+ * THE MAP IS THE REAL ONE. v1.100.0 drew a grid of rounded tiles, reasoning
+ * that an outline makes Perlis a speck and Sarawak a third of the picture.
+ * The CEO, 05-09-2026, with a screenshot of the Operations map beside it:
+ * *"why Hotel mapped doesnt looks like this?!!!!"* — and he was right. The
+ * portal has had real Malaysian geography since v1.20.1, in
+ * lib/malaysia-map.ts, drawn by the Operations map and the ELFIA Traffic map.
+ * Inventing a third, worse map in the same product was the mistake; this card
+ * is now the third consumer of the same geometry, drawn in the same visual
+ * language (gold choropleth, navy count bubble, two insets, dashed divider),
+ * so the three maps in this portal look like one product.
+ *
+ * The tiles' one real advantage is kept: a state too small to hit — Kuala
+ * Lumpur is 104 hotels on a shape a few pixels wide, Putrajaya is a point —
+ * is reached by its BUBBLE, which is a button here rather than decoration.
  *
  * EVERYTHING IS THE PORTAL'S OWN STYLE. card, inputClass, rowBtn,
  * rowBtnDanger, btnSmPrimary from lib/ui-styles and components/ui — the CEO
@@ -40,6 +45,11 @@ import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { card, inputClass, inputClassSm, fieldLabel, btnSmPrimary, btnSm } from "@/lib/ui-styles";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { getLang } from "@/lib/i18n";
+/* v1.100.3 — one country, one geometry: the same module the Operations map
+   and the ELFIA Traffic map draw from. Its names are Title Case; the hotel
+   list keeps the workbook's upper case, and `stateKey` is the one place the
+   two meet. */
+import { STATES } from "@/lib/malaysia-map";
 
 const api = makeApi("/staff/hotels");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -53,74 +63,26 @@ interface Hotel {
   notes: string | null; updated_at?: string; contacts: Contact[];
 }
 
-/**
- * The cartogram. `x` and `y` are grid cells, not coordinates: Perlis is
- * north-west of Kedah, Johor is at the bottom, Borneo sits to the east with
- * Sabah above Sarawak. `w` widens the two Borneo states because they really
- * are the big ones and a one-cell Sarawak reads as a mistake.
- */
-const TILES: { state: string; short: string; x: number; y: number; w?: number }[] = [
-  { state: "PERLIS", short: "PLS", x: 0, y: 0 },
-  { state: "KEDAH", short: "KDH", x: 1, y: 0 },
-  { state: "KELANTAN", short: "KTN", x: 3, y: 0 },
-  { state: "SABAH", short: "SBH", x: 5, y: 0, w: 2 },
-  { state: "PULAU PINANG", short: "PNG", x: 0, y: 1 },
-  { state: "PERAK", short: "PRK", x: 1, y: 1 },
-  { state: "TERENGGANU", short: "TRG", x: 3, y: 1 },
-  { state: "SELANGOR", short: "SGR", x: 1, y: 2 },
-  { state: "KUALA LUMPUR", short: "KL", x: 2, y: 2 },
-  { state: "PAHANG", short: "PHG", x: 3, y: 2 },
-  { state: "SARAWAK", short: "SWK", x: 5, y: 2, w: 2 },
-  { state: "NEGERI SEMBILAN", short: "NS", x: 1, y: 3 },
-  { state: "PUTRAJAYA", short: "PJY", x: 2, y: 3 },
-  { state: "MELAKA", short: "MLK", x: 1, y: 4 },
-  { state: "JOHOR", short: "JHR", x: 2, y: 4 },
-];
-const GRID_W = 7;
-const GRID_H = 5;
+/** The geometry names a state "Kuala Lumpur"; the workbook named it
+    "KUALA LUMPUR". One function decides they are the same place. */
+const stateKey = (geometryName: string): string => geometryName.toUpperCase();
+
+/* The geometry is the COUNTRY: sixteen units, Labuan among them. The workbook
+   is the SALES TERRITORY: fifteen sheets, no Labuan sheet. So the map draws
+   all sixteen shapes - Labuan simply shades as empty, which is true - while
+   the "which state" picker offers only names the server will accept, because
+   an option that is refused on save is a bug with a shrug for an error
+   message. The server sends its own list (the migration's CHECK, one
+   vocabulary); this is what the picker shows before that arrives.
+   tests/hotels-guard.mjs holds the two lists together. */
+const NOT_A_WORKBOOK_STATE = new Set(["LABUAN"]);
+const PICKABLE = STATES.map((sh) => stateKey(sh.name)).filter((s) => !NOT_A_WORKBOOK_STATE.has(s)).sort();
 
 const emptyHotel = (): Hotel => ({
   id: 0, state: "KUALA LUMPUR", hotel_name: "", company: "", address: "",
   rooms: null, stars: "", mof_validity: "", halal_validity: "", notes: "",
   contacts: [{ person_name: "", phone: "", phone2: "", email: "" }],
 });
-
-/** One state tile. Module scope, per guard #30. */
-function Tile({ t, n, max, active, onPick }: {
-  t: (typeof TILES)[number]; n: number; max: number; active: boolean; onPick: () => void;
-}) {
-  /* v1.100.2 — five steps of the theme's own primary, reaching FULL strength
-     at the top. The first version stopped at 60% mixed into white, so even
-     Kuala Lumpur's 104 came out a pale slate and the whole map read grey.
-     A choropleth whose darkest tile is not dark has no top end. */
-  const share = max > 0 ? n / max : 0;
-  const fill = n === 0 ? 6 : share > 0.7 ? 100 : share > 0.4 ? 72 : share > 0.2 ? 48 : share > 0.08 ? 28 : 15;
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onPick}
-      title={`${t.state} — ${n} ${n === 1 ? "hotel" : "hotels"}`}
-      className={`hp-tile group absolute flex flex-col items-center justify-center rounded-xl border text-center transition-all duration-200
-        ${active ? "border-primary ring-primary z-10 scale-[1.04] ring-2" : "border-border/70 hover:border-primary/70 hover:scale-[1.03]"}`}
-      style={{
-        left: `${(t.x / GRID_W) * 100}%`,
-        top: `${(t.y / GRID_H) * 100}%`,
-        width: `calc(${((t.w ?? 1) / GRID_W) * 100}% - 0.5rem)`,
-        height: `calc(${(1 / GRID_H) * 100}% - 0.5rem)`,
-        margin: "0.25rem",
-        background: `color-mix(in oklab, var(--primary) ${fill}%, var(--card))`,
-      }}
-    >
-      <span className={`text-[11px] leading-none font-bold tracking-[0.12em] ${fill >= 48 ? "text-primary-foreground" : "text-muted-foreground"}`}>
-        {t.short}
-      </span>
-      <span className={`mt-1.5 text-lg leading-none font-bold tabular-nums ${fill >= 48 ? "text-primary-foreground" : "text-foreground"}`}>
-        {n}
-      </span>
-    </button>
-  );
-}
 
 export function HotelsPanel() {
   const { show: toast, node: toastNode } = useSaveToast();
@@ -226,10 +188,6 @@ export function HotelsPanel() {
     <div className="grid grid-cols-1 gap-4">
       {toastNode}
       {confirmNode}
-      <style>{`@keyframes hp-in { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
-        .hp-tile { animation: hp-in .3s ease-out both }
-        @media (prefers-reduced-motion: reduce) { .hp-tile { animation: none } }`}</style>
-
       {/* ================= THE MAP ================= */}
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -260,41 +218,114 @@ export function HotelsPanel() {
         )}
 
         {/* the cartogram: a glass panel with a slow sweep behind it */}
-        {/* v1.100.2 — the FRAME carries the width, not the grid inside it. The
-            first version put max-w on the grid and left the bordered panel
-            full-width, so a 704px map sat in the middle of a 1600px box with
-            a third of it empty on either side and the border miles away from
-            the picture. */}
-        <div className="border-border/60 bg-card/50 relative mx-auto mt-3 w-full overflow-hidden rounded-2xl border p-4 backdrop-blur-sm"
-          style={{ maxWidth: "46rem" }}>
-          <span aria-hidden className="pointer-events-none absolute inset-0"
-            style={{ background: "radial-gradient(120% 90% at 20% 0%, color-mix(in oklab, var(--primary) 7%, transparent) 0%, transparent 60%)" }} />
-          <div className="relative w-full" style={{ aspectRatio: `${GRID_W} / ${GRID_H}` }}>
-            {/* The empty column between the peninsula and Borneo is the sea,
-                and saying so is what turns a hole into a map. */}
-            <span aria-hidden
-              className="text-muted-foreground/50 pointer-events-none absolute flex items-center justify-center text-[9px] font-semibold tracking-[0.2em]"
-              style={{ left: `${(4 / GRID_W) * 100}%`, top: `${(0.6 / GRID_H) * 100}%`, width: `${(1 / GRID_W) * 100}%`, height: `${(2 / GRID_H) * 100}%` }}>
-              <span style={{ writingMode: "vertical-rl" }}>SOUTH CHINA SEA</span>
-            </span>
-            {!loaded && TILES.map((t) => (
-              <div key={t.state} className="absolute p-1" aria-hidden
-                style={{
-                  left: `${(t.x / GRID_W) * 100}%`, top: `${(t.y / GRID_H) * 100}%`,
-                  width: `${((t.w ?? 1) / GRID_W) * 100}%`, height: `${(1 / GRID_H) * 100}%`,
-                }}>
-                <Skel className="h-full w-full rounded-xl" />
+        {/* v1.100.3 — the real map, drawn exactly as the Operations map draws
+            it: gold fill whose weight is the count, a navy bubble carrying the
+            number, the two standard insets and the dashed divider between
+            them. A state with no hotels is left in the neutral fill rather
+            than shaded, because nothing is not a small something. */}
+        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+          {!loaded ? (
+            <Skel className="aspect-[860/380] w-full rounded-xl" />
+          ) : (
+            <svg viewBox="0 0 860 380" className="w-full"
+              aria-label={L("Map of Malaysia — each state is a button showing how many hotels are in it",
+                            "Peta Malaysia — setiap negeri ialah butang yang menunjukkan bilangan hotelnya")}>
+              <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
+                {L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}
+              </text>
+              <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
+                SABAH &amp; SARAWAK
+              </text>
+              <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
+              {/* the selected state is drawn last so its stroke sits above its neighbours */}
+              {(state ? [...STATES.filter((x) => stateKey(x.name) !== state), ...STATES.filter((x) => stateKey(x.name) === state)] : STATES).map((sh) => {
+                const key = stateKey(sh.name);
+                const n = byState[key] ?? 0;
+                const isSel = state === key;
+                return (
+                  <path key={sh.name} d={sh.d}
+                    role="button" tabIndex={0} aria-pressed={isSel}
+                    aria-label={`${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}
+                    onClick={() => setState(isSel ? "" : key)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
+                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    fill={n > 0 ? "var(--gold-solid)" : "var(--secondary)"}
+                    fillOpacity={n > 0 ? 0.3 + 0.55 * (n / maxState) : 1}
+                    stroke={isSel ? "var(--primary)" : "var(--border)"}
+                    strokeWidth={isSel ? 2.5 : 1}
+                    strokeLinejoin="round">
+                    <title>{`${sh.name} · ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}</title>
+                  </path>
+                );
+              })}
+              {/* The bubbles are BUTTONS, not decoration: Kuala Lumpur holds
+                  104 hotels on a shape a few pixels across and Putrajaya is a
+                  single point, so on the Operations map those two are
+                  effectively unreachable. Here the number you can read is the
+                  thing you press. */}
+              {STATES.map((sh) => {
+                const key = stateKey(sh.name);
+                const n = byState[key] ?? 0;
+                if (!n) return null;
+                const r = 9 + Math.sqrt(n / maxState) * 9;
+                const isSel = state === key;
+                return (
+                  <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel}
+                    aria-label={`${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}
+                    onClick={() => setState(isSel ? "" : key)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
+                    className="cursor-pointer outline-none">
+                    <circle cx={sh.cx} cy={sh.cy} r={r}
+                      fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"}
+                      strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
+                    <text x={sh.cx} y={sh.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>{n}</text>
+                    <title>{`${sh.name} · ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`}</title>
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+
+          {/* the side panel: the whole country, or the state you pressed */}
+          <div className="border-border rounded-xl border p-3">
+            {!loaded ? (
+              <div className="space-y-2">
+                <Skel className="h-4 w-32" />
+                <Skel className="h-12 rounded-lg" />
+                <Skel className="h-3 w-full" /><Skel className="h-3 w-full" /><Skel className="h-3 w-full" />
               </div>
-            ))}
-            {loaded && TILES.map((t) => (
-              <Tile key={t.state} t={t} n={byState[t.state] ?? 0} max={maxState}
-                active={state === t.state} onPick={() => setState(state === t.state ? "" : t.state)} />
-            ))}
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">{state || L("Malaysia — all states", "Malaysia — semua negeri")}</p>
+                    <p className="text-muted-foreground text-[11px]">
+                      {state
+                        ? `${Math.round(((byState[state] ?? 0) / Math.max(1, total)) * 100)}% ${L("of the directory", "daripada direktori")}`
+                        : L("Press a state on the map for its hotels.", "Tekan sesebuah negeri pada peta untuk hotelnya.")}
+                    </p>
+                  </div>
+                  {state && <button type="button" className={btnSm} onClick={() => setState("")}>{L("All states", "Semua negeri")}</button>}
+                </div>
+                <div className="bg-secondary mt-2.5 rounded-lg px-2.5 py-2">
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Hotels", "Hotel")}</p>
+                  <p className="text-lg font-bold tabular-nums">{state ? (byState[state] ?? 0) : total}</p>
+                </div>
+                <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">{L("Most hotels", "Hotel terbanyak")}</p>
+                <ul className="mt-1.5 space-y-1">
+                  {Object.entries(byState).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => (
+                    <li key={st}>
+                      <button type="button" onClick={() => setState(state === st ? "" : st)}
+                        className={`flex w-full items-center justify-between gap-2 text-xs ${state === st ? "font-semibold" : ""}`}>
+                        <span className="truncate">{st}</span>
+                        <span className="tabular-nums">{n}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
-          <p className="text-muted-foreground mt-2 text-center text-[11px]">
-            {L("Peninsular Malaysia on the left, Sabah and Sarawak to the east — one tile per state, sized alike so every state can be read and pressed.",
-               "Semenanjung Malaysia di kiri, Sabah dan Sarawak di timur — satu jubin bagi setiap negeri, sama saiz supaya setiap negeri boleh dibaca dan ditekan.")}
-          </p>
         </div>
       </div>
 
@@ -336,7 +367,7 @@ export function HotelsPanel() {
               <label className="sm:col-span-1">
                 <span className={fieldLabel}>{L("State", "Negeri")}</span>
                 <select className={inputClass} value={draft.state} onChange={(e) => setDraft({ ...draft, state: e.target.value })}>
-                  {(states.length ? states : TILES.map((t) => t.state)).map((s) => <option key={s} value={s}>{s}</option>)}
+                  {(states.length ? states : PICKABLE).map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
               <label className="sm:col-span-2">
