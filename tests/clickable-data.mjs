@@ -111,10 +111,17 @@ const ok = (label, cond, extra = "") => {
     /* v1.94.1 — the field is a square, so a ring is a circle. Percentages
        of a 1600x460 strip drew a flat ellipse and ran the outer ring into
        the labels below it. */
+    /* v1.99.1 — asserted as PROPERTIES now, not as the 34rem cap and the
+       exact radius list the first draft pinned (which a correct redraw had
+       to move). A circle is: a square field, and one radius that feeds both
+       the x and the y of every face and both the width and the height of
+       every ring. */
     ["the circle is laid out on a square field", "components/staff/staff-directory.tsx",
-     /aspect-square w-full max-w-\[34rem\]/, "percentages of a wide strip are an ellipse, not a circle"],
+     /className="sd-orbit relative mx-auto aspect-square w-full max-w-\[\d+rem\]"/, "percentages of a wide strip are an ellipse, not a circle"],
     ["one radius per ring, not one per axis", "components/staff/staff-directory.tsx",
-     /const R = \[0, 21, 34, 44, 49\];/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
+     /left: 50 \+ r \* Math\.cos\(angle\), top: 50 \+ r \* Math\.sin\(angle\)/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
+    ["a ring is drawn with one number for width and height", "components/staff/staff-directory.tsx",
+     /width: `\$\{r \* 2\}%`, height: `\$\{r \* 2\}%`/, "a ring drawn from two numbers is an ellipse waiting for a resize"],
     ["a face within a fortnight of a birthday carries the cake", "components/staff/staff-directory.tsx",
      /return b && b\.days <= 14 && !\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null;/, "the separate Birthdays card was retired for this"],
     ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",

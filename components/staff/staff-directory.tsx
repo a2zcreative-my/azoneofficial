@@ -462,50 +462,49 @@ export function birthdayInfo(birthday: string | null | undefined, todayIso: stri
  * v1.93.0 — THE CIRCLE. CEO, 04-09-2026, a frame from the LazyThreads video
  * of its Circle screen: *"Staff tabs content should be like this."*
  *
- * The company as orbits. The most senior person sits at the centre; the
- * next tier on the first ring, the floor on the second, hosts and part-time
- * on the third, and leavers on the outermost ring, faded. Each ring's
- * people are spread evenly round it, offset so no two rings line up, and
- * every face drifts a little on its own clock — the video's field, without
- * the video's forty grey ghosts. Positions are percentages of the field, so
- * the field can be any size; the phone keeps the wrapping row, because a
- * 360px-wide orbit is a pile.
+ * v1.99.1 — REDRAWN. CEO, 05-09-2026, a screenshot of the first version:
+ * *"make this circle bubbles looks better and nice interface!"* The first
+ * draft put one ring per TIER — five rings, 13% apart, on a 544px square —
+ * so a face and its two-line label (110px tall) sat on a 70px gap: Nasuha
+ * over Izzudin's caption, Nurfarah's name wrapped, and the rings themselves
+ * were too faint to read as rings.
+ *
+ * Now the company is ONE orbit (two when there are more than eight, three
+ * beyond sixteen), walked clockwise from the top in company order, with the
+ * most senior person at the centre. The tier is in the ORDER round the ring
+ * and in the caption, not in a radius of its own - which is how a nine-person
+ * team fits a circle a person can read. Leavers come last and faded. Radii
+ * are chosen so the arc between neighbours is wider than a cell; a spoke
+ * from the centre to each face makes the shape read as an orbit at a glance.
  */
-function circleLayout(list: Staff[]): { u: Staff; left: number; top: number; ring: number }[] {
-  const tier = (u: Staff): number => {
-    if (["resigned", "terminated"].includes(u.employment_status ?? "")) return 4;
-    if (u.employment_status === "part_time" || u.role === "live_host") return 3;
-    if (["coo", "cco"].includes(u.role)) return 1;
-    if (u.role === "ceo") return 0;
-    return 2;
-  };
-  const groups = new Map<number, Staff[]>();
-  for (const u of list) { const t = tier(u); groups.set(t, [...(groups.get(t) ?? []), u]); }
-  /* The centre is one person; if nobody is CEO, the first in company order. */
-  if (!groups.has(0) && list.length > 0) {
-    const first = list[0]!;
-    groups.set(0, [first]);
-    const t = tier(first);
-    groups.set(t, (groups.get(t) ?? []).filter((x) => x.id !== first.id));
-  }
-  /* v1.94.1 — ONE radius per ring, not two. The first draft used separate
-     percentages of width and height, which is only a circle when the field
-     is square; on a 1600x460 canvas it drew a flat ellipse ("it is looks
-     shorter") and the outer ring ran people into each other's labels at the
-     bottom. The field is a centred square now, so one number does both. */
-  const R = [0, 21, 34, 44, 49];   // % of the square's side
-  const out: { u: Staff; left: number; top: number; ring: number }[] = [];
-  for (const [ring, members] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
-    const n = members.length;
+interface Orbit { u: Staff; left: number; top: number; ring: number; r: number; angleDeg: number }
+function circleLayout(list: Staff[]): Orbit[] {
+  if (list.length === 0) return [];
+  const gone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
+  /* The centre: the CEO, or failing one the first in company order. */
+  const centre = list.find((u) => u.role === "ceo" && !gone(u)) ?? list.find((u) => !gone(u)) ?? list[0]!;
+  const rest = [...list.filter((u) => u.id !== centre.id && !gone(u)), ...list.filter((u) => u.id !== centre.id && gone(u))];
+  const out: Orbit[] = [{ u: centre, left: 50, top: 50, ring: 0, r: 0, angleDeg: 0 }];
+  /* Rings by headcount, radii as % of the square's side. One ring holds up
+     to eight comfortably (arc >= 180px on a 640px field); more splits into
+     two, then three, the senior half inward. */
+  const n = rest.length;
+  const radii = n <= 8 ? [n <= 4 ? 30 : 36] : n <= 16 ? [25, 44] : [19, 33, 46];
+  const per = Math.ceil(n / radii.length);
+  radii.forEach((r, ringIdx) => {
+    const members = rest.slice(ringIdx * per, (ringIdx + 1) * per);
+    const m = members.length;
     members.forEach((u, i) => {
-      if (ring === 0) { out.push({ u, left: 50, top: 50, ring }); return; }
-      /* Each ring starts a little further round than the one inside it, so
-         no two rings put a face on the same spoke. */
-      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n + ring * 0.55;
-      const r = R[ring]!;
-      out.push({ u, left: 50 + r * Math.cos(angle), top: 50 + r * Math.sin(angle), ring });
+      /* Start at the top; an outer ring starts half a step round so no two
+         rings share a spoke. */
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / m + (ringIdx % 2 ? Math.PI / m : 0);
+      out.push({
+        u, ring: ringIdx + 1, r,
+        left: 50 + r * Math.cos(angle), top: 50 + r * Math.sin(angle),
+        angleDeg: (angle * 180) / Math.PI,
+      });
     });
-  }
+  });
   return out;
 }
 
@@ -518,12 +517,15 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
   const gone = ["resigned", "terminated"].includes(u.employment_status ?? "");
   const initials = displayName(u).split(" ").filter((w) => !/^(bin|binti|bt\.?|b\.|a\/l|a\/p)$/i.test(w)).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
   const photo = u.photo_key ? `/api/v1/media/file/${encodeURIComponent(u.photo_key)}` : "";
+  /* v1.99.1 — every face wears a white-offset ring so it lifts off the
+     field; the open one is primary, a leaver's is a quiet dashed grey rather
+     than red (they have left; they are not an alarm). */
   const ring = selectMode
     ? selected ? "ring-primary ring-4" : "ring-border ring-2"
-    : open ? "ring-primary ring-4 scale-105" : gone ? "ring-danger ring-2" : "ring-transparent ring-2";
+    : open ? "ring-primary ring-4 scale-105" : gone ? "ring-border ring-2 grayscale" : "ring-card ring-2 shadow-md";
   return (
     <button type="button"
-      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[104px] ${faded && !open ? "opacity-50 hover:opacity-100" : ""}`}
+      className={`sd-bubble group flex w-full shrink-0 flex-col items-center gap-1.5 text-center sm:w-[112px] ${faded && !open ? "opacity-45 hover:opacity-100" : ""}`}
       style={{ animationDelay: `${delayMs}ms`, ["--sd-drift" as string]: `${4 + (delayMs % 7) * 0.4}s` }}
       aria-pressed={selectMode ? selected : open}
       title={selectMode
@@ -531,11 +533,15 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
         : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
       onClick={onPress}>
       <span className="relative">
-      <span className={`relative inline-flex ${size === "lg" ? "h-20 w-20" : "h-[4.5rem] w-[4.5rem] sm:h-16 sm:w-16"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
+      {size === "lg" && !selectMode && (
+        /* the centre's halo — one soft disc behind the most senior face */
+        <span aria-hidden className="bg-primary/10 absolute -inset-3 rounded-full blur-[2px]" />
+      )}
+      <span className={`relative inline-flex ${size === "lg" ? "h-24 w-24" : "h-[4.5rem] w-[4.5rem]"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "bg-secondary" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
         {photo
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={photo} alt="" className="h-full w-full object-cover" />
-          : <span className={size === "lg" ? "text-xl font-bold" : "text-lg font-bold"}>{initials}</span>}
+          : <span className={size === "lg" ? "text-2xl font-bold" : "text-lg font-bold"}>{initials}</span>}
       </span>
         {selectMode && selected && (
           <span className="bg-primary text-primary-foreground absolute -right-0.5 -bottom-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold" aria-hidden>✓</span>
@@ -552,9 +558,11 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
           becoming "Mohd Alif Far…". The circle at sm+ keeps one line. */}
       {/* v1.94.1 — two lines on the circle too. "Mohd Alif Far…" on a
           desktop was the phone bug wearing a bigger screen. */}
-      <span className="line-clamp-2 w-full text-xs leading-tight font-medium">{givenNames(displayName(u))}</span>
-      <span className="text-muted-foreground line-clamp-2 w-full text-[10px] leading-tight">
-        {gone ? <span className="text-danger font-medium">{L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}</span>
+      <span className={`line-clamp-2 w-full leading-tight font-semibold ${size === "lg" ? "text-sm" : "text-xs"}`}>{givenNames(displayName(u))}</span>
+      {/* v1.99.1 — the role as a small pill, so the caption reads as a label
+          and not as a second, greyer name. A leaver's says when they left. */}
+      <span className={`inline-block max-w-full truncate rounded-full px-2 py-px text-[10px] leading-4 ${gone ? "bg-secondary text-muted-foreground" : size === "lg" ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground/80"}`}>
+        {gone ? `${L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? "")}${u.left_on ? ` · ${dmy(u.left_on)}` : ""}`
               : L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}
       </span>
     </button>
@@ -920,10 +928,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           record cards (checkbox · name · role, chevron on the right), the
           exact row each staff member renders as below. */}
       <style>{`@keyframes sd-pop { from { opacity: 0; transform: translateY(6px) scale(.9) } to { opacity: 1; transform: none } }
-        @keyframes sd-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
+        @keyframes sd-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
+        @keyframes sd-spin { to { transform: rotate(360deg) } }
         .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both }
         .sd-orbit .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both, sd-drift var(--sd-drift, 5s) ease-in-out .4s infinite }
-        @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble { animation: none } }`}</style>
+        .sd-orbit .sd-ring-dash { animation: sd-spin 240s linear infinite }
+        @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble, .sd-orbit .sd-ring-dash { animation: none } }`}</style>
       {(() => {
         const ordered = sortBy === "rank"
           ? staff
@@ -952,34 +962,62 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
             {/* The wrapper's padding is where the outermost ring's LABELS
                 live: a face centred at 47% of the square still puts half a
                 104px cell outside it. */}
-            <div className="hidden px-12 py-2 sm:block">
-            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[34rem]">
-              {/* the rings, faint */}
-              {[21, 34, 44, 49].map((r, i) => (
-                <span key={i} aria-hidden className="border-border/50 pointer-events-none absolute rounded-full border"
-                  style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
-              ))}
+            {/* v1.99.1 — the field: a soft radial wash, one dashed orbit per
+                ring (turning very slowly), a hairline spoke from the centre
+                to every face. The square is 40rem, and the padding around it
+                is where the outermost labels live. */}
+            <div className="hidden px-14 pt-6 pb-12 sm:block">
+            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[40rem]"
+              style={{ background: "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 9%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 42%, transparent 70%)" }}>
+              {(() => {
+                const placed = loaded ? circleLayout(ordered) : [];
+                const radii = loaded ? [...new Set(placed.filter((p) => p.ring > 0).map((p) => p.r))] : [36];
+                return (
+                  <>
+                    {/* the orbits */}
+                    {radii.map((r) => (
+                      <span key={r} aria-hidden className="sd-ring-dash border-primary/25 pointer-events-none absolute rounded-full border border-dashed"
+                        style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
+                    ))}
+                    {radii.map((r) => (
+                      <span key={`glow-${r}`} aria-hidden className="pointer-events-none absolute rounded-full shadow-[0_0_0_10px_color-mix(in_oklab,var(--primary)_4%,transparent)]"
+                        style={{ left: `${50 - r}%`, top: `${50 - r}%`, width: `${r * 2}%`, height: `${r * 2}%` }} />
+                    ))}
+                    {/* the spokes — centre to each face, under everything */}
+                    {placed.filter((p) => p.ring > 0).map((p) => (
+                      <span key={`spoke-${p.u.id}`} aria-hidden className="bg-primary/15 pointer-events-none absolute left-1/2 top-1/2 h-px origin-left"
+                        style={{ width: `${p.r}%`, transform: `rotate(${p.angleDeg}deg)` }} />
+                    ))}
+                  </>
+                );
+              })()}
               {!loaded && Array.from({ length: 8 }, (_, i) => {
                 const a = -Math.PI / 2 + (2 * Math.PI * i) / 8;
                 return (
                   <div key={`skel-${i}`} className="absolute -translate-x-1/2 -translate-y-1/2" aria-hidden
-                    style={{ left: `${50 + 34 * Math.cos(a)}%`, top: `${50 + 34 * Math.sin(a)}%` }}>
-                    <Skel className="h-16 w-16 rounded-full" />
+                    style={{ left: `${50 + 36 * Math.cos(a)}%`, top: `${50 + 36 * Math.sin(a)}%` }}>
+                    <Skel className="h-[4.5rem] w-[4.5rem] rounded-full" />
                   </div>
                 );
               })}
-              {!loaded && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" aria-hidden><Skel className="h-20 w-20 rounded-full" /></div>}
+              {!loaded && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" aria-hidden><Skel className="h-24 w-24 rounded-full" /></div>}
               {loaded && circleLayout(ordered).map(({ u, left, top, ring }, i) => (
-                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) ? "z-20" : ring === 0 ? "z-10" : "z-0"}`}
+                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) ? "z-20" : ring === 0 ? "z-10" : "z-[1]"}`}
                   style={{ left: `${left}%`, top: `${top}%` }}>
                   <StaffBubble u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 45}
-                    size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={ring === 4} onPress={() => press(u)} />
+                    size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={gone(u)} onPress={() => press(u)} />
                 </div>
               ))}
               {loaded && staff.length === 0 && !loadError && (
                 <p className="text-muted-foreground absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs">{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
               )}
             </div>
+            {loaded && staff.length > 0 && (
+              <p className="text-muted-foreground mt-2 text-center text-[11px]">
+                {L("Clockwise from the top in company order — CEO at the centre, then COO, CCO, admin, HR, sales & marketing, designers, live hosts. Faded faces have left the company.",
+                   "Ikut jam dari atas mengikut susunan syarikat — CEO di tengah, kemudian COO, CCO, admin, HR, jualan & pemasaran, pereka, hos siaran langsung. Wajah pudar telah meninggalkan syarikat.")}
+              </p>
+            )}
             </div>
             {/* the row — phones, where an orbit is a pile */}
             {/* v1.94.0 — CEO, a phone screenshot: names cut to "Mohd Alif
@@ -1002,18 +1040,18 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
               ))}
             </div>
             {loaded && upcoming.length > 0 && (
-              <p className="text-muted-foreground text-xs">
-                🎂 {L("Next birthdays", "Hari lahir seterusnya")}:{" "}
-                {upcoming.map((x, i) => (
-                  <span key={x.u.id}>
-                    {i > 0 && " · "}
-                    <button type="button" className="underline decoration-dotted underline-offset-2" onClick={() => press(x.u)}>
-                      {givenNames(displayName(x.u))}
-                    </button>{" "}{x.b.next}{" "}
-                    {x.b.days === 0 ? L("today", "hari ini") : `${L("in", "dalam")} ${x.b.days} ${L("day(s)", "hari")}`}
-                  </span>
+              /* v1.99.1 — one chip per birthday, pressable, instead of a
+                 dotted-underline sentence. */
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground">🎂 {L("Next birthdays", "Hari lahir seterusnya")}</span>
+                {upcoming.map((x) => (
+                  <button key={x.u.id} type="button" onClick={() => press(x.u)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${x.b.days <= 7 ? "bg-warning-soft text-warning" : "bg-secondary text-foreground/80 hover:bg-secondary/70"}`}
+                    title={L(`Turns ${x.b.turns}`, `Genap ${x.b.turns}`)}>
+                    {givenNames(displayName(x.u))} · {x.b.next} · {x.b.days === 0 ? L("today", "hari ini") : `${x.b.days} ${L("day(s)", "hari")}`}
+                  </button>
                 ))}
-              </p>
+              </div>
             )}
           </>
         );

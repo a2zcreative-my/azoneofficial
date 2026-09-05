@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.99.1] — 2026-09-05 — the Circle, redrawn
+
+**CEO**, a screenshot of the Staff circle: *"make this circle bubbles looks better and nice interface!"*
+
+### What was wrong with the first one
+It put one ring per **tier** — five rings 13% apart on a 544px square — so a face with its two-line caption (110px tall) sat on a 70px gap. Nasuha's face covered Izzudin's caption, "Nurfarah Suaidah" wrapped, the rings were too faint to read as rings, and the leaver's red ring shouted from the corner.
+
+### What it is now
+- **One orbit** (two above eight people, three above sixteen), walked **clockwise from the top in company order**, the most senior at the centre. The tier lives in the order and the caption, not in a radius of its own — that is how a nine-person team fits a circle a person can read. Radii are chosen so the arc between neighbours is wider than a cell.
+- **A field that reads as an orbit:** a soft radial wash behind, a dashed ring per orbit turning very slowly, a hairline **spoke** from the centre to every face.
+- **Faces that lift:** a white-offset ring and shadow on every face, a 96px centre with a soft halo, roles as small **pills** (the centre's in primary), a leaver **faded and greyscale** with a quiet grey ring instead of red. Drift trimmed to 3px.
+- A one-line legend under the field says how to read it; the birthdays line is now **pressable chips**, amber inside a week.
+- Phone view unchanged (the three-column grid).
+
+Guard `clickable-data`: the two circle checks that pinned the 34rem cap and the exact radius list — implementation, not property — are replaced by three that assert the property: a square field, one radius feeding both x and y of a face, one number feeding both width and height of a ring. Negative-tested.
+
 ## [1.99.0] — 2026-09-05 — Threads is a study room, and it keeps a week
 
 **CEO**: *"remove library since this is not supposed to view by my staff. the objective for this Threads to make them to find a study case based on the market research and the demand based on the keywords that they want. and the data should not keep too much since it is only for 7 days for them to study. Additionally, you need to make sure that D1 from Cloudflare not hold so much data for the Threads research to minimalist the requirement of D1 storage capabilities. make it properly planned and also ensure that dont touch another area tabs or data beside of Threads!"*
