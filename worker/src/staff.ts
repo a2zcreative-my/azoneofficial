@@ -1701,22 +1701,36 @@ export async function handleStaff(
        columns: if the profile columns don't exist yet, fall back to the
        pre-0059 column list so the directory always renders; the seven
        profile fields simply arrive after `wrangler d1 migrations apply`. */
+    /* v1.101.0 - reports_to (0113) gets its OWN rung on this ladder. Bolting
+       it onto the full SELECT would mean that between the code deploying and
+       0113 applying, "no such column: reports_to" dropped the request all the
+       way to the pre-0059 list and the Staff tab silently lost seven profile
+       fields it has had since v1.4.213. One new column should cost one new
+       column, so the fallback here is the SAME list minus reports_to. */
     let results: unknown[];
+    const CORE = `u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
+                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled`;
     try {
       ({ results } = await env.DB.prepare(
-        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
-                u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
-                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        `SELECT ${CORE}, u.reports_to FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
       ).all());
-    } catch (e) {
-      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
-      await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
-      ({ results } = await env.DB.prepare(
-        `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
-                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
-         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
-      ).all());
+    } catch (e0) {
+      if (!(e0 instanceof Error && e0.message.includes("no such column"))) throw e0;
+      await logError(env, "migration_skew", "GET /users: 0113 reports_to missing - run wrangler d1 migrations apply");
+      try {
+        ({ results } = await env.DB.prepare(
+          `SELECT ${CORE} FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        ).all());
+      } catch (e) {
+        if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+        await logError(env, "migration_skew", "GET /users: 0059 profile columns missing — run wrangler d1 migrations apply");
+        ({ results } = await env.DB.prepare(
+          `SELECT u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
+                  CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled
+           FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+        ).all());
+      }
     }
     return json({ users: results, staff: results });
   }
@@ -1794,6 +1808,92 @@ export async function handleStaff(
       .bind(...vals, id).run();
     await audit(env, user.id, "staff.hr_update", "users", id);
     return json({ ok: true });
+  }
+
+  /* ---- the organisation: who reports to whom (v1.101.0) ----
+     CEO, 05-09-2026: *"I want to add infographic for each staff reported to
+     who which is either CEO, COO or CCO. I will assigned by myself and
+     organized it based on who is their HOD to make it like organisation."*
+
+     Its own route rather than a field on PATCH /users/:id, for two reasons.
+     PATCH is the HR tier and carries the AMENDMENT LOCK - fill once, then an
+     admin is needed to change it - and a reporting line is the opposite kind
+     of fact: it is meant to be changed, every time somebody moves. And the
+     people who may set it are not the HR tier; they are the three the CEO
+     named. Different rule, different door.
+
+     THE ONLY FAILURE THAT MATTERS IS A LOOP. The chart is drawn by walking
+     UP the line, so a cycle - A reports to B reports to A - is not a wrong
+     picture, it is a page that never finishes. It cannot be checked by
+     looking at the two people involved, so the walk is done here, on the
+     database, before the write. */
+  const reportsTo = path.match(/^\/users\/(\d+)\/reports-to$/);
+  if (reportsTo && (method === "PUT" || method === "PATCH")) {
+    if (!can(user.role, "org_assign")) {
+      return err("forbidden", "Only the CEO, COO or CCO set reporting lines", 403);
+    }
+    const id = Number(reportsTo[1]);
+    /* "" and null both mean unassign - the select's blank option sends one or
+       the other depending on how the browser feels about an empty value. */
+    const raw = (body as Record<string, unknown> | null)?.reports_to;
+    const managerId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    if (managerId !== null && (!Number.isInteger(managerId) || managerId <= 0)) {
+      return err("invalid_input", "reports_to must be a staff id, or null to clear it", 400);
+    }
+    let person: { id: number; name: string; reports_to: number | null } | null;
+    try {
+      person = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, reports_to FROM users WHERE id = ?1`,
+      ).bind(id).first();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("no such column")) {
+        return err("pending_migration", "The reporting-line column is not on this database yet - run the deploy so migration 0113 applies", 409);
+      }
+      throw e;
+    }
+    if (!person) return err("not_found", "Staff not found", 404);
+    if (managerId === id) {
+      return err("invalid_input", "Nobody reports to themselves", 400);
+    }
+    let manager: { id: number; name: string } | null = null;
+    if (managerId !== null) {
+      manager = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`,
+      ).bind(managerId).first();
+      if (!manager) return err("not_found", "That manager is not a staff record", 404);
+      /* Walk up from the proposed manager. If the person we are assigning is
+         anywhere on that path, this assignment closes a loop. The hop limit
+         is belt and braces: if a cycle somehow already exists in the data,
+         this walk must still end. */
+      let cursor: number | null = managerId;
+      for (let hop = 0; cursor !== null && hop < 64; hop++) {
+        if (cursor === id) {
+          return err("invalid_input",
+            `That would make a loop - ${manager.name} already reports up through ${person.name}`, 400);
+        }
+        const up: { reports_to: number | null } | null = await env.DB.prepare(
+          `SELECT reports_to FROM users WHERE id = ?1`,
+        ).bind(cursor).first();
+        cursor = up?.reports_to ?? null;
+      }
+    }
+    const before = person.reports_to;
+    await env.DB.prepare(`UPDATE users SET reports_to = ?1 WHERE id = ?2`).bind(managerId, id).run();
+    /* The audit records NAMES, not only ids: an id nobody can resolve a year
+       later is a line in a log nobody reads. */
+    let beforeName: string | null = null;
+    if (before !== null) {
+      const b = await env.DB.prepare(
+        `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`,
+      ).bind(before).first<{ name: string }>();
+      beforeName = b?.name ?? null;
+    }
+    await audit(env, user.id, "staff.reports_to", "users", String(id), {
+      staff_name: person.name,
+      from_id: before, from_name: beforeName,
+      to_id: managerId, to_name: manager?.name ?? null,
+    });
+    return json({ ok: true, reports_to: managerId, manager_name: manager?.name ?? null });
   }
 
   /* ---- attendance ---- */

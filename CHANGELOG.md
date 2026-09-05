@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.101.0] - 2026-09-05 - the organisation chart
+
+**CEO**, 05-09-2026: *"I want to add infographic for each staff reported to who which is either CEO, COO or CCO. I will assigned by myself and organized it based on who is their HOD to make it like organisation."*
+
+**Staff Details** now has two views - **Circle** and **Organisation** - on one segmented control. Same people, same fetch, same permissions; pressing a box on the chart opens the same record card the circle does.
+
+### One column, not three buckets
+The literal reading of that sentence is three lists: the CEO's people, the COO's people, the CCO's people. It draws a chart that cannot say the second half of the sentence. *"Organized it based on who is their HOD"* means an HOD has their own people - and those people are not the COO's direct reports, they are the HOD's.
+
+So each person points at **one other person** (`users.reports_to`, migration 0113), and the three divisions are read by walking **up** the line rather than stored beside it and left to drift. A two-level chart is a special case of this one. The company can grow a fourth level without a schema change or a second opinion about which division somebody is in.
+
+### What the chart shows
+- **The CEO is the root by role**, not by having an empty manager field - otherwise on day one, with every line unset, the first render would be the whole company in one flat row.
+- **A stripe down each box is the division**, mixed from the brand (gold for the CEO's line, navy for the COO's, the two blended for the CCO's) so a re-brand carries it and both themes keep their contrast.
+- **The number on the right is the whole subtree**, not direct reports. A manager of two who each manage four is not a manager of two.
+- **Leavers are not on it.** Somebody who resigned stays in the directory and in the circle, faded. On an org chart they would be a box with live people hanging off it.
+- **Everybody not yet placed waits in a tray under the chart**, each with a "reports to" picker. That is both an honest statement of where the chart stands and exactly the worklist for finishing it.
+
+### Who assigns
+The **CEO, COO and CCO** - `org_assign` in the worker. Deliberately narrower than HR, and deliberately without `admin` and `super_admin`: who a person answers to is a statement about how the company is run, and the CEO said he assigns it himself. Everyone who can already open Staff Details can **look** at the chart. Every change is written to `audit_log` with both names, not just two ids.
+
+### The loop
+A cycle - A reports to B reports to A - is the one shape that matters, because a chart is drawn by descending and a division is read by ascending. **The worker walks the line up from the proposed manager before writing** and refuses anything that closes a ring, with a hop limit so the check that finds cycles cannot itself be hung by one. The picker never offers a choice that would close a loop in the first place, and the renderer sweeps anybody stranded in one into the tray rather than dropping them off the page - five people invisible is worse than five people waiting.
+
+**Guard #37** (`tests/org-chart.mjs`, 49 checks) runs the real tree builder against data carrying every broken line at once - a manager who left, a manager who does not exist, a person pointing at themselves, a pair pointing at each other, a closed ring of five - and asserts that every active person ends up on the chart or in the tray, exactly once. Negative-tested by dropping the tray sweep, removing the hop limit (the run hangs and is killed, which is the point), emptying the descendant filter, adding `hr_admin` to `org_assign`, deleting the worker's cycle walk, and removing the failure toast.
+
+### Also
+- The staff list's migration-skew armour got its **own rung for 0113**. Bolting `reports_to` onto the existing fallback would have meant that, between the code deploying and the migration applying, one missing column silently cost the Staff tab the seven profile fields it has had since v1.4.213. One new column costs one new column.
+
 ## [1.100.3] - 2026-09-05 - the hotel map is the real map
 
 **CEO**, with a screenshot of the Operations map beside the Hotels tab: *"why Hotel mapped doesnt looks like this?!!!!"*

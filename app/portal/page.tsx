@@ -14181,6 +14181,12 @@ export default function PortalPage() {
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}
+                /* v1.101.0 - the organisation view needs to know who is
+                   looking: only the CEO, COO and CCO may set a reporting
+                   line. readOnly above is about staff RECORDS - the COO and
+                   CCO may not amend those, and may set reporting lines - so
+                   the two cannot be folded into one flag. */
+                role={user.role}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and

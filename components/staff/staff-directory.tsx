@@ -45,6 +45,13 @@ import { RecordToggle } from "@/components/ui/record-row";
    DOCUMENT_ISSUER (lib/issuers.ts), not a hardcoded company block. */
 import { DOCUMENT_ISSUER } from "@/lib/issuers";
 import { getLang } from "@/lib/i18n";
+/* v1.101.0 - the organisation chart. CEO, 05-09-2026: "I want to add
+   infographic for each staff reported to who which is either CEO, COO or CCO.
+   I will assigned by myself and organized it based on who is their HOD to make
+   it like organisation." It is a VIEW of this same list, not a tab of its
+   own - one fetch, one set of permissions, and pressing a box opens the same
+   record card that is already below. */
+import { OrgChart, ORG_ASSIGN_ROLES } from "@/components/staff/org-chart";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -100,6 +107,9 @@ interface Staff {
   epf_no?: string | null;
   socso_no?: string | null;
   tax_no?: string | null;
+  /* v1.101.0 - who this person answers to (users.reports_to, migration 0113).
+     null means not placed on the organisation chart yet. */
+  reports_to?: number | null;
 }
 
 interface ErrShape { error?: { message?: string } }
@@ -593,7 +603,14 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
   );
 }
 
-export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmend?: boolean; readOnly?: boolean }) {
+export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }: { canAmend?: boolean; readOnly?: boolean; role?: string }) {
+  /* v1.101.0 - only the three the CEO named may set a reporting line. The
+     list lives in org-chart.tsx and tests/org-chart.mjs holds it against
+     PERMS.org_assign in the worker, so the button and the door agree. The
+     server refuses regardless of what this says. */
+  const canAssign = ORG_ASSIGN_ROLES.includes(role);
+  const [view, setView] = useState<"circle" | "org">("circle");
+  const [orgSaving, setOrgSaving] = useState<number | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
   const [allStaff, setAllStaff] = useState<Staff[]>([]);
@@ -668,6 +685,35 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* v1.101.0 - set (or clear) a reporting line. The row is written locally
+     the moment the server says yes rather than re-fetching the whole
+     directory: assigning fifteen people is fifteen presses, and a full reload
+     between each one would scroll the chart back to the top every time.
+     Every outcome speaks - a silent success on a chart is indistinguishable
+     from a press that missed. */
+  const assignReportsTo = async (personId: number, managerId: number | null) => {
+    const person = allStaff.find((u) => u.id === personId);
+    setOrgSaving(personId);
+    const r = await api<{ ok?: boolean; manager_name?: string | null; error?: { message?: string } }>(
+      `/users/${personId}/reports-to`,
+      { method: "PUT", body: JSON.stringify({ reports_to: managerId }) },
+    );
+    setOrgSaving(null);
+    if (!r.ok) {
+      showToast(L("Not changed", "Tidak diubah"),
+        r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      return;
+    }
+    const patch = (list: Staff[]) => list.map((u) => (u.id === personId ? { ...u, reports_to: managerId } : u));
+    setAllStaff(patch);
+    setStaff(patch);
+    const who = person ? displayName(person) : L("That person", "Orang itu");
+    showToast(L("Reporting line set", "Garis pelaporan ditetapkan"),
+      managerId === null
+        ? `${who} — ${L("no longer on the chart", "tidak lagi pada carta")}`
+        : `${who} → ${r.data?.manager_name ?? ""}`);
+  };
 
   const save = async (id: number, name?: string) => {
     const d = draft[id];
@@ -908,6 +954,20 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
           is whole on the screen it is drawn on, and the page scrolls once. */}
       <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {/* v1.101.0 — Circle or Organisation. One segmented control rather
+            than a second tab: it is the same people, the same fetch and the
+            same permissions, and a box on the chart opens the same record
+            card the circle does. */}
+        <span className="border-border inline-flex h-8 items-center rounded-lg border p-0.5" role="group"
+          aria-label={L("How to show the staff", "Cara memaparkan kakitangan")}>
+          {([["circle", L("Circle", "Bulatan")], ["org", L("Organisation", "Organisasi")]] as const).map(([v, label]) => (
+            <button key={v} type="button" aria-pressed={view === v}
+              className={`inline-flex h-7 items-center rounded-[7px] px-2.5 text-xs font-medium transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
+              onClick={() => setView(v)}>
+              {label}
+            </button>
+          ))}
+        </span>
         {/* v1.94.0 — a disabled full-width button reading "Print selected
             badges (0)" was the first thing on the phone, every time. It
             appears when there is something to print. */}
@@ -971,7 +1031,17 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         @keyframes sd-pulse { 0%, 100% { opacity: .35; transform: scale(1) } 50% { opacity: .6; transform: scale(1.06) } }
         .sd-halo { animation: sd-pulse 4.5s ease-in-out infinite }
         @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble, .sd-orbit .sd-ring-dash, .sd-sweep, .sd-halo { animation: none } }`}</style>
-      {(() => {
+      {view === "org" && (
+        <OrgChart
+          people={staff}
+          loaded={loaded}
+          canAssign={canAssign && !readOnly}
+          saving={orgSaving}
+          onAssign={(personId, managerId) => { void assignReportsTo(personId, managerId); }}
+          onOpen={(u) => setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])))}
+        />
+      )}
+      {view === "circle" && (() => {
         const ordered = sortBy === "rank"
           ? staff
           : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));

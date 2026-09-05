@@ -85,6 +85,20 @@ export const PERMS: Record<string, readonly Role[]> = {
      TAB_ROLES.Hotels mirrors hotels_view. */
   hotels_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   hotels_manage: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
+
+  /* === the organisation chart (v1.101.0). CEO, 05-09-2026: "I want to add
+     infographic for each staff reported to who which is either CEO, COO or
+     CCO. I will assigned by myself and organized it based on who is their
+     HOD to make it like organisation."
+
+     Deliberately NARROWER than hr_manage, and deliberately without admin and
+     super_admin: who a person answers to is a statement about how the company
+     is run, and the CEO said he assigns it himself. He named the three who
+     may - the same three the lines terminate at. hr_admin fills in records;
+     it does not decide reporting lines. Everyone who can already see the
+     Staff tab SEES the chart, because a chart nobody may look at organises
+     nothing. Every change is audited with both names. */
+  org_assign: ["ceo", "coo", "cco"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {
