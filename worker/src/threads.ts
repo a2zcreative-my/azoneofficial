@@ -275,6 +275,30 @@ const MY_PLACES = /\b(malaysia|malaysian|kuala lumpur|kl|klcc|selangor|shah alam
 const MY_PRICE = /\b(rm\s?\d[\d,.]*|\d[\d,.]*\s?rm|ringgit)\b/gi;
 const MY_STRONG = /\b(tudung|bawal|korang|dorang|tapau|mamak|lepak|jom|takde|kompem|diskaun|percutian|tempahan|makcik|pakcik|jugak|sikit|kedai runcit|touch n go|tng|grabfood|shopee malaysia|lazada malaysia|jakim|halal jakim|ptptn|epf|kwsp|myvi|proton|perodua)\b/gi;
 
+/* v1.98.0 — is the writer LOOKING for the thing or OFFERING it. Demand reads
+   as a question with an ask in it; supply reads as an offer with a price, a
+   stock line or a way to order. The same keyword sits in both, which is why
+   a count of the keyword alone was never going to be a demand study. */
+const ASK_WORDS = /\b(recommend|recommendation|recommendations|suggest|suggestion|suggestions|anyone|any one|anybody|sesiapa|sape|siapa|ada tak|ada tau|ada yang|mana nak|mana boleh|where to|where can|which one|yang mana|cadang|cadangan|tolong|help me|need help|looking for|nak cari|cari|carik|nak beli|want to buy|how much|berapa|harga berapa|worth it|okay tak|ok tak|bagus tak|elok tak|sedap tak|any idea|apa pendapat|pendapat korang|review|tips|tip)\b/i;
+const OFFER_WORDS = /\b(ready stock|readystock|stok ada|in stock|restock|new arrival|koleksi baru|promo|promosi|diskaun|discount|sale|offer|harga|price|rm ?\d|free postage|free shipping|pos percuma|cod|dm|whatsapp|wasap|ws|pm|order|tempah|tempahan|booking|book now|link|shopee|tiktok shop|lazada|beli sekarang|grab now|limited|terhad|open order|preorder|pre-order|ready to ship|checkout)\b/i;
+
+export type Intent = "asking" | "selling" | "other";
+
+export function intentOf(text: string | null | undefined): Intent {
+  const t = (text ?? "").toLowerCase();
+  if (!t) return "other";
+  const asks = (t.match(new RegExp(ASK_WORDS.source, "gi")) ?? []).length;
+  const offers = (t.match(new RegExp(OFFER_WORDS.source, "gi")) ?? []).length;
+  const question = t.includes("?");
+  /* A question with an ask in it is demand even if it names a price ("RM39
+     worth it?"). An offer needs either two selling signals or one plus a
+     price - one "link" in a sentence is not a shop. */
+  if (question && asks >= 1 && asks >= offers - 1) return "asking";
+  if (offers >= 2 || (offers >= 1 && /\brm ?\d/.test(t))) return "selling";
+  if (asks >= 2) return "asking";
+  return "other";
+}
+
 export interface MalaysiaSignal { my_signal: number; my_reasons: string | null }
 
 /** What the text itself gives away about being Malaysian - Threads says
@@ -756,6 +780,19 @@ async function runTopicSearch(
       .bind(topic.id, actorId, (r.data.data ?? []).length).run();
   }
   const posts = [...seen.values()];
+  /* v1.98.0 — the one observation worth making about a harvest: when every
+     post that came back belongs to an account connected to THIS app, Meta is
+     answering in Development mode, which only sees the app's own testers.
+     Said on the topic in plain words, not red, so nobody concludes the niche
+     is one person. */
+  let lastNote: string | null = null;
+  if (posts.length) {
+    const { results: ours } = await env.DB.prepare(`SELECT lower(username) AS u FROM threads_accounts WHERE is_active = 1`).all<{ u: string }>();
+    const mine = new Set(ours.map((r) => r.u));
+    if (posts.every((p) => p.username && mine.has(p.username.toLowerCase()))) {
+      lastNote = `All ${posts.length} post${posts.length === 1 ? "" : "s"} returned belong to accounts connected to this app. That is what a Meta app in Development mode returns - it only sees its own testers. Switch the app to Live in the Meta dashboard (App Mode, top of the page) to search everyone.`;
+    }
+  }
   const stmts = posts.map((p) => {
     const mt = p.media_type ?? "TEXT_POST";
     const tr = postTraits(p.text, mt);
@@ -765,19 +802,19 @@ async function runTopicSearch(
     return env.DB.prepare(
       `INSERT INTO threads_topic_posts (topic_id, media_id, username, text, permalink, media_type, published_at,
                                         char_count, has_number_hook, has_question_hook, has_cta, has_media, language_guess,
-                                        my_signal, my_reasons)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                        my_signal, my_reasons, intent)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
        ON CONFLICT (topic_id, media_id) DO NOTHING`,
     ).bind(
       topic.id, String(p.id), p.username ?? null, p.text ?? null, p.permalink ?? null, mt,
       p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 19).replace("T", " ") : null,
       tr.char_count, tr.has_number_hook, tr.has_question_hook, tr.has_cta, tr.has_media, tr.language_guess,
-      my.my_signal, my.my_reasons ?? "",
+      my.my_signal, my.my_reasons ?? "", intentOf(p.text),
     );
   });
   stmts.push(
-    env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?2 WHERE id = ?1`)
-      .bind(topic.id, note),
+    env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?2, last_note = ?3 WHERE id = ?1`)
+      .bind(topic.id, note, lastNote),
   );
   const results = await env.DB.batch(stmts);
   /* New = rows the INSERTs actually wrote; a post seen last week is skipped
@@ -796,6 +833,9 @@ const STOP = new Set(("the a an and or but if of to in on for with at by from as
 
 export interface StudyFindings {
   posts: number;
+  /* v1.98.0 — demand vs supply, and the words the ASKING posts use */
+  intents: { asking: number; selling: number; other: number };
+  ask_words: { word: string; n: number }[];
   accounts: number;
   with_media: number;
   median_chars: number | null;
@@ -809,15 +849,25 @@ export interface StudyFindings {
 export function studyFindings(rows: {
   username: string | null; text: string | null; media_type: string | null; published_at: string | null;
   char_count: number; has_number_hook: number; has_question_hook: number; has_cta: number;
-  has_media: number; language_guess: string | null;
+  has_media: number; language_guess: string | null; intent?: Intent | null;
 }[]): StudyFindings {
   const n = rows.length;
+  const intents = { asking: 0, selling: 0, other: 0 };
+  const askWords = new Map<string, number>();
   const chars = rows.map((r) => r.char_count).filter((c) => c > 0).sort((a, b) => a - b);
   const lang = new Map<string, number>();
   const hours = new Map<number, number>();
   const words = new Map<string, number>();
   const buckets = { "under 120": 0, "120-300": 0, "300-500": 0, "over 500": 0 } as Record<string, number>;
   for (const r of rows) {
+    const it = r.intent ?? "other";
+    intents[it]++;
+    if (it === "asking") {
+      for (const w of (r.text ?? "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []) {
+        if (STOP.has(w)) continue;
+        askWords.set(w, (askWords.get(w) ?? 0) + 1);
+      }
+    }
     lang.set(r.language_guess ?? "?", (lang.get(r.language_guess ?? "?") ?? 0) + 1);
     if (r.published_at) {
       const h = (new Date(r.published_at.replace(" ", "T") + "Z").getUTCHours() + 8) % 24;
@@ -832,6 +882,8 @@ export function studyFindings(rows: {
   }
   return {
     posts: n,
+    intents,
+    ask_words: [...askWords.entries()].map(([word, k]) => ({ word, n: k })).sort((a, b) => b.n - a.n).slice(0, 20),
     accounts: new Set(rows.map((r) => r.username).filter(Boolean)).size,
     with_media: rows.filter((r) => r.has_media).length,
     median_chars: chars.length ? chars[Math.floor(chars.length / 2)]! : null,
@@ -967,11 +1019,12 @@ export async function handleThreads(
 
     if (path === "/topics" && method === "GET") {
       const { results } = await env.DB.prepare(
-        `SELECT t.id, t.label, t.query, t.search_type, t.last_run_at, t.last_error, t.created_at,
+        `SELECT t.id, t.label, t.query, t.search_type, t.last_run_at, t.last_error, t.last_note, t.created_at,
                 u.name AS created_by_name,
                 (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS posts,
                 (SELECT COUNT(DISTINCT p.username) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS accounts,
-                (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id AND p.my_signal = 1) AS my_posts
+                (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id AND p.my_signal = 1) AS my_posts,
+                (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id AND p.intent = 'asking') AS asking_posts
            FROM threads_topics t LEFT JOIN users u ON u.id = t.created_by
           WHERE t.is_active = 1 ORDER BY t.label`,
       ).all();
@@ -1076,35 +1129,43 @@ export async function handleThreads(
          country, so this is the whole basis, and the reasons travel with
          each row. */
       const onlyMy = params.get("my") === "1";
+      const intentQ = params.get("intent");
+      const wantIntent: Intent | null = intentQ === "asking" || intentQ === "selling" || intentQ === "other" ? intentQ : null;
       const { results } = await env.DB.prepare(
         `SELECT id, media_id, username, text, permalink, media_type, published_at, char_count,
                 has_number_hook, has_question_hook, has_cta, has_media, language_guess, found_at,
-                my_signal, my_reasons
+                my_signal, my_reasons, intent
            FROM threads_topic_posts WHERE topic_id = ?1
           ORDER BY published_at DESC NULLS LAST, found_at DESC LIMIT 500`,
       ).bind(topicId).all<{
         id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
         media_type: string | null; published_at: string | null; char_count: number;
         has_number_hook: number; has_question_hook: number; has_cta: number; has_media: number;
-        language_guess: string | null; found_at: string; my_signal: number; my_reasons: string | null;
+        language_guess: string | null; found_at: string; my_signal: number; my_reasons: string | null; intent: Intent | null;
       }>();
       /* Rows harvested before 0108 (my_reasons NULL) are scored now, once,
          and the score is written back so the next open reads it. */
-      const unscored = results.filter((r) => r.my_reasons === null);
+      const unscored = results.filter((r) => r.my_reasons === null || r.intent === null);
       if (unscored.length) {
         const fixes = unscored.slice(0, 100).map((r) => {
           const tr = postTraits(r.text, r.media_type ?? "TEXT_POST");
           const my = malaysiaSignal(r.text, tr.language_guess);
           r.language_guess = tr.language_guess; r.my_signal = my.my_signal; r.my_reasons = my.my_reasons ?? "";
-          return env.DB.prepare(`UPDATE threads_topic_posts SET my_signal = ?1, my_reasons = ?2, language_guess = ?3 WHERE id = ?4`)
-            .bind(r.my_signal, r.my_reasons, r.language_guess, r.id);
+          r.intent = intentOf(r.text);
+          return env.DB.prepare(`UPDATE threads_topic_posts SET my_signal = ?1, my_reasons = ?2, language_guess = ?3, intent = ?5 WHERE id = ?4`)
+            .bind(r.my_signal, r.my_reasons, r.language_guess, r.id, r.intent);
         });
         await env.DB.batch(fixes);
       }
       const my_total = results.filter((r) => r.my_signal).length;
-      const scoped = onlyMy ? results.filter((r) => r.my_signal) : results;
+      const scopedMy = onlyMy ? results.filter((r) => r.my_signal) : results;
+      /* The intent counts are of the Malaysia-scoped set, so the chips add up
+         to what is on screen before the intent chip narrows it further. */
+      const intents = { asking: 0, selling: 0, other: 0 } as Record<Intent, number>;
+      for (const r of scopedMy) intents[r.intent ?? "other"]++;
+      const scoped = wantIntent ? scopedMy.filter((r) => (r.intent ?? "other") === wantIntent) : scopedMy;
       const rows = qtext ? scoped.filter((r) => (r.text ?? "").toLowerCase().includes(qtext)) : scoped;
-      return json({ posts: rows, findings: studyFindings(rows), total: results.length, my_total, only_my: onlyMy });
+      return json({ posts: rows, findings: studyFindings(rows), total: results.length, my_total, only_my: onlyMy, intents, intent: wantIntent });
     }
 
     /* ---- summary: the brief at the top of the tab ---- */

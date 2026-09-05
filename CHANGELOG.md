@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.98.0] — 2026-09-05 — who is ASKING for it, and who is selling it
+
+**CEO**: *"I want study case posting which is for me to find if there is anyone users in Malaysia looking for the keywords or posting that the keywords that I want to find so that I can do some research on the requirement and demand for my business study!!!!!"*
+
+### Demand reads differently from supply
+A person **looking** for a tudung writes a question with an ask in it — *ada tak, mana nak cari, any recommendation, berapa harga, worth it?* A person **selling** one writes an offer — *ready stock, RM 39, DM to order, free postage*. Both contain the keyword, so counting the keyword was never going to be a demand study. Every harvested post is now read for its intent at harvest — **asking**, **selling** or **other** — and the verdict is stored with the post (migration 0109; older rows are scored on first open).
+
+### On the Study section
+- **Asking / Selling / Any** chips beside Malaysia / All. *Asking* is the demand: Malaysians (with the Malaysia switch on) who want the thing your keywords name. Counts on each chip.
+- Each post is tagged *asking* or *selling*; the topic line says "… · 7 asking".
+- "What this niche does" opens with **Asking or selling** — the three-way split — and **What the asking posts say**: the words the demand posts use, each a button that filters to those posts. That list is the requirement, in the customers' own words.
+- The empty state for *Asking* is honest: *"Nobody in this harvest is asking for it… demand is not showing on Threads for these words yet."* That is a finding too.
+- CSV gains an *Asking or selling* column.
+
+### Why the harvest is one post, said on the topic
+When **every** post a search returns belongs to an account connected to this app, the topic now carries an amber note (not red — it is not an error): that is what a Meta app in **Development mode** returns; it only sees its own testers. Switching the app to **Live** in the Meta dashboard is what opens the search to everyone. Until then the Study section is fully built and waiting.
+
+Guard #35 grows to 38 checks: nine intent sentences (asking, selling, other), a question that names a price is still a question, one stray "link" is not a shop, storage and backfill, the chips, the note. Negative-tested.
+
 ## [1.97.1] — 2026-09-05 — a base salary change reaches the month on screen
 
 **CEO**, on the Payroll tab: *"Base salaries was not sync with staff table Basic! then Net why didnt correcly count? this is something that bug or wrong flow!"*

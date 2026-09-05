@@ -76,7 +76,7 @@ interface Summary {
 interface Topic {
   id: number; label: string; query: string; search_type: string;
   last_run_at: string | null; last_error: string | null; created_by_name: string | null;
-  posts: number; accounts: number; my_posts?: number;
+  posts: number; accounts: number; my_posts?: number; asking_posts?: number; last_note?: string | null;
 }
 interface StudyPost {
   id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
@@ -85,6 +85,7 @@ interface StudyPost {
   language_guess: string | null; found_at: string;
   /* v1.97.0 — what the text gives away about being Malaysian, and why */
   my_signal?: number; my_reasons?: string | null;
+  intent?: Intent | null;
 }
 interface Findings {
   posts: number; accounts: number; with_media: number; median_chars: number | null;
@@ -93,7 +94,11 @@ interface Findings {
   hours: { hour: number; n: number }[];
   traits: { number_hook: number; question_hook: number; cta: number };
   words: { word: string; n: number }[];
+  /* v1.98.0 — demand vs supply */
+  intents?: { asking: number; selling: number; other: number };
+  ask_words?: { word: string; n: number }[];
 }
+type Intent = "asking" | "selling" | "other";
 interface Quota { used: number; left: number; cap: number }
 
 type Section = "overview" | "library" | "study" | "connection";
@@ -223,6 +228,10 @@ export function ThreadsPanel() {
      country, so "Malaysian" means the post itself says so. */
   const [onlyMy, setOnlyMy] = useState(true);
   const [myTotal, setMyTotal] = useState(0);
+  /* v1.98.0 (CEO: "find if there is anyone users in Malaysia looking for the
+     keywords") — asking / selling / all. Demand is the asking posts. */
+  const [intent, setIntent] = useState<Intent | null>(null);
+  const [intents, setIntents] = useState<{ asking: number; selling: number; other: number } | null>(null);
   const [studyTotal, setStudyTotal] = useState(0);
   const [newTopic, setNewTopic] = useState({ label: "", query: "", search_type: "keyword" });
   const [searching, setSearching] = useState(false);
@@ -295,15 +304,15 @@ export function ThreadsPanel() {
   const loadStudy = useCallback(async () => {
     if (!topic) { setStudyPosts([]); setFindings(null); setStudyLoaded(true); return; }
     setStudyLoaded(false);
-    const r = await api<{ posts: StudyPost[]; findings: Findings; total?: number; my_total?: number }>(
-      `/study?topic=${topic}${onlyMy ? "&my=1" : ""}${studyQ ? `&q=${encodeURIComponent(studyQ)}` : ""}`,
+    const r = await api<{ posts: StudyPost[]; findings: Findings; total?: number; my_total?: number; intents?: { asking: number; selling: number; other: number } }>(
+      `/study?topic=${topic}${onlyMy ? "&my=1" : ""}${intent ? `&intent=${intent}` : ""}${studyQ ? `&q=${encodeURIComponent(studyQ)}` : ""}`,
     );
     if (r.ok && r.data) {
       setStudyPosts(r.data.posts ?? []); setFindings(r.data.findings ?? null);
-      setMyTotal(r.data.my_total ?? 0); setStudyTotal(r.data.total ?? 0);
+      setMyTotal(r.data.my_total ?? 0); setStudyTotal(r.data.total ?? 0); setIntents(r.data.intents ?? null);
     } else { setStudyPosts([]); setFindings(null); }
     setStudyLoaded(true);
-  }, [topic, studyQ, onlyMy]);
+  }, [topic, studyQ, onlyMy, intent]);
   useEffect(() => { if (section === "study") void loadStudy(); }, [section, loadStudy]);
 
   const addTopic = async () => {
@@ -370,12 +379,12 @@ export function ThreadsPanel() {
       [],
       [L("Published (MYT)", "Disiarkan (MYT)"), L("Account", "Akaun"), L("Type", "Jenis"), L("Language", "Bahasa"),
        L("Characters", "Aksara"), L("Number hook", "Cangkuk nombor"), L("Question hook", "Cangkuk soalan"),
-       L("Call to action", "Ajakan bertindak"), L("Malaysian", "Malaysia"), L("Why", "Sebab"), L("Link", "Pautan"), L("Text", "Teks")],
+       L("Call to action", "Ajakan bertindak"), L("Malaysian", "Malaysia"), L("Why", "Sebab"), L("Asking or selling", "Bertanya atau menjual"), L("Link", "Pautan"), L("Text", "Teks")],
       ...studyPosts.map((p) => [
         dmyMYT(p.published_at), p.username ? `@${p.username}` : "", typeLabel(p.media_type ?? ""),
         p.language_guess ?? "", p.char_count,
         p.has_number_hook ? "yes" : "", p.has_question_hook ? "yes" : "", p.has_cta ? "yes" : "",
-        p.my_signal ? "yes" : "", p.my_reasons ?? "",
+        p.my_signal ? "yes" : "", p.my_reasons ?? "", p.intent ?? "",
         p.permalink ?? "", p.text ?? "",
       ]),
     ]);
@@ -835,6 +844,7 @@ export function ThreadsPanel() {
                     {t.last_run_at ? ` · ${L("last run", "kali terakhir")} ${dmyMYT(t.last_run_at)}` : ` · ${L("never run", "belum dijalankan")}`}
                     {t.accounts > 0 ? ` · ${t.accounts} ${L("accounts", "akaun")}` : ""}
                     {t.posts > 0 ? ` · ${t.my_posts ?? 0} ${L("of", "daripada")} ${t.posts} ${L("read as Malaysian", "dibaca sebagai Malaysia")}` : ""}
+                    {t.posts > 0 ? ` · ${t.asking_posts ?? 0} ${L("asking", "bertanya")}` : ""}
                   </span>
                   {canManage && (
                     <>
@@ -847,6 +857,10 @@ export function ThreadsPanel() {
                     </>
                   )}
                   {t.last_error && <span className="text-danger">{t.last_error}</span>}
+                  {t.last_note && !t.last_error && (
+                    /* v1.98.0 — an observation, not an error: amber, in full. */
+                    <span className="bg-warning-soft text-warning basis-full rounded-lg px-2.5 py-1.5" role="status">{t.last_note}</span>
+                  )}
                 </div>
               );
             })()}
@@ -869,6 +883,29 @@ export function ThreadsPanel() {
                       {findings.posts} {L("posts", "hantaran")} · {findings.accounts} {L("accounts", "akaun")}
                       {findings.median_chars != null && ` · ${L("median", "median")} ${findings.median_chars} ${L("characters", "aksara")}`}
                     </p>
+                    {findings.intents && (
+                      <div>
+                        <p className="mb-1 font-medium">{L("Asking or selling", "Bertanya atau menjual")}</p>
+                        <ul className="space-y-1">
+                          <Bar label={L("asking for it", "mencarinya")} n={findings.intents.asking} of={findings.posts} />
+                          <Bar label={L("selling it", "menjualnya")} n={findings.intents.selling} of={findings.posts} />
+                          <Bar label={L("just mention", "sekadar sebut")} n={findings.intents.other} of={findings.posts} />
+                        </ul>
+                        {(findings.ask_words?.length ?? 0) > 0 && (
+                          <>
+                            <p className="text-muted-foreground mt-1.5 mb-1">{L("What the asking posts say", "Apa kata hantaran yang bertanya")}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {findings.ask_words!.slice(0, 16).map((w) => (
+                                <button key={w.word} type="button" className="bg-warning-soft text-warning rounded-full px-2 py-0.5 text-[11px]"
+                                  onClick={() => { setIntent("asking"); setStudyQ(w.word); }} title={`${w.n}×`}>
+                                  {w.word} <span className="opacity-70">{w.n}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                     <div>
                       <p className="mb-1 font-medium">{L("How they open", "Cara mereka mula")}</p>
                       <ul className="space-y-1">
@@ -932,6 +969,18 @@ export function ThreadsPanel() {
                         {L("All", "Semua")} {studyLoaded ? `(${studyTotal})` : ""}
                       </button>
                     </span>
+                    {/* v1.98.0 — demand vs supply. "Asking" is the posts where somebody
+                        wants the thing; "Selling" where somebody offers it. */}
+                    <span className="bg-secondary inline-flex rounded-full p-0.5 text-[11px]" role="group" aria-label={L("Asking or selling", "Bertanya atau menjual")}
+                      title={L("Asking: the writer is looking for it - a question with an ask in it (ada tak, any recommendation, berapa harga). Selling: the writer offers it - a price, ready stock, a way to order.",
+                               "Bertanya: penulis mencarinya - soalan dengan permintaan (ada tak, any recommendation, berapa harga). Menjual: penulis menawarkannya - harga, ready stock, cara memesan.")}>
+                      {([["asking", L("Asking", "Bertanya")], ["selling", L("Selling", "Menjual")], [null, L("Any", "Mana-mana")]] as [Intent | null, string][]).map(([k, label]) => (
+                        <button key={String(k)} type="button" aria-pressed={intent === k} onClick={() => setIntent(k)}
+                          className={`rounded-full px-2.5 py-1 font-medium transition-colors ${intent === k ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+                          {label} {studyLoaded && intents ? `(${k ? intents[k] : intents.asking + intents.selling + intents.other})` : ""}
+                        </button>
+                      ))}
+                    </span>
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5">
                     <input className={`${inputClassSm} w-40`} value={studyQ}
@@ -952,6 +1001,11 @@ export function ThreadsPanel() {
                 ) : studyPosts.length === 0 ? (
                   <p className="text-muted-foreground mt-2 text-xs">
                     {studyQ ? L("No post here uses that word.", "Tiada hantaran menggunakan perkataan itu.")
+                      : intent && (intents ? intents.asking + intents.selling + intents.other : 0) > 0
+                        ? (intent === "asking"
+                            ? L("Nobody in this harvest is asking for it - every post either sells it or just mentions it. That is a finding too: demand is not showing on Threads for these words yet.",
+                                "Tiada siapa dalam hasil ini yang bertanya - setiap hantaran menjual atau sekadar menyebutnya. Itu juga penemuan: permintaan belum kelihatan di Threads untuk perkataan ini.")
+                            : L("No post here reads as selling.", "Tiada hantaran di sini dibaca sebagai menjual."))
                       : onlyMy && studyTotal > 0 ? L(`None of the ${studyTotal} posts reads as Malaysian. Switch to All to see them, or search in Malay words - the words themselves pick Malaysian posts.`,
                                                      `Tiada satu pun daripada ${studyTotal} hantaran dibaca sebagai Malaysia. Tukar ke Semua untuk melihatnya, atau cari dengan perkataan Melayu - perkataan itu sendiri memilih hantaran Malaysia.`)
                       : L("Nothing collected yet — press Search now.", "Belum ada yang dikumpul — tekan Cari sekarang.")}
@@ -967,6 +1021,11 @@ export function ThreadsPanel() {
                               {p.username ? `@${p.username}` : L("unknown", "tidak diketahui")}
                               {p.my_signal ? (
                                 <span className="bg-success-soft text-success rounded-full px-1.5 py-px text-[10px] font-semibold" title={p.my_reasons || undefined}>MY</span>
+                              ) : null}
+                              {p.intent === "asking" ? (
+                                <span className="bg-warning-soft text-warning rounded-full px-1.5 py-px text-[10px] font-semibold">{L("asking", "bertanya")}</span>
+                              ) : p.intent === "selling" ? (
+                                <span className="bg-secondary text-muted-foreground rounded-full px-1.5 py-px text-[10px] font-semibold">{L("selling", "menjual")}</span>
                               ) : null}
                             </span>
                             <span className="text-muted-foreground text-[11px]">

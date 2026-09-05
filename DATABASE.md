@@ -389,3 +389,16 @@ study route scores them on first open). Nothing about a person is looked up.
 | Version | Change |
 |---|---|
 | v1.97.0 | 0108 — my_signal + my_reasons on threads_topic_posts, index by topic and signal. |
+
+## v1.98.0 — migration 0109_threads_intent.sql
+threads_topic_posts.intent: asking (the writer wants the thing — a question
+with an ask in it), selling (the writer offers it — a price, ready stock, a way
+to order) or other; NULL = not scored yet, scored on first open like 0108.
+threads_topics.last_note: a plain observation about the last run that is not
+an error — the one it exists for is "every post returned belongs to an account
+connected to this app", which is what a Meta app still in Development mode
+returns. Index by topic and intent.
+
+| Version | Change |
+|---|---|
+| v1.98.0 | 0109 — intent on threads_topic_posts, last_note on threads_topics. |

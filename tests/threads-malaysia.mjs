@@ -63,6 +63,36 @@ ok("an English post about Malaysia still counts (place + RM)", malaysiaSignal(MY
 ok("empty text is nothing, not Malaysian", malaysiaSignal("", null).my_signal === 0 && malaysiaSignal(null, null).my_reasons === null);
 ok("a verdict always says why", MY.every((t) => /RM price|Malay|Malaysian word|kl|langkawi|johor/i.test(malaysiaSignal(t, postTraits(t, "TEXT_POST").language_guess).my_reasons ?? "")));
 
+/* ---- 1b. v1.98.0: asking or selling (demand vs supply) ---- */
+const { intentOf } = await import(pathToFileURL(out).href);
+const ASKING = [
+  "Ada tak hotel murah dekat Johor Bahru untuk family? Cadangan please",
+  "Anyone can recommend tudung bawal yang tak jarang? Berapa harga biasanya?",
+  "Mana nak cari shawl chiffon yang tak licin? Tolong",
+  "Is the RM39 tudung from that brand worth it? Any review?",
+  "Hotel dekat Penang yang ok tak?",
+];
+const SELLING = [
+  "Tudung bawal ready stock, RM 39 free postage. DM untuk order!",
+  "PROMO hari ini: staycation KL RM180 semalam, WhatsApp to book now",
+  "New arrival shawl chiffon, link kat bio, pos percuma",
+];
+const OTHER = [
+  "Pakai tudung hari ni sebab hujan.",
+  "Checked in at the hotel, the view is nice.",
+];
+for (const t of ASKING) ok(`asking: "${t.slice(0, 40)}…"`, intentOf(t) === "asking", `got ${intentOf(t)}`);
+for (const t of SELLING) ok(`selling: "${t.slice(0, 40)}…"`, intentOf(t) === "selling", `got ${intentOf(t)}`);
+for (const t of OTHER) ok(`other: "${t.slice(0, 40)}…"`, intentOf(t) === "other", `got ${intentOf(t)}`);
+ok("a question that names a price is still a question (demand)", intentOf(ASKING[3]) === "asking");
+ok("one stray 'link' in a sentence is not a shop", intentOf("Here is the link to the article I mentioned.") !== "selling");
+ok("the intent is stored at harvest and backfilled on open", /intentOf\(p\.text\),/.test(src) && /r\.intent = intentOf\(r\.text\);/.test(src));
+ok("the study route can scope to asking or selling", /params\.get\("intent"\)/.test(src) && /intents\[r\.intent \?\? "other"\]\+\+/.test(src));
+ok("a harvest made only of the app's own testers is said in words, not painted red",
+   /Development mode/.test(src) && /last_note = \?3/.test(src) && /t\.last_note && !t\.last_error/.test(panel));
+ok("the panel offers Asking / Selling / Any and tags each post", /\["asking", L\("Asking", "Bertanya"\)\]/.test(panel) && /p\.intent === "asking"/.test(panel));
+ok("the findings show demand first, with the asking posts' words", /findings\.intents\.asking/.test(panel) && /findings\.ask_words!/.test(panel));
+
 /* ---- 2. properties of the source ---- */
 ok("the signal is computed from text alone",
    /export function malaysiaSignal\(text: string \| null \| undefined, languageGuess: string \| null\)/.test(src),
@@ -70,7 +100,7 @@ ok("the signal is computed from text alone",
 ok("nothing about a person is fetched to decide it",
    !/graph[^\n]*\/(profile|location|country|me\?)/.test(src) && !/fields=[^"`]*(location|country|city)/.test(src),
    "OD-20a: the study reads public posts, it does not look people up");
-ok("the reason is stored beside the verdict", /my_signal, my_reasons\)/.test(src) && /my\.my_signal, my\.my_reasons \?\? ""/.test(src),
+ok("the reason is stored beside the verdict", /my_signal, my_reasons(, intent)?\)/.test(src) && /my\.my_signal, my\.my_reasons \?\? ""/.test(src),
    "a number nobody can check is a number nobody should trust");
 ok("Indonesian pulls the score down, by name", /reads Indonesian/.test(src) && /const ID_ONLY = \//.test(src));
 ok("the study route can scope to Malaysian posts", /params\.get\("my"\) === "1"/.test(src) && /my_total/.test(src));
@@ -84,6 +114,12 @@ ok("the migration exists and adds both columns", (() => {
     return /ADD COLUMN my_signal INTEGER NOT NULL DEFAULT 0/.test(m) && /ADD COLUMN my_reasons TEXT/.test(m);
   } catch { return false; }
 })());
+ok("migration 0109 adds intent and last_note", (() => {
+  try {
+    const m = readFileSync(join(root, "worker/migrations/0109_threads_intent.sql"), "utf8");
+    return /ADD COLUMN intent TEXT/.test(m) && /ADD COLUMN last_note TEXT/.test(m);
+  } catch { return false; }
+})());
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }
-console.log(`PASS — Malaysian is read off the post, with its reason, never off the person (${passed} checks)`);
+console.log(`PASS — Malaysian is read off the post with its reason, asking is told from selling, and nobody is looked up (${passed} checks)`);
