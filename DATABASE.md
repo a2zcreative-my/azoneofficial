@@ -348,3 +348,19 @@ day). Nothing here is written by a person; drafts and publishing arrive in
 | Version | Change |
 |---|---|
 | v1.89.0 | 0105 — four Threads tables; the token stays in integration_tokens. |
+
+## v1.96.0 — migration 0106_threads_study.sql
+Study cases: what OTHER people post about a subject. threads_topics (a saved
+subject: label, the words to search for, keyword or topic tag, who added it,
+when it was last run), threads_topic_posts (public posts harvested for a
+topic, deduped per topic by media_id, carrying the same plain trait columns
+0105 computes for our own posts — char_count, number/question hook, CTA,
+media, language) and threads_searches (one row per call to the keyword
+search, for the rolling 7-day quota count). No view column anywhere: insights
+belong to the account that owns a post, so a stranger's post carries words,
+author, time, format and link and nothing else.
+
+| Version | Change |
+|---|---|
+| v1.96.0 | 0106 — three study-case tables; no metrics on other people's posts. |
+

@@ -64,7 +64,17 @@ import { can } from "./permissions";
  * parameters, and /connect?show=1 prints what they were. */
 const AUTH_URL = "https://www.threads.com/oauth/authorize";
 const GRAPH = "https://graph.threads.net";
-const SCOPES = "threads_basic,threads_content_publish,threads_manage_insights";
+/* v1.96.0 — threads_keyword_search joins the list for the study cases. An
+   account connected BEFORE this release holds a token without it, and the
+   search answers 403 until it is reconnected; the tab says so rather than
+   showing an empty result and letting somebody conclude the niche is
+   quiet. */
+const SCOPES = "threads_basic,threads_content_publish,threads_manage_insights,threads_keyword_search";
+/* Meta allows roughly 500 keyword searches per rolling 7 days for the whole
+   app. We stop at 450: the last fifty are the difference between a quota
+   that runs out on a Tuesday and one that answers when somebody needs it. */
+const SEARCH_WEEK_CAP = 450;
+const SEARCH_FIELDS = "id,text,username,permalink,timestamp,media_type";
 const PAGE = 100;
 /** Fields we ask for on a post. `is_reply` is the newest of these; a server
     that does not know it answers with a field error, and the import falls
@@ -572,6 +582,144 @@ export function baselines(posts: { id: number; published_at: string; views: numb
 
 const iso = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
 
+/* ------------------------------------------------------------------ *
+ * Study cases — what OTHER people post about a subject
+ * ------------------------------------------------------------------ */
+
+/** Searches spent in the last rolling 7 days, and what is left. */
+async function searchQuota(env: Env): Promise<{ used: number; left: number; cap: number }> {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM threads_searches WHERE ran_at > datetime('now', '-7 days')`,
+    ).first<{ n: number }>();
+    const used = r?.n ?? 0;
+    return { used, left: Math.max(0, SEARCH_WEEK_CAP - used), cap: SEARCH_WEEK_CAP };
+  } catch {
+    return { used: 0, left: SEARCH_WEEK_CAP, cap: SEARCH_WEEK_CAP };
+  }
+}
+
+interface FoundPost {
+  id: string; text?: string; username?: string; permalink?: string;
+  timestamp?: string; media_type?: string;
+}
+
+/**
+ * One keyword search, stored. Returns how many posts were NEW.
+ *
+ * The token belongs to a connected account — any of them; the search is not
+ * about that account, it only needs a credential to ask with. A 403 here is
+ * almost always the missing threads_keyword_search scope on a token minted
+ * before v1.96.0, so that reason is passed through verbatim rather than
+ * flattened into "search failed".
+ */
+async function runTopicSearch(
+  env: Env, topic: { id: number; query: string; search_type: string }, tok: string, actorId: number,
+): Promise<{ ok: true; found: number; scanned: number } | { ok: false; reason: string; needs_reconnect: boolean }> {
+  const r = await graph<{ data?: FoundPost[] }>(
+    q(`${GRAPH}/v1.0/keyword_search`, {
+      q: topic.query,
+      search_type: topic.search_type === "tag" ? "TAG" : "KEYWORD",
+      fields: SEARCH_FIELDS,
+      access_token: tok,
+    }),
+  );
+  if (!r.ok) {
+    const needs = /permission|scope|oauth|access/i.test(r.message) || r.code === 10 || r.code === 190 || r.code === 200;
+    await env.DB.prepare(
+      `INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, 0, 0)`,
+    ).bind(topic.id, actorId).run();
+    await env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?1 WHERE id = ?2`)
+      .bind(r.message.slice(0, 300), topic.id).run();
+    return { ok: false, reason: r.message, needs_reconnect: needs };
+  }
+  const posts = (r.data.data ?? []).filter((p) => p.id);
+  const stmts = posts.map((p) => {
+    const mt = p.media_type ?? "TEXT_POST";
+    const tr = postTraits(p.text, mt);
+    return env.DB.prepare(
+      `INSERT INTO threads_topic_posts (topic_id, media_id, username, text, permalink, media_type, published_at,
+                                        char_count, has_number_hook, has_question_hook, has_cta, has_media, language_guess)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+       ON CONFLICT (topic_id, media_id) DO NOTHING`,
+    ).bind(
+      topic.id, String(p.id), p.username ?? null, p.text ?? null, p.permalink ?? null, mt,
+      p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 19).replace("T", " ") : null,
+      tr.char_count, tr.has_number_hook, tr.has_question_hook, tr.has_cta, tr.has_media, tr.language_guess,
+    );
+  });
+  stmts.push(
+    env.DB.prepare(`INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, ?3, 1)`)
+      .bind(topic.id, actorId, posts.length),
+    env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = NULL WHERE id = ?1`)
+      .bind(topic.id),
+  );
+  if (stmts.length) await env.DB.batch(stmts);
+  return { ok: true, found: posts.length, scanned: posts.length };
+}
+
+/** Words worth counting: everything that is not scaffolding in either
+    language. Deliberately a plain list — a topic model would be an opinion,
+    and what the CEO asked for is what the niche SAYS. */
+const STOP = new Set(("the a an and or but if of to in on for with at by from as is are was were be been this that these those it its "
+  + "you your we our they their he she i me my not no yes do does did so than then there here what which who how why when "
+  + "yang dan atau untuk dengan pada di ke dari ini itu saya kita kami anda mereka dia tak tidak ada adalah akan sudah dah "
+  + "nak boleh kalau sebab macam pun je lah kan lagi satu dua orang buat kena bila apa siapa mana bagi oleh juga saja").split(" "));
+
+export interface StudyFindings {
+  posts: number;
+  accounts: number;
+  with_media: number;
+  median_chars: number | null;
+  languages: { code: string; n: number }[];
+  lengths: { bucket: string; n: number }[];
+  hours: { hour: number; n: number }[];
+  traits: { number_hook: number; question_hook: number; cta: number };
+  words: { word: string; n: number }[];
+}
+
+export function studyFindings(rows: {
+  username: string | null; text: string | null; media_type: string | null; published_at: string | null;
+  char_count: number; has_number_hook: number; has_question_hook: number; has_cta: number;
+  has_media: number; language_guess: string | null;
+}[]): StudyFindings {
+  const n = rows.length;
+  const chars = rows.map((r) => r.char_count).filter((c) => c > 0).sort((a, b) => a - b);
+  const lang = new Map<string, number>();
+  const hours = new Map<number, number>();
+  const words = new Map<string, number>();
+  const buckets = { "under 120": 0, "120-300": 0, "300-500": 0, "over 500": 0 } as Record<string, number>;
+  for (const r of rows) {
+    lang.set(r.language_guess ?? "?", (lang.get(r.language_guess ?? "?") ?? 0) + 1);
+    if (r.published_at) {
+      const h = (new Date(r.published_at.replace(" ", "T") + "Z").getUTCHours() + 8) % 24;
+      if (!Number.isNaN(h)) hours.set(h, (hours.get(h) ?? 0) + 1);
+    }
+    const c = r.char_count;
+    buckets[c < 120 ? "under 120" : c < 300 ? "120-300" : c <= 500 ? "300-500" : "over 500"]!++;
+    for (const w of (r.text ?? "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []) {
+      if (STOP.has(w)) continue;
+      words.set(w, (words.get(w) ?? 0) + 1);
+    }
+  }
+  return {
+    posts: n,
+    accounts: new Set(rows.map((r) => r.username).filter(Boolean)).size,
+    with_media: rows.filter((r) => r.has_media).length,
+    median_chars: chars.length ? chars[Math.floor(chars.length / 2)]! : null,
+    languages: [...lang.entries()].map(([code, k]) => ({ code, n: k })).sort((a, b) => b.n - a.n),
+    lengths: Object.entries(buckets).map(([bucket, k]) => ({ bucket, n: k })),
+    hours: [...hours.entries()].map(([hour, k]) => ({ hour, n: k })).sort((a, b) => a.hour - b.hour),
+    traits: {
+      number_hook: rows.filter((r) => r.has_number_hook).length,
+      question_hook: rows.filter((r) => r.has_question_hook).length,
+      cta: rows.filter((r) => r.has_cta).length,
+    },
+    words: [...words.entries()].filter(([, k]) => k > 1).map(([word, k]) => ({ word, n: k }))
+      .sort((a, b) => b.n - a.n).slice(0, 30),
+  };
+}
+
 export async function handleThreads(
   env: Env,
   path: string, // stripped of /threads, starts with / (or is empty)
@@ -679,6 +827,113 @@ export async function handleThreads(
         total,
         months: [...new Set(results.map((p) => p.published_at.slice(0, 7)))].sort().reverse(),
       });
+    }
+
+    /* ================= study cases ================= *
+     * Reading a harvest is threads_view - the whole marketing floor should
+     * be able to look. SPENDING a search, and creating or removing a topic,
+     * is threads_manage: the quota is one shared allowance for the app, and
+     * an allowance anyone can empty is an allowance nobody can rely on.
+     * ============================================================= */
+
+    if (path === "/topics" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT t.id, t.label, t.query, t.search_type, t.last_run_at, t.last_error, t.created_at,
+                u.name AS created_by_name,
+                (SELECT COUNT(*) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS posts,
+                (SELECT COUNT(DISTINCT p.username) FROM threads_topic_posts p WHERE p.topic_id = t.id) AS accounts
+           FROM threads_topics t LEFT JOIN users u ON u.id = t.created_by
+          WHERE t.is_active = 1 ORDER BY t.label`,
+      ).all();
+      return json({ topics: results ?? [], quota: await searchQuota(env), can_manage: manage });
+    }
+
+    if (path === "/topics" && method === "POST") {
+      if (!manage) return err("forbidden", "Only management adds a study topic", 403);
+      const label = typeof body?.label === "string" ? body.label.trim().slice(0, 60) : "";
+      const query = typeof body?.query === "string" ? body.query.trim().slice(0, 100) : "";
+      const type = body?.search_type === "tag" ? "tag" : "keyword";
+      if (!label || !query) return err("invalid_input", "A name and something to search for are both required", 400);
+      const row = await env.DB.prepare(
+        `INSERT INTO threads_topics (label, query, search_type, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+      ).bind(label, query, type, user.id).first<{ id: number }>();
+      await audit(env, user.id, "threads.topic_add", "threads_topics", String(row?.id), { label, query, search_type: type });
+      return json({ ok: true, id: row?.id }, 201);
+    }
+
+    {
+      const m = path.match(/^\/topics\/(\d+)$/);
+      if (m && method === "DELETE") {
+        if (!manage) return err("forbidden", "Only management removes a study topic", 403);
+        const id = Number(m[1]);
+        const t = await env.DB.prepare(`SELECT label FROM threads_topics WHERE id = ?1`).bind(id).first<{ label: string }>();
+        if (!t) return err("not_found", "No such topic", 404);
+        /* The harvest goes with it: a topic nobody is studying is a table of
+           strangers' posts kept for no reason. */
+        await env.DB.batch([
+          env.DB.prepare(`DELETE FROM threads_topic_posts WHERE topic_id = ?1`).bind(id),
+          env.DB.prepare(`UPDATE threads_topics SET is_active = 0 WHERE id = ?1`).bind(id),
+        ]);
+        await audit(env, user.id, "threads.topic_remove", "threads_topics", String(id), { label: t.label });
+        return json({ ok: true });
+      }
+    }
+
+    {
+      const m = path.match(/^\/topics\/(\d+)\/search$/);
+      if (m && method === "POST") {
+        if (!manage) return err("forbidden", "Only management spends a search - the weekly quota is shared", 403);
+        const id = Number(m[1]);
+        const topic = await env.DB.prepare(
+          `SELECT id, label, query, search_type FROM threads_topics WHERE id = ?1 AND is_active = 1`,
+        ).bind(id).first<{ id: number; label: string; query: string; search_type: string }>();
+        if (!topic) return err("not_found", "No such topic", 404);
+        const quota = await searchQuota(env);
+        if (quota.left <= 0) {
+          return err("rate_limited", `The weekly search allowance is spent (${quota.used} of ${quota.cap}). It refills as searches older than 7 days fall out.`, 429);
+        }
+        /* Any connected account's token can ask; the search is not about
+           that account. Newest connection first - most likely to hold the
+           keyword-search scope. */
+        const acc = await env.DB.prepare(
+          `SELECT threads_user_id, username FROM threads_accounts WHERE is_active = 1 ORDER BY connected_at DESC LIMIT 1`,
+        ).first<{ threads_user_id: string; username: string }>();
+        if (!acc) return err("not_configured", "Connect a Threads account first - a search needs a credential to ask with", 400);
+        const tok = await tokenFor(env, acc.threads_user_id);
+        if (!tok) return err("not_configured", "That account has no token - connect it again", 400);
+        const res = await runTopicSearch(env, topic, tok, user.id);
+        await audit(env, user.id, "threads.topic_search", "threads_topics", String(id), {
+          label: topic.label, query: topic.query, ok: res.ok, found: res.ok ? res.found : 0,
+        });
+        if (!res.ok) {
+          await logError(env, "threads_search", `${topic.label}: ${res.reason}`);
+          return json({
+            ok: false, reason: res.reason, needs_reconnect: res.needs_reconnect,
+            quota: await searchQuota(env),
+          }, 200);
+        }
+        return json({ ok: true, found: res.found, quota: await searchQuota(env) });
+      }
+    }
+
+    /* The harvest for one topic, and what it adds up to. */
+    if (path === "/study" && method === "GET") {
+      const topicId = Number(params.get("topic") ?? 0) || null;
+      if (!topicId) return err("invalid_input", "topic is required", 400);
+      const qtext = (params.get("q") ?? "").trim().toLowerCase().slice(0, 80);
+      const { results } = await env.DB.prepare(
+        `SELECT id, media_id, username, text, permalink, media_type, published_at, char_count,
+                has_number_hook, has_question_hook, has_cta, has_media, language_guess, found_at
+           FROM threads_topic_posts WHERE topic_id = ?1
+          ORDER BY published_at DESC NULLS LAST, found_at DESC LIMIT 500`,
+      ).bind(topicId).all<{
+        id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
+        media_type: string | null; published_at: string | null; char_count: number;
+        has_number_hook: number; has_question_hook: number; has_cta: number; has_media: number;
+        language_guess: string | null; found_at: string;
+      }>();
+      const rows = qtext ? results.filter((r) => (r.text ?? "").toLowerCase().includes(qtext)) : results;
+      return json({ posts: rows, findings: studyFindings(rows), total: results.length });
     }
 
     /* ---- summary: the brief at the top of the tab ---- */

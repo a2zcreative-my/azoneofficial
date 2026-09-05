@@ -137,6 +137,56 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
      /export function threadsSetupReport\(env: Env\)/.test(threads) && /\.\.\.threadsSetupReport\(env\)/.test(index));
 }
 
+/* ---- 3c. v1.96.0: study cases spend a rationed, shared allowance ----
+   (negative-tested by removing the quota check, by opening a search to
+   threads_view, and by letting the topic route claim a view count) */
+{
+  ok("the keyword-search scope is asked for", /const SCOPES = "[^"]*threads_keyword_search/.test(threads),
+     "asserted on the SCOPES constant, not on the file: the first draft matched the word in a comment and stayed green with the scope removed");
+  ok("a search is refused before Meta refuses it",
+     /if \(quota\.left <= 0\)[\s\S]{0,300}?return err\("rate_limited"/.test(threads),
+     "a quota you discover by being cut off is a quota nobody can plan around");
+  ok("the cap leaves headroom under Meta's own", /const SEARCH_WEEK_CAP = (\d+);/.test(threads)
+     && Number(threads.match(/const SEARCH_WEEK_CAP = (\d+);/)?.[1] ?? 0) < 500);
+  ok("every search is recorded, successful or not",
+     [...threads.matchAll(/INSERT INTO threads_searches/g)].length === 2,
+     "a failed call still spends the allowance, so a count that only records successes drifts under the truth");
+  /* Windows taken with indexOf on the matcher AS WRITTEN — a regex of a
+     regex is two levels of escaping and the first draft of this check
+     matched nothing at all, which is a check that passes on air. */
+  const win = (marker, n) => { const i = threads.indexOf(marker); return i < 0 ? "" : threads.slice(i, i + n); };
+  const SEARCH_ROUTE = "/^\\/topics\\/(\\d+)\\/search$/";
+  const TOPIC_ROUTE = "/^\\/topics\\/(\\d+)$/";
+  ok("the topic route matchers were found", threads.includes(SEARCH_ROUTE) && threads.includes(TOPIC_ROUTE),
+     "the matchers moved - the two checks below would pass on nothing");
+  ok("spending a search needs threads_manage",
+     /if \(!manage\) return err\("forbidden"/.test(win(SEARCH_ROUTE, 400)),
+     "the allowance is one shared weekly ration for the whole app");
+  ok("adding and removing a topic needs it too",
+     /path === "\/topics" && method === "POST"[\s\S]{0,200}?if \(!manage\)/.test(threads)
+     && /if \(!manage\) return err\("forbidden"/.test(win(TOPIC_ROUTE, 400)));
+  ok("reading a harvest does not", /path === "\/study" && method === "GET"[\s\S]{0,200}?const topicId/.test(threads),
+     "the marketing floor should be able to read what was collected");
+  ok("every topic action is audited",
+     ["threads.topic_add", "threads.topic_remove", "threads.topic_search"].every((a) => threads.includes(`"${a}"`)));
+  ok("a missing scope is reported as such, not as an empty niche",
+     /needs_reconnect: res\.needs_reconnect/.test(threads) && /needs_reconnect/.test(panel),
+     "a search that silently returns nothing reads as a quiet subject, which is the opposite of the truth");
+  /* The one thing this data cannot carry. */
+  /* Scoped to the STUDY read, not to everything between two markers: the
+     own-posts route sits in that span and its view counts are real. */
+  ok("no study query pretends to a view count",
+     !/views/i.test(win('path === "/study" && method === "GET"', 1400)),
+     "insights belong to the account that owns a post - a views column here would always be null");
+  /* On screen AND on the export, because the CSV outlives the screen it
+     was taken from. Counted, not merely found: the phrase appears in the
+     card's own comment too, and one occurrence would have kept this green
+     with the visible line deleted. */
+  ok("the caveat is on the screen and on the export",
+     [...panel.matchAll(/no view counts/g)].length >= 2,
+     "a share of posts read as a share of eyeballs is the one wrong conclusion this card can produce");
+}
+
 /* ---- 4. the OAuth pair agrees with itself and names no domain ----
    (negative-tested by hardcoding the callback URL) */
 {

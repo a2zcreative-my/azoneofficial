@@ -2,6 +2,36 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.96.0] — 2026-09-05 — study cases: what the niche actually posts
+
+**CEO**, with the A2Z account finally connected: *"I want to view only for study case on Product and Service like Hotel, product for Tudung."*
+
+Not our account — the **subject**. What hotels post on Threads, what tudung sellers post, so a pitch or a content plan for the next client starts from what that niche does rather than from an opinion about it. A fourth section, **Study**, beside Overview, Library and Connection.
+
+### What it can and cannot show, decided before it was built
+
+Posts come from the Threads keyword search, which returns public posts by anyone — and **insights belong to the account that owns a post**. A stranger's post arrives as words, author, time, format and link, and nothing else. So every finding here is about the **writing**, never about reach: how they open (a number, a question, a call to act, with media), how long they run, which language, which words recur. There is no view column in the schema, because it would always be null, and the card says so in one line where somebody would otherwise read a share of posts as a share of eyeballs. The CSV repeats it, because an export outlives the screen it came from.
+
+### The allowance is rationed, and the portal counts it
+
+Threads allows roughly 500 keyword searches per rolling 7 days **for the whole app**. Every call is recorded — successful or not, because a failed call still spends one — and the section shows *"n / 450 searches left this week"*, amber under 100, red under 25. A search past the cap is refused here rather than at Meta: a quota you discover by being cut off is a quota nobody can plan around. The fifty held back are the difference between an allowance that runs out on a Tuesday and one that answers when somebody needs it.
+
+Because the ration is shared, **spending** a search — and adding or removing a topic — is `threads_manage`. **Reading** a harvest is `threads_view`, so the whole marketing floor can study what was collected without anyone being able to empty the week's allowance.
+
+### What a topic is
+
+A name you will recognise (*Hotel*), the words to search for (*tudung*), and whether it is words-in-the-post or a topic tag. It is kept, not just run: the same words next week are a comparable reading, and a post already seen is never stored twice. Press a word in "Words they use" and the post list filters to the posts using it.
+
+### One thing to do once
+
+Searching needs a permission the app did not previously ask for, so **the connected account must be reconnected once** (Connection → Connect) to grant it. A search on an older token fails with a permission error, and the tab says exactly that rather than returning nothing and letting somebody conclude the niche is quiet.
+
+### Guards
+
+Eleven checks in guard #33: the scope is on the `SCOPES` constant (the first draft matched the word in a comment and stayed green with the scope removed), the quota refuses before Meta does, the cap is under 500, every search is recorded whether it succeeded or not, spending and topic changes need `threads_manage`, reading does not, every topic action is audited, a missing scope is reported as such, no study query names a view count, and the caveat appears on both the screen and the export. Negative-tested by removing the quota check, opening the search to viewers, dropping the scope and deleting the caveat.
+
+**Two of my own new checks did not bite on the first pass** — one matched a comment, one was satisfied by a duplicate string — which is the same class of mistake the guard-writing rule at the top of `run-guards.mjs` exists for. Both were tightened until the mutation they name actually fails them.
+
 ## [1.95.2] — 2026-09-04 — the offer, on a timer
 
 **CEO:** *"update the PUSH.bat for me to re-insert the THREADS_APP_ID is set / THREADS_APP_SECRET is set 1 more time."*

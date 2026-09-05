@@ -73,7 +73,28 @@ interface Summary {
   top: { id: number; text: string; permalink: string | null; published_at: string; views: number | null; likes: number | null; replies: number | null; multiplier: number | null }[];
 }
 
-type Section = "overview" | "library" | "connection";
+interface Topic {
+  id: number; label: string; query: string; search_type: string;
+  last_run_at: string | null; last_error: string | null; created_by_name: string | null;
+  posts: number; accounts: number;
+}
+interface StudyPost {
+  id: number; media_id: string; username: string | null; text: string | null; permalink: string | null;
+  media_type: string | null; published_at: string | null; char_count: number;
+  has_number_hook: number; has_question_hook: number; has_cta: number; has_media: number;
+  language_guess: string | null; found_at: string;
+}
+interface Findings {
+  posts: number; accounts: number; with_media: number; median_chars: number | null;
+  languages: { code: string; n: number }[];
+  lengths: { bucket: string; n: number }[];
+  hours: { hour: number; n: number }[];
+  traits: { number_hook: number; question_hook: number; cta: number };
+  words: { word: string; n: number }[];
+}
+interface Quota { used: number; left: number; cap: number }
+
+type Section = "overview" | "library" | "study" | "connection";
 type Filter = "all" | "recent" | "winners" | "media" | "text";
 type Sort = "date" | "views";
 
@@ -109,6 +130,23 @@ const daysLeft = (iso: string | null): number | null => {
   const d = new Date(iso.replace(" ", "T") + "Z").getTime();
   return Number.isNaN(d) ? null : Math.floor((d - Date.now()) / 86400000);
 };
+
+/** "37% (14)" — a share and the count it came from, because a percentage
+    of nine posts is a percentage nobody should act on alone. */
+const share = (k: number, of: number): string => (of === 0 ? "—" : `${Math.round((k / of) * 100)}% (${k})`);
+
+/** One finding, as a labelled bar. Module scope, per guard #30. */
+function Bar({ label, n, of }: { label: string; n: number; of: number }) {
+  return (
+    <li className="flex items-center gap-2 text-[11px]">
+      <span className="text-muted-foreground w-20 shrink-0 truncate">{label}</span>
+      <span className="bg-secondary h-3 flex-1 overflow-hidden rounded-sm">
+        <span className="bg-tile-info block h-full rounded-sm" style={{ width: `${of ? Math.max(2, Math.round((n / of) * 100)) : 0}%` }} />
+      </span>
+      <span className="w-16 shrink-0 text-right tabular-nums">{share(n, of)}</span>
+    </li>
+  );
+}
 
 /** The "17.7×" pill. Module scope, per guard #30. */
 function Mult({ m }: { m: number | null }) {
@@ -168,6 +206,19 @@ export function ThreadsPanel() {
   const [busy, setBusy] = useState<number | null>(null);
   const [label, setLabel] = useState<{ id: number; v: string } | null>(null);
 
+  /* ---- study cases (v1.96.0) ---- */
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [topicsLoaded, setTopicsLoaded] = useState(false);
+  const [topic, setTopic] = useState<number | 0>(0);
+  const [studyPosts, setStudyPosts] = useState<StudyPost[]>([]);
+  const [findings, setFindings] = useState<Findings | null>(null);
+  const [studyLoaded, setStudyLoaded] = useState(false);
+  const [studyQ, setStudyQ] = useState("");
+  const [newTopic, setNewTopic] = useState({ label: "", query: "", search_type: "keyword" });
+  const [searching, setSearching] = useState(false);
+  const [openStudy, setOpenStudy] = useState<number | null>(null);
+
   const loadAccounts = useCallback(async () => {
     const r = await api<{ accounts: Account[]; configured?: boolean; can_manage?: boolean; pending_migration?: boolean }>(`/accounts`);
     if (r.ok && r.data) {
@@ -216,6 +267,95 @@ export function ThreadsPanel() {
     setLibLoaded(true);
   }, [account, filter, month, sort, q]);
   useEffect(() => { void loadPosts(); }, [loadPosts]);
+
+  const loadTopics = useCallback(async () => {
+    const r = await api<{ topics: Topic[]; quota: Quota; can_manage?: boolean }>(`/topics`);
+    if (r.ok && r.data) {
+      setTopics(r.data.topics ?? []);
+      setQuota(r.data.quota ?? null);
+      setTopic((t) => (t || r.data!.topics?.[0]?.id) ?? 0);
+    }
+    setTopicsLoaded(true);
+  }, []);
+  useEffect(() => { if (section === "study") void loadTopics(); }, [section, loadTopics]);
+
+  const loadStudy = useCallback(async () => {
+    if (!topic) { setStudyPosts([]); setFindings(null); setStudyLoaded(true); return; }
+    setStudyLoaded(false);
+    const r = await api<{ posts: StudyPost[]; findings: Findings }>(`/study?topic=${topic}${studyQ ? `&q=${encodeURIComponent(studyQ)}` : ""}`);
+    if (r.ok && r.data) { setStudyPosts(r.data.posts ?? []); setFindings(r.data.findings ?? null); }
+    else { setStudyPosts([]); setFindings(null); }
+    setStudyLoaded(true);
+  }, [topic, studyQ]);
+  useEffect(() => { if (section === "study") void loadStudy(); }, [section, loadStudy]);
+
+  const addTopic = async () => {
+    if (!newTopic.label.trim() || !newTopic.query.trim()) {
+      toast(L("Not added", "Tidak ditambah"), L("A name and something to search for are both needed", "Nama dan sesuatu untuk dicari kedua-duanya diperlukan"), "notice");
+      return;
+    }
+    const r = await api<{ ok: boolean; error?: { message?: string } }>(`/topics`, { method: "POST", body: JSON.stringify(newTopic) });
+    if (r.ok) {
+      toast(L("Topic added", "Topik ditambah"), `${newTopic.label} · ${newTopic.query}`);
+      setNewTopic({ label: "", query: "", search_type: "keyword" });
+      await loadTopics();
+    } else {
+      toast(L("Not added", "Tidak ditambah"), r.data?.error?.message ?? "", "notice");
+    }
+  };
+
+  const removeTopic = async (t: Topic) => {
+    const ok = await confirm({
+      title: L(`Remove "${t.label}"?`, `Buang "${t.label}"?`),
+      message: L(`The ${t.posts} posts collected for it go too. The weekly search allowance is not refunded.`,
+                 `${t.posts} hantaran yang dikumpul untuknya turut dibuang. Peruntukan carian mingguan tidak dikembalikan.`),
+      confirmLabel: L("Remove", "Buang"), variant: "danger",
+    });
+    if (!ok) return;
+    const r = await api<{ ok: boolean; error?: { message?: string } }>(`/topics/${t.id}`, { method: "DELETE" });
+    if (r.ok) toast(L("Topic removed", "Topik dibuang"), t.label);
+    else toast(L("Not removed", "Tidak dibuang"), r.data?.error?.message ?? "", "notice");
+    if (topic === t.id) setTopic(0);
+    await loadTopics();
+  };
+
+  const runSearch = async (t: Topic) => {
+    setSearching(true);
+    const r = await api<{ ok: boolean; found?: number; reason?: string; needs_reconnect?: boolean; quota?: Quota; error?: { message?: string } }>(
+      `/topics/${t.id}/search`, { method: "POST" },
+    );
+    setSearching(false);
+    if (r.data?.quota) setQuota(r.data.quota);
+    if (r.ok && r.data?.ok) {
+      toast(L("Searched", "Dicari"), `${t.label}: ${r.data.found ?? 0} ${L("posts back", "hantaran diterima")}`);
+    } else if (r.data?.needs_reconnect) {
+      toast(L("Search not allowed yet", "Carian belum dibenarkan"),
+        L("This account was connected before search was added. Reconnect it on the Connection section to grant it.",
+          "Akaun ini disambung sebelum carian ditambah. Sambung semula pada bahagian Sambungan untuk membenarkannya."), "notice");
+    } else {
+      toast(L("Search failed", "Carian gagal"), r.data?.reason ?? r.data?.error?.message ?? "", "notice");
+    }
+    await Promise.all([loadTopics(), loadStudy()]);
+  };
+
+  const exportStudy = () => {
+    const t = topics.find((x) => x.id === topic);
+    downloadCsv(`threads-study-${(t?.label ?? "topic").replace(/\W+/g, "-").toLowerCase()}`, [
+      [`# ${L("Study case", "Kajian kes")}: ${t?.label ?? ""} — ${t?.query ?? ""}`],
+      [`# ${L("Generated", "Dijana")} ${csvStampMyt()} — ${studyPosts.length} ${L("public posts", "hantaran awam")}`],
+      [`# ${L("Public posts carry no view counts — these are the words, not the reach", "Hantaran awam tiada kiraan tontonan — ini perkataannya, bukan jangkauannya")}`],
+      [],
+      [L("Published (MYT)", "Disiarkan (MYT)"), L("Account", "Akaun"), L("Type", "Jenis"), L("Language", "Bahasa"),
+       L("Characters", "Aksara"), L("Number hook", "Cangkuk nombor"), L("Question hook", "Cangkuk soalan"),
+       L("Call to action", "Ajakan bertindak"), L("Link", "Pautan"), L("Text", "Teks")],
+      ...studyPosts.map((p) => [
+        dmyMYT(p.published_at), p.username ? `@${p.username}` : "", typeLabel(p.media_type ?? ""),
+        p.language_guess ?? "", p.char_count,
+        p.has_number_hook ? "yes" : "", p.has_question_hook ? "yes" : "", p.has_cta ? "yes" : "",
+        p.permalink ?? "", p.text ?? "",
+      ]),
+    ]);
+  };
 
   /* A tile on the Overview is a door into the Library with that filter set. */
   const openLibrary = (f: Filter, s: Sort) => {
@@ -349,6 +489,7 @@ export function ThreadsPanel() {
           {([
             ["overview", L("Overview", "Ringkasan")],
             ["library", L("Library", "Pustaka")],
+            ["study", L("Study", "Kajian")],
             ["connection", L("Connection", "Sambungan")],
           ] as [Section, string][]).map(([key, lbl]) => (
             <button key={key} type="button"
@@ -558,6 +699,214 @@ export function ThreadsPanel() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* ================= STUDY ================= *
+          CEO, 05-09-2026: *"I want to view only for study case on Product and
+          Service like Hotel, product for Tudung."* Not our account - the
+          SUBJECT. What a niche looks like on Threads, so a pitch or a
+          content plan starts from what it actually does.
+
+          THE ONE THING THIS CANNOT SHOW is reach: view counts belong to the
+          account that owns a post, so a stranger's post arrives as words,
+          author, time, format and link. Every figure below is therefore
+          about the WRITING, and the card says so once rather than letting
+          somebody read a share of posts as a share of eyeballs. */}
+      {section === "study" && (
+        <>
+          <div className={card}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{L("Study cases", "Kajian kes")}</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {L("What other people post about a subject — hotels, tudung, whatever the next client sells. Public posts carry no view counts, so these are findings about the writing, not about reach.",
+                     "Apa yang orang lain siarkan tentang sesuatu subjek — hotel, tudung, apa sahaja yang klien seterusnya jual. Hantaran awam tiada kiraan tontonan, jadi ini penemuan tentang penulisan, bukan jangkauan.")}
+                </p>
+              </div>
+              {quota && (
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${quota.left <= 25 ? "bg-danger-soft text-danger" : quota.left <= 100 ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}
+                  title={L("Threads rations keyword searches per rolling 7 days, for the whole app", "Threads mencatu carian kata kunci setiap 7 hari bergolek, untuk keseluruhan aplikasi")}>
+                  {quota.left} / {quota.cap} {L("searches left this week", "carian tinggal minggu ini")}
+                </span>
+              )}
+            </div>
+
+            {!topicsLoaded ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: 3 }, (_, i) => <Skel key={i} className="h-7 w-28 rounded-full" />)}</div>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {topics.map((t) => (
+                  <button key={t.id} type="button" aria-pressed={topic === t.id}
+                    className={topic === t.id
+                      ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
+                      : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+                    title={`${t.query}${t.last_run_at ? ` · ${L("last searched", "carian terakhir")} ${dmyMYT(t.last_run_at)}` : ""}`}
+                    onClick={() => setTopic(t.id)}>
+                    {t.label} <span className="opacity-70">{t.posts}</span>
+                  </button>
+                ))}
+                {topics.length === 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    {canManage
+                      ? L("No topics yet. Add one below — a name you will recognise, and the words to search for.", "Belum ada topik. Tambah satu di bawah — nama yang anda kenali, dan perkataan untuk dicari.")
+                      : L("No topics yet. A manager adds them.", "Belum ada topik. Pengurus menambahnya.")}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {canManage && (
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+                <input className={inputClassSm} value={newTopic.label} maxLength={60}
+                  placeholder={L("Name — e.g. Hotel", "Nama — cth. Hotel")}
+                  aria-label={L("Topic name", "Nama topik")}
+                  onChange={(e) => setNewTopic((d) => ({ ...d, label: e.target.value }))} />
+                <input className={inputClassSm} value={newTopic.query} maxLength={100}
+                  placeholder={L("Search for — e.g. tudung", "Cari — cth. tudung")}
+                  aria-label={L("Search words", "Perkataan carian")}
+                  onChange={(e) => setNewTopic((d) => ({ ...d, query: e.target.value }))} />
+                <select className={inputClassSm} value={newTopic.search_type} aria-label={L("Search kind", "Jenis carian")}
+                  onChange={(e) => setNewTopic((d) => ({ ...d, search_type: e.target.value }))}>
+                  <option value="keyword">{L("words in the post", "perkataan dalam hantaran")}</option>
+                  <option value="tag">{L("topic tag", "tag topik")}</option>
+                </select>
+                <button type="button" className={rowBtn} onClick={() => void addTopic()}>{L("Add topic", "Tambah topik")}</button>
+              </div>
+            )}
+
+            {topic > 0 && (() => {
+              const t = topics.find((x) => x.id === topic);
+              if (!t) return null;
+              return (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">
+                    {L("Searching for", "Mencari")} <span className="text-foreground font-medium">{t.query}</span>
+                    {t.search_type === "tag" ? ` (${L("topic tag", "tag topik")})` : ""}
+                    {t.last_run_at ? ` · ${L("last run", "kali terakhir")} ${dmyMYT(t.last_run_at)}` : ` · ${L("never run", "belum dijalankan")}`}
+                    {t.accounts > 0 ? ` · ${t.accounts} ${L("accounts", "akaun")}` : ""}
+                  </span>
+                  {canManage && (
+                    <>
+                      <button type="button" className={rowBtn} disabled={searching || (quota?.left ?? 1) <= 0}
+                        onClick={() => void runSearch(t)}>
+                        {searching ? <Skel className="inline-block h-3 w-16" /> : L("Search now", "Cari sekarang")}
+                      </button>
+                      <button type="button" className={rowBtnDanger} onClick={() => void removeTopic(t)}>{L("Remove", "Buang")}</button>
+                    </>
+                  )}
+                  {t.last_error && <span className="text-danger">{t.last_error}</span>}
+                </div>
+              );
+            })()}
+          </div>
+
+          {topic > 0 && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+              {/* what the niche does */}
+              <div className={`${card} lg:col-span-2`}>
+                <p className="text-sm font-semibold">{L("What this niche does", "Apa yang niche ini buat")}</p>
+                {!studyLoaded ? (
+                  <div className="mt-3 space-y-2">{Array.from({ length: 6 }, (_, i) => <Skel key={i} className="h-4" />)}</div>
+                ) : !findings || findings.posts === 0 ? (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    {L("Nothing collected yet — press Search now.", "Belum ada yang dikumpul — tekan Cari sekarang.")}
+                  </p>
+                ) : (
+                  <div className="mt-2 space-y-3 text-xs">
+                    <p className="text-muted-foreground">
+                      {findings.posts} {L("posts", "hantaran")} · {findings.accounts} {L("accounts", "akaun")}
+                      {findings.median_chars != null && ` · ${L("median", "median")} ${findings.median_chars} ${L("characters", "aksara")}`}
+                    </p>
+                    <div>
+                      <p className="mb-1 font-medium">{L("How they open", "Cara mereka mula")}</p>
+                      <ul className="space-y-1">
+                        <Bar label={L("a number", "nombor")} n={findings.traits.number_hook} of={findings.posts} />
+                        <Bar label={L("a question", "soalan")} n={findings.traits.question_hook} of={findings.posts} />
+                        <Bar label={L("a call to act", "ajakan")} n={findings.traits.cta} of={findings.posts} />
+                        <Bar label={L("with media", "dengan media")} n={findings.with_media} of={findings.posts} />
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-1 font-medium">{L("How long", "Berapa panjang")}</p>
+                      <ul className="space-y-1">
+                        {findings.lengths.map((b) => <Bar key={b.bucket} label={b.bucket} n={b.n} of={findings.posts} />)}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-1 font-medium">{L("Which language", "Bahasa apa")}</p>
+                      <ul className="space-y-1">
+                        {findings.languages.map((l) => (
+                          <Bar key={l.code} label={l.code === "ms" ? L("Malay", "Melayu") : l.code === "en" ? L("English", "Inggeris") : L("unclear", "tidak jelas")} n={l.n} of={findings.posts} />
+                        ))}
+                      </ul>
+                    </div>
+                    {findings.words.length > 0 && (
+                      <div>
+                        <p className="mb-1 font-medium">{L("Words they use", "Perkataan yang digunakan")}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {findings.words.slice(0, 24).map((w) => (
+                            <button key={w.word} type="button"
+                              className="bg-secondary hover:bg-secondary/70 rounded-full px-2 py-0.5 text-[11px]"
+                              title={L(`in ${w.n} posts — press to read them`, `dalam ${w.n} hantaran — tekan untuk membacanya`)}
+                              onClick={() => setStudyQ(w.word)}>
+                              {w.word} <span className="text-muted-foreground">{w.n}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* the posts themselves */}
+              <div className={`${card} lg:col-span-3`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">{L("The posts", "Hantaran")}</p>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <input className={`${inputClassSm} w-40`} value={studyQ}
+                      placeholder={L("Find in text", "Cari dalam teks")} aria-label={L("Find in text", "Cari dalam teks")}
+                      onChange={(e) => setStudyQ(e.target.value)} />
+                    {studyQ && (
+                      <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setStudyQ("")}>
+                        {L("Clear", "Kosongkan")}
+                      </button>
+                    )}
+                    <button type="button" className={rowBtn} onClick={exportStudy} disabled={!studyLoaded || studyPosts.length === 0}>
+                      {L("Export CSV", "Eksport CSV")}
+                    </button>
+                  </span>
+                </div>
+                {!studyLoaded ? (
+                  <div className="mt-3 space-y-2">{Array.from({ length: 6 }, (_, i) => <Skel key={i} className="h-10" />)}</div>
+                ) : studyPosts.length === 0 ? (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    {studyQ ? L("No post here uses that word.", "Tiada hantaran menggunakan perkataan itu.")
+                            : L("Nothing collected yet — press Search now.", "Belum ada yang dikumpul — tekan Cari sekarang.")}
+                  </p>
+                ) : (
+                  <ul className="divide-border mt-2 max-h-[32rem] divide-y overflow-y-auto">
+                    {studyPosts.map((p) => (
+                      <li key={p.id} className="py-2">
+                        <button type="button" className="w-full text-left" aria-expanded={openStudy === p.id}
+                          onClick={() => setOpenStudy(openStudy === p.id ? null : p.id)}>
+                          <span className="flex flex-wrap items-baseline justify-between gap-x-2">
+                            <span className="text-xs font-medium">{p.username ? `@${p.username}` : L("unknown", "tidak diketahui")}</span>
+                            <span className="text-muted-foreground text-[11px]">
+                              {p.published_at ? dmyMYT(p.published_at) : ""} · {typeLabel(p.media_type ?? "")} · {p.char_count} {L("chars", "aksara")}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 block text-sm">{excerpt(p.text, 160) || <span className="text-muted-foreground">{L("(no text)", "(tiada teks)")}</span>}</span>
+                        </button>
+                        {openStudy === p.id && <PostBody p={{ text: p.text, permalink: p.permalink }} />}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ================= CONNECTION ================= */}
