@@ -2,6 +2,35 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.99.4] — 2026-09-05 — the Staff circle stops scrolling, and looks the part
+
+**CEO**, on the redrawn Circle: *"should it scrollable for this staff UI/UX? I dont think so. please make it looks professional and more futuristic"*
+
+### The scrollbar was a bug, not a feature
+A `max-h-[30rem]` box wrapped the whole Staff view. The circle is 34rem, so the box cut its bottom third off and put a **scrollbar inside a card that already sits in the page's scroll** — two scrollbars for one picture, and the two faces at the bottom of the ring were simply not there until you found the inner one. The inner scroller is gone at every width, and the orbit is now sized against the **viewport** — `min(34rem, calc(100svh − 25rem))` — so it is whole on the screen it is drawn on and the page scrolls once, or not at all.
+
+### Professional, and a little futuristic
+- The field is a **glass panel**: hairline border, translucent card, backdrop blur, rounded 24px.
+- A slow **conic sweep** turns behind the orbit (26s) — the one moving thing that says "live" without being a toy.
+- The centre's halo **breathes** (4.5s), each face lifts on hover with a soft primary glow, and its spoke to the centre brightens.
+- Every one of those is a theme token, so it reads the same in light and dark, and every decoration is `pointer-events-none` behind the faces — nothing new can swallow a press.
+- All animation is dropped under `prefers-reduced-motion`.
+
+Guard `clickable-data`: the square-field check no longer pins the `max-w-[34rem]` class (v1.99.4 caps the size in a style instead, because a viewport calc has no Tailwind class). It now asserts the property — the orbit is `aspect-square` and capped, by class or by style. Negative-tested by removing `aspect-square`.
+
+## [1.99.3] — 2026-09-05 — the note blamed the wrong thing
+
+**CEO**, with the Meta dashboard open on **Publish: Published** beside the portal's amber note claiming Development mode: *"why??!"*
+
+He was right and the note was wrong. **App Mode is not what gates this.** What gates it is the ACCESS LEVEL of the one permission:
+
+- **Standard access** — what every app holds before review — lets `threads_keyword_search` return posts written by the app's **own Threads testers** and nobody else. Published or not, live or not, that is all it can see. Which is exactly what he got: one post, his own.
+- **Advanced access** for `threads_keyword_search` is what opens the search to the public, and it is granted only through **App Review** (dashboard → App Review → Permissions and features → `threads_keyword_search` → Request advanced access). Meta usually wants **Business Verification** and a short screencast of the feature in use first.
+
+The topic note now says that, with the path to click, and no longer mentions App Mode at all. Guard #35 gains a check that the note names App Review and does **not** name Development mode — negative-tested by putting the old wording back.
+
+Nothing else changed: the Study section, its filters and the seven-day retention are as they were in 1.99.0–1.99.2. The tool is finished and waiting on Meta, not on code.
+
 ## [1.99.2] — 2026-09-05 — as many document lines as fit one page, and a Circle that breathes
 
 Two things the CEO asked for in the same sitting.

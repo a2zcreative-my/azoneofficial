@@ -123,7 +123,16 @@ const ok = (label, cond, extra = "") => {
        the x and the y of every face and both the width and the height of
        every ring. */
     ["the circle is laid out on a square field", "components/staff/staff-directory.tsx",
-     /className="sd-orbit relative mx-auto aspect-square w-full max-w-\[\d+rem\]"/, "percentages of a wide strip are an ellipse, not a circle"],
+     (src) => {
+       /* The field must be square (percentages of a wide strip are an
+          ellipse) and capped, whether the cap is a class or a style - v1.99.4
+          sizes it against the viewport so it is never taller than the screen
+          it is drawn on. */
+       const m = src.match(/className="sd-orbit[^"]*"/);
+       if (!m || !/aspect-square/.test(m[0])) return false;
+       const after = src.slice(src.indexOf(m[0]), src.indexOf(m[0]) + 600);
+       return /max-w-\[\d+rem\]/.test(m[0]) || /maxWidth: "min\(/.test(after);
+     }, "percentages of a wide strip are an ellipse, not a circle"],
     ["one radius per ring, not one per axis", "components/staff/staff-directory.tsx",
      /left: 50 \+ r \* Math\.cos\(angle\), top: 50 \+ r \* Math\.sin\(angle\)/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
     ["a ring is drawn with one number for width and height", "components/staff/staff-directory.tsx",

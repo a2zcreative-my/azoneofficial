@@ -88,8 +88,14 @@ ok("a question that names a price is still a question (demand)", intentOf(ASKING
 ok("one stray 'link' in a sentence is not a shop", intentOf("Here is the link to the article I mentioned.") !== "selling");
 ok("the intent is stored at harvest and backfilled on open", /intentOf\(p\.text\),/.test(src) && /r\.intent = intentOf\(r\.text\);/.test(src));
 ok("the study route can scope to asking or selling", /params\.get\("intent"\)/.test(src) && /intents\[r\.intent \?\? "other"\]\+\+/.test(src));
+/* v1.99.3 — the note must name the REAL gate. The first version blamed
+   Development mode; the CEO's dashboard read "Published" while the search
+   still saw only its own testers, because what gates it is the ACCESS LEVEL
+   of threads_keyword_search (standard vs advanced), not App Mode. */
 ok("a harvest made only of the app's own testers is said in words, not painted red",
-   /Development mode/.test(src) && /last_note = \?3/.test(src) && /t\.last_note && !t\.last_error/.test(panel));
+   /ADVANCED access for threads_keyword_search/.test(src) && /last_note = \?3/.test(src) && /t\.last_note && !t\.last_error/.test(panel));
+ok("the note names App Review, not App Mode", /App Review/.test(src) && !/Development mode/.test(src.replace(/\/\*[\s\S]*?\*\//g, "")),
+   "switching the app to Live does not grant the keyword search the public - only advanced access does");
 ok("the panel offers Asking / Selling / Any and tags each post", /\["asking", L\("Asking", "Bertanya"\)\]/.test(panel) && /p\.intent === "asking"/.test(panel));
 ok("the findings show demand first, with the asking posts' words", /findings\.intents\.asking/.test(panel) && /findings\.ask_words!/.test(panel));
 

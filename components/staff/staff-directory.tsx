@@ -546,9 +546,9 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
       <span className="relative">
       {size === "lg" && !selectMode && (
         /* the centre's halo — one soft disc behind the most senior face */
-        <span aria-hidden className="bg-primary/10 absolute -inset-3 rounded-full blur-[2px]" />
+        <span aria-hidden className="sd-halo bg-primary/15 absolute -inset-4 rounded-full blur-[3px]" />
       )}
-      <span className={`relative inline-flex ${size === "lg" ? "h-24 w-24" : "h-[4.5rem] w-[4.5rem]"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95 ${ring} ${photo ? "bg-secondary" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
+      <span className={`relative inline-flex ${size === "lg" ? "h-24 w-24" : "h-[4.5rem] w-[4.5rem]"} items-center justify-center overflow-hidden rounded-full ring-offset-2 ring-offset-card transition-all duration-200 ease-out group-hover:scale-110 group-hover:shadow-[0_0_0_6px_color-mix(in_oklab,var(--primary)_12%,transparent)] group-active:scale-95 ${ring} ${photo ? "bg-secondary" : size === "lg" ? "bg-gold text-brand" : "bg-brand text-white"}`}>
         {photo
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={photo} alt="" className="h-full w-full object-cover" />
@@ -899,8 +899,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
 
       {/* v1.94.0 — the inner scroller is a desktop convenience and a phone
           bug: a scroll area inside the page scroll cut the last row of faces
-          in half and trapped the flick. */}
-      <div className="space-y-3 sm:max-h-[30rem] sm:overflow-y-auto sm:pr-1">
+          in half and trapped the flick.
+          v1.99.4 — CEO: "should it scrollable for this staff UI/UX? I dont
+          think so." It is gone on every width. A 30rem box around a 34rem
+          circle cut the bottom third off and put a scrollbar inside a card
+          that is already inside the page's scroll — two scrollbars for one
+          picture. The orbit is now sized against the VIEWPORT instead, so it
+          is whole on the screen it is drawn on, and the page scrolls once. */}
+      <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {/* v1.94.0 — a disabled full-width button reading "Print selected
             badges (0)" was the first thing on the phone, every time. It
@@ -960,7 +966,11 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
         .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both }
         .sd-orbit .sd-bubble { animation: sd-pop .35s cubic-bezier(.2,.8,.3,1.2) both, sd-drift var(--sd-drift, 5s) ease-in-out .4s infinite }
         .sd-orbit .sd-ring-dash { animation: sd-spin 240s linear infinite }
-        @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble, .sd-orbit .sd-ring-dash { animation: none } }`}</style>
+        @keyframes sd-sweepspin { to { transform: translate(-50%, -50%) rotate(360deg) } }
+        .sd-sweep { animation: sd-sweepspin 26s linear infinite }
+        @keyframes sd-pulse { 0%, 100% { opacity: .35; transform: scale(1) } 50% { opacity: .6; transform: scale(1.06) } }
+        .sd-halo { animation: sd-pulse 4.5s ease-in-out infinite }
+        @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble, .sd-orbit .sd-ring-dash, .sd-sweep, .sd-halo { animation: none } }`}</style>
       {(() => {
         const ordered = sortBy === "rank"
           ? staff
@@ -1001,9 +1011,22 @@ export function StaffDirectory({ canAmend = false, readOnly = false }: { canAmen
                 so nothing ever moves — names whoever is hovered or open. The
                 circle finally has air in it, and every label is legible
                 because only one is on screen at a time. */}
-            <div className="hidden px-8 pt-6 pb-4 sm:block">
-            <div className="sd-orbit relative mx-auto aspect-square w-full max-w-[34rem]"
-              style={{ background: "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 8%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 45%, transparent 72%)" }}>
+            {/* v1.99.4 — the field as a panel: a hairline glass card, a slow
+                conic sweep behind the orbit and a soft floor glow. All of it
+                is theme tokens, so it reads the same in light and dark, and
+                all of it is behind the faces (pointer-events-none) so nothing
+                here can swallow a press. */}
+            <div className="border-border/60 bg-card/50 relative hidden overflow-hidden rounded-3xl border px-6 pt-6 pb-5 backdrop-blur-sm sm:block">
+            <span aria-hidden className="sd-sweep pointer-events-none absolute top-1/2 left-1/2 aspect-square w-[130%] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.55]"
+              style={{ background: "conic-gradient(from 0deg, transparent 0deg, color-mix(in oklab, var(--primary) 14%, transparent) 40deg, transparent 110deg, transparent 360deg)" }} />
+            <div className="sd-orbit relative mx-auto aspect-square w-full"
+              style={{
+                /* whole on the screen it is drawn on: never wider than the
+                   card, never taller than what is left of the viewport. */
+                maxWidth: "min(34rem, calc(100svh - 25rem))",
+                minWidth: "20rem",
+                background: "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 9%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 45%, transparent 72%)",
+              }}>
               {(() => {
                 const placed = loaded ? circleLayout(ordered) : [];
                 const radii = loaded ? [...new Set(placed.filter((p) => p.ring > 0).map((p) => p.r))] : [38];

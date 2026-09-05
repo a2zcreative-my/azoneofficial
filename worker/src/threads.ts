@@ -584,16 +584,24 @@ async function runTopicSearch(
   }
   const posts = [...seen.values()];
   /* v1.98.0 — the one observation worth making about a harvest: when every
-     post that came back belongs to an account connected to THIS app, Meta is
-     answering in Development mode, which only sees the app's own testers.
-     Said on the topic in plain words, not red, so nobody concludes the niche
-     is one person. */
+     post that came back belongs to an account with a role on THIS app, the
+     search is not seeing the public at all.
+     v1.99.3 — and the REASON was wrong in the first version. The CEO showed
+     the Meta dashboard reading "Publish: Published" while this note claimed
+     Development mode. App Mode is not what gates this: it is the ACCESS
+     LEVEL of the threads_keyword_search permission. With Standard Access -
+     what every app has before review - the keyword search can only return
+     posts written by the app's own Threads testers. Searching everyone needs
+     ADVANCED ACCESS for that one permission, which is granted through App
+     Review, and Meta may ask for Business Verification on the way. Said on
+     the topic in plain words, not red, so nobody concludes the niche is one
+     person. */
   let lastNote: string | null = null;
   if (posts.length) {
     const { results: ours } = await env.DB.prepare(`SELECT lower(username) AS u FROM threads_accounts WHERE is_active = 1`).all<{ u: string }>();
     const mine = new Set(ours.map((r) => r.u));
     if (posts.every((p) => p.username && mine.has(p.username.toLowerCase()))) {
-      lastNote = `All ${posts.length} post${posts.length === 1 ? "" : "s"} returned belong to accounts connected to this app. That is what a Meta app in Development mode returns - it only sees its own testers. Switch the app to Live in the Meta dashboard (App Mode, top of the page) to search everyone.`;
+      lastNote = `All ${posts.length} post${posts.length === 1 ? "" : "s"} returned were written by accounts that hold a role on this Meta app. That is what threads_keyword_search returns while it has STANDARD access - it can only see your own Threads testers, whether the app is Published or not. To search the public you need ADVANCED access for threads_keyword_search: Meta dashboard > App Review > Permissions and features > threads_keyword_search > Request advanced access. Meta usually asks for Business Verification and a short screencast of the feature first.`;
     }
   }
   const stmts = posts.map((p) => {
