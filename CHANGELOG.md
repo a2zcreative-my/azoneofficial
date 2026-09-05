@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.100.1] — 2026-09-05 — a folder of copies stopped the website building
+
+The v1.100.0 deploy published the API and then failed on the website:
+
+```
+./Claude outputs/hotels.ts:35:26
+Type error: Cannot find module './index' or its corresponding type declarations.
+```
+
+**Nothing was wrong with the code.** `Claude outputs` is a folder the desktop app creates INSIDE the project and drops delivered files into when it cannot place them itself — which is what happened while the bridge was down mid-delivery. It had a flat copy of every file of v1.100.0 in it, `hotels.ts` among them. `next build` type-checks everything `tsconfig.json` includes, and that copy's `import type { Env } from "./index"` only resolves from its real home in `worker/src/`. So a duplicate of a correct file failed the build of the half that had not deployed yet.
+
+- `tsconfig.json` and `eslint.config.mjs` now exclude `Claude outputs/**`. Verified by putting a copy of `worker/src/hotels.ts` in such a folder and typechecking: it fails without the exclude and passes with it.
+- The folder is safe to delete — everything in it is a duplicate of a file that lives somewhere else in the project. Deleting it is tidiness, not a fix: the build no longer looks there either way.
+
+The v1.100.0 files themselves are now in their proper places (`worker/src/hotels.ts`, `worker/migrations/0111`, `0112`, `components/portal/hotels-panel.tsx` and the registries), which is why `[5/7] No migrations to apply` — the migrations were never on disk when the deploy read them.
+
+## [1.100.0] — 2026-09-05 — the hotel directory, listed by state
+
+**CEO**, with `1. DATA HOTEL.xlsx`: *"add new tabs for save all this data list, make sure that it is being listed by State ... Name of Hotel, Name of Company, contact person ... include their name, phone number based on Malaysia format and their email. Validate the state based on the tabsheet of the excel. make the infographic map for me to easier clickable and also professional with nice futuristic. Also make sure that I can a function to edit or to delete it ... Tabs only visible for ceo, cco, coo, hr_admin, super admin, admin."*
+
+**442 hotels and 690 named contacts**, now a tab.
+
+### Reading the workbook
+- Columns were found by **header, not by letter** — Selangor carries a `CONTACT 4` column, which pushes capacity and star rating one place right on that sheet alone. A fixed-letter reader would have filed 50 hotels' room counts as star ratings.
+- A contact cell is a block of text (name, one or two numbers, an email); it is split into its parts once, on import.
+- **Phone numbers are stored in Malaysian form** — `012-345 6789` for a mobile, `03-1234 5678` for a landline, `088-123 456` for Sabah and Sarawak, with `ext` kept. 27 cells held two numbers jammed together with no separator; those were split. All 690 now match.
+- The user's note said contacts were in columns D, E, F; in the file **D is the address** and the contacts are E, F, G (and H on Selangor). The address is kept as its own field.
+
+### The tab
+- **The map is a tile cartogram**, not a tracing of Malaysia: one rounded tile per state, laid out in the country's rough geography, shaded by how many hotels are in it and carrying the count. An outline would make Perlis a speck nobody can hit and Sarawak a third of the picture — the opposite of what a list of 442 needs. Press a state to filter; press again for all. Glass panel, soft primary wash, theme tokens throughout so it reads in light and dark.
+- **Search runs over the hotels and their people**, because "who do we know at the Hilton" and "which hotel does Aida work at" are the same question from two ends.
+- **Edit and delete** on the portal's own `rowBtn` / `rowBtnDanger` / `inputClass` — not one bespoke button in the file, as asked. One form creates and edits alike, contacts add and remove inside it, and a delete asks first and reports either way.
+- CSV export, one row per contact.
+
+### State is a closed list
+The workbook's fifteen sheet names are the only legal states, held in **three** places that the guard compares name for name: the migration's `CHECK` constraint, `MY_STATES` in the worker, and the map's tiles. A hotel filed under an invented state is a hotel that disappears from every view that groups by state.
+
+### Access
+`hotels_view` and `hotels_manage` are exactly the six roles the CEO named — CEO, COO, CCO, hr_admin, admin, super_admin — in the worker matrix and mirrored in `TAB_ROLES.Hotels`. Deletes are **soft** (`is_active = 0`) and audited with the hotel's name, so a mis-click loses nothing.
+
+### Guard #36 — tests/hotels-guard.mjs (31 checks)
+Runs the real `formatMyPhone` over the shapes the workbook actually contained, compares the three copies of the state list, holds the six roles exactly, and requires the soft delete and its audit. Each family negative-tested.
+
 ## [1.99.4] — 2026-09-05 — the Staff circle stops scrolling, and looks the part
 
 **CEO**, on the redrawn Circle: *"should it scrollable for this staff UI/UX? I dont think so. please make it looks professional and more futuristic"*

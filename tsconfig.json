@@ -26,5 +26,6 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "worker"]
+  "//": "v1.100.1 - 'Claude outputs' is where the desktop app drops files it could not place, and it is INSIDE this project. next build type-checks everything tsconfig includes, so one stray worker file in there (hotels.ts, whose imports resolve from worker/src) failed the whole website build after the API had already published. Excluded here so a copy of a file can never break the build again. The folder is safe to delete: everything in it is a duplicate of a file that lives somewhere else in this project.",
+  "exclude": ["node_modules", "worker", "Claude outputs", "Claude outputs/**"]
 }

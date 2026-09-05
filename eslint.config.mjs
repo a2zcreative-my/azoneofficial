@@ -21,7 +21,11 @@ const eslintConfig = [
     },
   },
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    /* v1.100.1 — the desktop app drops delivered files into "Claude outputs"
+       inside this project; they are duplicates of files that live elsewhere
+       and linting them fails the build on imports that only resolve from
+       their real home. */
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "Claude outputs/**"],
   },
 ];
 
