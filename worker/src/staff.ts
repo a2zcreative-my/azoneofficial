@@ -8,6 +8,10 @@ import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
+import { handleDesk } from "./desk"; // v1.106.0 - One Desk
+import { handleSearch } from "./search"; // v1.107.0 - search everything
+import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin } from "./index";
@@ -780,6 +784,7 @@ const PUSH_TAB: Record<string, string> = {
   task: "Tasks", leave: "Leave", attendance: "Attendance", ot: "Attendance",
   claim: "Claims", live: "Attendance", stock: "Inventory", event: "Dashboard",
   content: "Content", announcement: "Announcements",
+  watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
 };
 
 export async function notify(
@@ -1028,56 +1033,9 @@ async function docNumber(env: Env, docType: "QT" | "DO" | "INV" | "RC" | "CN"): 
 
 /* ---------------- router ---------------- */
 
-/* ---------------- leave approval chain ---------------- */
-//
-// Staff route:   applied -> hr_reviewed -> pre_approved -> approved
-// COO/CCO route: applied -> hr_reviewed ->               -> approved
-//                (they skip pre-approval — no one pre-approves their own tier)
-// Reject at any active stage is terminal.
-
-const HR_STAGE_ROLES: readonly Role[] = ["super_admin", "admin", "hr_admin"];
-const PREAPP_ROLES: readonly Role[] = ["super_admin", "admin", "coo", "cco"];
-const FINAL_ROLES: readonly Role[] = ["super_admin", "admin", "ceo"];
-
-function leaveNextStage(stage: string, applicantRole: string): string {
-  if (stage === "applied") return "hr_reviewed";
-  if (stage === "hr_reviewed") {
-    // COO/CCO applicants skip pre-approval and go straight to final.
-    return applicantRole === "coo" || applicantRole === "cco" ? "pending_final" : "pre_approved";
-  }
-  return "approved"; // pre_approved or pending_final -> final approval
-}
-
-function leaveCanActAt(
-  user: StaffUser,
-  stage: string,
-  applicantRole: string,
-  applicantId: number,
-): boolean {
-  // No one reviews their own request at any stage.
-  if (user.id === applicantId) return false;
-  if (stage === "applied") return HR_STAGE_ROLES.includes(user.role);
-  if (stage === "hr_reviewed") {
-    // COO/CCO applicants go straight to CEO; staff need COO/CCO pre-approval.
-    return applicantRole === "coo" || applicantRole === "cco"
-      ? FINAL_ROLES.includes(user.role)
-      : PREAPP_ROLES.includes(user.role);
-  }
-  if (stage === "pre_approved" || stage === "pending_final") return FINAL_ROLES.includes(user.role);
-  return false; // approved / rejected / cancelled are terminal
-}
-
-function leaveStageLabel(stage: string): string {
-  return ({
-    applied: "applied",
-    hr_reviewed: "HR review done",
-    pre_approved: "pre-approved (COO/CCO)",
-    pending_final: "awaiting CEO",
-    approved: "approved",
-    rejected: "rejected",
-    cancelled: "cancelled",
-  } as Record<string, string>)[stage] ?? stage;
-}
+/* ---------------- leave approval chain ----------------
+   v1.106.0 - lives in leave-chain.ts now, shared with One Desk (desk.ts) so
+   the desk shows exactly the requests this person may act on. */
 
 /* v1.4.202/203 — payment-date rule (CEO: pay on the 5th, or EARLIER when the
    5th is a weekend; deliberately opposite to payslip RELEASE which shifts
@@ -1374,6 +1332,28 @@ export async function handleStaff(
      commission, ads fund, purchasing, accounting — see erp.ts ---- */
   if (path.startsWith("/erp/")) {
     return handleErp(env, path.slice("/erp".length), method, body, user);
+  }
+
+  /* ---- Watchers (v1.108.0) — see watchers.ts. Rules over the company's
+     data; settings for the CEO, findings for the executive tier. ---- */
+  if (path === "/watchers" || path.startsWith("/watchers/")) {
+    const res = await handleWatchers(env, method, path.slice("/watchers".length), body, user);
+    if (res && method === "PUT" && res.status === 200) {
+      await audit(env, user.id, "watcher.update", "watcher_settings", path.slice("/watchers/".length), body ?? undefined);
+    }
+    if (res) return res;
+  }
+
+  /* ---- Search everything (v1.107.0) — see search.ts. Eight sources, one
+     query, each gated by the permission its own tab is gated by. ---- */
+  if (path === "/search" && method === "GET") {
+    return handleSearch(env, user, new URL(request.url).searchParams);
+  }
+
+  /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's
+     pending work, filtered to what THIS person may act on. ---- */
+  if (path === "/desk" && method === "GET") {
+    return handleDesk(env, user);
   }
 
   /* ---- Hotel directory (v1.100.0) — see hotels.ts. A door, not a

@@ -13,6 +13,8 @@ import Link from "next/link";
 import { api, csrfFetch, sendOutboxEntry } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { setOutboxScope, startOutbox } from "@/lib/outbox"; // v1.105.0 - kept-on-the-phone writes
 import { InstallCoach } from "@/components/ui/install-coach"; // v1.105.0 - iOS Home Screen coaching
+import { OneDesk } from "@/components/portal/one-desk"; // v1.106.0 - everything waiting on you
+import { WatchersCard } from "@/components/portal/watchers-card"; // v1.108.0 - rules over the company data
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 import { esc } from "@/lib/escape-html";
 // v1.65.0 — live cards: the version store, and the hook that watches it.
@@ -1243,6 +1245,16 @@ function Dashboard({
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
+
+      {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
+          person, from every module, before anything else on the page. It is
+          one quiet line when there is nothing, and the first thing you see
+          when there is. */}
+      <OneDesk go={(t) => go(t as TabName)} />
+      {/* v1.108.0 — WATCHERS, executive tier: what the company's rules find
+          true right now, and (CEO) the rules themselves. One quiet line when
+          nothing is. */}
+      <WatchersCard role={user.role} go={(t) => go(t as TabName)} />
 
       {/* v1.15.0 — personal KPI strip (desktop): my day and my month at a
           glance, from data this component already fetched. Company-wide

@@ -105,4 +105,4 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 # ELFIA_ORDERS_URL and ELFIA_BRIDGE_KEY are set — its handler RETURNS
 # immediately so 5-min firings never fall into the 30-min chain).
 [triggers]
-crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *"] # 5-min ELFIA orders / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings
+crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *"] # 5-min ELFIA orders (+ hourly watchers on :00) / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings / 08:00 MYT morning brief (v1.108.0)

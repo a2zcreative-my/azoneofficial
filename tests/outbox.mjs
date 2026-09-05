@@ -244,7 +244,8 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   const mig = read("worker/migrations/0114_outbox.sql");
   ok("0114 creates the keys table with a per-person key", /PRIMARY KEY \(key, user_id\)/.test(mig));
   ok("0114 adds offline_sent_at", /ALTER TABLE attendance_records ADD COLUMN offline_sent_at TEXT;/.test(mig));
-  ok("0114 is registered", index.includes('"0114_outbox",') && /const LATEST_MIGRATION = "0114_outbox"/.test(index));
+  /* (which migration is LATEST is registry-parity's to check) */
+  ok("0114 is registered", index.includes('"0114_outbox",'));
   ok("0114 is probed", /\["0114 \(the outbox\)", `SELECT key FROM idempotency_keys LIMIT 1`\]/.test(index));
   ok("keys are purged nightly", /await purgeIdempotencyKeys\(env\);/.test(index) && /-7 days/.test(serverSrc));
 }

@@ -2,6 +2,82 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.108.0] - 2026-09-05 - roadmap phase 04c: Watchers and the morning brief
+
+### What was wrong
+Every alert the company had lived inside one module and fired inside one screen. Stock ran low on the Inventory tab, a paid order sat unshipped on Web Orders, a claim aged on Claims, a hotel's MOF certificate lapsed in a spreadsheet nobody re-opened. The person who needed to know was whoever happened to look.
+
+### Watchers
+Six rules over the company's own data, checked every hour on the cron that already runs, delivered through the push and the bell that already exist:
+
+| rule | tells | default |
+|---|---|---|
+| Stock below the line | CEO, COO, sales | 5 units |
+| Paid web order not shipped | CEO, COO, sales | 3 days |
+| Claim undecided | CEO | 7 days |
+| Hotel MOF / Halal certificate expiring | CEO, CCO, sales | 30 days ahead |
+| Asset warranty ending | CEO, HR | 30 days ahead |
+| Leave request waiting too long | CEO, HR | 3 days |
+
+**Pushed once.** Every finding has a stable ref (`stock:17`, `order:1042`). The hourly run diffs against what is already open: a new finding is pushed to its audience and recorded; one still true is left alone; one no longer true is cleared - and is new again, and pushed again, if it comes back. Nobody is told the same thing twice for the same reason; a bell that rings hourly for the same thing is a bell people mute.
+
+**The dates are read as written.** The hotel workbook wrote validity by hand as `25.06.2027`; the reader takes that, `d.m.yyyy`, `dd/mm/yyyy` and ISO, and refuses free text rather than guessing.
+
+**A Watchers card on the Dashboard**, executive tier, under One Desk: every open finding, oldest first, each pressable to the tab where it is fixed - because a push tells you once and a card stays until the thing is done. The rules themselves sit beneath, on or off and the threshold each watches against. The COO and CCO read them; **only the CEO changes one**, and every change is audited.
+
+### The morning brief
+**08:00 MYT, to the CEO, COO and CCO, one notification each:** how many things wait on *them* (their desk, personalised - not a company total), who has clocked in so far, yesterday's web sales, and how many watcher findings are open. One glance before the day starts. It is the only thing here that repeats daily, and it repeats because a morning is a new morning. New cron `0 0 * * *` in `wrangler.toml`, with its branch.
+
+### Guard #43
+`tests/watchers.mjs` (46 checks) **runs the runner** against a fake database and a recording `notify()`: two identical runs push on the first only; a fixed finding is cleared and a returning one pushed again; a watcher switched off is not checked; the CEO's threshold beats the default; the audience is the watcher's roles and not the live host. It runs `isoDate` on the workbook's forms and on free text, and runs the brief for two executives to check each is told their own count. Negative-tested by dropping the seen-check (pushed twice), removing the stale sweep (never cleared), accepting only ISO, and briefing the COO with the CEO's desk.
+
+Migration **0115** adds `watcher_settings` and `watcher_open`.
+
+### Phase 04, complete
+One Desk (v1.106.0), search everything (v1.107.0) and Watchers (v1.108.0) are the three things the roadmap said only this system could do, because only this system holds HR, sales, stock, orders and the hotel list in one database behind one permission matrix. The portal has stopped being twenty-six places you go and started being one place that tells you what needs you.
+
+## [1.107.0] - 2026-09-05 - roadmap phase 04b: search everything
+
+### What was wrong
+Ctrl K searched tabs, staff names and client companies - three of twelve places a thing could be - and loaded the staff and client directories on every open to do it. A phone number, a hotel, an order number, a quotation, a SKU, an asset tag or a task title had no search at all.
+
+### Search everything
+One request, `/staff/search?q=`, over **eight tables in one batch**: hotels and their contacts, staff, clients, quotations and invoices, ELFIA web orders, stock, assets and tasks. Type a phone number and the hotel contact, the client and the order it belongs to come back together; type a name and get the person, their tasks and the documents in their name. The palette asks the server after a 220 ms pause, shows a skeleton while the answer is out, and never shows a stale answer under a newer query.
+
+**Phone numbers are matched by digits.** *017-476 1019*, *0174761019* and *+60 17 476 1019* are one number: the query and every phone column are stripped to digits before comparing, so whichever way it was typed finds whichever way it was stored. A run of fewer than six digits is not treated as a phone, so *2026* in a note does not light up every number with 2026 in it. LIKE wildcards in the query are escaped, so *50%* does not match everything.
+
+**What a person may find is what they may see.** Every source is gated by the permission its own tab is gated by - hotels by `hotels_view`, stock by `inventory`, orders by the web-orders rule, staff and assets by the Staff Details rule, tasks by *your own, or everything for a manager*. A live host searching a number gets the colleague, not the hotel contact, because the Hotels tab is not hers. A search that leaks is worse than no search.
+
+### Why there is no index
+The obvious build is an FTS5 table kept current by triggers. Two things argued against it: wrangler splits migrations on semicolons and a trigger body is full of them - the migration that built the index would be the one most likely to fail on the remote parser guard #36's sibling exists to protect against; and the whole corpus is a few thousand rows. Eight capped LIKE queries in one batch answer in milliseconds and are always current - nothing to rebuild, nothing to drift, nothing to forget when a table gains a column. If the company outgrows that, the index is a later, measured decision.
+
+### Guard #42
+`tests/search-everything.mjs` (127 checks) runs `sourcesFor` for **every role against every source** and holds each to the tab's own permission; runs `phoneDigits` and `likePattern` on real inputs; and checks the wiring - the door, the debounce, the stale-answer guard, the removed preloads, every hit's tab being real, every kind having a group header in both languages. Negative-tested by letting a live host search hotels, dropping the digit strip, and removing the stale-answer check.
+
+## [1.106.0] - 2026-09-05 - roadmap phase 04a: One Desk
+
+### What was wrong
+Approvals lived in five tabs. Leave waited on the Leave tab, claims on Claims, overtime and forgotten punches on Attendance, commission on Commission, and the announcement you had not acknowledged sat on News. The answer to *"what is waiting on me"* was a tour of the product, and the thing that had waited longest was whichever tab you happened not to open.
+
+### One Desk
+The first card on the Dashboard: **everything waiting on the person looking, from every module, oldest first, overdue on top.** Pressing an item goes to the tab where it is decided; the desk itself decides nothing and writes nothing. When there is nothing, it is one quiet line - *"Nothing is waiting on you."* - and takes no room, because a heading over an empty box is a card asking to be ignored.
+
+Seven buckets, each filtered to **what this person may act on, by the same rule the acting route enforces**:
+
+- **Leave** at the stage this role acts at - HR at *applied*, COO/CCO at *HR reviewed*, CEO at *pre-approved*, a COO/CCO applicant skipping straight to the CEO - and never your own.
+- **Claims** at the step this role performs: HR review for staff claims; pre-approval by the COO (staff) or CCO (HR); the CEO's decision once the chain is complete, or straight away for exec and top claims. Never your own, and never one that pays you.
+- **Overtime** with both punches, undecided (CEO/COO). **Punches** forgotten or sent late from offline, awaiting approval (CEO). **Commission** pending (CEO tier).
+- **Tasks**: your open ones, overdue first by deadline - and tasks *you* created whose every scope item is ticked but which nobody has closed: *"review and close"*.
+- **News** from the last thirty days you have not acknowledged.
+
+Each bucket has a comfortable window (leave 3 days, claims 7, overtime 3, punches 2, commission 14, news 7) past which an item is marked overdue and floats to the top with how long it has waited.
+
+### One rule, not two
+The leave approval chain moved out of `staff.ts` into `worker/src/leave-chain.ts`, byte for byte, so the desk and the decide route read the **same** function. Two copies of an approval rule is exactly how a desk ends up showing a request its owner cannot act on. The claim chain is written out in `desk.ts` as `staff.ts` spells it, and guard #41 runs both against the decide routes' own cases.
+
+### Guard #41
+`tests/one-desk.mjs` (43 checks) runs `claimStepFor` and `leaveCanActAt` for real: a fresh staff claim waits on HR and on nobody else; after HR review, on the COO and not yet the CEO; fully chained, on the CEO and off the COO's desk; an HR claim waits on the CCO; an exec claim goes straight to the CEO; nobody sees their own; a pre-approver never sees a claim that pays them. It holds `staff.ts` to importing the leave chain rather than keeping a copy, the desk to refetching on every topic a bucket can move on, every tab it names to being real, and the card to being the first thing on the Dashboard. Negative-tested three ways.
+
 ## [1.105.0] - 2026-09-05 - roadmap phase 03: the outbox
 
 **CEO**, 05-09-2026, on how an offline clock-in should be recorded: *phone's time, marked pending* - and on what may queue: *attendance punches, task updates, leave and claim submissions, hotel call notes*.

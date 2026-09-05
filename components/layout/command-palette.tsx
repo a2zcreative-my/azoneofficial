@@ -2,7 +2,17 @@
 
 /* v1.8.0 — global search (the reference design's "Search CL or client").
    Ctrl/Cmd+K or the top-bar field opens it; fuzzy-matches portal tabs,
-   staff, clients and quick actions, entirely client-side. */
+   staff, clients and quick actions, entirely client-side.
+
+   v1.107.0 (roadmap phase 04b) — SEARCH EVERYTHING. Tabs and actions still
+   match here, instantly; everything else - hotels and their contacts, staff,
+   clients, quotations and invoices, web orders, stock, assets, tasks - comes
+   from /staff/search, one request over eight tables, each gated by the
+   permission its own tab is gated by. Type a phone number and get the hotel
+   contact, the client and the order it belongs to; the worker strips both
+   sides to digits so "017-476 1019" finds "0174761019". The directory
+   preload (staff + clients, two fetches on every open) is gone: the server
+   answers in one. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeApi } from "@/lib/api";
@@ -18,6 +28,20 @@ const GROUP_MS: Record<string, string> = {
   Actions: "Tindakan",
   Staff: "Kakitangan",
   Clients: "Klien",
+  Hotels: "Hotel",
+  Contacts: "Kenalan",
+  Documents: "Dokumen",
+  Orders: "Pesanan",
+  Stock: "Stok",
+  Assets: "Aset",
+  Tasks: "Tugasan",
+};
+
+/** v1.107.0 - what the worker returns for one query. */
+interface Hit { kind: string; id: number; title: string; sub: string; tab: string }
+const KIND_GROUP: Record<string, string> = {
+  hotel: "Hotels", contact: "Contacts", staff: "Staff", client: "Clients",
+  document: "Documents", order: "Orders", stock: "Stock", asset: "Assets", task: "Tasks",
 };
 
 const api = makeApi("/staff");
@@ -42,41 +66,44 @@ function score(q: string, s: string): number {
   return i === query.length ? 30 : 0;
 }
 
-export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], canSeeClients = false }: {
+export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }: {
   open: boolean;
   onClose: () => void;
   tabs: { name: string; label: string }[];
   onTab: (name: string) => void;
   extraActions?: PaletteAction[];
-  /** /clients/summary needs revenue_view — skip the guaranteed 403 otherwise. */
+  /** v1.107.0 - canSeeClients is gone: the worker decides per source what
+      this role may find, by the same permissions its tabs use. */
   canSeeClients?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
-  const [staff, setStaff] = useState<{ id: number; name: string; role: string }[]>([]);
-  const [clients, setClients] = useState<{ id: number; company: string }[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const loadedRef = useRef(false);
-  /* v1.77.0 — skeleton until the first fetch lands. The directory (staff +
-     clients) only shows once a query is typed; someone who types before it
-     arrives used to see "No matches." for names that were still in flight.
-     `dirLoaded` is false while the directory requests are out. */
-  const [dirLoaded, setDirLoaded] = useState(false);
-
-  // Directory data loads once, on first open (cheap, both routes exist).
+  /* v1.107.0 - the server's answer for the query as typed. `hits` is for
+     `hitsFor`; a stale answer for an earlier query is never shown as the
+     answer to a later one. `searching` is true from the first keystroke of a
+     new query until its answer lands (v1.77.0: a skeleton, never "No
+     matches." for names still in flight). */
+  const [hits, setHits] = useState<Hit[]>([]);
+  const [hitsFor, setHitsFor] = useState("");
+  const [searching, setSearching] = useState(false);
+  const seq = useRef(0);
+  const queryNow = q.trim();
   useEffect(() => {
-    if (!open || loadedRef.current) return;
-    setDirLoaded(false);
-    const reqs: Promise<unknown>[] = [
-      api<{ staff: { id: number; name: string; role: string }[] }>(`/staff-list`)
-        .then((r) => { if (r.ok && r.data?.staff) { setStaff(r.data.staff); loadedRef.current = true; } }),
-    ];
-    if (canSeeClients) {
-      reqs.push(api<{ clients?: { id: number; company: string }[] }>(`/clients/summary`)
-        .then((r) => { if (r.ok && r.data?.clients) setClients(r.data.clients); }));
-    }
-    void Promise.allSettled(reqs).then(() => setDirLoaded(true));
-  }, [open, canSeeClients]);
+    if (!open || queryNow.length < 2) { setHits([]); setHitsFor(""); setSearching(false); return; }
+    setSearching(true);
+    const mine = ++seq.current;
+    const t = window.setTimeout(() => {
+      void api<{ hits: Hit[] }>(`/search?q=${encodeURIComponent(queryNow)}`).then((r) => {
+        if (seq.current !== mine) return; // a newer query is out
+        setHits(r.ok && r.data?.hits ? r.data.hits : []);
+        setHitsFor(queryNow);
+        setSearching(false);
+      });
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [open, queryNow]);
+  const dirLoaded = !searching && hitsFor === queryNow;
 
   useEffect(() => {
     if (open) { setQ(""); setSel(0); window.setTimeout(() => inputRef.current?.focus(), 30); }
@@ -92,22 +119,22 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
   for (const a of extraActions) {
     if (!query || score(query, a.label) > 0) rows.push({ group: "Actions", ...a });
   }
-  if (query) {
-    for (const s of staff.slice(0, 400)) {
-      push("Staff", s.name, () => { onTab("Staff Details"); onClose(); }, s.role.replace(/_/g, " "));
-    }
-    for (const c of clients.slice(0, 400)) {
-      push("Clients", c.company, () => { onTab("Sales"); onClose(); });
+  /* v1.107.0 - the server's hits are already matched; they are not re-scored
+     against the label (a phone-number hit has no digits in its title). */
+  if (query && hitsFor === query) {
+    for (const h of hits) {
+      rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, run: () => { onTab(h.tab); onClose(); } });
     }
   }
-  const GROUP_ORDER = ["Go to", "Actions", "Staff", "Clients"];
+  const GROUP_ORDER = ["Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
   const ranked = (query
     ? rows.sort((a, b) => {
         const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
-        return g !== 0 ? g : score(query, b.label) - score(query, a.label);
+        if (g !== 0) return g;
+        return (a.group === "Go to" || a.group === "Actions") ? score(query, b.label) - score(query, a.label) : 0;
       })
     : rows
-  ).slice(0, 12);
+  ).slice(0, 24);
   const clampedSel = Math.min(sel, Math.max(0, ranked.length - 1));
 
   const onKey = useCallback((e: { key: string; preventDefault(): void }) => {
@@ -125,13 +152,13 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
         <input
           ref={inputRef}
           className="text-foreground placeholder:text-muted-foreground w-full rounded-t-2xl border-b border-border bg-transparent px-4 py-3 text-sm outline-none"
-          placeholder={L("Search tabs, staff, clients, actions…  (Esc to close)", "Cari tab, kakitangan, klien, tindakan…  (Esc untuk tutup)")}
+          placeholder={L("Search anything — a name, a hotel, a phone number, an order…  (Esc to close)", "Cari apa sahaja — nama, hotel, nombor telefon, pesanan…  (Esc untuk tutup)")}
           value={q}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}
           onKeyDown={onKey}
         />
         <div className="max-h-72 overflow-y-auto p-1.5">
-          {ranked.length === 0 && (dirLoaded || !query) && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
+          {ranked.length === 0 && (dirLoaded || !query || query.length < 2) && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
           {ranked.map((r, i) => {
             const header = r.group !== lastGroup ? r.group : null;
             lastGroup = r.group;
@@ -145,7 +172,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
                   onClick={() => r.run()}
                 >
                   <span className="truncate">{r.label}</span>
-                  {r.hint && <span className="text-muted-foreground ml-2 shrink-0 text-xs capitalize">{r.hint}</span>}
+                  {r.hint && <span className="text-muted-foreground ml-2 max-w-[55%] shrink-0 truncate text-xs">{r.hint}</span>}
                 </button>
               </div>
             );
@@ -153,7 +180,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
           {/* v1.77.0 — skeleton until the first fetch lands: the Staff group
               (header + three result rows in the real row's padding) while the
               directory is still in flight and a query is waiting on it. */}
-          {query && !dirLoaded && (
+          {query.length >= 2 && !dirLoaded && (
             <div aria-hidden>
               <p className="px-3 pt-2 pb-0.5"><Skel className="h-2.5 w-12" /></p>
               {Array.from({ length: 3 }, (_, i) => (

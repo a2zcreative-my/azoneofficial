@@ -3,6 +3,7 @@
 // feature never fired once.
 import { handleStaff, notify, type StaffUser } from "./staff";
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
+import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
@@ -275,7 +276,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0114_outbox";
+const LATEST_MIGRATION = "0115_watchers";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1810,6 +1811,28 @@ export default {
       // a traffic failure can never mark the orders pull as failed.
       await pollElfiaTraffic(env);
       await bumpVersion(env, "web-traffic");
+      /* v1.108.0 - the WATCHERS ride this tick once an hour, on the :00
+         firing. Hourly is often enough for stock, orders and certificates,
+         and a finding is pushed only the first time it appears, so the hour
+         is about how soon somebody hears, not how often. Never fatal: a
+         watcher that throws is named in the error log and the orders pull
+         above has already succeeded. */
+      if (new Date().getUTCMinutes() < 5) {
+        try {
+          const r = await runWatchers(env);
+          if (r.failed.length) await logError(env, "watchers", r.failed.join("; "));
+        } catch (e) {
+          await logError(env, "watchers", e instanceof Error ? e.message : String(e));
+        }
+      }
+      return;
+    }
+    /* v1.108.0 - 08:00 MYT: the morning brief to the CEO, COO and CCO. Their
+       desk, who is in, yesterday's web sales, open watcher findings - one
+       notification before the day starts. */
+    if (event.cron === "0 0 * * *") {
+      try { await morningBrief(env); }
+      catch (e) { await logError(env, "morning_brief", e instanceof Error ? e.message : String(e)); }
       return;
     }
     if (event.cron === "20 19 * * *") {
@@ -4409,6 +4432,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0112 (the hotel list, seeded)", `SELECT person_name, phone FROM hotel_contacts LIMIT 1`],
       ["0113 (who reports to whom)", `SELECT reports_to FROM users LIMIT 1`],
       ["0114 (the outbox)", `SELECT key FROM idempotency_keys LIMIT 1`],
+      ["0115 (watchers)", `SELECT ref FROM watcher_open LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4542,6 +4566,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0112_hotels_seed",
       "0113_reports_to",
       "0114_outbox",
+      "0115_watchers",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
