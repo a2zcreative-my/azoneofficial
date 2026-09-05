@@ -183,6 +183,17 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
   ok("history import falls back on ANY failed attempt, not only code 100",
      /for \(let i = 1; !r\.ok && i < attempts\.length/.test(threads) && !/!r\.ok && r\.code === 100/.test(threads),
      "the A2Z account came back HTTP 500, which is not code 100, and sat at zero posts");
+  /* v1.96.2 — the scope is written down at connect, and a token without it
+     is refused BEFORE a search is spent. (negative-tested by dropping
+     granted_scopes from the connect upsert, and by picking the search
+     account without the CAN_SEARCH_SQL condition) */
+  ok("connecting records the scopes asked for", /granted_scopes = \?5`,\s*\)\.bind\([^`;]*?, SCOPES\),/.test(threads),
+     "an account whose scopes nobody wrote down cannot be told from one that can search");
+  ok("a search only asks with a token that holds the scope",
+     /WHERE a\.is_active = 1 AND \$\{CAN_SEARCH_SQL\}/.test(threads) && /const acc = await searchAccount\(env\);/.test(win(SEARCH_ROUTE, 1600)),
+     "Meta answers a token without the scope with An unknown error occurred, which nobody can read as reconnect");
+  ok("the Study section says reconnect before the button, not after Meta",
+     /search_blocker/.test(threads) && /searchBlocker/.test(panel) && /setSection\("connection"\)/.test(panel));
   ok("a missing scope is reported as such, not as an empty niche",
      /needs_reconnect: res\.needs_reconnect/.test(threads) && /needs_reconnect/.test(panel),
      "a search that silently returns nothing reads as a quiet subject, which is the opposite of the truth");

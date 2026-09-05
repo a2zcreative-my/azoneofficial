@@ -364,3 +364,15 @@ author, time, format and link and nothing else.
 |---|---|
 | v1.96.0 | 0106 — three study-case tables; no metrics on other people's posts. |
 
+## v1.96.2 — migration 0107_threads_scopes.sql
+threads_accounts.granted_scopes: the scope string the worker asked for when
+the account was connected, rewritten on every reconnect. NULL means the row
+predates this column (connected before threads_keyword_search existed) and is
+treated as unable to search. Read by one SQL expression (CAN_SEARCH_SQL) that
+the account list, the topic list and the search route all share, so the Study
+section can say "reconnect" before a search is spent rather than after Meta
+answers "An unknown error occurred".
+
+| Version | Change |
+|---|---|
+| v1.96.2 | 0107 — granted_scopes on threads_accounts. |

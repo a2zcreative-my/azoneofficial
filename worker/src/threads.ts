@@ -234,15 +234,15 @@ export async function threadsCompleteAuth(
     ).bind(`threads:${uid}`, token, String(expiresIn)),
     env.DB.prepare(
       `INSERT INTO threads_accounts (threads_user_id, username, connected_by, connected_at, token_expires_at,
-                                     sync_state, sync_cursor, sync_error, is_active)
-       VALUES (?1, ?2, ?3, datetime('now'), datetime('now', '+' || ?4 || ' seconds'), 'importing', NULL, NULL, 1)
+                                     sync_state, sync_cursor, sync_error, is_active, granted_scopes)
+       VALUES (?1, ?2, ?3, datetime('now'), datetime('now', '+' || ?4 || ' seconds'), 'importing', NULL, NULL, 1, ?5)
        ON CONFLICT (threads_user_id) DO UPDATE SET
          username = ?2, connected_by = ?3, connected_at = datetime('now'),
          token_expires_at = datetime('now', '+' || ?4 || ' seconds'),
-         sync_state = 'importing', sync_cursor = NULL, sync_error = NULL, is_active = 1`,
-    ).bind(uid, username, actorId, String(expiresIn)),
+         sync_state = 'importing', sync_cursor = NULL, sync_error = NULL, is_active = 1, granted_scopes = ?5`,
+    ).bind(uid, username, actorId, String(expiresIn), SCOPES),
   ]);
-  await audit(env, actorId, "threads.connected", "threads_accounts", uid, { username });
+  await audit(env, actorId, "threads.connected", "threads_accounts", uid, { username, scopes: SCOPES });
   return { ok: true, username };
 }
 
@@ -600,6 +600,23 @@ const iso = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
  * Study cases — what OTHER people post about a subject
  * ------------------------------------------------------------------ */
 
+/* v1.96.2 — whether an account's token can search at all. granted_scopes is
+   the scope string asked for when it was connected (0107); a row still NULL
+   was connected before the scope existed. Decided here, in SQL, so the
+   account list, the topic list and the search route cannot disagree. */
+const CAN_SEARCH_SQL = `(a.granted_scopes IS NOT NULL AND instr(a.granted_scopes, 'threads_keyword_search') > 0)`;
+
+/** The account a search asks with: one whose token holds the scope, newest
+    first. Null when none does - the caller says "reconnect" and spends
+    nothing. */
+async function searchAccount(env: Env): Promise<{ threads_user_id: string; username: string } | null> {
+  const row = await env.DB.prepare(
+    `SELECT a.threads_user_id, a.username FROM threads_accounts a
+      WHERE a.is_active = 1 AND ${CAN_SEARCH_SQL} ORDER BY a.connected_at DESC LIMIT 1`,
+  ).first<{ threads_user_id: string; username: string }>();
+  return row ?? null;
+}
+
 /** Searches spent in the last rolling 7 days, and what is left. */
 async function searchQuota(env: Env): Promise<{ used: number; left: number; cap: number }> {
   try {
@@ -666,12 +683,21 @@ async function runTopicSearch(
     }
     if (!r.ok) {
       const needs = /permission|scope|oauth|access/i.test(r.message) || r.code === 10 || r.code === 190 || r.code === 200;
+      /* v1.96.2 — Meta's code 1 is its answer to almost everything it will
+         not explain, and on this endpoint it nearly always means the APP
+         may not search: threads_keyword_search not added to the Threads
+         use case in the Meta dashboard. The token here already holds the
+         scope (searchAccount saw to that), so the dashboard is the place to
+         look, and the message says so instead of "unknown". */
+      const reason = r.code === 1
+        ? `${r.message} (Meta code 1). The token is fine; this is usually the app itself. In the Meta dashboard open Use cases > Threads API > Customize and add threads_keyword_search, then reconnect the account once and try again.`
+        : `${r.message} (Meta code ${r.code})`;
       await env.DB.prepare(
         `INSERT INTO threads_searches (topic_id, ran_by, found, ok) VALUES (?1, ?2, 0, 0)`,
       ).bind(topic.id, actorId).run();
       await env.DB.prepare(`UPDATE threads_topics SET last_run_at = datetime('now'), last_error = ?1 WHERE id = ?2`)
-        .bind(r.message.slice(0, 300), topic.id).run();
-      return { ok: false, reason: r.message, needs_reconnect: needs };
+        .bind(reason.slice(0, 300), topic.id).run();
+      return { ok: false, reason, needs_reconnect: needs };
     }
     for (const p of r.data.data ?? []) if (p.id && !seen.has(String(p.id))) seen.set(String(p.id), p);
     /* One row per call to Meta - that is what the weekly allowance counts. */
@@ -783,6 +809,7 @@ export async function handleThreads(
       const { results } = await env.DB.prepare(
         `SELECT a.id, a.username, a.display_label, a.connected_at, a.token_expires_at, a.last_sync_at,
                 a.sync_error, a.sync_state, a.is_active, u.name AS connected_by_name,
+                ${CAN_SEARCH_SQL} AS can_search,
                 (SELECT COUNT(*) FROM threads_posts p WHERE p.account_id = a.id) AS posts,
                 (SELECT MAX(captured_on) FROM threads_account_metrics m WHERE m.account_id = a.id) AS metrics_on
            FROM threads_accounts a LEFT JOIN users u ON u.id = a.connected_by
@@ -891,7 +918,16 @@ export async function handleThreads(
            FROM threads_topics t LEFT JOIN users u ON u.id = t.created_by
           WHERE t.is_active = 1 ORDER BY t.label`,
       ).all();
-      return json({ topics: results ?? [], quota: await searchQuota(env), can_manage: manage });
+      /* Whether a search can be spent at all, told BEFORE the button is
+         pressed: no connected account, or none whose token holds the
+         search scope (connected before v1.96.0 - reconnect once). */
+      const anyAccount = await env.DB.prepare(`SELECT 1 AS one FROM threads_accounts WHERE is_active = 1 LIMIT 1`).first();
+      const searcher = anyAccount ? await searchAccount(env) : null;
+      const search_blocker = !anyAccount ? "no_account" : !searcher ? "needs_reconnect" : null;
+      return json({
+        topics: results ?? [], quota: await searchQuota(env), can_manage: manage,
+        search_ready: !search_blocker, search_blocker, search_account: searcher?.username ?? null,
+      });
     }
 
     if (path === "/topics" && method === "POST") {
@@ -941,10 +977,19 @@ export async function handleThreads(
         /* Any connected account's token can ask; the search is not about
            that account. Newest connection first - most likely to hold the
            keyword-search scope. */
-        const acc = await env.DB.prepare(
-          `SELECT threads_user_id, username FROM threads_accounts WHERE is_active = 1 ORDER BY connected_at DESC LIMIT 1`,
-        ).first<{ threads_user_id: string; username: string }>();
-        if (!acc) return err("not_configured", "Connect a Threads account first - a search needs a credential to ask with", 400);
+        const anyAccount = await env.DB.prepare(`SELECT 1 AS one FROM threads_accounts WHERE is_active = 1 LIMIT 1`).first();
+        if (!anyAccount) return err("not_configured", "Connect a Threads account first - a search needs a credential to ask with", 400);
+        const acc = await searchAccount(env);
+        if (!acc) {
+          /* v1.96.2 — refused HERE, spending nothing. Meta answers a token
+             without the scope with "An unknown error occurred", which is
+             what the CEO saw and nobody could have read as "reconnect". */
+          return json({
+            ok: false, needs_reconnect: true,
+            reason: "The connected account was authorised before search was added, so its token cannot search. Reconnect it once on the Connection section.",
+            quota: await searchQuota(env),
+          }, 200);
+        }
         const tok = await tokenFor(env, acc.threads_user_id);
         if (!tok) return err("not_configured", "That account has no token - connect it again", 400);
         /* Two calls (top posts, then the newest) while the week has room for

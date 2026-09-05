@@ -218,6 +218,9 @@ export function ThreadsPanel() {
   const [newTopic, setNewTopic] = useState({ label: "", query: "", search_type: "keyword" });
   const [searching, setSearching] = useState(false);
   const [openStudy, setOpenStudy] = useState<number | null>(null);
+  /* v1.96.2 — why a search cannot be spent right now, known before the
+     button is pressed: no account, or a token from before search existed. */
+  const [searchBlocker, setSearchBlocker] = useState<"no_account" | "needs_reconnect" | null>(null);
 
   const loadAccounts = useCallback(async () => {
     const r = await api<{ accounts: Account[]; configured?: boolean; can_manage?: boolean; pending_migration?: boolean }>(`/accounts`);
@@ -269,10 +272,11 @@ export function ThreadsPanel() {
   useEffect(() => { void loadPosts(); }, [loadPosts]);
 
   const loadTopics = useCallback(async () => {
-    const r = await api<{ topics: Topic[]; quota: Quota; can_manage?: boolean }>(`/topics`);
+    const r = await api<{ topics: Topic[]; quota: Quota; can_manage?: boolean; search_blocker?: "no_account" | "needs_reconnect" | null }>(`/topics`);
     if (r.ok && r.data) {
       setTopics(r.data.topics ?? []);
       setQuota(r.data.quota ?? null);
+      setSearchBlocker(r.data.search_blocker ?? null);
       setTopic((t) => (t || r.data!.topics?.[0]?.id) ?? 0);
     }
     setTopicsLoaded(true);
@@ -737,6 +741,23 @@ export function ThreadsPanel() {
               )}
             </div>
 
+            {topicsLoaded && searchBlocker && (
+              /* v1.96.2 — said before a search is spent, in words that name
+                 the fix. Meta's own answer to this state is "An unknown
+                 error occurred". */
+              <div className="bg-warning-soft text-warning mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs" role="status">
+                <span>
+                  {searchBlocker === "no_account"
+                    ? L("No Threads account is connected - a search needs a credential to ask with.", "Tiada akaun Threads disambung - carian perlukan kelayakan untuk bertanya.")
+                    : L("The connected account was authorised before search was added, so it cannot search yet. Reconnect it once - the same Connect button on the Connection section.",
+                        "Akaun yang disambung diberi kuasa sebelum carian ditambah, jadi ia belum boleh mencari. Sambung semula sekali - butang Sambung yang sama pada bahagian Sambungan.")}
+                </span>
+                <button type="button" className={rowBtn} onClick={() => setSection("connection")}>
+                  {L("Open Connection", "Buka Sambungan")}
+                </button>
+              </div>
+            )}
+
             {!topicsLoaded ? (
               <div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: 3 }, (_, i) => <Skel key={i} className="h-7 w-28 rounded-full" />)}</div>
             ) : (
@@ -793,7 +814,8 @@ export function ThreadsPanel() {
                   </span>
                   {canManage && (
                     <>
-                      <button type="button" className={rowBtn} disabled={searching || (quota?.left ?? 1) <= 0}
+                      <button type="button" className={rowBtn} disabled={searching || (quota?.left ?? 1) <= 0 || Boolean(searchBlocker)}
+                        title={searchBlocker ? L("Search is not available yet - see the notice above", "Carian belum tersedia - lihat notis di atas") : undefined}
                         onClick={() => void runSearch(t)}>
                         {searching ? <Skel className="inline-block h-3 w-16" /> : L("Search now", "Cari sekarang")}
                       </button>

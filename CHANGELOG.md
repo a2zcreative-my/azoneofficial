@@ -2,6 +2,18 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.96.2] — 2026-09-05 — "An unknown error occurred" said in words
+
+**CEO**, pressing Search now on *Hotel Malaysia*: *"An unknown error occurred"*.
+
+That is Meta's whole answer when a Threads token lacks a permission. The A2Z account was connected under 1.94, before `threads_keyword_search` was on the scope list, so its token cannot search — and nothing in the database recorded that, because 0105 kept the token and forgot what it was minted for.
+
+- **Migration 0107** adds `threads_accounts.granted_scopes`: the scope string asked for at connect, rewritten on every reconnect. A row still NULL predates search and is treated as unable to search.
+- The Study section now says so **before** the button is pressed — a notice naming the fix (reconnect once) with an *Open Connection* button — and Search now is disabled until then. A search that would fail this way is refused at the route and spends nothing from the weekly allowance.
+- A search only ever asks with a token that holds the scope. If Meta still answers code 1 after a reconnect, the message now says what that usually is — `threads_keyword_search` not added to the Threads use case in the Meta dashboard — instead of "unknown".
+
+Guard #33: 68 checks (+3, each negative-tested). Triple bump: LATEST_MIGRATION, EXPECTED_MIGRATIONS, health probe 0107.
+
 ## [1.96.1] — 2026-09-05 — the first two results from the Study section
 
 **CEO**, minutes after deploying 1.96.0, with two screenshots: *"2 errors: HTTP 500 / For field 'keyword_search': Param search_type must be one of {RECENT, TOP}"*.
