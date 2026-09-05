@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.100.2] — 2026-09-05 — the hotel map, fixed
+
+**CEO**, on the Hotels tab: *"why map looks like this!"*
+
+Two things, and the first is the one that made it look broken.
+
+### The frame was three times the width of the map
+The bordered panel was full-width while the grid inside it carried the `max-w`, so a 704px map sat in the middle of a 1600px box with a third of it empty on either side and the border miles from the picture. **The frame now carries the width** (46rem) and the grid fills it, so the panel hugs the map.
+
+### Every tile was grey
+The shade was `color-mix(primary N%, card)` topping out at **60%** — so even Kuala Lumpur's 104, the darkest tile on the map, came out a pale slate and the whole thing read as grey boxes. A choropleth whose darkest tile is not dark has no top end. The ramp now has five steps and reaches **full** primary: 100 / 72 / 48 / 28 / 15%, with the label flipping to `primary-foreground` from 48% up. Kuala Lumpur is now navy, Perlis is nearly white, and the gradient between them is readable at a glance.
+
+### Two smaller things
+- **The empty column between the peninsula and Borneo is labelled SOUTH CHINA SEA**, set vertically in the gap. It was always the sea; saying so is what turns a hole in the grid into a map.
+- **Putrajaya and Negeri Sembilan swapped cells.** Putrajaya now sits directly under Kuala Lumpur — both are federal enclaves in the same place — and Negeri Sembilan sits under Selangor, which is where it is.
+
 ## [1.100.1] — 2026-09-05 — a folder of copies stopped the website building
 
 The v1.100.0 deploy published the API and then failed on the website:

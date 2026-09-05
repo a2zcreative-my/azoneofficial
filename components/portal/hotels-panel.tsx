@@ -22,7 +22,7 @@
  * rowBtnDanger, btnSmPrimary from lib/ui-styles and components/ui — the CEO
  * asked for edit and delete "based on globally css or style", so there is not
  * one bespoke button in this file. The shades on the map are the theme's
- * primary at four opacities, so it follows a re-brand and reads in both
+ * primary at five steps, so it follows a re-brand and reads in both
  * themes.
  *
  * WHO SEES IT: CEO, COO, CCO, hr_admin, admin, super_admin — hotels_view in
@@ -71,8 +71,8 @@ const TILES: { state: string; short: string; x: number; y: number; w?: number }[
   { state: "KUALA LUMPUR", short: "KL", x: 2, y: 2 },
   { state: "PAHANG", short: "PHG", x: 3, y: 2 },
   { state: "SARAWAK", short: "SWK", x: 5, y: 2, w: 2 },
-  { state: "PUTRAJAYA", short: "PJY", x: 1, y: 3 },
-  { state: "NEGERI SEMBILAN", short: "NS", x: 2, y: 3 },
+  { state: "NEGERI SEMBILAN", short: "NS", x: 1, y: 3 },
+  { state: "PUTRAJAYA", short: "PJY", x: 2, y: 3 },
   { state: "MELAKA", short: "MLK", x: 1, y: 4 },
   { state: "JOHOR", short: "JHR", x: 2, y: 4 },
 ];
@@ -89,10 +89,12 @@ const emptyHotel = (): Hotel => ({
 function Tile({ t, n, max, active, onPick }: {
   t: (typeof TILES)[number]; n: number; max: number; active: boolean; onPick: () => void;
 }) {
-  /* Four steps of the theme's own primary — a choropleth that follows a
-     re-brand and reads in both themes. */
+  /* v1.100.2 — five steps of the theme's own primary, reaching FULL strength
+     at the top. The first version stopped at 60% mixed into white, so even
+     Kuala Lumpur's 104 came out a pale slate and the whole map read grey.
+     A choropleth whose darkest tile is not dark has no top end. */
   const share = max > 0 ? n / max : 0;
-  const fill = n === 0 ? 4 : share > 0.66 ? 60 : share > 0.33 ? 40 : share > 0.12 ? 24 : 13;
+  const fill = n === 0 ? 6 : share > 0.7 ? 100 : share > 0.4 ? 72 : share > 0.2 ? 48 : share > 0.08 ? 28 : 15;
   return (
     <button
       type="button"
@@ -107,13 +109,13 @@ function Tile({ t, n, max, active, onPick }: {
         width: `calc(${((t.w ?? 1) / GRID_W) * 100}% - 0.5rem)`,
         height: `calc(${(1 / GRID_H) * 100}% - 0.5rem)`,
         margin: "0.25rem",
-        background: `color-mix(in oklab, var(--primary) ${fill}%, var(--color-card, transparent))`,
+        background: `color-mix(in oklab, var(--primary) ${fill}%, var(--card))`,
       }}
     >
-      <span className={`text-[11px] leading-none font-bold tracking-wider ${fill >= 40 ? "text-primary-foreground" : "text-foreground"}`}>
+      <span className={`text-[11px] leading-none font-bold tracking-[0.12em] ${fill >= 48 ? "text-primary-foreground" : "text-muted-foreground"}`}>
         {t.short}
       </span>
-      <span className={`mt-1 text-base leading-none font-bold tabular-nums ${fill >= 40 ? "text-primary-foreground" : "text-foreground"}`}>
+      <span className={`mt-1.5 text-lg leading-none font-bold tabular-nums ${fill >= 48 ? "text-primary-foreground" : "text-foreground"}`}>
         {n}
       </span>
     </button>
@@ -258,10 +260,23 @@ export function HotelsPanel() {
         )}
 
         {/* the cartogram: a glass panel with a slow sweep behind it */}
-        <div className="border-border/60 bg-card/50 relative mt-3 overflow-hidden rounded-2xl border p-3 backdrop-blur-sm">
+        {/* v1.100.2 — the FRAME carries the width, not the grid inside it. The
+            first version put max-w on the grid and left the bordered panel
+            full-width, so a 704px map sat in the middle of a 1600px box with
+            a third of it empty on either side and the border miles away from
+            the picture. */}
+        <div className="border-border/60 bg-card/50 relative mx-auto mt-3 w-full overflow-hidden rounded-2xl border p-4 backdrop-blur-sm"
+          style={{ maxWidth: "46rem" }}>
           <span aria-hidden className="pointer-events-none absolute inset-0"
             style={{ background: "radial-gradient(120% 90% at 20% 0%, color-mix(in oklab, var(--primary) 7%, transparent) 0%, transparent 60%)" }} />
-          <div className="relative mx-auto w-full" style={{ maxWidth: "44rem", aspectRatio: `${GRID_W} / ${GRID_H}` }}>
+          <div className="relative w-full" style={{ aspectRatio: `${GRID_W} / ${GRID_H}` }}>
+            {/* The empty column between the peninsula and Borneo is the sea,
+                and saying so is what turns a hole into a map. */}
+            <span aria-hidden
+              className="text-muted-foreground/50 pointer-events-none absolute flex items-center justify-center text-[9px] font-semibold tracking-[0.2em]"
+              style={{ left: `${(4 / GRID_W) * 100}%`, top: `${(0.6 / GRID_H) * 100}%`, width: `${(1 / GRID_W) * 100}%`, height: `${(2 / GRID_H) * 100}%` }}>
+              <span style={{ writingMode: "vertical-rl" }}>SOUTH CHINA SEA</span>
+            </span>
             {!loaded && TILES.map((t) => (
               <div key={t.state} className="absolute p-1" aria-hidden
                 style={{
