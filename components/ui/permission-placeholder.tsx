@@ -1,5 +1,6 @@
 import { card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import { AppIcon } from "@/components/ui/app-icon";
 
 export function PermissionPlaceholder({ title }: { title: string }) {
   // v1.40.0 (AUDIT F8): the one hard-coded English sentence on otherwise
@@ -8,7 +9,7 @@ export function PermissionPlaceholder({ title }: { title: string }) {
   return (
     <div className={`${card} flex items-center justify-center py-8 opacity-50`}>
       <div className="text-center">
-        <p className="text-sm font-semibold text-muted-foreground">🔒 {title}</p>
+        <p className="flex items-center gap-2 text-sm font-semibold text-muted-foreground"><AppIcon name="lock" />{title}</p>
         <p className="mt-1 text-xs text-muted-foreground">{L("Access denied. Contact your administrator if you require access.", "Akses dinafikan. Hubungi pentadbir anda jika anda memerlukan akses.")}</p>
       </div>
     </div>

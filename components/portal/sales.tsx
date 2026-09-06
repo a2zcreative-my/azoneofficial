@@ -28,6 +28,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -223,9 +224,9 @@ export function LiveEconomicsCard() {
     mins > 0 ? fmtRM(Math.round((cents * 60) / mins)) : "—";
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">
-        ⏱💰 {L("Live-hour economics", "Ekonomi jam LIVE")} — {ym(econ.month)}
-      </p>
+      <PanelTitle icon="time">
+        {L("Live-hour economics", "Ekonomi jam LIVE")} — {ym(econ.month)}
+      </PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
           "RM per hour of live this month. Clients: paid invoices ÷ completed session hours. Hosts: TikTok GMV landing during their sessions (motivation, not payroll).",
@@ -338,9 +339,9 @@ export function PackagesEditorCard({ role }: { role: string }) {
     setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">
-        📦 {L("Packages — public rate card", "Pakej — kadar harga awam")}
-      </p>
+      <PanelTitle icon="package">
+        {L("Packages — public rate card", "Pakej — kadar harga awam")}
+      </PanelTitle>
       {toastNode}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
@@ -523,13 +524,12 @@ export function BusinessLinesCard({ bare }: { bare?: boolean } = {}) {
   return (
     <div className={bare ? "" : card}>
       {!bare && (
-        <p className="text-sm font-semibold">
-          🧩{" "}
+        <PanelTitle icon="puzzle">
           {L(
             "Business lines — product vs service",
             "Bidang perniagaan — produk vs perkhidmatan"
           )}
-        </p>
+        </PanelTitle>
       )}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
@@ -641,13 +641,12 @@ export function SalesHistoryCard({ bare }: { bare?: boolean } = {}) {
   return (
     <div className={bare ? "" : card}>
       {!bare && (
-        <p className="text-sm font-semibold">
-          📊{" "}
+        <PanelTitle icon="chart">
           {L(
             "Sales history — month by month",
             "Sejarah jualan — bulan demi bulan"
           )}
-        </p>
+        </PanelTitle>
       )}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
@@ -679,7 +678,7 @@ export function SalesHistoryCard({ bare }: { bare?: boolean } = {}) {
                 >
                   <td className={td}>
                     {ym(m.month)}
-                    {m.cents >= best - 0.5 ? " 🏆" : ""}
+                    {m.cents >= best - 0.5 ? <AppIcon name="trophy" className="ml-1 -mt-0.5 h-3 w-3" /> : null}
                   </td>
                   <td className={tdR2}>{fmtRM(m.cents)}</td>
                   <td
@@ -740,13 +739,12 @@ export function PnlCard({ inModal }: { inModal?: boolean } = {}) {
       </div>
     ) : (
       <div className={card}>
-        <p className="text-sm font-semibold">
-          💹{" "}
+        <PanelTitle icon="up">
           {L(
             "Profit & loss — month by month",
             "Untung & rugi — bulan demi bulan"
           )}
-        </p>
+        </PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
             "Revenue (all channels) minus expenses, payroll and approved claims — what the business keeps. Payroll uses the same net figures as the M2E salary file.",
@@ -853,7 +851,7 @@ export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boole
       <div>{node}</div>
     ) : (
       <div className={card}>
-        <p className="text-sm font-semibold">💎 {L("Clients", "Pelanggan")}</p>
+        <PanelTitle icon="clients">{L("Clients", "Pelanggan")}</PanelTitle>
         <div className="mt-3">{node}</div>
       </div>
     );
@@ -975,7 +973,7 @@ export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boole
                   }
                 }}
               >
-                🔗 {L("Report link", "Pautan laporan")}
+                <AppIcon name="link" className="mr-1" />{L("Report link", "Pautan laporan")}
               </button>
             </span>
           </div>
@@ -1711,7 +1709,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
         <div className={card}>
           <SectionTabs value={custTab} onChange={setCustTab} tabs={[
             ["add", L("Add customer", "Tambah pelanggan")],
-            ["clients", L("💎 Clients", "💎 Pelanggan")],
+            ["clients", L("Clients", "Pelanggan")],
           ] as const} />
           <div className={custTab === "add" ? "mt-3" : "hidden"}>
           <p className="text-sm font-semibold">
@@ -2079,7 +2077,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
           <SectionTabs value={workTab} onChange={setWorkTab} tabs={[
             ["create", L("Create document", "Buat dokumen")],
             ["documents", L("Documents", "Dokumen")],
-            ["receipts", L("🧾 Receipts, credit notes & outstanding", "🧾 Resit, nota kredit & tertunggak")],
+            ["receipts", L("Receipts, credit notes & outstanding", "Resit, nota kredit & tertunggak")],
           ] as const} />
           <div className={workTab === "create" ? "mt-3" : "hidden"}>
           {toastNode}
@@ -2332,7 +2330,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                     {L("Choose customer…", "Pilih pelanggan…")}
                   </option>
                   <option value={0}>
-                    {L("🚶 Walk-in / general buyer", "🚶 Walk-in / pembeli umum")}
+                    <><AppIcon name="walkIn" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Walk-in / general buyer", "Walk-in / pembeli umum")}</>
                   </option>
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -2850,9 +2848,9 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                 : [L("90+ days","90+ hari"),"bg-danger-soft text-danger"];
         return (
           <div className={card}>
-            <p className="text-sm font-semibold">
-              ⏳ {L("Outstanding invoices — aging", "Invois tertunggak — usia")}
-            </p>
+            <PanelTitle icon="pending">
+              {L("Outstanding invoices — aging", "Invois tertunggak — usia")}
+            </PanelTitle>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {L(
                 "Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.",
@@ -2890,7 +2888,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                             }
                           >
                             {" "}
-                            {d.kind === "service" ? "🛠" : "📦"}
+                            <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
                           </span>
                         )}{" "}
                         · {d.company} · {fmtRM(d.total_cents)}
@@ -3002,7 +3000,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                       }
                     >
                       {" "}
-                      {d.kind === "service" ? "🛠" : "📦"}
+                      <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
                     </span>
                   )}{" "}
                   · {d.company} · {fmtRM(d.total_cents)}

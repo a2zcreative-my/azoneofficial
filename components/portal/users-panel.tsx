@@ -12,6 +12,7 @@ import { dmy } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
 import { card } from "@/lib/ui-styles";
 import { useCallback, useEffect, useState } from "react";
+import { AppIcon } from "@/components/ui/app-icon";
 
 /* ================= Shell ================= */
 
@@ -319,7 +320,7 @@ export function UsersPanel({ role }: { role: string }) {
           </div>
           {staffRows.some((u) => !u.totp_enabled && u.is_active) && (
             <p className="mt-2 text-xs font-medium text-warning">
-              ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length}{" "}
+              <AppIcon name="warning" className="mr-1 h-3.5 w-3.5" />{staffRows.filter((u) => !u.totp_enabled && u.is_active).length}{" "}
               {L(
                 "active account(s) without 2FA — worth chasing:",
                 "akaun aktif tanpa 2FA — perlu dikejar:"

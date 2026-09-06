@@ -27,7 +27,11 @@ async function run(label, ctx) {
     await p.waitForTimeout(100);
     const txt = await p.evaluate(() => document.body.innerText);
     if (txt.includes('No attendance recorded today')) violations.push(`${t}ms: "No attendance recorded today." while punches unknown`);
-    if (/📍\s*Clock in/.test(txt) && !txt.includes('Clocked in')) violations.push(`${t}ms: green "Clock in" offered though already clocked in`);
+    /* v1.126.0: this matched the button by its 📍 pin, which is an <AppIcon>
+       now and does not appear in innerText at all. `txt` is RENDERED text, so
+       the honest test is the label itself: the offer is on screen while the
+       person is already clocked in. */
+    if (/\bClock in\b/.test(txt) && !txt.includes('Clocked in')) violations.push(`${t}ms: green "Clock in" offered though already clocked in`);
     if (txt.includes('Not clocked in yet')) violations.push(`${t}ms: "Not clocked in yet"`);
   }
   const final = await p.evaluate(() => document.body.innerText);

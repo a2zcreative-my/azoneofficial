@@ -20,6 +20,7 @@ import { getLang } from "@/lib/i18n";
 import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
 import { Skel, SkelCard, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -338,7 +339,7 @@ export function ElfiaTrafficPanel() {
                         </div>
                       </div>
                       {convLine(sel, selData.visits) && (
-                        <p className="text-muted-foreground mt-2 text-[11px]">🛒 {convLine(sel, selData.visits)}</p>
+                        <p className="text-muted-foreground mt-2 text-[11px]"><AppIcon name="cart" className="mr-1 h-3.5 w-3.5" />{convLine(sel, selData.visits)}</p>
                       )}
                       <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">{L("Top cities", "Bandar teratas")}</p>
                       <div className="mt-1.5 space-y-1">

@@ -22,6 +22,7 @@ import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { card, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import { AppIcon } from "@/components/ui/app-icon";
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -689,8 +690,8 @@ export function Dashboard({
       setPunchToast({
         title:
           (res.data?.error as { code?: string }).code === "too_far"
-            ? L("📍 Too far from the office", "📍 Terlalu jauh dari pejabat")
-            : L("📍 Location needed", "📍 Lokasi diperlukan"),
+            ? L("Too far from the office", "Terlalu jauh dari pejabat")
+            : L("Location needed", "Lokasi diperlukan"),
         sub:
           res.data?.error?.message ??
           L(
@@ -937,7 +938,7 @@ export function Dashboard({
               disabled={!!busy}
               onClick={() => void punch("clock_in")}
             >
-              {hasIn ? tr("Clocked in ✓", lang) : `📍 ${tr("Clock in", lang)}`}
+              {hasIn ? tr("Clocked in ✓", lang) : <><AppIcon name="place" className="mr-1 -mt-0.5" />{tr("Clock in", lang)}</>}
             </button>
             <button
               type="button"
@@ -1015,7 +1016,7 @@ export function Dashboard({
             from the cron, for the person who has the tab open right now. */}
         {hasIn && !hasOut && nowMins >= 18 * 60 + 30 && (
           <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
-            ⏰ {tr("Don't forget to clock out", lang)}
+            <AppIcon name="time" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{tr("Don't forget to clock out", lang)}
             {hasOtIn && !hasOtOut
               ? L(
                   " (and OT out when overtime ends)",

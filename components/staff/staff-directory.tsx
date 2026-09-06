@@ -57,6 +57,7 @@ import { OrgChart, ORG_ASSIGN_ROLES } from "@/components/staff/org-chart";
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -290,9 +291,13 @@ function printBadges(list: Staff[]) {
    EPF / SOCSO / income-tax numbers (payroll needs them the moment the
    pending statutory registration completes). Same inputs, same lock
    policy — only the grouping and the seven additions are new. */
-const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
+/* v1.126.0 — the title was "👤 Personal", and it is a KEY as well as a label
+   (SECTION_TITLE_MS below looks it up). The glyph moved to its own field so
+   the key is words; changing an icon can never break a translation again. */
+const RECORD_SECTIONS: { title: string; icon: AppIconName; fields: [keyof Staff, string][] }[] = [
   {
-    title: "👤 Personal",
+    title: "Personal",
+    icon: "person",
     fields: [
       ["full_name", "Full name (as per IC)"],
       ["ic_number", "IC number (NRIC)"],
@@ -306,7 +311,8 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
   {
-    title: "💼 Employment",
+    title: "Employment",
+    icon: "orders",
     fields: [
       ["employee_id", "Employee ID"],
       ["position", "Position"],
@@ -319,7 +325,8 @@ const RECORD_SECTIONS: { title: string; fields: [keyof Staff, string][] }[] = [
     ],
   },
   {
-    title: "🏦 Bank & statutory",
+    title: "Bank & statutory",
+    icon: "money",
     fields: [
       ["bank_name", "Bank (Malaysia)"],
       ["bank_account", "Bank account no."],
@@ -368,9 +375,9 @@ const FIELD_TITLES: Partial<Record<keyof Staff, string>> = {
 /* Display-only BM lookups — the keys, API values and EN sources above never
    change; these are read at render time so the language toggle applies live. */
 const SECTION_TITLE_MS: Record<string, string> = {
-  "👤 Personal": "👤 Peribadi",
-  "💼 Employment": "💼 Pekerjaan",
-  "🏦 Bank & statutory": "🏦 Bank & statutori",
+  Personal: "Peribadi",
+  Employment: "Pekerjaan",
+  "Bank & statutory": "Bank & statutori",
 };
 const FIELD_LABEL_MS: Partial<Record<keyof Staff, string>> = {
   full_name: "Nama penuh (seperti dalam IC)",
@@ -575,7 +582,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
         {!selectMode && cake && (
           <span className="bg-card absolute -top-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm shadow"
             title={cake.days === 0 ? L(`Birthday today — turns ${cake.turns}`, `Hari lahir hari ini — genap ${cake.turns}`) : L(`Birthday in ${cake.days} day(s) — turns ${cake.turns}`, `Hari lahir dalam ${cake.days} hari — genap ${cake.turns}`)}>
-            🎂
+            <AppIcon name="cake" className="h-3.5 w-3.5" />
           </span>
         )}
       </span>
@@ -1015,7 +1022,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
       </div>
 
       {loadError && (
-        <p className="rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">⚠ {loadError}</p>
+        <p className="rounded-lg bg-warning-soft flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-warning"><AppIcon name="warning" className="h-3.5 w-3.5" />{loadError}</p>
       )}
       {/* v1.77.0 — skeleton until the first fetch lands: five collapsed
           record cards (checkbox · name · role, chevron on the right), the
@@ -1155,7 +1162,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                         )}
                         {cakeFor(who) && (
                           <span className="bg-warning-soft text-warning rounded-full px-2 py-0.5">
-                            🎂 {cakeFor(who)!.days === 0 ? L("today", "hari ini") : `${cakeFor(who)!.days} ${L("day(s)", "hari")}`}
+                            <AppIcon name="cake" className="mr-1 -mt-0.5 h-3 w-3" />{cakeFor(who)!.days === 0 ? L("today", "hari ini") : `${cakeFor(who)!.days} ${L("day(s)", "hari")}`}
                           </span>
                         )}
                       </p>
@@ -1194,7 +1201,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
               /* v1.99.1 — one chip per birthday, pressable, instead of a
                  dotted-underline sentence. */
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-muted-foreground">🎂 {L("Next birthdays", "Hari lahir seterusnya")}</span>
+                <span className="text-muted-foreground flex items-center gap-1.5"><AppIcon name="cake" className="h-3.5 w-3.5" />{L("Next birthdays", "Hari lahir seterusnya")}</span>
                 {upcoming.map((x) => (
                   <button key={x.u.id} type="button" onClick={() => press(x.u)}
                     className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${x.b.days <= 7 ? "bg-warning-soft text-warning" : "bg-secondary text-foreground/80 hover:bg-secondary/70"}`}
@@ -1251,7 +1258,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                       "No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account",
                       "Tiada nama penuh dalam rekod — slip gaji, borang tuntutan, borang cuti, lencana ID dan fail gaji Maybank2E semuanya kembali kepada nama pendek, dan bank boleh menolak pindahan yang namanya tidak sepadan dengan akaun",
                     )}>
-                    ⚠ {L("no full name", "tiada nama penuh")}
+                    <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" />{L("no full name", "tiada nama penuh")}
                   </span>
                 )}
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
@@ -1272,7 +1279,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                   return (
                     <span className={`ml-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${b.days <= 14 ? "bg-gold-soft text-gold-deep" : "bg-secondary text-muted-foreground"}`}
                       title={L("Birth date on the record below", "Tarikh lahir pada rekod di bawah")}>
-                      🎂 {b.next} · {b.days === 0 ? L(`turns ${b.turns} today`, `genap ${b.turns} hari ini`) : `${L("turns", "genap")} ${b.turns} ${L("in", "dalam")} ${b.days} ${L("day(s)", "hari")}`}
+                      <AppIcon name="cake" className="mr-1 -mt-0.5 h-3 w-3" />{b.next} · {b.days === 0 ? L(`turns ${b.turns} today`, `genap ${b.turns} hari ini`) : `${L("turns", "genap")} ${b.turns} ${L("in", "dalam")} ${b.days} ${L("day(s)", "hari")}`}
                     </span>
                   );
                 })()}
@@ -1359,12 +1366,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                         }
                       });
                     }}>
-                    🚪 {L("Offboard", "Tamatkan khidmat")}
+                    <AppIcon name="offboard" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Offboard", "Tamatkan khidmat")}
                   </button>
                 )}
                 {open.has(u.id) && !readOnly && (
                 <label className={`${btn} border-border cursor-pointer border hover:bg-secondary`}>
-                  {u.photo_key ? (canAmend ? L("Replace photo", "Ganti foto") : L("Photo set 🔒", "Foto ditetapkan 🔒")) : L("Upload photo", "Muat naik foto")}
+                  {u.photo_key ? (canAmend ? L("Replace photo", "Ganti foto") : L("Photo set (locked)", "Foto ditetapkan (dikunci)")) : L("Upload photo", "Muat naik foto")}
                   <input
                     type="file"
                     accept="image/*"
@@ -1401,7 +1408,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             </div>
             {open.has(u.id) && RECORD_SECTIONS.map((sec) => (
             <div key={sec.title}>
-            <p className="text-muted-foreground mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wide">{L(sec.title, SECTION_TITLE_MS[sec.title] ?? sec.title)}</p>
+            <p className="text-muted-foreground mt-3 mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide"><AppIcon name={sec.icon} className="h-3.5 w-3.5" />{L(sec.title, SECTION_TITLE_MS[sec.title] ?? sec.title)}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {sec.fields.map(([key, label]) => (
                 <label key={key} className="block">
@@ -1569,13 +1576,13 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
   return (
     <div className="border-border mt-3 rounded-lg border p-3">
       {vaultToastNode}
-      <p className="text-xs font-semibold">📁 {L("Documents & onboarding", "Dokumen & onboarding")} — {name}</p>
+      <p className="flex items-center gap-1.5 text-xs font-semibold"><AppIcon name="folder" className="h-3.5 w-3.5" />{L("Documents & onboarding", "Dokumen & onboarding")} — {name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select className="border-input bg-background rounded border px-2 py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
           {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-secondary"
-          onClick={() => fileRef.current?.click()}>⬆ {L("Upload document", "Muat naik dokumen")}</button>
+          onClick={() => fileRef.current?.click()}><AppIcon name="upload" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Upload document", "Muat naik dokumen")}</button>
         <input ref={fileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ""; }} />
       </div>

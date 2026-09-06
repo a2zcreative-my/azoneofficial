@@ -14,6 +14,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
 import { card } from "@/lib/ui-styles";
+import { AppIcon } from "@/components/ui/app-icon";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
@@ -82,7 +83,7 @@ export function SystemHealthCard() {
       {(health?.migrations_all?.length ?? 0) > 0 && (
         <details className="mt-3 text-xs">
           <summary className="cursor-pointer select-none font-medium">
-            🗄 {L("Migration health", "Kesihatan migrasi")} — {health!.migrations_all!.filter((m) => m.applied).length}/{health!.migrations_all!.length} {L("applied", "diterapkan")}
+            <AppIcon name="database" className="mr-1 h-3.5 w-3.5" />{L("Migration health", "Kesihatan migrasi")} — {health!.migrations_all!.filter((m) => m.applied).length}/{health!.migrations_all!.length} {L("applied", "diterapkan")}
             {health!.migrations_all!.some((m) => !m.applied) ? ` · ${health!.migrations_all!.filter((m) => !m.applied).length} ${L("missing", "belum diterapkan")}` : ` · ${L("all up to date ✓", "semua terkini ✓")}`}
           </summary>
           <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
@@ -99,7 +100,7 @@ export function SystemHealthCard() {
       )}
       {(health?.migrations_pending?.length ?? 0) > 0 && (
         <div className="mb-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
-          <p className="font-semibold">⛔ {health!.migrations_pending!.length} database migration{health!.migrations_pending!.length === 1 ? "" : "s"} pending — parts of the newest releases are switched off until they run:</p>
+          <p className="flex items-center gap-1.5 font-semibold"><AppIcon name="blocked" />{health!.migrations_pending!.length} database migration{health!.migrations_pending!.length === 1 ? "" : "s"} pending — parts of the newest releases are switched off until they run:</p>
           <ul className="mt-1 list-disc pl-4">{health!.migrations_pending!.map((m) => <li key={m}>{m}</li>)}</ul>
           <p className="mt-1.5 font-mono">npx wrangler d1 migrations apply azoneofficial --remote</p>
           <p className="mt-0.5">then <span className="font-mono">cd worker && wrangler deploy</span></p>
@@ -136,7 +137,7 @@ export function SystemHealthCard() {
             href={`${API}/system/backup/download`}
             title={L("Downloads the newest backup file — store it on a drive or another cloud, outside Cloudflare", "Muat turun fail sandaran terbaru — simpan pada pemacu atau awan lain, di luar Cloudflare")}
           >
-            ⬇ {L("Off-site copy", "Salinan luar tapak")}
+            <AppIcon name="download" className="mr-1 h-3.5 w-3.5" />{L("Off-site copy", "Salinan luar tapak")}
           </a>
         </span>
       </div>
@@ -159,7 +160,7 @@ export function SystemHealthCard() {
         {!loaded ? (
           <SkelTable rows={3} cols={3} className="mt-2" />
         ) : (health?.errors ?? []).length === 0 ? (
-          <p className="text-muted-foreground mt-1 text-sm">{L("No recorded errors. 🎉", "Tiada ralat direkodkan. 🎉")}</p>
+          <p className="text-muted-foreground mt-1 text-sm">{L("No recorded errors.", "Tiada ralat direkodkan.")}</p>
         ) : (
           <div className="border-border mt-2 max-h-60 overflow-x-auto overflow-y-auto rounded-lg border">
             <table className="w-full min-w-[520px] border-collapse text-sm">

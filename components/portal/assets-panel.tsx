@@ -33,6 +33,7 @@ interface StaffLite { id: number; name: string; role?: string }
 const CATS = [["electronics", "Electronics", "Elektronik"], ["furniture", "Furniture", "Perabot"], ["vehicle", "Vehicle", "Kenderaan"], ["studio", "Studio equipment", "Peralatan studio"], ["other", "Other", "Lain-lain"]] as const;
 const STATUSES = [["in_use", "In use", "Sedang digunakan"], ["spare", "Spare", "Simpanan"], ["repair", "In repair", "Dalam pembaikan"], ["lost", "Lost", "Hilang"], ["disposed", "Disposed", "Dilupuskan"]] as const;
 import { fmtRM as rm } from "@/lib/format"; // v1.4.272: the global formatter
+import { AppIcon } from "@/components/ui/app-icon";
 
 const EMPTY = {
   asset_tag: "", name: "", category: "electronics", brand_model: "", serial_no: "",
@@ -148,7 +149,7 @@ export function AssetsPanel() {
         </button>
         {openForm && (
           <div className="mt-3">
-            <p className={sub}>{L("🏷 Identification", "🏷 Pengenalan")}</p>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="identification" className="h-3.5 w-3.5" />{L("Identification", "Pengenalan")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
                 <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
@@ -161,7 +162,7 @@ export function AssetsPanel() {
               <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
                 <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
             </div>
-            <p className={sub}>{L("🧾 Purchase", "🧾 Pembelian")}</p>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="purchase" className="h-3.5 w-3.5" />{L("Purchase", "Pembelian")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
                 <input className={input} type="date" {...f("purchase_date")} /></label>
@@ -172,7 +173,7 @@ export function AssetsPanel() {
               <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
                 <input className={input} type="date" {...f("warranty_until")} /></label>
             </div>
-            <p className={sub}>{L("📍 Assignment & status", "📍 Penugasan & status")}</p>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="assignment" className="h-3.5 w-3.5" />{L("Assignment & status", "Penugasan & status")}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
                 <select className={input} {...f("assigned_to")}>

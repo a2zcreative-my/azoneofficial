@@ -2,6 +2,46 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.126.0] - 2026-09-06 - the portal draws icons, not emoji
+
+**CEO**, 06-09-2026, an icon audit in four parts. Three were real and are fixed. The first one was not, and why it wasn't is worth more than the fix.
+
+### The navigation was already SVG — you were reading dead code
+*"Sidebar navigation uses emoji icons … probably the biggest professionalism issue because navigation is always visible."* The rails have rendered lucide SVGs since **v1.16.0**, which replaced three glyph maps with `components/layout/nav-icons.tsx` and `<TabIcon>`. What you found in `sidebar-nav.tsx` was the `ICONS` map v1.16.0 left behind, under a comment that said DEPRECATED and *"nothing in the UI should render from it."* Nothing did — **no file imported it.**
+
+It is deleted. A deprecated export that nobody removes is still indexed, still grepped, and gets read as current long after it stops running; it cost this audit its headline finding. Guard #55 now fails if it comes back.
+
+### Everything below the nav
+One map — **`components/ui/app-icon.tsx`** — and one rule:
+
+> An emoji that **decorates** rendered UI becomes an icon. An emoji that **is content** stays an emoji.
+
+Content means text that leaves the app for somewhere React cannot follow: a CSV cell, a printed claim form, the public marketing pages. An `<svg>` in a CSV is a broken cell, so the rule is not "no emoji" — it is "no emoji where an icon would have worked". **About 250 emoji across 40 files** were converted.
+
+- **Card headings** — `<PanelTitle icon="content">Content</PanelTitle>`. It renders exactly what a bare `<p className="text-sm font-semibold">` renders when given no icon, so the 100-odd headings that have no icon yet are not a second component and can be converted whenever, without drift.
+- **Action buttons** — Download, Upload, Paperclip, CreditCard, Wrench, ShieldCheck, Printer, DoorOpen, exactly as you listed them.
+- **Status messages** — and this is where an icon beats an emoji for a reason beyond looks: lucide strokes inherit `currentColor`, so the triangle in a warning callout is the *warning colour*. A `⚠` could never be. The v1.124.0 token work and this one meet here.
+- **Data marks** — the pin beside a city, the cake beside a birthday, the calendar beside a date.
+
+Names in the map say what an icon **means** (`warning`, `paid`, `clients`), not which lucide glyph it is, so changing triangle-to-circle stays one edit in one file. Size and stroke are fixed in one place and match nav-icons, so the two never look like two icon sets. Every icon is `aria-hidden` — it sits beside the word it illustrates, and a screen reader announcing both reads the label twice.
+
+### The trap in this kind of change
+Two strings **referred to a button by its glyph**: *"press 💸 Mark paid on the Claims tab"* and *"the 💳 button now fills them into every file"*. The moment those buttons became icons, the instructions pointed at something no longer on screen. They name the buttons in words now, which is what somebody reading a toast can actually match against what they are looking at. Guard #55 checks for the shape.
+
+Two more places were **map keys**, not labels: the staff-record section titles (`"👤 Personal"`) were looked up in a translation table by their full string. The glyph moved to its own `icon` field, so the key is words and an icon change can never break a translation. The fulfilment chips got the same treatment — a label is words, and words go into tooltips and exports.
+
+### Left as emoji, on purpose
+The public marketing pages (those emoji *draw* a chat window — they are the content); `☑ Yes` inside the printed claim form; the purchasing tiles' typographic marks (`≡ ◷ $ ⚖`, one set); and the stock-note builder, which returns a **string** joined into other text with no element to hang an icon on. And, as you said, the functional typography stays: `→ ✓ ✕ ▲ ▼ ↩ ★`. They are punctuation doing a job, they are monochrome, and they already inherit colour.
+
+### Under it
+New: `components/ui/app-icon.tsx` (`AppIcon`, `PanelTitle`, `APP_ICON`). Touched: `sidebar-nav.tsx` and 28 screens across `app/`, `components/portal/`, `components/admin/`, `components/staff/`, `components/ui/`. No new dependency — `lucide-react` has been one since the public site's navbar, and only the named icons bundle.
+
+Guard **#55 app-icons**: no emoji in rendered UI (with the allowlist above written in), the dead map stays dead, every icon a screen asks for exists in the map, and no signed-in screen imports lucide directly — which is how a second icon set starts, at a different size and a different stroke with no one place to change either. Negative-tested four ways.
+
+Two guards were corrected rather than worked around. `csv-export` matched the export button by its `⬇`; the count is what that check is about. `no-false-attendance` matched the clock-in button by its `📍` — against `document.body.innerText`, where an SVG does not appear at all, so it would have passed on a blank screen. It matches the label now.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.125.0] - 2026-09-06 - the Inventory row is two cards again; every bordered surface has a name
 
 **CEO**, 06-09-2026, on the Stock now row: *"the code mixes two card behaviors in one visual row"*, and on the wider drift: *"without names, every bordered rounded box competes visually with actual cards."* Both are exactly right, and both are fixed here. No database change; no control, save or role gate moved.

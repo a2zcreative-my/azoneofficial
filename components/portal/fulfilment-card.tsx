@@ -26,16 +26,19 @@ interface FulfilOrder { // v1.4.222 drill-down row
   buyer_city: string | null; order_amount_cents: number | null; created_at: string;
 }
 
-/* [status key (API value — never translated), EN label, BM label] */
-const CHIPS: [key: string, label: string, labelMs: string][] = [
-  ["preparing", "📦 Preparing", "📦 Sedang disediakan"],
-  ["shipped", "🚚 Shipped", "🚚 Dihantar"],
-  ["in_transit", "✈ In transit", "✈ Dalam perjalanan"],
-  ["delivered", "✅ Delivered", "✅ Telah sampai"],
-  ["returned", "↩ Returned", "↩ Dipulangkan"],
+/* [status key (API value — never translated), EN label, BM label, icon]
+   v1.126.0 — the glyph moved out of the label into a fourth column: a label
+   is words, and words go into tooltips and exports where an <svg> cannot. */
+const CHIPS: [key: string, label: string, labelMs: string, icon: AppIconName][] = [
+  ["preparing", "Preparing", "Sedang disediakan", "package"],
+  ["shipped", "Shipped", "Dihantar", "shipped"],
+  ["in_transit", "In transit", "Dalam perjalanan", "transit"],
+  ["delivered", "Delivered", "Telah sampai", "success"],
+  ["returned", "Returned", "Dipulangkan", "returned"],
 ];
 
 import { fmtRM as rmF, dmy } from "@/lib/format"; // v1.4.272: the global formatters
+import { AppIcon, type AppIconName, PanelTitle } from "@/components/ui/app-icon";
 const dmyT = (ts: string) => {
   const d = new Date(ts.replace(" ", "T") + "Z");
   if (Number.isNaN(d.getTime())) return ts;
@@ -78,7 +81,7 @@ export function FulfilmentCard() {
   const totalMonth = d ? Object.values(d.by_status).reduce((a, b) => a + b, 0) : 0;
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">{L("📮 Fulfilment", "📮 Pemenuhan")} — {d ? dmy(d.month) : "…"}</p>
+      <PanelTitle icon="fulfilment">{L("Fulfilment", "Pemenuhan")} — {d ? dmy(d.month) : "…"}</PanelTitle>
       {!d ? (
         <SkelText lines={2} className="mt-2" />
       ) : totalMonth === 0 ? (
@@ -86,7 +89,7 @@ export function FulfilmentCard() {
       ) : (
         <>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {CHIPS.map(([k, label, labelMs]) => (
+            {CHIPS.map(([k, label, labelMs, icon]) => (
               <button key={k} type="button" onClick={() => void toggleDrill(k)}
                 title={L("Click to show these orders", "Klik untuk tunjuk pesanan ini")}
                 className={
@@ -95,7 +98,7 @@ export function FulfilmentCard() {
                     ?"rounded-full bg-warning-soft px-2 py-0.5 font-semibold text-warning"
                     : "border-border rounded-full border px-2 py-0.5")
                 }>
-                {L(label, labelMs)} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
+                <AppIcon name={icon} className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L(label, labelMs)} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
               </button>
             ))}
           </div>
@@ -153,7 +156,7 @@ export function FulfilmentCard() {
           )}
           {d.oldest_preparing && (
             <p className="mt-2 text-xs font-medium text-warning">
-              {L("⏳ Oldest unshipped:", "⏳ Paling lama belum dihantar:")} {d.oldest_preparing.order_ref}
+              <AppIcon name="pending" className="mr-1 h-3.5 w-3.5" />{L("Oldest unshipped:", "Paling lama belum dihantar:")} {d.oldest_preparing.order_ref}
               {d.oldest_preparing.days !== null && d.oldest_preparing.days >= 1
                 ? L(` — waiting ${d.oldest_preparing.days} day${d.oldest_preparing.days === 1 ? "" : "s"}`, ` — menunggu ${d.oldest_preparing.days} hari`)
                 : L(" — from today", " — dari hari ini")}

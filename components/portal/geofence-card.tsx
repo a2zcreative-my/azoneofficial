@@ -13,6 +13,7 @@ import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PanelTitle } from "@/components/ui/app-icon";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -149,7 +150,7 @@ export function GeofenceCard() {
     <div className={card}>
       {confirmNode}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold">{L("📍 Office check-in (geofence)", "📍 Daftar kehadiran pejabat (geofence)")}</p>
+        <PanelTitle icon="place">{L("Office check-in (geofence)", "Daftar kehadiran pejabat (geofence)")}</PanelTitle>
         {/* v1.77.0 — skeleton until the first fetch lands: the badge used to
             read "OFF" while the request was still out. */}
         {!loaded ? (

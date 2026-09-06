@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const KEY = "azone-install-coach-dismissed";
@@ -54,8 +55,8 @@ export function InstallCoach() {
   return (
     <div className={`${card} border-primary/30 relative`} role="note">
       <div className="flex items-start gap-3">
-        <span aria-hidden className="bg-primary text-primary-foreground inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg">
-          ⬇
+        <span aria-hidden className="bg-primary text-primary-foreground inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
+          <AppIcon name="download" className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">{L("Put A2Z on your Home Screen", "Letakkan A2Z pada Skrin Utama anda")}</p>

@@ -14,6 +14,7 @@ import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-style
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { givenNames } from "@/lib/names";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 /* EN/BM at the display point only — getLang() re-reads per call, and the
@@ -196,7 +197,7 @@ export function MonthlyBarsCard({ months }: { months: { month: string; cents: nu
           </div>
         ))}
       </div>
-      <p className="text-muted-foreground mt-1.5 text-[11px]">🏆 {L("Best", "Terbaik")}: {ym(best.month)} · {fmtRM(best.cents)}</p>
+      <p className="text-muted-foreground mt-1.5 text-[11px]"><AppIcon name="trophy" className="mr-1 h-3 w-3" />{L("Best", "Terbaik")}: {ym(best.month)} · {fmtRM(best.cents)}</p>
     </div>
   );
 }

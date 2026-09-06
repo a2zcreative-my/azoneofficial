@@ -15,6 +15,7 @@ import { getLang } from "@/lib/i18n";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
 import { useCallback, useEffect, useState } from "react";
+import { AppIcon } from "@/components/ui/app-icon";
 
 /* ================= Company events (v1.4.73) ================= */
 
@@ -358,7 +359,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
       )}
       {upcomingBdays.length > 0 && (
         <p className="mt-2 rounded-lg bg-celebrate-soft px-3 py-2 text-xs font-medium text-celebrate">
-          🎂 {L("Coming up:", "Akan tiba:")}{" "}
+          <AppIcon name="cake" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Coming up:", "Akan tiba:")}{" "}
           {upcomingBdays
             .slice(0, 4)
             .map((b) => `${firstName(b.name)} (${dmy(b.iso)})`)
@@ -528,7 +529,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
                     );
                   }}
                 >
-                  📅 {L("Add to my calendar", "Tambah ke kalendar saya")}
+                  <AppIcon name="calendarAdd" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Add to my calendar", "Tambah ke kalendar saya")}
                 </button>
                 {canManage && (
                   <button
@@ -715,7 +716,7 @@ export function EventsCalendar({
                       .map((b) => b.name)
                       .join(", ")}
                   >
-                    🎂 {firstName(bdaysOf(dISO)[0]!.name)}
+                    <AppIcon name="cake" className="mr-0.5 -mt-0.5 h-3 w-3" />{firstName(bdaysOf(dISO)[0]!.name)}
                     {bdaysOf(dISO).length > 1
                       ? ` +${bdaysOf(dISO).length - 1}`
                       : ""}
@@ -771,7 +772,7 @@ export function EventsCalendar({
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-celebrate" />
-          🎂 {L("Birthday", "Hari lahir")}
+          <AppIcon name="cake" className="mr-1 h-3.5 w-3.5" />{L("Birthday", "Hari lahir")}
         </span>
       </div>
       {selected && (
@@ -780,7 +781,7 @@ export function EventsCalendar({
             {dmy(selected)}
             {holidayOf(selected) && (
               <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
-                🏖 {holidayOf(selected)!.name}
+                <AppIcon name="holiday" className="mr-1 -mt-0.5 h-3 w-3" />{holidayOf(selected)!.name}
               </span>
             )}
             {bdaysOf(selected).map((b) => (
@@ -788,7 +789,7 @@ export function EventsCalendar({
                 key={b.name}
                 className="ml-2 rounded-full bg-celebrate-soft px-2 py-0.5 text-xs font-medium text-celebrate"
               >
-                🎂{" "}
+                <AppIcon name="cake" className="mr-1 -mt-0.5 h-3 w-3" />
                 {L(
                   `${properName(b.name)}'s birthday`,
                   `Hari lahir ${properName(b.name)}`
@@ -854,7 +855,7 @@ export function EventsCalendar({
                       onAdded(ev.title, how);
                     }}
                   >
-                    📅 {L("Add to my calendar", "Tambah ke kalendar saya")}
+                    <AppIcon name="calendarAdd" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Add to my calendar", "Tambah ke kalendar saya")}
                   </button>
                   {canManage && (
                     <button

@@ -16,6 +16,7 @@ import { MiniBar } from "@/components/ui/stat-card";
 import { Skel } from "@/components/ui/skeleton";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { PanelTitle } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -94,14 +95,14 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
   const shown = stageFilter ? rows.filter((c) => c.stage === stageFilter) : rows;
 
   if (notReady) {
-    return <div className={card}><p className="text-sm font-semibold">{L("🎬 Content", "🎬 Kandungan")}</p>
+    return <div className={card}><PanelTitle icon="content">{L("Content", "Kandungan")}</PanelTitle>
       <p className="text-muted-foreground mt-1 text-xs">{L("Content management is temporarily unavailable — the server may need migration 0069 applied.", "Pengurusan kandungan tidak tersedia buat sementara — pelayan mungkin perlu migrasi 0069.")}</p></div>;
   }
 
   return (
     <div className={card}>
       {toastNode}{confirmNode}
-      <p className="text-sm font-semibold">{L("🎬 Content — IDEA → POSTED", "🎬 Kandungan — IDEA → DISIARKAN")}</p>
+      <PanelTitle icon="content">{L("Content — IDEA → POSTED", "Kandungan — IDEA → DISIARKAN")}</PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Plan every piece of content, move it through the production stages, and keep the script + caption together. Assigning it notifies the owner.", "Rancang setiap kandungan, gerakkannya melalui peringkat produksi, dan simpan skrip + kapsyen bersama. Penugasan akan memaklumkan pemiliknya.")}
       </p>
@@ -229,9 +230,9 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
               <MiniBar className="w-12 shrink-0" pct={((STAGES.indexOf(c.stage as typeof STAGES[number]) + 1) / STAGES.length) * 100} tone={c.stage === "posted" ? "green" : "gold"} />
               <span className="capitalize">{L(c.kind, KIND_MS[c.kind] ?? c.kind)} · {c.platform}
                 {c.campaign ? ` · ${c.campaign}` : ""}
-                {c.assigned_name ? ` · 👤 ${c.assigned_name.split(" ")[0]}` : ""}
-                {c.scheduled_date ? ` · 📅 ${dmy(c.scheduled_date)}` : ""}
-                {c.posted_at ? L(` · ✅ posted ${dmy(c.posted_at)}`, ` · ✅ disiarkan ${dmy(c.posted_at)}`) : ""}
+                {c.assigned_name ? ` · ${c.assigned_name.split(" ")[0]}` : ""}
+                {c.scheduled_date ? ` · ${dmy(c.scheduled_date)}` : ""}
+                {c.posted_at ? L(` · posted ${dmy(c.posted_at)}`, ` · disiarkan ${dmy(c.posted_at)}`) : ""}
               </span>
             </p>
             {open === c.id && (

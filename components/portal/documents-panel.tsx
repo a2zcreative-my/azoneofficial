@@ -14,6 +14,7 @@ import { card, btnSm, chipSuccess, chipWarn, th, td, thR2, tdR2 } from "@/lib/ui
 import { dmy, fmtRM } from "@/lib/format";
 import { printBusinessDoc } from "@/lib/receipt-print";
 import { getLang } from "@/lib/i18n";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -72,7 +73,7 @@ export function DocumentsPanel({ bare }: { bare?: boolean }) {
   return (
     <div className={bare ? "" : card}>
       {toastNode}{promptNode}
-      {!bare && <p className="text-sm font-semibold">{L("🧾 Documents — receipts, credit notes & outstanding", "🧾 Dokumen — resit, nota kredit & tertunggak")}</p>}
+      {!bare && <PanelTitle icon="documents">{L("Documents — receipts, credit notes & outstanding", "Dokumen — resit, nota kredit & tertunggak")}</PanelTitle>}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Issue a numbered receipt for a paid invoice, raise a credit note, and track every unpaid invoice in one place. Print carries the company letterhead.",
           "Keluarkan resit bernombor untuk invois berbayar, keluarkan nota kredit, dan jejak setiap invois belum dibayar di satu tempat. Cetakan membawa kepala surat syarikat.")}
@@ -87,7 +88,7 @@ export function DocumentsPanel({ bare }: { bare?: boolean }) {
       {tab === "outstanding" && (
         <div className="mt-3">
           {!outstanding ? <SkelText lines={3} className="mt-2" /> : outstanding.invoices.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{L("✅ No outstanding invoices — everything is paid.", "✅ Tiada invois tertunggak — semuanya telah dibayar.")}</p>
+            <p className="text-muted-foreground flex items-center gap-2 text-sm"><AppIcon name="success" className="text-success" />{L("No outstanding invoices — everything is paid.", "Tiada invois tertunggak — semuanya telah dibayar.")}</p>
           ) : (
             <>
               <p className="mb-2 text-sm">{L("Total outstanding:", "Jumlah tertunggak:")} <span className="font-bold tabular-nums">{fmtRM(outstanding.total_cents)}</span> {L("across", "merangkumi")} {outstanding.invoices.length} {L(`invoice${outstanding.invoices.length === 1 ? "" : "s"}`, "invois")}.</p>
@@ -141,7 +142,7 @@ export function DocumentsPanel({ bare }: { bare?: boolean }) {
                 {receipts.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
                     <span>{r.receipt_number}<span className="text-muted-foreground ml-1.5 text-xs">{r.company ?? ""} · {r.invoice_number} · {fmtRM(r.amount_cents)}</span></span>
-                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "RECEIPT", number: r.receipt_number, date: r.paid_at ?? r.created_at, customer: r.company, invoiceNumber: r.invoice_number, amountCents: r.amount_cents, method: r.payment_method, reference: r.payment_ref, issuer_code: r.issuer_code })}>{L("🖨 Print", "🖨 Cetak")}</button>
+                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "RECEIPT", number: r.receipt_number, date: r.paid_at ?? r.created_at, customer: r.company, invoiceNumber: r.invoice_number, amountCents: r.amount_cents, method: r.payment_method, reference: r.payment_ref, issuer_code: r.issuer_code })}><><AppIcon name="print" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Print", "Cetak")}</></button>
                   </div>
                 ))}
               </div>
@@ -172,7 +173,7 @@ export function DocumentsPanel({ bare }: { bare?: boolean }) {
                 {creditNotes.map((n) => (
                   <div key={n.id} className="flex items-center justify-between gap-2 text-sm">
                     <span>{n.cn_number}<span className="text-muted-foreground ml-1.5 text-xs">{n.company ?? ""} · {n.invoice_number} · {fmtRM(n.amount_cents)}{n.reason ? ` · ${n.reason}` : ""}</span></span>
-                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "CREDIT NOTE", number: n.cn_number, date: n.created_at, customer: n.company, invoiceNumber: n.invoice_number, amountCents: n.amount_cents, reason: n.reason, issuer_code: n.issuer_code })}>{L("🖨 Print", "🖨 Cetak")}</button>
+                    <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "CREDIT NOTE", number: n.cn_number, date: n.created_at, customer: n.company, invoiceNumber: n.invoice_number, amountCents: n.amount_cents, reason: n.reason, issuer_code: n.issuer_code })}><><AppIcon name="print" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Print", "Cetak")}</></button>
                   </div>
                 ))}
               </div>

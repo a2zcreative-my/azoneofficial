@@ -35,6 +35,7 @@ import { card } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { getLang, t } from "@/lib/i18n";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import {
   ASSIGNABLE_ROLES,
   GOVERNABLE_TABS,
@@ -93,7 +94,7 @@ export function TabAccessCard() {
 
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">{L("🔐 Tab access control", "🔐 Kawalan akses tab")}</p>
+      <PanelTitle icon="access">{L("Tab access control", "Kawalan akses tab")}</PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Choose which roles see each tab, listed in the order they appear in the portal. Everyone always keeps Dashboard and Profile (clock-in and payslips), and super_admin always sees every tab — the safety net if an assignment goes wrong. Changes apply on each person's next page refresh.",
           "Pilih peranan yang boleh melihat setiap tab, disenaraikan mengikut susunan dalam portal. Semua orang sentiasa mengekalkan Papan Pemuka dan Profil (daftar masuk dan slip gaji), dan super_admin sentiasa melihat semua tab — jaring keselamatan jika penetapan tersilap. Perubahan berkuat kuasa pada muat semula halaman seterusnya setiap orang.")}
@@ -151,7 +152,7 @@ export function TabAccessCard() {
               {isOpen && (
                 <div className="mt-2">
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded-full border border-success/30 px-2 py-0.5 text-[11px] font-semibold text-success" title={L("Always on — the safety net","Sentiasa aktif — jaring keselamatan")}>✓ super admin 🔒</span>
+                    <span className="rounded-full border border-success/30 px-2 py-0.5 text-[11px] font-semibold text-success" title={L("Always on — the safety net","Sentiasa aktif — jaring keselamatan")}><AppIcon name="lock" className="mr-1 -mt-0.5 h-3 w-3" />super admin</span>
                     {ASSIGNABLE_ROLES.map(([r, labelR]) => {
                       const on = draft.includes(r);
                       return (

@@ -128,6 +128,7 @@ function incompleteMonthAdj(basicCents: number, payableDays: number | null | und
 // v1.4.272: the local formatter became an alias of the global — payroll's
 // numbers must print identically to every other tab's.
 import { fmtRM, rm as rmBare, dmy, ym } from "@/lib/format";
+import { AppIcon } from "@/components/ui/app-icon";
 const rm = fmtRM;
 
 /** "YYYY-MM" → "MM-YYYY" for display. */
@@ -460,7 +461,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const res = await fetch(`${API}/payroll/m2e-file?month=${month}`, { credentials: "include" });
     if (!res.ok) {
       const j = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-      showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check ⚙ M2E setup below", "Fail M2E gagal — semak persediaan ⚙ M2E di bawah"), "notice");
+      showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check M2E setup below", "Fail M2E gagal — semak persediaan M2E di bawah"), "notice");
       return;
     }
     const skipped = res.headers.get("X-M2E-Skipped");
@@ -476,7 +477,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const r = await api<{ error?: { message?: string } }>(`/payroll/m2e-settings`, {
       method: "POST", body: JSON.stringify({ corporate_id: m2eCid, payer_account: m2eAcc, client_batch_id: m2eCbid }),
     });
-    if (r.ok) showToast(L("Saved", "Disimpan"), L("M2E settings stored — the 💳 button now fills them into every file", "Tetapan M2E disimpan — butang 💳 kini mengisinya ke dalam setiap fail"));
+    if (r.ok) showToast(L("Saved", "Disimpan"), L("M2E settings stored — the M2E salary file button now fills them into every file", "Tetapan M2E disimpan — butang fail gaji M2E kini mengisinya ke dalam setiap fail"));
     else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Save failed", "Simpan gagal"), "notice");
   };
   const uploadM2eTemplate = async (f: File) => {
@@ -484,7 +485,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
        csrfFetch so it self-heals a missing csrf cookie like every other call. */
     const res = await csrfFetch(`${API}/payroll/m2e-template`, { method: "POST", body: f });
     const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (res.ok) { setM2eHasTpl(true); showToast(L("Saved", "Disimpan"), L("Blank M2E template stored — 💳 now generates the filled workbook", "Templat M2E kosong disimpan — 💳 kini menjana buku kerja yang terisi")); }
+    if (res.ok) { setM2eHasTpl(true); showToast(L("Saved", "Disimpan"), L("Blank M2E template stored — the M2E salary file button now generates the filled workbook", "Templat M2E kosong disimpan — butang fail gaji M2E kini menjana buku kerja yang terisi")); }
     else showToast(L("No changes", "Tiada perubahan"), j?.error?.message ?? L("Template upload failed", "Muat naik templat gagal"), "notice");
   };
   // v1.4.87: change detection — snapshot of each row as loaded, so Save can
@@ -822,15 +823,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               void load();
             }}
           >
-            {L("🔧 Recompute nets", "🔧 Kira semula bersih")}
+            <><AppIcon name="fix" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Recompute nets", "Kira semula bersih")}</>
           </button>
           <button
             type="button"
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time ⚙ M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan ⚙ M2E sekali sahaja terlebih dahulu.")}
+            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
             onClick={() => void downloadM2e()}
           >
-            {L("💳 M2E salary file", "💳 Fail gaji M2E")}
+            <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
           </button>
           <a
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
@@ -854,7 +855,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       {!readOnly && (<>
         <details className="mt-2 text-xs">
           <summary className="text-muted-foreground cursor-pointer select-none">
-            {L("⚙ M2E setup (one-time) — ", "⚙ Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("⚠ incomplete: 💳 needs this", "⚠ belum lengkap: 💳 memerlukannya") : L("complete", "lengkap")}
+            {L("M2E setup (one-time) — ", "Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("incomplete — the M2E salary file needs this", "belum lengkap — fail gaji M2E memerlukannya") : L("complete", "lengkap")}
           </summary>
           <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
             <p className="text-muted-foreground">
@@ -892,8 +893,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             </div>
             <p className="text-muted-foreground">
               {L(
-                "Then 💳 downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff's Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.",
-                "Kemudian 💳 memuat turun templat yang sudah terisi: helaian Home (Corporate ID, Client Batch ID, akaun pembayar, tarikh nilai = 5 haribulan atau Jumaat sebelumnya) + semua baris gaji dari baris 5 — Favourite Recipient Code terisi automatik daripada Employee ID setiap kakitangan, Own Ref berjalan PAYROLL+tarikh+01,02,… Buka → aktifkan makro → Generate File → muat naik → luluskan → Tanda dibayar.",
+                "The M2E salary file button then downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff's Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.",
+                "Kemudian butang fail gaji M2E memuat turun templat yang sudah terisi: helaian Home (Corporate ID, Client Batch ID, akaun pembayar, tarikh nilai = 5 haribulan atau Jumaat sebelumnya) + semua baris gaji dari baris 5 — Favourite Recipient Code terisi automatik daripada Employee ID setiap kakitangan, Own Ref berjalan PAYROLL+tarikh+01,02,… Buka → aktifkan makro → Generate File → muat naik → luluskan → Tanda dibayar.",
               )}
             </p>
           </div>
@@ -1002,7 +1003,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   {L(`Payslips for ${monthDMY(month)} are RELEASED to staff (since ${release.released.released_at.slice(0, 16)} UTC).`, `Slip gaji untuk ${monthDMY(month)} telah DIKELUARKAN kepada kakitangan (sejak ${release.released.released_at.slice(0, 16)} UTC).`)}
                   {early && (
                     <>
-                      {""}<span className="font-semibold text-warning">{L(`⚠ Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `⚠ DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
+                      {""}<span className="font-semibold text-warning">{L(`Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
                       {" "}<button type="button" className="font-medium underline"
                         title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
                         onClick={async () => {
@@ -1060,7 +1061,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                           confirmLabel: L("Release now", "Keluarkan sekarang"),
                         })
                       : await payConfirm({
-                          title: L("⚠ Early release — check the month", "⚠ Keluaran awal — semak bulan"),
+                          title: L("Early release — check the month", "Keluaran awal — semak bulan"),
                           message: L(`${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(month)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
                           confirmLabel: L(`Release ${monthDMY(month)} anyway`, `Keluarkan ${monthDMY(month)} juga`),
                           variant: "danger",
@@ -1256,7 +1257,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     <span className="block font-medium whitespace-nowrap">{displayName(u)}</span>
                     <span className="text-muted-foreground block text-xs leading-snug">
                       {u.position ?? u.role}
-                      {hourlyRow && <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-warning" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly","⏱ ikut jam")}</span>}
+                      {hourlyRow && <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-warning" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}><><AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("hourly","ikut jam")}</></span>}
                     </span>
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
@@ -1381,8 +1382,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       <span className="mt-0.5 block text-[10px] leading-snug font-semibold text-warning"
                         title={L(`Employed for ${ud.payable_days} of ${monthDays} working days but clocked in on ${ud.clocked_days}. Both cannot be true — check Joined on / End date / Re-joined on in the staff record.`,
                                  `Bekerja ${ud.payable_days} daripada ${monthDays} hari tetapi mendaftar masuk ${ud.clocked_days} hari. Kedua-duanya tidak boleh benar — semak Tarikh masuk / Tarikh tamat / Tarikh kembali.`)}>
-                        {L(`⚠ ${ud.payable_days} employed / ${ud.clocked_days} clocked — check dates`,
-                           `⚠ ${ud.payable_days} bekerja / ${ud.clocked_days} daftar — semak tarikh`)}
+                        {L(`${ud.payable_days} employed / ${ud.clocked_days} clocked — check dates`,
+                           `${ud.payable_days} bekerja / ${ud.clocked_days} daftar — semak tarikh`)}
                       </span>
                     )}
                   </td>
@@ -1410,7 +1411,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                           className="text-muted-foreground ml-1 text-[10px]"
                           title={L("Clock-in days recorded in Attendance this month", "Hari daftar masuk direkod dalam Kehadiran bulan ini")}
                         >
-                          ⏱{attDays[u.id] ?? 0}
+                          <AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{attDays[u.id] ?? 0}
                         </span>
                         {(unpaidDays[u.id] ?? 0) > 0 && (
                           <span
@@ -1610,7 +1611,7 @@ export function MyPayslip() {
       ) : lockedUntil ? (
         <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <p className="text-sm">
-            {L("🔒 Your payslip for", "🔒 Slip gaji anda untuk")} <span className="font-medium">{monthDMY(month)}</span> {L("will be available on", "akan tersedia pada")}{" "}
+            <><AppIcon name="lock" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Your payslip for", "Slip gaji anda untuk")}</> <span className="font-medium">{monthDMY(month)}</span> {L("will be available on", "akan tersedia pada")}{" "}
             <span className="font-semibold">{dmy(lockedUntil)}, {lockedUntil.split(" ")[1]} MYT</span>.
           </p>
           <button

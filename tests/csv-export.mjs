@@ -91,7 +91,7 @@ const { buildCsv, csvCell } = await import(`file://${out}`);
      The property is that the button COUNTS what it will write, not which
      terms the sum has. */
   ok("the button says how many rows it will write",
-     /⬇ CSV — \$\{exportRows\(\)\.length[^}]*\}/.test(panels),
+     /CSV — \$\{exportRows\(\)\.length[^}]*\}/.test(panels), // v1.126.0: the button lost its ⬇ glyph to an <AppIcon>; the COUNT is what this check is about
      "a download with a surprising row count is found out in Excel, which is too late");
   ok("the filename records what narrowed it",
      /\["attendance", month, q\.trim\(\)/.test(panels),

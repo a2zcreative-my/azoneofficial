@@ -40,6 +40,7 @@ import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { QuietCard, ZoneLabel } from "@/components/portal/page-shared"; // v1.122.0
 import { extractCatalogMap, type ExtractedMap, type PageRuns } from "@/lib/catalog-extract";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -1342,7 +1343,7 @@ export function ElfiaStorePanel() {
             <div className="border-warning/30 mt-1 w-full border-t pt-2">
               <div className="flex flex-wrap items-end gap-2">
                 <span className="text-xs font-semibold text-warning">
-                  ⚡ {L("Flash sale", "Jualan kilat")}
+                  <AppIcon name="fast" className="mr-1 h-3.5 w-3.5" />{L("Flash sale", "Jualan kilat")}
                 </span>
                 {/* v1.68.0 — the price lives HERE now.
                     A flash sale is a price and a deadline. Asking for them in

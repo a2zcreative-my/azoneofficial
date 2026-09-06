@@ -9,35 +9,17 @@ import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 
 interface SidebarItem { name: string; label: string }
 
-/* v1.10.0: exported — the mobile bottom nav renders the SAME icon per tab,
-   so the two navigations speak one visual language.
-   v1.16.0: DEPRECATED — chrome icons are lucide SVGs now (nav-icons.tsx).
-   This emoji map remains only for the PDF/doc templates and anything else
-   that needs a plain-text glyph; nothing in the UI should render from it. */
-export const ICONS: Record<string, string> = {
-  Dashboard: "▦",
-  Overview: "◫",
-  Announcements: "📣",
-  HR: "🗂",
-  "Staff Details": "🪪",
-  Attendance: "⏱",
-  Leave: "🌴",
-  Tasks: "☑",
-  Pipeline: "🧲",
-  Content: "🎬",
-  Claims: "🧾",
-  Payroll: "💰",
-  Expenses: "📉",
-  Sales: "📄",
-  Inventory: "📦",
-  Stokis: "🏪",
-  Ecommerce: "🛒",
-  Assets: "🎥",
-  Birthdays: "🎂",
-  Profile: "👤",
-  Users: "🔐",
-};
+/* v1.126.0 — the ICONS emoji map that lived here is DELETED.
 
+   v1.16.0 replaced it with lucide SVGs (nav-icons.tsx) and left it behind
+   under a DEPRECATED note, "nothing in the UI should render from it". Nothing
+   did — no file imported it. But the CEO's icon audit, 06-09-2026, opened this
+   file, read the map, and reported the whole navigation as emoji. It was the
+   single biggest finding in that audit and it was about dead code.
+
+   That is the cost of a deprecated export nobody deletes: it is indexed,
+   grepped and read as current long after it stops running. The nav has been
+   SVG since v1.16.0; now the file says so only once, and only in the truth. */
 export function SidebarNav({ items, active, onSelect, onSignOut }: {
   items: SidebarItem[];
   active: string;

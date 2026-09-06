@@ -16,6 +16,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { card, inputClass, btnClass, btnSm, fieldRow, fieldLabel, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { PanelTitle } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -74,7 +75,7 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   };
 
   if (notReady) {
-    return <div className={card}><p className="text-sm font-semibold">🏪 Stokis</p>
+    return <div className={card}><PanelTitle icon="store">Stokis</PanelTitle>
       <p className="text-muted-foreground mt-1 text-xs">{L("Stokis management is temporarily unavailable — the server may need migration 0069 applied.", "Pengurusan stokis tidak tersedia buat sementara — pelayan mungkin perlu migrasi 0069.")}</p></div>;
   }
 
@@ -85,7 +86,7 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   return (
     <div className={card}>
       {toastNode}{confirmNode}
-      <p className="text-sm font-semibold">{L("🏪 Stokis — reseller network", "🏪 Stokis — rangkaian pengedar")}</p>
+      <PanelTitle icon="store">{L("Stokis — reseller network", "Stokis — rangkaian pengedar")}</PanelTitle>
       {/* v1.77.0 — skeleton until the first fetch lands (the summary line
           would otherwise read "0 active · RM 0.00" while loading). */}
       {!loaded ? <Skel className="mt-1.5 h-3 w-72 max-w-full" /> : (
@@ -191,7 +192,7 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
                   {L("total", "jumlah")} {fmtRM(s.total_cents)}
                   {s.commission_pct > 0 ? L(` · comm ${s.commission_pct}% = ${fmtRM(s.commission_cents)}`, ` · komisen ${s.commission_pct}% = ${fmtRM(s.commission_cents)}`) : ""}
                   {s.target_cents ? L(` · target ${fmtRM(s.target_cents)} (${pct}%)`, ` · sasaran ${fmtRM(s.target_cents)} (${pct}%)`) : ""}
-                  {s.location ? ` · 📍 ${s.location}` : ""}
+                  {s.location ? ` · ${s.location}` : ""}
                   {s.joined_at ? L(` · since ${dmy(s.joined_at)}`, ` · sejak ${dmy(s.joined_at)}`) : ""}
                 </span>
               </p>

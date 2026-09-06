@@ -11,6 +11,7 @@ import { dmy, mytDateOf } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
 import { btnGhost, card } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 /* ================= Attendance ================= */
 
@@ -99,11 +100,10 @@ export function Attendance({ user }: { user: User }) {
           const stillIn = monitor.staff.filter((s) => s.in_at && !s.out_at);
           return (
             <div className={card}>
-              <p className="text-sm font-semibold">
-                👁{" "}
+              <PanelTitle icon="preview">
                 {L("Today's attendance monitor", "Pemantau kehadiran hari ini")}{" "}
                 — {dmy(monitor.date)}
-              </p>
+              </PanelTitle>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {L(
                   "Live snapshot of every active staff member's punches today (refreshes every 2 minutes).",
@@ -118,13 +118,13 @@ export function Attendance({ user }: { user: User }) {
               </p>
               {notIn.length > 0 && !isWeekend && (
                 <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
-                  ⚠ {L("Not clocked in:", "Belum daftar masuk:")}{" "}
+                  <AppIcon name="warning" className="mr-1 h-3.5 w-3.5" />{L("Not clocked in:", "Belum daftar masuk:")}{" "}
                   {notIn.map((s) => firstName(s.name)).join(", ")}
                 </p>
               )}
               {stillIn.length > 0 && afterShift && (
                 <p className="mt-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-xs font-semibold text-info">
-                  ⏳{" "}
+                  <AppIcon name="pending" className="mr-1 h-3.5 w-3.5" />
                   {L(
                     "Past 18:00 with no clock-out yet:",
                     "Melepasi 18:00 tanpa daftar keluar lagi:"
@@ -166,7 +166,7 @@ export function Attendance({ user }: { user: User }) {
                             </span>
                           ) : (
                             <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
-                              ⚠ {L("not clocked in", "belum daftar masuk")}
+                              <AppIcon name="warning" className="mr-0.5 h-3 w-3" />{L("not clocked in", "belum daftar masuk")}
                             </span>
                           )}
                           {st.in_at &&
@@ -180,8 +180,8 @@ export function Attendance({ user }: { user: User }) {
                               >
                                 {afterShift
                                   ? L(
-                                      "⏳ no clock-out",
-                                      "⏳ tiada daftar keluar"
+                                      "no clock-out",
+                                      "tiada daftar keluar"
                                     )
                                   : L("still in", "belum keluar")}
                               </span>

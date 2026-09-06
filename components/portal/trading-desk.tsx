@@ -19,6 +19,7 @@ import { Lang, t as tr } from "@/lib/i18n";
 import { TabName } from "@/lib/portal-tabs";
 import { accentCard, btnSmPrimary, card, tileCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import { AppIcon, type AppIconName, PanelTitle } from "@/components/ui/app-icon";
 
 export function TradingDesk({
   user,
@@ -148,7 +149,7 @@ export function TradingDesk({
     ticker.push(
       <div key="today" className="bg-brand rounded-xl p-4 text-white shadow-sm">
         <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">
-          🔥 {tr("Today's sales · LIVE", lang)}
+          <AppIcon name="hot" className="h-3.5 w-3.5" /> {tr("Today's sales · LIVE", lang)}
         </p>
         <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">
           {fmtRM(todayTotal)}
@@ -204,7 +205,7 @@ export function TradingDesk({
       ticker.push(
         <StatCard
           key="overall"
-          label={`📈 ${tr("All-time — every channel", lang)}`}
+          label={tr("All-time — every channel", lang)}
           value={fmtRM(ov.total_cents)}
           bar={
             best && best.cents > 0
@@ -212,7 +213,7 @@ export function TradingDesk({
                   pct: (thisMonthCents / best.cents) * 100,
                   label:
                     best.month === rev.month
-                      ? tr("this month is your best yet 🏆", lang)
+                      ? tr("this month is your best yet", lang)
                       : `${tr("vs best month", lang)} (${ym(best.month)} · ${fmtRM(best.cents)})`,
                   tone: thisMonthCents >= best.cents ? "green" : "navy",
                 }
@@ -247,8 +248,8 @@ export function TradingDesk({
           {tr("Needs attention", lang)}
         </p>
         {shown.length === 0 ? (
-          <p className="mt-2 text-sm">
-            ✅ {tr("Nothing waiting on you", lang)}
+          <p className="flex items-center gap-2 mt-2 text-sm">
+            <AppIcon name="success" className="text-success" />{tr("Nothing waiting on you", lang)}
           </p>
         ) : (
           <div className="mt-1.5 space-y-1">
@@ -306,13 +307,13 @@ export function TradingDesk({
     .filter((m) => m.now > 0 || m.last > 0);
 
   /* ---- motivation ---- */
-  let motivation: { emoji: string; text: string; cls: string } | null = null;
+  let motivation: { icon: AppIconName; text: string; cls: string } | null = null;
   if (canRevenue && rev && target && pct !== null) {
     const daysLeft = Math.max(1, daysInMonth - dayOfMonth);
     const needPerDay = Math.max(0, target - monthTotal) / daysLeft;
     if (pct >= 100) {
       motivation = {
-        emoji: "🏆",
+        icon: "trophy",
         text: L(
           `TARGET SMASHED — ${fmtRM(monthTotal)} against ${fmtRM(target)}. Every ringgit from here is a new record. Set the bar higher!`,
           `SASARAN DIPECAHKAN — ${fmtRM(monthTotal)} berbanding ${fmtRM(target)}. Setiap ringgit dari sini adalah rekod baharu. Naikkan lagi sasaran!`
@@ -321,7 +322,7 @@ export function TradingDesk({
       };
     } else if (onPace) {
       motivation = {
-        emoji: "✅",
+        icon: "success",
         text: L(
           `On pace — day ${dayOfMonth}/${daysInMonth} expects ~${expectedPct}%, you're at ${pct}%. Hold this rhythm and the month is yours.`,
           `Ikut rentak — hari ${dayOfMonth}/${daysInMonth} menjangka ~${expectedPct}%, anda di ${pct}%. Kekalkan rentak ini dan bulan ini milik anda.`
@@ -330,7 +331,7 @@ export function TradingDesk({
       };
     } else if (expectedPct - pct <= 15) {
       motivation = {
-        emoji: "⚡",
+        icon: "fast",
         text: L(
           `Push time — ${pct}% done, pace says ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} a day for the next ${daysLeft} day${daysLeft === 1 ? "" : "s"} closes the gap. One good LIVE changes this.`,
           `Masa untuk berusaha — ${pct}% dicapai, rentak sepatutnya ${expectedPct}%. ${fmtRM(Math.round(needPerDay))} sehari untuk ${daysLeft} hari seterusnya menutup jurang. Satu LIVE yang baik boleh mengubahnya.`
@@ -339,7 +340,7 @@ export function TradingDesk({
       };
     } else {
       motivation = {
-        emoji: "🚀",
+        icon: "boost",
         text: L(
           `Comeback mode — ${fmtRM(Math.max(0, target - monthTotal))} to go. Break it down: that's ${fmtRM(Math.round(needPerDay))} a day. Book the lives, chase the quotes, move the stock.`,
           `Mod bangkit semula — ${fmtRM(Math.max(0, target - monthTotal))} lagi. Pecahkan: itu ${fmtRM(Math.round(needPerDay))} sehari. Jadualkan LIVE, kejar sebut harga, gerakkan stok.`
@@ -566,9 +567,9 @@ export function TradingDesk({
       {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
         <div className={card}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-semibold">
-              📊 {L("Sales floor", "Lantai jualan")} — {ym(rev.month)}
-            </p>
+            <PanelTitle icon="chart">
+              {L("Sales floor", "Lantai jualan")} — {ym(rev.month)}
+            </PanelTitle>
             <p className="text-muted-foreground text-xs tabular-nums">
               {L("day", "hari")} {dayOfMonth}/{daysInMonth} ·{" "}
               {L("pace", "rentak")} {expectedPct}%
@@ -617,7 +618,7 @@ export function TradingDesk({
             <div className="mt-3">
               <div className="flex items-baseline justify-between gap-2 text-xs">
                 <span className="font-semibold tracking-wide uppercase">
-                  🎯 {L("KPI — month target", "KPI — sasaran bulan")}{" "}
+                  <AppIcon name="target" className="mr-1 h-3.5 w-3.5" />{L("KPI — month target", "KPI — sasaran bulan")}{" "}
                   {target
                     ? targetIsAuto
                       ? L("(auto: last month +10%)", "(auto: bulan lepas +10%)")
@@ -697,7 +698,7 @@ export function TradingDesk({
             <p
               className={`mt-2.5 rounded-lg px-3 py-2 text-xs font-medium ${motivation.cls}`}
             >
-              {motivation.emoji} {motivation.text}
+              <AppIcon name={motivation.icon} className="mr-1.5 -mt-0.5" />{motivation.text}
             </p>
           )}
           {markets.length > 0 && (
@@ -763,7 +764,7 @@ export function TradingDesk({
           {tips.length > 0 && (
             <div className="mt-3">
               <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-                💡 {L("Boost the number", "Tingkatkan angka")}
+                <AppIcon name="idea" className="mr-1 h-3.5 w-3.5" />{L("Boost the number", "Tingkatkan angka")}
               </p>
               <ul className="mt-1.5 space-y-1">
                 {tips.slice(0, 4).map((t) => (
@@ -1031,7 +1032,7 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
               <p
                 className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${hit ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}
               >
-                {hit ? "🏆" : "📈"} {L("Last month", "Bulan lepas")} (
+                <AppIcon name={hit ? "trophy" : "up"} className="mr-1 -mt-0.5" />{L("Last month", "Bulan lepas")} (
                 {ym(rev.last_month)}): {rm(lastTotal)} {L("of", "daripada")}{" "}
                 {rm(rev.last_target_cents!)} — {lastPct}%{" "}
                 {hit

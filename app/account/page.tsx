@@ -14,6 +14,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
+import { PanelTitle } from "@/components/ui/app-icon";
 
 
 interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
@@ -361,7 +362,7 @@ export default function AccountPage() {
       <div key="orders" className="screen-enter mt-4 space-y-4 md:mt-6">
         {ordersLocked ? (
           <div className={card}>
-            <p className="text-sm font-semibold">{L("🔒 Verify your email to see your orders", "🔒 Sahkan e-mel anda untuk melihat pesanan anda")}</p>
+            <PanelTitle icon="lock">{L("Verify your email to see your orders", "Sahkan e-mel anda untuk melihat pesanan anda")}</PanelTitle>
             <p className="text-muted-foreground mt-1 text-sm">
               {L(
                 "To protect your order and invoice details, order history is shown only to accounts with a verified email. Sign in with Google using the email we have on file, or message us on WhatsApp and we'll share your latest documents.",
@@ -378,7 +379,7 @@ export default function AccountPage() {
         ) : (
           <>
             <div className={card}>
-              <p className="text-sm font-semibold">{L("🧾 My orders & invoices", "🧾 Pesanan & invois saya")}</p>
+              <PanelTitle icon="receipt">{L("My orders & invoices", "Pesanan & invois saya")}</PanelTitle>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {L(
                   "Your quotations, invoices and delivery orders. Tap an invoice to open its PDF.",
@@ -435,7 +436,7 @@ export default function AccountPage() {
 
             {orders && orders.lives.length > 0 && (
               <div className={card}>
-                <p className="text-sm font-semibold">{L("📺 My live sessions", "📺 Sesi langsung saya")}</p>
+                <PanelTitle icon="live">{L("My live sessions", "Sesi langsung saya")}</PanelTitle>
                 <div className="mt-2 space-y-1.5">
                   {orders.lives.map((l, i) => (
                     <div key={i} className="border-border flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
@@ -460,7 +461,7 @@ export default function AccountPage() {
           contact, categorized enquiries that bell-notify the team the
           moment they land. */}
       <div className={`${card} mt-4 md:mt-6`}>
-        <p className="text-sm font-semibold">{L("💬 WhatsApp us — fastest reply", "💬 WhatsApp kami — balasan terpantas")}</p>
+        <PanelTitle icon="chat">{L("WhatsApp us — fastest reply", "WhatsApp kami — balasan terpantas")}</PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
             "Package questions, live commerce services, orders — talk to the A2Z CREATIVE MARKETING team directly on WhatsApp.",

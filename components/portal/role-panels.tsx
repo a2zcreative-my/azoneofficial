@@ -50,6 +50,7 @@ import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; 
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -462,7 +463,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
             <span className="min-w-0">
               <span className="font-medium">{o.order_ref}</span>
               <span className="text-muted-foreground"> · {dmyMYT(o.created_at)}</span>
-              {o.buyer_city && <span className="text-muted-foreground"> · 📍 {o.buyer_city}</span>}
+              {o.buyer_city && <span className="text-muted-foreground"> · {o.buyer_city}</span>}
               {o.items_label ? (
                 <span className="block text-xs font-medium">{o.items_label}</span>
               ) : (
@@ -935,7 +936,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", units, "", "", "", ""]);
               downloadCsv(`azoo-stock-count-${now.slice(0, 10)}`, rows);
             }}>
-            {L("⬇ CSV — stock count", "⬇ CSV — kiraan stok")}
+            <><AppIcon name="download" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("CSV — stock count", "CSV — kiraan stok")}</>
           </button>
         </div>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1722,8 +1723,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           person moved by hand. */}
       <div className={card}>
         <SectionTabs value={movedTab} onChange={setMovedTab} tabs={[
-          ["tiktok", L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")],
-          ["manual", L("🛠 Manual stock movements", "🛠 Pergerakan stok manual")],
+          ["tiktok", L("TikTok Live — stock out", "TikTok Live — stok keluar")],
+          ["manual", L("Manual stock movements", "Pergerakan stok manual")],
         ] as const} />
         <div className={movedTab === "tiktok" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
@@ -1771,7 +1772,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     <td className={`${td} font-medium`}>{t.name}</td>
                     <td className={tdR2}>
                       {t.today_qty > 0
-                        ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success">🔥 {t.today_qty}</span>
+                        ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success"><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{t.today_qty}</span>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className={tdR2}>{t.month_qty}</td>
@@ -1809,7 +1810,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   return (
                     <tr className="border-border border-t-2 font-semibold">
                       <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
-                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success">🔥 {today}</span> :"—"}</td>
+                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success"><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{today}</span> :"—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
                       <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
@@ -3001,7 +3002,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               ],
             );
           }}>
-          {L(`⬇ CSV — ${exportRows().length + visibleLeave().length} rows`, `⬇ CSV — ${exportRows().length + visibleLeave().length} baris`)}
+          <><AppIcon name="download" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L(`CSV — ${exportRows().length + visibleLeave().length} rows`, `CSV — ${exportRows().length + visibleLeave().length} baris`)}</>
         </button>
         <span className="text-muted-foreground flex items-end text-xs sm:col-span-2 lg:col-span-3">
           {(() => {
@@ -3632,7 +3633,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
             <span className="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
-              title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}>{L("💸 PAID", "💸 DIBAYAR")} {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
+              title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
         {/* v1.4.253: date on the left, real buttons in the standard wrapping
@@ -3642,7 +3643,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
             <>
               <label className={`${rowBtn} cursor-pointer`} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
-                {L("📎 Attach receipt", "📎 Lampirkan resit")}
+                <><AppIcon name="attach" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Attach receipt", "Lampirkan resit")}</>
                 <input type="file" accept="image/*,application/pdf" className="hidden"
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
@@ -3701,8 +3702,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
-            ? <span className="rounded-full bg-success-soft px-1.5 py-px text-[10px] font-medium text-success" title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}>{L("💰 pays to you","💰 dibayar kepada anda")}</span>
-            : c.payee_name ? <span className="rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium text-warning" title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}>💰 → {firstName(c.payee_name)}</span> : null}
+            ? <span className="rounded-full bg-success-soft px-1.5 py-px text-[10px] font-medium text-success" title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("pays to you","dibayar kepada anda")}</></span>
+            : c.payee_name ? <span className="rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium text-warning" title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />→ {firstName(c.payee_name)}</span> : null}
         </div>
       </div>
       {expanded === c.id && (
@@ -3735,19 +3736,19 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </span>
           ) : c.payee_user_id === userId ? (
             <p className="mt-1 rounded-lg border border-success/30 bg-success-soft px-2 py-1 text-xs font-semibold text-success">
-              {L("💰 This claim was raised on your behalf by", "💰 Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
+              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("This claim was raised on your behalf by", "Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : c.payee_name ? (
             <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
               title={L("Internal remark for the CEO (payment) and HR (records) — not printed on the claim form", "Catatan dalaman untuk CEO (bayaran) dan HR (rekod) — tidak dicetak pada borang tuntutan")}>
-              {L("💰 Pay this claim to:", "💰 Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
+              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Pay this claim to:", "Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : canPayee && (
             <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
               title={L("No separate payee set — the payment goes to whoever submitted the claim", "Tiada penerima bayaran berasingan — bayaran pergi kepada penghantar tuntutan")}>
-              {L("💰 Pay to:", "💰 Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
+              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Pay to:", "Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
               <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
             </p>
           )}
@@ -3782,7 +3783,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {canDecide && c.paid_at && !c.payment_proof_key && (
             <label className="border-border mt-2 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
               title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
-              {L("📎 Attach payment receipt (bank slip)", "📎 Lampirkan resit bayaran (slip bank)")}
+              <><AppIcon name="attach" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
               <input type="file" accept="image/*,application/pdf" className="hidden"
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
@@ -3811,7 +3812,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
                 if (res.ok) { showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan")); void load(); }
               }}>
-              {L("💸 Mark paid (money released)", "💸 Tanda dibayar (wang dilepaskan)")}
+              <><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Mark paid (money released)", "Tanda dibayar (wang dilepaskan)")}</>
             </button>
           )}
         </>
@@ -3833,7 +3834,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           claim skips them. */}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id === userId && ["hr_admin", "coo", "cco"].includes(role) && (
         <p className="text-muted-foreground mt-2 text-xs">
-          {L("⚖ Your stage is waived on this claim — it pays to you, so the CEO decides it directly.", "⚖ Peringkat anda diketepikan pada tuntutan ini — ia dibayar kepada anda, jadi CEO memutuskannya terus.")}
+          {L("Your stage is waived on this claim — it pays to you, so the CEO decides it directly.", "Peringkat anda diketepikan pada tuntutan ini — ia dibayar kepada anda, jadi CEO memutuskannya terus.")}
         </p>
       )}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
@@ -3876,7 +3877,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             HR keeps it for records; NEVER printed on the claim form. */}
         {canPayee && (
           <label className="mt-2 block sm:max-w-md">
-            <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("💰 Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "💰 Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
+            <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
             <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
               <option value={0}>{L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
@@ -4282,7 +4283,7 @@ export function ExpensesPanel() {
 
       {(payrollDue || upcoming.length > 0 || staffClaims.due.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
         <div className={card}>
-          <p className="text-sm font-semibold">{L("💳 Payments due —", "💳 Bayaran perlu dibuat —")} {dmy(month)}</p>
+          <PanelTitle icon="pay">{L("Payments due —", "Bayaran perlu dibuat —")} {dmy(month)}</PanelTitle>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L("Commit each payment before its due date. Recurring expenses from earlier months appear here until recorded for this month.", "Buat setiap bayaran sebelum tarikh akhirnya. Perbelanjaan berulang dari bulan terdahulu muncul di sini sehingga direkodkan untuk bulan ini.")}
           </p>
@@ -4309,7 +4310,7 @@ export function ExpensesPanel() {
                       <ul className="mt-1 space-y-0.5">
                         {staffPayroll!.entries!.map((r, i) => (
                           <li key={i} className="flex justify-between gap-3">
-                            <span>{properName(r.name)}{!r.saved_net && <span className="text-warning" title={L("Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net.","Disimpan sebelum kemas kini penyimpanan bersih — angka dikira semula oleh pelayan. Tekan Simpan semua dalam tab Gaji untuk menyimpan bersih yang tepat.")}>{L(" · recomputed ⚠"," · dikira semula ⚠")}</span>}</span>
+                            <span>{properName(r.name)}{!r.saved_net && <span className="text-warning" title={L("Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net.","Disimpan sebelum kemas kini penyimpanan bersih — angka dikira semula oleh pelayan. Tekan Simpan semua dalam tab Gaji untuk menyimpan bersih yang tepat.")}><>{L(" · recomputed", " · dikira semula")}<AppIcon name="warning" className="ml-0.5 -mt-0.5 h-3 w-3" /></></span>}</span>
                             <span className="tabular-nums">{rmc(r.cents)}</span>
                           </li>
                         ))}
@@ -4324,16 +4325,16 @@ export function ExpensesPanel() {
                           if (r.ok) { showToast(L("Saved", "Disimpan"), `${L("Recomputed", "Dikira semula")} ${r.data?.rows ?? 0} ${L("entries at", "entri pada")} ${r.data?.working_days ?? "?"} ${L("working days — figures now match everywhere", "hari bekerja — angka kini sepadan di mana-mana")}`); void load(); }
                           else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Pengiraan semula gagal"), "notice");
                         }}>
-                        {L("🔧 Fix discrepancy now (recompute on server)", "🔧 Betulkan percanggahan sekarang (kira semula di pelayan)")}
+                        <><AppIcon name="fix" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Fix discrepancy now (recompute on server)", "Betulkan percanggahan sekarang (kira semula di pelayan)")}</>
                       </button>
                       <button type="button"
                         className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
-                        title={L("Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time ⚙ M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here", "Muat turun templat rasmi Maybank2E yang SUDAH DIISI (helaian Home + baris gaji). Perlukan tetapan ⚙ M2E sekali sahaja dalam tab Gaji. Buka → benarkan makro → jana → muat naik → lulus → Tanda dibayar di sini")}
+                        title={L("Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here", "Muat turun templat rasmi Maybank2E yang SUDAH DIISI (helaian Home + baris gaji). Perlukan tetapan M2E sekali sahaja dalam tab Gaji. Buka → benarkan makro → jana → muat naik → lulus → Tanda dibayar di sini")}
                         onClick={async () => {
                           const res = await fetch(`/api/v1/staff/payroll/m2e-file?month=${staffPayroll!.month}`, { credentials: "include" });
                           if (!res.ok) {
                             const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-                            showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check ⚙ M2E setup in the Payroll tab", "Fail M2E gagal — semak tetapan ⚙ M2E dalam tab Gaji"), "notice");
+                            showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("M2E file failed — check M2E setup in the Payroll tab", "Fail M2E gagal — semak tetapan M2E dalam tab Gaji"), "notice");
                             return;
                           }
                           const blob = await res.blob();
@@ -4343,7 +4344,7 @@ export function ExpensesPanel() {
                           URL.revokeObjectURL(url);
                           showToast(L("Saved", "Disimpan"), L("M2E workbook downloaded — open, enable macros, generate + upload", "Buku kerja M2E dimuat turun — buka, benarkan makro, jana + muat naik"));
                         }}>
-                        {L("💳 M2E salary file", "💳 Fail gaji M2E")}
+                        <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
                       </button>
                     </details>
                   )}
@@ -4351,7 +4352,7 @@ export function ExpensesPanel() {
                 <span className="flex items-center gap-1.5">
                   {staffPayroll?.paid_at
                     ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
-                        title={`${L("Payment recorded", "Bayaran direkodkan")} ${dmy(staffPayroll.paid_at.slice(0, 10))}`}>{L("💸 PAID", "💸 DIBAYAR")}</span>
+                        title={`${L("Payment recorded", "Bayaran direkodkan")} ${dmy(staffPayroll.paid_at.slice(0, 10))}`}><><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("PAID", "DIBAYAR")}</></span>
                     : (
                       <>
                         {payrollDue.released
@@ -4376,7 +4377,7 @@ export function ExpensesPanel() {
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{L("staff claim", "tuntutan kakitangan")}</span>
                     {c.claimant && <span className="text-muted-foreground"> · {properName(c.claimant)}</span>}
                   </p>
-                  <p className="text-muted-foreground text-xs">{L("Approved", "Diluluskan")}{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""}{L(" — pay the claimant, then press 💸 Mark paid on the Claims tab", " — bayar penuntut, kemudian tekan 💸 Tanda dibayar pada tab Tuntutan")}</p>
+                  <p className="text-muted-foreground text-xs">{L("Approved", "Diluluskan")}{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""}{L(" — pay the claimant, then press Mark paid on the Claims tab", " — bayar penuntut, kemudian tekan Tanda dibayar pada tab Tuntutan")}</p>
                 </div>
                 <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")}</span>
               </div>
@@ -4471,18 +4472,18 @@ export function ExpensesPanel() {
           return (
             <div className="border-border mb-4 rounded-lg border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold">{L("✅ Payments completed —", "✅ Bayaran selesai —")} {dmy(month)}</p>
+                <PanelTitle icon="success">{L("Payments completed —", "Bayaran selesai —")} {dmy(month)}</PanelTitle>
                 <p className="text-sm font-semibold">{rmc(doneTotal)}</p>
               </div>
               <div className="mt-2 space-y-1">
                 {payrollDone && (
                   <p className="text-muted-foreground text-xs">
-                    💸 <span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> {L("· Staff payroll", "· Gaji kakitangan")} ({dmy(payrollDone.month)}) {L("· released", "· dilepaskan")} {dmy(payrollDone.paid_at!.slice(0, 10))}
+                    <AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" /><span className="text-foreground font-medium">{rmc(payrollDone.cents)}</span> {L("· Staff payroll", "· Gaji kakitangan")} ({dmy(payrollDone.month)}) {L("· released", "· dilepaskan")} {dmy(payrollDone.paid_at!.slice(0, 10))}
                   </p>
                 )}
                 {staffClaims.paid.map((c) => (
                   <p key={`clmdone-${c.id}`} className="text-muted-foreground text-xs">
-                    🧾 <span className="text-foreground font-medium">{rmc(c.amount_cents)}</span> {L("· Staff claim", "· Tuntutan kakitangan")}{c.claimant ? ` — ${properName(c.claimant)}` : ""} {L("· paid", "· dibayar")} {c.paid_at ? dmy(c.paid_at.slice(0, 10)) : ""}
+                    <AppIcon name="receipt" className="mr-1 -mt-0.5 h-3.5 w-3.5" /><span className="text-foreground font-medium">{rmc(c.amount_cents)}</span> {L("· Staff claim", "· Tuntutan kakitangan")}{c.claimant ? ` — ${properName(c.claimant)}` : ""} {L("· paid", "· dibayar")} {c.paid_at ? dmy(c.paid_at.slice(0, 10)) : ""}
                   </p>
                 ))}
                 {done.map((r) => (
@@ -4505,7 +4506,7 @@ export function ExpensesPanel() {
           const catTotal = catRows.reduce((a, r) => a + r.amount_cents, 0);
           return totalPie > 0 ? (
             <div className="border-border mb-3 rounded-lg border p-3">
-              <p className="text-sm font-semibold">{L("📊 Expenses by category —", "📊 Perbelanjaan mengikut kategori —")} {dmy(month)}</p>
+              <PanelTitle icon="chart">{L("Expenses by category —", "Perbelanjaan mengikut kategori —")} {dmy(month)}</PanelTitle>
               <p className="text-muted-foreground mt-0.5 text-xs">{L("Tap a slice or a category for its records.", "Ketik hirisan atau kategori untuk rekodnya.")}</p>
               <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-5">
                 <ExpensePie slices={slices} active={pieCat}
@@ -4577,13 +4578,13 @@ export function ExpensesPanel() {
                   <span className="text-muted-foreground"> ({items} {L("to clear", "untuk dijelaskan")})</span>
                 </p>
               ) : (
-                <p className="mt-0.5 text-xs font-medium text-success">{L("✅ All cleared —","✅ Semua dijelaskan —")} {rmc(grand)} {L("paid","dibayar")}</p>
+                <p className="mt-0.5 text-xs font-medium text-success">{L("All cleared —","Semua dijelaskan —")} {rmc(grand)} {L("paid","dibayar")}</p>
               );
             })()}
           </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {loadError && <p className="mb-2 text-sm font-medium text-warning">⚠ {loadError}</p>}
+          {loadError && <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-warning"><AppIcon name="warning" className="h-3.5 w-3.5" />{loadError}</p>}
           {rows.length === 0 && !loadError && (
             <p className="text-muted-foreground text-sm">
               {L("No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right.", "Tiada perbelanjaan direkodkan untuk bulan ini. Tab ini menunjukkan SATU bulan pada satu masa — rekod terdahulu (cth. Julai) berada di bawah pemilih bulan di penjuru kanan atas.")}

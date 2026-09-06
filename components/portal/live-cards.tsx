@@ -13,6 +13,7 @@ import { dmy } from "@/lib/format";
 import { properName } from "@/lib/names";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
 import { ReactNode, useEffect, useState } from "react";
+import { PanelTitle } from "@/components/ui/app-icon";
 
 /* v1.4.181 (CEO: customers must be able to reach staff for package/service
    enquiries): the business team works those enquiries HERE, not only in
@@ -108,9 +109,9 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
       <div className="flex flex-col pb-4 sm:pb-0">{node}</div>
     ) : (
       <div className={card}>
-        <p className="text-sm font-semibold">
-          ⏱ {L("Overtime approvals", "Kelulusan OT")}
-        </p>
+        <PanelTitle icon="time">
+          {L("Overtime approvals", "Kelulusan OT")}
+        </PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
             "Completed OT day-pairs awaiting a decision. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.",
@@ -334,9 +335,9 @@ export function LiveScheduleCard({
       </div>
     ) : (
       <div className={card}>
-        <p className="text-sm font-semibold">
-          📺 {L("Live session schedule", "Jadual sesi LIVE")}
-        </p>
+        <PanelTitle icon="live">
+          {L("Live session schedule", "Jadual sesi LIVE")}
+        </PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {manager
             ? L(

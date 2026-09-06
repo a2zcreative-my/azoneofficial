@@ -17,6 +17,7 @@ import { card } from "@/lib/ui-styles";
 interface Bucket { hour: number; cents: number; orders: number }
 
 import { fmtRM as rm } from "@/lib/format"; // v1.4.272: global
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 export function SalesByHourCard({ bare }: { bare?: boolean } = {}) {
@@ -38,7 +39,7 @@ export function SalesByHourCard({ bare }: { bare?: boolean } = {}) {
   const peak = buckets.reduce<Bucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
   return (
     <div className={bare ? "" : card}>
-      <p className="text-sm font-semibold">🕐 Sales by hour — last {data?.days ?? 7} days</p>
+      <PanelTitle icon="time">Sales by hour — last {data?.days ?? 7} days</PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
         All channels by the hour the order came in (MYT) — schedule the LIVE sessions where the bars are.
       </p>
@@ -64,7 +65,7 @@ export function SalesByHourCard({ bare }: { bare?: boolean } = {}) {
           </div>
           {peak && peak.cents > 0 && (
             <p className="mt-2 text-xs">
-              🔥 Peak hour: <span className="font-semibold">{hh(peak.hour)}–{hh((peak.hour + 1) % 24)}</span>{" "}
+              <AppIcon name="hot" className="mr-1 -mt-0.5 h-3.5 w-3.5" />Peak hour: <span className="font-semibold">{hh(peak.hour)}–{hh((peak.hour + 1) % 24)}</span>{" "}
               <span className="text-muted-foreground">{rm(peak.cents)} across {peak.orders} orders · week total {rm(total)}</span>
             </p>
           )}

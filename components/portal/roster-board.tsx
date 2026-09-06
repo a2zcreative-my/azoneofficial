@@ -18,6 +18,7 @@ import { MiniCalendar } from "@/components/portal/mini-calendar";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 // v1.66.0 Track R — the board is live, and it now carries two kinds of block.
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 
@@ -591,11 +592,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   };
 
   if (notReady) {
-    return <div className={card}><p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
+    return <div className={card}><PanelTitle icon="date">{L("Schedule & Roster", "Jadual & Roster")}</PanelTitle>
       <p className="text-muted-foreground mt-1 text-xs">The roster needs the latest Worker deploy (and migration 0056).</p></div>;
   }
   if (!data) {
-    return <div className={card}><p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
+    return <div className={card}><PanelTitle icon="date">{L("Schedule & Roster", "Jadual & Roster")}</PanelTitle>
       {failed
         ? <p className="text-muted-foreground mt-2 text-sm">{L("Could not load the week —", "Minggu tidak dapat dimuatkan —")} <button type="button" className="underline" onClick={() => void load(week)}>{L("try again", "cuba lagi")}</button>.</p>
         : (
@@ -689,7 +690,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">📆 {L("Schedule & Roster", "Jadual & Roster")}</p>
+          <PanelTitle icon="date">{L("Schedule & Roster", "Jadual & Roster")}</PanelTitle>
           <p className="text-muted-foreground mt-0.5 text-xs">{L("Plan live sessions and task work on one week: assignments, availability and replacements.", "Rancang sesi LIVE dan kerja tugasan dalam satu minggu: tugasan, ketersediaan dan pengganti.")}</p>
         </div>
         {/* v1.66.0 — "+ New assignment" no longer means one thing.
@@ -1108,7 +1109,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                             conflict ? "border-warning bg-warning-soft" : s.status === "completed" ? "border-success bg-success-soft" : "border-brand/30 bg-brand/10"
                           } ${isDragging ? "opacity-40" : ""} ${canManage && s.status === "scheduled" ? "cursor-grab active:cursor-grabbing" : ""}`}
                           style={{ top, height }}>
-                          <span className="block truncate font-semibold">{conflict ? "⚠ " : ""}{s.client ?? "Live"}</span>
+                          <span className="block truncate font-semibold">{conflict ? <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" /> : null}{s.client ?? "Live"}</span>
                           <span className="text-muted-foreground block truncate tabular-nums">{s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {s.host_name.split(" ")[0]}</span>
                         </button>
                       );

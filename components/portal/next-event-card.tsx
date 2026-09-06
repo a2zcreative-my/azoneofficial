@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { Skel } from "@/components/ui/skeleton";
 import { t as tr, type Lang } from "@/lib/i18n";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const api = makeApi("/staff");
 
@@ -74,7 +75,7 @@ export function NextEventCard({ lang }: { lang: Lang }) {
       if (nh && (!nb || nh.holiday_date <= nb.iso)) {
         setHero({ eyebrow: "holiday", title: nh.name, date: nh.holiday_date });
       } else if (nb) {
-        setHero({ eyebrow: "birthday", title: `🎂 ${nb.name}`, date: nb.iso });
+        setHero({ eyebrow: "birthday", title: nb.name, date: nb.iso });
       }
       } finally {
         setLoaded(true);
@@ -123,13 +124,15 @@ export function NextEventCard({ lang }: { lang: Lang }) {
       <span aria-hidden className="pointer-events-none absolute -top-14 -right-8 h-44 w-44 rounded-full bg-white/[0.06]" />
       <span aria-hidden className="pointer-events-none absolute top-3 right-14 h-14 w-14 rounded-full bg-white/[0.05]" />
       <span className="flex items-baseline justify-between gap-2">
-        <span className="text-gold text-[10px] font-semibold tracking-[0.35em] uppercase">{eyebrow}</span>
+        <span className="text-gold flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.35em] uppercase">
+          <AppIcon name={hero.eyebrow === "birthday" ? "cake" : hero.eyebrow === "holiday" ? "holiday" : "date"} className="h-3.5 w-3.5" />{eyebrow}
+        </span>
         <span className="text-[11px] font-medium text-white/70">{when}</span>
       </span>
       <span className="mt-1.5 block truncate text-2xl font-bold tracking-tight">{hero.title}</span>
       <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-white/85">
-        <span>🗓 {shownDate}</span>
-        {hero.location && <span className="truncate">📍 {hero.location.toUpperCase()}</span>}
+        <span className="flex items-center gap-1"><AppIcon name="date" className="h-3.5 w-3.5" />{shownDate}</span>
+        {hero.location && <span className="flex min-w-0 items-center gap-1"><AppIcon name="place" className="h-3.5 w-3.5" /><span className="truncate">{hero.location.toUpperCase()}</span></span>}
       </span>
     </button>
   );
