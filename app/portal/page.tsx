@@ -1552,13 +1552,10 @@ export default function PortalPage() {
             </div>
           )}
           {activeTab === "Inventory" && (
-            <div className="flex flex-col gap-4 md:gap-6">
-              {/* v1.21.1 (CEO): status strip FIRST, minimal — the health
-                read before the table. flex-col so the strip self-starts
-                instead of stretching full width. */}
-              {MANAGE_ROLES.includes(user.role) && <InventoryStatusCard />}
-              <InventoryPanel role={user.role} />
-            </div>
+            /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
+               before the table. v1.119.0: the panel draws it, beside the
+               ELFIA bridge pulse, as the first row of its STOCK NOW zone. */
+            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel />

@@ -2,6 +2,23 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.119.0] - 2026-09-06 - the Inventory tab in three zones, with a find box, status chips and phone-sized stock rows
+
+**CEO**, 06-09-2026: *"Check UI/UX for Inventory - webview and mobile apps view"*. Proposed as a side-by-side mockup; approved in full.
+
+### What was wrong
+A status strip, the ELFIA bridge pulse, then one card holding the add-item form *and* a ten-column stock table with no search, then TikTok Live stock-out, the manual-movement trail, supplier returns, and postage tracking. On a phone the ten columns scrolled sideways with In / Out at the far right of every row - and counting shelves is phone work.
+
+### Now
+1. **STOCK NOW** - the status strip and the ELFIA bridge on one row. Then the stock table with a **find box** (SKU or name), **All / Low / Out chips** with their counts (the strip says "5 low"; the chips take you to those five rows), and **+ Add item** as a button that opens the same form - adding a SKU happens a few times a year, the table is used every day. A filter that leaves nothing says so.
+2. **RECORD** - supplier returns beside postage tracking: the two forms that put a movement in.
+3. **WHAT MOVED** - TikTok Live stock-out beside the manual-movement trail: the history, read after the work.
+
+**On the phone the table becomes one card per item** - the name, the SKU and price, the stock number big and coloured by its status, **In / Out full-width under the thumb**. The cards and the desk table draw from the same filtered list and call the same handlers, so the two can never disagree; price edits, the live rebate, net and the ELFIA web toggle stay on the desk table. Every action and rule is unchanged: In / Out through the same modal with its mandatory remark, CSV, sorting, the returns and postage forms, all role gates. No database change.
+
+### Under it
+`components/portal/role-panels.tsx` (InventoryPanel: `statusCard` prop, `invQ` / `invFilter` / `addOpen`, `visibleItems`, the phone list, the zones), `app/portal/page.tsx` (passes the status card in). Guard #49 `tests/tab-zones.mjs` gains the Inventory checks - three zones in order, one list behind both renderings (negative-tested by pointing the table back at the unfiltered list), the phone list phone-only and the table desk-only, the same In / Out handlers on both, find + chips, the form behind its button. Full suite and a production build pass.
+
 ## [1.118.0] - 2026-09-06 - push keys set by PUSH.bat, so phones can actually be reached
 
 **CEO**, 06-09-2026: *"how I want to make a push notification when I make my browser in Home Screen?"* and *"cant it push notification on device (Mobile)?"*

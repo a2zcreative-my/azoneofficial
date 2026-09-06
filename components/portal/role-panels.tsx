@@ -19,7 +19,7 @@
 
 import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
@@ -44,6 +44,7 @@ import { card, inputClass, inputClassSm, btnClass, chipNeutral, fieldRow, th, td
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { ZoneLabel } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
@@ -484,7 +485,18 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
 
 const rmR = fmtRM; // v1.4.272: global
 
-export function InventoryPanel({ role = "" }: { role?: string }) {
+/* v1.119.0 — THE INVENTORY TAB IN THREE ZONES (CEO, 06-09-2026: "Check
+   UI/UX for Inventory - webview and mobile apps view"; approved as proposed).
+   STOCK NOW: the status strip and the ELFIA bridge on one row, then the
+   stock table with a find box, All / Low / Out chips and the add-item form
+   behind a button. RECORD: supplier returns beside postage tracking - the
+   two forms that put a movement in. WHAT MOVED: TikTok Live stock-out and
+   the manual-movement trail - the history, read after the work. On a phone
+   the table is one card per item - name, SKU and price, the stock big and
+   coloured, In / Out under the thumb - the SAME rows and the SAME handlers
+   as the desk table (one data source, two renderings); price, rebate, net
+   and the web toggle stay on the desk. Every action and rule is unchanged. */
+export function InventoryPanel({ role = "", statusCard }: { role?: string; statusCard?: ReactNode }) {
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
   const [items, setItems] = useState<InvItem[]>([]);
@@ -527,6 +539,10 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
   // v1.4.281: all-column sort — col + asc/desc direction.
   type InvCol = "sku" | "name" | "price" | "net" | "stock";
   const [invSort, setInvSort] = useState<{ col: InvCol; asc: boolean }>({ col: "sku", asc: true });
+  /* v1.119.0 - find box, status chips, and the add-item form behind a button */
+  const [invQ, setInvQ] = useState("");
+  const [invFilter, setInvFilter] = useState<"all" | "low" | "out">("all");
+  const [addOpen, setAddOpen] = useState(false);
   const cycleInv = (col: InvCol) =>
     setInvSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   type TtCol = "sku" | "name" | "hot" | "month" | "total" | "price" | "value" | "stock" | "last";
@@ -614,6 +630,14 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
       default:      return 0;
     }
   });
+  /* v1.119.0 - what the find box and the chips leave; the table and the
+     phone cards both draw from this, so they can never disagree */
+  const lowCount = items.filter((it) => it.status === "low").length;
+  const outCount = items.filter((it) => it.status === "out_of_stock").length;
+  const needle = invQ.trim().toLowerCase();
+  const visibleItems = sortedItems.filter((it) =>
+    (invFilter === "all" || (invFilter === "low" ? it.status === "low" : it.status === "out_of_stock"))
+    && (!needle || it.sku.toLowerCase().includes(needle) || it.name.toLowerCase().includes(needle)));
   // Hot = today's sales first (ties: month, then SKU) — deterministic.
   const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
   const sortedTtOut = [...ttOut].sort((a, b) => {
@@ -679,75 +703,6 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
     <div className="space-y-4 md:space-y-6">
       {invConfirmNode}
       {invToastNode}
-      {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
-          it last report a sale, and (the part a human must act on) SKUs it
-          sent that the portal does not hold. Compact strip, reads before the
-          table like the status strip above it. */}
-      {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
-          card so the table below does not jump up when the pulse arrives. */}
-      {!loaded && (
-        <div className={card} aria-hidden>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <Skel className="h-4 w-24" />
-            <Skel className="h-3 w-40" />
-            <Skel className="h-3 w-24" />
-            <Skel className="h-3 w-36" />
-          </div>
-        </div>
-      )}
-      {bridgeHealth && (
-        <div className={card}>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
-            {bridgeHealth.unavailable && (
-              <span className="text-muted-foreground">
-                {L("Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site (they deploy separately): deploy azoneofficial-api, then reload.",
-                   "Status tidak tersedia — halaman ini tidak dapat menghubungi laluan jambatan. Biasanya pekerja API lebih lama daripada laman (ia digunakan secara berasingan): deploy azoneofficial-api, kemudian muat semula.")}
-              </span>
-            )}
-            {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
-              <span className="font-medium text-amber-700 dark:text-amber-400">
-                {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
-              </span>
-            )}
-            {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
-              <span className="text-muted-foreground">{L("Waiting for migration 0078", "Menunggu migrasi 0078")}</span>
-            )}
-            {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
-              <>
-                <span className="text-muted-foreground">
-                  {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
-                  {bridgeHealth.last_event_at ? bridgeHealth.last_event_at.slice(0, 16) : L("never", "belum ada")}
-                </span>
-                <span className="text-muted-foreground">
-                  {L("Applied 24h:", "Digunakan 24j:")} {bridgeHealth.applied_24h}
-                </span>
-                <span className="text-muted-foreground">
-                  {L("Orders pulled:", "Pesanan ditarik:")}{" "}
-                  {bridgeHealth.last_poll_at ? bridgeHealth.last_poll_at.slice(0, 16) : L("never", "belum ada")}
-                </span>
-              </>
-            )}
-          </div>
-          {bridgeHealth.unknown.length > 0 && (
-            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-700 dark:bg-amber-950/40">
-              <p className="font-medium text-amber-800 dark:text-amber-300">
-                {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
-              </p>
-              <ul className="mt-1 flex flex-wrap gap-2">
-                {bridgeHealth.unknown.map((u) => (
-                  <li key={u.sku} className="rounded border border-amber-300 px-1.5 py-0.5 font-mono text-xs dark:border-amber-700">
-                    {u.sku} ×{u.n}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {L("Fix: rename the item's SKU here to match the store (Edit), or add the item — the store retries nothing; reconcile the count manually after.", "Penyelesaian: namakan semula SKU barang di sini agar sepadan dengan kedai (Sunting), atau tambah barang itu — kedai tidak mencuba semula; selaraskan kiraan secara manual selepas itu.")}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
       {/* v1.4.170 (CEO): manual stock-out MODAL — pick SKU/item, quantity,
           optional Sold @ (makes it a sale in the totals), and a MANDATORY
           remark for traceability. House card pattern + save-toast. */}
@@ -849,6 +804,84 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           </div>
         </div>
       )}
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Stock now", "Stok sekarang")}</ZoneLabel>
+      {/* v1.119.0 - two one-line facts, one row: the status strip (manage
+          roles; page.tsx passes it in) and the ELFIA bridge pulse. */}
+      <div className={`grid grid-cols-1 gap-3 md:gap-4 ${statusCard ? "md:grid-cols-2" : ""}`}>
+        {statusCard}
+        <div>
+      {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
+          it last report a sale, and (the part a human must act on) SKUs it
+          sent that the portal does not hold. Compact strip, reads before the
+          table like the status strip above it. */}
+      {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
+          card so the table below does not jump up when the pulse arrives. */}
+      {!loaded && (
+        <div className={card} aria-hidden>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Skel className="h-4 w-24" />
+            <Skel className="h-3 w-40" />
+            <Skel className="h-3 w-24" />
+            <Skel className="h-3 w-36" />
+          </div>
+        </div>
+      )}
+      {bridgeHealth && (
+        <div className={card}>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
+            {bridgeHealth.unavailable && (
+              <span className="text-muted-foreground">
+                {L("Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site (they deploy separately): deploy azoneofficial-api, then reload.",
+                   "Status tidak tersedia — halaman ini tidak dapat menghubungi laluan jambatan. Biasanya pekerja API lebih lama daripada laman (ia digunakan secara berasingan): deploy azoneofficial-api, kemudian muat semula.")}
+              </span>
+            )}
+            {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
+              </span>
+            )}
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
+              <span className="text-muted-foreground">{L("Waiting for migration 0078", "Menunggu migrasi 0078")}</span>
+            )}
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
+              <>
+                <span className="text-muted-foreground">
+                  {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
+                  {bridgeHealth.last_event_at ? bridgeHealth.last_event_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Applied 24h:", "Digunakan 24j:")} {bridgeHealth.applied_24h}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Orders pulled:", "Pesanan ditarik:")}{" "}
+                  {bridgeHealth.last_poll_at ? bridgeHealth.last_poll_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+              </>
+            )}
+          </div>
+          {bridgeHealth.unknown.length > 0 && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+              <p className="font-medium text-amber-800 dark:text-amber-300">
+                {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {bridgeHealth.unknown.map((u) => (
+                  <li key={u.sku} className="rounded border border-amber-300 px-1.5 py-0.5 font-mono text-xs dark:border-amber-700">
+                    {u.sku} ×{u.n}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {L("Fix: rename the item's SKU here to match the store (Edit), or add the item — the store retries nothing; reconcile the count manually after.", "Penyelesaian: namakan semula SKU barang di sini agar sepadan dengan kedai (Sunting), atau tambah barang itu — kedai tidak mencuba semula; selaraskan kiraan secara manual selepas itu.")}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+        </div>
+      </div>
       {/* v1.4.214 (CEO reorg): TikTok Orders moved to the new Ecommerce
           tab with the rest of the TikTok cards. Inventory keeps the stock
           views; the tracker follows the channel. */}
@@ -895,8 +928,28 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           {L("Stock moves automatically: a postage record with an item deducts it; a returned shipment adds it back. Use In/Out for manual corrections. Status recomputes on every movement (0 = out of stock · ≤5 = low).", "Stok bergerak secara automatik: rekod pos dengan barang menolaknya; penghantaran yang dipulangkan menambahnya semula. Guna In/Out untuk pembetulan manual. Status dikira semula pada setiap pergerakan (0 = habis stok · ≤5 = rendah).")}
         </p>
         {invMsg && <p className="text-destructive mt-1 text-xs font-medium">{invMsg}</p>}
+        {/* v1.119.0 - the toolbar: find, the status chips (the strip above says
+            "5 low"; these chips are the way to those five rows), and the
+            add-item form behind a button - adding a SKU happens a few times a
+            year, the table is used every day. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input className={`${inputClassSm} min-w-0 flex-1 sm:max-w-64`} value={invQ} placeholder={L("Find by SKU or name", "Cari ikut SKU atau nama")}
+            aria-label={L("Find an item", "Cari barang")} onChange={(e) => setInvQ(e.target.value)} />
+          <span role="tablist" aria-label={L("Show items that are", "Tunjuk barang yang")} className="flex gap-1.5">
+            {([["all", L("All", "Semua"), items.length, ""], ["low", L("Low", "Rendah"), lowCount, "text-warning"], ["out", L("Out", "Habis"), outCount, "text-destructive"]] as const).map(([k, label, n, tone]) => (
+              <button key={k} type="button" role="tab" aria-selected={invFilter === k} onClick={() => setInvFilter(k)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${invFilter === k ? "bg-primary text-primary-foreground" : `bg-secondary hover:text-foreground ${tone || "text-muted-foreground"}`}`}>
+                {label} {n}
+              </button>
+            ))}
+          </span>
+          <button type="button" className={btnClass} aria-expanded={addOpen} onClick={() => setAddOpen((v) => !v)}>
+            {addOpen ? L("Close", "Tutup") : L("+ Add item", "+ Tambah barang")}
+          </button>
+        </div>
         {/* v1.4.150: app-standard widths — a 2-up grid on phones (full-width
             fields, full-width button), the tidy inline row from sm: up. */}
+        {addOpen && (
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
           <SubR t="SKU">
             <input className={`${inputClass} sm:max-w-40`} placeholder={L("must match TikTok", "mesti sepadan dengan TikTok")} value={invDraft.sku}
@@ -923,21 +976,57 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
             {L("Add item", "Tambah barang")}
           </button>
         </div>
+        )}
         {/* v1.77.0 — skeleton until the first fetch lands: the stock table's
             ten columns, so "No items yet" is never shown for a list still loading. */}
         {!loaded && (
-          <div className="mt-3 overflow-x-auto pr-1">
-            <SkelTable rows={6} cols={10} className="min-w-[920px]" />
-          </div>
+          <>
+            <div className="mt-3 hidden overflow-x-auto pr-1 md:block">
+              <SkelTable rows={6} cols={10} className="min-w-[920px]" />
+            </div>
+            <SkelRows rows={4} className="mt-3 md:hidden" />
+          </>
         )}
         {loaded && items.length === 0 && (
           <p className="text-muted-foreground mt-3 text-sm">{L("No items yet — add your first above; TikTok orders will start moving its stock automatically.", "Tiada barang lagi — tambah yang pertama di atas; pesanan TikTok akan mula menggerakkan stoknya secara automatik.")}</p>
         )}
-        {items.length > 0 && (
+        {items.length > 0 && visibleItems.length === 0 && (
+          <p className="text-muted-foreground mt-3 text-sm">
+            {invFilter === "low" ? L("Nothing is low.", "Tiada yang rendah.") : invFilter === "out" ? L("Nothing is out of stock.", "Tiada yang habis.") : L("Nothing matches that.", "Tiada yang sepadan.")}
+          </p>
+        )}
+        {items.length > 0 && visibleItems.length > 0 && (
         <>
+        {/* v1.119.0 - THE PHONE LIST: one card per item - the name, the SKU
+            and price, the stock big and coloured by its status, In / Out
+            full-width under the thumb. Same rows, same handlers as the table
+            below; price edits, the rebate, net and the ELFIA toggle are desk
+            work and stay in the table. */}
+        <ul className="divide-border mt-3 max-h-[60svh] divide-y overflow-y-auto overscroll-contain md:hidden">
+          {visibleItems.map((it) => (
+            <li key={`m-${it.id}`} className="py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{it.name}</p>
+                  <p className="text-muted-foreground truncate text-[11px]"><span className="font-mono">{it.sku}</span>{it.unit_price_cents ? ` · RM ${rmBare(it.unit_price_cents)}` : ""}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className={`text-2xl font-bold tabular-nums ${it.status === "out_of_stock" ? "text-destructive" : it.status === "low" ? "text-warning" : ""}`}>{it.stock}</p>
+                  <Badge value={it.status} />
+                </div>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button type="button" className="border-border h-10 flex-1 rounded-xl border text-sm font-semibold transition-colors hover:bg-secondary"
+                  onClick={() => setOutModal({ dir: "in", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>{L("＋ In", "＋ Masuk")}</button>
+                <button type="button" className="border-border h-10 flex-1 rounded-xl border text-sm font-semibold transition-colors hover:bg-secondary"
+                  onClick={() => setOutModal({ dir: "out", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>{L("− Out", "− Keluar")}</button>
+              </div>
+            </li>
+          ))}
+        </ul>
         {/* v1.4.199 (CEO): pills removed — click the SKU / Item headers to
             sort, click again to reverse. */}
-        <div className="mt-3 max-h-96 overflow-x-auto overflow-y-auto pr-1">
+        <div className="mt-3 hidden max-h-96 overflow-x-auto overflow-y-auto pr-1 md:block">
           <table className="tbl-sticky w-full min-w-[920px] border-collapse">
             <thead>
               <tr className="border-border border-b">
@@ -983,7 +1072,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
               </tr>
             </thead>
             <tbody>
-              {sortedItems.map((it) => (
+              {visibleItems.map((it) => (
                 /* v1.4.270: urgency tint — a stock line at the alert level
                    reads red before anyone reads the number. */
                 <tr key={it.id} className={`border-border border-b last:border-0 ${it.stock <= 5 ? accentRowDanger : ""}`}>
@@ -1182,219 +1271,10 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         )}
       </div>
 
-      {/* v1.4.165 (CEO): which items went OUT through TikTok Live sales —
-          straight from the stock deductions the sync/webhook recorded on
-          TT- orders (returned orders excluded). Times are MYT. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
-        </p>
-        {/* v1.77.0 — skeleton until the first fetch lands (nine columns, like the real table). */}
-        {!loaded ? (
-          <div className="mt-3 overflow-x-auto pr-1">
-            <SkelTable rows={4} cols={9} className="min-w-[560px]" />
-          </div>
-        ) : ttOut.length === 0 ? (
-          <p className="text-muted-foreground mt-3 text-sm">
-            {L("No TikTok stock movements yet — they appear here as soon as an order deducts stock (SKU or item-name match).", "Tiada pergerakan stok TikTok lagi — ia muncul di sini sebaik sahaja pesanan menolak stok (padanan SKU atau nama barang).")}
-          </p>
-        ) : (
-          <>
-          {/* v1.4.199 (CEO): pills removed — click Out today / SKU / Item
-              headers to sort; default stays hottest-today-first. */}
-          <div className="mt-3 max-h-80 overflow-x-auto overflow-y-auto pr-1">
-            <table className="tbl-sticky w-full min-w-[560px] border-collapse">
-              <thead>
-                <tr className="border-border border-b">
-                  {([
-                    ["sku",   "SKU",       th],
-                    ["name",  L("Item", "Barang"),      th],
-                    ["hot",   L("Out today", "Keluar hari ini"), thR2],
-                    ["month", L("This month", "Bulan ini"), thR2],
-                    ["total", L("All time", "Sepanjang masa"),  thR2],
-                    ["price", L("Avg sold @", "Purata dijual @"), thR2],
-                    ["value", L("Sold value (month)", "Nilai jualan (bulan)"), thR2],
-                    ["stock", L("Left in stock", "Baki stok"), thR2],
-                    ["last",  L("Last order", "Pesanan terakhir"), thR2],
-                  ] as [TtCol, string, string][]).map(([col, label, cls]) => (
-                    <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
-                      title={`${L("Sort by", "Susun ikut")} ${label} ${L("— click again to reverse", "— klik lagi untuk terbalik")}`}
-                      onClick={() => cycleTt(col)}>
-                      {label}{ttSort.col === col ? (ttSort.asc ? " ▲" : " ▼") : ""}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTtOut.map((t) => (
-                  <tr key={t.id} className="border-border border-b last:border-0">
-                    <td className={`${td} font-mono text-xs`}>{t.sku}</td>
-                    <td className={`${td} font-medium`}>{t.name}</td>
-                    <td className={tdR2}>
-                      {t.today_qty > 0
-                        ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {t.today_qty}</span>
-                        : <span className="text-muted-foreground text-xs">—</span>}
-                    </td>
-                    <td className={tdR2}>{t.month_qty}</td>
-                    <td className={tdR2}>{t.total_qty}</td>
-                    <td className={tdR2}
-                      title={t.avg_sale_cents != null && t.unit_price_cents ? `${L("List", "Senarai")} RM ${rmBare(t.unit_price_cents)} − ${L("sold", "dijual")} RM ${rmBare(t.avg_sale_cents)} = ${L("rebate", "rebat")} RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : L("No sold price captured yet — arrives with the next synced order", "Tiada harga jualan direkod lagi — tiba dengan pesanan segerak seterusnya")}>
-                      {t.avg_sale_cents != null
-                        ? <>RM {rmBare(t.avg_sale_cents)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
-                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
-                            : null}</>
-                        : <span className="text-muted-foreground text-xs">—</span>}
-                    </td>
-                    <td className={tdR2}>{t.month_value_cents ? `RM ${rmBare(t.month_value_cents)}` : <span className="text-muted-foreground text-xs">—</span>}</td>
-                    <td className={tdR2}>{t.stock}</td>
-                    <td className={`${tdR2} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {/* v1.4.171 (CEO): TOTAL row — sums across every item; the
-                  Avg sold @ total is WEIGHTED by units (Σ price×qty ÷ Σ qty),
-                  not a simple average of the row averages. v1.4.207: moved
-                  into a real tfoot so the sticky-total CSS pins it to the
-                  bottom of the scroll area like the Inventory card. */}
-              <tfoot>
-                {(() => {
-                  const sum = (f: (t: TtOut) => number) => ttOut.reduce((a, t) => a + f(t), 0);
-                  const today = sum((t) => t.today_qty);
-                  const month = sum((t) => t.month_qty);
-                  const all = sum((t) => t.total_qty);
-                  const monthVal = sum((t) => t.month_value_cents ?? 0);
-                  const stock = sum((t) => t.stock);
-                  const pricedUnits = sum((t) => (t.avg_sale_cents != null ? t.total_qty : 0));
-                  const pricedValue = sum((t) => (t.avg_sale_cents != null ? t.avg_sale_cents * t.total_qty : 0));
-                  const wAvg = pricedUnits > 0 ? pricedValue / pricedUnits : null;
-                  return (
-                    <tr className="border-border border-t-2 font-semibold">
-                      <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
-                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
-                      <td className={tdR2}>{month}</td>
-                      <td className={tdR2}>{all}</td>
-                      <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
-                      <td className={tdR2}>RM {rmBare(monthVal)}</td>
-                      <td className={tdR2}>{stock}</td>
-                      <td className={td}></td>
-                    </tr>
-                  );
-                })()}
-              </tfoot>
-            </table>
-          </div>
-          </>
-        )}
-      </div>
-
-      {/* v1.4.170 (CEO): the traceability card — every manual stock out with
-          the mandatory remark, who and when. Scrollable like the rest. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
-          <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
-        </p>
-        {/* v1.77.0 — skeleton until the first fetch lands: the collapsed
-            toggle line the real card opens with. */}
-        {!loaded ? (
-          <Skel className="mt-3 h-4 w-40" />
-        ) : manualOuts.length === 0 ? (
-          <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
-        ) : (
-          /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
-          <DetailsToggle label={`${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
-          <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
-            {manualOuts.map((o) => (
-              <div key={o.id} className={`border-border border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                <span className={`min-w-0 ${o.reverted ? "line-through" : ""}`}>
-                  {/* v1.4.172: the movement DATE leads (backdatable) and, with
-                      the SKU, is what identifies the row — v1.4.252 makes the
-                      pair the toggle so the item, reason and who recorded it
-                      open underneath instead of being truncated away. */}
-                  <RecordToggle open={openMove === o.id} title={L("Item, reason, and who recorded it", "Barang, sebab, dan siapa yang merekodkannya")}
-                    onToggle={() => setOpenMove(openMove === o.id ? null : o.id)}>
-                    {o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)} · {o.sku}
-                  </RecordToggle>
-                  {/* v1.4.251: direction is the first thing you should see */}
-                  <span className={o.direction === "in" ? "font-medium text-green-700" : ""}> · {o.direction === "in" ? "+" : "−"}{o.qty} pcs</span>
-                </span>
-                <span className="flex flex-wrap items-center justify-end gap-1.5">
-                  {o.reverted ? (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">{L("↩ reverted — stock restored", "↩ dikembalikan — stok dipulihkan")}</span>
-                  ) : o.unit_sale_cents != null
-                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">{L("Sold @ RM", "Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
-                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("correction", "pembetulan")}</span>}
-                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
-                  {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
-                      the audit trail) / Delete (wrong record: stock back +
-                      sale removed + row gone). */}
-                  {!o.reverted && (
-                    <>
-                      <button type="button" className={rowBtn} title={L("Edit qty / Sold @ / remark / date — stock and sales totals follow", "Sunting kuantiti / Dijual @ / catatan / tarikh — stok dan jumlah jualan mengikut")}
-                        onClick={() => setOutModal({
-                          dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
-                          edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
-                          price: o.unit_sale_cents != null ? rmBare(o.unit_sale_cents) : "",
-                          reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
-                        })}>{L("Edit", "Sunting")}</button>
-                      <button type="button" className={rowBtn} title={L("Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail", "Kembalikan stok ke rak; jualan dibuang daripada jumlah; baris kekal untuk jejak audit")}
-                        onClick={async () => {
-                          if (!(await invConfirm({
-                            title: L("Revert this stock out?", "Kembalikan stok keluar ini?"),
-                            message: `${o.qty} × ${o.sku} ${L("goes back into stock", "kembali ke dalam stok")}${o.unit_sale_cents != null ? ` ${L("and the", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)} ${L("sale is removed from the totals", "dibuang daripada jumlah")}` : ""}${L(". The record stays here marked ↩ reverted.", ". Rekod kekal di sini bertanda ↩ dikembalikan.")}`,
-                            confirmLabel: L("Revert", "Kembalikan"),
-                          }))) return;
-                          const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/revert`, { method: "POST", body: JSON.stringify({}) });
-                          if (!res.ok) { invToast(L("Not reverted", "Tidak dikembalikan"), res.data?.error?.message ?? L("Revert failed", "Pengembalian gagal"), "notice"); return; }
-                          invToast(L("Reverted", "Dikembalikan"), `${o.qty} × ${o.sku} ${L("back in stock", "kembali dalam stok")}`);
-                          void load();
-                        }}>{L("↩ Revert", "↩ Kembalikan")}</button>
-                    </>
-                  )}
-                  {/* v1.21.7 (CEO: "I want to have access to delete it from my
-                      inventory and database. only roles CEO & COO"): Delete is
-                      back, gated to CEO/COO (+super_admin). It removes the
-                      record and its linked sale from the database — the shelf
-                      quantity is NEVER touched (the v1.21.4 rule stands:
-                      ↩ Revert is the only way stock moves back). */}
-                  {canDeleteMovements && (
-                    <button type="button" className={rowBtnDanger} title={L("CEO/COO only: remove this record from the database — stock quantity is NOT changed", "CEO/COO sahaja: buang rekod ini daripada pangkalan data — kuantiti stok TIDAK diubah")}
-                      onClick={async () => {
-                        if (!(await invConfirm({
-                          title: L("Delete this movement record?", "Padam rekod pergerakan ini?"),
-                          message: `${L("The record", "Rekod")} (${o.qty} × ${o.sku}${o.unit_sale_cents != null ? ` ${L("and its", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)}${L(" sale", "")}` : ""}) ${L("is removed from the database permanently. Stock stays exactly as it is — nothing goes back on the shelf. This is logged under your name.", "dibuang daripada pangkalan data secara kekal. Stok kekal seperti sedia ada — tiada apa kembali ke rak. Ini dilog atas nama anda.")}`,
-                          confirmLabel: L("Delete record", "Padam rekod"), variant: "danger",
-                        }))) return;
-                        const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                        if (!res.ok) { invToast(L("Not deleted", "Tidak dipadam"), res.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice"); return; }
-                        invToast(L("Deleted", "Dipadam"), L("Record removed — stock untouched", "Rekod dibuang — stok tidak disentuh"));
-                        void load();
-                      }}>{L("Delete", "Padam")}</button>
-                  )}
-                </span>
-              </div>
-              {openMove === o.id && (
-                <DetailGrid items={[
-                  { label: L("Item", "Barang"), wide: true, value: `${o.sku} — ${o.item_name}` },
-                  { label: L("Movement", "Pergerakan"), value: `${o.direction === "in" ? L("Stock in", "Stok masuk") : L("Stock out", "Stok keluar")} · ${o.qty} pcs` },
-                  { label: L("Date", "Tarikh"), value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
-                  { label: L("Sold @", "Dijual @"), value: o.unit_sale_cents != null ? `RM ${rmBare(o.unit_sale_cents)} ${L("— counts as a sale", "— dikira sebagai jualan")}` : L("— correction, not a sale", "— pembetulan, bukan jualan") },
-                  { label: L("Recorded by", "Direkod oleh"), value: o.created_by_name ?? "" },
-                  { label: L("Recorded at", "Direkod pada"), value: dmyMYT(o.created_at) },
-                  { label: L("Reason", "Sebab"), wide: true, value: o.remark },
-                  { label: L("State", "Keadaan"), wide: true, value: o.reverted ? L("↩ Reverted — the stock was put back", "↩ Dikembalikan — stok telah dipulangkan") : "" },
-                ]} />
-              )}
-              </div>
-            ))}
-          </div>
-          </DetailsToggle>
-        )}
-      </div>
-
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Record", "Rekod")}</ZoneLabel>
+      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
       {/* v1.4.148: rejected stock back to the supplier, costing tracked for
           the claim-back. Recording a return deducts stock immediately. */}
       <div className={card}>
@@ -1652,7 +1532,7 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
         </DetailsToggle>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 md:gap-6">
         <div className={card}>
           <p className="text-sm font-semibold">{L("Postage tracking — non-TikTok orders", "Penjejakan pos — pesanan bukan TikTok")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1822,6 +1702,226 @@ export function InventoryPanel({ role = "" }: { role?: string }) {
           </ul>
         </div>
       </div>
+      </div>
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("What moved", "Apa yang bergerak")}</ZoneLabel>
+      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+      {/* v1.4.165 (CEO): which items went OUT through TikTok Live sales —
+          straight from the stock deductions the sync/webhook recorded on
+          TT- orders (returned orders excluded). Times are MYT. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">{L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
+        </p>
+        {/* v1.77.0 — skeleton until the first fetch lands (nine columns, like the real table). */}
+        {!loaded ? (
+          <div className="mt-3 overflow-x-auto pr-1">
+            <SkelTable rows={4} cols={9} className="min-w-[560px]" />
+          </div>
+        ) : ttOut.length === 0 ? (
+          <p className="text-muted-foreground mt-3 text-sm">
+            {L("No TikTok stock movements yet — they appear here as soon as an order deducts stock (SKU or item-name match).", "Tiada pergerakan stok TikTok lagi — ia muncul di sini sebaik sahaja pesanan menolak stok (padanan SKU atau nama barang).")}
+          </p>
+        ) : (
+          <>
+          {/* v1.4.199 (CEO): pills removed — click Out today / SKU / Item
+              headers to sort; default stays hottest-today-first. */}
+          <div className="mt-3 max-h-80 overflow-x-auto overflow-y-auto pr-1">
+            <table className="tbl-sticky w-full min-w-[560px] border-collapse">
+              <thead>
+                <tr className="border-border border-b">
+                  {([
+                    ["sku",   "SKU",       th],
+                    ["name",  L("Item", "Barang"),      th],
+                    ["hot",   L("Out today", "Keluar hari ini"), thR2],
+                    ["month", L("This month", "Bulan ini"), thR2],
+                    ["total", L("All time", "Sepanjang masa"),  thR2],
+                    ["price", L("Avg sold @", "Purata dijual @"), thR2],
+                    ["value", L("Sold value (month)", "Nilai jualan (bulan)"), thR2],
+                    ["stock", L("Left in stock", "Baki stok"), thR2],
+                    ["last",  L("Last order", "Pesanan terakhir"), thR2],
+                  ] as [TtCol, string, string][]).map(([col, label, cls]) => (
+                    <th key={col} className={`${cls} cursor-pointer select-none whitespace-nowrap`}
+                      title={`${L("Sort by", "Susun ikut")} ${label} ${L("— click again to reverse", "— klik lagi untuk terbalik")}`}
+                      onClick={() => cycleTt(col)}>
+                      {label}{ttSort.col === col ? (ttSort.asc ? " ▲" : " ▼") : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTtOut.map((t) => (
+                  <tr key={t.id} className="border-border border-b last:border-0">
+                    <td className={`${td} font-mono text-xs`}>{t.sku}</td>
+                    <td className={`${td} font-medium`}>{t.name}</td>
+                    <td className={tdR2}>
+                      {t.today_qty > 0
+                        ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {t.today_qty}</span>
+                        : <span className="text-muted-foreground text-xs">—</span>}
+                    </td>
+                    <td className={tdR2}>{t.month_qty}</td>
+                    <td className={tdR2}>{t.total_qty}</td>
+                    <td className={tdR2}
+                      title={t.avg_sale_cents != null && t.unit_price_cents ? `${L("List", "Senarai")} RM ${rmBare(t.unit_price_cents)} − ${L("sold", "dijual")} RM ${rmBare(t.avg_sale_cents)} = ${L("rebate", "rebat")} RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : L("No sold price captured yet — arrives with the next synced order", "Tiada harga jualan direkod lagi — tiba dengan pesanan segerak seterusnya")}>
+                      {t.avg_sale_cents != null
+                        ? <>RM {rmBare(t.avg_sale_cents)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
+                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
+                            : null}</>
+                        : <span className="text-muted-foreground text-xs">—</span>}
+                    </td>
+                    <td className={tdR2}>{t.month_value_cents ? `RM ${rmBare(t.month_value_cents)}` : <span className="text-muted-foreground text-xs">—</span>}</td>
+                    <td className={tdR2}>{t.stock}</td>
+                    <td className={`${tdR2} text-muted-foreground text-xs`}>{t.last_at ? dmyMYT(t.last_at) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {/* v1.4.171 (CEO): TOTAL row — sums across every item; the
+                  Avg sold @ total is WEIGHTED by units (Σ price×qty ÷ Σ qty),
+                  not a simple average of the row averages. v1.4.207: moved
+                  into a real tfoot so the sticky-total CSS pins it to the
+                  bottom of the scroll area like the Inventory card. */}
+              <tfoot>
+                {(() => {
+                  const sum = (f: (t: TtOut) => number) => ttOut.reduce((a, t) => a + f(t), 0);
+                  const today = sum((t) => t.today_qty);
+                  const month = sum((t) => t.month_qty);
+                  const all = sum((t) => t.total_qty);
+                  const monthVal = sum((t) => t.month_value_cents ?? 0);
+                  const stock = sum((t) => t.stock);
+                  const pricedUnits = sum((t) => (t.avg_sale_cents != null ? t.total_qty : 0));
+                  const pricedValue = sum((t) => (t.avg_sale_cents != null ? t.avg_sale_cents * t.total_qty : 0));
+                  const wAvg = pricedUnits > 0 ? pricedValue / pricedUnits : null;
+                  return (
+                    <tr className="border-border border-t-2 font-semibold">
+                      <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
+                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
+                      <td className={tdR2}>{month}</td>
+                      <td className={tdR2}>{all}</td>
+                      <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
+                      <td className={tdR2}>RM {rmBare(monthVal)}</td>
+                      <td className={tdR2}>{stock}</td>
+                      <td className={td}></td>
+                    </tr>
+                  );
+                })()}
+              </tfoot>
+            </table>
+          </div>
+          </>
+        )}
+      </div>
+
+      {/* v1.4.170 (CEO): the traceability card — every manual stock out with
+          the mandatory remark, who and when. Scrollable like the rest. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">{L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
+          <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
+        </p>
+        {/* v1.77.0 — skeleton until the first fetch lands: the collapsed
+            toggle line the real card opens with. */}
+        {!loaded ? (
+          <Skel className="mt-3 h-4 w-40" />
+        ) : manualOuts.length === 0 ? (
+          <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
+        ) : (
+          /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
+          <DetailsToggle label={`${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
+          <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
+            {manualOuts.map((o) => (
+              <div key={o.id} className={`border-border border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                <span className={`min-w-0 ${o.reverted ? "line-through" : ""}`}>
+                  {/* v1.4.172: the movement DATE leads (backdatable) and, with
+                      the SKU, is what identifies the row — v1.4.252 makes the
+                      pair the toggle so the item, reason and who recorded it
+                      open underneath instead of being truncated away. */}
+                  <RecordToggle open={openMove === o.id} title={L("Item, reason, and who recorded it", "Barang, sebab, dan siapa yang merekodkannya")}
+                    onToggle={() => setOpenMove(openMove === o.id ? null : o.id)}>
+                    {o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)} · {o.sku}
+                  </RecordToggle>
+                  {/* v1.4.251: direction is the first thing you should see */}
+                  <span className={o.direction === "in" ? "font-medium text-green-700" : ""}> · {o.direction === "in" ? "+" : "−"}{o.qty} pcs</span>
+                </span>
+                <span className="flex flex-wrap items-center justify-end gap-1.5">
+                  {o.reverted ? (
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">{L("↩ reverted — stock restored", "↩ dikembalikan — stok dipulihkan")}</span>
+                  ) : o.unit_sale_cents != null
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">{L("Sold @ RM", "Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
+                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("correction", "pembetulan")}</span>}
+                  {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
+                  {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
+                      the audit trail) / Delete (wrong record: stock back +
+                      sale removed + row gone). */}
+                  {!o.reverted && (
+                    <>
+                      <button type="button" className={rowBtn} title={L("Edit qty / Sold @ / remark / date — stock and sales totals follow", "Sunting kuantiti / Dijual @ / catatan / tarikh — stok dan jumlah jualan mengikut")}
+                        onClick={() => setOutModal({
+                          dir: (o as ManualOut & { direction?: string }).direction === "in" ? "in" : "out",
+                          edit_id: o.id, item_id: o.item_id, qty: String(o.qty),
+                          price: o.unit_sale_cents != null ? rmBare(o.unit_sale_cents) : "",
+                          reason: "", remark: o.remark, out_date: (o.out_date ?? o.created_at.slice(0, 10)),
+                        })}>{L("Edit", "Sunting")}</button>
+                      <button type="button" className={rowBtn} title={L("Put the stock back on the shelf; a sale is removed from the totals; the row stays for the audit trail", "Kembalikan stok ke rak; jualan dibuang daripada jumlah; baris kekal untuk jejak audit")}
+                        onClick={async () => {
+                          if (!(await invConfirm({
+                            title: L("Revert this stock out?", "Kembalikan stok keluar ini?"),
+                            message: `${o.qty} × ${o.sku} ${L("goes back into stock", "kembali ke dalam stok")}${o.unit_sale_cents != null ? ` ${L("and the", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)} ${L("sale is removed from the totals", "dibuang daripada jumlah")}` : ""}${L(". The record stays here marked ↩ reverted.", ". Rekod kekal di sini bertanda ↩ dikembalikan.")}`,
+                            confirmLabel: L("Revert", "Kembalikan"),
+                          }))) return;
+                          const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/revert`, { method: "POST", body: JSON.stringify({}) });
+                          if (!res.ok) { invToast(L("Not reverted", "Tidak dikembalikan"), res.data?.error?.message ?? L("Revert failed", "Pengembalian gagal"), "notice"); return; }
+                          invToast(L("Reverted", "Dikembalikan"), `${o.qty} × ${o.sku} ${L("back in stock", "kembali dalam stok")}`);
+                          void load();
+                        }}>{L("↩ Revert", "↩ Kembalikan")}</button>
+                    </>
+                  )}
+                  {/* v1.21.7 (CEO: "I want to have access to delete it from my
+                      inventory and database. only roles CEO & COO"): Delete is
+                      back, gated to CEO/COO (+super_admin). It removes the
+                      record and its linked sale from the database — the shelf
+                      quantity is NEVER touched (the v1.21.4 rule stands:
+                      ↩ Revert is the only way stock moves back). */}
+                  {canDeleteMovements && (
+                    <button type="button" className={rowBtnDanger} title={L("CEO/COO only: remove this record from the database — stock quantity is NOT changed", "CEO/COO sahaja: buang rekod ini daripada pangkalan data — kuantiti stok TIDAK diubah")}
+                      onClick={async () => {
+                        if (!(await invConfirm({
+                          title: L("Delete this movement record?", "Padam rekod pergerakan ini?"),
+                          message: `${L("The record", "Rekod")} (${o.qty} × ${o.sku}${o.unit_sale_cents != null ? ` ${L("and its", "dan jualan")} RM ${rmBare(o.unit_sale_cents * o.qty)}${L(" sale", "")}` : ""}) ${L("is removed from the database permanently. Stock stays exactly as it is — nothing goes back on the shelf. This is logged under your name.", "dibuang daripada pangkalan data secara kekal. Stok kekal seperti sedia ada — tiada apa kembali ke rak. Ini dilog atas nama anda.")}`,
+                          confirmLabel: L("Delete record", "Padam rekod"), variant: "danger",
+                        }))) return;
+                        const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${o.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+                        if (!res.ok) { invToast(L("Not deleted", "Tidak dipadam"), res.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice"); return; }
+                        invToast(L("Deleted", "Dipadam"), L("Record removed — stock untouched", "Rekod dibuang — stok tidak disentuh"));
+                        void load();
+                      }}>{L("Delete", "Padam")}</button>
+                  )}
+                </span>
+              </div>
+              {openMove === o.id && (
+                <DetailGrid items={[
+                  { label: L("Item", "Barang"), wide: true, value: `${o.sku} — ${o.item_name}` },
+                  { label: L("Movement", "Pergerakan"), value: `${o.direction === "in" ? L("Stock in", "Stok masuk") : L("Stock out", "Stok keluar")} · ${o.qty} pcs` },
+                  { label: L("Date", "Tarikh"), value: o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at) },
+                  { label: L("Sold @", "Dijual @"), value: o.unit_sale_cents != null ? `RM ${rmBare(o.unit_sale_cents)} ${L("— counts as a sale", "— dikira sebagai jualan")}` : L("— correction, not a sale", "— pembetulan, bukan jualan") },
+                  { label: L("Recorded by", "Direkod oleh"), value: o.created_by_name ?? "" },
+                  { label: L("Recorded at", "Direkod pada"), value: dmyMYT(o.created_at) },
+                  { label: L("Reason", "Sebab"), wide: true, value: o.remark },
+                  { label: L("State", "Keadaan"), wide: true, value: o.reverted ? L("↩ Reverted — the stock was put back", "↩ Dikembalikan — stok telah dipulangkan") : "" },
+                ]} />
+              )}
+              </div>
+            ))}
+          </div>
+          </DetailsToggle>
+        )}
+      </div>
+
+      </div>
+      </section>
     </div>
   );
 }

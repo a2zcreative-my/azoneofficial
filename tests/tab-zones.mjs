@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/* Guard #49 — v1.117.0: the Ecommerce tab reads in four zones.
+/* Guard #49 — v1.117.0: the Ecommerce tab reads in four zones; v1.119.0: the
+ * Inventory tab reads in three, with a phone rendering of the stock rows.
  *
  * The CEO, 06-09-2026: *"Now review on Ecommerce"*, after the Dashboard was
  * reorganised the same way. Eight cards that had been stacked in the order
@@ -29,6 +30,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const page = read("app/portal/page.tsx");
 const shared = read("components/portal/page-shared.tsx");
 const dash = read("components/portal/dashboard.tsx");
+const panels = read("components/portal/role-panels.tsx");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
 
@@ -62,5 +64,27 @@ ok("analytics stays CEO-only", /\["ceo", "super_admin"\]\.includes\(user\.role\)
 ok("the tracker is not behind the revenue gate", !/REVENUE_ROLES\.includes\(user\.role\) && \(?\s*<TikTokOrdersCard/.test(tab) && /<TikTokOrdersCard/.test(tab));
 ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROLES\.includes\(user\.role\) && <FulfilmentCard \/>/.test(tab) && /REVENUE_ROLES\.includes\(user\.role\) && \(\s*<section[\s\S]{0,120}?This month/.test(tab) && /REVENUE_ROLES\.includes\(user\.role\) && \(\s*<section[\s\S]{0,160}?The longer view/.test(tab));
 
+/* ---- v1.119.0: Inventory - three zones, and one data source for two renderings ---- */
+{
+  const s = panels.indexOf("export function InventoryPanel(");
+  const inv = panels.slice(s, panels.indexOf("\n}\n", s));
+  ok("the Inventory panel was found", s > 0);
+  const caps = ["Stock now", "Record", "What moved"];
+  const cpos = caps.map((c) => inv.indexOf(`<ZoneLabel>{L("${c}"`));
+  ok("Inventory has its three zones, in order", cpos.every((x) => x > 0) && cpos[0] < cpos[1] && cpos[1] < cpos[2], cpos.join(" < "));
+  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard \/> : undefined\}/.test(page));
+  const order = ["Inventory — live status & stock", "Supplier returns", "Postage tracking", "TikTok Live — stock out", "Manual stock movements"].map((t) => inv.indexOf(t));
+  ok("table, then the two forms, then the two histories", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
+  ok("the table and the phone list draw from ONE filtered list", inv.split("{visibleItems.map((it) => (").length === 3 && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),
+     "two lists from two sources can disagree about what is in stock");
+  ok("the phone list is phone-only and the table desk-only", /<ul className="[^"]*md:hidden">\s*\{visibleItems\.map/.test(inv) && /<div className="mt-3 hidden max-h-96 overflow-x-auto overflow-y-auto pr-1 md:block">/.test(inv));
+  const inCalls = inv.split('setOutModal({ dir: "in", edit_id: null, item_id: it.id').length - 1;
+  const outCalls = inv.split('setOutModal({ dir: "out", edit_id: null, item_id: it.id').length - 1;
+  ok("In / Out on the phone are the table's own handlers", inCalls === 2 && outCalls === 2, `${inCalls} in, ${outCalls} out`);
+  ok("the find box and the Low / Out chips filter the same list", /invQ/.test(inv) && /invFilter === "all" \|\|/.test(inv) && /\["low", L\("Low"/.test(inv) && /\["out", L\("Out"/.test(inv));
+  ok("the add-item form is behind a button", /\{addOpen && \(/.test(inv) && /L\("\+ Add item", "\+ Tambah barang"\)/.test(inv));
+  ok("a filter that leaves nothing says so", /Nothing is low\./.test(inv) && /Nothing is out of stock\./.test(inv));
+}
+
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }
-console.log(`PASS — the Ecommerce tab reads this month, the work, the longer view, setup - the same on both screens but one card (${passed} checks)`);
+console.log(`PASS — Ecommerce reads in four zones and Inventory in three, with one stock list behind both the table and the phone cards (${passed} checks)`);
