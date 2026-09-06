@@ -2,6 +2,17 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.118.0] - 2026-09-06 - push keys set by PUSH.bat, so phones can actually be reached
+
+**CEO**, 06-09-2026: *"how I want to make a push notification when I make my browser in Home Screen?"* and *"cant it push notification on device (Mobile)?"*
+
+It can, and has been able to since v1.6.0 - the service worker shows the notification, tapping it opens the right tab, and the bell in the header is the switch. What was missing is the one thing that makes any of it work: the worker signs every push with a VAPID key pair, and setting those three secrets was three commands in a source comment nobody ran. Without them the bell says "Push isn't set up on the server yet" and no phone can subscribe.
+
+- **`PUSH.bat` now handles the push keys** the way it handles the Threads credentials: step 2b asks Cloudflare which names exist on the engine, and if any of `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` is missing it generates a fresh key pair on the PC (`npx web-push generate-vapid-keys`), shows it once, and prompts for the three values - straight to Cloudflare, never written to a file. `PUSH.bat secrets` replaces them, as it does the Threads ones.
+- The bell's "not set up" message now says what to do: run PUSH.bat on the office PC once.
+
+Then each phone: install the portal to the Home Screen (iPhone: Safari - Share - Add to Home Screen, iOS 16.4+; Android: Chrome - Install app), open it from the icon, tap the bell, allow. Once per device.
+
 ## [1.117.0] - 2026-09-06 - the Ecommerce tab in four zones
 
 **CEO**, 06-09-2026: *"Now review on Ecommerce"* - the same review the Dashboard had in v1.116.0. Proposed as a side-by-side mockup for web and phone; approved as proposed.

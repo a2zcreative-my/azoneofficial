@@ -113,6 +113,41 @@ if /I "%~1"=="secrets" (
 )
 cd ..
 
+REM  v1.118.0 - PUSH NOTIFICATIONS NEED THREE KEYS ON THE ENGINE. Web push
+REM  has been in the portal since v1.6.0, but the worker signs every push
+REM  with a VAPID key pair it does not have until somebody sets it - and the
+REM  setup was three commands in a source comment nobody ran. The CEO,
+REM  06-09-2026: "cant it push notification on device (Mobile)?" - it can,
+REM  once these exist. Same rules as the Threads step: runs inside worker\,
+REM  asks Cloudflare which names exist, prompts only for what is missing,
+REM  nothing pasted is written to any file. The keys are GENERATED here on
+REM  this PC (npx web-push generate-vapid-keys) - they are never sent in
+REM  chat or email. PUSH.bat secrets replaces them as it does the Threads
+REM  ones.
+echo   [2b/7] Push notification keys on the ENGINE...
+cd worker
+if /I "%~1"=="secrets" (
+  call :askvapid
+) else (
+  call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+  set "VP_MISSING="
+  findstr /C:"VAPID_PUBLIC_KEY" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "VP_MISSING=1"
+  findstr /C:"VAPID_PRIVATE_KEY" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "VP_MISSING=1"
+  findstr /C:"VAPID_SUBJECT" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "VP_MISSING=1"
+  del "%TEMP%\azone-secrets.txt" >nul 2>&1
+  if "!VP_MISSING!"=="" (
+    echo         push keys are set - phones can subscribe.
+  ) else (
+    echo         One or more push keys are NOT set - no phone can receive
+    echo         a notification until they are. Setting them now.
+    call :askvapid
+  )
+)
+cd ..
+
 echo   [3/7] Installing what the build needs...
 call pnpm install
 if errorlevel 1 goto :failed
@@ -228,6 +263,26 @@ exit /b 0
 REM ------------------------------------------------------------
 REM  helpers
 REM ------------------------------------------------------------
+
+:askvapid
+REM  Runs INSIDE worker\. Generates a fresh key pair on this PC and shows it
+REM  ONCE so the two halves can be pasted into the prompts that follow; the
+REM  subject is the address push services may contact about abuse.
+echo.
+echo         Generating a VAPID key pair on this PC ^(nothing leaves it^)...
+call npx --yes web-push generate-vapid-keys
+echo.
+echo         Copy the PUBLIC key above, paste it here and press Enter:
+call npx wrangler secret put VAPID_PUBLIC_KEY
+if errorlevel 1 echo         VAPID_PUBLIC_KEY was NOT saved ^(skipped or refused^).
+echo         Now the PRIVATE key:
+call npx wrangler secret put VAPID_PRIVATE_KEY
+if errorlevel 1 echo         VAPID_PRIVATE_KEY was NOT saved ^(skipped or refused^).
+echo         And the contact address, as  mailto:you@a2zcreative.com.my
+call npx wrangler secret put VAPID_SUBJECT
+if errorlevel 1 echo         VAPID_SUBJECT was NOT saved ^(skipped or refused^).
+echo         Done. Every phone turns push on once, from the bell in the app.
+exit /b 0
 
 :asksecret
 REM  %1 = the secret name. Runs INSIDE worker\, so it lands on the engine.

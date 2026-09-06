@@ -923,8 +923,8 @@ export default function PortalPage() {
                     } else if (r === "unconfigured")
                       window.alert(
                         L(
-                          "Push isn't set up on the server yet — ask your admin to add the VAPID keys.",
-                          "Push belum disediakan di pelayan — minta admin anda menambah kunci VAPID."
+                          "Push isn't set up on the server yet — run PUSH.bat on the office PC once; it asks for the push keys and sets them.",
+                          "Push belum disediakan di pelayan — jalankan PUSH.bat di PC pejabat sekali; ia meminta kunci push dan menetapkannya."
                         )
                       );
                     else if (r === "denied")
@@ -1297,8 +1297,8 @@ export default function PortalPage() {
                         } else if (r === "unconfigured")
                           window.alert(
                             L(
-                              "Push isn't set up on the server yet — ask your admin to add the VAPID keys.",
-                              "Push belum disediakan di pelayan — minta admin anda menambah kunci VAPID."
+                              "Push isn't set up on the server yet — run PUSH.bat on the office PC once; it asks for the push keys and sets them.",
+                              "Push belum disediakan di pelayan — jalankan PUSH.bat di PC pejabat sekali; ia meminta kunci push dan menetapkannya."
                             )
                           );
                         else if (r === "denied")
