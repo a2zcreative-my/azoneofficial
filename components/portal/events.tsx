@@ -357,7 +357,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
         </div>
       )}
       {upcomingBdays.length > 0 && (
-        <p className="mt-2 rounded-lg bg-pink-50 px-3 py-2 text-xs font-medium text-pink-800">
+        <p className="mt-2 rounded-lg bg-celebrate-soft px-3 py-2 text-xs font-medium text-celebrate">
           🎂 {L("Coming up:", "Akan tiba:")}{" "}
           {upcomingBdays
             .slice(0, 4)
@@ -466,7 +466,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
                 <p className="text-muted-foreground mt-0.5 text-xs">
                   {dmy(ev.event_date)}
                   <span
-                    className={`ml-1.5 font-semibold ${daysAway(ev.event_date) === "TODAY" ? "text-amber-700" : ""}`}
+                    className={`ml-1.5 font-semibold ${daysAway(ev.event_date) ==="TODAY" ?"text-warning" :""}`}
                   >
                     · {daysAwayL(daysAway(ev.event_date))}
                   </span>
@@ -548,7 +548,15 @@ export function UpcomingEventsCard({ role }: { role: string }) {
   );
 }
 
-/** Category dot / accent colours — consistent across dots, chips, agenda. */
+/** Category dot / accent colours — consistent across dots, chips, agenda.
+ *
+ *  v1.124.0 — these four stay RAW Tailwind on purpose, and tests/status-
+ *  tokens.mjs allowlists them by name. They are not statuses: nothing here
+ *  means good, bad or needs-attention, so there is no semantic token they
+ *  could take. They are a categorical palette, chosen to be four telling-apart
+ *  colours, and they are solid -500 fills that read on either theme. Give them
+ *  status tokens and the calendar starts saying a meeting is worse than a
+ *  class. Add a fifth category by adding a fifth colour here. */
 export const EVENT_COLORS: Record<string, string> = {
   training: "bg-amber-500",
   class: "bg-sky-500",
@@ -679,17 +687,17 @@ export function EventsCalendar({
               className={`border-border relative min-h-12 overflow-hidden border-r border-b p-1 text-left align-top transition-colors md:min-h-20 md:p-1.5 ${isSel ? "bg-secondary/60" : "hover:bg-secondary/40"}`}
             >
               <span
-                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ? "bg-primary text-primary-foreground font-bold" : hol ? "font-bold text-red-600" : "font-medium"}`}
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] md:text-xs ${isToday ?"bg-primary text-primary-foreground font-bold" : hol ?"font-bold text-danger" :"font-medium"}`}
               >
                 {d}
               </span>
               {hol && (
                 <>
                   <span className="mt-0.5 flex md:hidden">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-danger" />
                   </span>
                   <span
-                    className="mt-0.5 hidden truncate rounded bg-red-50 px-1 py-0.5 text-[10px] leading-tight font-medium text-red-700 md:block"
+                    className="mt-0.5 hidden truncate rounded bg-danger-soft px-1 py-0.5 text-[10px] leading-tight font-medium text-danger md:block"
                     title={hol.name}
                   >
                     {hol.name}
@@ -699,10 +707,10 @@ export function EventsCalendar({
               {bdaysOf(dISO).length > 0 && (
                 <>
                   <span className="mt-0.5 flex md:hidden">
-                    <span className="h-1.5 w-1.5 rounded-full bg-pink-500" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-celebrate" />
                   </span>
                   <span
-                    className="mt-0.5 hidden truncate rounded bg-pink-50 px-1 py-0.5 text-[10px] leading-tight font-medium text-pink-700 md:block"
+                    className="mt-0.5 hidden truncate rounded bg-celebrate-soft px-1 py-0.5 text-[10px] leading-tight font-medium text-celebrate md:block"
                     title={bdaysOf(dISO)
                       .map((b) => b.name)
                       .join(", ")}
@@ -758,11 +766,11 @@ export function EventsCalendar({
           </span>
         ))}
         <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-red-500" />
+          <span className="h-2 w-2 rounded-full bg-danger" />
           {L("Public holiday", "Cuti umum")}
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-pink-500" />
+          <span className="h-2 w-2 rounded-full bg-celebrate" />
           🎂 {L("Birthday", "Hari lahir")}
         </span>
       </div>
@@ -771,14 +779,14 @@ export function EventsCalendar({
           <p className="text-sm font-semibold">
             {dmy(selected)}
             {holidayOf(selected) && (
-              <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+              <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
                 🏖 {holidayOf(selected)!.name}
               </span>
             )}
             {bdaysOf(selected).map((b) => (
               <span
                 key={b.name}
-                className="ml-2 rounded-full bg-pink-50 px-2 py-0.5 text-xs font-medium text-pink-700"
+                className="ml-2 rounded-full bg-celebrate-soft px-2 py-0.5 text-xs font-medium text-celebrate"
               >
                 🎂{" "}
                 {L(

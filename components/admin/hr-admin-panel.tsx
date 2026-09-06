@@ -20,6 +20,10 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { DOCUMENT_ISSUER } from "@/lib/issuers";
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
@@ -234,19 +238,19 @@ function printPayslip(p: PayslipData) {
      it. esc() is what stops a name or position containing markup from being
      parsed as markup in the print window. */
   const row = (k: string, v: string | number) =>
-    `<tr><td style="padding:4px 8px;color:#5b6472">${esc(k)}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${esc(v)}</td></tr>`;
+    `<tr><td style="padding:4px 8px;color:${DOC.inkSoft}">${esc(k)}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${esc(v)}</td></tr>`;
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Payslip", "Slip gaji")} ${esc(p.staff.name)} ${esc(p.month)}</title>
   <style>/* v1.4.242: this report is a staff TABLE that can run to several pages,
   so it keeps a real @page margin — page 2+ would otherwise print edge to edge.
   Trade-off accepted: the browser's own header/footer strip may appear here. */
-  @page{size:A4;margin:18mm}*{-webkit-print-color-adjust: exact; print-color-adjust: exact;}body{font-family:Arial,Helvetica,sans-serif;color:#1a2946}
-  h1{font-size:16px;margin:0}small{color:#8a93a6;letter-spacing:.3em;font-size:9px}
+  @page{size:A4;margin:18mm}*{-webkit-print-color-adjust: exact; print-color-adjust: exact;}body{font-family:Arial,Helvetica,sans-serif;color:${DOC.navy}}
+  h1{font-size:16px;margin:0}small{color:${DOC.muted};letter-spacing:.3em;font-size:9px}
   table{width:100%;border-collapse:collapse;margin-top:8px}
-  .hd{border-bottom:2px solid #1a2946;padding-bottom:8px;margin-bottom:12px}
+  .hd{border-bottom:2px solid ${DOC.navy};padding-bottom:8px;margin-bottom:12px}
   .sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#b8912f;margin-top:16px}</style>
   </head><body onload="window.print()">
   <div class="hd"><small>${DOCUMENT_ISSUER.name}</small><h1>${L("Attendance &amp; Payroll Summary", "Ringkasan Kehadiran &amp; Gaji")}</h1>
-  <div style="color:#5b6472;font-size:12px;margin-top:4px">${esc(p.month)}</div></div>
+  <div style="color:${DOC.inkSoft};font-size:12px;margin-top:4px">${esc(p.month)}</div></div>
   <table>
     ${row(L("Name", "Nama"), p.staff.name)}
     ${row(L("Employee ID", "ID pekerja"), p.staff.employee_id || "—")}
@@ -263,7 +267,7 @@ function printPayslip(p: PayslipData) {
   </table>
   <div class="sec">${L("Leave", "Cuti")}</div>
   <table>${row(L("Approved leave days", "Hari cuti diluluskan"), p.approved_leave_days)}</table>
-  <p style="margin-top:24px;font-size:10px;color:#8a93a6">${L("Generated", "Dijana")} ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · ${DOCUMENT_ISSUER.registration} · ${L("This is an attendance summary, not a statement of wages.", "Ini ialah ringkasan kehadiran, bukan penyata gaji.")}</p>
+  <p style="margin-top:24px;font-size:10px;color:${DOC.muted}">${L("Generated", "Dijana")} ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · ${DOCUMENT_ISSUER.registration} · ${L("This is an attendance summary, not a statement of wages.", "Ini ialah ringkasan kehadiran, bukan penyata gaji.")}</p>
   </body></html>`);
   w.document.close();
 }

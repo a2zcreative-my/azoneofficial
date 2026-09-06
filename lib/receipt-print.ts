@@ -19,6 +19,10 @@
 
 import { resolveIssuer } from "@/lib/issuers";
 import { fmtRM } from "@/lib/format";
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 
 export interface PrintDocData {
   kind: "RECEIPT" | "CREDIT NOTE";
@@ -63,12 +67,12 @@ export function printBusinessDoc(d: PrintDocData): void {
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a2946; margin: 0; padding: 40px; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: ${DOC.navy}; margin: 0; padding: 40px; }
   .wrap { max-width: 720px; margin: 0 auto; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #c9a227; padding-bottom: 16px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid ${DOC.gold}; padding-bottom: 16px; }
   .logo { height: 44px; }
   .co { text-align: right; font-size: 12px; color: #5d6778; line-height: 1.5; }
-  .co b { color: #1a2946; font-size: 14px; }
+  .co b { color: ${DOC.navy}; font-size: 14px; }
   h1 { font-size: 22px; letter-spacing: 1px; margin: 28px 0 4px; }
   .num { color: #7d6027; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 14px; }
@@ -77,7 +81,7 @@ export function printBusinessDoc(d: PrintDocData): void {
   .amt { margin-top: 28px; background: #f6f7f9; border-radius: 10px; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; }
   .amt .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #5d6778; }
   .amt .val { font-size: 26px; font-weight: 700; }
-  .foot { margin-top: 40px; font-size: 11px; color: #8a93a6; border-top: 1px solid #e6e9ee; padding-top: 12px; }
+  .foot { margin-top: 40px; font-size: 11px; color: ${DOC.muted}; border-top: 1px solid #e6e9ee; padding-top: 12px; }
   @media print { body { padding: 0; } .wrap { max-width: none; } }
 </style></head><body><div class="wrap">
   <div class="head">

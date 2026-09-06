@@ -148,7 +148,7 @@ export function TikTokAnalyticsCard() {
 
       {/* Anything TikTok refused, in their words. Never a silent zero. */}
       {gone.length > 0 && (
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs text-warning">
           {goneGrouped.map(([why, whats]) => (
             <p key={why}><span className="font-semibold">{whats.join(" + ")}:</span> {why}</p>
           ))}
@@ -365,13 +365,13 @@ export function TikTokProbe() {
       </div>
 
       {result?.state === "not_authorised" && (
-        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        <p className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
           {L("No TikTok authorisation stored yet. Finish the Renew screen in Partner Center with TikTok Shop Analytics ticked, then check again.",
              "Belum ada kebenaran TikTok disimpan. Selesaikan skrin Renew di Partner Center dengan TikTok Shop Analytics ditanda, kemudian semak semula.")}
         </p>
       )}
       {result?.state === "no_secret" && (
-        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        <p className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
           TIKTOK_APP_SECRET {L("is not set — run: npx wrangler secret put TIKTOK_APP_SECRET",
                                 "tidak ditetapkan — jalankan: npx wrangler secret put TIKTOK_APP_SECRET")}
         </p>

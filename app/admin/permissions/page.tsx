@@ -79,7 +79,7 @@ export default function PermissionsPage() {
                   return (
                     <td key={`${perm.id}-${role}`} className="p-3 text-center">
                       {hasPerm ? (
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-500/10 text-green-600">✓</span>
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success-soft text-success">✓</span>
                       ) : (
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-muted-foreground/50">-</span>
                       )}

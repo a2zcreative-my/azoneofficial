@@ -235,7 +235,7 @@ export function SiteEditor() {
                   <span className="mb-1 flex items-center gap-2 text-xs font-medium">
                     {fieldLabel(field)}
                     {justSaved && !dirty && (
-                      <span className="text-xs font-medium text-green-700">{L("Saved ✓", "Disimpan ✓")}</span>
+                      <span className="text-xs font-medium text-success">{L("Saved ✓","Disimpan ✓")}</span>
                     )}
                   </span>
                   {/* v1.77.0 — skeleton until the first fetch lands: the group

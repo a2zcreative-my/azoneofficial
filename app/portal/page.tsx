@@ -92,6 +92,7 @@ import { Tasks } from "@/components/portal/tasks";
 import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
 import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
 import { UsersPanel } from "@/components/portal/users-panel";
+import { syncThemeColor } from "@/lib/theme-color";
 
 /* v1.79.0 — ALL_TABS, TAB_ROLES and SALES_ROLES moved to lib/portal-tabs.ts.
    They were duplicated in components/portal/tab-access-card.tsx, and the copy
@@ -260,6 +261,10 @@ export default function PortalPage() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("azone-theme", dark ? "dark" : "light");
+    /* v1.124.0 — repaint the browser's own chrome too. The class toggle above
+       is synchronous, so the computed --browser-theme-color read inside is
+       already the new theme's. */
+    syncThemeColor();
   }, [dark]);
 
   // v1.4.144: notification chime — a soft two-tone ding synthesized with the

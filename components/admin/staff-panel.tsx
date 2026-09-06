@@ -60,9 +60,9 @@ const LEAVE_TYPE_MS: Record<string, string> = {
 function StatusBadge({ value }: { value: string }) {
   const tone =
     value === "approved"
-      ? "bg-green-600/10 text-green-700"
+      ?"bg-success-soft text-success"
       : value === "pending"
-        ? "bg-amber-500/10 text-amber-700"
+        ?"bg-warning-soft text-warning"
         : value === "rejected"
           ? "bg-destructive/10 text-destructive"
           : "bg-secondary text-muted-foreground";
@@ -145,7 +145,7 @@ export function StaffPanel() {
         <p className="text-sm font-semibold">
           {L("Leave administration", "Pentadbiran cuti")}
           {pending.length > 0 && (
-            <span className="bg-amber-500/10 ml-2 rounded px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
+            <span className="bg-warning-soft ml-2 rounded px-1.5 py-0.5 text-[11px] font-semibold text-warning">
               {pending.length} {L("pending", "menunggu")}
             </span>
           )}

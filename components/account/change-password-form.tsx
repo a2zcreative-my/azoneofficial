@@ -117,7 +117,7 @@ export function ChangePasswordForm() {
         <p className="text-destructive text-sm">{state.message}</p>
       )}
       {state.kind === "done" && (
-        <p className="text-sm font-medium text-green-700">
+        <p className="text-sm font-medium text-success">
           {L("Password changed. Any other signed-in devices have been logged out.", "Kata laluan ditukar. Peranti lain yang sedang log masuk telah dilog keluar.")}
         </p>
       )}

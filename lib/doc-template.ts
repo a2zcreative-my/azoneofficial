@@ -21,6 +21,10 @@ export interface DocItem {
 }
 
 import { resolveIssuer } from "@/lib/issuers";
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 
 export interface DocFull {
   doc_type: string; doc_number: string; company: string; contact_person?: string;
@@ -293,35 +297,35 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
        Chrome prints no header strip; print-color-adjust keeps the navy + gold. */
     @page { size: A4; margin: 0; }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11px; margin: 0;
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11px; margin: 0;
            padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
     @media print { body { padding: 14mm; min-height: 296mm; } }
-    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
-    .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 0 9px; border-bottom: 2.5px solid #1a2946; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; }
+    .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 0 9px; border-bottom: 2.5px solid ${DOC.navy}; }
     .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }
-    .brand small { display: block; font-size: 7.5px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
-    .brand .addr { font-size: 9px; color: #5b6472; font-weight: 400; letter-spacing: 0; margin-top: 6px; line-height: 1.55; }
+    .brand small { display: block; font-size: 7.5px; letter-spacing: .32em; color: ${DOC.gold}; font-weight: 700; margin-top: 2px; }
+    .brand .addr { font-size: 9px; color: ${DOC.inkSoft}; font-weight: 400; letter-spacing: 0; margin-top: 6px; line-height: 1.55; }
     .docbox { text-align: right; }
     .docbox h2 { margin: 0; font-size: 23px; letter-spacing: .12em; }
     .docbox .kindchip { display: inline-block; margin-top: 5px; font-size: 8px; letter-spacing: .16em;
-      border: 1px solid #C9A227; color: #8a6d12; border-radius: 3px; padding: 2px 7px; font-weight: 700; }
-    table.meta { width: 100%; border-collapse: collapse; margin-top: 9px; table-layout: fixed; border-bottom: 1px solid #e8ebf1; }
+      border: 1px solid ${DOC.gold}; color: #8a6d12; border-radius: 3px; padding: 2px 7px; font-weight: 700; }
+    table.meta { width: 100%; border-collapse: collapse; margin-top: 9px; table-layout: fixed; border-bottom: 1px solid ${DOC.line}; }
     .meta td { padding: 0 10px 7px 0; vertical-align: top; }
-    .meta .mk { display: block; font-size: 7.5px; letter-spacing: .1em; color: #8a93a6; text-transform: uppercase; }
+    .meta .mk { display: block; font-size: 7.5px; letter-spacing: .1em; color: ${DOC.muted}; text-transform: uppercase; }
     .meta .mv { font-weight: 700; font-size: 11px; white-space: nowrap; }
     .parties { display: flex; gap: 10px; margin-top: 10px; }
-    .party { flex: 1 1 0; min-width: 0; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 5px; padding: 8px 10px; }
-    .party .bt { margin: 0 0 3px; font-size: 8px; letter-spacing: .16em; color: #8a93a6; font-weight: 700; }
+    .party { flex: 1 1 0; min-width: 0; background: ${DOC.tint}; border-left: 3px solid ${DOC.gold}; border-radius: 5px; padding: 8px 10px; }
+    .party .bt { margin: 0 0 3px; font-size: 8px; letter-spacing: .16em; color: ${DOC.muted}; font-weight: 700; }
     .party p { margin: 1px 0; line-height: 1.45; }
     .party .co { font-weight: 800; font-size: 12.5px; }
     table.items { width: 100%; border-collapse: collapse; margin-top: 11px; }
-    .items th { background: #1a2946; color: #fff; padding: 6px 7px; text-align: left; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; }
-    .items td { padding: 6px 7px; border-bottom: 1px solid #e8ebf1; vertical-align: top; }
+    .items th { background: ${DOC.navy}; color: #fff; padding: 6px 7px; text-align: left; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; }
+    .items td { padding: 6px 7px; border-bottom: 1px solid ${DOC.line}; vertical-align: top; }
     .items .c { text-align: center; }
     .items .r { text-align: right; font-variant-numeric: tabular-nums; }
     .items .nm { font-weight: 700; }
-    .items .sku { font-size: 9px; color: #8a93a6; font-weight: 400; }
-    .items ul { margin: 3px 0 0; padding-left: 13px; color: #5b6472; font-size: 10px; line-height: 1.5; }
+    .items .sku { font-size: 9px; color: ${DOC.muted}; font-weight: 400; }
+    .items ul { margin: 3px 0 0; padding-left: 13px; color: ${DOC.inkSoft}; font-size: 10px; line-height: 1.5; }
     /* v1.99.2 — the denser table, used only when the document needs the room
        to stay on one page. Same design, tighter leading: the alternative is a
        second page whose footer and signatures are orphaned. */
@@ -330,43 +334,43 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .items.dense .sku { font-size: 8.5px; }
     .items.dense ul { margin: 2px 0 0; font-size: 9.5px; line-height: 1.35; }
     .mid { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
-    .words { flex: 1 1 0; min-width: 0; border: 1px solid #1a2946; border-radius: 5px; padding: 7px 9px; }
-    .words .bt { font-size: 7.5px; letter-spacing: .14em; color: #8a93a6; font-weight: 700; }
+    .words { flex: 1 1 0; min-width: 0; border: 1px solid ${DOC.navy}; border-radius: 5px; padding: 7px 9px; }
+    .words .bt { font-size: 7.5px; letter-spacing: .14em; color: ${DOC.muted}; font-weight: 700; }
     .words .val { font-weight: 700; font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
-    .words .sst { margin-top: 6px; font-size: 8.5px; color: #8a93a6; line-height: 1.45; }
+    .words .sst { margin-top: 6px; font-size: 8.5px; color: ${DOC.muted}; line-height: 1.45; }
     table.tot { width: 240px; flex: none; border-collapse: collapse; }
     .tot td { padding: 3px 9px; font-size: 11px; }
     .tot td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-    .tot tr.sub td { border-top: 1px solid #e8ebf1; font-weight: 700; }
-    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; font-size: 13px; padding: 7px 9px; }
+    .tot tr.sub td { border-top: 1px solid ${DOC.line}; font-weight: 700; }
+    .tot tr.grand td { background: ${DOC.navy}; color: #fff; font-weight: 800; font-size: 13px; padding: 7px 9px; }
     .tot tr.grand td:first-child { border-radius: 5px 0 0 5px; }
     .tot tr.grand td:last-child { border-radius: 0 5px 5px 0; }
-    .notes { margin-top: 10px; font-size: 10.5px; color: #5b6472; white-space: pre-wrap; }
+    .notes { margin-top: 10px; font-size: 10.5px; color: ${DOC.inkSoft}; white-space: pre-wrap; }
     .accept { margin-top: auto; padding-top: 18px; }
-    .accept .hdr { text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-top: 1px solid #1a2946; padding-top: 7px; }
-    .accept .body { font-size: 10px; color: #5b6472; margin: 4px 0 0; line-height: 1.5; flex: none; width: 300px; }
+    .accept .hdr { text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-top: 1px solid ${DOC.navy}; padding-top: 7px; }
+    .accept .body { font-size: 10px; color: ${DOC.inkSoft}; margin: 4px 0 0; line-height: 1.5; flex: none; width: 300px; }
     .split { display: flex; gap: 12px; margin-top: 10px; justify-content: space-between; align-items: flex-end; }
     /* flex-start: both signature rules sit on ONE baseline whatever the block
        holds — a long name wraps downward instead of lifting its own rule. */
     .split2 { display: flex; gap: 12px; flex: 1; justify-content: flex-end; align-items: flex-start; }
-    .pay { background: #f6f7fa; border-radius: 5px; padding: 9px 11px; max-width: 300px; margin-top: auto; }
+    .pay { background: ${DOC.tint}; border-radius: 5px; padding: 9px 11px; max-width: 300px; margin-top: auto; }
     .pay p { margin: 2px 0; }
-    .pay .bt { font-size: 8px; letter-spacing: .16em; color: #8a93a6; font-weight: 700; }
+    .pay .bt { font-size: 8px; letter-spacing: .16em; color: ${DOC.muted}; font-weight: 700; }
     .paidline { color: #15803d; font-weight: 800; margin-top: 6px !important; }
     .sig { text-align: center; flex: 1 1 0; min-width: 168px; font-size: 10px; }
     /* RESERVED AUTO-SIGNATURE SPACE — identical height in every block so the
        officer's PNG never shifts the layout, and a blank block lines up with
        a signed one exactly. */
     .sigzone { height: 74px; display: flex; align-items: flex-end; justify-content: center;
-               border-bottom: 1px solid #1a2946; margin-bottom: 4px; overflow: hidden; }
+               border-bottom: 1px solid ${DOC.navy}; margin-bottom: 4px; overflow: hidden; }
     .sigzone img { max-height: 72px; max-width: 100%; object-fit: contain; display: block; }
-    .sig .lbl { display: block; font-size: 8px; letter-spacing: .13em; text-transform: uppercase; color: #8a93a6; margin-bottom: 3px; }
+    .sig .lbl { display: block; font-size: 8px; letter-spacing: .13em; text-transform: uppercase; color: ${DOC.muted}; margin-bottom: 3px; }
     .sig .who { margin-top: 1px; line-height: 1.5; }
     .sig .nm { font-weight: 800; font-size: 10px; letter-spacing: -.01em; }
-    .sig.blank .who { color: #8a93a6; }
+    .sig.blank .who { color: ${DOC.muted}; }
     .sig.blank .who .nm { font-weight: 700; }
-    .tiny { font-size: 8.5px; color: #8a93a6; }
-    .foot { margin-top: 12px; font-size: 8px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 7px; text-align: center; line-height: 1.5; }
+    .tiny { font-size: 8.5px; color: ${DOC.muted}; }
+    .foot { margin-top: 12px; font-size: 8px; color: ${DOC.muted}; border-top: 1px solid ${DOC.line}; padding-top: 7px; text-align: center; line-height: 1.5; }
     .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d;
       color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
   </style></head><body${autoPrint ? ' onload="window.print()"' : ""}>

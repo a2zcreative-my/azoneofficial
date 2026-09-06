@@ -41,10 +41,10 @@ const EMPTY = {
 };
 
 const STATUS_CHIP: Record<string, string> = {
-  in_use: "rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800",
+  in_use:"rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success",
   spare: "border-border rounded-full border px-2 py-0.5 text-[11px]",
-  repair: "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800",
-  lost: "rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700",
+  repair:"rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning",
+  lost:"rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-semibold text-danger",
   disposed: "text-muted-foreground rounded-full border border-border px-2 py-0.5 text-[11px] line-through",
 };
 
@@ -137,7 +137,7 @@ export function AssetsPanel() {
               {label} <span className="font-semibold">{n}</span>{statusF === k ? " ✕" : ""}
             </button>
           ))}
-          {totalValue > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">{L("Value", "Nilai")} {rm(totalValue)}</span>}
+          {totalValue > 0 && <span className="rounded-full bg-success-soft px-2 py-0.5 font-semibold text-success">{L("Value","Nilai")} {rm(totalValue)}</span>}
         </div>
       </div>
 

@@ -39,7 +39,8 @@ export function PunchToast({
   sub: string;
   variant?: "success" | "notice";
 }) {
-  const colour = variant === "success" ? "#1a2946" : "#d97706";
+  /* v1.124.0 — see SaveToast: the ring follows the theme now. */
+  const colour = variant === "success" ? "var(--primary)" : "var(--warning)";
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
       <style>{`
@@ -985,7 +986,7 @@ export function Dashboard({
           </div>
         )}
         {showOt && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
             {L(
               "Working overtime today? OT in / OT out only with your Section HOD's approval — tap OT in when it starts and OT out when you finish.",
               "Bekerja OT hari ini? OT in / OT out hanya dengan kelulusan HOD Seksyen anda — tekan OT in apabila bermula dan OT out apabila selesai."
@@ -1013,7 +1014,7 @@ export function Dashboard({
         {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
             from the cron, for the person who has the tab open right now. */}
         {hasIn && !hasOut && nowMins >= 18 * 60 + 30 && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
             ⏰ {tr("Don't forget to clock out", lang)}
             {hasOtIn && !hasOtOut
               ? L(
@@ -2038,7 +2039,7 @@ export function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
               ({d.company})
             </span>
           </span>
-          <span className="font-bold text-red-600 tabular-nums">
+          <span className="font-bold text-danger tabular-nums">
             {fmtRM(d.total_cents)}
           </span>
         </div>
@@ -2176,7 +2177,7 @@ export function LowStockSummary() {
             {i.name}{" "}
             <span className="text-muted-foreground font-normal">({i.sku})</span>
           </p>
-          <span className="font-bold text-red-600 tabular-nums">
+          <span className="font-bold text-danger tabular-nums">
             {L(`${i.stock} left`, `baki ${i.stock}`)}
           </span>
         </div>

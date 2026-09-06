@@ -227,7 +227,7 @@ export function UsersPanel({ role }: { role: string }) {
               "Baca sahaja di sini — penukaran peranan dibuat oleh super admin sistem sahaja, jadi tiada akaun perniagaan yang log masuk (atau log masuk Google yang dicerobohi) boleh menaikkan peranan."
             )}
       </p>
-      {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
+      {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       {/* v1.4.161: staff + customer lists sit side-by-side on desktop to cut
           the scroll in half; they stack normally on phones. */}
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
@@ -272,19 +272,19 @@ export function UsersPanel({ role }: { role: string }) {
                   </span>
                   {(u.employment_status ?? "permanent") !== "permanent" && (
                     <span
-                      className={`rounded-full px-1.5 py-px text-[10px] capitalize ${["resigned", "terminated"].includes(u.employment_status ?? "") ? "bg-red-100 text-red-700" : "bg-secondary"}`}
+                      className={`rounded-full px-1.5 py-px text-[10px] capitalize ${["resigned","terminated"].includes(u.employment_status ??"") ?"bg-danger-soft text-danger" :"bg-secondary"}`}
                       title={`${u.left_on ? L(`until ${dmy(u.left_on)}`, `sehingga ${dmy(u.left_on)}`) : ""}${u.rejoined_on ? L(` · rejoined ${dmy(u.rejoined_on)}`, ` · kembali ${dmy(u.rejoined_on)}`) : ""}`}
                     >
                       {(u.employment_status ?? "").replace(/_/g, " ")}
                     </span>
                   )}
                   {!u.is_active && (
-                    <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">
+                    <span className="rounded-full bg-danger-soft px-1.5 py-px text-[10px] text-danger">
                       {L("disabled", "dinyahaktif")}
                     </span>
                   )}
                   {!u.totp_enabled && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800">
+                    <span className="rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium text-warning">
                       2FA ✗
                     </span>
                   )}
@@ -318,7 +318,7 @@ export function UsersPanel({ role }: { role: string }) {
             ))}
           </div>
           {staffRows.some((u) => !u.totp_enabled && u.is_active) && (
-            <p className="mt-2 text-xs font-medium text-amber-700">
+            <p className="mt-2 text-xs font-medium text-warning">
               ⚠ {staffRows.filter((u) => !u.totp_enabled && u.is_active).length}{" "}
               {L(
                 "active account(s) without 2FA — worth chasing:",
@@ -389,7 +389,7 @@ export function UsersPanel({ role }: { role: string }) {
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-1">
                   {!u.is_active && (
-                    <span className="rounded-full bg-red-100 px-1.5 py-px text-[10px] text-red-700">
+                    <span className="rounded-full bg-danger-soft px-1.5 py-px text-[10px] text-danger">
                       {L("disabled", "dinyahaktif")}
                     </span>
                   )}
@@ -451,7 +451,7 @@ export function UsersPanel({ role }: { role: string }) {
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
                 <span
-                  className={`rounded-full px-1.5 py-px text-[10px] ${e.action.includes("2fa_enabled") ? "bg-green-100 text-green-700" : e.action.includes("2fa") ? "bg-blue-100 text-blue-800" : e.action.includes("password") ? "bg-amber-100 text-amber-800" : "bg-secondary"}`}
+                  className={`rounded-full px-1.5 py-px text-[10px] ${e.action.includes("2fa_enabled") ?"bg-success-soft text-success" : e.action.includes("2fa") ?"bg-info-soft text-info" : e.action.includes("password") ?"bg-warning-soft text-warning" :"bg-secondary"}`}
                 >
                   {e.action.replace("auth.", "").replace(/_/g, " ")}
                 </span>

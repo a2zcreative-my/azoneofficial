@@ -331,7 +331,7 @@ export function WebOrdersPanel() {
                                     {detail.movements.map((m, i) => (
                                       <li key={i} className="flex justify-between gap-2">
                                         <span className="font-mono text-xs">{m.sku}</span>
-                                        <span className={m.delta < 0 ? "text-amber-700 dark:text-amber-400" : "text-green-700 dark:text-green-400"}>
+                                        <span className={m.delta < 0 ?"text-warning" :"text-success"}>
                                           {m.delta > 0 ? `+${m.delta}` : m.delta}
                                           {m.outcome !== "applied" && <span className="text-muted-foreground ml-1 text-xs">({m.outcome})</span>}
                                         </span>

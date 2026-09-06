@@ -155,7 +155,7 @@ export function TradingDesk({
         </p>
         {(todayTotal > 0 || y > 0) && (
           <p
-            className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${up ? "bg-bull/25 text-green-200" : "bg-bear/25 text-red-200"}`}
+            className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${up ?"bg-bull/25 text-success" :"bg-bear/25 text-danger"}`}
           >
             {up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))}{" "}
             {tr("vs yesterday", lang)}

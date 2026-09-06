@@ -849,7 +849,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </button>
         </div>
       </div>
-      {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+      {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
 
       {!readOnly && (<>
         <details className="mt-2 text-xs">
@@ -977,7 +977,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           almost certainly the 0073 deploy-window gap, so it is flagged
           rather than merely printed. */}
       {release?.employer && (
-        <p className={`mt-2 text-xs ${release.employer_is_legacy ? "text-amber-700 font-medium" : "text-muted-foreground"}`}>
+        <p className={`mt-2 text-xs ${release.employer_is_legacy ?"text-warning font-medium" :"text-muted-foreground"}`}>
           {L("Employer of record on these payslips: ", "Majikan direkodkan pada slip gaji ini: ")}
           <span className="font-semibold">{release.employer}</span>
           {release.employer_is_legacy && L(
@@ -998,11 +998,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
               const early = release.available_from > nowMYT;
               return (
-                <span className="font-medium text-green-700">
+                <span className="font-medium text-success">
                   {L(`Payslips for ${monthDMY(month)} are RELEASED to staff (since ${release.released.released_at.slice(0, 16)} UTC).`, `Slip gaji untuk ${monthDMY(month)} telah DIKELUARKAN kepada kakitangan (sejak ${release.released.released_at.slice(0, 16)} UTC).`)}
                   {early && (
                     <>
-                      {" "}<span className="font-semibold text-amber-700">{L(`⚠ Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `⚠ DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
+                      {""}<span className="font-semibold text-warning">{L(`⚠ Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `⚠ DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
                       {" "}<button type="button" className="font-medium underline"
                         title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
                         onClick={async () => {
@@ -1256,7 +1256,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     <span className="block font-medium whitespace-nowrap">{displayName(u)}</span>
                     <span className="text-muted-foreground block text-xs leading-snug">
                       {u.position ?? u.role}
-                      {hourlyRow && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-amber-900" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT", "Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly", "⏱ ikut jam")}</span>}
+                      {hourlyRow && <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-warning" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}>{L("⏱ hourly","⏱ ikut jam")}</span>}
                     </span>
                   </td>
                   {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
@@ -1294,7 +1294,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                           and it names the day so it can be checked against
                           the calendar. */}
                       {k === "basic_cents" && (ud?.ph_worked_cents ?? 0) > 0 && (
-                        <span className="block text-[10px] text-emerald-700">
+                        <span className="block text-[10px] text-success">
                           +{rm(ud!.ph_worked_cents)} · {L(
                             `${ud!.ph_worked} public holiday${ud!.ph_worked === 1 ? "" : "s"} worked (${ud!.ph_worked_dates.map((d) => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ")})`,
                             `${ud!.ph_worked} cuti umum bekerja (${ud!.ph_worked_dates.map((d) => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ")})`,
@@ -1353,7 +1353,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         being able to see what it was for. A number that
                         changes somebody's salary says what it is. */}
                     {(adj > 0 || ulDed > 0) && (
-                      <span className="mt-0.5 block text-[10px] leading-snug text-red-700">
+                      <span className="mt-0.5 block text-[10px] leading-snug text-danger">
                         <span className="whitespace-nowrap">−{rm(adj + ulDed)}</span>
                         {adj > 0 && (
                           <span className="block"
@@ -1378,7 +1378,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         deduction question — it is a wrong date somewhere, and
                         it is money either way. */}
                     {ud?.clocked_beyond_employment && (
-                      <span className="mt-0.5 block text-[10px] leading-snug font-semibold text-amber-700"
+                      <span className="mt-0.5 block text-[10px] leading-snug font-semibold text-warning"
                         title={L(`Employed for ${ud.payable_days} of ${monthDays} working days but clocked in on ${ud.clocked_days}. Both cannot be true — check Joined on / End date / Re-joined on in the staff record.`,
                                  `Bekerja ${ud.payable_days} daripada ${monthDays} hari tetapi mendaftar masuk ${ud.clocked_days} hari. Kedua-duanya tidak boleh benar — semak Tarikh masuk / Tarikh tamat / Tarikh kembali.`)}>
                         {L(`⚠ ${ud.payable_days} employed / ${ud.clocked_days} clocked — check dates`,
@@ -1414,7 +1414,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         </span>
                         {(unpaidDays[u.id] ?? 0) > 0 && (
                           <span
-                            className="ml-1 text-[10px] font-semibold text-red-700"
+                            className="ml-1 text-[10px] font-semibold text-danger"
                             title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at basic ÷ 26 per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada pokok ÷ 26 sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
                           >
                             UL:{unpaidDays[u.id]}
@@ -1496,7 +1496,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   <td className="px-2 py-2 whitespace-nowrap">
                     {rm(tot.basic)}
                     {tot.ph > 0 && (
-                      <span className="block text-[10px] font-normal text-emerald-700">
+                      <span className="block text-[10px] font-normal text-success">
                         +{rm(tot.ph)} {L("public holidays worked", "cuti umum bekerja")}
                       </span>
                     )}

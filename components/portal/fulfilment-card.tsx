@@ -92,7 +92,7 @@ export function FulfilmentCard() {
                 className={
                   (drill === k ? "ring-primary ring-2 " : "") +
                   (k === "preparing" && n(k) > 0
-                    ? "rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800"
+                    ?"rounded-full bg-warning-soft px-2 py-0.5 font-semibold text-warning"
                     : "border-border rounded-full border px-2 py-0.5")
                 }>
                 {L(label, labelMs)} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
@@ -152,7 +152,7 @@ export function FulfilmentCard() {
             </div>
           )}
           {d.oldest_preparing && (
-            <p className="mt-2 text-xs font-medium text-amber-700">
+            <p className="mt-2 text-xs font-medium text-warning">
               {L("⏳ Oldest unshipped:", "⏳ Paling lama belum dihantar:")} {d.oldest_preparing.order_ref}
               {d.oldest_preparing.days !== null && d.oldest_preparing.days >= 1
                 ? L(` — waiting ${d.oldest_preparing.days} day${d.oldest_preparing.days === 1 ? "" : "s"}`, ` — menunggu ${d.oldest_preparing.days} hari`)

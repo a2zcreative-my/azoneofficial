@@ -276,7 +276,7 @@ export function Announcements({ user }: { user: User }) {
             className={
               a.acked
                 ? card
-                : `${card} border-amber-400/70 bg-amber-50/40 dark:bg-amber-950/10`
+                : `${card} border-warning/30 bg-warning-soft `
             }
           >
             <div className="flex flex-wrap items-center justify-between gap-2">

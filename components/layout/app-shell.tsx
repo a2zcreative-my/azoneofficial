@@ -82,7 +82,13 @@ export function AppShell({
      md+. The rule lives in the <style> below, WITH the component that needs
      it: a class whose CSS sits in another file is a class that stops working
      the day that file is tidied. Behind a media query, so the phone layout
-     (which scrolls the document by design) is untouched. */
+     (which scrolls the document by design) is untouched.
+
+     v1.124.0 — this is the ONLY place in the app that overrides <html>
+     overflow. The default owner is `html { overflow-y: scroll }` in
+     styles/globals.css, which carries the full ownership note; if you are
+     about to add a third owner, read that note first. Modals and drawers lock
+     BODY, never <html>. tests/scroll-ownership.mjs holds the pair together. */
   useEffect(() => {
     document.documentElement.classList.add("shell-locked");
     return () => document.documentElement.classList.remove("shell-locked");

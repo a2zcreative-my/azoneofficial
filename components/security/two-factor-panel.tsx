@@ -119,9 +119,9 @@ export function TwoFactorPanel() {
       <p className="text-sm font-semibold">
         {L("Two-factor authentication", "Pengesahan dua faktor")}
         {status.enabled ? (
-          <span className="ml-2 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("On", "Aktif")}</span>
+          <span className="ml-2 rounded-full bg-success px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("On", "Aktif")}</span>
         ) : (
-          <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("Off", "Mati")}</span>
+          <span className="ml-2 rounded-full bg-warning px-2 py-0.5 text-[10px] font-bold text-white uppercase">{L("Off", "Mati")}</span>
         )}
       </p>
       <p className="text-muted-foreground mt-1 text-xs">
@@ -130,11 +130,11 @@ export function TwoFactorPanel() {
           "Kata laluan yang dicuri tidak cukup untuk mencapai akaun ini — log masuk juga memerlukan kod 6 digit daripada telefon anda. Semua akaun kakitangan menyimpan data syarikat, jadi mengaktifkannya amat disyorkan untuk semua orang.",
         )}
       </p>
-      {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+      {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
       {err && <p className="text-destructive mt-2 text-xs font-medium">{err}</p>}
 
       {backupCodes.length > 0 && (
-        <div className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:bg-amber-950/20">
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-3">
           <p className="text-xs font-semibold">{L("Save these backup codes now — they are shown only once.", "Simpan kod sandaran ini sekarang — ia dipaparkan sekali sahaja.")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L("Each works once if you lose your phone. Keep them somewhere safe and private.", "Setiap satu berfungsi sekali jika anda kehilangan telefon. Simpan di tempat yang selamat dan peribadi.")}

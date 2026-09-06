@@ -156,7 +156,7 @@ export function GeofenceCard() {
           <Skel className="h-5 w-10 rounded-full" />
         ) : (
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${info?.configured
-          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+          ?"bg-success-soft text-success"
           : "bg-secondary text-muted-foreground"}`}>
           {info?.configured ? "ON" : "OFF"}
         </span>
@@ -233,7 +233,7 @@ export function GeofenceCard() {
       </>
       )}
       {msg && (
-        <p className={`mt-2 text-xs font-medium ${msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{msg.text}</p>
+        <p className={`mt-2 text-xs font-medium ${msg.ok ?"text-success" :"text-destructive"}`}>{msg.text}</p>
       )}
       <p className="text-muted-foreground mt-2 text-[11px]">
         {L("Reminders ride along automatically: staff still clocked in get a bell + push at 6:30 pm (unless they're on OT) and a firmer one at 10 pm. Forgot-to-punch cases from home are fixed with a manual punch (admin → Attendance).",

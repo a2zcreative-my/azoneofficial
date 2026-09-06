@@ -1088,7 +1088,7 @@ export function ElfiaStorePanel() {
             </span>
           )}
           {health && !health.unavailable && !health.key_configured && (
-            <span className="font-medium text-amber-700 dark:text-amber-400">
+            <span className="font-medium text-warning">
               {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)",
                  "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
             </span>
@@ -1115,13 +1115,13 @@ export function ElfiaStorePanel() {
              "Semua pada tab ini sampai ke kedai dalam kira-kira seminit: kiraan, harga, diskaun, koleksi, penerangan dan foto. Menanda Publish di sinilah yang meletakkan produk dalam kedai — SKU yang belum ada di kedai akan dicipta dan terus dipaparkan. Buang tanda itu dan ia hilang dari kedai. Tergesa-gesa? Tekan \u201cKemas kini kedai sekarang\u201d.")}
         </p>
         {migrationPending && (
-          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
             {L("Migration 0086 has not reached the database yet — photo, collection and description cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
                "Migrasi 0086 belum sampai ke pangkalan data — foto, koleksi dan penerangan tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
           </p>
         )}
         {missingPhoto.length > 0 && !migrationPending && (
-          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+          <p className="mt-2 text-xs font-medium text-warning">
             {L("No photo yet:", "Belum ada foto:")}{" "}
             {missingPhoto.slice(0, 6).map((x) => x.sku).join(", ")}
             {missingPhoto.length > 6 ? ` +${missingPhoto.length - 6}` : ""} —{" "}
@@ -1257,8 +1257,8 @@ export function ElfiaStorePanel() {
         )}
 
         {picked.size > 0 && (
-          <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
-            <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+          <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-warning/30 bg-warning-soft p-2.5">
+            <span className="text-xs font-semibold text-warning">
               {picked.size} {L("selected", "dipilih")}
             </span>
             <label className="flex items-center gap-1.5 text-xs">
@@ -1295,9 +1295,9 @@ export function ElfiaStorePanel() {
                 Its own row, and deliberately below the discount: the two are
                 easy to confuse, and the price is the number the discount
                 comes off. */}
-            <div className="border-amber-300/70 dark:border-amber-700/70 mt-1 w-full border-t pt-2">
+            <div className="border-warning/30 mt-1 w-full border-t pt-2">
               <div className="flex flex-wrap items-end gap-2">
-                <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+                <span className="text-xs font-semibold text-warning">
                   {L("Web price", "Harga web")}
                 </span>
                 <label className="flex items-center gap-1.5 text-xs">
@@ -1339,9 +1339,9 @@ export function ElfiaStorePanel() {
                 Not a category: a deadline on the discount the item already
                 has. When it passes the price reverts by itself on the next
                 sync — nobody has to remember to end it. */}
-            <div className="border-amber-300/70 dark:border-amber-700/70 mt-1 w-full border-t pt-2">
+            <div className="border-warning/30 mt-1 w-full border-t pt-2">
               <div className="flex flex-wrap items-end gap-2">
-                <span className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+                <span className="text-xs font-semibold text-warning">
                   ⚡ {L("Flash sale", "Jualan kilat")}
                 </span>
                 {/* v1.68.0 — the price lives HERE now.
@@ -1513,7 +1513,7 @@ export function ElfiaStorePanel() {
                         const disc = it.elfia_discount_cents ?? 0;
                         if (!(disc > 0 && disc < base)) return null;
                         return (
-                          <span className="font-medium text-emerald-700 dark:text-emerald-400"
+                          <span className="font-medium text-success"
                             title={L("What the shop shows: old price struck through, this charged", "Apa yang kedai papar: harga lama dipotong, ini dicaj")}>
                             {L("Customer pays", "Pelanggan bayar")} RM {rmBare(base - disc)}
                             <s className="text-muted-foreground ml-1 font-normal">RM {rmBare(base)}</s>
@@ -1633,7 +1633,7 @@ export function ElfiaStorePanel() {
           </div>
         )}
         {slides === null && loaded && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
             {L("Migration 0087 has not reached the database yet — the carousel cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
                "Migrasi 0087 belum sampai ke pangkalan data — karusel tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
           </p>
@@ -1842,7 +1842,7 @@ export function ElfiaStorePanel() {
           </div>
         )}
         {cat?.unavailable && (
-          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
             {L("This api worker does not have the catalog routes yet — deploy azoneofficial-api, then reload.",
                "Worker api ini belum ada laluan katalog — deploy azoneofficial-api, kemudian muat semula.")}
           </p>
@@ -1873,7 +1873,7 @@ export function ElfiaStorePanel() {
             </div>
 
             {cat.pending && !catDraft && (
-              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+              <p className="text-xs font-medium text-warning">
                 {L("A previous upload did not finish — the shop was not changed. Choose the PDF again.",
                    "Muat naik sebelum ini tidak selesai — kedai tidak diubah. Pilih PDF itu semula.")}
               </p>
@@ -1895,7 +1895,7 @@ export function ElfiaStorePanel() {
                          `${catDraft.pages} halaman · ${catDraft.map.sites.length} label dijumpai · ${catDraft.matched} sepadan dengan produk diterbitkan`)}
                     </p>
                     {catDraft.matched === 0 && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                      <p className="mt-1 font-medium text-warning">
                         {L("None of the labels match a published product — the shop would add no prices. Check the names, or publish the products first.",
                            "Tiada label sepadan dengan produk diterbitkan — kedai tidak akan menambah harga. Semak nama, atau terbitkan produk dahulu.")}
                       </p>
@@ -1905,7 +1905,7 @@ export function ElfiaStorePanel() {
                         Named, so a typo in the PDF or an unpublished
                         product is caught here, not in the printed file. */}
                     {catDraft.matched > 0 && catDraft.unmatched_labels.length > 0 && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                      <p className="mt-1 font-medium text-warning">
                         {L("These get NO price (no published product matches): ",
                            "Ini TIDAK mendapat harga (tiada produk diterbitkan sepadan): ")}
                         {catDraft.unmatched_labels.slice(0, 12).join(" · ")}
@@ -1925,7 +1925,7 @@ export function ElfiaStorePanel() {
                       </p>
                     )}
                     {catDraft.truncated && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                      <p className="mt-1 font-medium text-warning">
                         {L("Over 300 labels — only the first 300 get prices.", "Melebihi 300 label — hanya 300 pertama mendapat harga.")}
                       </p>
                     )}
@@ -1974,7 +1974,7 @@ export function ElfiaStorePanel() {
           </div>
         )}
         {backdrop?.unavailable && loaded && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
             {L("The api worker is older than v1.61.0 — deploy it (PUSH.bat) before this card can save.",
                "Worker api lebih lama daripada v1.61.0 — deploy dahulu (PUSH.bat) sebelum kad ini boleh menyimpan.")}
           </p>
@@ -2056,7 +2056,7 @@ export function ElfiaStorePanel() {
         )}
 
         {deliverySaved !== null && deliverySaved.ship === "" && (
-          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+          <p className="mt-2 text-xs font-medium text-warning">
             {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
                "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
           </p>
@@ -2096,20 +2096,20 @@ export function ElfiaStorePanel() {
                   {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
                 </p>
                 <p className="text-muted-foreground">{pay.message}</p>
-                {pay.warning && <p className="font-medium text-amber-700 dark:text-amber-400">{pay.warning}</p>}
+                {pay.warning && <p className="font-medium text-warning">{pay.warning}</p>}
 
                 {/* The credential check passing is a weaker claim than "the
                     last customer could pay". This is the stronger one. */}
                 {pay.last_gateway_error && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
-                    <p className="font-semibold text-amber-900 dark:text-amber-300">
+                  <div className="rounded-lg border border-warning/30 bg-warning-soft p-2.5">
+                    <p className="font-semibold text-warning">
                       {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
                     </p>
-                    <p className="mt-1 font-mono text-[11px] break-words text-amber-900/90 dark:text-amber-200/90">
+                    <p className="mt-1 font-mono text-[11px] break-words text-warning">
                       {pay.last_gateway_error}
                     </p>
                     {pay.last_gateway_hint && (
-                      <p className="mt-1.5 text-amber-900 dark:text-amber-200">{pay.last_gateway_hint}</p>
+                      <p className="mt-1.5 text-warning">{pay.last_gateway_hint}</p>
                     )}
                   </div>
                 )}

@@ -117,13 +117,13 @@ export function Attendance({ user }: { user: User }) {
                   : ""}
               </p>
               {notIn.length > 0 && !isWeekend && (
-                <p className="mt-2 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
+                <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
                   ⚠ {L("Not clocked in:", "Belum daftar masuk:")}{" "}
                   {notIn.map((s) => firstName(s.name)).join(", ")}
                 </p>
               )}
               {stillIn.length > 0 && afterShift && (
-                <p className="mt-2 rounded-lg border border-blue-300 bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-900">
+                <p className="mt-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-xs font-semibold text-info">
                   ⏳{" "}
                   {L(
                     "Past 18:00 with no clock-out yet:",
@@ -161,11 +161,11 @@ export function Attendance({ user }: { user: User }) {
                         </span>
                         <span className="flex flex-wrap items-center justify-end gap-1">
                           {st.in_at ? (
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">
+                            <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
                               {L("In", "Masuk")} {hm(st.in_at)}
                             </span>
                           ) : (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
                               ⚠ {L("not clocked in", "belum daftar masuk")}
                             </span>
                           )}
@@ -176,7 +176,7 @@ export function Attendance({ user }: { user: User }) {
                               </span>
                             ) : (
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}`}
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ?"bg-warning-soft text-warning" :"bg-info-soft text-info"}`}
                               >
                                 {afterShift
                                   ? L(
@@ -338,7 +338,7 @@ export function Attendance({ user }: { user: User }) {
                           </td>
                           <td className="px-2 py-1.5 whitespace-nowrap">
                             {firstIn ? (
-                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                              <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
                                 {mytTime(firstIn)}
                               </span>
                             ) : (
@@ -353,11 +353,11 @@ export function Attendance({ user }: { user: User }) {
                                 {mytTime(lastOut)}
                               </span>
                             ) : firstIn ? (
-                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                              <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
                                 {L("still in", "belum keluar")}
                               </span>
                             ) : (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
                                 {L("missing", "tiada")}
                               </span>
                             )}
@@ -449,7 +449,7 @@ export function Attendance({ user }: { user: User }) {
                     </td>
                     <td className="px-2 py-1.5">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.type === "clock_in" ? "bg-green-100 text-green-800" : "bg-secondary"}`}
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.type ==="clock_in" ?"bg-success-soft text-success" :"bg-secondary"}`}
                       >
                         {r.type === "clock_in"
                           ? L("In", "Masuk")

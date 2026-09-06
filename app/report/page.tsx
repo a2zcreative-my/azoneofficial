@@ -2,8 +2,15 @@
 
 /* v1.4.273 idea 1 — the client report page. Public, read-only, reachable
    only via the token the agency shares (?t=…), same trust model as the
-   sales-document share link. Brand-toned (navy #1A2946 + gold #C9A227),
-   no login, no zero-stat sections: anything empty simply doesn't render. */
+   sales-document share link. No login, no zero-stat sections: anything
+   empty simply doesn't render.
+
+   v1.124.0 — the brand navy and gold were spelled here as literal hex; they
+   now come from the --doc-* PAPER variables (styles/globals.css, mirrored in
+   lib/doc-theme.ts). The same change gave this page an explicit white ground:
+   it had none, so a client whose phone was in dark mode got navy ink on the
+   app's dark background and could not read their own report. A report is
+   paper — it is white in every theme. */
 
 import { useEffect, useState } from "react";
 import { fmtRM, ym, dmy } from "@/lib/format";
@@ -43,26 +50,26 @@ export default function ClientReportPage() {
        (navy tile first, like the real one), footer line — so nothing jumps
        when the figures arrive. The eyebrow line is real: it never loads. */
     return (
-      <main className="mx-auto max-w-2xl px-4 py-10" aria-busy="true">
-        <header className="border-b-2 border-[#C9A227] pb-4">
-          <p className="text-xs font-semibold tracking-widest text-[#C9A227] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
+      <main className="mx-auto min-h-screen max-w-2xl bg-white px-4 py-10" aria-busy="true">
+        <header className="border-b-2 border-[var(--doc-gold)] pb-4">
+          <p className="text-xs font-semibold tracking-widest text-[var(--doc-gold)] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
           <Skel className="mt-2 h-7 w-56 max-w-full" />
           <Skel className="mt-2 h-3.5 w-48" />
         </header>
         <section className="mt-6 grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-[#1A2946] p-4">
+          <div className="rounded-xl bg-[var(--doc-navy)] p-4">
             <div className="h-2.5 w-28 rounded bg-white/20" />
             <div className="mt-2 h-9 w-16 rounded bg-white/25" />
             <div className="mt-2 h-3 w-32 rounded bg-white/15" />
           </div>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="rounded-xl border border-t-2 border-neutral-200 border-t-[#C9A227] p-4">
+            <div key={i} className="rounded-xl border border-t-2 border-[var(--doc-line)] border-t-[var(--doc-gold)] p-4">
               <Skel className="h-2.5 w-28" />
               <Skel className="mt-2 h-8 w-24" />
             </div>
           ))}
         </section>
-        <footer className="mt-8 border-t border-neutral-200 pt-4">
+        <footer className="mt-8 border-t border-[var(--doc-line)] pt-4">
           <Skel className="h-3 w-64 max-w-full" />
           <Skel className="mt-2 h-3.5 w-52 max-w-full" />
         </footer>
@@ -71,9 +78,9 @@ export default function ClientReportPage() {
   }
   if (state === "bad" || !rep) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-16 text-center">
-        <p className="text-lg font-semibold text-[#1A2946]">This report link isn&apos;t valid.</p>
-        <p className="mt-2 text-sm text-neutral-500">Please ask {DOCUMENT_ISSUER.name} for a fresh link.</p>
+      <main className="mx-auto min-h-screen max-w-2xl bg-white px-4 py-16 text-center">
+        <p className="text-lg font-semibold text-[var(--doc-navy)]">This report link isn&apos;t valid.</p>
+        <p className="mt-2 text-sm text-[var(--doc-muted)]">Please ask {DOCUMENT_ISSUER.name} for a fresh link.</p>
       </main>
     );
   }
@@ -82,15 +89,15 @@ export default function ClientReportPage() {
   const delta = rep.lives.this_month - rep.lives.last_month;
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <header className="border-b-2 border-[#C9A227] pb-4">
-        <p className="text-xs font-semibold tracking-widest text-[#C9A227] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
-        <h1 className="mt-1 text-2xl font-bold text-[#1A2946]">{rep.company}</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">Monthly performance — {ym(rep.month)}</p>
+    <main className="mx-auto min-h-screen max-w-2xl bg-white px-4 py-10">
+      <header className="border-b-2 border-[var(--doc-gold)] pb-4">
+        <p className="text-xs font-semibold tracking-widest text-[var(--doc-gold)] uppercase">{DOCUMENT_ISSUER.name} · Creative & Live Commerce</p>
+        <h1 className="mt-1 text-2xl font-bold text-[var(--doc-navy)]">{rep.company}</h1>
+        <p className="mt-0.5 text-sm text-[var(--doc-muted)]">Monthly performance — {ym(rep.month)}</p>
       </header>
 
       <section className="mt-6 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-[#1A2946] p-4 text-white">
+        <div className="rounded-xl bg-[var(--doc-navy)] p-4 text-white">
           <p className="text-[10px] font-semibold tracking-wider uppercase opacity-70">Live sessions this month</p>
           <p className="mt-1 text-3xl font-bold tabular-nums">{rep.lives.this_month}</p>
           {rep.lives.last_month > 0 && (
@@ -100,31 +107,31 @@ export default function ClientReportPage() {
           )}
         </div>
         {rep.invoiced_paid_cents > 0 && (
-          <div className="rounded-xl border border-t-2 border-neutral-200 border-t-[#C9A227] p-4">
-            <p className="text-[10px] font-semibold tracking-wider text-neutral-500 uppercase">Settled with us this month</p>
-            <p className="mt-1 text-2xl font-bold text-[#1A2946] tabular-nums">{fmtRM(rep.invoiced_paid_cents)}</p>
+          <div className="rounded-xl border border-t-2 border-[var(--doc-line)] border-t-[var(--doc-gold)] p-4">
+            <p className="text-[10px] font-semibold tracking-wider text-[var(--doc-muted)] uppercase">Settled with us this month</p>
+            <p className="mt-1 text-2xl font-bold text-[var(--doc-navy)] tabular-nums">{fmtRM(rep.invoiced_paid_cents)}</p>
           </div>
         )}
         {hours && (
-          <div className="rounded-xl border border-t-2 border-neutral-200 border-t-[#C9A227] p-4">
-            <p className="text-[10px] font-semibold tracking-wider text-neutral-500 uppercase">Hours live</p>
-            <p className="mt-1 text-2xl font-bold text-[#1A2946] tabular-nums">{hours}</p>
+          <div className="rounded-xl border border-t-2 border-[var(--doc-line)] border-t-[var(--doc-gold)] p-4">
+            <p className="text-[10px] font-semibold tracking-wider text-[var(--doc-muted)] uppercase">Hours live</p>
+            <p className="mt-1 text-2xl font-bold text-[var(--doc-navy)] tabular-nums">{hours}</p>
           </div>
         )}
         {rep.top_hours.length > 0 && (
-          <div className="rounded-xl border border-t-2 border-neutral-200 border-t-[#C9A227] p-4">
-            <p className="text-[10px] font-semibold tracking-wider text-neutral-500 uppercase">Your best live hours</p>
-            <p className="mt-1 text-lg font-semibold text-[#1A2946]">
+          <div className="rounded-xl border border-t-2 border-[var(--doc-line)] border-t-[var(--doc-gold)] p-4">
+            <p className="text-[10px] font-semibold tracking-wider text-[var(--doc-muted)] uppercase">Your best live hours</p>
+            <p className="mt-1 text-lg font-semibold text-[var(--doc-navy)]">
               {rep.top_hours.map((h) => `${h.hour}:00`).join(" · ")}
             </p>
-            <p className="mt-0.5 text-xs text-neutral-500">last 60 days, by sessions run</p>
+            <p className="mt-0.5 text-xs text-[var(--doc-muted)]">last 60 days, by sessions run</p>
           </div>
         )}
       </section>
 
-      <footer className="mt-8 border-t border-neutral-200 pt-4 text-xs text-neutral-500">
+      <footer className="mt-8 border-t border-[var(--doc-line)] pt-4 text-xs text-[var(--doc-muted)]">
         <p>Prepared by {DOCUMENT_ISSUER.name} · generated {dmy(rep.generated)}</p>
-        <a className="mt-1 inline-block font-semibold text-[#1A2946] underline" href={`https://wa.me/${DOCUMENT_ISSUER.whatsapp.replace(/\D/g, "")}`}>
+        <a className="mt-1 inline-block font-semibold text-[var(--doc-navy)] underline" href={`https://wa.me/${DOCUMENT_ISSUER.whatsapp.replace(/\D/g, "")}`}>
           WhatsApp us to plan next month&apos;s lives →
         </a>
       </footer>

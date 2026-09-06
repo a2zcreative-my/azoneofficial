@@ -53,6 +53,10 @@ import { getLang } from "@/lib/i18n";
    own - one fetch, one set of permissions, and pressing a box opens the same
    record card that is already below. */
 import { OrgChart, ORG_ASSIGN_ROLES } from "@/components/staff/org-chart";
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -186,11 +190,11 @@ const BADGE_CSS = `
        big white block above the footer — logo sits lower, photo/name/rows
        breathe more; the footer stays pinned by margin-top:auto. */
     .card{width:54mm;height:85.6mm;box-sizing:border-box;padding:4.4mm 4mm 3mm;
-      font-family:Arial,Helvetica,sans-serif;color:#1a2946;
-      background:#fff;overflow:hidden;border:0.3mm solid #1a2946;
+      font-family:Arial,Helvetica,sans-serif;color:${DOC.navy};
+      background:#fff;overflow:hidden;border:0.3mm solid ${DOC.navy};
       display:flex;flex-direction:column;align-items:stretch}
     .photo{width:20mm;height:24mm;margin:3.2mm auto 0;border:0.2mm solid #dfe3ec;
-      background:#f4f6fb;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
+      background:${DOC.page};display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
     .photo img{width:100%;height:100%;object-fit:cover}
     .tagline{margin-top:1.4mm;text-align:center;font-size:4.4px;font-weight:700;
       letter-spacing:.3em;color:#b98a2e;text-transform:uppercase;flex:none}
@@ -201,7 +205,7 @@ const BADGE_CSS = `
     .row .v{flex:1;font-size:7.2px;font-weight:600;line-height:1.25}
     .foot{margin-top:auto;padding-top:1mm;border-top:0.2mm solid #dfe3ec;
       display:flex;justify-content:space-between;align-items:flex-end;gap:2mm;
-      font-size:4.8px;line-height:1.35;color:#8a93a6}
+      font-size:4.8px;line-height:1.35;color:${DOC.muted}}
     .foot .left{text-align:left}
     .foot .right{text-align:right}
 `;
@@ -219,7 +223,7 @@ function badgeCardHtml(s: Staff, origin: string): string {
   return `<div class="card">
     <img src="${safeUrl(logo)}" alt="${esc(DOCUMENT_ISSUER.name)}" style="height:7mm;width:auto;align-self:center;flex:none"/>
     <div class="tagline">Live · Connect · Grow</div>
-    <div class="photo">${photo ? `<img src="${safeUrl(photo)}" alt="${esc(d.name)}"/>` : `<span style="font-size:6px;color:#8a93a6">PHOTO</span>`}</div>
+    <div class="photo">${photo ? `<img src="${safeUrl(photo)}" alt="${esc(d.name)}"/>` : `<span style="font-size:6px;color:${DOC.muted}">PHOTO</span>`}</div>
     <div class="rows">
       ${row("NAME", d.name.toUpperCase())}
       ${row("EMP. NO", d.employee_id)}
@@ -856,7 +860,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             </label>
           </Sub>
         </div>
-        {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ? "text-green-700" : "text-destructive"}`}>{createMsg.text}</p>}
+        {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ?"text-success" :"text-destructive"}`}>{createMsg.text}</p>}
         {existing && (
           <button
             type="button"
@@ -1011,7 +1015,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
       </div>
 
       {loadError && (
-        <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900">⚠ {loadError}</p>
+        <p className="rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">⚠ {loadError}</p>
       )}
       {/* v1.77.0 — skeleton until the first fetch lands: five collapsed
           record cards (checkbox · name · role, chevron on the right), the
@@ -1218,7 +1222,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                 {selectMode && (
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-[#1a2946]"
+                  className="h-4 w-4 accent-primary"
                   checked={selected.has(u.id)}
                   onChange={() => toggleSelect(u.id)}
                   title={L("Select for multi-badge printing", "Pilih untuk cetakan berbilang lencana")}
@@ -1242,7 +1246,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                   {displayName(u)}
                 </RecordToggle>
                 {!u.full_name?.trim() && (
-                  <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                  <span className="ml-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning"
                     title={L(
                       "No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account",
                       "Tiada nama penuh dalam rekod — slip gaji, borang tuntutan, borang cuti, lencana ID dan fail gaji Maybank2E semuanya kembali kepada nama pendek, dan bank boleh menolak pindahan yang namanya tidak sepadan dengan akaun",
@@ -1251,12 +1255,12 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                   </span>
                 )}
                 {["resigned", "terminated"].includes(u.employment_status ?? "") && (
-                  <span className="ml-1.5 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 capitalize">
+                  <span className="ml-1.5 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger capitalize">
                     {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
                   </span>
                 )}
                 {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
-                  <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                  <span className="ml-1.5 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
                     {L("re-joined", "kembali bekerja")} {dmy(u.rejoined_on)}
                   </span>
                 )}
@@ -1285,7 +1289,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                   right edge of the phone screen (Hide details clipped).
                   flex-wrap + justify-end = v1.4.154 phone standard. */}
               <span className="flex flex-wrap items-center justify-end gap-2">
-                {saved === u.id && <span className="text-xs font-medium text-green-700">{L("Saved ✓", "Disimpan ✓")}</span>}
+                {saved === u.id && <span className="text-xs font-medium text-success">{L("Saved ✓","Disimpan ✓")}</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
                 {open.has(u.id) && !readOnly && (
                   <button

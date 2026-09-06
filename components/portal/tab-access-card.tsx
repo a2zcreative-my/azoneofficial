@@ -137,7 +137,7 @@ export function TabAccessCard() {
                     {audience}
                   </span>
                   {overridden && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                    <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning"
                       title={L("Changed from the built-in default", "Diubah daripada tetapan lalai terbina")}>
                       {L("custom", "tersuai")}
                     </span>
@@ -151,7 +151,7 @@ export function TabAccessCard() {
               {isOpen && (
                 <div className="mt-2">
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded-full border border-green-700 px-2 py-0.5 text-[11px] font-semibold text-green-700" title={L("Always on — the safety net", "Sentiasa aktif — jaring keselamatan")}>✓ super admin 🔒</span>
+                    <span className="rounded-full border border-success/30 px-2 py-0.5 text-[11px] font-semibold text-success" title={L("Always on — the safety net","Sentiasa aktif — jaring keselamatan")}>✓ super admin 🔒</span>
                     {ASSIGNABLE_ROLES.map(([r, labelR]) => {
                       const on = draft.includes(r);
                       return (
@@ -179,7 +179,7 @@ export function TabAccessCard() {
           );
         })}
       </div>
-      {msg && <p className="mt-2 text-xs font-medium text-green-700">{msg}</p>}
+      {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
       {toastNode}
     </div>
   );

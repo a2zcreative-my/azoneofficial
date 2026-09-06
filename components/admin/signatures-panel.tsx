@@ -90,8 +90,8 @@ export function SignaturesPanel() {
             ) : (
               <>
                 {status[r.file]
-                  ? <span className="text-green-700 dark:text-green-400">{L("In the vault", "Dalam bilik kebal")}</span>
-                  : <span className="font-medium text-amber-700 dark:text-amber-400">{L("Missing — documents print a blank zone", "Tiada — dokumen mencetak ruang kosong")}</span>}
+                  ? <span className="text-success">{L("In the vault","Dalam bilik kebal")}</span>
+                  : <span className="font-medium text-warning">{L("Missing — documents print a blank zone","Tiada — dokumen mencetak ruang kosong")}</span>}
                 <label className="cursor-pointer rounded border border-border px-2 py-0.5 text-xs hover:bg-secondary">
                   {busy === r.file ? L("Uploading…", "Memuat naik…") : status[r.file] ? L("Replace", "Ganti") : L("Upload PNG", "Muat naik PNG")}
                   <input type="file" accept="image/png" className="hidden" disabled={busy !== null}

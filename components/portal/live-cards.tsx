@@ -535,7 +535,7 @@ export function LiveScheduleCard({
                 </select>
               ) : (
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sn.status === "cancelled" ? "bg-red-100 text-red-900" : sn.status === "completed" ? "bg-secondary" : "bg-green-100 text-green-900"}`}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sn.status ==="cancelled" ?"bg-danger-soft text-danger" : sn.status ==="completed" ?"bg-secondary" :"bg-success-soft text-success"}`}
                 >
                   {sessStatusL(sn.status)}
                 </span>

@@ -140,6 +140,12 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  /* v1.124.0 — the BUILD-TIME value, and it must stay a literal: the viewport
+     export is serialised at build, long before any stylesheet is applied. It
+     is the light value of --browser-theme-color (styles/globals.css); once the
+     portal is running, lib/theme-color.ts rewrites this tag from that variable
+     whenever the theme changes. tests/theme-color.mjs asserts the two agree,
+     so the tag a first paint shows is never the wrong theme's colour. */
   themeColor: "#1a2946",
 };
 

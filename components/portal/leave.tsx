@@ -23,6 +23,10 @@ import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
 import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 
 /* ================= Leave ================= */
 
@@ -165,28 +169,28 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
   <style>
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
            display: flex; flex-direction: column; min-height: 274mm; }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
-    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: ${DOC.gold}; font-weight: 700; margin-top: 2px; }
     h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
-    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 7px; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; margin-bottom: 7px; }
     table { width: 100%; border-collapse: collapse; }
-    .meta td { border: 1px solid #1a2946; padding: 4px 8px; }
+    .meta td { border: 1px solid ${DOC.navy}; padding: 4px 8px; }
     .meta .k { background: #f2f4f8; font-weight: 700; width: 18%; }
     .meta .v { width: 32%; }
-    .status { margin: 10px 0 6px; font-weight: 700; color: ${stage === "approved" ? "#166534" : stage === "rejected" ? "#b00020" : "#1a2946"}; }
+    .status { margin: 10px 0 6px; font-weight: 700; color: ${stage === "approved" ? "#166534" : stage === "rejected" ? "#b00020" : "${DOC.navy}"}; }
     .chain { margin: 0 0 8px; font-size: 10px; color: #555; }
-    .sig th { border: 1px solid #1a2946; background: #f2f4f8; padding: 5px 8px; text-align: left; }
-    .sig td.body { border: 1px solid #1a2946; padding: 6px 8px; height: 108px; vertical-align: top; }
+    .sig th { border: 1px solid ${DOC.navy}; background: #f2f4f8; padding: 5px 8px; text-align: left; }
+    .sig td.body { border: 1px solid ${DOC.navy}; padding: 6px 8px; height: 108px; vertical-align: top; }
     .cw { display: flex; flex-direction: column; height: 100%; }
     .nm { min-height: 26px; }
     .sg { height: 52px; }
     .dt { margin-top: auto; }
     .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
-    .esub { display: block; font-size: 8px; color: #8a93a6; }
+    .esub { display: block; font-size: 8px; color: ${DOC.muted}; }
     .sigimg { height: 46px; max-width: 150px; object-fit: contain; object-position: left center; display: block; margin-top: 1px; }
-    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; }
+    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: ${DOC.muted}; text-align: center; }
     @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body>
   <div class="goldbar"></div>

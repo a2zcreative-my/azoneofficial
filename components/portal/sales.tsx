@@ -24,6 +24,10 @@ import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -104,26 +108,26 @@ export function printSOA(company: string, docs: SalesDoc[]) {
   <title>SOA — ${esc(company)}</title>
   <style>
     @page { size: A4; margin: 0; } * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* v1.4.239 */
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
-    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; }
-    .hd { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 10px; border-bottom: 2.5px solid #1a2946; flex-wrap: wrap; }
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; }
+    .hd { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 10px; border-bottom: 2.5px solid ${DOC.navy}; flex-wrap: wrap; }
     .brand { font-size: 19px; font-weight: 800; }
-    .brand small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
-    .brand .addr { font-size: 9.5px; color: #5b6472; font-weight: 400; margin-top: 6px; line-height: 1.5; }
+    .brand small { display: block; font-size: 8px; letter-spacing: .32em; color: ${DOC.gold}; font-weight: 700; margin-top: 2px; }
+    .brand .addr { font-size: 9.5px; color: ${DOC.inkSoft}; font-weight: 400; margin-top: 6px; line-height: 1.5; }
     .docbox { text-align: right; } .docbox h2 { margin: 0 0 4px; font-size: 19px; letter-spacing: .1em; }
-    .party { margin-top: 12px; background: #f6f7fa; border-left: 3px solid #C9A227; border-radius: 6px; padding: 10px 12px; max-width: 340px; }
-    .party .bt { margin: 0 0 4px; font-size: 9px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; }
+    .party { margin-top: 12px; background: ${DOC.tint}; border-left: 3px solid ${DOC.gold}; border-radius: 6px; padding: 10px 12px; max-width: 340px; }
+    .party .bt { margin: 0 0 4px; font-size: 9px; letter-spacing: .18em; color: ${DOC.muted}; font-weight: 700; }
     .party .co { font-weight: 800; font-size: 13px; }
     table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
-    .items th { background: #1a2946; color: #fff; padding: 7px 9px; text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
+    .items th { background: ${DOC.navy}; color: #fff; padding: 7px 9px; text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; }
     .items th.c, .items td.c { text-align: center; } .items th.r, .items td.r { text-align: right; }
-    .items td { padding: 7px 9px; border-bottom: 1px solid #e8ebf1; }
+    .items td { padding: 7px 9px; border-bottom: 1px solid ${DOC.line}; }
     .items tr:nth-child(even) td { background: #fafbfd; }
     .totwrap { display: flex; justify-content: flex-end; margin-top: 10px; }
     .tot { width: 300px; border-collapse: collapse; } .tot td { padding: 4px 10px; } .tot td:last-child { text-align: right; }
-    .tot tr.grand td { background: #1a2946; color: #fff; font-weight: 800; padding: 8px 10px; }
+    .tot tr.grand td { background: ${DOC.navy}; color: #fff; font-weight: 800; padding: 8px 10px; }
     .pay { margin-top: auto; padding-top: 20px; font-size: 11px; }
-    .foot { margin-top: 14px; font-size: 8.5px; color: #8a93a6; border-top: 1px solid #e8ebf1; padding-top: 8px; text-align: center; }
+    .foot { margin-top: 14px; font-size: 8.5px; color: ${DOC.muted}; border-top: 1px solid ${DOC.line}; padding-top: 8px; text-align: center; }
     @media print { body { padding: 14mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body onload="window.print()">
   <div class="goldbar"></div>
@@ -679,7 +683,7 @@ export function SalesHistoryCard({ bare }: { bare?: boolean } = {}) {
                   </td>
                   <td className={tdR2}>{fmtRM(m.cents)}</td>
                   <td
-                    className={`${tdR2} ${delta == null ? "text-muted-foreground" : delta >= 0 ? "text-green-700" : "text-red-600"}`}
+                    className={`${tdR2} ${delta == null ?"text-muted-foreground" : delta >= 0 ?"text-success" :"text-danger"}`}
                   >
                     {delta == null
                       ? "—"
@@ -802,7 +806,7 @@ export function PnlCard({ inModal }: { inModal?: boolean } = {}) {
               {m.claims_cents ? fmtRM(m.claims_cents) : "—"}
             </td>
             <td
-              className={`${tdR2} font-semibold ${m.net_cents >= 0 ? "text-green-700" : "text-red-600"}`}
+              className={`${tdR2} font-semibold ${m.net_cents >= 0 ?"text-success" :"text-danger"}`}
             >
               {fmtRM(m.net_cents)}
             </td>
@@ -908,7 +912,7 @@ export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boole
                 {rm2(c.invoiced_cents)} {L("invoiced", "diinvois")}
               </span>
               <span
-                className="font-medium text-green-700"
+                className="font-medium text-success"
                 title={L(
                   "Collected (paid invoices)",
                   "Dikutip (invois dibayar)"
@@ -1978,7 +1982,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                      className="inline-flex h-7 items-center rounded-lg border border-danger/30 px-2.5 text-xs text-danger hover:bg-danger-soft"
                       onClick={async () => {
                         if (
                           !(await askConfirm({
@@ -2710,7 +2714,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                   />
                 </label>
                 {doc.discount_cents > subtotal && (
-                  <p className="text-[11px] leading-snug font-semibold text-amber-700">
+                  <p className="text-[11px] leading-snug font-semibold text-warning">
                     {L(`More than the items come to (${fmtRM(subtotal)}) — the total would print as RM 0.00`,
                        `Lebih daripada jumlah barang (${fmtRM(subtotal)}) — jumlah akan dicetak sebagai RM 0.00`)}
                   </p>
@@ -2838,12 +2842,12 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
           );
         const bucket = (n: number) =>
           n <= 30
-            ? [L("1–30 days", "1–30 hari"), "bg-amber-100 text-amber-800"]
+            ? [L("1–30 days","1–30 hari"),"bg-warning-soft text-warning"]
             : n <= 60
-              ? [L("31–60 days", "31–60 hari"), "bg-orange-100 text-orange-800"]
+              ? [L("31–60 days","31–60 hari"),"bg-warning-soft text-warning"]
               : n <= 90
-                ? [L("61–90 days", "61–90 hari"), "bg-red-100 text-red-700"]
-                : [L("90+ days", "90+ hari"), "bg-red-200 text-red-800"];
+                ? [L("61–90 days","61–90 hari"),"bg-danger-soft text-danger"]
+                : [L("90+ days","90+ hari"),"bg-danger-soft text-danger"];
         return (
           <div className={card}>
             <p className="text-sm font-semibold">
@@ -2940,7 +2944,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
           </button>
         </div>
         {docsError && (
-          <p className="mt-2 text-sm font-medium text-amber-700">{docsError}</p>
+          <p className="mt-2 text-sm font-medium text-warning">{docsError}</p>
         )}
         {/* v1.77.0 — skeleton until the first fetch lands. */}
         {!loaded && <SkelRows rows={5} className="max-h-96" />}
@@ -3086,7 +3090,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                     canInvoice && (
                       <button
                         type="button"
-                        className="inline-flex h-7 items-center rounded-lg border border-amber-700 px-2.5 text-xs font-medium text-amber-800"
+                        className="inline-flex h-7 items-center rounded-lg border border-warning/30 px-2.5 text-xs font-medium text-warning"
                         title={L(
                           "Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched",
                           "Batalkan klik Sebut harga → Invois: memadam invois belum dibayar ini; sebut harga tidak disentuh"
@@ -3140,7 +3144,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                   {d.doc_type === "QT" && canInvoice && (
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg bg-[#1A2946] px-2.5 text-xs font-medium text-white"
+                      className="inline-flex h-7 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white"
                       title={L(
                         "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
                         "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
@@ -3273,7 +3277,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                   {canInvoice && (
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                      className="inline-flex h-7 items-center rounded-lg border border-danger/30 px-2.5 text-xs text-danger hover:bg-danger-soft"
                       onClick={async () => {
                         if (
                           !(await askConfirm({
@@ -3346,7 +3350,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                           ""
                         ) : d.payment_status === "paid" ? (
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-green-700">
+                            <span className="inline-flex items-center rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-success">
                               {L(
                                 "PAID · bank transfer",
                                 "DIBAYAR · pindahan bank"
@@ -3411,7 +3415,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                             )}
                           </span>
                         ) : (
-                          <span className="text-amber-700">
+                          <span className="text-warning">
                             {payStatusL(d.payment_status ?? "unpaid")}
                           </span>
                         ),

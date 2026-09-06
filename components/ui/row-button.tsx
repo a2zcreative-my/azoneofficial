@@ -25,7 +25,7 @@ export const rowBtn =
 /** Destructive — Delete, Remove. Bordered, never filled: a red block on every
     row reads as an alarm, and most rows have one. */
 export const rowBtnDanger =
-  "inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs whitespace-nowrap text-red-600 hover:bg-red-50";
+  "inline-flex h-7 items-center rounded-lg border border-danger/30 px-2.5 text-xs whitespace-nowrap text-danger hover:bg-danger-soft";
 
 /** The one action a row is FOR — → Invoice, Mark paid, Approve. At most one
     per row; two filled buttons and neither reads as the main one. */
@@ -34,7 +34,7 @@ export const rowBtnPrimary =
 
 /** Positive but not primary — Mark paid on an expense, Credit a return. */
 export const rowBtnGood =
-  "inline-flex h-7 items-center rounded-lg border border-green-700 px-2.5 text-xs font-medium whitespace-nowrap text-green-700 hover:bg-green-50";
+  "inline-flex h-7 items-center rounded-lg border border-success/30 px-2.5 text-xs font-medium whitespace-nowrap text-success hover:bg-success-soft";
 
 /* NOT for inline form controls. A "Cancel" beside a Save, a "+ Add line"
    inside a form, a "Refresh" in a card header — those are text links on

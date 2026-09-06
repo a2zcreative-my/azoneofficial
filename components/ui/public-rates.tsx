@@ -60,12 +60,12 @@ export function PublicRates({ whatsapp }: { whatsapp: string }) {
       </p>
       <div className={`grid gap-4 ${tiers.length >= 3 ? "md:grid-cols-3" : tiers.length === 2 ? "md:grid-cols-2" : ""}`}>
         {tiers.map((t, i) => (
-          <div key={i} className={`border-border flex flex-col rounded-2xl border p-5 ${i === 1 && tiers.length >= 3 ? "border-[#C9A227] shadow-md" : ""}`}>
+          <div key={i} className={`border-border flex flex-col rounded-2xl border p-5 ${i === 1 && tiers.length >= 3 ? "border-[var(--gold-solid)] shadow-md" : ""}`}>
             <p className="text-sm font-bold tracking-wide uppercase">{t.name}</p>
             {t.price_label && <p className="mt-1 text-xl font-bold">{t.price_label}</p>}
             {t.points.length > 0 && (
               <ul className="text-muted-foreground mt-3 space-y-1.5 text-sm">
-                {t.points.map((p, j) => <li key={j} className="flex gap-2"><span className="text-[#C9A227]">✓</span>{p}</li>)}
+                {t.points.map((p, j) => <li key={j} className="flex gap-2"><span className="text-[var(--gold-solid)]">✓</span>{p}</li>)}
               </ul>
             )}
             {/* CTA pinned with flex margin-top:auto — never absolute */}

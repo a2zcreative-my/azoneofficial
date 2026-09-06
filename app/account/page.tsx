@@ -545,7 +545,7 @@ export default function AccountPage() {
               <p>{e.message}</p>
               {/* v1.4.191: the team's reply, right here in the thread */}
               {e.reply && (
-                <p className="mt-1.5 rounded border border-green-300 bg-green-100 px-2.5 py-1.5 text-sm text-green-900">
+                <p className="mt-1.5 rounded border border-success/30 bg-success-soft px-2.5 py-1.5 text-sm text-success">
                   <span className="font-semibold">{L("A2Z CREATIVE MARKETING replied", "A2Z CREATIVE MARKETING membalas")}{e.replied_at ? ` (${dmy(e.replied_at)})` : ""}:</span> {e.reply}
                 </p>
               )}

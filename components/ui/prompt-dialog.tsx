@@ -120,7 +120,7 @@ export function usePrompt() {
             onClick={() => close(null)}>{opts.cancelLabel ?? L("Cancel", "Batal")}</button>
           <button type="button"
             className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white disabled:opacity-40 ${
-              opts.variant === "danger" ? "bg-red-700 hover:bg-red-800" : "bg-primary hover:opacity-90"
+              opts.variant === "danger" ? "bg-destructive hover:opacity-90" : "bg-primary hover:opacity-90"
             }`}
             disabled={incomplete} onClick={submit}>
             {opts.confirmLabel ?? L("Save", "Simpan")}

@@ -10,7 +10,10 @@
 import { useCallback, useRef, useState } from "react";
 
 export function SaveToast({ title, sub = "", variant = "success" }: { title: string; sub?: string; variant?: "success" | "notice" }) {
-  const colour = variant === "success" ? "#1a2946" : "#d97706";
+  /* v1.124.0 — was a hard-coded navy/amber pair. The ring is app UI, not
+     paper, so it follows the theme: --primary flips light on dark cards,
+     --warning is the audited amber that stays separable from danger. */
+  const colour = variant === "success" ? "var(--primary)" : "var(--warning)";
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
       <style>{`

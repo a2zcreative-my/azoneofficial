@@ -83,9 +83,9 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
 /** Urgency tint for a list/table row: red = act now, amber = watch.
     Apply to the row's first cell (border on <tr> is unreliable). */
 export const accentCellDanger = "border-l-4 border-l-red-400";
-export const accentRowDanger = "bg-red-50/60";
+export const accentRowDanger ="bg-danger-soft";
 export const accentCellWarn = "border-l-4 border-l-amber-400";
-export const accentRowWarn = "bg-amber-50/60";
+export const accentRowWarn ="bg-warning-soft";
 
 /** "in 3d" / "today" / "5d overdue" — the how-worried-to-be chip that sits
     next to a date. Dates say WHEN; this says whether to act. */

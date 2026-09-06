@@ -13,6 +13,12 @@
  *
  * The token is read from window.location rather than useSearchParams so the
  * page stays a plain static export (no CSR bailout, no Suspense wrapper).
+ *
+ * v1.124.0 — the page's colours come from the --doc-* PAPER variables
+ * (styles/globals.css, mirrored as literal hex in lib/doc-theme.ts for the
+ * print builders). They are fixed in every theme on purpose: the customer
+ * saves this as a PDF, and a PDF that followed their phone's dark mode
+ * would not be the document we sent.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -89,20 +95,20 @@ export default function PublicDocPage() {
   }, [label]);
 
   return (
-    <main className="min-h-screen bg-[#f4f6fb] pb-10">
-      <header className="sticky top-0 z-10 border-b border-[#e8ebf1] bg-white/95 backdrop-blur">
+    <main className="min-h-screen bg-[var(--doc-page)] pb-10">
+      <header className="sticky top-0 z-10 border-b border-[var(--doc-line)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[850px] flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-extrabold text-[#1a2946]">{brand}</p>
-            <p className="truncate text-xs text-[#8a93a6]">{label}</p>
+            <p className="truncate text-sm font-extrabold text-[var(--doc-navy)]">{brand}</p>
+            <p className="truncate text-xs text-[var(--doc-muted)]">{label}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={savePdf} disabled={state !== "ready"}
-              className="inline-flex h-9 items-center rounded-lg bg-[#1a2946] px-4 text-sm font-medium text-white disabled:opacity-40">
+              className="inline-flex h-9 items-center rounded-lg bg-[var(--doc-navy)] px-4 text-sm font-medium text-white disabled:opacity-40">
               Save as PDF
             </button>
             <button type="button" onClick={share} disabled={state !== "ready"}
-              className="inline-flex h-9 items-center rounded-lg border border-[#1a2946] px-4 text-sm font-medium text-[#1a2946] disabled:opacity-40">
+              className="inline-flex h-9 items-center rounded-lg border border-[var(--doc-navy)] px-4 text-sm font-medium text-[var(--doc-navy)] disabled:opacity-40">
               Share
             </button>
           </div>
@@ -115,11 +121,11 @@ export default function PublicDocPage() {
             own shape — letterhead, addressee block, line-item table, totals —
             at the EXACT size the iframe below will take (ref={box} here too,
             so `scale` is already right when the page swaps in). Same white
-            card, same #e8ebf1 border family as the rest of this page. */}
+            card, same --doc-line border family as the rest of this page. */}
         {state === "loading" && (
           <div ref={box} className="overflow-hidden" aria-busy="true">
             <div
-              className="rounded-xl border border-[#e8ebf1] bg-white p-6 shadow-sm sm:p-10"
+              className="rounded-xl border border-[var(--doc-line)] bg-white p-6 shadow-sm sm:p-10"
               style={{ width: PAGE_W * scale, height: PAGE_H * scale }}
             >
               <div className="flex items-start justify-between gap-4">
@@ -156,9 +162,9 @@ export default function PublicDocPage() {
           </div>
         )}
         {state === "gone" && (
-          <div className="rounded-2xl border border-[#e8ebf1] bg-white p-8 text-center">
-            <p className="text-base font-semibold text-[#1a2946]">This link is no longer valid</p>
-            <p className="mt-2 text-sm text-[#5b6472]">
+          <div className="rounded-2xl border border-[var(--doc-line)] bg-white p-8 text-center">
+            <p className="text-base font-semibold text-[var(--doc-navy)]">This link is no longer valid</p>
+            <p className="mt-2 text-sm text-[var(--doc-ink-soft)]">
               Please ask {DOCUMENT_ISSUER.name} for a new one — WhatsApp{" "}
               <a className="underline" href={`https://wa.me/${DOCUMENT_ISSUER.whatsapp.replace(/\D/g, "")}`}>{DOCUMENT_ISSUER.whatsapp}</a>.
             </p>
@@ -180,7 +186,7 @@ export default function PublicDocPage() {
           </div>
         )}
         {state === "ready" && (
-          <p className="mt-4 text-center text-xs text-[#8a93a6]">
+          <p className="mt-4 text-center text-xs text-[var(--doc-muted)]">
             Tap <strong>Save as PDF</strong> and choose “Save to Files” (iPhone) or “Save as PDF” (Android) to keep a copy.
           </p>
         )}

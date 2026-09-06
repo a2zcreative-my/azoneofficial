@@ -58,6 +58,21 @@
   --danger-soft: #fee2e2;
   --info: #0369a1;
   --info-soft: #e0f2fe;
+  /* v1.124.0 — two states that had no token and so stayed raw Tailwind while
+     their siblings moved. Both were light-mode only: on a dark card the roster
+     showed a pale lilac block and the calendar a near-white pink chip.
+
+     --plan     the roster's ordinary task block — the fourth state in a chain
+                whose other three (done / hard block / soft block) were already
+                success / danger / warning. Unlike the families above this is a
+                BORDER+FILL pair, not an INK+FILL pair: it is never text, so
+                the dark value stays deep rather than flipping light.
+     --celebrate  birthdays on the calendar, beside the public-holiday chip
+                that already used danger. */
+  --plan: #c4b5fd;
+  --plan-soft: #ede9fe;
+  --celebrate: #be185d;
+  --celebrate-soft: #fdf2f8;
   /* v1.5.0 — ONE gold. The token said #c8a96a while StatCard, the KPI bar
      and every PDF template shipped #C9A227 — two different golds side by
      side. --gold-solid is the saturated gold for fills/bars; --brand-accent
@@ -104,6 +119,40 @@
   --tile-danger: #b91c1c;  --tile-danger-fg: #ffffff;  /*  6.47:1 */
   --tile-info: #0369a1;    --tile-info-fg: #ffffff;    /*  5.93:1 */
   --tile-muted: #4b5666;   --tile-muted-fg: #ffffff;   /*  7.44:1 */
+
+  /* ============ v1.124.0 — the PAPER palette =============================
+     Everything above this line follows the viewer's theme. These do not, and
+     that is the point: /doc and /report render a DOCUMENT — an invoice, a
+     delivery order, a client report — that a customer opens on a phone we do
+     not control and saves as a PDF. Paper is white with navy ink in every
+     theme, or the file they keep is not the file we sent.
+
+     So: declared here once, never redefined in the dark block below, never
+     redefined by a brand block. If you find yourself adding a --doc-* value
+     under a theme, the thing you are styling is app UI, not paper: use the
+     semantic tokens instead.
+
+     lib/doc-theme.ts holds the SAME palette as literal hex, because the print
+     builders write standalone documents that cannot see this stylesheet.
+     tests/doc-theme.mjs asserts the two agree. */
+  --doc-navy: #1a2946;
+  --doc-gold: #c9a227;
+  --doc-gold-light: #e8cb6b;
+  --doc-line: #e8ebf1;
+  --doc-tint: #f6f7fa;
+  --doc-ink-soft: #5b6472;
+  --doc-muted: #8a93a6;
+  --doc-page: #f4f6fb;
+
+  /* v1.124.0 — the colour the BROWSER paints its own chrome with (the phone's
+     status bar, the address bar, the splash band when the portal is opened
+     from the home screen). app/layout.tsx sets the static <meta name=
+     "theme-color"> from this same value; lib/theme-color.ts re-reads it and
+     rewrites the meta whenever the theme changes, because a static meta left
+     the status bar glowing brand navy above a dark app.
+     Light stays brand navy: the chrome reads as the app's header, which is
+     what the home-screen install has looked like since v1.118.0. */
+  --browser-theme-color: #1a2946;
 }
 
 @theme inline {
@@ -143,6 +192,10 @@
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
+  --color-plan: var(--plan);
+  --color-plan-soft: var(--plan-soft);
+  --color-celebrate: var(--celebrate);
+  --color-celebrate-soft: var(--celebrate-soft);
   --color-bull: var(--bull);
   --color-bear: var(--bear);
 
@@ -211,8 +264,20 @@
   --danger-soft: rgba(239, 68, 68, 0.16);
   --info: #38bdf8;
   --info-soft: rgba(14, 165, 233, 0.16);
+  /* v1.124.0 — --plan keeps a DEEP border on dark (it is a border, not ink, so
+     flipping it light would ring every task block in bright lilac);
+     --celebrate follows the ink pattern and flips light. */
+  --plan: #6d28d9;
+  --plan-soft: rgba(46, 16, 101, 0.40);
+  --celebrate: #f9a8d4;
+  --celebrate-soft: rgba(236, 72, 153, 0.16);
   --bull: #4ade80;
   --bear: #f87171;
+
+  /* v1.124.0 — dark chrome matches the dark page ground (--background above),
+     not the brand navy: navy is LIGHTER than the dark app, so the old static
+     meta drew a bright band across the top of a dark screen. */
+  --browser-theme-color: #10192b;
 
   /* v1.12.0 shell + chart steps, selected for the dark card surface #16213a
      (not an automatic flip of the light values — re-validated as a set). */
@@ -348,6 +413,24 @@ html {
   overflow-y: scroll;      /* fallback: the gutter always exists */
   scrollbar-gutter: stable; /* modern browsers: reserved cleanly  */
 }
+/* v1.124.0 — SCROLL OWNERSHIP, stated once so the next person does not have to
+   find it out by breaking it. The document scroll has exactly two owners:
+
+     1. the rule directly above — the DEFAULT. The document scrolls, and the
+        gutter is always reserved so headers do not nudge sideways.
+     2. components/layout/app-shell.tsx — the ONE exception. While the desktop
+        shell is mounted it adds `shell-locked` to <html> and, from its own
+        <style>, stops the document scrolling at md+ so the shell's inner
+        columns scroll instead. Phones keep owner 1 (the media query sees to
+        that), which is why the phone layout still scrolls normally.
+
+   The exception's CSS deliberately sits in the component rather than here: a
+   class whose CSS lives in another file is a class that stops working the day
+   that file is tidied (see the note at app-shell.tsx). So this comment is the
+   pointer, not the rule. Anything that wants to stop the page scrolling — a
+   modal, a drawer, a full-screen viewer — locks BODY, not <html>, and unlocks
+   it on unmount; a third owner of <html> overflow is a bug, and
+   tests/scroll-ownership.mjs fails the build if one appears. */
 
 /* v1.4.186 (CEO mobile audit): iOS Safari date/datetime/month/time inputs
    have an INTRINSIC minimum width and refuse to shrink inside flex/grid

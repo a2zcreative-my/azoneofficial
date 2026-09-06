@@ -86,7 +86,7 @@ export function SystemHealthCard() {
           </summary>
           <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
             {health!.migrations_all!.map((m) => (
-              <p key={m.name} className={m.applied ? "text-muted-foreground" : "font-semibold text-red-600"}>
+              <p key={m.name} className={m.applied ?"text-muted-foreground" :"font-semibold text-danger"}>
                 {m.applied ? "✓" : "✗"} {m.name}
               </p>
             ))}
@@ -97,7 +97,7 @@ export function SystemHealthCard() {
         </details>
       )}
       {(health?.migrations_pending?.length ?? 0) > 0 && (
-        <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
+        <div className="mb-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
           <p className="font-semibold">⛔ {health!.migrations_pending!.length} database migration{health!.migrations_pending!.length === 1 ? "" : "s"} pending — parts of the newest releases are switched off until they run:</p>
           <ul className="mt-1 list-disc pl-4">{health!.migrations_pending!.map((m) => <li key={m}>{m}</li>)}</ul>
           <p className="mt-1.5 font-mono">npx wrangler d1 migrations apply azoneofficial --remote</p>
@@ -113,7 +113,7 @@ export function SystemHealthCard() {
           {!loaded ? <Skel className="mt-1.5 h-3 w-72 max-w-full" /> : (
           <p className="text-muted-foreground mt-0.5 text-xs">
             {health?.last_backup
-              ? <>{L("Last backup", "Sandaran terakhir")} <span className={backupAge !== null && backupAge > 2 ? "font-semibold text-amber-700" : "font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? ` — ${L("older than 2 days, check the nightly cron", "melebihi 2 hari, semak cron malam")}` : ""}</>
+              ? <>{L("Last backup","Sandaran terakhir")} <span className={backupAge !== null && backupAge > 2 ?"font-semibold text-warning" :"font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? ` — ${L("older than 2 days, check the nightly cron","melebihi 2 hari, semak cron malam")}` :""}</>
               : L("No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now.", "Belum ada sandaran — sandaran malam berjalan pada 03:20 MYT selepas deploy seterusnya, atau jalankan satu sekarang.")}
           </p>
           )}
@@ -143,7 +143,7 @@ export function SystemHealthCard() {
         const off = health?.last_offsite ? new Date(health.last_offsite + "Z") : null;
         const days = off ? Math.floor((Date.now() - off.getTime()) / 86400000) : null;
         return (
-          <p className={`mt-1.5 text-xs ${days === null || days > 90 ? "font-semibold text-amber-700" : "text-muted-foreground"}`}>
+          <p className={`mt-1.5 text-xs ${days === null || days > 90 ?"font-semibold text-warning" :"text-muted-foreground"}`}>
             {days === null
               ? L("No off-site copy has ever been downloaded — take one now and store it outside Cloudflare (quarterly).", "Tiada salinan luar tapak pernah dimuat turun — ambil satu sekarang dan simpan di luar Cloudflare (setiap suku tahun).")
               : days > 90
@@ -152,7 +152,7 @@ export function SystemHealthCard() {
           </p>
         );
       })()}
-      {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
+      {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       <div className="mt-3">
         <p className="text-xs font-semibold tracking-wide uppercase">{L("Recent errors", "Ralat terkini")}</p>
         {!loaded ? (

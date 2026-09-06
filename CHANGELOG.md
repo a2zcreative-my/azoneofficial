@@ -2,6 +2,46 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.124.0] - 2026-09-06 - one palette per job: status in tokens, paper in the paper palette
+
+**CEO**, 06-09-2026, a five-point UI audit, ending: *"The biggest improvement would be standardizing all live UI status/callout styling through `lib/ui-styles.ts` and the CSS semantic tokens; that will remove most of the visible drift in one pass."* All five points are answered below. Nothing was deleted and no database changed.
+
+### 1 + 2. Status colours are tokens now, and they work in the dark
+v1.5.0 introduced `--success` / `--warning` / `--danger` / `--info` and counted 338 raw palette classes to convert. The conversion stopped part-way, and part-way is the worst place to stop: when two chips that mean the same thing are different greens, the difference reads as meaning. **180 raw classes across 30 files** are now tokens - `bg-success-soft text-success` and its three siblings - and every `dark:` companion class went with them, because a token already knows both themes. That is the second finding closed by the same edit: chips that were light-mode-only stopped being bright blocks on a dark card.
+
+Two states had no token at all, which is why they had stayed raw:
+
+- **`--plan`** - the roster's ordinary task block. Its three siblings in the same chain (done / hard block / soft block) were already success / danger / warning; the fourth was violet-100 with a hand-written dark variant. It is a border-and-fill pair rather than an ink-and-fill pair, so its dark value stays deep - the note in `globals.css` says why.
+- **`--celebrate`** - birthdays on the calendar, sitting beside a public-holiday chip that already used `danger`. Light mode is as it was bar a slightly deeper dot; dark mode gains a real tint instead of a near-white block.
+
+**Left raw on purpose**, each with its reason written into guard #53: the WhatsApp button's brand green (green because WhatsApp is green, not because something succeeded); the four event categories (training / class / meeting / event - none of them is good or bad, and tokenising them would have the calendar claim a meeting is a warning); five solid amber attention badges (`--warning` is an ink colour tuned to be read as text - as a solid fill under white text it is unreadable, and there is no `--tile-warning` yet. A known gap, written down rather than papered over).
+
+### 3. The brand navy had ten copies; now it has one owner
+`#1a2946` was spelled out in six files and `#1A2946` in four more, the gold nine times across two spellings. Nothing rendered wrong - every copy happened to agree - but nothing *made* them agree. **`lib/doc-theme.ts`** is now the owner, mirrored as `--doc-*` variables in `globals.css`, and `tests/doc-theme.mjs` fails if the two ever disagree.
+
+Two spellings, because there are two kinds of consumer: the print builders write a standalone document into a new window that cannot see the app stylesheet, so they need literal hex; `/doc` and `/report` render paper inside the app and can use classes. Both read the same palette.
+
+The `--doc-*` colours are deliberately **not** theme-aware, and the stylesheet says so where a future maintainer will look: a customer opens an invoice on a phone we do not control and saves it as a PDF, and a PDF that followed their dark mode would not be the document we sent.
+
+**A real bug fell out of this.** `/report` - the monthly report link sent to clients - set navy ink but never set its own background, so it inherited the app's. A client whose phone was in dark mode received navy text on a near-black page. It paints white now, in every theme, like the paper it is.
+
+### 4. The document scroll has two owners, and both of them say so
+`html { overflow-y: scroll }` in `globals.css`, and `html.shell-locked { overflow: hidden }` injected from `app-shell.tsx`. **Both stay.** app-shell's v1.88.1 note argues that a class whose CSS lives in another file stops working the day that file is tidied, and it is right; moving the rule would have traded a documentation problem for a breakage. What was missing is that neither file mentioned the other. Both now carry the ownership model in full - the default, the one exception and why it is doubly scoped (a class *and* a min-width query, so a phone is never left frozen), and where a modal belongs instead: **lock BODY, never `<html>`**. Guard #51 fails if a third owner appears.
+
+### 5. The phone's status bar follows the theme
+`<meta name="theme-color">` was pinned to brand navy. Switching the portal to dark repainted every pixel except the phone's status bar, which kept glowing navy above a dark app - the one surface a build-time tag cannot follow. `--browser-theme-color` now lives beside each theme's background in `globals.css`; `lib/theme-color.ts` reads whichever is in force and rewrites the tag when the theme changes. The build-time literal in `app/layout.tsx` stays (the viewport export is serialised before any stylesheet exists) and guard #52 pins it to the light value, so a first paint never shows the wrong theme's colour.
+
+### Under it
+`lib/doc-theme.ts` and `lib/theme-color.ts` are new. Touched: `styles/globals.css`, `app/layout.tsx`, `app/portal/page.tsx`, `app/doc/page.tsx`, `app/report/page.tsx`, `lib/doc-template.ts`, `lib/receipt-print.ts`, `components/layout/app-shell.tsx`, `components/portal/*` (30 files in the token pass, plus roster-board, events, sales, leave, role-panels, dashboard), `components/staff/staff-directory.tsx`, `components/admin/hr-admin-panel.tsx`, `components/ui/{confirm-dialog,prompt-dialog,save-toast,public-rates}.tsx`, `components/security/two-factor-panel.tsx`.
+
+Four new guards, all negative-tested: **#50 doc-theme** (the two spellings agree; no theme redefines a `--doc-*`; both paper pages paint their own ground; nobody else spells a brand colour), **#51 scroll-ownership**, **#52 theme-color**, **#53 status-tokens** (the ratchet: no new raw status colour, with the allowlist above written into the guard).
+
+Two existing guards were corrected rather than worked around. `shift-schedule` asserted the literal `text-green-700` where it meant *"a failure is not painted the colour of success"* - exactly the implementation-not-property mistake `run-guards.mjs` warns about - and now reads the branch shape instead. `doc-issuer-render` copies the template into a sandbox and needed the new module copied with it.
+
+One mistake worth recording: a bulk rename turned `bg-pink-500` into `bg-celebrate-soft0`, because `bg-pink-50` was replaced first and ate the prefix. Tailwind emits nothing for a class it does not recognise, so the birthday dots simply had no colour and **every check still passed** - it was caught by reading the compiled CSS. Guard #53 gained a check for mangled token names, because a misspelt token fails silently in a way a raw colour never does.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.123.0] - 2026-09-06 - one tab style for the whole portal; Ecommerce, Inventory and Sales tabbed
 
 **CEO**, 06-09-2026, a list per tab: tabs for revenue and by-hour on Ecommerce *"to minimalist the interface and also use globally css / style that created before"*; Stock status and the ELFIA bridge *"properly aligned … for better UI"*; Record and What moved as tabs *"like tabs inside Attendance — Staff attendance — corrections & back-entry"*; tabs on Sales for Create document / Documents / receipts, and *"Bring up Customers above The work"* with tabs for Add customer / Clients.

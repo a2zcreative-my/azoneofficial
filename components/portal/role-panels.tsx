@@ -46,6 +46,10 @@ import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { SectionTabs, ZoneLabel } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
+/* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
+   document is written into a separate window/iframe that cannot see the
+   app stylesheet, so it needs literal hex, not var(--doc-*). */
+import { DOC } from "@/lib/doc-theme";
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -108,7 +112,7 @@ function Badge({ value }: { value: string }) {
     ["late", "early_out", "out_of_stock", "closed_lost", "rejected", "returned"].includes(value)
       ? "bg-destructive/10 text-destructive"
       : ["ok", "delivered", "closed_won", "done", "in_stock", "approved"].includes(value)
-        ? "bg-green-600/10 text-green-700"
+        ?"bg-success-soft text-success"
         : "bg-secondary text-muted-foreground";
   return (
     <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>
@@ -426,7 +430,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
           </button>
         )}
       </div>
-      {ttMsg && <p className="mt-2 text-xs font-medium text-amber-700">{ttMsg}</p>}
+      {ttMsg && <p className="mt-2 text-xs font-medium text-warning">{ttMsg}</p>}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {([["all", L("All", "Semua")], ["preparing", L("New", "Baru")], ["shipped", L("Shipped", "Dihantar")], ["delivered", L("Delivered", "Sampai")]] as const).map(([v, label]) => {
           const n = v === "all" ? ttOrders.length : ttOrders.filter((o) => o.status === v).length;
@@ -845,7 +849,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </span>
             )}
             {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
-              <span className="font-medium text-amber-700 dark:text-amber-400">
+              <span className="font-medium text-warning">
                 {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
               </span>
             )}
@@ -869,13 +873,13 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             )}
           </div>
           {bridgeHealth.unknown.length > 0 && (
-            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-700 dark:bg-amber-950/40">
-              <p className="font-medium text-amber-800 dark:text-amber-300">
+            <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-sm">
+              <p className="font-medium text-warning">
                 {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
               </p>
               <ul className="mt-1 flex flex-wrap gap-2">
                 {bridgeHealth.unknown.map((u) => (
-                  <li key={u.sku} className="rounded border border-amber-300 px-1.5 py-0.5 font-mono text-xs dark:border-amber-700">
+                  <li key={u.sku} className="rounded border border-warning/30 px-1.5 py-0.5 font-mono text-xs">
                     {u.sku} ×{u.n}
                   </li>
                 ))}
@@ -1110,10 +1114,10 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   <td className={tdR2}
                     title={L("AUTO — computed from the latest TikTok firm order: list price − actual sold price. Updates itself as orders sync; not manually editable (per the CEO, v1.4.166).", "AUTO — dikira daripada pesanan TikTok muktamad terkini: harga senarai − harga jualan sebenar. Dikemas kini sendiri apabila pesanan disegerak; tidak boleh disunting secara manual (arahan CEO, v1.4.166).")}>
                     {it.live_rebate_cents
-                      ? <span className="font-medium text-amber-700 dark:text-amber-400">− {rmBare(it.live_rebate_cents)}</span>
+                      ? <span className="font-medium text-warning">− {rmBare(it.live_rebate_cents)}</span>
                       : <span className="text-muted-foreground text-xs">auto</span>}
                   </td>
-                  <td className={`${tdR2} font-medium ${it.live_rebate_cents ? "text-green-700 dark:text-green-400" : ""}`}
+                  <td className={`${tdR2} font-medium ${it.live_rebate_cents ?"text-success" :""}`}
                     title={L("Effective price during TikTok Live = price/unit − live rebate", "Harga efektif semasa TikTok Live = harga/unit − rebat live")}>
                     {(() => { const n = Math.max(0, (it.unit_price_cents ?? 0) - (it.live_rebate_cents ?? 0)); return rmBare(n); })()}
                   </td>
@@ -1261,7 +1265,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       RM {rmBare(tot.value)}
                     </td>
                     <td className={td}></td>
-                    <td className={`${tdR2} text-green-700 dark:text-green-400`}
+                    <td className={`${tdR2} text-success `}
                       title={L("Σ stock × net (live) — what clearing everything on TikTok Live would bring in after the auto rebates", "Σ stok × bersih (live) — hasil jika semuanya dijual habis di TikTok Live selepas rebat auto")}>
                       RM {rmBare(tot.net)}
                     </td>
@@ -1298,9 +1302,9 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         {retTotals && retTotals.total_cents > 0 && (
           <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
             <span className="font-semibold">{L("Returned", "Dipulangkan")} {rmR(retTotals.total_cents)}</span>
-            <span className="text-green-800">{L("Credited back", "Dikredit semula")} {rmR(retTotals.credited_cents)}</span>
-            {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-blue-800">{L("Replaced in goods", "Diganti dalam barangan")} {rmR(retTotals.replaced_cents ?? 0)}</span>}
-            <span className={retTotals.outstanding_cents > 0 ? "font-medium text-amber-700" : "text-muted-foreground"}>
+            <span className="text-success">{L("Credited back","Dikredit semula")} {rmR(retTotals.credited_cents)}</span>
+            {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-info">{L("Replaced in goods","Diganti dalam barangan")} {rmR(retTotals.replaced_cents ?? 0)}</span>}
+            <span className={retTotals.outstanding_cents > 0 ?"font-medium text-warning" :"text-muted-foreground"}>
               {L("Outstanding", "Tertunggak")} {rmR(retTotals.outstanding_cents)}
             </span>
           </div>
@@ -1376,16 +1380,16 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
                 {r.status === "credited" ? (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                  <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
                     {L("Credited", "Dikredit")} {rmR(r.credited_cents ?? r.total_cents)}
                   </span>
                 ) : r.status === "replaced" ? (
-                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                  <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
                     {L("Replaced", "Diganti")} {r.qty} pcs
                   </span>
                 ) : (
                   <>
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
                       {L("Outstanding", "Tertunggak")}{(r.replaced_qty ?? 0) > 0 ? ` (${r.replaced_qty}/${r.qty} ${L("replaced", "diganti")})` : ""}
                     </span>
                     {creditingId === r.id ? (
@@ -1764,7 +1768,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     <td className={`${td} font-medium`}>{t.name}</td>
                     <td className={tdR2}>
                       {t.today_qty > 0
-                        ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {t.today_qty}</span>
+                        ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success">🔥 {t.today_qty}</span>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className={tdR2}>{t.month_qty}</td>
@@ -1773,7 +1777,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       title={t.avg_sale_cents != null && t.unit_price_cents ? `${L("List", "Senarai")} RM ${rmBare(t.unit_price_cents)} − ${L("sold", "dijual")} RM ${rmBare(t.avg_sale_cents)} = ${L("rebate", "rebat")} RM ${rmBare(Math.max(0, (t.unit_price_cents ?? 0) - t.avg_sale_cents))}/unit` : L("No sold price captured yet — arrives with the next synced order", "Tiada harga jualan direkod lagi — tiba dengan pesanan segerak seterusnya")}>
                       {t.avg_sale_cents != null
                         ? <>RM {rmBare(t.avg_sale_cents)}{t.unit_price_cents && t.unit_price_cents > t.avg_sale_cents
-                            ? <span className="ml-1 text-xs font-medium text-amber-700 dark:text-amber-400">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
+                            ? <span className="ml-1 text-xs font-medium text-warning">(− {rmBare(t.unit_price_cents - t.avg_sale_cents)})</span>
                             : null}</>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
@@ -1802,7 +1806,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   return (
                     <tr className="border-border border-t-2 font-semibold">
                       <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
-                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-green-800">🔥 {today}</span> : "—"}</td>
+                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success">🔥 {today}</span> :"—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
                       <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
@@ -1845,13 +1849,13 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     {o.out_date ? dmy(o.out_date) : dmyMYT(o.created_at)} · {o.sku}
                   </RecordToggle>
                   {/* v1.4.251: direction is the first thing you should see */}
-                  <span className={o.direction === "in" ? "font-medium text-green-700" : ""}> · {o.direction === "in" ? "+" : "−"}{o.qty} pcs</span>
+                  <span className={o.direction ==="in" ?"font-medium text-success" :""}> · {o.direction ==="in" ?"+" :"−"}{o.qty} pcs</span>
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">{L("↩ reverted — stock restored", "↩ dikembalikan — stok dipulihkan")}</span>
+                    <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
                   ) : o.unit_sale_cents != null
-                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">{L("Sold @ RM", "Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
+                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">{L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
                     : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("correction", "pembetulan")}</span>}
                   {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
@@ -2023,7 +2027,7 @@ export function BirthdaysPanel() {
               >
                 {L("Save", "Simpan")}
               </button>
-              {saved === u.id && <span className="text-xs font-medium text-green-700">✓</span>}
+              {saved === u.id && <span className="text-xs font-medium text-success">✓</span>}
             </span>
           </li>
         ))}
@@ -2439,7 +2443,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         </div>
       </div>
       )}
-      {msg && <p className={`mt-2 text-xs font-medium ${msgBad ? "text-danger" : "text-green-700"}`}>{msg}</p>}
+      {msg && <p className={`mt-2 text-xs font-medium ${msgBad ?"text-danger" :"text-success"}`}>{msg}</p>}
 
       {/* v1.76.0 (CEO: "if they forget to clock in or clock out... The
           approval will be require CEO for approval then CEO will update the
@@ -3275,7 +3279,7 @@ async function printClaimForm(c: Claim) {
   // The window opens FIRST (inside the click) so popup blockers stay quiet.
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
-  w.document.write(`<p style="font-family:Arial;padding:20px;color:#5b6472">${L("Preparing claim form…", "Menyediakan borang tuntutan…")}</p>`);
+  w.document.write(`<p style="font-family:Arial;padding:20px;color:${DOC.inkSoft}">${L("Preparing claim form…", "Menyediakan borang tuntutan…")}</p>`);
   let receiptImg = "";
   let receiptNote = "";
   if (c.receipt_key) {
@@ -3303,24 +3307,24 @@ async function printClaimForm(c: Claim) {
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1a2946; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
            display: flex; flex-direction: column; min-height: 274mm; /* A4 297mm − 2×9mm page margin − rounding safety */ }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
-    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: #C9A227; font-weight: 700; margin-top: 2px; }
+    h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: ${DOC.gold}; font-weight: 700; margin-top: 2px; }
     h2 { text-align: center; margin: 4px 0 9px; font-size: 13px; font-weight: 600; }
-    .goldbar { height: 5px; background: linear-gradient(90deg, #C9A227, #E8CB6B, #C9A227); border-radius: 3px; margin-bottom: 7px; }
+    .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; margin-bottom: 7px; }
     table { width: 100%; border-collapse: collapse; }
-    .meta td { border: 1px solid #1a2946; padding: 4px 8px; }
+    .meta td { border: 1px solid ${DOC.navy}; padding: 4px 8px; }
     .meta .k { width: 21%; font-weight: 700; background: #f2f4f8; }
     .meta .v { width: 29%; }
     .sect { margin: 8px 0 3px; font-weight: 700; }
-    .det th { border: 1px solid #1a2946; background: #1a2946; color: #fff; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
-    .det td { border: 1px solid #1a2946; padding: 4px 8px; height: 18px; }
+    .det th { border: 1px solid ${DOC.navy}; background: ${DOC.navy}; color: #fff; padding: 5px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+    .det td { border: 1px solid ${DOC.navy}; padding: 4px 8px; height: 18px; }
     .det td.r { text-align: right; font-variant-numeric: tabular-nums; }
     .total { margin-top: 7px; font-weight: 700; }
     .decl { margin-top: 8px; font-size: 10.5px; }
     .sys { margin-top: 6px; font-weight: 800; color: ${c.status === "approved" ? "#15803d" : c.status === "rejected" ? "#b91c1c" : "#b45309"}; }
-    .sig td { border: 1px solid #1a2946; padding: 6px 8px; vertical-align: top; width: 33.33%; }
+    .sig td { border: 1px solid ${DOC.navy}; padding: 6px 8px; vertical-align: top; width: 33.33%; }
     .sig .hd2 { font-weight: 700; background: #f2f4f8; }
     .sig .body { height: 108px; vertical-align: top; } /* stays a TABLE CELL — flex lives on .cw inside */
     .sig .cw { display: flex; flex-direction: column; height: 100%; }
@@ -3328,15 +3332,15 @@ async function printClaimForm(c: Claim) {
     .sig .sg { height: 52px; }            /* signature zone identical across cells */
     .sig .dt { margin-top: auto; }        /* Date pinned to the same baseline everywhere */
     .esig { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 15px; }
-    .esub { display: block; font-size: 8px; color: #8a93a6; }
+    .esub { display: block; font-size: 8px; color: ${DOC.muted}; }
     /* v1.4.137: every printed signature occupies the SAME box regardless of
        the source image's dimensions — standardized like the CEO/COO look. */
     .sigimg { height: 46px; max-width: 150px; object-fit: contain; object-position: left center; display: block; margin-top: 1px; }
     .receiptwrap { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; break-inside: avoid; }
-    .receiptbox { border: 1px solid #1a2946; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
-    .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: #8a93a6; font-weight: 700; text-align: left; }
+    .receiptbox { border: 1px solid ${DOC.navy}; border-radius: 6px; padding: 6px 8px; max-width: 78mm; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: ${DOC.muted}; font-weight: 700; text-align: left; }
     .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
-    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: #8a93a6; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: ${DOC.muted}; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
@@ -3575,9 +3579,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   };
 
   const badgeCls: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-800",
-    approved: "bg-green-100 text-green-800",
-    rejected: "bg-red-100 text-red-800",
+    pending:"bg-warning-soft text-warning",
+    approved:"bg-success-soft text-success",
+    rejected:"bg-danger-soft text-danger",
   };
   const pending = claims.filter((c) => c.status === "pending");
   const decided = claims.filter((c) => c.status !== "pending");
@@ -3612,19 +3616,19 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(c.category)}</span>}{" "}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
-            <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
+            <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info"
               title={L("Chain: HR review → COO pre-approval → CEO final approval", "Rantaian: semakan HR → pra-kelulusan COO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("HR ✓ · COO ✓ — CEO next", "HR ✓ · COO ✓ — CEO seterusnya") : c.hr_reviewed_at ? L("HR ✓ — awaiting COO", "HR ✓ — menunggu COO") : L("awaiting HR review", "menunggu semakan HR")}
             </span>
           )}
           {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
-            <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800"
+            <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info"
               title={L("Chain: CCO pre-approval → CEO final approval", "Rantaian: pra-kelulusan CCO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("CCO ✓ — CEO next", "CCO ✓ — CEO seterusnya") : L("awaiting CCO", "menunggu CCO")}
             </span>
           )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
-            <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+            <span className="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
               title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}>{L("💸 PAID", "💸 DIBAYAR")} {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
@@ -3694,8 +3698,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
-            ? <span className="rounded-full bg-green-100 px-1.5 py-px text-[10px] font-medium text-green-800" title={L("This claim was raised on your behalf — the payment comes to you; track its status here", "Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}>{L("💰 pays to you", "💰 dibayar kepada anda")}</span>
-            : c.payee_name ? <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800" title={`${L("Pay to", "Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark", "— catatan dalaman")}`}>💰 → {firstName(c.payee_name)}</span> : null}
+            ? <span className="rounded-full bg-success-soft px-1.5 py-px text-[10px] font-medium text-success" title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}>{L("💰 pays to you","💰 dibayar kepada anda")}</span>
+            : c.payee_name ? <span className="rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium text-warning" title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}>💰 → {firstName(c.payee_name)}</span> : null}
         </div>
       </div>
       {expanded === c.id && (
@@ -3727,18 +3731,18 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>{L("cancel", "batal")}</button>
             </span>
           ) : c.payee_user_id === userId ? (
-            <p className="mt-1 rounded-lg border border-green-300 bg-green-100 px-2 py-1 text-xs font-semibold text-green-900">
+            <p className="mt-1 rounded-lg border border-success/30 bg-success-soft px-2 py-1 text-xs font-semibold text-success">
               {L("💰 This claim was raised on your behalf by", "💰 Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : c.payee_name ? (
-            <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
+            <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
               title={L("Internal remark for the CEO (payment) and HR (records) — not printed on the claim form", "Catatan dalaman untuk CEO (bayaran) dan HR (rekod) — tidak dicetak pada borang tuntutan")}>
               {L("💰 Pay this claim to:", "💰 Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
               {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : canPayee && (
-            <p className="mt-1 rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900"
+            <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
               title={L("No separate payee set — the payment goes to whoever submitted the claim", "Tiada penerima bayaran berasingan — bayaran pergi kepada penghantar tuntutan")}>
               {L("💰 Pay to:", "💰 Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
               <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
@@ -3948,7 +3952,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:justify-start"
             onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
-        {msg && <p className="mt-2 text-xs font-medium text-amber-700">{msg}</p>}
+        {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       </div>
 
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
@@ -3990,10 +3994,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   new tabs") — these were four figures you could read and not
                   follow, above a list of every claim. Each one now scopes the
                   list below to what it counts. */}
-              {([["approved", L("Approved", "Diluluskan"), approved, "text-green-800"],
-                 ["paid", L("— of which paid", "— daripadanya dibayar"), paid, "text-green-800"],
-                 ["pending", L("Pending", "Menunggu"), pending, "text-amber-700"],
-                 ...(rejected.length > 0 ? [["rejected", L("Rejected", "Ditolak"), rejected, "text-red-700"] as const] : []),
+              {([["approved", L("Approved","Diluluskan"), approved,"text-success"],
+                 ["paid", L("— of which paid","— daripadanya dibayar"), paid,"text-success"],
+                 ["pending", L("Pending","Menunggu"), pending,"text-warning"],
+                 ...(rejected.length > 0 ? [["rejected", L("Rejected","Ditolak"), rejected,"text-danger"] as const] : []),
                ] as [string, string, typeof mine, string][]).map(([k, lbl, list, tone]) => (
                 <button key={k} type="button" aria-pressed={claimF === k}
                   className={`${tone} rounded px-1 transition hover:underline ${claimF === k ? "ring-primary bg-card ring-2" : ""}`}
@@ -4033,8 +4037,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   <span className="font-medium">{claimNoOf(c)}</span>
                   <span className="text-muted-foreground"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
                   {c.paid_at
-                    ? <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{L("PAID", "DIBAYAR")} {dmy(c.paid_at)}</span>
-                    : <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{L("payment due", "bayaran perlu dibuat")}</span>}
+                    ? <span className="ml-1.5 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">{L("PAID","DIBAYAR")} {dmy(c.paid_at)}</span>
+                    : <span className="ml-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">{L("payment due","bayaran perlu dibuat")}</span>}
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
                   <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
@@ -4302,7 +4306,7 @@ export function ExpensesPanel() {
                       <ul className="mt-1 space-y-0.5">
                         {staffPayroll!.entries!.map((r, i) => (
                           <li key={i} className="flex justify-between gap-3">
-                            <span>{properName(r.name)}{!r.saved_net && <span className="text-amber-700" title={L("Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net.", "Disimpan sebelum kemas kini penyimpanan bersih — angka dikira semula oleh pelayan. Tekan Simpan semua dalam tab Gaji untuk menyimpan bersih yang tepat.")}>{L(" · recomputed ⚠", " · dikira semula ⚠")}</span>}</span>
+                            <span>{properName(r.name)}{!r.saved_net && <span className="text-warning" title={L("Saved before the net-storing update — figure recomputed by the server. Press Save all in the Payroll tab to store the exact net.","Disimpan sebelum kemas kini penyimpanan bersih — angka dikira semula oleh pelayan. Tekan Simpan semua dalam tab Gaji untuk menyimpan bersih yang tepat.")}>{L(" · recomputed ⚠"," · dikira semula ⚠")}</span>}</span>
                             <span className="tabular-nums">{rmc(r.cents)}</span>
                           </li>
                         ))}
@@ -4343,13 +4347,13 @@ export function ExpensesPanel() {
                 </div>
                 <span className="flex items-center gap-1.5">
                   {staffPayroll?.paid_at
-                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
                         title={`${L("Payment recorded", "Bayaran direkodkan")} ${dmy(staffPayroll.paid_at.slice(0, 10))}`}>{L("💸 PAID", "💸 DIBAYAR")}</span>
                     : (
                       <>
                         {payrollDue.released
-                          ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">{L("RELEASED", "DILEPASKAN")}</span>
-                          : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")}</span>}
+                          ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success">{L("RELEASED","DILEPASKAN")}</span>
+                          : <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")}</span>}
                         <button type="button" className={rowBtnPrimary}
                           title={L("Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed", "Rekodkan bahawa bayaran gaji bank telah dibuat — pil PERLU DIBAYAR hilang dan bayaran berpindah ke Bayaran selesai")}
                           onClick={async () => {
@@ -4371,7 +4375,7 @@ export function ExpensesPanel() {
                   </p>
                   <p className="text-muted-foreground text-xs">{L("Approved", "Diluluskan")}{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""}{L(" — pay the claimant, then press 💸 Mark paid on the Claims tab", " — bayar penuntut, kemudian tekan 💸 Tanda dibayar pada tab Tuntutan")}</p>
                 </div>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")}</span>
+                <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")}</span>
               </div>
             ))}
             {upcoming.map((r) => {
@@ -4385,7 +4389,7 @@ export function ExpensesPanel() {
                       <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
                       <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
-                      <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">{L("↻ recurring", "↻ berulang")}</span>
+                      <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">{L("↻ recurring","↻ berulang")}</span>
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs">
                       {r.due_day ? `${L("Due", "Perlu dibayar")} ${dmy(dueISO)}` : L("No due day set", "Tiada hari akhir ditetapkan")}
@@ -4421,7 +4425,7 @@ export function ExpensesPanel() {
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                     </p>
                     <p className="mt-0.5 text-xs">
-                      <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                      <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ?"bg-danger-soft text-danger" :"bg-warning-soft text-warning"}`}>
                         {overdue ? L("OVERDUE", "TERTUNGGAK") : L("DUE", "PERLU DIBAYAR")} {dmy(dueISO)}
                       </span>
                     </p>
@@ -4531,8 +4535,8 @@ export function ExpensesPanel() {
                         <span>{r.vendor || r.description || "—"}</span>
                         <span className="text-muted-foreground">{dmy(r.expense_date)}</span>
                         {r.paid_at
-                          ? <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">{L("PAID", "DIBAYAR")}</span>
-                          : <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">{L("outstanding", "tertunggak")}</span>}
+                          ? <span className="rounded-full bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold text-success">{L("PAID","DIBAYAR")}</span>
+                          : <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">{L("outstanding","tertunggak")}</span>}
                       </div>
                     ))}
                   </div>
@@ -4564,19 +4568,19 @@ export function ExpensesPanel() {
               const items = expOutN + (payrollOut > 0 ? 1 : 0) + claimsOutRows.length;
               return outstanding > 0 ? (
                 <p className="mt-0.5 text-xs">
-                  <span className="font-medium text-green-700">{L("Paid", "Dibayar")} {rmc(grand - outstanding)}</span>
+                  <span className="font-medium text-success">{L("Paid","Dibayar")} {rmc(grand - outstanding)}</span>
                   <span className="text-muted-foreground"> · </span>
-                  <span className="font-bold text-amber-700">{L("Outstanding", "Tertunggak")} {rmc(outstanding)}</span>
+                  <span className="font-bold text-warning">{L("Outstanding","Tertunggak")} {rmc(outstanding)}</span>
                   <span className="text-muted-foreground"> ({items} {L("to clear", "untuk dijelaskan")})</span>
                 </p>
               ) : (
-                <p className="mt-0.5 text-xs font-medium text-green-700">{L("✅ All cleared —", "✅ Semua dijelaskan —")} {rmc(grand)} {L("paid", "dibayar")}</p>
+                <p className="mt-0.5 text-xs font-medium text-success">{L("✅ All cleared —","✅ Semua dijelaskan —")} {rmc(grand)} {L("paid","dibayar")}</p>
               );
             })()}
           </div>
         </div>
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
-          {loadError && <p className="mb-2 text-sm font-medium text-amber-700">⚠ {loadError}</p>}
+          {loadError && <p className="mb-2 text-sm font-medium text-warning">⚠ {loadError}</p>}
           {rows.length === 0 && !loadError && (
             <p className="text-muted-foreground text-sm">
               {L("No expenses recorded for this month. This tab shows ONE month at a time — earlier records (e.g. July) are under the month picker at the top right.", "Tiada perbelanjaan direkodkan untuk bulan ini. Tab ini menunjukkan SATU bulan pada satu masa — rekod terdahulu (cth. Julai) berada di bawah pemilih bulan di penjuru kanan atas.")}
@@ -4628,9 +4632,9 @@ export function ExpensesPanel() {
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
                   {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                   {r.paid_at
-                    ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700">{L("✓ PAID", "✓ DIBAYAR")} {dmy(r.paid_at.slice(0, 10))}</span>
+                    ? <span className="ml-1 rounded-full bg-success-soft px-1.5 py-0.5 text-xs font-semibold text-success">{L("✓ PAID","✓ DIBAYAR")} {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">{L("DUE", "PERLU DIBAYAR")} {String(r.due_day).padStart(2, "0")}-{month.split("-")[1]}</span>
+                      ? <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")} {String(r.due_day).padStart(2,"0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>

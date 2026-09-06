@@ -939,7 +939,7 @@ function UsersPanel({ me }: { me: User }) {
                 </div>
               )}
               {resetDone === u.id && (
-                <p className="mt-2 text-xs font-medium text-green-700">
+                <p className="mt-2 text-xs font-medium text-success">
                   {L("Password set — all their sessions were signed out.", "Kata laluan ditetapkan — semua sesi mereka telah dilog keluar.")}
                 </p>
               )}

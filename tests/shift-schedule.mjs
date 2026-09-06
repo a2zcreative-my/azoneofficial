@@ -480,8 +480,14 @@ const ok = (label, cond, extra = "") => {
   ok("a refused action says so where the eye is",
      /showToast\(L\("Not saved", "Tidak disimpan"\), why, "notice"\)/.test(panels),
      "setting a message near the top of a long card is not telling somebody working at the bottom of it");
+  /* v1.124.0 — this named an IMPLEMENTATION (`text-green-700`) where it meant
+     a BEHAVIOUR, and went red when the green became `text-success` in the
+     token pass. What it is actually about is that the two branches differ and
+     the failing one is the danger colour. Spelled that way it survives the
+     next restyling and still catches the bug it was written for. */
+  const msgBranch = panels.match(/msgBad \s*\?\s*"([\w-]+)"\s*:\s*"([\w-]+)"/);
   ok("a failure is not painted the colour of success",
-     /msgBad \? "text-danger" : "text-green-700"/.test(panels),
+     !!msgBranch && /danger/.test(msgBranch[1]) && !/danger/.test(msgBranch[2]) && msgBranch[1] !== msgBranch[2],
      "every error this card produced rendered in green");
   /* THE DEPLOY WINDOW. The worker publishes before the migrations run, and
      shiftOn names its columns explicitly - so for a few minutes it asks a

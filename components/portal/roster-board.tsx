@@ -730,7 +730,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       <div className="mt-3 flex flex-wrap gap-2">
         {chip(L("live", "LIVE"), active.length, "bg-secondary")}
         {chip(L("tasks", "tugasan"), blocks.length,
-              "border border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40")}
+              "border border-plan bg-plan-soft")}
         {data.manager && chip(L("available today", "tersedia hari ini"), data.available_today.length, chipSuccess)}
         {/* v1.21.0: the on-leave pill is a button — it opens WHO is away and
             the applied dates, so assignments are planned around real absences
@@ -848,7 +848,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                        token: the brand colours are already spoken for by
                        TikTok, Shopee, completed, conflict and leave, and an
                        invented token would render as no colour at all. */
-                    : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40";
+                    : "border-plan bg-plan-soft";
                   const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
                   const rows = staff;
                   const cellSessions = (uid: number, d: string) =>
@@ -1017,7 +1017,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />{L("Completed", "Selesai")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />{L("Conflict", "Pertindihan")}</span>
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />{L("On leave", "Bercuti")}</span>
-                        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40" />{L("Task", "Tugasan")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-plan bg-plan-soft" />{L("Task", "Tugasan")}</span>
                       </div>
                     </>
                   );
@@ -1253,7 +1253,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   {dayB.map((b) => (
                     <button key={`mt${b.id}`} type="button"
                       onClick={() => setOpenBlock(openBlock === b.id ? null : b.id)}
-                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${b.done_at ? "border-success bg-success-soft opacity-70" : hardBlockIds.has(b.id) ? "border-danger bg-danger-soft" : softBlockIds.has(b.id) ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${b.done_at ? "border-success bg-success-soft opacity-70" : hardBlockIds.has(b.id) ? "border-danger bg-danger-soft" : softBlockIds.has(b.id) ? "border-warning bg-warning-soft" : "border-plan bg-plan-soft"}`}>
                       <span className="w-20 shrink-0 text-[11px] font-semibold tabular-nums">
                         {b.start_time}{b.end_time ? `–${b.end_time}` : ""}
                       </span>
@@ -1282,7 +1282,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
             const hard = hardBlockIds.has(b.id);
             const soft = softBlockIds.has(b.id);
             return (
-              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${b.done_at ? "border-success bg-success-soft" : hard ? "border-danger bg-danger-soft" : soft ? "border-warning bg-warning-soft" : "border-violet-300 bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40"}`}>
+              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${b.done_at ? "border-success bg-success-soft" : hard ? "border-danger bg-danger-soft" : soft ? "border-warning bg-warning-soft" : "border-plan bg-plan-soft"}`}>
                 <span className="min-w-0">
                   <span className="font-semibold">{b.title}</span>
                   <span className="text-muted-foreground">

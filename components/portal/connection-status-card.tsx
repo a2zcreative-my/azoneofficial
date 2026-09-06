@@ -69,7 +69,7 @@ export function ConnectionStatusCard() {
 
   if (err) return null; // an old worker without the route: show nothing, break nothing
   const dot = (ok: boolean) => (
-    <span className={ok ? "font-semibold text-green-700" : "font-semibold text-red-600"}>{ok ? "●" : "●"}</span>
+    <span className={ok ?"font-semibold text-success" :"font-semibold text-danger"}>{ok ?"●" :"●"}</span>
   );
   return (
     <div className={card}>
@@ -94,7 +94,7 @@ export function ConnectionStatusCard() {
           <p>{dot(!!st.last_event_at && st.last_event_verified !== false)} <span className="font-medium">{L("Last webhook", "Webhook terakhir")}</span>{" "}
             <span className="text-muted-foreground">{myt(st.last_event_at)}{st.last_event_at ? (st.last_event_verified ? L(" · signature OK", " · tandatangan OK") : L(" · signature FAILED", " · tandatangan GAGAL")) : ""}</span></p>
           <p>{dot(st.failed_events_7d === 0)} <span className="font-medium">{L("Webhook failures (7d)", "Kegagalan webhook (7 hari)")}</span>{" "}
-            <span className={st.failed_events_7d > 0 ? "font-semibold text-amber-700" : "text-muted-foreground"}>{st.failed_events_7d}</span></p>
+            <span className={st.failed_events_7d > 0 ?"font-semibold text-warning" :"text-muted-foreground"}>{st.failed_events_7d}</span></p>
           {(() => {
             /* v1.4.217 (CEO: "still got this error even after insert the
                API"): three honest states instead of one scary one —
@@ -107,26 +107,26 @@ export function ConnectionStatusCard() {
             const okAfterFail = !!st.last_verified_at && !!st.last_failed_at && st.last_verified_at > st.last_failed_at;
             if (st.last_event_verified === false) return (
               <div className="sm:col-span-2">
-                <p className="text-amber-700">
+                <p className="text-warning">
                   {L(`⚠ The most recent webhook failed signature verification (last failure ${myt(st.last_failed_at ?? st.last_event_at)}). Failures at a steady ~30-min rhythm are usually TikTok RETRYING the same undelivered event — the counter climbs until one verifies. Order sync is unaffected either way.`,
                     `⚠ Webhook terbaru gagal pengesahan tandatangan (kegagalan terakhir ${myt(st.last_failed_at ?? st.last_event_at)}). Kegagalan pada rentak tetap ~30 minit biasanya bermakna TikTok CUBA SEMULA acara sama yang belum sampai — kiraan meningkat sehingga satu berjaya disahkan. Segerakan pesanan tidak terjejas sama sekali.`)}
                 </p>
                 {/* v1.4.220: stop guessing — replay the newest failed event
                     against the secret the worker holds RIGHT NOW. */}
                 {!dbg && !dbgDenied && (
-                  <button type="button" className="mt-1.5 rounded-lg border border-amber-700 px-2.5 py-1 text-xs font-medium text-amber-800"
+                  <button type="button" className="mt-1.5 rounded-lg border border-warning/30 px-2.5 py-1 text-xs font-medium text-warning"
                     disabled={dbgBusy} onClick={() => void runDebug()}>
                     {dbgBusy ? L("Checking…", "Menyemak…") : L("🔍 Test the current secret against the last failed event", "🔍 Uji rahsia semasa terhadap acara gagal yang terakhir")}
                   </button>
                 )}
                 {dbg?.state === "replayed" && dbg.current_secret_verifies && (
-                  <p className="mt-1.5 font-medium text-green-700">
+                  <p className="mt-1.5 font-medium text-success">
                     {L("✅ The secret now on the server VERIFIES that event — your update worked; the event simply arrived before it. The next delivery (TikTok retries automatically) will pass and this card turns green on its own.",
                       "✅ Rahsia yang kini ada pada pelayan BERJAYA mengesahkan acara itu — kemas kini anda berjaya; acara itu cuma tiba sebelumnya. Penghantaran seterusnya (TikTok mencuba semula secara automatik) akan lulus dan kad ini bertukar hijau dengan sendirinya.")}
                   </p>
                 )}
                 {dbg?.state === "replayed" && !dbg.current_secret_verifies && (
-                  <p className="mt-1.5 font-semibold text-red-600">
+                  <p className="mt-1.5 font-semibold text-danger">
                     {L("❌ The secret now on the server does NOT match this event's signature", "❌ Rahsia yang kini ada pada pelayan TIDAK sepadan dengan tandatangan acara ini")}{dbg.relay_header ? L(" — and the event carries a relay header (x-webhook-secret): it comes through Make/Zapier, so set TIKTOK_WEBHOOK_SECRET to the relay's value instead", " — dan acara ini membawa pengepala relay (x-webhook-secret): ia datang melalui Make/Zapier, jadi tetapkan TIKTOK_WEBHOOK_SECRET kepada nilai relay itu") : ""}.
                     {!dbg.relay_header && L(" Re-view the App Secret in Partner Center (app 7668934538403645205 → Basic information → view + copy), then run wrangler secret put TIKTOK_APP_SECRET inside THIS project's worker/ folder.", " Lihat semula App Secret di Partner Center (app 7668934538403645205 → Basic information → lihat + salin), kemudian jalankan wrangler secret put TIKTOK_APP_SECRET dalam folder worker/ projek INI.")}
                   </p>
@@ -138,14 +138,14 @@ export function ConnectionStatusCard() {
                   </p>
                 )}
                 {dbg?.state === "no_signature_header" && (
-                  <p className="mt-1.5 font-medium text-amber-800">
+                  <p className="mt-1.5 font-medium text-warning">
                     {L("The failing requests carry NO TikTok signature at all", "Permintaan yang gagal itu TIDAK membawa tandatangan TikTok langsung")}{dbg.relay_header ? L(" but DO carry a relay header — set TIKTOK_WEBHOOK_SECRET to match your Make/Zapier relay", " tetapi ADA membawa pengepala relay — tetapkan TIKTOK_WEBHOOK_SECRET supaya sepadan dengan relay Make/Zapier anda") : L(" — something other than TikTok is posting to the webhook URL", " — sesuatu selain TikTok sedang menghantar ke URL webhook itu")}.
                   </p>
                 )}
               </div>
             );
             if (okAfterFail && st.failed_events_7d > 0) return (
-              <p className="font-medium text-green-700 sm:col-span-2">
+              <p className="font-medium text-success sm:col-span-2">
                 {L(`✅ Secret fixed — the latest webhook (${myt(st.last_verified_at ?? null)}) verified OK. The failure counter only counts old events and empties as they age out of the 7-day window.`,
                   `✅ Rahsia sudah dibetulkan — webhook terbaru (${myt(st.last_verified_at ?? null)}) disahkan OK. Kiraan kegagalan hanya mengira acara lama dan akan kosong apabila acara itu keluar daripada tetingkap 7 hari.`)}
               </p>

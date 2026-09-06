@@ -32,6 +32,11 @@ const dir = mkdtempSync(join(tmpdir(), "issuer-render-"));
 globalThis.location = { origin: "https://azoneofficial.com" };
 writeFileSync(join(dir, "issuers.ts"), readFileSync("lib/issuers.ts", "utf8"));
 writeFileSync(join(dir, "names.ts"), readFileSync("lib/names.ts", "utf8"));
+/* v1.124.0 — the paper palette moved out of the template into its own
+   module, so the sandbox needs it too or the import fails before a single
+   assertion runs. The copy list below is the template's @/lib imports;
+   adding an import to doc-template.ts means adding a line here. */
+writeFileSync(join(dir, "doc-theme.ts"), readFileSync("lib/doc-theme.ts", "utf8"));
 writeFileSync(
   join(dir, "doc-template.ts"),
   readFileSync("lib/doc-template.ts", "utf8").replace(/from "@\/lib\/(\w[\w-]*)"/g, 'from "./$1.ts"'),
