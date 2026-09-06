@@ -23,12 +23,13 @@
  *   node tests/unpaid-leave.mjs
  */
 import { readFileSync } from "node:fs";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const read = (p) => readFileSync(p, "utf8");
 const staff = read("worker/src/staff.ts");
 const index = read("worker/src/index.ts");
 const perms = read("worker/src/permissions.ts");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(".");
 const panels = read("components/portal/role-panels.tsx");
 const payroll = read("components/portal/payroll-panel.tsx");
 

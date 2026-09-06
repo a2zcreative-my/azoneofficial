@@ -45,6 +45,7 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 
@@ -214,7 +215,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
 
 /* ---- the seven the audit found, named so they cannot regress quietly ---- */
 {
-  const page = readFileSync(path.join(root, "app/portal/page.tsx"), "utf8");
+  const page = readPortalSource(root);
   const panels = readFileSync(path.join(root, "components/portal/role-panels.tsx"), "utf8");
   const dir = readFileSync(path.join(root, "components/staff/staff-directory.tsx"), "utf8");
   const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8");

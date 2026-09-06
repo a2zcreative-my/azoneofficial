@@ -23,13 +23,14 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const index = read("worker/src/index.ts");
 const panels = read("components/portal/role-panels.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(root);
 
 let pass = 0;
 const fails = [];

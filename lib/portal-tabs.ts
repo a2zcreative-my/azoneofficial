@@ -48,6 +48,7 @@ export const ALL_TABS = [
   "Ecommerce",
   "Inventory",
   "Sales",
+  "Enquiries",
   "Assets",
   "Hotels",
   "Threads",
@@ -123,6 +124,11 @@ export const ASSIGNABLE_ROLES: readonly [string, string][] = [
   ["live_host", "live host"],
 ];
 
+/** Who answers customers - enquiry_manage in the worker, one list. */
+export const ENQUIRY_ROLES: readonly string[] = [
+  "super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin",
+];
+
 export const SALES_ROLES: readonly string[] = [
   "super_admin",
   "admin",
@@ -157,6 +163,10 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      how a special case earns its keep long after it stops meaning anything.
      Written out as an ordinary entry, it disappears. */
   Sales: SALES_ROLES,
+  /* v1.112.0 - the CEO, 05-09-2026: customer enquiries are staff work that
+     must be answered, so they get their own tab instead of a card at the
+     top of Sales. Mirrors enquiry_manage in worker/src/permissions.ts. */
+  Enquiries: ENQUIRY_ROLES,
   Inventory: [
     "super_admin", "admin", "ceo", "coo", "cco",
     "sales_marketing", "marketing", "hr_admin",
@@ -226,7 +236,8 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },
   "Web Orders": { en: "ELFIA store orders", ms: "pesanan kedai ELFIA" },
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
-  Sales: { en: "enquiries + documents", ms: "pertanyaan + dokumen" },
+  Sales: { en: "documents + map", ms: "dokumen + peta" },
+  Enquiries: { en: "customers waiting for an answer", ms: "pelanggan menunggu jawapan" },
   Announcements: { en: "feed + publish", ms: "suapan + terbit" },
   HR: { en: "docs, leave admin", ms: "dokumen, pentadbiran cuti" },
   "Staff Details": { en: "records + birthdays", ms: "rekod + hari lahir" },
@@ -234,7 +245,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Finance: { en: "cash flow + P&L", ms: "aliran tunai + P&L" },
   Content: { en: "production pipeline", ms: "saluran produksi" },
   Threads: { en: "posts + insights", ms: "hantaran + analisis" },
-  Hotels: { en: "sales list by state", ms: "senarai jualan ikut negeri" },
+  Hotels: { en: "review outreach by state", ms: "capaian ulasan ikut negeri" },
   Reconciliation: { en: "channel settlements", ms: "penyelesaian saluran" },
   Purchasing: { en: "suppliers + POs", ms: "pembekal + PO" },
   Accounting: { en: "GL — keep tight", ms: "GL — kawal ketat" },

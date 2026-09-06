@@ -11,6 +11,7 @@ import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the butto
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleSearch } from "./search"; // v1.107.0 - search everything
+import { handleSalesMap } from "./sales-map"; // v1.113.0
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
 import { BREAK_AFTER_MINUTES, hourlyBreakFor } from "./hourly"; // v1.109.0 - paid by the clock, less the break
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
@@ -785,6 +786,7 @@ const PUSH_TAB: Record<string, string> = {
   claim: "Claims", live: "Attendance", stock: "Inventory", event: "Dashboard",
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
+  enquiry: "Enquiries", // v1.112.0 - a customer waiting for an answer
 };
 
 export async function notify(
@@ -1348,6 +1350,12 @@ export async function handleStaff(
      query, each gated by the permission its own tab is gated by. ---- */
   if (path === "/search" && method === "GET") {
     return handleSearch(env, user, new URL(request.url).searchParams);
+  }
+
+  /* ---- The Sales map (v1.113.0) — see sales-map.ts. Invoices by the
+     customer's state, paid web orders by the shipping state. ---- */
+  if (path === "/sales/map" && method === "GET") {
+    return handleSalesMap(env, user, new URL(request.url).searchParams);
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's
@@ -4783,7 +4791,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

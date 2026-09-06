@@ -15,13 +15,14 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const panels = read("components/portal/role-panels.tsx");
 const payroll = read("components/portal/payroll-panel.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(root);
 
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => {

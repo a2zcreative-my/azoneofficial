@@ -2,6 +2,91 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.116.0] - 2026-09-06 - the Dashboard in four zones, one order for web and phone
+
+**CEO**, 06-09-2026: *"for the Dashboard I want UI/UX being re-organized for better user experience and at the same time the user interface well organized. I want to make sure both are being checked - Webview and Mobile apps view"*. Proposed as a side-by-side mockup first; he approved it as proposed.
+
+### What was wrong
+The Dashboard had grown by accretion: a phone greeting, quick actions, the desk, the watchers, four KPI tiles (desktop only), a next-event hero (phone only), my schedule, a phone-only checklist, a phone-only "This month" card, a desktop-only attendance list, leave / tasks / news, then the whole sales floor - with its own second greeting - and the calendar. Three greetings on one screen; open tasks counted in three places; personal and company content interleaved; and the company view, the reason the CEO opens the page, at the very bottom.
+
+### Now: four zones, read top to bottom, the same on both screens
+1. **MY DAY** - Quick actions, then the four KPI tiles directly under the buttons they explain (not clocked in → Clock in). The tiles are now on every screen: four across on the desk, two by two on the phone. The phone-only "This month" twin is gone - same numbers, one component.
+2. **WAITING ON ME** - One Desk, Watchers (executive tier), the next-event hero (phone), my schedule.
+3. **THE COMPANY** - the Sales floor, moved up from the bottom for the roles that have it; its "Hello, name!" greeting is removed (the header already greets) and its caption lives inside the desk, so a role without the desk sees no heading over nothing. Staff without the role get a shorter page, not a longer one.
+4. **AROUND ME** - today's checklist (phone), Pending leave / My open tasks / News, then my attendance and Upcoming events side by side on the desk, stacked on the phone.
+
+The zone captions are text in the small-caps the tiles already use - no new colours, borders or chrome. Every card kept its content, its behaviour and its role gate; the bottom bar, header, outbox and live refresh are untouched. No database change.
+
+### Under it
+`components/portal/dashboard.tsx` (zones as `<section>`s, a module-scope `ZoneLabel`, the KPI strip responsive), `components/portal/trading-desk.tsx` (caption in place of the greeting). `tests/one-desk.mjs` now asserts the whole order - quick actions < tiles < desk < watchers < company < around me - and that the three zone captions are present while the company caption is inside the desk; negative-tested by putting the sales floor back at the bottom. Full suite and a production build pass.
+
+## [1.115.0] - 2026-09-05 - Quick actions first on the Dashboard
+
+**CEO**, 05-09-2026, with the Dashboard on screen: *"Quick actions should be on the top so that user easily to click. also on the mobile apps view"*.
+
+Clock in is the one thing everybody does every day, and since v1.106.0 it sat three cards down - under the desk and the Watchers. The Quick actions card (clock in / out, apply leave, create quotation, the location line, today's punches) is now the **first card** on the Dashboard, on every screen size - the phone view is the same tree, so it moves there too. The One Desk follows it and stays above everything else; the Watchers, the KPI strip and the rest keep their order. The card itself is unchanged - moved, not rewritten.
+
+`tests/one-desk.mjs` now asserts the order Quick actions -> desk -> KPI strip (negative-tested by putting the desk back on top).
+
+## [1.114.0] - 2026-09-05 - housekeeping: the portal page split into fourteen files, and twelve guards the deploy was not running
+
+**CEO**, 05-09-2026: *"do housekeeping based on the requirement and ensure that dont remove/housekeeping that can cause my system corrupted or damaged!"* (The "Expiry watch" idea is struck from the list; nothing was removed.)
+
+### What changed - and what did not
+**`app/portal/page.tsx` is now the shell.** It was 605 KB / 14,117 lines with every module inside it. The modules were **moved verbatim** - not rewritten - into `components/portal/`: `dashboard` (with the Dashboard's summary tiles and the punch overlay), `trading-desk`, `events`, `attendance`, `leave` (with the entitlement table and the leave form printing), `tiktok-cards`, `tasks`, `announcements`, `sales` (with the documents, clients, packages, P&L and business-line cards), `live-cards` (OT approvals, live schedule), `profile`, `users-panel`, `commission` (targets, leaderboard), and `page-shared` (the `User` type, the bilingual label maps, the MYT date helpers). The page keeps PortalPage - auth, tabs, header, bell, bottom bar and the switch that draws each tab - at 1,633 lines.
+
+How it was kept safe:
+- The move was **proven verbatim**: the fourteen files plus the remaining page contain exactly the original lines - the only difference is fourteen blank lines at file edges. The only edits are `export` on the moved declarations and the import lines the compiler asked for.
+- Imports were resolved by the **compiler**, not by hand: every "cannot find name" was answered from the page's own original import list or from the file the symbol moved to, until zero errors remained; then the 70 imports the page no longer uses were removed and lint is clean.
+- The three files that import each other (dashboard, trading-desk, sales) exchange only components and types; the one constant that crosses is read inside a render, never at load, so the cycle is harmless.
+- Every guard that read "the page" as text now reads the same text through `tests/lib/portal-source.mjs` - the fifteen files in the original order - so every assertion means what it did. Three location-specific checks point at `leave.tsx` by name. No check was weakened or removed.
+- A real production build passed. **No database change, no behaviour change, nothing deleted.**
+
+**`worker/src/staff.ts` was deliberately NOT split.** Its 10,000-line request handler is 222 route checks whose *order* is part of the security - permission gates sit between blocks, and a block moved above one would bypass it silently, which the compiler cannot see. It stays whole until a route-level equivalence test can make a split provable.
+
+### Found on the way: twelve guards the deploy never ran
+`scripts/run-guards.mjs` runs the suite before anything is published, from a list. Twelve guards written since v1.101 - `migration-safety`, `org-chart`, `lazy-panels`, `remembered-views`, `outbox`, `one-desk`, `search-everything`, `watchers`, `hourly-by-the-clock`, `hotel-pipeline`, `enquiries`, `sales-map` - were on disk but not in that list, so the deploy reported a clean suite that was missing a third of itself. All twelve are registered, and `registry-parity` now refuses any guard file that is not in the runner's list (or documented there as browser-only). The runner reports 49 guards.
+
+### Under it
+Guard #48 `tests/portal-split.mjs` keeps the page a shell: exactly one component declared in `page.tsx`, under a quarter of its old size, every split file a client component that exports something and is not itself a giant, every component the shell renders imported from somewhere; negative-tested two ways.
+
+## [1.113.0] - 2026-09-05 - the Sales map: revenue by state, invoices and web orders
+
+**CEO**, 05-09-2026: *"on Sales tabs should add Sales mapped like ecommerce or hotel type for me to monitor on the sales state location and revenue by states."* Asked what it should show, he chose both layers with a switch.
+
+### What was in the way
+Neither an invoice nor a web order carries a state. A customer has one free-text address line; the ELFIA checkout has one free-text address box. So a map by state needs the state READ out of the text - and it has to be honest about what it could not read.
+
+### Now
+- **The Sales map leads the Sales tab.** The same Malaysian geometry the Operations, ELFIA Traffic and Hotels maps draw, in the same language - gold shade for the amount, navy bubble with the figure, press a state for its own numbers, a side panel with the total and the top six.
+- **Two layers, one switch.** *Invoices*: A2Z's own invoices placed by the customer's address, shade by amount invoiced, with paid and unpaid told apart in the panel. *Web orders*: ELFIA orders the portal has seen **paid** - the same fact the Finance tab's revenue reads - placed by the shipping address.
+- **Three ranges**: this month, this year (default), all time - on the Malaysian calendar, not UTC.
+- **Nothing silently dropped.** An address with no readable state goes to an *unplaced* line under the map with its count and its money (*"RM 1,250 from 3 invoices could not be placed - add the state to the customer's address and the map places it"*). The totals always equal the inputs.
+
+### How the state is read (`worker/src/my-state.ts`, pure, 94 checks run against it)
+The last state name written, as people write it - *Selangor*, *Penang*, *N. Sembilan*, *W.P. Kuala Lumpur*, *KL* - and the five-digit postcode, whose first two digits Pos Malaysia allocates to one state without exception (with the Genting and Cameron Highlands outliers). When both are present and disagree, the later one in the text is believed, because an address reads "postcode, then state": *Jalan Kelantan, 50480 Kuala Lumpur* is in Kuala Lumpur. The vocabulary is the geometry's sixteen names, upper case - the same list the hotel workbook uses.
+
+### Under it
+`GET /staff/sales/map?range=month|year|all` (`worker/src/sales-map.ts`, behind `revenue_view`; `aggregate()` and `rangeStart()` pure and RUN by the guard), `components/portal/sales-map.tsx` (lazy; remembered and live on `docs`, `clients`, `orders`, `web-orders`). Guard #47 `tests/sales-map.mjs`, negative-tested three ways. No migration.
+
+## [1.112.0] - 2026-09-05 - Enquiries are staff work: their own tab, on the desk, pushed on arrival
+
+**CEO**, 05-09-2026: *"Customer enquiries - I think should create a new tabs under customer/client inquiry which is require Staff action for response their inquire either via apps or emails."* Asked how an email reply should leave the system, he chose in-app only for now (a portal-sent email needs a provider and a verified domain - a later step).
+
+### What was there
+Since v1.21.0 the enquiries were a card at the top of the Sales tab with a status dropdown and, from v1.4.191, an in-app reply the customer reads on their Account page. A website enquiry was saved and **nobody was told**; an /account enquiry wrote bell rows to three roles by hand, with no push and no landing tab. Nothing said who was handling one, and nothing said a customer had waited too long.
+
+### Now
+- **An Enquiries tab**, one place after Sales, for everyone with `enquiry_manage` (`ENQUIRY_ROLES` in `lib/portal-tabs.ts`, mirrored to the worker and held by the guard). Worklist chips lead: **Waiting · Overdue · Mine · Answered · Became business · Closed · All**, each with its count over everything, not the page.
+- **Overdue after a day.** A waiting enquiry older than 24 hours is marked overdue on the row, counted on a chip, and flagged on the desk. An enquiry that has a reply is never overdue, whatever its status says.
+- **One enquiry, one person.** *Take it* puts your name on a waiting enquiry so two people do not answer the same customer; a *Who answers* dropdown hands it to a colleague, who is told once; handing it to someone who cannot answer enquiries is refused. A reply takes the enquiry for the replier unless somebody already has it.
+- **On the One Desk.** A waiting enquiry sits on the desk of everyone who can answer it until somebody takes it; a taken one sits only on its taker's desk until it is closed. New bucket *Enquiries*, live on the `enquiries` topic.
+- **Pushed on arrival, both doors.** Website form and /account now go through one announcer: everyone with `enquiry_manage` - and only them - is pushed once, naming the customer and the category, landing on the Enquiries tab. A bell item for an enquiry is now pressable and opens the tab.
+- The reply, WhatsApp and mailto links, *Answered outside*, *Became business* (raise the quotation on Sales), *Close* and *Reopen* all report both ways. The panel is remembered on the device and live.
+
+### Under it
+`worker/src/enquiries.ts` (routes moved out of index.ts; `isOverdue()` and `hoursWaiting()` pure and RUN by the guard; `announceEnquiry()`), `components/portal/enquiries-panel.tsx` (lazy), desk bucket in `worker/src/desk.ts`, `PUSH_TAB.enquiry`, `TAB_ACCESS_TABS`, side-nav Business section, i18n. The Sales hint reads *documents + map*; the Hotels hint now says *review outreach by state*. Guard #46 `tests/enquiries.mjs` (43 checks), negative-tested three ways. No migration.
+
 ## [1.111.0] - 2026-09-05 - Hotels is the review venture: the pipeline re-spoken, the watchers withdrawn
 
 **CEO**, 05-09-2026, minutes after v1.110.0: *"I think watcher not supposed to include on the hotel since Hotel is another service that I want to do for Hotel review which is upcoming project is Airbnb and Hotel review content for me to upscale my business like a Foodie of Pin Yang."* Asked how the pipeline should read for that business, he chose: reframe it for review outreach.

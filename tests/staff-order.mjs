@@ -31,6 +31,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(path.join(root, p), "utf8");
@@ -62,7 +63,7 @@ const dir = read("components/staff/staff-directory.tsx");
    half: an unpaid day is a leave record, and leave records live in the
    register on the Leave tab. */
 const card = read("components/portal/rest-day-credits.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(root);
 
 /* ---- 1. the order the CEO named, RUN rather than read ---- */
 {
@@ -185,7 +186,7 @@ const page = read("app/portal/page.tsx");
    CEO: *"Per-person targets (RM) should not listed the staff that in
    active!"* A target is for a month, so the list is who is employed in it. */
 {
-  const page = readFileSync(path.join(root, "app/portal/page.tsx"), "utf8");
+  const page = readPortalSource(root);
   const i = page.indexOf("function TargetsCommissionCard(");
   const targets = i < 0 ? "" : page.slice(i, i + 12000);
   ok("the targets card sorts its people by the company comparator", /setStaff\(\[\.\.\.r\.data\.staff\]\.sort\(bySeniority\)\)/.test(targets));

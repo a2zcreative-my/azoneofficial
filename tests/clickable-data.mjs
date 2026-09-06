@@ -39,6 +39,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => (existsSync(path.join(root, p)) ? readFileSync(path.join(root, p), "utf8") : "");
@@ -97,9 +98,9 @@ const ok = (label, cond, extra = "") => {
        see the details of the leave application!" The name is the door, on
        the in-progress rows AND the decided ones, and both open the same
        detail with the approval trail. */
-    ["a company-board leave in progress opens on its name", "app/portal/page.tsx",
+    ["a company-board leave in progress opens on its name", "components/portal/leave.tsx",
      /aria-expanded=\{openAll === l\.id\}[\s\S]{0,400}?\{who\(l\)\}[\s\S]{0,3000}?\{openAll === l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
-    ["a decided leave opens the same way", "app/portal/page.tsx",
+    ["a decided leave opens the same way", "components/portal/leave.tsx",
      /\{openAll === l\.id && editLeave\?\.id !== l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "one detail for both halves of the board, not two"],
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
     /* v1.93.0 — the circle and the phone row both press through one
@@ -143,7 +144,7 @@ const ok = (label, cond, extra = "") => {
      /if \(!open\.has\(u\.id\)\) return null;/, "the cards were the clutter the faces replace"],
     ["the face says which mode it is in", "components/staff/staff-directory.tsx",
      /aria-pressed=\{selectMode \? selected : open\}/, "a face that ticks when you expected it to open teaches distrust"],
-    ["the detail carries the approval trail", "app/portal/page.tsx",
+    ["the detail carries the approval trail", "components/portal/leave.tsx",
      /function LeaveDetail\([\s\S]{0,2500}?L\("HR reviewed"[\s\S]{0,600}?L\("Pre-approved"[\s\S]{0,600}?L\("Final"/, "who decided it, and when, is what a manager opens a leave to see"],
   ];
   for (const [label, file, re, why] of cases) {

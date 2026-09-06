@@ -37,10 +37,11 @@
 
 import type { Env } from "./index";
 import { can } from "./permissions";
+import { isOverdue as isEnquiryOverdue } from "./enquiries"; // v1.112.0
 import { leaveCanActAt } from "./leave-chain";
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news";
+  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
   id: string;
   title: string;
   sub: string;
@@ -251,6 +252,28 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       });
     }
   });
+
+  /* ---- v1.112.0: customers waiting for an answer ---- */
+  if (can(user.role, "enquiry_manage")) {
+    await guard("enquiries", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT id, name, company, category, status, assigned_to, created_at, replied_at
+           FROM enquiries WHERE status != 'closed' AND (status = 'new' OR assigned_to = ?1)
+          ORDER BY created_at ASC LIMIT 100`,
+      ).bind(user.id).all<{ id: number; name: string; company: string | null; category: string | null; status: string; assigned_to: number | null; created_at: string; replied_at: string | null }>();
+      for (const e of results) {
+        /* a NEW enquiry is everyone's until somebody takes it; a taken one is
+           only on the desk of the person who took it, until it is closed */
+        if (e.status === "new" && e.assigned_to && e.assigned_to !== user.id) continue;
+        items.push({
+          bucket: "enquiries", id: `enquiry:${e.id}`, tab: "Enquiries",
+          title: `${e.name}${e.company ? ` (${e.company})` : ""} — ${e.category ? e.category.replace(/_/g, " ") : "enquiry"}`,
+          sub: e.status === "new" ? (e.assigned_to === user.id ? "yours, not yet answered" : "not yet answered — take it or reply") : `${e.status}, yours`,
+          since: e.created_at, overdue: isEnquiryOverdue(e),
+        });
+      }
+    });
+  }
 
   /* ---- news I have not acknowledged ---- */
   await guard("news", async () => {

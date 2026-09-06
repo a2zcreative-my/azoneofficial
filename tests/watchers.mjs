@@ -30,6 +30,7 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -38,7 +39,7 @@ const index = read("worker/src/index.ts");
 const staff = read("worker/src/staff.ts");
 const toml = read("worker/wrangler.toml");
 const card = read("components/portal/watchers-card.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(root);
 const perms = read("worker/src/permissions.ts");
 const tabsSrc = read("lib/portal-tabs.ts");
 

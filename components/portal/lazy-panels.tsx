@@ -68,6 +68,8 @@ export const CashFlowPanel = lazy(() => import("@/components/portal/finance-pane
 export const ReconciliationPanel = lazy(() => import("@/components/portal/finance-panels").then((m) => m.ReconciliationPanel));
 export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card").then((m) => m.GeofenceCard));
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
+export const EnquiriesPanel = lazy(() => import("@/components/portal/enquiries-panel").then((m) => m.EnquiriesPanel)); // v1.112.0
+export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));
 export const PurchasingPanel = lazy(() => import("@/components/portal/purchasing-panels").then((m) => m.PurchasingPanel));

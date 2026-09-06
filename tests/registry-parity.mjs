@@ -26,13 +26,14 @@
 
    Run: node tests/registry-parity.mjs */
 import { readFileSync, readdirSync } from "node:fs";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 let failed = 0;
 const fail = (msg) => { console.log(`FAIL ${msg}`); failed++; };
 const ok = (msg) => console.log(`ok   ${msg}`);
 const setDiff = (a, b) => [...a].filter((x) => !b.has(x));
 
-const page = readFileSync("app/portal/page.tsx", "utf8");
+const page = readPortalSource(".");
 const staff = readFileSync("worker/src/staff.ts", "utf8");
 const index = readFileSync("worker/src/index.ts", "utf8");
 const card = readFileSync("components/portal/tab-access-card.tsx", "utf8");
@@ -240,6 +241,24 @@ if (pinM.length === 0) {
   if (!staff.includes("i.qty * i.unit_price_cents - (i.disc_cents ?? 0)")) {
     fail("the Worker's document subtotal no longer subtracts per-line discounts (staff.ts)");
   } else ok("worker subtotal subtracts line discounts");
+}
+
+/* v1.114.0 — EVERY GUARD ON DISK IS RUN. Twelve guards written between v1.101
+   and v1.113 sat in tests/ unregistered in scripts/run-guards.mjs, so the
+   deploy reported a tidy row of passes for a suite that was missing a third
+   of itself. A guard file must be in the runner's list, or be one of the
+   Playwright guards the runner documents as browser-only. */
+{
+  const runner = readFileSync("scripts/run-guards.mjs", "utf8");
+  const list = runner.slice(runner.indexOf("const GUARDS = ["), runner.indexOf("\n];", runner.indexOf("const GUARDS = [")));
+  const registered = new Set([...list.matchAll(/^\s*\["([a-z0-9-]+)",/gm)].map((m) => m[1]));
+  const browserOnly = new Set([...(runner.match(/\* The four Playwright guards \(([^)]*)\)/)?.[1] ?? "").split(/[\s,]+/).filter(Boolean)]);
+  const onDisk = readdirSync("tests").filter((f) => f.endsWith(".mjs")).map((f) => f.slice(0, -4));
+  const missing = onDisk.filter((g) => !registered.has(g) && !browserOnly.has(g));
+  if (missing.length) fail(`guard file(s) on disk but never run by scripts/run-guards.mjs: ${missing.join(", ")}`);
+  else ok(`every guard on disk is run (${onDisk.length} files, ${browserOnly.size} documented as browser-only)`);
+  const gone = [...registered].filter((g) => !onDisk.includes(g));
+  if (gone.length) fail(`guard(s) registered but missing from tests/: ${gone.join(", ")}`);
 }
 
 if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); process.exit(1); }

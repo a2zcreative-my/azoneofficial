@@ -94,6 +94,23 @@ const GUARDS = [
   ["person-access", "one person can be granted or refused a tab above the role - deny beats allow, Dashboard and Profile cannot be refused, and only the CEO can do it"],
   ["threads-malaysia", "a study post is Malaysian because its own text says so - Malay not Indonesian, RM, a Malaysian place - with the reason stored beside it; asking is told from selling; and nothing about a person is ever looked up"],
   ["hotels-guard", "the hotel directory keeps ONE state vocabulary across the migration, the worker and the map; phone numbers are stored in Malaysian form; the tab is the six roles the CEO named; and a delete is soft and audited with what it removed"],
+  /* v1.114.0 (housekeeping) - twelve guards written between v1.101 and v1.113
+     were on disk but not in this list, so the deploy never ran them. Found
+     while splitting the page; registry-parity now refuses a guard file that
+     is not registered here (or documented as Playwright-only below). */
+  ["migration-safety", "every migration is ASCII, uses -- comments with no quotes or semicolons inside them, and ends in a semicolon - the shapes that have stopped PUSH.bat at 'Database changes'"],
+  ["org-chart", "who reports to whom is one field, assigned only by the CEO, COO and CCO, drawn as a tree with no cycles"],
+  ["lazy-panels", "every tab's panel arrives when the tab is opened, none of them twice, and the first screen is untouched"],
+  ["remembered-views", "a view paints from the device first and refetches behind, on the topics that move it"],
+  ["outbox", "only the named routes queue offline, every queued write carries an idempotency key, and the phone's time is recorded as pending"],
+  ["one-desk", "the desk shows each person exactly what they may act on, by the rules the routes enforce"],
+  ["search-everything", "one query over eight sources, each gated by its own tab's permission, phone numbers matched by digits"],
+  ["watchers", "findings are pushed once, cleared when fixed, the brief is personal, and no watcher looks at hotels"],
+  ["hourly-by-the-clock", "a part-time live host is paid what the clock says less one hour of break past five"],
+  ["hotel-pipeline", "the hotel list is a review-outreach pipeline: stages move by what happened, due means a lapse, a call is kept without signal, no money and no watcher in it"],
+  ["enquiries", "an enquiry is work: overdue after a day, one person's, announced once to those who can answer"],
+  ["sales-map", "the sales map places every ringgit it can by state and says what it could not"],
+  ["portal-split", "the portal page is a shell and fourteen domain files, and stays that way"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

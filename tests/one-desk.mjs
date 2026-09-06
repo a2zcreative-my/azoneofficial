@@ -27,13 +27,14 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const deskSrc = read("worker/src/desk.ts");
 const card = read("components/portal/one-desk.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalSource(root);
 const tabsSrc = read("lib/portal-tabs.ts");
 
 let failed = 0, passed = 0;
@@ -119,8 +120,18 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("every tab the desk names is a real tab", deskTabs.length > 0 && deskTabs.every((t) => allTabs.includes(t)), deskTabs.filter((t) => !allTabs.includes(t)).join(", "));
   const dash = page.slice(page.indexOf("function Dashboard("), page.indexOf("\n}\n", page.indexOf("function Dashboard(")));
   const ret = dash.slice(dash.indexOf("  return ("));
-  ok("the desk is the first card on the Dashboard", /<OneDesk go=/.test(ret) && ret.indexOf("<OneDesk") < ret.indexOf("personal KPI strip"),
-     "the whole value is that when it has something it is the first thing you see");
+  /* v1.115.0 - the CEO put Quick actions (clock in) first. v1.116.0 - the
+     Dashboard reads in four zones: MY DAY (quick actions, then the KPI tiles
+     that explain them) - WAITING ON ME (the desk, first in its zone, then the
+     watchers) - THE COMPANY (the sales floor) - AROUND ME. The desk is the
+     first thing after "my day" and stays above the company and the feeds. */
+  const at = (needle) => ret.indexOf(needle);
+  const order = [at('tr("Quick actions", lang)'), at("personal KPI strip"), at("<OneDesk"), at("<WatchersCard"), at("<TradingDesk"), at('tr("Pending leave", lang)')];
+  ok("the Dashboard reads: quick actions, tiles, desk, watchers, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
+     `positions ${order.join(" < ")} - the CEO, 06-09-2026: one order for web and phone`);
+  ok("the four zones are captioned, and the company caption lives inside the desk it captions",
+     ["My day", "Waiting on me", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
+     "a caption for a zone a role cannot see would be a heading over nothing");
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));
   ok("a missing table costs its bucket, not the desk", /if \(String\(e\)\.includes\("no such"\)\) missing\.push\(bucket\); else throw e;/.test(deskSrc));

@@ -28,7 +28,7 @@ import { getLang } from "@/lib/i18n";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news";
+  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
 }
 interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
@@ -41,6 +41,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   commission: ["Commission", "Komisen"],
   tasks: ["Tasks", "Tugasan"],
   news: ["News", "Berita"],
+  enquiries: ["Enquiries", "Pertanyaan"], // v1.112.0
 };
 
 /** "3d", "5h", "just now" — how long it has waited, in one glance. */
@@ -59,7 +60,7 @@ const SHOW_FIRST = 8;
 export function OneDesk({ go }: { go: (tab: string) => void }) {
   /* the topics every bucket can move on - a write anywhere here refetches */
   const desk = useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users"]);
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries"]);
   const [all, setAll] = useState(false);
   const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
   const counts = desk.data?.counts ?? {};

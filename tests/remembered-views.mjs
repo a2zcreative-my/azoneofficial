@@ -32,6 +32,7 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -160,7 +161,7 @@ const ok = (label, cond, why = "") => {
        "the person should be able to tell yesterday's from today's");
   }
   /* the three in-page tabs everyone opens daily */
-  const page = read("app/portal/page.tsx");
+  const page = readPortalSource(root);
   for (const [fn, path, topic] of [["Announcements", "/staff/announcements", "announcements"], ["Tasks", "/staff/tasks", "tasks"], ["Leave", "/staff/leave", "leave"]]) {
     const start = page.indexOf(`function ${fn}(`);
     const body = page.slice(start, page.indexOf("\n}\n", start));
