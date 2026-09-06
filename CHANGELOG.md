@@ -2,6 +2,33 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.130.0] - 2026-09-06 - the Signatures panel shows WHOSE chop is in each cell
+
+**CEO**, 06-09-2026, handing over six scans: *"ensure that the signature is embedded correctly to the person which is no leaked out of false in use!"*
+
+### The mapping was not guessed
+Six images arrived: three A2Z stamps and three AZ ONE stamps, **none of them carrying a name**. Two pairs matched positively by handwriting (the angular flourish with the crossing descender; the rounded "Cp" curl), the third followed by elimination, and the CEO named all three. Assigning them on a hunch was the one thing not to do here: the COO's hand in the CEO row signs every future invoice, leave form and claim form under the wrong name, and nothing anywhere would say so.
+
+### What was actually missing from the panel
+v1.127.0 gave each cell a version and an upload date. Those say *an upload happened*. They cannot say **whose signature happened** — and that is the failure that matters, because **all three officers of one entity share one company stamp**. The stamp is identical in all three A2Z scans. The only thing that distinguishes them is the handwriting beside it.
+
+So each cell now draws the chop that is in it, and clicking opens it full size to hold against the paper. The full-size view asks the question outright: *"Is this the right person? If not, upload the correct scan — the wrong one here signs every document for this role."*
+
+Two details that decide whether this works:
+
+- **The image comes from the vault's own authenticated route**, the same one documents use — not from the file that was uploaded. What is on screen is what a document would print, which is the only version worth verifying. A `?v=` cache-buster keyed to the version stops a fresh v2 showing v1 out of the browser cache, which would be a stale picture at the exact moment it misleads.
+- **It is 56px, not 36px.** At 36px — where I first put it — the company stamp fills the frame and all three officers look identical, which makes the thumbnail decorative and the check worthless. Caught by rendering it with the six real scans and looking; at 56px the three hands are distinguishable at a glance. The scans sit on a white plate because navy ink on transparency is a dark smudge on a dark card.
+
+### The files were not written into the repo
+The correctly named set is delivered as a **download only**. `public/signatures/` is guarded and the repo is pushed to GitHub — writing real signatures anywhere in it is precisely how the v1.38.0 leak happened, and a `.gitignore` line is not a strong enough guarantee for a handwritten signature. They go into the vault through the panel, which is the one path that puts them in private R2.
+
+### Under it
+`components/admin/signatures-panel.tsx` (`Chop`, `ChopZoom`, and a line telling the reader the picture is the thing to check, not the date). Guard **#56** gained nine checks: the panel draws the chop, from the vault route rather than the uploaded blob, cache-busted per version, on a white plate, opening full size, asking the question — and the full-size view locks BODY and never `<html>`, the ownership model v1.124.0 wrote down. Negative-tested four ways.
+
+Rendered with the six real scans at 1280px and 390px: six thumbnails, none broken, no overflow, no page errors; the zoom opened, locked `body.overflow` only, and restored it on Escape.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.129.0] - 2026-09-06 - a Cards tab for the three officers
 
 **CEO**, 06-09-2026: *"can we have a tabs for that? only ceo, coo, cco can share their business card to client and the other staff cant access this tabs ... at the same time make sure that it is nice to see on mobile apps view by client/customer."*

@@ -116,6 +116,44 @@ ok("the admin panel says which chops are missing per entity",
    /A2Z CREATIVE MARKETING/.test(panel) && /AZ ONE OFFICIAL/.test(panel)
    && /Missing/.test(panel));
 
+/* ---- 4b. WHOSE signature is in the cell (v1.130.0) -------------------
+   CEO, 06-09-2026, handing over six scans: *"ensure that the signature is
+   embedded correctly to the person which is no leaked out of false in use!"*
+
+   The failure this catches is not a missing chop, it is a MISPLACED one. All
+   three officers of one entity share one company stamp, so a version number
+   and an upload date cannot tell you whose hand is in a row; only the picture
+   can. Put the COO's scan in the CEO row and every document afterwards
+   carries the wrong signature under the right name, silently.
+
+   So the panel must DRAW the chop that the vault would actually serve, from
+   the vault's own route rather than from the file that was uploaded - what is
+   on screen has to be what a document would print. */
+ok("the panel shows the chop that is in each cell",
+   /<Chop\b/.test(panel) && /function Chop\(/.test(panel),
+   "a version and a date say an upload happened, not whose signature it was");
+ok("the thumbnail comes from the vault's own authenticated route",
+   /\/api\/v1\/staff\/signature\/\$\{entity\}\/\$\{role\.replace/.test(panel),
+   "drawing the uploaded file instead would show what you MEANT to store, not what is stored");
+ok("a new version busts the cache",
+   /\?v=\$\{version\}/.test(panel),
+   "without it a fresh upload keeps showing the old chop - a stale picture at the one moment it misleads");
+ok("the chop opens full size, to hold against the paper",
+   /function ChopZoom\(/.test(panel) && /max-h-\[60vh\]/.test(panel));
+ok("the signature is drawn on a white plate",
+   /bg-white/.test(panel),
+   "navy ink on transparency is a dark smudge on a dark card");
+ok("the panel says the picture is the thing to check",
+   /the handwriting beside it is the only thing that says who signed/.test(panel));
+ok("the full-size view asks the question outright",
+   /Is this the right person\?/.test(panel));
+/* House rule, v1.124.0: a modal locks BODY, never <html>. */
+ok("the full-size view locks BODY, not <html>",
+   /document\.body\.style\.overflow = "hidden"/.test(panel)
+   && !/documentElement\.style\.overflow/.test(panel));
+ok("it restores the scroll and closes on Escape",
+   /document\.body\.style\.overflow = prev/.test(panel) && /e\.key === "Escape"/.test(panel));
+
 /* ---- 5. the two copies of the rule agree ----------------------------- */
 const grab = (src) => {
   const m = src.match(/WHERE issuer_code = \?1 AND role = \?2 AND uploaded_at <= \?3\s*\n?\s*ORDER BY ([^`]+?)LIMIT 1/);

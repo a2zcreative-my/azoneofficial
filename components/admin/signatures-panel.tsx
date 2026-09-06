@@ -30,7 +30,25 @@
    Uploads APPEND a version, they do not replace. v2 signs documents from the
    day it lands; everything already approved keeps v1, because the vault
    resolves a document's chop by the version that was current when it was
-   signed (migration 0118). That is also why nothing here deletes. */
+   signed (migration 0118). That is also why nothing here deletes.
+
+   v1.130.0 (CEO, 06-09-2026, handing over the six scans: *"ensure that the
+   signature is embedded correctly to the person which is no leaked out of
+   false in use!"*) — EACH CELL SHOWS THE CHOP THAT IS ACTUALLY IN IT.
+
+   This is the only check that catches the failure that matters. A cell that
+   says "v1 - 06-09-2026" is telling you an upload happened; it cannot tell
+   you WHOSE signature happened. Put the COO's scan in the CEO row and every
+   invoice, leave form and claim form afterwards carries the COO's hand under
+   the CEO's name — and nothing anywhere would have said so. The stamps are no
+   help either: all three officers of one entity share one company stamp, so
+   the only thing that distinguishes them is the handwriting beside it.
+
+   So the panel draws it, at a size where the hand is legible, and clicking
+   opens it full size to compare against the paper. The image comes from the
+   vault's own authenticated route — the same one documents use — so what you
+   are looking at is exactly what a document would print, not a copy of the
+   file you uploaded. */
 
 import { useCallback, useEffect, useState } from "react";
 import { makeApi, csrfFetch } from "@/lib/api";
@@ -67,6 +85,85 @@ interface VaultRow {
 
 const dmy = (iso: string) => (iso ?? "").slice(0, 10).split("-").reverse().join("-");
 
+/* The image the vault would actually serve for this cell, from the vault's own
+   authenticated route. `v` is a cache-buster keyed to the version, because the
+   route answers "the current chop for this entity and role" — without it, a
+   freshly uploaded v2 would keep showing v1 out of the browser cache, which is
+   the one moment a stale picture would be actively misleading. */
+const chopSrc = (entity: string, role: string, version: number | "legacy") =>
+  `/api/v1/staff/signature/${entity}/${role.replace(/_/g, "-")}-sign.png?v=${version}`;
+
+/** The chop in a cell, small but legible. Clicking opens it full size. */
+function Chop({ entity, role, version, label, onZoom }: {
+  entity: string; role: string; version: number | "legacy"; label: string; onZoom: () => void;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return (
+    <button
+      type="button"
+      onClick={onZoom}
+      title={L("Open full size to check whose signature this is", "Buka saiz penuh untuk semak tandatangan siapa ini")}
+      /* A white plate, always: the scans are navy ink on transparency, and on
+         a dark card an unplated signature is a dark smudge on a dark square. */
+      className="border-border hover:border-primary block shrink-0 rounded border bg-white p-1 transition-colors"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/* h-14, not h-9. Measured against the real scans: at 36px the company
+          stamp fills the frame and all three officers look identical, which
+          makes the thumbnail decorative — the exact opposite of its job. At
+          56px the handwriting beside the stamp is distinguishable at a
+          glance, and the row is still a row. */}
+      <img
+        src={chopSrc(entity, role, version)}
+        alt={L(`Signature on file for ${label}`, `Tandatangan dalam fail untuk ${label}`)}
+        className="h-14 w-auto max-w-[10rem] object-contain"
+        onError={() => setBroken(true)}
+      />
+    </button>
+  );
+}
+
+/** Full size, to hold against the paper. */
+function ChopZoom({ entity, role, label, entName, onClose }: {
+  entity: string; role: string; label: string; entName: string; onClose: () => void;
+}) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", esc);
+    /* BODY, never <html> — styles/globals.css names the two owners of the
+       document scroll and a third is a bug. */
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", esc);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={L(`Signature on file for ${label}, ${entName}`, `Tandatangan dalam fail untuk ${label}, ${entName}`)}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/70 p-6"
+    >
+      <div className="max-h-[70vh] max-w-full overflow-auto rounded-xl bg-white p-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={chopSrc(entity, role, Date.now())} alt="" className="max-h-[60vh] w-auto object-contain" />
+      </div>
+      <div className="text-center text-white">
+        <p className="text-sm font-semibold">{label}</p>
+        <p className="mt-0.5 text-xs text-white/70">{entName}</p>
+        <p className="mt-2 text-xs text-white/60">
+          {L("Is this the right person? If not, upload the correct scan — the wrong one here signs every document for this role.",
+             "Adakah ini orang yang betul? Jika tidak, muat naik imbasan yang betul — yang salah di sini menandatangani setiap dokumen bagi peranan ini.")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function SignaturesPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
   /* null = the vault has not answered yet (skeleton), so a cell is never
@@ -80,6 +177,8 @@ export function SignaturesPanel() {
   const [ready, setReady] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [openHistory, setOpenHistory] = useState<string | null>(null);
+  /* The cell whose chop is open full size, as "<entity>:<role>". */
+  const [zoom, setZoom] = useState<{ entity: string; role: string; label: string; entName: string } | null>(null);
 
   const load = useCallback(async () => {
     const r = await api<{ ready: boolean; rows: VaultRow[]; legacy: string[] }>("/signatures");
@@ -125,10 +224,23 @@ export function SignaturesPanel() {
   return (
     <div className={card}>
       {toastNode}
+      {zoom && (
+        <ChopZoom
+          entity={zoom.entity}
+          role={zoom.role}
+          label={zoom.label}
+          entName={zoom.entName}
+          onClose={() => setZoom(null)}
+        />
+      )}
       <h2 className="text-base font-semibold">{L("Signatures", "Tandatangan")}</h2>
       <p className="text-muted-foreground mt-1 text-sm">
         {L("Served only to signed-in staff and token-holding customers — never public. Upload a FRESH scan: the old public files must be treated as compromised.",
            "Hanya diberikan kepada kakitangan yang log masuk dan pelanggan pemegang token — tidak sekali-kali umum. Muat naik imbasan BARU: fail lama yang pernah umum perlu dianggap terjejas.")}
+      </p>
+      <p className="text-muted-foreground mt-1.5 text-sm">
+        {L("Check the picture in each row, not just the date: all three officers of one company share the same stamp, so the handwriting beside it is the only thing that says who signed. A scan in the wrong row signs every document for that role.",
+           "Semak gambar pada setiap baris, bukan tarikh sahaja: ketiga-tiga pegawai bagi satu syarikat berkongsi cop yang sama, jadi tulisan tangan di sebelahnya sahaja yang menentukan siapa menandatangani. Imbasan pada baris yang salah akan menandatangani setiap dokumen bagi peranan itu.")}
       </p>
       <p className="text-muted-foreground mt-1.5 text-sm">
         {L("Each company signs with its own chop, because the chop carries the company stamp. A document is signed by the entity that ISSUED it — so AZ ONE documents keep AZ ONE signatures forever, even when re-printed today.",
@@ -162,6 +274,18 @@ export function SignaturesPanel() {
                         <><Skel className="h-4 w-24" /><Skel className="h-5 w-20" /></>
                       ) : (
                         <>
+                          {/* v1.130.0 - WHOSE signature is in this cell. The
+                              version and the date say an upload happened; only
+                              the picture says who. */}
+                          {(cur || hasLegacy) && (
+                            <Chop
+                              entity={ent.code}
+                              role={r.role}
+                              version={cur ? cur.version : "legacy"}
+                              label={`${r.label} - ${ent.name}`}
+                              onZoom={() => setZoom({ entity: ent.code, role: r.role, label: r.label, entName: ent.name })}
+                            />
+                          )}
                           {cur ? (
                             <span className="text-success text-xs">v{cur.version} · {dmy(cur.uploaded_at)}</span>
                           ) : hasLegacy ? (
