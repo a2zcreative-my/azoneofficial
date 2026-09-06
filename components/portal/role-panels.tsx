@@ -496,6 +496,26 @@ const rmR = fmtRM; // v1.4.272: global
    coloured, In / Out under the thumb - the SAME rows and the SAME handlers
    as the desk table (one data source, two renderings); price, rebate, net
    and the web toggle stay on the desk. Every action and rule is unchanged. */
+/** v1.121.0 - THE QUIET CARD. The CEO, 06-09-2026: "I want minimalist UI/UX
+    for this Inventory tabs" - the five history / record cards under the stock
+    table. Each is now one line - its title and its one figure - and opens on a
+    tap; nothing inside changed. Module scope (house rule #30). */
+function QuietCard({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={card}>
+      <button type="button" className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{title}</span>
+          {summary && <span className="text-muted-foreground mt-0.5 block truncate text-xs">{summary}</span>}
+        </span>
+        <span aria-hidden className={`text-muted-foreground shrink-0 text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
+
 export function InventoryPanel({ role = "", statusCard }: { role?: string; statusCard?: ReactNode }) {
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
@@ -1277,8 +1297,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
       {/* v1.4.148: rejected stock back to the supplier, costing tracked for
           the claim-back. Recording a return deducts stock immediately. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("Supplier returns — rejects to claim back", "Pemulangan pembekal — barang ditolak untuk dituntut semula")}</p>
+      <QuietCard title={L("Supplier returns — rejects to claim back", "Pemulangan pembekal — barang ditolak untuk dituntut semula")} summary={retTotals ? `${L("Outstanding", "Tertunggak")} ${rmR(retTotals.outstanding_cents)}` : L("no returns yet", "belum ada pemulangan")}>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Record rejected/defective items sent back to the supplier. Stock is deducted on record. The supplier settles either way: mark the row credited when money comes back, or replaced when replacement goods arrive (stock returns automatically) — the outstanding figure is what the supplier still owes the company.", "Rekod barang ditolak/cacat yang dihantar semula kepada pembekal. Stok ditolak semasa direkod. Pembekal menyelesaikan sama ada cara: tanda baris sebagai dikredit apabila wang kembali, atau diganti apabila barang gantian tiba (stok kembali secara automatik) — angka tertunggak ialah apa yang pembekal masih berhutang kepada syarikat.")}
         </p>
@@ -1530,11 +1549,10 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           ))}
         </div>
         </DetailsToggle>
-      </div>
+      </QuietCard>
 
       <div className="grid grid-cols-1 items-start gap-4 md:gap-6">
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("Postage tracking — non-TikTok orders", "Penjejakan pos — pesanan bukan TikTok")}</p>
+        <QuietCard title={L("Postage tracking — non-TikTok orders", "Penjejakan pos — pesanan bukan TikTok")} summary={`${postage.length} ${L("records", "rekod")}`}>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L("TikTok orders arrive automatically (webhook + 30-minute sync) with their items and tracking. Use this form only for other channels — Shopee, WhatsApp/direct sales, replacements.", "Pesanan TikTok tiba secara automatik (webhook + segerak 30 minit) dengan barang dan penjejakannya. Guna borang ini hanya untuk saluran lain — Shopee, jualan WhatsApp/terus, penggantian.")}
           </p>
@@ -1649,10 +1667,9 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </li>
             ))}
           </ul>
-        </div>
+        </QuietCard>
 
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("Marketing materials", "Bahan pemasaran")}</p>
+        <QuietCard title={L("Marketing materials", "Bahan pemasaran")} summary={`${materials.length} ${L("items", "item")}`}>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L("Track what sales needs — request new material, mark it done when produced.", "Jejak apa yang jualan perlukan — minta bahan baharu, tanda selesai apabila dihasilkan.")}
           </p>
@@ -1700,7 +1717,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </li>
             ))}
           </ul>
-        </div>
+        </QuietCard>
       </div>
       </div>
       </section>
@@ -1710,8 +1727,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       {/* v1.4.165 (CEO): which items went OUT through TikTok Live sales —
           straight from the stock deductions the sync/webhook recorded on
           TT- orders (returned orders excluded). Times are MYT. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")}</p>
+      <QuietCard title={L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")} summary={`${ttOut.length} ${L("items moved this month", "barang bergerak bulan ini")}`}>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
         </p>
@@ -1811,12 +1827,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
           </>
         )}
-      </div>
+      </QuietCard>
 
       {/* v1.4.170 (CEO): the traceability card — every manual stock out with
           the mandatory remark, who and when. Scrollable like the rest. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")}</p>
+      <QuietCard title={L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")} summary={`${manualOuts.length} ${L("records", "rekod")}`}>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
           <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
@@ -1918,7 +1933,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
           </DetailsToggle>
         )}
-      </div>
+      </QuietCard>
 
       </div>
       </section>

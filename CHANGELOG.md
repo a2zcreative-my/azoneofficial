@@ -2,6 +2,39 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.121.0] - 2026-09-06 - Inventory: the five history and record cards are quiet
+
+**CEO**, 06-09-2026: *"I want minimalist UI/UX for this Inventory tabs - TikTok Live stock out, Manual stock movements, Supplier returns, Postage tracking, Marketing materials"*.
+
+Each of the five is now **one line** - its title and its one figure (*Supplier returns · Outstanding RM 340*, *Manual stock movements · 12 records*, *Marketing materials · 3 items* …) - and opens on a tap. Nothing inside any of them changed: the same forms, tables, totals and toggles, drawn only when the card is open. The stock table stays fully open; it is the daily work.
+
+`components/portal/role-panels.tsx` (`QuietCard`, module scope). Guard #49 holds that the five are quiet, each carries its figure, the body is drawn only when open, and the stock table is not quiet.
+
+## [1.120.0] - 2026-09-06 - the Sales tab in zones; the document form is the paper, with a live preview
+
+**CEO**, 06-09-2026: *"Check UI/UX for Sales - webview and mobile apps view, for Add customer & Create document can you make it like the actual format of the Invoice, Delivery Order and Quotation so that my staff know what they want to fill as it will help them to decide and fill the data correctly"*. Proposed as a mockup; approved in full.
+
+### Create document is now laid out as the document
+Every control the form had - and nothing else - now sits where its value prints:
+- **Letterhead and title**: the issuer's name (A2Z / AZ ONE) at the top left with its switch, the document title at the top right with the type switch and the product / service choice.
+- **The meta strip**, the five cells the paper prints: *Sales person · Doc no. · Date · Valid until / Payment due / Delivery · Reference*. What the system fills - the doc number, "14 days", "On receipt", "Pending" - is shown greyed so nobody hunts for a box that does not exist. On an invoice marked paid, the fourth cell becomes the payment-received date.
+- **BILLING ADDRESS** holds the customer picker and, underneath, the block exactly as it will print (company, contact, address, phone, email) - with a warning when the customer card has no address, because that prints as a company name alone. **DELIVERY ADDRESS** beside it (blank prints as "Same as billing address"); a service document shows *SERVICE ADDRESS* with no box, as the paper does.
+- **The lines** under the paper's own column headers; the product picker, UOM, qty, locked list price, line discount, detail lines and the one-page budget are unchanged. A Delivery Order says its prices are kept but not printed.
+- **The totals ladder** on the right: Subtotal, *Less: discount (whole document)*, Tax %, Delivery / postage (hidden on a DO and on a service), **TOTAL** - the two discounts can no longer be confused because each sits where it prints.
+- **The foot**: Prepared by / Authorised signature and Customer acceptance / Received by, described, so staff know what signs automatically and what is signed by hand.
+
+### A live preview of the real paper
+Beside the form on a wide screen, behind a *Preview* button on a phone: the actual document, drawn by the very template that prints, redrawn as they type, scaled to fit so nothing scrolls sideways. It never auto-prints and its arithmetic is the form's own. Choosing DO, INV or QT, or a service, changes the preview exactly as it changes the printed page.
+
+### Add customer is the BILLING ADDRESS block
+Company, contact person, address, phone, email - top to bottom, in the frame they print in - with a note that the state at the end of the address is what places the customer on the Sales map; website and logo sit under a dashed *Not printed - for the portal only* line. Same fields, same handlers; the customer list stays under the form because Edit loads a customer into it.
+
+### The tab, in zones
+**THIS MONTH** (the Sales map) · **THE WORK** (the document form and preview full-width, the aging line, the Documents list, receipts / credit notes / outstanding) · **CUSTOMERS** (the billing-block form with the customer list, beside the Clients card) · **THE LONGER VIEW** (live economics, packages). One column on the phone.
+
+### Under it
+`components/portal/sales.tsx` (the paper form; `DocPreview`; `Sales` takes `workExtra` / `customersExtra` so the page can place the receipts and clients cards in the right zones), `app/portal/page.tsx`. `tests/sales-map.mjs` re-pointed for the zone; guard #49 `tests/tab-zones.mjs` gains the Sales checks - the meta strip order, billing before delivery, the ladder order, every old control present, the preview drawn by the printing template and never auto-printing, one arithmetic for form and preview, the customer form in print order, the zones - negative-tested three ways. No database change; the worker is untouched.
+
 ## [1.119.0] - 2026-09-06 - the Inventory tab in three zones, with a find box, status chips and phone-sized stock rows
 
 **CEO**, 06-09-2026: *"Check UI/UX for Inventory - webview and mobile apps view"*. Proposed as a side-by-side mockup; approved in full.

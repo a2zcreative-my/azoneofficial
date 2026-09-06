@@ -111,7 +111,7 @@ const GUARDS = [
   ["enquiries", "an enquiry is work: overdue after a day, one person's, announced once to those who can answer"],
   ["sales-map", "the sales map places every ringgit it can by state and says what it could not"],
   ["portal-split", "the portal page is a shell and fourteen domain files, and stays that way"],
-  ["tab-zones", "Ecommerce reads in four zones and Inventory in three, with one stock list behind both the table and the phone cards"],
+  ["tab-zones", "Ecommerce, Inventory and Sales read in zones; the document form is the paper, previewed by the template that prints"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

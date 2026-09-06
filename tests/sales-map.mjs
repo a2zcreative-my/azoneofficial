@@ -146,7 +146,10 @@ const M = await import(pathToFileURL(out2).href);
   ok("orders count only when the portal saw them paid, at the booked amount", /FROM web_orders WHERE paid_seen_at IS NOT NULL/.test(src) && /COALESCE\(booked_cents, total_cents\)/.test(src),
      "revenue on the map must be the revenue Finance shows");
   ok("invoices are placed by the customer's address", /FROM sales_documents d JOIN customers c ON c\.id = d\.customer_id/.test(src) && /d\.doc_type = 'INV'/.test(src));
-  ok("the panel is lazy and leads the Sales tab", /SalesMap = lazy\(/.test(lazy) && /<SalesMap \/>\s*<Sales user=\{user\} \/>/.test(page));
+  /* v1.120.0 - the map leads the tab inside its THIS MONTH zone; the Sales
+     component (documents, customers) follows it */
+  const salesTab = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
+  ok("the panel is lazy and leads the Sales tab", /SalesMap = lazy\(/.test(lazy) && salesTab.indexOf("<SalesMap />") > 0 && salesTab.indexOf("<SalesMap />") < salesTab.indexOf("<Sales user={user}"));
   ok("the panel draws the shared geometry in the house language", /from "@\/lib\/malaysia-map"/.test(panel) && /var\(--gold-solid\)/.test(panel) && /var\(--brand-primary\)/.test(panel) && /strokeDasharray="3 5"/.test(panel));
   ok("the panel has both layers and shows the unplaced line", /\["invoices", "orders"\] as const/.test(panel) && /could not be placed/.test(panel));
   ok("the panel is remembered and live on what moves a sale", /useCachedApi<Data>\(`\/staff\/sales\/map\?range=\$\{range\}`, true, \["docs", "clients", "orders", "web-orders"\]\)/.test(panel));

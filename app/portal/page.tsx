@@ -1474,14 +1474,25 @@ export default function PortalPage() {
             <div className="space-y-4 md:space-y-6">
               {/* v1.21.0 put the enquiries card here; v1.112.0 moved it to its
                 own tab, one place to the right. v1.113.0: the CEO's sales map
-                leads the tab - where the money is, by state. */}
-              <SalesMap />
-              <Sales user={user} />
-              {/* v1.7.0: receipts, credit notes & outstanding report */}
-              <DocumentsPanel />
-              <ClientsCard />
-              <LiveEconomicsCard />
-              <PackagesEditorCard role={user.role} />
+                leads the tab - where the money is, by state. v1.120.0: four
+                zones - THIS MONTH (the map), THE WORK (the document-shaped
+                form with its live preview, the documents, receipts / credit
+                notes / outstanding), CUSTOMERS (the billing-block form with
+                the customer list, the Clients card), THE LONGER VIEW (live
+                economics, packages). The Sales component draws the middle
+                two, because Edit on a customer loads that form. */}
+              <section className="space-y-3 md:space-y-4">
+                <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
+                <SalesMap />
+              </section>
+              <Sales user={user} workExtra={<DocumentsPanel />} customersExtra={<ClientsCard />} />
+              <section className="space-y-3 md:space-y-4">
+                <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
+                <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+                  <LiveEconomicsCard />
+                  <PackagesEditorCard role={user.role} />
+                </div>
+              </section>
             </div>
           )}
           {/* v1.21.0: the Pipeline tab is retired (CEO: "Sales pipeline is

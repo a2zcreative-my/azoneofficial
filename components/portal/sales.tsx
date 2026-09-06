@@ -5,7 +5,7 @@
    at the top are new and the declarations are exported. */
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
-import { L, User, payStatusL } from "@/components/portal/page-shared";
+import { L, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -22,8 +22,8 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, card, fieldRow, inputClass, td, tdR2, th, thR2 } from "@/lib/ui-styles";
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { btnClass, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -1014,7 +1014,93 @@ export function stockToastLine(
   return parts.length ? ` — ${parts.join(" · ")}` : "";
 }
 
-export function Sales({ user }: { user: User }) {
+/* ======================================================================
+   THE LIVE PREVIEW — v1.120.0. The REAL document, drawn by the template
+   that prints (lib/doc-template.ts buildDocHtml), from the form's state as
+   it is typed. It cannot drift from the paper because it IS the paper. On a
+   wide screen it sits beside the form; below xl it opens from a button so a
+   phone keeps its one column. Scaled to the box it is given (A4 at 96dpi is
+   794px wide), so nothing scrolls sideways. Module scope (house rule #30).
+   ====================================================================== */
+export function DocPreview({ doc, docDate, customers, staffList, user, docNumber }: {
+  doc: { doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean; reference: string; delivery_address: string; issuer: string };
+  docDate: string;
+  customers: Customer[];
+  staffList: { id: number; name: string }[];
+  user: User;
+  docNumber: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.5);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const fit = () => setScale(Math.max(0.2, Math.min(1, el.clientWidth / 794)));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open]);
+
+  const c = customers.find((x) => x.id === doc.customer_id);
+  const salesperson = doc.salesperson_id ? (staffList.find((u) => u.id === doc.salesperson_id)?.name ?? user.name) : user.name;
+  const subtotal = doc.items.reduce((s, i) => s + i.qty * i.unit_price_cents - Math.min(i.disc_cents ?? 0, i.qty * i.unit_price_cents), 0);
+  const total = Math.max(0, Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100)))
+    + (doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents);
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const full: DocFull = {
+    doc_type: doc.doc_type,
+    doc_number: docNumber ?? `${doc.doc_type}-DRAFT`,
+    company: c?.company ?? (doc.customer_id === 0 ? "Walk-in Customer" : "—"),
+    contact_person: c?.contact_person ?? undefined,
+    address: c?.address ?? undefined,
+    customer_phone: c?.phone ?? undefined,
+    customer_email: c?.email ?? undefined,
+    items: JSON.stringify(doc.items.map((i) => ({ ...i, sub: (i.sub ?? []).map((s) => s.trim()).filter(Boolean) }))),
+    discount_cents: doc.discount_cents,
+    tax_percent: doc.tax_percent,
+    delivery_cents: doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents,
+    total_cents: total,
+    created_at: (docDate || today) + " 00:00:00",
+    payment_status: doc.doc_type === "INV" ? (doc.paid_received ? "paid" : "unpaid") : null,
+    salesperson_name: salesperson,
+    created_by_role: user.role,
+    kind: doc.kind,
+    delivery_status: "pending",
+    reference: doc.reference || null,
+    delivery_address: doc.delivery_address || null,
+    signer_role: user.role === "coo" ? "coo" : "ceo",
+    signer_name: user.name,
+    signer_position: user.role.replace(/_/g, " ").toUpperCase(),
+    issuer_code: doc.issuer,
+  };
+  const html = buildDocHtml(full, false);
+  const sheet = (
+    <div ref={boxRef} className="border-border overflow-hidden rounded-md border bg-white shadow-sm" style={{ height: Math.round(1123 * scale) }}>
+      <iframe
+        title={L("Document preview", "Pratonton dokumen")}
+        srcDoc={html}
+        sandbox="allow-same-origin"
+        className="block origin-top-left border-0 bg-white"
+        style={{ width: 794, height: 1123, transform: `scale(${scale})` }}
+      />
+    </div>
+  );
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Preview — as it will print", "Pratonton — seperti ia akan dicetak")}</p>
+        <button type="button" className="text-xs underline xl:hidden" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? L("Hide preview", "Sembunyi pratonton") : L("Preview", "Pratonton")}
+        </button>
+      </div>
+      <div className={`mt-1.5 ${open ? "block" : "hidden xl:block"}`}>{sheet}</div>
+    </div>
+  );
+}
+
+export function Sales({ user, workExtra, customersExtra }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -1598,338 +1684,15 @@ export function Sales({ user }: { user: User }) {
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
-        <div className={card}>
-          <p className="text-sm font-semibold">
-            {editingCust ? (
-              <>
-                {L("Editing", "Menyunting")} {editingCust.company}{" "}
-                <button
-                  type="button"
-                  className="ml-1 text-xs font-normal underline"
-                  onClick={() => {
-                    setEditingCust(null);
-                    setCust({
-                      company: "",
-                      contact_person: "",
-                      phone: "",
-                      email: "",
-                      address: "",
-                      website: "",
-                    });
-                  }}
-                >
-                  {L("cancel", "batal")}
-                </button>
-              </>
-            ) : (
-              L("Add customer", "Tambah pelanggan")
-            )}
-          </p>
-          <div className="mt-3 space-y-3">
-            <Sub t={L("Company *", "Syarikat *")}>
-              <input
-                className={inputClass}
-                placeholder={L(
-                  "e.g. Acme Retail Sdn Bhd",
-                  "cth. Acme Retail Sdn Bhd"
-                )}
-                value={cust.company}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, company: e.target.value }))
-                }
-              />
-            </Sub>
-            <div className="grid grid-cols-2 gap-3">
-              <Sub t={L("Contact person", "Orang hubungan")}>
-                <input
-                  className={inputClass}
-                  placeholder={L("Full name", "Nama penuh")}
-                  value={cust.contact_person}
-                  onChange={(e) =>
-                    setCust((c) => ({ ...c, contact_person: e.target.value }))
-                  }
-                />
-              </Sub>
-              <Sub t={L("Phone", "Telefon")}>
-                <input
-                  className={inputClass}
-                  placeholder="+60 12-345 6789"
-                  value={cust.phone}
-                  onChange={(e) =>
-                    setCust((c) => ({ ...c, phone: e.target.value }))
-                  }
-                />
-              </Sub>
-            </div>
-            <Sub t={L("Email", "E-mel")}>
-              <input
-                className={inputClass}
-                placeholder="name@company.com"
-                value={cust.email}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, email: e.target.value }))
-                }
-              />
-            </Sub>
-            <Sub t={L("Address", "Alamat")}>
-              {/* v1.4.235: prints on the customer's documents. */}
-              <textarea
-                className={`${inputClass} min-h-16`}
-                placeholder={
-                  "No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"
-                }
-                value={cust.address}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, address: e.target.value }))
-                }
-              />
-            </Sub>
-            {/* v1.30.0 (CEO: "customer or client can have a option to click
-                on their logo then will redirecting to their own domain"):
-                the client's OWN address on the web, and their own mark. It
-                lives on the client record — not in our site's code — so the
-                tenth client works the same as the first with no deploy. */}
-            <Sub t={L("Their website", "Laman web mereka")}>
-              <input
-                className={inputClass}
-                placeholder="https://theirbrand.my"
-                value={cust.website}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, website: e.target.value }))
-                }
-              />
-            </Sub>
-            {editingCust && (
-              <Sub t={L("Their logo", "Logo mereka")}>
-                <span className="flex flex-wrap items-center gap-2">
-                  {(() => {
-                    const row = customers.find((c) => c.id === editingCust.id);
-                    return row?.logo_key ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`/api/v1/media/file/${encodeURIComponent(row.logo_key)}`}
-                        alt={row.company}
-                        className="border-border h-8 w-auto rounded border bg-white p-0.5"
-                      />
-                    ) : null;
-                  })()}
-                  <label className="border-border hover:bg-secondary inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs">
-                    {logoBusy === editingCust.id
-                      ? L("Uploading…", "Memuat naik…")
-                      : L("Upload logo", "Muat naik logo")}
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0];
-                        e.target.value = "";
-                        if (!f) return;
-                        setLogoBusy(editingCust.id);
-                        const r = await api<{ error?: { message?: string } }>(
-                          `/staff/customers/${editingCust.id}/logo`,
-                          {
-                            method: "POST",
-                            body: f,
-                            headers: { "Content-Type": f.type },
-                          }
-                        );
-                        setLogoBusy(null);
-                        if (!r.ok) {
-                          showToast(
-                            L("No changes", "Tiada perubahan"),
-                            r.data?.error?.message ??
-                              L("Upload failed", "Muat naik gagal"),
-                            "notice"
-                          );
-                          return;
-                        }
-                        showToast(
-                          L("Saved", "Disimpan"),
-                          L(
-                            `${editingCust.company} logo updated`,
-                            `Logo ${editingCust.company} dikemas kini`
-                          )
-                        );
-                        void load();
-                      }}
-                    />
-                  </label>
-                  <span className="text-muted-foreground text-[11px]">
-                    {L(
-                      "PNG, JPG, WEBP or SVG. Shown to this client in their own area, linking to their website.",
-                      "PNG, JPG, WEBP atau SVG. Dipaparkan kepada klien ini di ruangan mereka, memaut ke laman web mereka."
-                    )}
-                  </span>
-                </span>
-              </Sub>
-            )}
-            <button
-              type="button"
-              className={btnClass}
-              onClick={() => void addCustomer()}
-            >
-              {editingCust
-                ? L("Update customer", "Kemas kini pelanggan")
-                : L("Save customer", "Simpan pelanggan")}
-            </button>
-          </div>
-          <div className="mt-3 max-h-56 overflow-y-auto">
-            {/* v1.77.0 — skeleton until the first fetch lands. */}
-            {!loaded && <SkelRows rows={3} />}
-            {loaded && customers.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                {L("No customers yet.", "Tiada pelanggan lagi.")}
-              </p>
-            )}
-            {loaded && customers.map((c) => (
-              <div
-                key={c.id}
-                className="border-border border-b py-1.5 text-sm last:border-0"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0">
-                    {/* v1.4.249: the company name opens the record — contact
-                      details and both addresses were invisible in this list. */}
-                    <RecordToggle
-                      open={openCust === c.id}
-                      title={L("Contact and addresses", "Hubungan dan alamat")}
-                      onToggle={() =>
-                        setOpenCust(openCust === c.id ? null : c.id)
-                      }
-                    >
-                      {c.company}
-                    </RecordToggle>
-                    {c.contact_person && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {c.contact_person}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap items-center justify-end gap-1.5">
-                    {docs.some(
-                      (d) => d.doc_type === "INV" && d.company === c.company
-                    ) && (
-                      <button
-                        type="button"
-                        className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
-                        title={L(
-                          "Statement of Account — all invoices, paid + outstanding, printable",
-                          "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak"
-                        )}
-                        onClick={() => printSOA(c.company, docs)}
-                      >
-                        SOA
-                      </button>
-                    )}
-                    {/* v1.4.235: edit loads the record into the form above;
-                      delete is refused by the server while documents exist. */}
-                    <button
-                      type="button"
-                      className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
-                      onClick={() => {
-                        setEditingCust({ id: c.id, company: c.company });
-                        setCust({
-                          company: c.company,
-                          contact_person: c.contact_person ?? "",
-                          phone: c.phone ?? "",
-                          email: c.email ?? "",
-                          address:
-                            (c as { address?: string | null }).address ?? "",
-                          website: c.website ?? "",
-                        });
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                    >
-                      ✎ {L("Edit", "Sunting")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
-                      onClick={async () => {
-                        if (
-                          !(await askConfirm({
-                            title: L(
-                              `Delete ${c.company}?`,
-                              `Padam ${c.company}?`
-                            ),
-                            message: L(
-                              "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
-                              "Hanya boleh apabila mereka tiada dokumen — sebut harga dan invois mesti mengekalkan pelanggannya untuk rekod."
-                            ),
-                            confirmLabel: L(
-                              "Delete customer",
-                              "Padam pelanggan"
-                            ),
-                            variant: "danger",
-                          }))
-                        )
-                          return;
-                        const res = await api<{ error?: { message?: string } }>(
-                          `/staff/customers/${c.id}`,
-                          { method: "DELETE" }
-                        );
-                        if (res.ok) {
-                          showToast(
-                            L("Deleted", "Dipadam"),
-                            L(`${c.company} removed`, `${c.company} dibuang`)
-                          );
-                          if (editingCust?.id === c.id) {
-                            setEditingCust(null);
-                            setCust({
-                              company: "",
-                              contact_person: "",
-                              phone: "",
-                              email: "",
-                              address: "",
-                              website: "",
-                            });
-                          }
-                          void load();
-                        } else
-                          showToast(
-                            L("No changes", "Tiada perubahan"),
-                            res.data?.error?.message ??
-                              L("Delete refused", "Padam ditolak"),
-                            "notice"
-                          );
-                      }}
-                    >
-                      {L("Delete", "Padam")}
-                    </button>
-                  </span>
-                </div>
-                {openCust === c.id && (
-                  <DetailGrid
-                    items={[
-                      {
-                        label: L("Contact", "Hubungan"),
-                        value: c.contact_person ?? "",
-                      },
-                      { label: L("Phone", "Telefon"), value: c.phone ?? "" },
-                      { label: L("Email", "E-mel"), value: c.email ?? "" },
-                      {
-                        label: L("Billing address", "Alamat bil"),
-                        wide: true,
-                        value: (c as { address?: string | null }).address ?? "",
-                      },
-                      {
-                        label: L("Delivery address", "Alamat penghantaran"),
-                        wide: true,
-                        value:
-                          (c as { delivery_address?: string | null })
-                            .delivery_address ?? "",
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
+      {/* v1.120.0 — the Sales tab in zones (CEO, 06-09-2026). THE WORK: the
+          document-shaped form with its live preview, full width, then the
+          aging and the Documents list, then receipts / credit notes /
+          outstanding (workExtra). CUSTOMERS: the billing-block form with the
+          customer list under it, beside the Clients card (customersExtra).
+          The customer form stays in this component because Edit on a
+          customer loads it into the form. */}
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
         <div className={card}>
           {toastNode}
           {confirmNode}
@@ -1950,14 +1713,71 @@ export function Sales({ user }: { user: User }) {
               L("Create document", "Buat dokumen")
             )}
           </p>
-          <div className="mt-3 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L("Document type", "Jenis dokumen")}
-                </span>
+          {/* v1.120.0 — THE FORM IS THE PAPER. The CEO, 06-09-2026: *"for Add
+              customer & Create document can you make it like the actual
+              format of the Invoice, Delivery Order and Quotation so that my
+              staff know what they want to fill as it will help them to decide
+              and fill the data correctly"*. Every control below is the one
+              the form had; each now sits where its value prints - the
+              letterhead and title at the top, the meta strip (sales person,
+              doc no., date, valid-until / payment-due / delivery, reference),
+              BILLING and DELIVERY ADDRESS side by side, the lines under the
+              document's own column headers, the totals ladder on the right,
+              prepared-by and acceptance at the foot. What the system fills is
+              shown greyed so nobody hunts for it. Beside it, DocPreview draws
+              the REAL document (the template that prints) as they type. */}
+          <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+          <div className="border-border bg-card rounded-md border p-3 shadow-sm sm:p-4">
+            {/* ---- letterhead + title ---- */}
+            <div className="border-primary flex flex-wrap items-start justify-between gap-3 border-b-2 pb-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-primary text-xs font-extrabold tracking-[0.12em] uppercase">{resolveIssuer(doc.issuer).name}</p>
+                {/* v1.30.1 (CEO: "letterhead should all under A2Z since A2Z is
+                    a main company... only under AZ ONE if it is consultancy"):
+                    the entity choice, at creation only. It decides the
+                    letterhead, the registration number, the SST clause AND the
+                    bank account the client is told to pay — which is why the
+                    amber line spells that out before anyone presses Create,
+                    and why the choice is locked once the document exists. */}
+                {!editingDoc ? (
+                  <label className="mt-1 block">
+                    <span className="text-muted-foreground mb-1 block text-[10px] tracking-wider uppercase">
+                      {L("Issued by (letterhead + bank account)", "Dikeluarkan oleh (kepala surat + akaun bank)")}
+                    </span>
+                    <select
+                      className={inputClass}
+                      value={doc.issuer}
+                      onChange={(e) =>
+                        setDoc((d) => ({ ...d, issuer: e.target.value }))
+                      }
+                    >
+                      <option value="a2z">
+                        {L("A2Z CREATIVE MARKETING — default", "A2Z CREATIVE MARKETING — lalai")}
+                      </option>
+                      <option value="azoo">
+                        {L("AZ ONE OFFICIAL — consultancy work", "AZ ONE OFFICIAL — kerja perundingan")}
+                      </option>
+                    </select>
+                    {doc.issuer === "azoo" && (
+                      <span className="text-warning mt-1 block text-[11px] leading-snug">
+                        {L(
+                          "This document will carry AZ ONE OFFICIAL's letterhead and instruct payment to AZ ONE's Maybank account. Use only for consultancy work done as AZ ONE.",
+                          "Dokumen ini akan membawa kepala surat AZ ONE OFFICIAL dan mengarahkan bayaran ke akaun Maybank AZ ONE. Guna hanya untuk kerja perundingan sebagai AZ ONE."
+                        )}
+                      </span>
+                    )}
+                  </label>
+                ) : (
+                  <p className="text-muted-foreground mt-0.5 text-[11px]">{L("Issuer is fixed once a document exists.", "Pengeluar tetap setelah dokumen wujud.")}</p>
+                )}
+              </div>
+              <div className="w-full sm:w-auto sm:min-w-[15rem] sm:text-right">
+                <p className="text-base font-extrabold tracking-[0.14em] uppercase">
+                  {doc.doc_type === "QT" ? L("Quotation", "Sebut harga") : doc.doc_type === "DO" ? L("Delivery Order", "Pesanan Penghantaran") : L("Invoice", "Invois")}
+                </p>
                 <select
-                  className={inputClass}
+                  className={`${inputClass} mt-1`}
+                  aria-label={L("Document type", "Jenis dokumen")}
                   value={doc.doc_type}
                   onChange={(e) =>
                     setDoc((d) => ({ ...d, doc_type: e.target.value }))
@@ -1975,13 +1795,143 @@ export function Sales({ user }: { user: User }) {
                     <option value="INV">{L("Invoice", "Invois")}</option>
                   )}
                 </select>
-              </label>
+                {/* v1.4.234 (CEO: 2 business lines — product vs service; "details
+                    just filled by one details"): ONE line per document. The
+                    choice tags the document, steers the item placeholder, and
+                    removes Delivery Order for services. v1.27.0: the labels
+                    name the KIND of line, not one client. */}
+                <div className="mt-1.5 flex gap-2">
+                  {(
+                    [
+                      ["product", "Product — client goods"],
+                      ["service", "Service — agency work"],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={
+                        "h-9 flex-1 rounded-lg border px-2 text-xs font-medium " +
+                        (doc.kind === k
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border hover:bg-secondary")
+                      }
+                      onClick={() =>
+                        setDoc((d) => ({
+                          ...d,
+                          kind: k,
+                          doc_type:
+                            k === "service" && d.doc_type === "DO"
+                              ? "QT"
+                              : d.doc_type,
+                          delivery_cents: k === "service" ? 0 : d.delivery_cents,
+                        }))
+                      }
+                    >
+                      {L(
+                        label,
+                        k === "product"
+                          ? "Produk — barangan klien"
+                          : "Perkhidmatan — kerja agensi"
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ---- the meta strip, exactly the five cells the paper prints ---- */}
+            <div className="border-border grid grid-cols-2 gap-x-3 gap-y-2 border-b py-3 sm:grid-cols-5">
               <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L("Customer", "Pelanggan")}
-                </span>
+                <span className="text-muted-foreground block text-[9px] font-semibold tracking-[0.12em] uppercase">{L("Sales person", "Jurujual")}</span>
                 <select
-                  className={inputClass}
+                  className={`${inputClassSm} mt-0.5 w-full`}
+                  value={doc.salesperson_id}
+                  onChange={(e) =>
+                    setDoc((d) => ({
+                      ...d,
+                      salesperson_id: Number(e.target.value),
+                    }))
+                  }
+                  title={L(
+                    "Captured from your login automatically — change it only when creating on someone else's behalf",
+                    "Diambil daripada log masuk anda secara automatik — tukar hanya apabila membuat bagi pihak orang lain"
+                  )}
+                >
+                  {/* v1.41.1 (CEO): the FULL name, nothing else. */}
+                  <option value={0}>
+                    {L(`${user.name} — me (auto from login)`, `${user.name} — saya (auto dari log masuk)`)}
+                  </option>
+                  {staffList
+                    .filter((u) => u.name !== user.name)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <div>
+                <span className="text-muted-foreground block text-[9px] font-semibold tracking-[0.12em] uppercase">{L("Doc no.", "No. dok.")}</span>
+                <p className="text-muted-foreground mt-0.5 h-8 truncate rounded-lg bg-secondary/60 px-2 py-1.5 text-xs">{editingDoc ? editingDoc.doc_number : L("auto on save", "auto semasa simpan")}</p>
+              </div>
+              <label className="block">
+                <span className="text-muted-foreground block text-[9px] font-semibold tracking-[0.12em] uppercase">{L("Date", "Tarikh")}</span>
+                <input
+                  type="date"
+                  className={`${inputClassSm} mt-0.5 w-full`}
+                  title={L("Document date (backdate allowed)", "Tarikh dokumen (tarikh lampau dibenarkan)")}
+                  value={docDate}
+                  max={new Date(Date.now() + 8 * 3600 * 1000)
+                    .toISOString()
+                    .slice(0, 10)}
+                  onChange={(e) => setDocDate(e.target.value)}
+                />
+              </label>
+              <div>
+                <span className="text-muted-foreground block text-[9px] font-semibold tracking-[0.12em] uppercase">
+                  {doc.doc_type === "QT" ? L("Valid until", "Sah hingga") : doc.doc_type === "INV" ? L("Payment due", "Bayaran perlu") : L("Delivery", "Penghantaran")}
+                </span>
+                {doc.doc_type === "INV" && doc.paid_received ? (
+                  <input
+                    type="date"
+                    className={`${inputClassSm} mt-0.5 w-full`}
+                    title={L("Payment received date", "Tarikh bayaran diterima")}
+                    value={paidDate}
+                    max={new Date(Date.now() + 8 * 3600 * 1000)
+                      .toISOString()
+                      .slice(0, 10)}
+                    onChange={(e) => setPaidDate(e.target.value)}
+                  />
+                ) : (
+                  <p className="text-muted-foreground mt-0.5 h-8 truncate rounded-lg bg-secondary/60 px-2 py-1.5 text-xs">
+                    {doc.doc_type === "QT" ? L("14 days", "14 hari") : doc.doc_type === "INV" ? L("On receipt", "Semasa terima") : L("Pending", "Belum")}
+                  </p>
+                )}
+              </div>
+              <label className="block">
+                <span className="text-muted-foreground block text-[9px] font-semibold tracking-[0.12em] uppercase">{L("Reference", "Rujukan")}</span>
+                {/* v1.4.243: the buyer's own reference prints in the meta
+                    strip — "N/A" when blank. */}
+                <input
+                  className={`${inputClassSm} mt-0.5 w-full`}
+                  placeholder={L("their PO no. — or N/A", "no. PO mereka — atau N/A")}
+                  maxLength={60}
+                  value={doc.reference}
+                  onChange={(e) =>
+                    setDoc((d) => ({ ...d, reference: e.target.value }))
+                  }
+                />
+              </label>
+            </div>
+
+            {/* ---- the two parties, as the paper prints them ---- */}
+            <div className="grid grid-cols-1 gap-3 py-3 sm:grid-cols-2">
+              <div>
+                <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Billing address", "Alamat bil")}</p>
+                <select
+                  className={`${inputClass} mt-1`}
+                  aria-label={L("Customer", "Pelanggan")}
                   value={doc.customer_id}
                   onChange={(e) =>
                     setDoc((d) => ({
@@ -1994,10 +1944,7 @@ export function Sales({ user }: { user: User }) {
                     {L("Choose customer…", "Pilih pelanggan…")}
                   </option>
                   <option value={0}>
-                    {L(
-                      "🚶 Walk-in / general buyer",
-                      "🚶 Walk-in / pembeli umum"
-                    )}
+                    {L("🚶 Walk-in / general buyer", "🚶 Walk-in / pembeli umum")}
                   </option>
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -2005,253 +1952,62 @@ export function Sales({ user }: { user: User }) {
                     </option>
                   ))}
                 </select>
-              </label>
-              {/* v1.30.1 (CEO: "letterhead should all under A2Z since A2Z is
-                  a main company... only under AZ ONE if it is consultancy"):
-                  the entity choice, at creation only. It decides the
-                  letterhead, the registration number, the SST clause AND the
-                  bank account the client is told to pay — which is why the
-                  amber line spells that out before anyone presses Create,
-                  and why the choice is locked once the document exists. */}
-              {!editingDoc && (
-                <label className="col-span-2 block">
-                  <span className="text-muted-foreground mb-1 block text-xs">
-                    {L(
-                      "Issued by (letterhead + bank account)",
-                      "Dikeluarkan oleh (kepala surat + akaun bank)"
-                    )}
-                  </span>
-                  <select
-                    className={inputClass}
-                    value={doc.issuer}
-                    onChange={(e) =>
-                      setDoc((d) => ({ ...d, issuer: e.target.value }))
-                    }
-                  >
-                    <option value="a2z">
-                      {L(
-                        "A2Z CREATIVE MARKETING — default",
-                        "A2Z CREATIVE MARKETING — lalai"
-                      )}
-                    </option>
-                    <option value="azoo">
-                      {L(
-                        "AZ ONE OFFICIAL — consultancy work",
-                        "AZ ONE OFFICIAL — kerja perundingan"
-                      )}
-                    </option>
-                  </select>
-                  {doc.issuer === "azoo" && (
-                    <span className="text-warning mt-1 block text-[11px] leading-snug">
-                      {L(
-                        "This document will carry AZ ONE OFFICIAL's letterhead and instruct payment to AZ ONE's Maybank account. Use only for consultancy work done as AZ ONE.",
-                        "Dokumen ini akan membawa kepala surat AZ ONE OFFICIAL dan mengarahkan bayaran ke akaun Maybank AZ ONE. Guna hanya untuk kerja perundingan sebagai AZ ONE."
-                      )}
-                    </span>
-                  )}
-                </label>
-              )}
-            </div>
-            <label className="block">
-              <span className="text-muted-foreground mb-1 block text-xs">
-                {L("This document is for", "Dokumen ini untuk")}
-              </span>
-              {/* v1.4.234 (CEO: 2 business lines — product vs service; "details
-                  just filled by one details"): ONE line per document. The
-                  choice tags the document, steers the item placeholder, and
-                  removes Delivery Order for services. */}
-              <div className="flex gap-2">
-                {/* v1.27.0: the labels name the KIND of line, not one client.
-                    ELFIA is an independent client brand, not an A2Z product,
-                    and this form writes quotations for every customer. The
-                    stored VALUES ("product" / "service") are untouched — they
-                    are in the database on every document already. */}
-                {(
-                  [
-                    ["product", "Product — client goods"],
-                    ["service", "Service — agency work"],
-                  ] as const
-                ).map(([k, label]) => (
-                  <button
-                    key={k}
-                    type="button"
-                    className={
-                      "h-9 flex-1 rounded-lg border px-3 text-xs font-medium " +
-                      (doc.kind === k
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border hover:bg-secondary")
-                    }
-                    onClick={() =>
-                      setDoc((d) => ({
-                        ...d,
-                        kind: k,
-                        doc_type:
-                          k === "service" && d.doc_type === "DO"
-                            ? "QT"
-                            : d.doc_type,
-                        delivery_cents: k === "service" ? 0 : d.delivery_cents,
-                      }))
-                    }
-                  >
-                    {L(
-                      label,
-                      k === "product"
-                        ? "Produk — barangan klien"
-                        : "Perkhidmatan — kerja agensi"
-                    )}
-                  </button>
-                ))}
+                {(() => {
+                  const c = customers.find((x) => x.id === doc.customer_id);
+                  if (doc.customer_id === -1) return <p className="text-muted-foreground mt-1.5 text-[11px]">{L("The company, contact, address, phone and email print here from the customer card.", "Syarikat, kenalan, alamat, telefon dan e-mel dicetak di sini daripada kad pelanggan.")}</p>;
+                  if (!c) return <p className="text-muted-foreground mt-1.5 text-xs">{L("Walk-in customer — no address printed.", "Pelanggan walk-in — tiada alamat dicetak.")}</p>;
+                  return (
+                    <div className="mt-1.5 text-xs leading-snug">
+                      <p className="font-semibold">{c.company}</p>
+                      {c.contact_person && <p>{c.contact_person}</p>}
+                      {c.address ? <p className="whitespace-pre-line">{c.address}</p> : <p className="text-warning">{L("No address on the customer card — add it there or the block prints as the company name alone.", "Tiada alamat pada kad pelanggan — tambah di sana atau blok dicetak sebagai nama syarikat sahaja.")}</p>}
+                      {c.phone && <p>{c.phone}</p>}
+                      {c.email && <p>{c.email}</p>}
+                    </div>
+                  );
+                })()}
               </div>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L(
-                    "Document date (backdate allowed)",
-                    "Tarikh dokumen (tarikh lampau dibenarkan)"
-                  )}
-                </span>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={docDate}
-                  max={new Date(Date.now() + 8 * 3600 * 1000)
-                    .toISOString()
-                    .slice(0, 10)}
-                  onChange={(e) => setDocDate(e.target.value)}
-                />
-              </label>
-              {doc.doc_type === "INV" && doc.paid_received ? (
-                <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">
-                    {L("Payment received date", "Tarikh bayaran diterima")}
-                  </span>
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={paidDate}
-                    max={new Date(Date.now() + 8 * 3600 * 1000)
-                      .toISOString()
-                      .slice(0, 10)}
-                    onChange={(e) => setPaidDate(e.target.value)}
-                  />
-                </label>
-              ) : (
-                <span />
-              )}
+              <div>
+                <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{doc.kind === "service" ? L("Service address", "Alamat perkhidmatan") : L("Delivery address", "Alamat penghantaran")}</p>
+                {/* v1.4.243: a ship-to prints beside the billing block. A
+                    service delivers nothing physical, so the box is product-only. */}
+                {doc.kind === "product" ? (
+                  <>
+                    <textarea
+                      className={`${inputClass} mt-1 min-h-[4.5rem]`}
+                      aria-label={L("Delivery address (only if different)", "Alamat penghantaran (hanya jika berbeza)")}
+                      placeholder={L("Leave blank — same as billing", "Biarkan kosong — sama seperti bil")}
+                      maxLength={300}
+                      value={doc.delivery_address}
+                      onChange={(e) =>
+                        setDoc((d) => ({
+                          ...d,
+                          delivery_address: e.target.value,
+                        }))
+                      }
+                    />
+                    <p className="text-muted-foreground mt-1 text-[11px]">{L("Blank prints as “Same as billing address”.", "Kosong dicetak sebagai “Sama seperti alamat bil”.")}</p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground mt-1.5 text-xs">{L("Same as billing address — work is carried out at the address on the left.", "Sama seperti alamat bil — kerja dijalankan di alamat di sebelah kiri.")}</p>
+                )}
+              </div>
             </div>
-            <label className="block">
-              <span className="text-muted-foreground mb-1 block text-xs">
-                {L(
-                  "Sales person (who made this sale)",
-                  "Jurujual (siapa yang membuat jualan ini)"
-                )}
-              </span>
-              <select
-                className={inputClass}
-                value={doc.salesperson_id}
-                onChange={(e) =>
-                  setDoc((d) => ({
-                    ...d,
-                    salesperson_id: Number(e.target.value),
-                  }))
-                }
-                title={L(
-                  "Captured from your login automatically — change it only when creating on someone else's behalf",
-                  "Diambil daripada log masuk anda secara automatik — tukar hanya apabila membuat bagi pihak orang lain"
-                )}
-              >
-                {/* v1.41.1 (CEO: "the name of sales person to short, I dont
-                    need their roles there. their name is require instead"):
-                    the FULL name, nothing else. /staff-list already sends
-                    full_name (falling back to the account name), so the
-                    truncation to a first name + role was purely cosmetic —
-                    and ambiguous the moment two staff shared a first name.
-                    The "me" row keeps its auto-from-login hint because that
-                    is function, not decoration. */}
-                <option value={0}>
-                  {L(
-                    `${user.name} — me (auto from login)`,
-                    `${user.name} — saya (auto dari log masuk)`
-                  )}
-                </option>
-                {staffList
-                  .filter((u) => u.name !== user.name)
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {/* v1.4.243 (CEO's Malaysian-standard document): the buyer's own
-                reference prints in the meta strip — "N/A" when blank — and a
-                ship-to address prints beside the billing block. A service
-                delivers nothing physical, so the address box is product-only
-                (same rule as Delivery / postage since v1.4.238). */}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L(
-                    "Their reference / PO no. (optional)",
-                    "Rujukan mereka / No. PO (pilihan)"
-                  )}
-                </span>
-                <input
-                  className={inputClass}
-                  placeholder={L("e.g. PO-2608", "cth. PO-2608")}
-                  maxLength={60}
-                  value={doc.reference}
-                  onChange={(e) =>
-                    setDoc((d) => ({ ...d, reference: e.target.value }))
-                  }
-                />
-              </label>
-              {doc.kind === "product" ? (
-                <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">
-                    {L(
-                      "Delivery address (only if different)",
-                      "Alamat penghantaran (hanya jika berbeza)"
-                    )}
-                  </span>
-                  <input
-                    className={inputClass}
-                    placeholder={L(
-                      "Leave blank — same as billing",
-                      "Biarkan kosong — sama seperti bil"
-                    )}
-                    maxLength={300}
-                    value={doc.delivery_address}
-                    onChange={(e) =>
-                      setDoc((d) => ({
-                        ...d,
-                        delivery_address: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              ) : (
-                <span />
-              )}
-            </div>
-            <div className="text-muted-foreground hidden gap-2 text-xs sm:grid sm:grid-cols-[1fr_66px_66px_100px_100px_auto]">
-              <span>
-                {L(
-                  "Item / service description",
-                  "Keterangan barang / perkhidmatan"
-                )}
-              </span>
+
+            {/* ---- the lines, under the paper's own column headers ---- */}
+            <p className="text-muted-foreground border-primary border-b pb-1 text-[9px] font-bold tracking-[0.14em] uppercase">
+              {doc.kind === "service" ? L("Description of services", "Keterangan perkhidmatan") : L("Items", "Barang")}
+              {doc.doc_type === "DO" && <span className="ml-2 font-medium normal-case tracking-normal">{L("prices are kept but not printed on a Delivery Order", "harga disimpan tetapi tidak dicetak pada Pesanan Penghantaran")}</span>}
+            </p>
+            <div className="mt-2 space-y-3">
+            <div className="text-muted-foreground hidden gap-2 text-[10px] font-semibold tracking-wider uppercase sm:grid sm:grid-cols-[1fr_66px_66px_100px_100px_auto]">
+              <span>{L("Description", "Keterangan")}</span>
               <span>UOM</span>
               <span>{L("Qty", "Kuantiti")}</span>
               <span>{L("Unit price (RM)", "Harga seunit (RM)")}</span>
-              {/* v1.79.0 (CEO, invoice INV-AZOO280826-1: "I see why discount
-                  not populated there?") — the RM 12 he entered went into the
-                  document-level box, so the line printed at full price with a
-                  dash in its DISCOUNT column. Both fields were called
-                  "Discount (RM)". They are different things that print in
-                  different places, so they now have different names. */}
-              <span>{L("Line discount (RM)", "Diskaun baris (RM)")}</span>
+              {/* v1.79.0: two fields called "Discount" printed in two places;
+                  each now says which it is. */}
+              <span>{L("Discount (RM)", "Diskaun (RM)")}</span>
               <span />
             </div>
             {doc.items.map((item, i) => {
@@ -2532,88 +2288,36 @@ export function Sales({ user }: { user: User }) {
                 </div>
               );
             })()}
-            <div
-              className={`grid grid-cols-2 gap-3 ${doc.doc_type !== "DO" ? "sm:grid-cols-3" : ""}`}
-            >
-              {/* v1.79.0 (CEO, on INV-AZOO280826-1: "I see why discount not
-                  populated there?") — this field and the one on each item row
-                  were BOTH called "Discount (RM)". They are not the same
-                  thing: this one comes off the whole document and prints in
-                  the totals ladder as "Less: discount"; the line one comes off
-                  its own line and prints in the DISCOUNT column. His RM 12
-                  went here, so LUMI LUXE printed at 39.00 with a dash beside
-                  it and the reduction appeared at the bottom instead. Both
-                  now say which they are, and this one says where it prints. */}
-              <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L("Whole-document discount (RM, optional)", "Diskaun seluruh dokumen (RM, pilihan)")}
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className={inputClass}
-                  placeholder="0.00"
-                  value={
-                    doc.discount_cents
-                      ? (doc.discount_cents / 100).toString()
-                      : ""
-                  }
-                  onChange={(e) =>
-                    setDoc((d) => ({
-                      ...d,
-                      discount_cents: Math.max(
-                        0,
-                        Math.round(Number(e.target.value || 0) * 100)
-                      ),
-                    }))
-                  }
-                />
-                <span className="text-muted-foreground mt-1 block text-[11px] leading-snug">
-                  {L('Comes off the whole document and prints at the bottom as "Less: discount". To show it against one item instead, use that line\u2019s Line discount box.',
-                     'Ditolak daripada seluruh dokumen dan dicetak di bawah sebagai "Less: discount". Untuk menunjukkannya pada satu barang sahaja, guna kotak Diskaun baris pada baris itu.')}
-                </span>
-                {/* The Worker clamps the total at zero, so a discount larger
-                    than the goods does not produce a negative invoice — it
-                    produces a document whose ladder reads "Less: discount
-                    − RM 500" under a subtotal of RM 39 and a total of RM 0.
-                    That is a customer-facing document, so say it here. */}
-                {doc.discount_cents > subtotal && (
-                  <span className="mt-1 block text-[11px] leading-snug font-semibold text-amber-700">
-                    {L(`More than the items come to (${fmtRM(subtotal)}) — the total would print as RM 0.00`,
-                       `Lebih daripada jumlah barang (${fmtRM(subtotal)}) — jumlah akan dicetak sebagai RM 0.00`)}
-                  </span>
-                )}
-              </label>
-              {/* v1.4.160: delivery / postage fee — quoted on the QT, billed on
-                  the INV; a Delivery Order carries goods only (Malaysian
-                  standard), so the field hides for DO. */}
-              {/* v1.4.238: no Delivery / postage on a service document —
-                  the box hides and the value zeroes when Service is picked;
-                  the server forces 0 regardless. */}
-              {doc.doc_type !== "DO" && doc.kind !== "service" && (
-                <label className="block">
-                  <span className="text-muted-foreground mb-1 block text-xs">
-                    {L(
-                      "Delivery / postage (RM, optional)",
-                      "Penghantaran / pos (RM, pilihan)"
-                    )}
-                  </span>
+            </div>
+
+            {/* ---- the totals ladder, on the right as it prints ---- */}
+            <div className="mt-3 flex justify-end">
+              <div className="w-full space-y-1.5 sm:w-2/3 lg:w-1/2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{L("Subtotal", "Subjumlah")}</span>
+                  <span className="tabular-nums">{fmtRM(subtotal)}</span>
+                </div>
+                {/* v1.79.0 (CEO, on INV-AZOO280826-1: "I see why discount not
+                    populated there?") — this comes off the WHOLE document and
+                    prints here as "Less: discount"; a reduction on one item
+                    goes in that line's Discount box and prints in the column. */}
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">{L("Less: discount (whole document)", "Tolak: diskaun (seluruh dokumen)")}</span>
                   <input
                     type="number"
                     min={0}
                     step="0.01"
-                    className={inputClass}
+                    className={`${inputClassSm} w-28 text-right tabular-nums`}
                     placeholder="0.00"
                     value={
-                      doc.delivery_cents
-                        ? (doc.delivery_cents / 100).toString()
+                      doc.discount_cents
+                        ? (doc.discount_cents / 100).toString()
                         : ""
                     }
                     onChange={(e) =>
                       setDoc((d) => ({
                         ...d,
-                        delivery_cents: Math.max(
+                        discount_cents: Math.max(
                           0,
                           Math.round(Number(e.target.value || 0) * 100)
                         ),
@@ -2621,30 +2325,67 @@ export function Sales({ user }: { user: User }) {
                     }
                   />
                 </label>
-              )}
-              <label className="block">
-                <span className="text-muted-foreground mb-1 block text-xs">
-                  {L("Tax % (optional)", "Cukai % (pilihan)")}
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  className={inputClass}
-                  placeholder="0"
-                  value={doc.tax_percent || ""}
-                  onChange={(e) =>
-                    setDoc((d) => ({
-                      ...d,
-                      tax_percent: Number(e.target.value || 0),
-                    }))
-                  }
-                />
-              </label>
+                {doc.discount_cents > subtotal && (
+                  <p className="text-[11px] leading-snug font-semibold text-amber-700">
+                    {L(`More than the items come to (${fmtRM(subtotal)}) — the total would print as RM 0.00`,
+                       `Lebih daripada jumlah barang (${fmtRM(subtotal)}) — jumlah akan dicetak sebagai RM 0.00`)}
+                  </p>
+                )}
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">{L("Tax %", "Cukai %")}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    className={`${inputClassSm} w-28 text-right tabular-nums`}
+                    placeholder="0"
+                    value={doc.tax_percent || ""}
+                    onChange={(e) =>
+                      setDoc((d) => ({
+                        ...d,
+                        tax_percent: Number(e.target.value || 0),
+                      }))
+                    }
+                  />
+                </label>
+                {/* v1.4.160 / v1.4.238: quoted on the QT, billed on the INV; a
+                    Delivery Order carries goods only and a service ships
+                    nothing, so the row hides for both. */}
+                {doc.doc_type !== "DO" && doc.kind !== "service" && (
+                  <label className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">{L("Delivery / postage", "Penghantaran / pos")}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={`${inputClassSm} w-28 text-right tabular-nums`}
+                      placeholder="0.00"
+                      value={
+                        doc.delivery_cents
+                          ? (doc.delivery_cents / 100).toString()
+                          : ""
+                      }
+                      onChange={(e) =>
+                        setDoc((d) => ({
+                          ...d,
+                          delivery_cents: Math.max(
+                            0,
+                            Math.round(Number(e.target.value || 0) * 100)
+                          ),
+                        }))
+                      }
+                    />
+                  </label>
+                )}
+                <div className="border-primary flex items-center justify-between border-t-2 pt-1.5 text-sm font-extrabold">
+                  <span>{L("TOTAL (RM)", "JUMLAH (RM)")}</span>
+                  <span className="tabular-nums">{fmtRM(total)}</span>
+                </div>
+              </div>
             </div>
             {doc.doc_type === "INV" && (
               <label
-                className="flex items-center gap-1.5 text-sm"
+                className="mt-3 flex items-center gap-1.5 text-sm"
                 title={L(
                   "Payment already in hand (e.g. bank transfer received) — the invoice is created as PAID and counts in revenue immediately",
                   "Bayaran sudah diterima (cth. pindahan bank) — invois dibuat sebagai DIBAYAR dan terus dikira dalam hasil"
@@ -2657,18 +2398,25 @@ export function Sales({ user }: { user: User }) {
                     setDoc((d) => ({ ...d, paid_received: e.target.checked }))
                   }
                 />
-                {L(
-                  "Payment already received (bank transfer)",
-                  "Bayaran sudah diterima (pindahan bank)"
-                )}
+                {L("Payment already received (bank transfer)", "Bayaran sudah diterima (pindahan bank)")}
               </label>
             )}
-            <p className="text-sm font-medium">
-              {L("Total", "Jumlah")}: {fmtRM(total)}
-            </p>
+
+            {/* ---- the foot, as the paper prints it ---- */}
+            <div className="border-border text-muted-foreground mt-4 grid grid-cols-2 gap-3 border-t pt-2 text-[11px]">
+              <div>
+                <p className="text-[9px] font-bold tracking-[0.14em] uppercase">{doc.doc_type === "INV" ? L("Authorised signature", "Tandatangan sah") : L("Prepared by", "Disediakan oleh")}</p>
+                <p className="mt-0.5">{L("signs automatically on the printed document", "ditandatangan automatik pada dokumen bercetak")}</p>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold tracking-[0.14em] uppercase">{doc.doc_type === "QT" ? L("Customer acceptance", "Penerimaan pelanggan") : doc.doc_type === "DO" ? L("Received by", "Diterima oleh") : L("Customer", "Pelanggan")}</p>
+                <p className="mt-0.5">{L("name, position, date — signed by hand", "nama, jawatan, tarikh — ditandatangan tangan")}</p>
+              </div>
+            </div>
+            <p className="text-muted-foreground mt-2 text-[10px]">{L("The SST note, bank details and footer print exactly as on the real document.", "Nota SST, butiran bank dan pengaki dicetak seperti pada dokumen sebenar.")}</p>
             <button
               type="button"
-              className={btnClass}
+              className={`${btnClass} mt-3`}
               onClick={() => void createDoc()}
             >
               {editingDoc
@@ -2679,8 +2427,17 @@ export function Sales({ user }: { user: User }) {
                 : L("Create with auto number", "Buat dengan nombor auto")}
             </button>
           </div>
+          {/* ---- the real paper, redrawn as they type ---- */}
+          <DocPreview
+            doc={doc}
+            docDate={docDate}
+            customers={customers}
+            staffList={staffList}
+            user={user}
+            docNumber={editingDoc?.doc_number ?? null}
+          />
+          </div>
         </div>
-      </div>
 
       {(() => {
         // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
@@ -3295,6 +3052,366 @@ export function Sales({ user }: { user: User }) {
           ))}
         </div>
       </div>
+        {workExtra}
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
+        <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+        <div className={card}>
+          <p className="text-sm font-semibold">
+            {editingCust ? (
+              <>
+                {L("Editing", "Menyunting")} {editingCust.company}{" "}
+                <button
+                  type="button"
+                  className="ml-1 text-xs font-normal underline"
+                  onClick={() => {
+                    setEditingCust(null);
+                    setCust({
+                      company: "",
+                      contact_person: "",
+                      phone: "",
+                      email: "",
+                      address: "",
+                      website: "",
+                    });
+                  }}
+                >
+                  {L("cancel", "batal")}
+                </button>
+              </>
+            ) : (
+              L("Add customer", "Tambah pelanggan")
+            )}
+          </p>
+          {/* v1.120.0 — THE BILLING BLOCK. The fields a document prints, in the
+              order and the frame it prints them (BILLING ADDRESS on every
+              Quotation, DO and Invoice for this customer), and under a
+              dashed line the two the portal keeps for itself. The CEO,
+              06-09-2026: make the form "like the actual format" so staff
+              know what to fill. Same fields, same handlers. */}
+          <div className="mt-3 space-y-3">
+            <div className="border-border bg-card rounded-md border p-3 shadow-sm">
+              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">
+                {L("Billing address — prints on every document for this customer", "Alamat bil — dicetak pada setiap dokumen untuk pelanggan ini")}
+              </p>
+              <div className="mt-2 space-y-2">
+                <Sub t={L("Company *", "Syarikat *")}>
+              <input
+                className={inputClass}
+                placeholder={L(
+                  "e.g. Acme Retail Sdn Bhd",
+                  "cth. Acme Retail Sdn Bhd"
+                )}
+                value={cust.company}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, company: e.target.value }))
+                }
+              />
+            </Sub>
+                <Sub t={L("Contact person", "Orang hubungan")}>
+                <input
+                  className={inputClass}
+                  placeholder={L("Full name", "Nama penuh")}
+                  value={cust.contact_person}
+                  onChange={(e) =>
+                    setCust((c) => ({ ...c, contact_person: e.target.value }))
+                  }
+                />
+              </Sub>
+                <Sub t={L("Address", "Alamat")}>
+              {/* v1.4.235: prints on the customer's documents. */}
+              <textarea
+                className={`${inputClass} min-h-16`}
+                placeholder={
+                  "No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"
+                }
+                value={cust.address}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, address: e.target.value }))
+                }
+              />
+            </Sub>
+                <div className="grid grid-cols-2 gap-2">
+                  <Sub t={L("Phone", "Telefon")}>
+                <input
+                  className={inputClass}
+                  placeholder="+60 12-345 6789"
+                  value={cust.phone}
+                  onChange={(e) =>
+                    setCust((c) => ({ ...c, phone: e.target.value }))
+                  }
+                />
+              </Sub>
+                  <Sub t={L("Email", "E-mel")}>
+              <input
+                className={inputClass}
+                placeholder="name@company.com"
+                value={cust.email}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, email: e.target.value }))
+                }
+              />
+            </Sub>
+                </div>
+              </div>
+              <p className="text-muted-foreground mt-2 text-[11px] leading-snug">
+                {L("Company, contact, address, phone, email — top to bottom, as the block prints. The state at the end of the address is what places this customer on the Sales map.",
+                   "Syarikat, kenalan, alamat, telefon, e-mel — atas ke bawah, seperti blok dicetak. Negeri di hujung alamat ialah yang menempatkan pelanggan ini pada peta Jualan.")}
+              </p>
+            </div>
+            <div className="border-border rounded-md border border-dashed p-3">
+              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Not printed — for the portal only", "Tidak dicetak — untuk portal sahaja")}</p>
+              <div className="mt-2 space-y-2">
+                {/* v1.30.0 (CEO: "customer or client can have a option to click
+                    on their logo then will redirecting to their own domain"):
+                    the client's OWN address on the web, and their own mark. */}
+                <Sub t={L("Their website", "Laman web mereka")}>
+              <input
+                className={inputClass}
+                placeholder="https://theirbrand.my"
+                value={cust.website}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, website: e.target.value }))
+                }
+              />
+            </Sub>
+                {editingCust && (
+              <Sub t={L("Their logo", "Logo mereka")}>
+                <span className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const row = customers.find((c) => c.id === editingCust.id);
+                    return row?.logo_key ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/v1/media/file/${encodeURIComponent(row.logo_key)}`}
+                        alt={row.company}
+                        className="border-border h-8 w-auto rounded border bg-white p-0.5"
+                      />
+                    ) : null;
+                  })()}
+                  <label className="border-border hover:bg-secondary inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs">
+                    {logoBusy === editingCust.id
+                      ? L("Uploading…", "Memuat naik…")
+                      : L("Upload logo", "Muat naik logo")}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!f) return;
+                        setLogoBusy(editingCust.id);
+                        const r = await api<{ error?: { message?: string } }>(
+                          `/staff/customers/${editingCust.id}/logo`,
+                          {
+                            method: "POST",
+                            body: f,
+                            headers: { "Content-Type": f.type },
+                          }
+                        );
+                        setLogoBusy(null);
+                        if (!r.ok) {
+                          showToast(
+                            L("No changes", "Tiada perubahan"),
+                            r.data?.error?.message ??
+                              L("Upload failed", "Muat naik gagal"),
+                            "notice"
+                          );
+                          return;
+                        }
+                        showToast(
+                          L("Saved", "Disimpan"),
+                          L(
+                            `${editingCust.company} logo updated`,
+                            `Logo ${editingCust.company} dikemas kini`
+                          )
+                        );
+                        void load();
+                      }}
+                    />
+                  </label>
+                  <span className="text-muted-foreground text-[11px]">
+                    {L(
+                      "PNG, JPG, WEBP or SVG. Shown to this client in their own area, linking to their website.",
+                      "PNG, JPG, WEBP atau SVG. Dipaparkan kepada klien ini di ruangan mereka, memaut ke laman web mereka."
+                    )}
+                  </span>
+                </span>
+              </Sub>
+            )}
+
+              </div>
+            </div>
+            <button
+              type="button"
+              className={btnClass}
+              onClick={() => void addCustomer()}
+            >
+              {editingCust
+                ? L("Update customer", "Kemas kini pelanggan")
+                : L("Save customer", "Simpan pelanggan")}
+            </button>
+          </div>
+          <div className="mt-3 max-h-56 overflow-y-auto">
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={3} />}
+            {loaded && customers.length === 0 && (
+              <p className="text-muted-foreground text-sm">
+                {L("No customers yet.", "Tiada pelanggan lagi.")}
+              </p>
+            )}
+            {loaded && customers.map((c) => (
+              <div
+                key={c.id}
+                className="border-border border-b py-1.5 text-sm last:border-0"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    {/* v1.4.249: the company name opens the record — contact
+                      details and both addresses were invisible in this list. */}
+                    <RecordToggle
+                      open={openCust === c.id}
+                      title={L("Contact and addresses", "Hubungan dan alamat")}
+                      onToggle={() =>
+                        setOpenCust(openCust === c.id ? null : c.id)
+                      }
+                    >
+                      {c.company}
+                    </RecordToggle>
+                    {c.contact_person && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {c.contact_person}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    {docs.some(
+                      (d) => d.doc_type === "INV" && d.company === c.company
+                    ) && (
+                      <button
+                        type="button"
+                        className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                        title={L(
+                          "Statement of Account — all invoices, paid + outstanding, printable",
+                          "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak"
+                        )}
+                        onClick={() => printSOA(c.company, docs)}
+                      >
+                        SOA
+                      </button>
+                    )}
+                    {/* v1.4.235: edit loads the record into the form above;
+                      delete is refused by the server while documents exist. */}
+                    <button
+                      type="button"
+                      className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                      onClick={() => {
+                        setEditingCust({ id: c.id, company: c.company });
+                        setCust({
+                          company: c.company,
+                          contact_person: c.contact_person ?? "",
+                          phone: c.phone ?? "",
+                          email: c.email ?? "",
+                          address:
+                            (c as { address?: string | null }).address ?? "",
+                          website: c.website ?? "",
+                        });
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      ✎ {L("Edit", "Sunting")}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                      onClick={async () => {
+                        if (
+                          !(await askConfirm({
+                            title: L(
+                              `Delete ${c.company}?`,
+                              `Padam ${c.company}?`
+                            ),
+                            message: L(
+                              "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
+                              "Hanya boleh apabila mereka tiada dokumen — sebut harga dan invois mesti mengekalkan pelanggannya untuk rekod."
+                            ),
+                            confirmLabel: L(
+                              "Delete customer",
+                              "Padam pelanggan"
+                            ),
+                            variant: "danger",
+                          }))
+                        )
+                          return;
+                        const res = await api<{ error?: { message?: string } }>(
+                          `/staff/customers/${c.id}`,
+                          { method: "DELETE" }
+                        );
+                        if (res.ok) {
+                          showToast(
+                            L("Deleted", "Dipadam"),
+                            L(`${c.company} removed`, `${c.company} dibuang`)
+                          );
+                          if (editingCust?.id === c.id) {
+                            setEditingCust(null);
+                            setCust({
+                              company: "",
+                              contact_person: "",
+                              phone: "",
+                              email: "",
+                              address: "",
+                              website: "",
+                            });
+                          }
+                          void load();
+                        } else
+                          showToast(
+                            L("No changes", "Tiada perubahan"),
+                            res.data?.error?.message ??
+                              L("Delete refused", "Padam ditolak"),
+                            "notice"
+                          );
+                      }}
+                    >
+                      {L("Delete", "Padam")}
+                    </button>
+                  </span>
+                </div>
+                {openCust === c.id && (
+                  <DetailGrid
+                    items={[
+                      {
+                        label: L("Contact", "Hubungan"),
+                        value: c.contact_person ?? "",
+                      },
+                      { label: L("Phone", "Telefon"), value: c.phone ?? "" },
+                      { label: L("Email", "E-mel"), value: c.email ?? "" },
+                      {
+                        label: L("Billing address", "Alamat bil"),
+                        wide: true,
+                        value: (c as { address?: string | null }).address ?? "",
+                      },
+                      {
+                        label: L("Delivery address", "Alamat penghantaran"),
+                        wide: true,
+                        value:
+                          (c as { delivery_address?: string | null })
+                            .delivery_address ?? "",
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+          {customersExtra}
+        </div>
+      </section>
     </div>
   );
 }

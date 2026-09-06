@@ -31,6 +31,7 @@ const page = read("app/portal/page.tsx");
 const shared = read("components/portal/page-shared.tsx");
 const dash = read("components/portal/dashboard.tsx");
 const panels = read("components/portal/role-panels.tsx");
+const sales = read("components/portal/sales.tsx");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
 
@@ -86,5 +87,56 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("a filter that leaves nothing says so", /Nothing is low\./.test(inv) && /Nothing is out of stock\./.test(inv));
 }
 
+/* ---- v1.120.0: Sales - the form is the paper, and the paper is previewed ---- */
+{
+  const s0 = sales.indexOf("export function Sales(");
+  const comp = sales.slice(s0, sales.indexOf("\n}\n", s0));
+  ok("the Sales component was found", s0 > 0);
+  /* the meta strip: the five cells, in the order the template prints them */
+  const meta = ['L("Sales person", "Jurujual")', 'L("Doc no.", "No. dok.")', 'L("Date", "Tarikh")', 'L("Valid until", "Sah hingga")', 'L("Reference", "Rujukan")'].map((m) => comp.indexOf(m));
+  ok("the meta strip is the paper's: sales person, doc no., date, valid-until / due / delivery, reference", meta.every((x) => x > 0) && meta.every((x, i) => i === 0 || x > meta[i - 1]), meta.join(" < "));
+  ok("the system's own fields are shown greyed, not as inputs", /L\("auto on save", "auto semasa simpan"\)/.test(comp) && /L\("On receipt", "Semasa terima"\)/.test(comp));
+  /* the parties: billing, with the customer inside it, before delivery */
+  const bill = comp.indexOf('L("Billing address", "Alamat bil")'), ship = comp.indexOf('L("Delivery address", "Alamat penghantaran")'), custSel = comp.indexOf("value={doc.customer_id}");
+  ok("BILLING ADDRESS holds the customer and comes before DELIVERY ADDRESS", bill > 0 && custSel > bill && ship > custSel);
+  ok("a customer without an address is warned about where it prints", /No address on the customer card/.test(comp));
+  ok("a service document shows a service address, not a delivery one", /L\("Service address", "Alamat perkhidmatan"\)/.test(comp));
+  /* the ladder, in print order */
+  const ladder = ['L("Subtotal", "Subjumlah")', 'L("Less: discount (whole document)"', 'L("Tax %", "Cukai %")', 'L("Delivery / postage", "Penghantaran / pos")', 'L("TOTAL (RM)", "JUMLAH (RM)")'].map((m) => comp.indexOf(m));
+  ok("the totals ladder reads subtotal, discount, tax, delivery, total", ladder.every((x) => x > 0) && ladder.every((x, i) => i === 0 || x > ladder[i - 1]), ladder.join(" < "));
+  ok("the lines stay under the paper's column headers", /L\("Description", "Keterangan"\)/.test(comp) && /L\("Unit price \(RM\)", "Harga seunit \(RM\)"\)/.test(comp) && /L\("Discount \(RM\)", "Diskaun \(RM\)"\)/.test(comp));
+  ok("a Delivery Order says its prices are not printed", /prices are kept but not printed on a Delivery Order/.test(comp));
+  /* every control the form had is still there */
+  const controls = ["value={doc.doc_type}", "value={doc.customer_id}", "value={doc.issuer}", "value={docDate}", "value={paidDate}", "value={doc.salesperson_id}", "value={doc.reference}", "value={doc.delivery_address}", "checked={doc.paid_received}", "tax_percent: Number(e.target.value || 0)", "delivery_cents: Math.max(", "discount_cents: Math.max(", "onClick={() => void createDoc()}", "{doc.items.map((item, i) => {", "docPageFit(doc.items, doc.doc_type)"];
+  ok("every control of the old form is on the paper", controls.every((c) => comp.includes(c)), controls.filter((c) => !comp.includes(c)).join(" | "));
+  /* the preview is the real template, never auto-printing, same arithmetic */
+  ok("the preview is drawn by the template that prints, and never prints by itself", /buildDocHtml\(full, false\)/.test(sales) && /sandbox="allow-same-origin"/.test(sales));
+  const formula = "Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100))";
+  ok("the preview totals the way the form totals", sales.split(formula).length >= 3, "two arithmetics would show two totals");
+  ok("the preview is beside the form on a wide screen and behind a button below it", /<DocPreview/.test(comp) && /hidden xl:block/.test(sales) && /L\("Preview", "Pratonton"\)/.test(sales));
+  ok("the preview scales to its box - nothing scrolls sideways", /el\.clientWidth \/ 794/.test(sales) && /transform: `scale\(\$\{scale\}\)`/.test(sales));
+  /* the customer form is the billing block */
+  const cb = comp.indexOf('L("Billing address — prints on every document for this customer"');
+  const fields = ['L("Company *", "Syarikat *")', 'L("Contact person", "Orang hubungan")', 'L("Address", "Alamat")', 'L("Phone", "Telefon")', 'L("Email", "E-mel")', 'L("Not printed — for the portal only"', 'L("Their website", "Laman web mereka")'].map((m) => comp.indexOf(m, cb));
+  ok("the customer form prints top to bottom: company, contact, address, phone, email; website and logo under 'not printed'", cb > 0 && fields.every((x) => x > 0) && fields.every((x, i) => i === 0 || x > fields[i - 1]), fields.join(" < "));
+  /* the tab's zones */
+  const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
+  const z = [st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf("<Sales user={user}"), st.indexOf('L("The longer view"')];
+  ok("the Sales tab reads: this month, the work + customers, the longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel \/>\}/.test(st) && /customersExtra=\{<ClientsCard \/>\}/.test(st));
+  const inner = [comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
+  ok("inside: the document form and documents under THE WORK, the customer form and clients under CUSTOMERS", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
+}
+
+/* ---- v1.121.0: the five history / record cards on Inventory are quiet ---- */
+{
+  const s = panels.indexOf("export function InventoryPanel(");
+  const inv = panels.slice(s, panels.indexOf("\n}\n", s));
+  const five = ["TikTok Live — stock out", "Manual stock movements — traceability", "Supplier returns — rejects to claim back", "Postage tracking — non-TikTok orders", "Marketing materials"];
+  ok("the five cards under the table are quiet cards, one line each until opened", five.every((t) => new RegExp(`<QuietCard title=\\{L\\("[^"]*${t.replace(/[-—]/g, ".")}`).test(inv)), five.filter((t) => !new RegExp(`<QuietCard title=\\{L\\("[^"]*${t.replace(/[-—]/g, ".")}`).test(inv)).join(" | "));
+  ok("each quiet card carries its one figure", inv.split("<QuietCard ").length === 6 && inv.split("summary={").length === 6);
+  ok("a quiet card draws its body only when open", /\{open && <div className="mt-3">\{children\}<\/div>\}/.test(panels) && /^function QuietCard\(/m.test(panels));
+  ok("the stock table itself is not quiet", !/<QuietCard title=\{L\("Inventory — live status/.test(inv));
+}
+
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }
-console.log(`PASS — Ecommerce reads in four zones and Inventory in three, with one stock list behind both the table and the phone cards (${passed} checks)`);
+console.log(`PASS — Ecommerce, Inventory and Sales read in zones; the document form is the paper, previewed by the template that prints (${passed} checks)`);
