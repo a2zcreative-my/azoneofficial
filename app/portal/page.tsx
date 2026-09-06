@@ -70,7 +70,7 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
    statically here again. What stays static above is what the Dashboard paints
    on first load. */
 import {
-  AccessReviewCard, HrAdminPanel, AssetsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
+  AccessReviewCard, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
   GeofenceCard, HotelsPanel, EnquiriesPanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
@@ -1641,6 +1641,10 @@ export default function PortalPage() {
           {activeTab === "Assets" && <AssetsPanel />}
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel />}
+          {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
+              for ceo/coo/cco only; the panel takes the role so it can put the
+              signed-in officer's own card first. */}
+          {activeTab === "Cards" && <CardsPanel role={user.role} />}
           {activeTab === "Users" && (
             <div className="space-y-4 md:space-y-6">
               {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}

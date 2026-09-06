@@ -69,6 +69,13 @@ export const ALL_TABS = [
   "Ads Fund",
   "Purchasing",
   "Accounting",
+  /* v1.129.0 - the three officers' digital business cards, to share with a
+     client. Placed HERE, next to Profile, for two reasons and neither is
+     taste: the phone bottom bar shows the first FOUR tabs a role can see, so
+     a tab this far down can never displace anybody's thumb row; and it is an
+     identity tab, which is what Profile is. Adding rather than reordering -
+     the CEO's own sequence above is untouched. */
+  "Cards",
   "Profile",
   "Users",
   "Stokis",
@@ -184,6 +191,19 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      worker/src/permissions.ts, which is the matrix actually enforced. */
   Hotels: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
+  /* v1.129.0 (CEO, 06-09-2026: *"only ceo, coo, cco can share their business
+     card to client and the other staff cant access this tabs"*). The three
+     officers, and nobody else - deliberately NOT admin, who is on most other
+     management lists: sharing a director's card is the director's to do.
+
+     WHAT THIS DOES AND DOES NOT DO. It decides what is DRAWN. There is no
+     API behind this tab - the card records are static (constants/team.ts) and
+     ship in the bundle - so unlike Payroll there is no second, server-side
+     gate underneath it, and there is nothing for one to protect: every card
+     is a PUBLIC page, printed on paper with a QR code on it. The restriction
+     is organisational, not secrecy: it stops the portal offering staff a
+     share button for a director's card. */
+  Cards: ["super_admin", "ceo", "coo", "cco"],
   /* v1.18.0 — ERP modules. These mirror worker/src/permissions.ts; the
      worker matrix is the one actually enforced. */
   /* v1.22.0 (CEO: "without anyone populate or access tabs that not
@@ -254,6 +274,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
   Assets: { en: "equipment register", ms: "daftar peralatan" },
   Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
+  Cards: { en: "share a director's card", ms: "kongsi kad pengarah" },
 };
 
 /** The roles a tab is shown to out of the box. `null` = every staff role. */

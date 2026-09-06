@@ -47,7 +47,9 @@ export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
   { title: "Finance", tabs: ["Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting"] },
-  { title: "Account", tabs: ["Profile", "Users"] },
+  /* v1.129.0 - Cards sits with Profile: both are "who you are to somebody
+     outside the company", and the registry places it there too. */
+  { title: "Account", tabs: ["Cards", "Profile", "Users"] },
 ];
 
 export function SideNav({

@@ -119,6 +119,7 @@ const GUARDS = [
   ["card-vocabulary", "every bordered surface gets its look from a name in lib/ui-styles.ts"],
   ["app-icons", "rendered UI draws icons from one map, not emoji"],
   ["signature-entities", "a document is signed by the entity that issued it, at the version it was signed with"],
+  ["cards-tab", "the Cards tab belongs to the three officers, and says what that restriction is"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

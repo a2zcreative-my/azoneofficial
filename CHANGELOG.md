@@ -2,6 +2,39 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.129.0] - 2026-09-06 - a Cards tab for the three officers
+
+**CEO**, 06-09-2026: *"can we have a tabs for that? only ceo, coo, cco can share their business card to client and the other staff cant access this tabs ... at the same time make sure that it is nice to see on mobile apps view by client/customer."*
+
+### What the restriction is — and what it is not
+The tab is drawn for **ceo / coo / cco** only, so no other staff member is offered a way to share a director's card from the portal. Deliberately not `admin`, who is on most other management lists: sending a director's card is the director's to do.
+
+**It is an organisational boundary, not a secrecy one, and it cannot be either.** a2zcreative.my/farhan is a static page on a CDN, printed on paper with a QR code pointing at it. This tab decides who the portal hands a share button to; it does not and could not make a card private. There is no API behind it and nothing for a server-side gate to protect — the three records are static and the page is a link away for anybody on earth. Unlike Payroll, there is no second lock underneath, and claiming one would be theatre.
+
+The panel **says that on screen**, in both languages, and guard #57 fails if that sentence disappears. Somebody will otherwise read this tab as making the cards private and act on that belief.
+
+### The tab
+Four actions per card, exactly as chosen: **Copy link**, **Send on WhatsApp** (with a bilingual line already written), **Show QR**, **Download the preview image**. Your own card is first and marked "Yours"; the other two follow, because introducing a client to the COO when the job is operational — or the CCO when it is commercial — is precisely when a second card gets sent, and asking a colleague to send their own link mid-meeting is what this tab exists to avoid.
+
+**Mobile was the design constraint, not an afterthought.** The person using this is holding a phone in front of a client. So: 44px targets in a two-by-two grid that stays two-by-two at 320px (four across would wrap "Send on WhatsApp" inside a 70px button); the card preview is the real navy face rather than a description of one, because you are about to send it; and the QR opens **full screen** at `min(78vw, 78vh)` — the largest square that fits either way up, so turning the phone sideways to show it across a table still works, on a white plate because a QR on navy does not scan.
+
+A copy the browser refuses now says so. `navigator.clipboard` is blocked outside a secure context and in some webviews, and a button that silently does nothing is the worst possible outcome in front of a client.
+
+### Placement, which was a decision
+"Cards" goes next to Profile, near the end of the registry. Not taste: **the phone bottom bar shows the first four tabs a role can see**, so a tab placed near the front would silently push somebody's fourth thumb-row tab off. It is also an identity tab, which is what Profile is. Your own tab sequence is untouched — this adds, it does not reorder.
+
+### Under it
+New: `components/portal/cards-panel.tsx`, `tests/cards-tab.mjs`. Touched: `lib/portal-tabs.ts` (ALL_TABS, TAB_ROLES, TAB_HINTS), `worker/src/staff.ts` (the grant whitelist), `components/layout/{nav-icons,side-nav}.tsx`, `lib/i18n.ts`, `components/portal/lazy-panels.tsx`, `app/portal/page.tsx`, `components/ui/app-icon.tsx` (a `qr` icon — Show QR was borrowing the eye).
+
+The tab is **governable** like every other: it appears in the access card, so you can hand it to somebody or take it back without a deploy. It is lazy-loaded, so the eight roles who cannot open it do not carry the panel in their bundle.
+
+Guard **#57 cards-tab** runs the REAL rule rather than reading a list — it imports `canSeeTab` and asks it about every assignable role, so a future change to the visibility rule itself is caught here instead of agreeing with a list that no longer decides anything. It also checks the things this panel could have broken: the full-screen QR locks BODY and never `<html>` (the ownership model v1.124.0 wrote down — this is the first modal written since), icons come from the one map, surfaces from `lib/ui-styles.ts`, and every string is bilingual. Negative-tested five ways.
+
+### Tested
+Rendered in a real Chromium at 320px, 390px and 1280px: no overflow, nothing clipped, no page errors, no tap target under 40px, own card first. The QR was opened and closed — `body.overflow` locked while open, restored on Escape, `html.overflow` never touched.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.128.0] - 2026-09-06 - the three business cards are bilingual, Malay first
 
 **CEO**, 06-09-2026: a working BM/EN switcher on /farhan, /zoll and /izz, defaulting to BM, switching without a reload, holding the choice while a client moves around the card, and translating everything a client can read — with copy he wrote himself in both languages.

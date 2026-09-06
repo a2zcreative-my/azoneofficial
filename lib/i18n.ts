@@ -33,6 +33,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Threads": { en: "Threads", ms: "Threads" },
   "Hotels": { en: "Hotels", ms: "Hotel" },
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },
+  "Cards": { en: "Cards", ms: "Kad" }, // v1.129.0 - the digital business cards
   "Profile": { en: "Profile", ms: "Profil" },
   "Users": { en: "Users", ms: "Pengguna" },
   // chrome

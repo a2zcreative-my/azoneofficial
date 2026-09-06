@@ -42,7 +42,7 @@ import {
   Folder, Footprints, Gem, Hourglass, Lightbulb, Link2, Lock, MapPin, Paperclip,
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
-  Plane, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
+  Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX,
   type LucideIcon,
 } from "lucide-react";
@@ -66,6 +66,7 @@ export const APP_ICON = {
   pay: CreditCard,
   paid: BadgeCheck,
   link: Link2,
+  qr: QrCode,
   calendarAdd: CalendarDays,
   offboard: DoorOpen,
   preview: Eye,
