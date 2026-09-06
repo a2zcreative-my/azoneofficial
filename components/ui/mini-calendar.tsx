@@ -14,6 +14,7 @@
  */
 
 import { getLang } from "@/lib/i18n";
+import { compactCard } from "@/lib/ui-styles";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -57,7 +58,7 @@ export function MiniCalendar({
   for (let i = 1; cells.length % 7 !== 0; i++) cells.push({ key: `n${i}`, n: i, out: true });
 
   return (
-    <div className="border-border bg-card rounded-card border p-3">
+    <div className={compactCard}>
       <div className="mb-2 flex items-center justify-between">
         <b className="text-[12.5px] font-semibold">{label}</b>
         {onMonth ? (

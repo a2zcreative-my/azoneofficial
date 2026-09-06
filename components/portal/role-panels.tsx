@@ -818,7 +818,10 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge for
           better UI") - they were an inline pill beside a full card, so the
           row read as two different things at two different heights. Both are
-          the house card now, stretched to the same height. */}
+          the house card now, stretched to the same height.
+          v1.125.0 - and they STAY two. Opening "Low" used to add a third card
+          between them; the items now open inside the status card, so this row
+          is two cells whatever is expanded (see company-monitor.tsx). */}
       <div className={`grid grid-cols-1 items-stretch gap-3 md:gap-4 ${statusCard ? "md:grid-cols-2" : ""}`}>
         {statusCard}
         <div className="flex">

@@ -35,7 +35,7 @@ import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
 import { compressImage } from "@/lib/compress-image";
-import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
+import { btnSm, card, chipNeutral, chipSuccess, chipWarn, inputClass, insetCard } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { QuietCard, ZoneLabel } from "@/components/portal/page-shared"; // v1.122.0
@@ -1160,7 +1160,7 @@ export function ElfiaStorePanel() {
             </div>
             <div className="mt-3 space-y-2">
               {Array.from({ length: 4 }, (_, i) => (
-                <div key={i} className="border-border bg-card rounded-xl border p-3">
+                <div key={i} className={insetCard}>
                   <div className="flex flex-wrap items-start gap-3">
                     <Skel className="mt-7 h-4 w-4 shrink-0" />
                     <Skel className="h-20 w-16 shrink-0" />

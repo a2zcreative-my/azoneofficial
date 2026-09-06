@@ -20,7 +20,7 @@ import { cacheRead, cacheWrite } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { card } from "@/lib/ui-styles";
+import { card, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
 /**
@@ -50,7 +50,7 @@ export function PunchToast({
         @keyframes punch-fade { to { opacity: 0; } }
       `}</style>
       <div
-        className="bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl"
+        className={toastCard}
         style={{
           animation:
             "punch-pop .45s cubic-bezier(.2,.9,.3,1.2) both, punch-fade .4s ease .2s forwards",

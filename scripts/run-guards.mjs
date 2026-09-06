@@ -116,6 +116,7 @@ const GUARDS = [
   ["scroll-ownership", "the document scroll has two owners, and both name the other"],
   ["theme-color", "the browser's own chrome follows the theme"],
   ["status-tokens", "live UI says good / bad / needs-attention in tokens, not raw palettes"],
+  ["card-vocabulary", "every bordered surface gets its look from a name in lib/ui-styles.ts"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

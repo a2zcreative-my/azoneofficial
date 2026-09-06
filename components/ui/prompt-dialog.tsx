@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getLang } from "@/lib/i18n";
+import { modalCard } from "@/lib/ui-styles";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -84,7 +85,7 @@ export function usePrompt() {
       <style>{`
         @keyframes prompt-pop { 0% { opacity: 0; transform: scale(.9) translateY(10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
       `}</style>
-      <div className="bg-card border-border w-full max-w-md rounded-2xl border p-5 shadow-2xl md:p-6"
+      <div className={modalCard}
         style={{ animation: "prompt-pop .22s cubic-bezier(.2,.9,.3,1.1) both" }}
         onClick={(e) => e.stopPropagation()}>
         <div className="from-gold to-gold h-1 w-10 rounded-full bg-gradient-to-r" aria-hidden="true" />

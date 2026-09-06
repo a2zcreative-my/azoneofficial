@@ -14,6 +14,7 @@
    client, so there is no prerender to mismatch). */
 
 import { getLang } from "@/lib/i18n";
+import { card } from "@/lib/ui-styles";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -37,7 +38,7 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
 
   return (
     <div className="bg-background flex min-h-dvh items-center justify-center p-6">
-      <div className="border-border bg-card w-full max-w-md rounded-2xl border p-6 text-center shadow-sm">
+      <div className={`${card} w-full max-w-md text-center shadow-sm`}>
         <p className="text-gold-deep text-[10px] font-semibold tracking-[0.25em] uppercase">A2Z CREATIVE MARKETING</p>
         <h1 className="mt-2 text-lg font-semibold">
           {L("Something went wrong on this screen", "Ada masalah pada skrin ini")}

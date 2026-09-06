@@ -183,10 +183,26 @@ export function TaskProgressCard() {
     one opens the affected items right under the strip — SKU, name and the
     exact quantity left — no trip to the inventory table. */
 /* v1.123.0 (CEO: "Stock now - properly aligned for Stock status & ELFIA
-   bridge for better UI") - `fill` makes this the house card at full width and
-   height, so it sits level with the bridge pulse beside it instead of being a
-   small inline pill against a full card. Everything inside is unchanged. */
-export function InventoryStatusCard({ fill }: { fill?: boolean } = {}) {
+   bridge for better UI") - the strip became the house card, level with the
+   bridge pulse beside it instead of a small inline pill against a full card.
+
+   v1.125.0 (CEO: *"the code mixes two card behaviors in one visual row"*) -
+   it was half done, and the half showed. Two things were wrong:
+
+     1. The component drew EITHER the house card (`fill`) OR an inline pill.
+        Exactly one caller ever existed, and it passed `fill`; the pill branch
+        was dead code whose only remaining job was to make the component look
+        like it had two contracts.
+     2. Opening "Low" rendered the item list as a SECOND card, a sibling of
+        the first. The row was then [status card][low-items card][bridge
+        card] - three cards where the layout promised two, the middle one
+        with its own padding and its own radius. That is the mismatch.
+
+   Now: one card, always. The items open INSIDE it, under a rule, the way a
+   card's own detail should - so opening Low makes this card taller and the
+   bridge card beside it stretches to match, which is what `items-stretch` on
+   the row was there for all along. */
+export function InventoryStatusCard() {
   const data = useOverview();
   const [open, setOpen] = useState<string | null>(null);
   const [items, setItems] = useState<{ sku: string; name: string; stock: number; status: string }[] | null>(null);
@@ -202,10 +218,9 @@ export function InventoryStatusCard({ fill }: { fill?: boolean } = {}) {
   };
   const openItems = open ? (items ?? []).filter((i) => i.status === open) : [];
   return (
-    <div className={fill ? "flex w-full" : "max-w-full self-start"}>
-      <div className={fill
-        ? `${card} flex w-full flex-wrap items-center gap-2`
-        : "border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border px-3 py-2"}>
+    <div className="flex w-full">
+      <div className={`${card} w-full`}>
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Stock status", "Status stok")}</span>
         {data.inventory_status.map((r) => {
           const alert = ALERT[r.status] && r.n > 0;
@@ -239,8 +254,9 @@ export function InventoryStatusCard({ fill }: { fill?: boolean } = {}) {
           );
         })}
       </div>
+      {/* v1.125.0 - a rule inside the card, not a card of its own. */}
       {open && (
-        <div className="border-border bg-card mt-1.5 rounded-xl border px-3 py-2">
+        <div className="border-border mt-3 border-t pt-3">
           <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
             {L(`${open.replace(/_/g, " ")} items`, `barang ${STOCK_MS[open] ?? open.replace(/_/g, " ")}`)}
           </p>
@@ -262,6 +278,7 @@ export function InventoryStatusCard({ fill }: { fill?: boolean } = {}) {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

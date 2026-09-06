@@ -77,10 +77,20 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   const caps = ["Stock now", "Record", "What moved"];
   const cpos = caps.map((c) => inv.indexOf(`<ZoneLabel>{L("${c}"`));
   ok("Inventory has its three zones, in order", cpos.every((x) => x > 0) && cpos[0] < cpos[1] && cpos[1] < cpos[2], cpos.join(" < "));
-  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard fill \/> : undefined\}/.test(page));
+  /* v1.125.0 — `fill` is gone (the component had two card contracts and only
+   one was ever used), so this asks what it always meant: the strip is the
+   page's to pass in, and only for the roles that manage stock. */
+  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard \/> : undefined\}/.test(page));
   /* v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge") - two
-     cards of the same kind, stretched to the same height, not a pill beside a card */
-  ok("stock status and the bridge are the same card, stretched level", /items-stretch/.test(inv) && /\$\{card\} w-full/.test(inv) && /fill \? "flex w-full" : "max-w-full self-start"/.test(read("components/portal/company-monitor.tsx")));
+     cards of the same kind, stretched to the same height, not a pill beside a
+     card. v1.125.0: this pinned the `fill ? … : …` ternary that made the strip
+     switchable, which v1.125.0 deleted because only one branch was ever used.
+     What it means is that BOTH cells draw the house card at full width and the
+     row stretches them level - which is what it asks now. */
+  ok("stock status and the bridge are the same card, stretched level",
+     /items-stretch/.test(inv)
+     && /\$\{card\} w-full/.test(inv)
+     && /\$\{card\} w-full/.test(read("components/portal/company-monitor.tsx")));
   const order = ["Inventory — live status & stock", "Supplier returns", "Postage tracking", "TikTok Live — stock out", "Manual stock movements"].map((t) => inv.indexOf(t));
   ok("table, then the two forms, then the two histories", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
   ok("the table and the phone list draw from ONE filtered list", inv.split("{visibleItems.map((it) => (").length === 3 && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),

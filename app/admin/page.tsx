@@ -21,7 +21,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { inputClass, btnClass, btnGhost, btnHdr, card } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnHdr, card, inputClass, sheetCard } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmyMYT as dmyMyt } from "@/lib/format";
@@ -1141,7 +1141,7 @@ export default function AdminPage() {
   if (user.requires_2fa) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className={card}>
           <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
             {L("Two-Factor Authentication Required", "Pengesahan Dua Faktor Diperlukan")}
           </h1>
@@ -1322,7 +1322,7 @@ export default function AdminPage() {
                 {/* v1.11.0: bottom padding clears the taller nav PLUS the
                     phone's home-indicator inset — pb-16 left the last row of
                     tabs half-covered and untappable on notched iPhones. */}
-                <div className="border-border bg-card absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+                <div className={sheetCard}>
                   <div className="mb-3 flex items-center justify-between">
                     <span className="w-9" />
                     <button

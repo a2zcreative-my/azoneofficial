@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { toastCard } from "@/lib/ui-styles";
 
 export function SaveToast({ title, sub = "", variant = "success" }: { title: string; sub?: string; variant?: "success" | "notice" }) {
   /* v1.124.0 — was a hard-coded navy/amber pair. The ring is app UI, not
@@ -23,7 +24,7 @@ export function SaveToast({ title, sub = "", variant = "success" }: { title: str
         @keyframes save-fade { to { opacity: 0; } }
       `}</style>
       <div
-        className="bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl"
+        className={toastCard}
         style={{ animation: "save-pop .45s cubic-bezier(.2,.9,.3,1.2) both, save-fade .4s ease .2s forwards", animationDelay: "0s, 2.2s" }}
         role="status"
         aria-live="polite"

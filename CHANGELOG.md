@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.125.0] - 2026-09-06 - the Inventory row is two cards again; every bordered surface has a name
+
+**CEO**, 06-09-2026, on the Stock now row: *"the code mixes two card behaviors in one visual row"*, and on the wider drift: *"without names, every bordered rounded box competes visually with actual cards."* Both are exactly right, and both are fixed here. No database change; no control, save or role gate moved.
+
+### The mismatch you saw
+The row promised two cells - stock status on the left, the ELFIA bridge on the right. Tapping **Low** made it three: the item list rendered as a *sibling* card below the strip, with its own padding and its own radius, inside the left cell. `[status][low items][bridge]`, which is the misalignment in the screenshot.
+
+Two things caused it, and both are gone:
+
+1. **The component had two card contracts.** `InventoryStatusCard` drew either the house card (`fill`) or a small inline pill. Exactly one caller ever existed and it passed `fill` - the pill branch was dead code whose only remaining job was to make the component look switchable. The prop is gone; it is the house card, always.
+2. **The detail opened as a second card.** It now opens **inside** the card, under a rule. So expanding Low makes the status card taller and the bridge card beside it stretches to match - which is what `items-stretch` on that row was for all along.
+
+That is your option 1, and it is now a house rule, written into `lib/ui-styles.ts` and enforced: **a card's own expandable detail lives inside that card. If it deserves to be its own card, promote it to a full cell in the grid.**
+
+### Every bordered surface has a name now
+`card` said "one padding, everywhere" and was telling the truth about everything that called it. The drift lived in the **thirty surfaces that never could** - a rail widget, a dialog panel, a bottom sheet, a detail box inside a card. None of them is a page card, and with no other name to reach for each one spelled `rounded-?? border border-border bg-card p-?` by hand: five radii, four paddings. Unnamed, they all read as cards that got it wrong.
+
+A card is not one thing. It is seven, and **which one you want follows from where the box sits**:
+
+| name | where it sits |
+| --- | --- |
+| `card` | a page card in the page grid |
+| `compactCard` | the same card at rail density - side columns, mini calendar |
+| `insetCard` | a bordered box **inside** a card; smaller radius so it reads as contained, not competing |
+| `accentCard` | a card with a coloured top edge, for a figure carrying a status |
+| `tileCard` | a small centred tile in a grid of siblings |
+| `modalCard` | the panel a dialog draws |
+| `sheetCard` | the phone's bottom sheet |
+| `toastCard` | the centred confirmation that fades |
+
+Thirty surfaces converted. **Most were byte-identical to the new name, so nothing moves on screen** - the five side-column widgets, both bottom sheets, both toasts (which were the same string duplicated in two files), the dialog panels. Four changed slightly and deliberately: the 2FA gate (duplicated verbatim in `/portal` and `/admin`), the system-health card and the error panel take the house radius and padding instead of three near-misses of it.
+
+**Left raw on purpose**, each reason written into the guard: the document form's blocks are *paper*, shaped like the printed invoice since v1.120.0 - a paper block that looked like a house card would undo the point of it; the staff-directory hero is decorative; the quick-action tile is left-aligned with a min-height so two-line labels do not make the grid jump; the ELFIA toggle's border and fill are conditional, drawing state rather than a card.
+
+### Under it
+`lib/ui-styles.ts` carries the vocabulary and the rule as one comment block, where the next person will read it. Touched: `components/portal/company-monitor.tsx`, `role-panels.tsx`, `side-columns.tsx`, `trading-desk.tsx`, `roster-board.tsx`, `dashboard.tsx`, `elfia-store-panel.tsx`, `components/ui/{mini-calendar,confirm-dialog,prompt-dialog,save-toast,stat-card}.tsx`, `components/admin/system-health.tsx`, `app/portal/{page,error}.tsx`, `app/admin/page.tsx`.
+
+New guard **#54 card-vocabulary**: every name exists *and is used* (an unused name reads as the standard while the code does otherwise), no surface is spelled out by hand, the status strip has one card contract, and opening the item list still leaves exactly one card in that cell. Negative-tested four ways.
+
+Guard #49 was corrected rather than worked around: it pinned the `fill ? … : …` ternary where it meant *"both cells draw the house card and the row stretches them level"*, and went red on a change that made that more true. It asks the property now.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.124.0] - 2026-09-06 - one palette per job: status in tokens, paper in the paper palette
 
 **CEO**, 06-09-2026, a five-point UI audit, ending: *"The biggest improvement would be standardizing all live UI status/callout styling through `lib/ui-styles.ts` and the CSS semantic tokens; that will remove most of the visible drift in one pass."* All five points are answered below. Nothing was deleted and no database changed.

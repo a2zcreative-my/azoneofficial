@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, inputClassSm, btnClass, btnSm, fieldLabel, chipWarn, chipSuccess, chipNeutral } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { bySeniority } from "@/lib/staff-order";
 import { getLang } from "@/lib/i18n";
@@ -1489,7 +1489,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {editBlock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
           onClick={() => setEditBlock(null)}>
-          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl"
+          <div className={`${modalCard} max-h-[90vh] overflow-y-auto`}
             onClick={(e) => e.stopPropagation()}>
             <p className="text-base font-semibold">{L("Update task", "Kemas kini tugasan")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1663,7 +1663,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {taskOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
           onClick={() => setTaskOpen(false)}>
-          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl"
+          <div className={`${modalCard} max-h-[90vh] overflow-y-auto`}
             onClick={(e) => e.stopPropagation()}>
             <p className="text-base font-semibold">{L("Assign a task", "Tugaskan tugasan")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1869,7 +1869,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
       {/* assignment modal (click-to-assign) */}
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]" onClick={() => setAssignOpen(false)}>
-          <div className="bg-card border-border max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className={`${modalCard} max-h-[90vh] overflow-y-auto`} onClick={(e) => e.stopPropagation()}>
             <p className="text-base font-semibold">{editingId != null ? L("Edit session", "Sunting sesi") : L("New assignment", "Tugasan baharu")}</p>
             {editingId != null && (
               <p className="text-muted-foreground mt-0.5 text-xs">{L("Amend any detail — the host is notified if the slot or assignment changes.", "Pinda mana-mana butiran — hos akan dimaklumkan jika slot atau tugasan berubah.")}</p>

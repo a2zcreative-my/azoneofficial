@@ -17,7 +17,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { Lang, t as tr } from "@/lib/i18n";
 import { TabName } from "@/lib/portal-tabs";
-import { btnSmPrimary, card } from "@/lib/ui-styles";
+import { accentCard, btnSmPrimary, card, tileCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
 export function TradingDesk({
@@ -241,7 +241,7 @@ export function TradingDesk({
     ticker.push(
       <div
         key="attention"
-        className="border-border bg-card border-t-brand rounded-xl border border-t-2 p-4 shadow-sm"
+        className={`${accentCard} border-t-brand`}
       >
         <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
           {tr("Needs attention", lang)}
@@ -455,7 +455,7 @@ export function TradingDesk({
           {Array.from({ length: 6 }, (_, i) => (
             <div
               key={i}
-              className="border-border bg-card flex flex-col items-center justify-center rounded-lg border p-2.5"
+              className={tileCard}
             >
               <Skel className="h-5 w-10" />
               <Skel className="mt-1.5 h-2 w-14" />
@@ -545,7 +545,7 @@ export function TradingDesk({
                   key={t.label}
                   type="button"
                   onClick={() => setDetailModal(t.label)}
-                  className="border-border bg-card hover:border-primary flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-colors"
+                  className={`${tileCard} hover:border-primary text-center transition-colors`}
                 >
                   <p className="text-lg leading-tight font-bold tabular-nums">
                     {t.value}

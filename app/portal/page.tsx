@@ -77,7 +77,7 @@ import {
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
-import { card, btnClass, btnHdr, btnHdrDesktop, PORTAL_WIDTH } from "@/lib/ui-styles";
+import { PORTAL_WIDTH, btnClass, btnHdr, btnHdrDesktop, card, sheetCard } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
@@ -650,7 +650,7 @@ export default function PortalPage() {
   if (user.requires_2fa) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
-        <div className="border-border bg-card rounded-xl border p-6 shadow-sm">
+        <div className={card}>
           <h1 className="text-foreground mb-2 text-2xl font-semibold tracking-tight">
             {L(
               "Two-Factor Authentication Required",
@@ -1200,7 +1200,7 @@ export default function PortalPage() {
             {/* v1.10.0 review fix: bottom padding clears the taller nav PLUS the
               phone's home-indicator inset — the old pb-16 left the Preferences
               row half-covered and untappable on notched iPhones. */}
-            <div className="border-border bg-card absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+            <div className={sheetCard}>
               <div className="mb-3 flex items-center justify-between">
                 <span className="w-9" />
                 <button
@@ -1570,7 +1570,7 @@ export default function PortalPage() {
             /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
                before the table. v1.119.0: the panel draws it, beside the
                ELFIA bridge pulse, as the first row of its STOCK NOW zone. */
-            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard fill /> : undefined} />
+            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel />

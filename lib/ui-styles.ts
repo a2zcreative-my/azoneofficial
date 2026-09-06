@@ -24,6 +24,69 @@
     whole reason it lives here. */
 export const card = "rounded-2xl md:rounded-card border border-border bg-card p-4 md:p-5";
 
+/* ============ v1.125.0 — THE CARD VOCABULARY ===========================
+   The CEO, 06-09-2026: *"Some card-like inner rows use borders and rounded
+   corners inside real cards … without names, every bordered rounded box
+   competes visually with actual cards."*
+
+   He is describing the failure mode exactly. `card` above said "one padding,
+   everywhere", and it was true of everything that called it — but thirty
+   other surfaces were spelling out `rounded-xl border border-border bg-card
+   p-3` by hand, in five radii and four paddings, because none of them was a
+   page card and there was no other name to use. Unnamed, they all read as
+   cards that got it wrong. Named, most of them turn out to be right.
+
+   So: a card is not one thing. It is five, and which one you want follows
+   from where the box sits, not from how big you want it.
+
+     card         a page card. Sits in the page grid, holds a heading and a
+                  section of work. Widest padding, largest radius.
+     compactCard  the same card, dense. For side rails, mini calendars and
+                  small widgets, where `card`'s padding would leave a 264px
+                  column mostly empty.
+     insetCard    a bordered box INSIDE a card — a detail panel, a repeated
+                  item row. Smaller radius on purpose: it must read as
+                  contained by its parent, not as a card competing with it.
+     accentCard   a card with a coloured top edge, for a figure that carries
+                  a status.
+     tileCard     a small square tile in a grid of them: one figure, one
+                  label, centred.
+     modalCard    the panel a dialog draws over the page.
+     sheetCard    the phone's bottom sheet.
+     toastCard    the centred confirmation card that fades.
+
+   And one rule that is not about size. A card's own expandable detail belongs
+   INSIDE that card, under a rule — never as a sibling card. v1.125.0 fixed
+   the Inventory status strip, where opening "Low" added a second card to a
+   two-card row and the row stopped lining up. If a detail deserves to be its
+   own card, promote it to a full cell in the grid; if it does not, keep it in.
+
+   tests/card-vocabulary.mjs holds the line: a hand-rolled `border-border
+   bg-card rounded-* p-*` in app/ or components/ fails the build. */
+
+/** The page card, at rail density. Same border, same radius, tighter inside. */
+export const compactCard = "rounded-card border border-border bg-card p-3";
+
+/** A bordered box inside a card. Smaller radius: contained, not competing. */
+export const insetCard = "rounded-xl border border-border bg-card p-3";
+
+/** A card with a coloured top edge, for a figure that carries a status.
+    The caller supplies the edge colour (`border-t-success`, `border-t-brand`);
+    everything else is the card. */
+export const accentCard = "rounded-xl border border-border bg-card border-t-2 p-4 shadow-sm";
+
+/** One figure, one label, centred — in a grid of siblings. */
+export const tileCard = "rounded-lg border border-border bg-card p-2.5 flex flex-col items-center justify-center";
+
+/** The panel a dialog draws. Callers add their own max-height/scrolling. */
+export const modalCard = "bg-card border-border w-full max-w-md rounded-2xl border p-5 shadow-2xl md:p-6";
+
+/** The phone's bottom sheet — pinned to the bottom edge, so only the top corners round. */
+export const sheetCard = "border-border bg-card absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]";
+
+/** The centred confirmation card that pops and fades. */
+export const toastCard = "bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl";
+
 /* v1.70.0 — ONE standard content width for the whole portal.
    (CEO: "make the width globally standardize instead of inconsistent")
 

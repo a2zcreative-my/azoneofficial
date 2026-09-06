@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MiniCalendar } from "@/components/ui/mini-calendar";
 import { Skel } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { compactCard } from "@/lib/ui-styles";
 
 interface Punch { type: string; created_at: string }
 interface Task { id: number; title: string; status: string; due_date?: string | null }
@@ -118,7 +119,7 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
             <div className="mt-1.5 h-2.5 w-28 max-w-full rounded bg-white/15" />
           </div>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="border-border bg-card rounded-card border p-3" aria-hidden>
+            <div key={i} className={compactCard} aria-hidden>
               <Skel className="h-2.5 w-20" />
               <Skel className="mt-2 h-3.5 w-3/4" />
               <Skel className="mt-1.5 h-2.5 w-1/2" />
@@ -150,7 +151,7 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
 
       {/* v1.21.3: roster/live sessions on the selected day. */}
       {daySessions.slice(0, 4).map((s) => (
-        <div key={`s${s.id}`} className="border-border bg-card rounded-card border p-3">
+        <div key={`s${s.id}`} className={compactCard}>
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">
             {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {s.platform}
           </p>
@@ -159,14 +160,14 @@ export function ContextPanel({ lang = "en" }: { lang?: "en" | "ms" }) {
         </div>
       ))}
       {dayEvents.slice(0, 3).map((e) => (
-        <div key={`e${e.id}`} className="border-border bg-card rounded-card border p-3">
+        <div key={`e${e.id}`} className={compactCard}>
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{e.start_time || (lang === "ms" ? "Sepanjang hari" : "All day")}</p>
           <p className="mt-1 truncate text-[13px] font-semibold">{e.title}</p>
           <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{lang === "ms" ? EVENT_CAT_MS[e.category] ?? e.category : e.category}</p>
         </div>
       ))}
       {dayTasks.slice(0, 6).map((t) => (
-        <div key={t.id} className="border-border bg-card rounded-card border p-3">
+        <div key={t.id} className={compactCard}>
           <p className="text-gold-deep text-[11px] font-semibold tabular-nums">{t.due_date?.slice(0, 10)}</p>
           <p className="mt-1 truncate text-[13px] font-semibold">{t.title}</p>
           <p className="text-muted-foreground mt-0.5 text-[11.5px] capitalize">{lang === "ms" ? TASK_STATUS_MS[t.status] ?? t.status.replace(/_/g, " ") : t.status.replace(/_/g, " ")}</p>
@@ -202,7 +203,7 @@ function Section({ title, count, children, onCount, countHint }: {
 }) {
   const badge = "bg-danger-soft text-danger rounded-full px-2 py-0.5 text-[11px] font-semibold";
   return (
-    <section className="border-border bg-card rounded-card border p-3">
+    <section className={compactCard}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-semibold">{title}</h2>
         {count !== undefined && count > 0 && (

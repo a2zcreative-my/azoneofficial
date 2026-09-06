@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { modalCard } from "@/lib/ui-styles";
 
 interface ConfirmOpts {
   title: string;
@@ -54,7 +55,7 @@ export function useConfirm() {
         @keyframes confirm-pop { 0% { opacity: 0; transform: scale(.9) translateY(10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
       `}</style>
       <div
-        className="bg-card border-border w-full max-w-md rounded-2xl border p-5 shadow-2xl md:p-6"
+        className={modalCard}
         style={{ animation: "confirm-pop .22s cubic-bezier(.2,.9,.3,1.1) both" }}
         onClick={(e) => e.stopPropagation()}
       >

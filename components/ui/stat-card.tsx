@@ -12,6 +12,7 @@
    primary. */
 
 import type { ReactNode } from "react";
+import { accentCard } from "@/lib/ui-styles";
 
 /** The small in-card / in-row progress bar. Gold by default; green for done,
     red for danger, muted for empty. Pure divs — no SVG, no library. */
@@ -63,7 +64,7 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
 
   const baseClasses = solid
     ? "rounded-xl bg-brand p-4 text-white shadow-sm"
-    : `border-border bg-card rounded-xl border border-t-2 ${edge} p-4 shadow-sm`;
+    : `${accentCard} ${edge}`;
 
   if (onClick) {
     return (

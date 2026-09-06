@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
+import { card } from "@/lib/ui-styles";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
@@ -69,7 +70,7 @@ export function SystemHealthCard() {
     : null;
 
   return (
-    <div className="border-border bg-card rounded-lg border p-4 md:p-5">
+    <div className={card}>
       {toastNode}
       {/* v1.4.265: the database names the migrations it is missing — the
           v1.4.218 blank-staff-directory incident was exactly a deploy that
