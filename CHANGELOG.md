@@ -2,6 +2,44 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.131.0] - 2026-09-06 - an approved leave day cannot be booked
+
+**CEO**, 06-09-2026, looking at a week with two "On leave" cells in it: *"should if there is a leave that taken by the staff, then the date that I want to select should not be available to her/him if the date is leave date apply"*
+
+### What was actually wrong
+Since v1.8.0 the board has **computed** a `host_on_leave` conflict and painted the chip amber. That is a report, and it arrives after the same request has already sent the host a bell saying *"live session assigned"*. Nothing refused the booking. The only thing standing between a client and an empty studio was somebody noticing one amber chip on a grid of fifty-six cells.
+
+### The rule now lives in the worker, on all five doors
+Creating a live session; moving one to another day or handing it to another host; creating a task block or a run of them; dragging a block to another day or another row; and the roster's "assign a task with a slot". It had to be there and not in the dialog, because the same inserts are reachable from drag-and-drop, the tap-a-day rail, a repeat run and "+ Add to plan" — a rule written into one form is a rule four other gestures do not have. Each door is asked about **its own** person and **its own** dates: the interesting bug here is never a missing check, it is a check asked about the signed-in manager instead of the host, or about today instead of the session's day.
+
+Two definitions, said once so they cannot drift:
+
+- **Approved leave only.** A pending application is not a decision — and blocking on one would let anybody freeze their own roster by filing a form nobody has signed, which is a worse defect than the one being fixed.
+- **The whole day.** A leave row is a span of dates; there is no half-day column. That is already exactly how the grid paints it.
+
+### What deliberately still works
+Approving leave **over** work already on the board — that is an HR decision somebody is entitled to make, and the answer is to move the session, not refuse the leave. Reassigning a task whose days already exist. And any press that chooses no day at all: a status change, a time change, ticking a day done. **A session that already clashes stays cancellable** — that press is the fix, and a rule that locks the door on the way out is worse than no rule.
+
+### There is a way past it, and it is recorded
+An approved leave row is **terminal** in this system: `cancel` refuses once the stage is `approved`, and so does `reject`. Nobody can un-approve leave. So a rule with no exit would leave a Thursday unbookable for ever when the person cancels their trip and comes in. The roles that may already amend a session (CEO, COO, CCO) get one checkbox, off every time the dialog opens, and the booking they force lands as an ordinary one that the conflict engine goes on flagging in amber. Every override is written to `audit_log` — *who booked somebody onto their own leave day* is a question asked after the fact.
+
+### What the screen does
+A native `<input type="date">` cannot grey out individual days — `min`/`max` is all the browser gives — so "not available" is spelled out instead:
+
+- The clash is **named** under the picker: who, and which day, in red, in both languages.
+- A repeat run **drops those entries per host** and says how many. On a two-host run the one who is away loses their Thursday and the other keeps it; dropping the whole date would cancel a colleague's session over somebody else's holiday.
+- The button promises what the press will create — `Schedule 3 sessions`, not 5 — and when a complete form has nothing left in it, the button reads **"On leave — not available"** and is disabled. An empty form stays pressable, because its toast is what tells you which field is missing.
+- A leave cell stops being a drop target for an armed task, and dragging a session onto a leave day is refused at the drop rather than by a confirm bar that appears only to say no.
+
+### Under it
+`worker/src/staff.ts` — `leaveClashDates` / `refuseIfOnLeave`, wired into the five doors, plus `GET /leave/calendar`: the dialogs need the span they are about to write into (a run reaches 62 days past the visible week that `/roster` carries). It returns names and dates only — never the type, never the reason. The roster needs to know a day is closed, not why somebody is away, and half of "why" is medical data. `components/portal/roster-board.tsx` — one `onLeaveAt` shared by the grid, both dialogs and the drag handler, replacing the grid's own copy that could only see the visible week.
+
+Guard **#58** `tests/roster-leave.mjs`, 38 checks: each door checked before its write and asked the right question, the presses that must not be refused, the override role-gated and audited and never sticky, and the PDPA shape of the new endpoint. Negative-tested nine ways.
+
+Rendered against the real board with the CEO's own week at 390px and 1280px: the strip appears, the five-day run correctly becomes three sessions, the override flips the copy and the button, no overflow, no page errors.
+
+Full suite, `tsc`, `eslint` and a production build all pass. **No migration** — this reads tables that have existed since 0003.
+
 ## [1.130.0] - 2026-09-06 - the Signatures panel shows WHOSE chop is in each cell
 
 **CEO**, 06-09-2026, handing over six scans: *"ensure that the signature is embedded correctly to the person which is no leaked out of false in use!"*

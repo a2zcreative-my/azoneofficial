@@ -82,10 +82,15 @@ function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }:
   );
 }
 
+/** v1.131.0 — a span of APPROVED leave. The board's own week (/roster) and the
+    dialogs' wider window (/leave/calendar) return the same four fields, so one
+    predicate can read both without caring which list a row came from. */
+interface LeaveSpan { user_id: number; name: string; start_date: string; end_date: string }
+
 interface RosterData {
   week_start: string; days: string[]; manager: boolean;
   sessions: RosterSession[];
-  on_leave: { user_id: number; name: string; start_date: string; end_date: string }[];
+  on_leave: LeaveSpan[];
   conflicts: { kind: string; session_ids: number[]; task_block_ids?: number[];
                host_user_id: number; date: string; soft?: boolean }[];
   /* v1.66.0 — beside the sessions, never merged into them. A task block says
@@ -159,6 +164,41 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   /* v1.21.0 (CEO: "the data of leave applied date should be shown on the
      pill on leave"): the chip opens who is away and exactly when. */
   const [leaveOpen, setLeaveOpen] = useState(false);
+
+  /* v1.131.0 — an approved leave day is closed, and the form has to say so
+     BEFORE the press rather than after it.
+
+     Two things worth being exact about.
+
+     FIRST, this is help, not the rule. The rule lives in the worker, on all
+     five doors that choose a day for a person (see refuseIfOnLeave in
+     worker/src/staff.ts): a stale or missing fetch here costs a clearer
+     message, never a wrong booking. It has to be that way round — the same
+     inserts are reachable from drag-and-drop, the tap-a-day rail, a repeat run
+     and "+ Add to plan", and a rule written into one dialog is a rule four
+     other gestures do not have.
+
+     SECOND, the board's own leave list is WEEK-scoped: /roster returns the
+     week it is drawing. A repeat rule reaches up to 62 days past it, so the
+     dialog fetches the span it is actually about to write into and the
+     predicate below reads both lists at once.
+
+     A native <input type="date"> cannot grey out individual days — min/max is
+     all the browser gives — so "not available" is spelled out instead: the
+     clash is named in red under the picker, the run drops those entries and
+     says how many, and the press refuses when nothing is left. */
+  const [spanLeave, setSpanLeave] = useState<LeaveSpan[]>([]);
+  /* The officers' way past it. Approved leave is terminal in this system —
+     nobody can un-approve it — so a rule with no way out would leave a day
+     unbookable for ever when somebody comes in anyway. Off on every open. */
+  const [leaveOverride, setLeaveOverride] = useState(false);
+  const onLeaveAt = useCallback((uid: number | string, d: string) => {
+    const id = Number(uid);
+    if (!id || !d) return false;
+    return [...(data?.on_leave ?? []), ...spanLeave]
+      .some((l) => l.user_id === id && l.start_date <= d && d <= l.end_date);
+  }, [data, spanLeave]);
+
   const [notReady, setNotReady] = useState(false);
   /* v1.9.0 drag-and-drop: drag a block to another day/slot; a confirm bar
      appears before anything is saved. */
@@ -379,6 +419,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     setDraft({ session_date: todayS, start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "", ...prefill });
     setRepeat("once"); setRepeatUntil(""); setRepeatDays([]); setPlan([]);
     setExtraHosts([]);
+    /* v1.131.0: the override is per-dialog, never sticky. It is a decision
+       about one booking, and a checkbox that stayed on would turn the rule
+       off for the rest of the afternoon without saying so. */
+    setLeaveOverride(false);
     setEditingId(null);
     setAssignOpen(true);
   };
@@ -455,6 +499,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         end_time: draft.end_time || null, platform: draft.platform,
         client_name: draft.client_name, notes: draft.notes,
         host_user_id: Number(draft.host_user_id),
+        ...(leaveOverride ? { leave_override: true } : {}),
       }),
     });
     setSaving(false);
@@ -504,6 +549,54 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     return out;
   };
 
+  /* v1.131.0 — the leave the OPEN DIALOG needs, which is not the leave the
+     board has. Keyed on the two ISO strings rather than the array, so the
+     fetch fires when the span actually moves and not on every keystroke in
+     the client field. */
+  const dialogSpan = (() => {
+    const ds = [
+      ...(assignOpen ? [...expandDates(), ...plan.map((p) => p.session_date)] : []),
+      ...(taskOpen ? tDates() : []),
+    ].filter(Boolean).sort();
+    if (ds.length === 0) return { from: "", to: "" };
+    return { from: ds[0]!, to: ds[ds.length - 1]! };
+  })();
+  const spanFrom = dialogSpan.from, spanTo = dialogSpan.to;
+  useEffect(() => {
+    if (!spanFrom || !spanTo) return;
+    let live = true;
+    void api<{ leave: LeaveSpan[] }>(`/leave/calendar?from=${spanFrom}&to=${spanTo}`)
+      .then((r) => { if (live && r.ok && Array.isArray(r.data?.leave)) setSpanLeave(r.data.leave); });
+    return () => { live = false; };
+  }, [spanFrom, spanTo]);
+
+  /** The (host, day) pairs in the current form that are closed by approved
+      leave. De-duplicated — a host can sit in the picker and in the chip row
+      at once, and naming their Thursday twice reads like two problems. */
+  const leaveHits = (): { key: string; name: string; date: string }[] => {
+    const seen = new Set<string>();
+    const out: { key: string; name: string; date: string }[] = [];
+    for (const dt of expandDates()) {
+      for (const h of hostIds()) {
+        const k = `${h}|${dt}`;
+        if (!onLeaveAt(h, dt) || seen.has(k)) continue;
+        seen.add(k);
+        out.push({ key: k, name: hostShort(h), date: dt });
+      }
+    }
+    return out;
+  };
+
+  /** How many sessions THIS press would actually create — leave days already
+      removed. A button that promises ten and creates eight is a button that
+      lied, and the eight would look like the ten until somebody counted. */
+  const usableCount = (): number => {
+    const hosts = hostIds();
+    if (hosts.length === 0) return 0;
+    const all = expandDates().flatMap((dt) => hosts.map((h) => ({ dt, h })));
+    return Math.min(MAX_PER_PRESS, (leaveOverride ? all : all.filter((e) => !onLeaveAt(e.h, e.dt))).length);
+  };
+
   /** Validate the form + repeat rule; toast and return null when unusable. */
   /** v1.29.5 — the ceiling on ONE press of Schedule. expandDates() already
       caps a run at 62 days; multiplying by hosts could otherwise fire 300+
@@ -528,9 +621,29 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     }
     /* One session per host per date: the database row IS one host, and the
        grid, hour totals and notifications all count on that. */
-    const all = expandDates().flatMap((dt) =>
+    const everything = expandDates().flatMap((dt) =>
       hosts.map((h) => ({ ...draft, session_date: dt, host_user_id: h })),
     );
+    /* v1.131.0 — approved leave days come OUT, per host. On a two-host run
+       the one who is away loses their Thursday and the other one keeps it:
+       dropping the whole date would cancel a colleague's session over
+       somebody else's holiday. The strip under the picker names what left,
+       so a run that quietly got shorter never looks like the one that was
+       asked for. */
+    const all = leaveOverride
+      ? everything
+      : everything.filter((e) => !onLeaveAt(e.host_user_id, e.session_date));
+    if (all.length === 0) {
+      const first = everything[0];
+      showToast(
+        L("Not available", "Tidak tersedia"),
+        first
+          ? L(`${hostShort(first.host_user_id)} is on approved leave on ${dmy(first.session_date)}. Pick another day, or another person.`,
+              `${hostShort(first.host_user_id)} bercuti (diluluskan) pada ${dmy(first.session_date)}. Pilih hari lain, atau orang lain.`)
+          : L("Every day in this run is approved leave.", "Setiap hari dalam ulangan ini ialah cuti diluluskan."),
+        "notice");
+      return null;
+    }
     if (all.length > MAX_PER_PRESS) {
       const kept = all.slice(0, MAX_PER_PRESS);
       showToast(
@@ -574,7 +687,8 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     for (const e of batch) {
       const r = await api<{ error?: { message?: string } }>(`/live-sessions`, {
         method: "POST",
-        body: JSON.stringify({ ...e, host_user_id: Number(e.host_user_id) }),
+        body: JSON.stringify({ ...e, host_user_id: Number(e.host_user_id),
+                               ...(leaveOverride ? { leave_override: true } : {}) }),
       });
       if (r.ok) ok++;
       else fails.push(`${dmy(e.session_date)} ${e.start_time}${r.data?.error?.message ? ` (${r.data.error.message})` : ""}`);
@@ -850,7 +964,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                        TikTok, Shopee, completed, conflict and leave, and an
                        invented token would render as no colour at all. */
                     : "border-plan bg-plan-soft";
-                  const onLeave = (uid: number, d: string) => data.on_leave.some((l) => l.user_id === uid && l.start_date <= d && d <= l.end_date);
+                  /* v1.131.0: one definition of "away", shared with the
+                     dialogs and the drag handler (onLeaveAt, above). This used
+                     to be a second copy that read only the week's list. */
                   const rows = staff;
                   const cellSessions = (uid: number, d: string) =>
                     active.filter((s) => s.host_user_id === uid && s.session_date === d)
@@ -921,18 +1037,27 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                             {data.days.map((d) => {
                               const cs = cellSessions(u.id, d);
                               const ts = cellTasks(u.id, d);
-                              const leave = onLeave(u.id, d);
+                              const leave = onLeaveAt(u.id, d);
                               /* While a task is armed, every cell the current
                                  user is allowed to fill becomes a target. A
                                  non-manager may only place work on their own
                                  row — the same rule the server enforces, said
                                  here so the board never offers something the
-                                 save will refuse. */
-                              const canDrop = armed != null && !placing
+                                 save will refuse.
+                                 v1.131.0 adds the leave day for exactly that
+                                 reason: the server now refuses it, so the cell
+                                 must stop offering itself. It is not dimmed or
+                                 hidden — the "On leave" tag is the answer to
+                                 why it will not take the task. */
+                              const canDrop = armed != null && !placing && !leave
                                 && (canManage || u.id === armed.assigned_to);
                               return (
                                 <div key={d}
-                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""}`}
+                                  title={leave && armed != null
+                                    ? L(`${u.name.split(" ").slice(0, 2).join(" ")} is on approved leave this day`,
+                                        `${u.name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada hari ini`)
+                                    : undefined}
+                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
                                   onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
@@ -1063,6 +1188,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       e.preventDefault();
                       const sess = data.sessions.find((x) => x.id === drag.id);
                       if (!sess) { setDrag(null); return; }
+                      /* v1.131.0 — the drag is the fourth way to choose a day
+                         for somebody, and the one where the day arrives by
+                         accident. Refused here rather than in the confirm bar:
+                         a bar that appears only to say no is a bar that wasted
+                         the gesture. */
+                      if (onLeaveAt(sess.host_user_id, d)) {
+                        setDrag(null);
+                        showToast(L("Not available", "Tidak tersedia"),
+                          L(`${sess.host_name.split(" ").slice(0, 2).join(" ")} is on approved leave on ${dmy(d)}.`,
+                            `${sess.host_name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada ${dmy(d)}.`),
+                          "notice");
+                        return;
+                      }
                       const rect = (e.currentTarget as unknown as { getBoundingClientRect(): { top: number } }).getBoundingClientRect();
                       // review fix: subtract the grab offset so the block's TOP
                       // edge (not the cursor) decides the new slot.
@@ -1817,6 +1955,37 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   {L("That schedules the work after its own deadline.", "Itu menjadualkan kerja selepas tarikh akhirnya sendiri.")}
                 </p>
               )}
+
+              {/* v1.131.0 — the same rule as the live dialog, in the dialog
+                  that puts a task on somebody's day. A standing duty that runs
+                  through a week of leave keeps the days either side and drops
+                  the ones in the middle; a one-off on a leave day has nothing
+                  left, and the button says so rather than failing at the
+                  server. */}
+              {(() => {
+                if (!tDraft.assigned_to) return null;
+                const away = tDates().filter((d) => onLeaveAt(tDraft.assigned_to, d));
+                if (away.length === 0) return null;
+                const who = staff.find((u) => String(u.id) === tDraft.assigned_to)?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                return (
+                  <p className="border-danger bg-danger-soft text-danger rounded-lg border px-2.5 py-1.5 text-xs">
+                    <span className="font-semibold">
+                      {L(`${who} is on approved leave: `, `${who} bercuti (diluluskan): `)}
+                    </span>
+                    <span className="tabular-nums">
+                      {away.slice(0, 4).map((d) => dmy(d)).join(", ")}
+                      {away.length > 4 ? L(` +${away.length - 4} more`, ` +${away.length - 4} lagi`) : ""}
+                    </span>
+                    <span className="block font-medium">
+                      {away.length >= tDates().length
+                        ? L("There is no day left to schedule — pick another day, or another person.",
+                            "Tiada hari tinggal untuk dijadualkan — pilih hari lain, atau orang lain.")
+                        : L("Those days are skipped; the rest of the run still goes ahead.",
+                            "Hari tersebut dilangkau; selebihnya ulangan tetap diteruskan.")}
+                    </span>
+                  </p>
+                );
+              })()}
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -1824,8 +1993,20 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 onClick={() => setTaskOpen(false)}>{L("Cancel", "Batal")}</button>
               <button type="button" className={btnClass} disabled={savingTask || !tDraft.title.trim() || !tDraft.assigned_to}
                 onClick={async () => {
-                  setSavingTask(true);
                   const hasSlot = /^\d{4}-\d{2}-\d{2}$/.test(tDraft.block_date);
+                  /* v1.131.0 — approved leave days leave the run before it is
+                     sent. The server refuses a run containing one AS A WHOLE
+                     (half a standing duty landing is worse than none), so
+                     filtering here is what lets the usable days through. */
+                  const days = hasSlot ? tDates().filter((d) => !onLeaveAt(tDraft.assigned_to, d)) : [];
+                  if (hasSlot && days.length === 0) {
+                    showToast(L("Not available", "Tidak tersedia"),
+                      L("Every day in this run is approved leave for that person. Pick another day, or another person.",
+                        "Setiap hari dalam ulangan ini ialah cuti diluluskan bagi orang itu. Pilih hari lain, atau orang lain."),
+                      "notice");
+                    return;
+                  }
+                  setSavingTask(true);
                   const r = await api<{ id: number; block_id?: number; days?: number; error?: { message?: string } }>(`/tasks`, {
                     method: "POST",
                     body: JSON.stringify({
@@ -1834,7 +2015,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       priority: tDraft.priority,
                       ...(tDraft.deadline ? { deadline: tDraft.deadline } : {}),
                       items: tDraft.items.split("\n").map((x) => x.trim()).filter(Boolean),
-                      ...(hasSlot ? { block: { dates: tDates(), block_date: tDraft.block_date,
+                      ...(hasSlot ? { block: { dates: days, block_date: days[0] ?? tDraft.block_date,
                                                 start_time: tDraft.start_time, end_time: tDraft.end_time } } : {}),
                     }),
                   });
@@ -1851,9 +2032,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       ? L(`${tDraft.title} — ${who}. It is waiting in Unscheduled work.`,
                           `${tDraft.title} — ${who}. Ia menunggu dalam Kerja belum dijadualkan.`)
                       : madeDays > 1
-                        ? L(`${tDraft.title} — ${who}, ${madeDays} days from ${dmy(tDraft.block_date)}. Tick each day off as it happens.`,
-                            `${tDraft.title} — ${who}, ${madeDays} hari dari ${dmy(tDraft.block_date)}. Tanda setiap hari apabila selesai.`)
-                        : `${tDraft.title} — ${who}, ${dmy(tDraft.block_date)} ${tDraft.start_time}`);
+                        ? L(`${tDraft.title} — ${who}, ${madeDays} days from ${dmy(days[0] ?? tDraft.block_date)}. Tick each day off as it happens.`,
+                            `${tDraft.title} — ${who}, ${madeDays} hari dari ${dmy(days[0] ?? tDraft.block_date)}. Tanda setiap hari apabila selesai.`)
+                        : `${tDraft.title} — ${who}, ${dmy(days[0] ?? tDraft.block_date)} ${tDraft.start_time}`);
                   setTaskOpen(false);
                   setTDraft({ title: "", assigned_to: "", priority: "normal", deadline: "",
                               block_date: "", start_time: "10:00", end_time: "12:00", items: "" });
@@ -1954,6 +2135,69 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   )}
                 </div>
               )}
+              {/* v1.131.0 — approved leave, named before the press.
+                  CEO, 06-09-2026: "the date that I want to select should not
+                  be available to her/him if the date is leave date apply".
+                  A native date input cannot grey out one day, so the clash is
+                  spelled out here instead — who, and which day — and the run
+                  below has already dropped those entries. */}
+              {(() => {
+                const hits = leaveHits();
+                if (hits.length === 0) return null;
+                return (
+                  <div className="border-danger bg-danger-soft col-span-2 rounded-lg border px-2.5 py-2">
+                    <p className="text-danger flex items-center gap-1.5 text-[11px] font-semibold">
+                      <AppIcon name="holiday" className="h-3.5 w-3.5" />
+                      {/* The heading has to agree with the checkbox under it:
+                          "not available" over a ticked override reads as a
+                          screen arguing with itself. */}
+                      {leaveOverride
+                        ? L("On approved leave — booking anyway", "Bercuti diluluskan — tetap ditempah")
+                        : L("On approved leave — not available", "Bercuti diluluskan — tidak tersedia")}
+                    </p>
+                    <ul className="text-danger mt-1 space-y-0.5 text-[11px]">
+                      {hits.slice(0, 6).map((h) => (
+                        <li key={h.key}>
+                          <span className="font-medium">{h.name}</span>
+                          {" · "}<span className="tabular-nums">{dmy(h.date)}</span>
+                        </li>
+                      ))}
+                      {hits.length > 6 && (
+                        <li className="opacity-80">
+                          {L(`+ ${hits.length - 6} more`, `+ ${hits.length - 6} lagi`)}
+                        </li>
+                      )}
+                    </ul>
+                    <p className="text-muted-foreground mt-1.5 text-[11px] leading-snug">
+                      {/* Three different situations, and saying the wrong one
+                          contradicts the button underneath. A one-off on a
+                          leave day has no "rest of the run" to go ahead. */}
+                      {leaveOverride
+                        ? L("Booking anyway. The board will keep flagging these as a clash, and the override is recorded.",
+                            "Tetap ditempah. Papan akan terus menanda ini sebagai pertindihan, dan pengecualian ini direkodkan.")
+                        : usableCount() === 0
+                          ? L("There is nothing left to schedule — pick another day, or another person.",
+                              "Tiada apa-apa tinggal untuk dijadualkan — pilih hari lain, atau orang lain.")
+                          : L("These are skipped — the rest of the run still goes ahead.",
+                              "Ini dilangkau — selebihnya ulangan tetap diteruskan.")}
+                    </p>
+                    {/* Only the roles that may already amend a session. An
+                        approved leave row cannot be un-approved by anybody, so
+                        without this the day would be unbookable for ever when
+                        somebody does come in. */}
+                    {canEdit && (
+                      <label className="text-danger mt-1.5 flex items-start gap-1.5 text-[11px]">
+                        <input type="checkbox" className="mt-0.5" checked={leaveOverride}
+                          onChange={(e) => setLeaveOverride(e.target.checked)} />
+                        <span>
+                          {L("Book anyway — they have agreed to work these days.",
+                             "Tempah juga — mereka bersetuju bekerja pada hari ini.")}
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                );
+              })()}
               <label className="block">
                 <span className={fieldLabel}>{L("Start *", "Mula *")}</span>
                 <input type="time" className={inputClass} value={draft.start_time}
@@ -2025,8 +2269,18 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 const dtList = dts.length <= 7
                   ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
                   : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`;
+                /* v1.131.0 — how many of those the leave rule takes back out.
+                   Said on the same line as the promise, because a run that
+                   quietly got shorter otherwise reads as the one asked for. */
+                const raw = dts.length * Math.max(1, hostIds().length);
+                const skipped = Math.max(0, raw - usableCount());
                 return (
                   <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
+                    {dts.length > 0 && skipped > 0 && (
+                      <span className="text-danger mr-1">
+                        {L(`${skipped} skipped for approved leave.`, `${skipped} dilangkau kerana cuti diluluskan.`)}
+                      </span>
+                    )}
                     {dts.length > 0
                       ? (hostIds().length > 1
                           ? L(`→ Creates ${dts.length} × ${hostIds().length} hosts = ${dts.length * hostIds().length} sessions: ${dtList} — nothing outside these dates`,
@@ -2070,15 +2324,29 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 </button>
               ) : (
                 <>
-                  <button type="button" className={btnClass} disabled={saving} onClick={() => void saveAssign()}>
+                  {/* v1.131.0 — when the form is COMPLETE and every entry in
+                      it is an approved leave day, the button stops being a
+                      button. That is the CEO's "should not be available" said
+                      as plainly as a screen can say it.
+                      Gated on a filled-in form on purpose: an empty one must
+                      stay pressable, because its toast is what explains which
+                      field is missing, and a silently dead button explains
+                      nothing at all. */}
+                  <button type="button" className={btnClass}
+                    disabled={saving || (plan.length === 0 && hostIds().length > 0
+                                         && expandDates().length > 0 && usableCount() === 0)}
+                    onClick={() => void saveAssign()}>
                     {saving ? L("Scheduling…", "Menjadualkan…")
+                      : plan.length === 0 && hostIds().length > 0 && expandDates().length > 0 && usableCount() === 0
+                        ? L("On leave — not available", "Bercuti — tidak tersedia")
                       : plan.length > 0 ? L(`Schedule all (${plan.length})`, `Jadualkan semua (${plan.length})`)
                       /* v1.29.5: the count is dates x hosts, not dates. The
                          button must promise exactly what the press creates —
-                         2 hosts on a 5-day run is 10 sessions. */
-                      : expandDates().length * Math.max(1, hostIds().length) > 1
-                        ? (() => { const n = Math.min(MAX_PER_PRESS, expandDates().length * Math.max(1, hostIds().length));
-                            return L(`Schedule ${n} sessions`, `Jadualkan ${n} sesi`); })()
+                         2 hosts on a 5-day run is 10 sessions.
+                         v1.131.0: minus the days those hosts are on leave, for
+                         the same reason — the promise has to be the outcome. */
+                      : usableCount() > 1
+                        ? L(`Schedule ${usableCount()} sessions`, `Jadualkan ${usableCount()} sesi`)
                       : L("Schedule", "Jadualkan")}
                   </button>
                   <button type="button" className={btnSm} disabled={saving} onClick={addToPlan}>{L("+ Add to plan", "+ Tambah ke pelan")}</button>

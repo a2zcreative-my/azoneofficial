@@ -699,6 +699,113 @@ function str(v: unknown, max = 2000): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
 }
 
+/* ── v1.131.0 — an approved leave day is CLOSED to new work ────────────────
+ *
+ * The CEO, 06-09-2026, looking at a week with two "On leave" cells in it:
+ * *"should if there is a leave that taken by the staff, then the date that I
+ * want to select should not be available to her/him if the date is leave date
+ * apply"*
+ *
+ * Until now the board could only say so AFTERWARDS. /roster computes a
+ * `host_on_leave` conflict and paints the chip amber - but a conflict is a
+ * REPORT, and the report arrives after the same request has already told the
+ * host "live session assigned". Nothing refused the booking, so the only
+ * thing standing between a client and an empty studio was somebody noticing
+ * one amber chip on a grid of fifty-six cells.
+ *
+ * WHAT COUNTS AS CLOSED, and why each line of it:
+ *
+ *   APPROVED leave only. A pending application is not a decision. Blocking on
+ *   one would let anybody freeze their own roster by filing a form nobody has
+ *   signed yet, which is a worse defect than the one being fixed.
+ *
+ *   The WHOLE day. A leave row is a span of DATES - there is no half-day
+ *   column on leave_requests - so a day inside the span is a day away. That is
+ *   already exactly how the grid paints it, and one definition beats two.
+ *
+ * WHERE IT FIRES: every door where a DAY IS BEING CHOSEN for a person -
+ * creating a live session or a task block, moving one to another day, or
+ * moving one onto another person. Five doors, all of them here, because a
+ * rule enforced in the dialog is a suggestion: the same inserts are reachable
+ * from drag-and-drop, the tap-a-day rail, a repeat run and "+ Add to plan".
+ *
+ * WHERE IT DELIBERATELY DOES NOT FIRE, which is the more interesting half:
+ *
+ *   - Approving leave OVER work already on the board. That is an HR decision
+ *     somebody is entitled to make, and the answer is to move the session,
+ *     not to refuse the leave.
+ *   - Reassigning a task whose days already exist. The days were not chosen
+ *     in that press; the owner was.
+ *   - Any edit that chooses no day at all - a status change, a time change,
+ *     ticking a day done. Marking a mis-booked session cancelled must never
+ *     be refused by this rule: that press IS the fix.
+ *
+ * Those three stay with the conflict engine, which reports them.
+ *
+ * THE OVERRIDE, and why it has to exist. An approved leave row is TERMINAL in
+ * this system: `cancel` refuses once the stage is `approved`, and so does
+ * `reject`. So if a staff member's Thursday is approved and they then come in
+ * anyway, a rule with no way out would leave that Thursday unbookable for
+ * ever, with nothing anybody could do about it inside the app. The roles that
+ * may already amend a session (v1.22.6) may therefore force one through, from
+ * a second and deliberate press, and it lands as an ordinary booking that the
+ * conflict engine goes on flagging in amber. Every override is written to
+ * audit_log, because "who booked somebody onto their own leave day" is a
+ * question that gets asked after the fact, not before.
+ */
+const LEAVE_OVERRIDE_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
+
+/** dd-mm-yyyy - the form every message out of this worker already uses. */
+const dmyMsg = (iso: string) => iso.split("-").reverse().join("-");
+
+/** Which of `dates` fall inside an APPROVED leave row for `userId`.
+    One query over the span and the filtering in JS: a leave row is a range,
+    and expanding ranges into days in SQLite costs more than it saves. */
+async function leaveClashDates(env: Env, userId: number, dates: string[]): Promise<string[]> {
+  const days = [...new Set(dates)].filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (!userId || days.length === 0) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT start_date, end_date FROM leave_requests
+        WHERE user_id = ?1 AND status = 'approved'
+          AND start_date <= ?3 AND end_date >= ?2
+        ORDER BY start_date LIMIT 300`,
+    ).bind(userId, days[0]!, days[days.length - 1]!)
+      .all<{ start_date: string; end_date: string }>();
+    return days.filter((d) => (results ?? []).some((l) => l.start_date <= d && d <= l.end_date));
+  } catch {
+    /* A query that cannot run must not become a rule that cannot be passed. */
+    return [];
+  }
+}
+
+/** `null` = go ahead. Anything else is the refusal, ready to return. */
+async function refuseIfOnLeave(
+  env: Env, user: { id: number; role: string }, userId: number,
+  dates: string[], override: boolean,
+): Promise<Response | null> {
+  const clash = await leaveClashDates(env, userId, dates);
+  if (clash.length === 0) return null;
+  const who = (await env.DB.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
+  ).bind(userId).first<{ n: string }>())?.n ?? "That staff member";
+  /* Name the days. "They are on leave" sends somebody back to the calendar
+     to work out which day it meant. */
+  const when = clash.slice(0, 4).map(dmyMsg).join(", ")
+             + (clash.length > 4 ? ` and ${clash.length - 4} more` : "");
+  if (!override) {
+    return err("on_leave",
+      `${who} is on approved leave on ${when}. Pick another day, or another person.`, 409);
+  }
+  if (!LEAVE_OVERRIDE_ROLES.includes(user.role)) {
+    return err("forbidden",
+      `${who} is on approved leave on ${when}. Only the CEO, COO or CCO can schedule over approved leave.`, 403);
+  }
+  await audit(env, user.id, "roster.leave_override", "users", String(userId),
+              { dates: clash, count: clash.length });
+  return null;
+}
+
 /* v1.9.1 — office geofence for clock in/out (replaces the selfie step).
    One system_meta row holds the office point + radius; the punch route
    refuses punches taken outside it. Honest limitation, stated to the CEO:
@@ -2353,6 +2460,11 @@ export async function handleStaff(
     if (!hostRow || !hostRow.is_active || ["customer", "super_admin", "admin"].includes(hostRow.role)) {
       return err("invalid_input", "Host must be an active staff member", 400);
     }
+    /* v1.131.0 — door 1 of 5. A host on approved leave is not available. */
+    {
+      const no = await refuseIfOnLeave(env, user, host, [d], body?.leave_override === true);
+      if (no) return no;
+    }
     const platform = ["tiktok", "shopee", "other"].includes(String(body?.platform)) ? String(body?.platform) : "tiktok";
     const clientId = Number(body?.client_id) || null;
     const res = await env.DB.prepare(
@@ -2411,6 +2523,22 @@ export async function handleStaff(
       }
       if (setsLS.length === 0) return err("invalid_input", "Nothing to update (status, session_date, start_time, end_time, host_user_id, client_name, platform, notes)", 400);
       const before = await env.DB.prepare(`SELECT session_date, start_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; host_user_id: number }>();
+      /* v1.131.0 — door 2 of 5: the reschedule and the reassignment. Checked
+         against the row AS IT WILL BE, because either half can move on its
+         own: dragging a session to Thursday, or handing Thursday's session to
+         somebody whose Thursday is already spoken for.
+         Gated on the two fields, not on the row's current state — a session
+         that already clashes must stay cancellable, and cancelling it is the
+         press that fixes the clash. */
+      if (body?.session_date !== undefined || body?.host_user_id !== undefined) {
+        const nextDate = typeof body?.session_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.session_date)
+          ? body.session_date : before?.session_date;
+        const nextHost = Number(body?.host_user_id) || before?.host_user_id;
+        if (nextDate && nextHost) {
+          const no = await refuseIfOnLeave(env, user, nextHost, [nextDate], body?.leave_override === true);
+          if (no) return no;
+        }
+      }
       await env.DB.prepare(`UPDATE live_sessions SET ${setsLS.join(", ")} WHERE id = ?${argsLS.length + 1}`).bind(...argsLS, mLS[1]).run();
       const after = await env.DB.prepare(`SELECT session_date, start_time, end_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; end_time: string | null; host_user_id: number }>();
       // Tell the host when their session moved (or when it became theirs).
@@ -3285,6 +3413,49 @@ export async function handleStaff(
         : `${LSEL} WHERE l.user_id = ?1 ORDER BY l.created_at DESC LIMIT 100`,
     ).bind(...(all ? [] : [user.id])).all();
     return json({ leave: results });
+  }
+
+  /* v1.131.0 — WHICH DAYS ARE CLOSED, for the roster's pickers.
+     /roster carries the leave for the week it is showing, which is the right
+     scope for a grid and the wrong one for a dialog: a repeat rule reaches up
+     to 62 days past the visible week, and a manager can type any date at all.
+     So the dialog asks for the exact span it is about to write into.
+
+     PDPA, the same stance /roster already takes: dates and names, never the
+     TYPE and never the reason. The roster needs to know that a day is closed,
+     not why somebody is away — and "why" is medical data half the time.
+     Managers see the floor; everybody else sees their own days. */
+  if (path === "/leave/calendar" && method === "GET") {
+    const url = new URL(request.url);
+    const from = url.searchParams.get("from") ?? "";
+    const to = url.searchParams.get("to") ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+      return err("invalid_input", "from and to must be YYYY-MM-DD, and to must not precede from", 400);
+    }
+    /* A window, not a history dump. 400 days is more than any repeat rule can
+       reach, so a wider ask is a mistake rather than a need. */
+    if (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`) > 400 * 86400000) {
+      return err("invalid_input", "That range is longer than 400 days", 400);
+    }
+    const mgrL = can(user.role, "team_manage");
+    try {
+      const { results } = await env.DB.prepare(
+        mgrL
+          ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+             FROM leave_requests l JOIN users u ON u.id = l.user_id
+             WHERE l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1
+             ORDER BY l.start_date LIMIT 500`
+          : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+             FROM leave_requests l JOIN users u ON u.id = l.user_id
+             WHERE l.user_id = ?3 AND l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1
+             ORDER BY l.start_date LIMIT 200`,
+      ).bind(...(mgrL ? [from, to] : [from, to, user.id])).all();
+      return json({ leave: results });
+    } catch {
+      /* Pre-migration or a database hiccup: an empty answer costs a clearer
+         message in the dialog. The five doors above are still the rule. */
+      return json({ leave: [] });
+    }
   }
 
   if (path === "/leave/balance" && method === "GET") {
@@ -5021,6 +5192,26 @@ export async function handleStaff(
     if (assignedTo !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "You can only create tasks for yourself", 403);
     }
+    /* v1.66.0 Track R — assigned FROM the roster, with a slot.
+       v1.67.0 — a run of days, from the form's repeat rule. One day still
+       works exactly as before: `block_date` on its own is a run of one.
+       v1.131.0 moved this parse ABOVE the task insert. It has to be read
+       before anything is written, because door 5 refuses a run that lands on
+       approved leave — and a refusal after the INSERT would leave the task
+       behind with no days on it, which reads as "it worked, silently". */
+    const blk = body.block as { block_date?: unknown; dates?: unknown;
+                                start_time?: unknown; end_time?: unknown } | undefined;
+    const rawB: unknown[] = Array.isArray(blk?.dates)
+      ? (blk.dates as unknown[])
+      : [typeof blk?.block_date === "string" ? blk.block_date : ""];
+    const bDates = [...new Set(rawB.filter((x): x is string =>
+      typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort().slice(0, 62);
+    const bDate = bDates[0] ?? "";
+    const bStart = typeof blk?.start_time === "string" ? blk.start_time : "";
+    if (bDates.length > 0) {
+      const no = await refuseIfOnLeave(env, user, assignedTo, bDates, body?.leave_override === true);
+      if (no) return no;
+    }
     const prio = ["low", "normal", "high", "urgent"];
     const res = await env.DB.prepare(
       `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline)
@@ -5046,24 +5237,13 @@ export async function handleStaff(
         itemCount = lines.length;
       } catch { /* pre-0083 — the task still exists, scope stays in description */ }
     }
-    /* v1.66.0 Track R — assigned FROM the roster, with a slot.
-       The board creates the task and its first block in one action, because
+    /* The board creates the task and its first block in one action, because
        two actions is how a task ends up assigned and never scheduled. The
        block is optional: the Tasks tab still creates plain tasks and this
-       whole branch is skipped. */
+       whole branch is skipped. (The dates themselves were parsed and
+       leave-checked above, before the task row was written.) */
     let firstBlock: number | undefined;
     let blockDays = 0;
-    const blk = body.block as { block_date?: unknown; dates?: unknown;
-                                start_time?: unknown; end_time?: unknown } | undefined;
-    /* v1.67.0 — a run of days, from the form's repeat rule. One day still
-       works exactly as before: `block_date` on its own is a run of one. */
-    const rawB: unknown[] = Array.isArray(blk?.dates)
-      ? (blk.dates as unknown[])
-      : [typeof blk?.block_date === "string" ? blk.block_date : ""];
-    const bDates = [...new Set(rawB.filter((x): x is string =>
-      typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort().slice(0, 62);
-    const bDate = bDates[0] ?? "";
-    const bStart = typeof blk?.start_time === "string" ? blk.start_time : "";
     if (res?.id && bDates.length > 0 && /^\d{2}:\d{2}$/.test(bStart)) {
       const bEnd = typeof blk?.end_time === "string" && /^\d{2}:\d{2}$/.test(blk.end_time) ? blk.end_time : null;
       try {
@@ -5154,6 +5334,13 @@ export async function handleStaff(
         return err("invalid_input", "That must be an active staff member", 400);
       }
     }
+    /* v1.131.0 — door 3 of 5. A run is checked as a whole and refused as a
+       whole, the same way the 62-day cap above treats it: half a standing
+       duty landing is worse than none of it, because the gap is invisible. */
+    {
+      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true);
+      if (no) return no;
+    }
     let id: number | undefined;
     try {
       for (const day of dates) {
@@ -5192,10 +5379,12 @@ export async function handleStaff(
     const mTB = path.match(/^\/task-blocks\/(\d+)$/);
     if (mTB && (method === "PATCH" || method === "DELETE")) {
       const bid = mTB[1]!;
-      let blk: { task_id: number; user_id: number; assigned_to: number; title: string } | null = null;
+      let blk: { task_id: number; user_id: number; block_date: string; assigned_to: number; title: string } | null = null;
       try {
         blk = await env.DB.prepare(
-          `SELECT b.task_id, b.user_id, t.assigned_to, t.title
+          /* block_date joins the list in v1.131.0: moving a block onto another
+             person needs to know which day it is landing on. */
+          `SELECT b.task_id, b.user_id, b.block_date, t.assigned_to, t.title
            FROM task_blocks b JOIN tasks t ON t.id = b.task_id WHERE b.id = ?1`,
         ).bind(bid).first();
       } catch (e) {
@@ -5264,6 +5453,16 @@ export async function handleStaff(
         putB("user_id", bu);
       }
       if (setsB.length === 0) return err("invalid_input", "Nothing to update", 400);
+
+      /* v1.131.0 — door 4 of 5. Only when the press chooses a DAY or a
+         PERSON: a time change and the done tick move nobody onto anything,
+         and refusing those would make a badly-timed block uncorrectable. */
+      if (setsB.some((x) => /^(block_date|user_id) =/.test(x))) {
+        const nextDay = /^\d{4}-\d{2}-\d{2}$/.test(bd) ? bd : blk.block_date;
+        const no = await refuseIfOnLeave(env, user, bu || blk.user_id, [nextDay],
+                                         body?.leave_override === true);
+        if (no) return no;
+      }
 
       /* v1.69.0 — the whole run, not one day of it.
          Getting the hours wrong on a six-day duty used to mean six separate
