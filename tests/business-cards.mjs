@@ -47,21 +47,26 @@ const ok = (label, cond, extra = "") => {
 
 /* ---- 1. the people, parsed straight out of the source ---- */
 const teamSrc = read("constants/team.ts");
+/* v1.128.0 — `known` and `role` became { en, ms } pairs when the cards went
+   bilingual. The parser follows the data, and the checks below now assert the
+   thing that actually matters: BOTH halves exist and neither is blank. A card
+   that silently loses one language reads as a broken page in that language,
+   which is worse than a card that was never translated. */
 const TEAM = [
   ...teamSrc.matchAll(
-    /\{\s*slug:\s*"([a-z0-9-]+)",\s*name:\s*"([^"]+)",\s*known:\s*"([^"]+)",\s*role:\s*"([^"]+)",\s*roleSlugs:\s*\[([^\]]*)\],\s*email:\s*"([^"]+)",\s*mobile:\s*"([^"]+)",\s*mobileE164:\s*"([^"]+)",\s*monogram:\s*"([^"]*)",\s*photo:\s*"([^"]*)",/g,
+    /\{\s*slug:\s*"([a-z0-9-]+)",\s*name:\s*"([^"]+)",\s*known:\s*\{\s*en:\s*"([^"]*)",\s*ms:\s*"([^"]*)"\s*\},\s*role:\s*\{\s*en:\s*"([^"]*)",\s*ms:\s*"([^"]*)"\s*\},\s*roleSlugs:\s*\[([^\]]*)\],\s*email:\s*"([^"]+)",\s*mobile:\s*"([^"]+)",\s*mobileE164:\s*"([^"]+)",\s*monogram:\s*"([^"]*)",\s*photo:\s*"([^"]*)",/g,
   ),
 ].map((m) => ({
   slug: m[1],
   name: m[2],
-  known: m[3],
-  role: m[4],
-  roleSlugs: [...m[5].matchAll(/"([a-z0-9-]+)"/g)].map((r) => r[1]),
-  email: m[6],
-  mobile: m[7],
-  mobileE164: m[8],
-  monogram: m[9],
-  photo: m[10],
+  known: { en: m[3], ms: m[4] },
+  role: { en: m[5], ms: m[6] },
+  roleSlugs: [...m[7].matchAll(/"([a-z0-9-]+)"/g)].map((r) => r[1]),
+  email: m[8],
+  mobile: m[9],
+  mobileE164: m[10],
+  monogram: m[11],
+  photo: m[12],
 }));
 
 ok("constants/team.ts parses", TEAM.length >= 3, `parsed ${TEAM.length} card(s)`);
@@ -152,13 +157,17 @@ const vcardFor = (m) =>
     `N:;${esc(m.name)};;;`,
     `FN:${esc(m.name)}`,
     `ORG:${esc(ORG)}`,
-    `TITLE:${esc(m.role)}`,
+    /* v1.128.0 — a vCard carries ONE title and the cards are bilingual, so
+       this is a choice, not a fallback: the MALAY one (CEO, 06-09-2026),
+       matching what the card opens in, what the preview image shows and what
+       schema.org publishes. Every one-string artefact on this card agrees. */
+    `TITLE:${esc(m.role.ms)}`,
     `TEL;TYPE=CELL,VOICE:${m.mobileE164}`,
     `EMAIL;TYPE=WORK,INTERNET:${m.email}`,
     `EMAIL;TYPE=WORK,INTERNET:${COMPANY_EMAIL}`,
     `ADR;TYPE=WORK:;;${esc(ADR.street)};${esc(ADR.city)};${esc(ADR.region)};${esc(ADR.post)};${esc(ADR.country)}`,
     `URL:${SITE_URL}/${m.slug}`,
-    `NOTE:${esc(`${m.known} - ${ORG}`)}`,
+    `NOTE:${esc(`${m.known.ms} - ${ORG}`)}`,
     "END:VCARD",
     "",
   ].join("\r\n");
@@ -193,13 +202,33 @@ ok(".gitattributes pins *.vcf to CRLF", /\*\.vcf\s+text\s+eol=crlf/.test(gitattr
    "`* text=auto` would rewrite the vCards to LF on the Linux build container, after this guard passed");
 
 /* ---- 6. the route renders exactly these people, statically ---- */
-const page = read("app/[card]/page.tsx");
+/* v1.128.0 — the readable body moved to components/cards/card-view.tsx so the
+   BM/EN switcher could hold state. These checks are about THE CARD, not about
+   which file a line ended up in, so they read both as one text. */
+const page = read("app/[card]/page.tsx") + "\n" + read("components/cards/card-view.tsx");
 ok("the card route builds its paths from TEAM",
    /generateStaticParams[\s\S]{0,200}?TEAM\.map/.test(page));
 ok("an unknown path is a plain 404", /dynamicParams = false/.test(page),
    "without this, a static export can behave unpredictably for paths that are not cards");
-ok("the card page ships no client JavaScript of its own", !/^"use client"/m.test(page),
-   "the one URL a client types after meeting you should be a file on a CDN, not an app");
+/* v1.128.0 — this used to read "no client JavaScript of its own", and the
+   BM/EN switcher needs state, so it would now be a guard failing on a change
+   that was asked for. What it MEANT is that a printed URL must resolve on a
+   bad day: no data fetch, no API, still a static file. So it asks that.
+
+   The routing half stays absolute — app/[card]/page.tsx itself must remain a
+   server component, because generateStaticParams and generateMetadata cannot
+   live in one that holds state. */
+const routeSrc = read("app/[card]/page.tsx");
+ok("the route file is still a server component",
+   !/^"use client"/m.test(routeSrc),
+   "generateStaticParams and generateMetadata cannot live in a client component");
+ok("the card still fetches nothing at runtime",
+   !/\bfetch\(|useSWR|api</.test(page),
+   "the one URL a client types after meeting you has to resolve on a bad day - it is a file on a CDN, not an app");
+/* Count the DECLARATIONS, not the word — the import line says useState too. */
+ok("the card's only state is the language",
+   (page.match(/=\s*useState[<(]/g) ?? []).length === 1,
+   "a card that grew a second piece of state has grown into an app");
 ok("the page links the vCard as a download", /download=\{`\$\{m\.slug\}/.test(page));
 ok("the page carries Person structured data", /"@type": "Person"/.test(page));
 
@@ -242,6 +271,104 @@ for (const m of TEAM) {
        "a 301 is cached by the browser forever, and a role changes hands");
   }
 }
+
+/* ---- 8b. BILINGUAL (v1.128.0) ----------------------------------------
+   The CEO asked for a switcher that actually switches, on all three cards,
+   defaulting to Malay. The checks below are the properties that make that
+   true, rather than the spelling of any one string.
+
+   Negative-tested by: blanking one half of a role pair; renaming the storage
+   key so the card kept a private preference; defaulting the component to
+   English; dropping data-no-translate so the site-wide runtime walked the
+   card as well. */
+const cardCopySrc = read("constants/card-copy.ts");
+const viewSrc = read("components/cards/card-view.tsx");
+
+/* 1. Every readable field carries BOTH languages, and neither half is blank.
+      A missing half is invisible in the language you are not testing in. */
+for (const m of TEAM) {
+  for (const [field, pair] of [["known", m.known], ["role", m.role]]) {
+    ok(`${m.slug}: ${field} is written in both languages`,
+       Boolean(pair.en?.trim()) && Boolean(pair.ms?.trim()),
+       `en="${pair.en}" ms="${pair.ms}"`);
+    ok(`${m.slug}: ${field} is not the same string twice`,
+       pair.en.trim() !== pair.ms.trim(),
+       "one language was pasted into both halves");
+  }
+}
+/* lead and duties are multi-line in the source, so they are checked by shape
+   rather than parsed: every record needs an en and an ms under each. */
+for (const m of TEAM) {
+  const rec = teamSrc.slice(teamSrc.indexOf(`slug: "${m.slug}"`));
+  const block = rec.slice(0, rec.indexOf("\n  },"));
+  for (const field of ["lead", "duties"]) {
+    const at = block.indexOf(`${field}: {`);
+    ok(`${m.slug}: ${field} has both languages`, at > -1
+       && /en:/.test(block.slice(at, at + 1400)) && /ms:/.test(block.slice(at, at + 1400)));
+  }
+  const dutiesAt = block.indexOf("duties: {");
+  const dutyLines = (block.slice(dutiesAt).match(/^\s{8}"/gm) ?? []).length;
+  ok(`${m.slug}: the responsibilities list is filled in for both languages`,
+     dutyLines >= 8, `${dutyLines} lines across en+ms`);
+}
+
+/* 2. The switcher is real: two labelled controls, current state visible,
+      no navigation. A link would reload the page and lose the choice. */
+ok("the card offers BM and EN as two labelled controls",
+   /\bBM\b/.test(viewSrc) && /\bEN\b/.test(viewSrc)
+   && (viewSrc.match(/<button[\s\S]{0,400}?aria-pressed/g) ?? []).length === 2,
+   "two buttons, each announcing whether it is the one in force");
+ok("which language is active is announced, not only coloured",
+   /aria-pressed=\{lang === "ms"\}/.test(viewSrc) && /aria-pressed=\{lang === "en"\}/.test(viewSrc),
+   "colour alone is not a state a screen reader or a colour-blind reader can read");
+ok("switching does not navigate", !/<Link[^>]*lang=|href="\?lang/.test(viewSrc),
+   "a link would reload the card and drop the choice");
+
+/* 3. Malay is the default, and the default is what the static HTML holds --
+      that is what makes the common case flash-free and hydration-safe. */
+ok("the card renders Malay first", /useState<CardLang>\("ms"\)/.test(viewSrc),
+   "any other initial value makes the server HTML and the first client render disagree");
+ok("only an explicit English choice moves it off Malay",
+   /getItem\(KEY\) === "en"/.test(viewSrc),
+   "reading it the other way round would make English the default whenever storage is empty");
+
+/* 4. ONE language preference per device. The site has had a toggle since
+      v1.32.0; a second private key would be two switchers disagreeing. */
+const runtime = read("components/live/lang-runtime.tsx");
+const keyOf = (src) => (src.match(/const KEY = "([^"]+)"/) ?? [])[1];
+const evOf = (src) => (src.match(/const EVENT = "([^"]+)"/) ?? [])[1];
+ok("the card shares the site's language key",
+   Boolean(keyOf(viewSrc)) && keyOf(viewSrc) === keyOf(runtime),
+   `card=${keyOf(viewSrc)} site=${keyOf(runtime)}`);
+ok("the card shares the site's change event",
+   Boolean(evOf(viewSrc)) && evOf(viewSrc) === evOf(runtime),
+   `card=${evOf(viewSrc)} site=${evOf(runtime)}`);
+/* On the ELEMENT, not merely mentioned in a comment: the comment explaining
+   why it is there survives its removal, which is exactly when this check has
+   to fail. */
+ok("the card is skipped by the site-wide text-swap runtime",
+   /<main[^>]*\sdata-no-translate/.test(viewSrc) && /data-no-translate/.test(runtime),
+   "two mechanisms editing the same text nodes is how half-Malay sentences happen");
+
+/* 5. Nothing readable is hard-coded in the view: every string comes from a
+      pair, which is the structure the CEO asked for. */
+const CHROME = ["save", "call", "email", "responsibilities", "direct", "visit", "mobile", "office", "outOfCards"];
+for (const k of CHROME) {
+  ok(`"${k}" is in the copy file, in both languages`,
+     new RegExp(`${k}: \\{ en: "[^"]+", ms: "[^"]+" \\}`).test(cardCopySrc));
+  ok(`"${k}" is read from the copy file, not typed into the view`,
+     new RegExp(`CARD_COPY\\.${k}`).test(viewSrc));
+}
+
+/* 6. What must NOT change. The CEO was explicit: contact details, numbers,
+      addresses and URLs stay exactly as they are. */
+ok("the contact details are still the record's, untranslated",
+   /\{m\.mobile\}/.test(viewSrc) && /\{m\.email\}/.test(viewSrc)
+   && /SITE_CONFIG\.address/.test(viewSrc) && /CARD_COMPANY\.email/.test(viewSrc));
+ok("the dialled number, WhatsApp and mailto are unchanged",
+   /tel:\$\{m\.mobileE164\}/.test(viewSrc)
+   && /wa\.me\/\$\{m\.mobileE164\.replace/.test(viewSrc)
+   && /mailto:\$\{m\.email\}/.test(viewSrc));
 
 /* ---- 9. the cards are findable, and served as vCards ---- */
 const sitemap = read("app/sitemap.ts");

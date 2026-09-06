@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.128.0] - 2026-09-06 - the three business cards are bilingual, Malay first
+
+**CEO**, 06-09-2026: a working BM/EN switcher on /farhan, /zoll and /izz, defaulting to BM, switching without a reload, holding the choice while a client moves around the card, and translating everything a client can read — with copy he wrote himself in both languages.
+
+### One thing to know before the rest
+**The site has had an EN/BM toggle since v1.32.0.** It lives in the navbar, stores the choice under `azone-lang`, and translates by walking text nodes against a dictionary — the right tool for twelve marketing pages that would otherwise each have to be split in half. The cards never showed it because a card does not render the navbar: it is a bare page, deliberately.
+
+So this is not a second language system. The card **shares the same stored choice and the same change event** — switch to BM on a card, tap through to /services, and it is still BM; the navbar's toggle stays in step. What the card does *not* share is the mechanism: every string on it is known at build time, so it renders from typed pairs that the compiler checks, and it carries `data-no-translate` so the site-wide runtime skips it. Two mechanisms editing the same text nodes is how you get half-Malay sentences.
+
+### The structure
+`constants/team.ts` — everything a client READS is now a `Bilingual` pair (`known`, `role`, `lead`, and the new `duties`); everything a machine uses (slug, email, numbers, photo) stays one string, because a phone number has no language. **The pair is the translation mechanism**: no dictionary to keep in step, no key to mistype, and TypeScript will not compile a record with one half filled in. Adding a third language is a third key on the pair.
+
+`constants/card-copy.ts` — the card's own wording: headings, buttons, contact labels, the links out. Separate from the person data because they change for different reasons: a director's responsibilities move when the job moves; "Save to contacts" moves when the card is redesigned.
+
+The copy is **written, not translated**. "Simpan ke kenalan" is what a Malaysian phone says, not a rendering of "Save to contacts". Your BM and EN introductions say slightly different things in two places; I left them exactly as you wrote them rather than aligning them.
+
+### Malay first, without overriding a choice
+The static HTML **is** Malay — server render and first client render both, so React hydrates against what it sent and the default visitor never sees a language change. Only someone who previously chose English sees one repaint after mount. The common case is silent; the deliberate case costs a frame.
+
+"Default" means the *untouched* state: nothing stored (a client opening the link off a printed card for the first time — the case this page exists for) reads as BM. An explicit earlier choice of English is honoured, because that was a person telling us something.
+
+### The switcher
+A compact segmented `BM | EN` on the eyebrow line, top-right, level with the company name — so it costs the card no vertical space at all. Gold on navy for the active half, the card's own accent doing the work. Two real buttons with `aria-pressed`, not one button that toggles: a visitor has to see *which* language is on without pressing it to find out, and colour alone is not a state a screen reader or a colour-blind reader can read.
+
+### Responsibilities
+New section, between the introduction and Direct — who they are, then what they own, then how to reach them. The contact buttons stay at the top where a thumb lands first.
+
+### The one-string artefacts
+A vCard carries one TITLE, the preview image is one picture, and schema.org takes one `jobTitle`. All three take the **Malay**, per your decision, so every fixed artefact on the card agrees with what the card opens in.
+
+**Two of the three EN role titles changed** — Zoll and Izz go from "Director / …" to "Chief Operating Officer / COO" and "Chief Commercial Officer / CCO". That ripples: the `.vcf` files are regenerated here (all three, CRLF intact, guard-verified), but **the preview images still say "Director / CCO"** and I cannot rebuild them — `scripts/card-og.py` needs Poppins, which is on your machine and not in this container. Run `python scripts/card-og.py` before you push, or the WhatsApp preview will disagree with the card it links to.
+
+### Tested, not assumed
+Nine combinations in a real Chromium against the built static export — three cards × 320px, 390px and 1280px — checking that the text actually changes, that the choice persists, that nothing overflows or clips, and that no page error fires. Plus: a fresh visitor lands in BM, and a stored EN choice carries to the next card.
+
+**It caught one.** At 320px the switcher crowded the eyebrow and "A2Z CREATIVE MARKETING" truncated to an ellipsis — the company's name, on the first line of its own card. The name is 215px at that tracking and the switcher 76px, against 272px between the gutters; it does not fit on one line, so the eyebrow wraps to two now and the switcher stays level with the first.
+
+### Under it
+New: `constants/card-copy.ts`, `components/cards/card-view.tsx`. Changed: `constants/team.ts`, `app/[card]/page.tsx` (still a server component — it keeps generateStaticParams, generateMetadata and the schema.org block; only the readable body moved), `public/cards/*.vcf`, `tests/business-cards.mjs`.
+
+Guard #19 was extended rather than replaced, and **two of its checks were corrected**. It parsed `role: "…"` as a plain string, which the bilingual shape breaks; the parser follows the data now and asserts what matters — both halves present, neither blank, neither a copy of the other. And it asserted "the card page ships no client JavaScript of its own", which would have failed on the change you asked for; what it *meant* is that a printed URL must resolve on a bad day, so it now asks that: the route file is still a server component, the card fetches nothing, and its only piece of state is the language. Twelve new bilingual checks, negative-tested five ways. 147 checks pass.
+
+Full suite, `tsc`, `eslint` and a production build all pass.
+
 ## [1.127.0] - 2026-09-06 - each company signs with its own chop, and a signature stops changing after the fact
 
 **CEO**, 06-09-2026: *"2 Entity of company which is A2Z Creative Marketing and AZ One Official and both need separated e-signature due to the company stamp on it."*
