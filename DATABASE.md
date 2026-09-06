@@ -3,6 +3,18 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.127.0 — `0118_signature_vault.sql`
+
+`signature_assets` — the officers' chops, keyed by **entity, role and version**, append-only.
+
+Migration 0073 put `issuer_code` on all six document tables and every renderer has resolved the letterhead, registration number, address and bank account from it since v1.28.0. The signature vault never learned about it: keyed by role alone, five flat files, one CEO chop for two companies — so a re-printed AZ ONE invoice showed AZ ONE letterhead over the A2Z stamp. The second missing dimension, version, is the same bug: a key with no dimensions can only hold the current file, so replacing a chop silently re-signed everything already approved under the old one.
+
+**No column was added to the six document tables.** A document's chop is resolved TEMPORALLY: the newest version of that entity+role with `uploaded_at` at or before the document's own date. That is a pure function of data every row already carries — no backfill nobody could compute honestly, no write on the approval path — and it gives "old documents keep the version they were signed with" for free.
+
+Rows are append-only: nothing updates `r2_key`, nothing deletes a version, because a document signed under v1 must resolve v1 for as long as it exists. `retired_at` marks a chop as no longer offered for NEW documents without removing it from the ones it signed. `sha256` makes a swapped object in R2 detectable. Armored: on a database that has not run 0118 the resolver falls through to the pre-v1.127.0 flat files, which serve **A2Z only** — an AZ ONE document with no AZ ONE chop prints a blank zone rather than the other company's stamp.
+
+| 2026-09-06 | 1.127.0 | `signature_assets` (entity + role + version). |
+
 ## v1.45.0 — `0086_totp_replay_guard.sql`
 
 `users.totp_last_step` — the highest 30-second TOTP step already accepted for this user, so a two-factor code works exactly once. Codes are valid for a ~90-second window (current step ±1) and nothing recorded which had been spent, leaving a glimpsed code replayable for the rest of it (security audit C6). `totpVerifyOnce()` updates the row only when the presented step is newer, in one atomic statement, so two requests racing with the same code cannot both win. NULL = nobody has verified yet. Armored: on a database that has not run 0086 the update throws and verification falls back to plain TOTP — a missing migration must never lock staff out. Single ALTER (audit B4 rule).

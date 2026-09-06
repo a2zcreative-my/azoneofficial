@@ -3,7 +3,7 @@
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
-import { L, LeaveReq, User, leaveTypeL } from "@/components/portal/page-shared";
+import { L, LeaveReq, User, leaveTypeL, withStepUp } from "@/components/portal/page-shared";
 import { RestDayCreditCard } from "@/components/portal/rest-day-credits";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -27,6 +27,7 @@ import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import { usePrompt } from "@/components/ui/prompt-dialog";
 
 /* ================= Leave ================= */
 
@@ -712,6 +713,8 @@ export function Leave({ user }: { user: User }) {
     "ceo",
   ].includes(user.role);
   const { confirm: askOverride, node: overrideConfirmNode } = useConfirm();
+  /* v1.127.0 — the step-up dialog for a final approval (withStepUp). */
+  const { prompt, node: stepUpNode } = usePrompt();
   const { show: showLeaveToast, node: leaveToastNode } = useSaveToast();
   /* v1.83.0 (CEO: "leave application and history I want to view and to edit
      if necessary or to remove if require. filter by month") — the decided
@@ -812,10 +815,16 @@ export function Leave({ user }: { user: User }) {
     /* v1.77.0 — approving or rejecting somebody's leave used to report
        nothing at all: the row simply moved. A decision about a person's time
        off should say what it did. */
-    const res = await api<{ stage?: string; error?: { message?: string } }>(`/staff/leave/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action, comment }),
-    });
+    /* v1.127.0: the last approval in the chain signs the form, so the server
+       asks for a live code. withStepUp sends the decision, and only when the
+       server says a code is needed does it ask for one and send again. */
+    const res = await withStepUp<{ stage?: string; error?: { message?: string } }>(
+      (totp) => api(`/staff/leave/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action, comment, ...(totp ? { totp } : {}) }),
+      }),
+      prompt,
+    );
     if (!res.ok) {
       showLeaveToast(L("Not changed", "Tidak diubah"),
         res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
@@ -899,10 +908,15 @@ export function Leave({ user }: { user: User }) {
       }))
     )
       return;
-    const res = await api<{ error?: { message?: string } }>(`/staff/leave/${l.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action, override: true }),
-    });
+    /* The CEO override is a final approval by definition — it goes straight
+       to approved with his chop on it, so it always meets the step-up. */
+    const res = await withStepUp<{ error?: { message?: string } }>(
+      (totp) => api(`/staff/leave/${l.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action, override: true, ...(totp ? { totp } : {}) }),
+      }),
+      prompt,
+    );
     if (!res.ok) {
       showLeaveToast(L("Not changed", "Tidak diubah"),
         res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
@@ -926,6 +940,7 @@ export function Leave({ user }: { user: User }) {
   return (
     <div className="space-y-4 md:space-y-6">
       {overrideConfirmNode}
+      {stepUpNode}
       {removeLeaveNode}
       {leaveToastNode}
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave

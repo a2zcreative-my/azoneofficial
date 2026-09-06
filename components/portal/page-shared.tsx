@@ -294,3 +294,33 @@ export function SectionTabs<T extends string>({ value, onChange, tabs, className
     </div>
   );
 }
+
+/* v1.127.0 — THE STEP-UP RETRY.
+
+   The final approval on a leave form or a claim attaches an officer's chop
+   and releases time off or money, so the worker asks for a live authenticator
+   code before it will sign (requireFreshTotp in worker/src/staff.ts).
+
+   The client does not try to work out which approval is the final one. It
+   sends the decision, and if the server answers 401 totp_required it asks for
+   the code and sends the same decision again. The rule stays in ONE place --
+   the server, which owns the approval chain -- and the portal cannot drift
+   out of step with it by getting the chain arithmetic subtly wrong.
+
+   Returns the final result. `ask` is the usePrompt() prompt from the calling
+   component, so the dialog matches every other dialog in the app. */
+export async function withStepUp<T>(
+  send: (totp?: string) => Promise<{ ok: boolean; status: number; data: T | null }>,
+  ask: (o: { title: string; label: string; placeholder?: string; required?: boolean }) => Promise<{ value: string } | null>,
+): Promise<{ ok: boolean; status: number; data: T | null }> {
+  const first = await send();
+  if (first.ok || first.status !== 401) return first;
+  const code = await ask({
+    title: L("Sign this decision", "Tandatangani keputusan ini"),
+    label: L("Your 6-digit authenticator code — this decision carries your signature", "Kod pengesah 6 digit anda — keputusan ini membawa tandatangan anda"),
+    placeholder: "000000",
+    required: true,
+  });
+  if (!code?.value) return first; // cancelled: the caller reports the original refusal
+  return send(code.value.trim());
+}

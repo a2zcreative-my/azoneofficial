@@ -227,8 +227,14 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
      customer's shared link passes its own token-scoped URL via
      sigSrcOverride. The old /signatures/<role>-sign.png files are gone —
      they were downloadable by anyone on the internet. */
+  /* v1.127.0 — the chop follows the document's ISSUING entity, exactly like
+     the letterhead above it. Both companies have their own officers'
+     signatures because both stamp their own company name; asking the vault
+     without an entity used to return whichever single file was in it, so an
+     AZ ONE invoice printed AZ ONE letterhead over the A2Z stamp. */
+  const sigEntity = doc.issuer_code === "a2z" ? "a2z" : "azoo";
   const sigSrc = sigSrcOverride
-    ?? `${location.origin}/api/v1/staff/signature/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
+    ?? `${location.origin}/api/v1/staff/signature/${sigEntity}/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
   /* The zone is the same height signed or not — that is what holds the two
      columns level once the auto signature drops in. */
   const zone = (img: boolean) =>

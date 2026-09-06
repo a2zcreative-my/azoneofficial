@@ -44,13 +44,14 @@ import { card, inputClass, inputClassSm, btnClass, chipNeutral, fieldRow, th, td
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { SectionTabs, ZoneLabel } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
+import { SectionTabs, ZoneLabel, withStepUp } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { usePrompt } from "@/components/ui/prompt-dialog";
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -3409,6 +3410,8 @@ const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "acc
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
 export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?: string }) {
+  /* v1.127.0 — the step-up dialog when a claim approval needs a code. */
+  const { prompt, node: stepUpNode } = usePrompt();
   /* v1.88.0 — which figure in the summary strip the list is scoped to. */
   const [claimF, setClaimF] = useState("");
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -3563,7 +3566,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         }))) return;
       }
     }
-    const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/claims/${id}/decide`, { method: "POST", body: JSON.stringify({ action, note: note[id] || undefined }) });
+    /* v1.127.0: approving a claim releases money and puts the CEO chop on the
+       form, so the server asks for a live authenticator code. Rejecting signs
+       nothing and is not gated. */
+    const res = await withStepUp<{ ok?: boolean; error?: { message?: string } }>(
+      (totp) => api(`/claims/${id}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ action, note: note[id] || undefined, ...(totp ? { totp } : {}) }),
+      }),
+      prompt,
+    );
     if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Decision failed", "Keputusan gagal"), "notice"); return; }
     showToast(L("Saved", "Disimpan"), `${L("Claim", "Tuntutan")} ${action === "approve" ? L("approved", "diluluskan") : L("rejected", "ditolak")} ${L("— claimant notified", "— penuntut dimaklumkan")}`);
     void load();
@@ -3859,6 +3871,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   return (
     <div className="space-y-4 md:space-y-6">
       {toastNode}
+      {stepUpNode}
       {confirmNode}
       <div className={card}>
         <p className="text-sm font-semibold">

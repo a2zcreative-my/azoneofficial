@@ -16,7 +16,7 @@ import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the compan
 import { BREAK_AFTER_MINUTES, hourlyBreakFor } from "./hourly"; // v1.109.0 - paid by the clock, less the break
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
-import { createPasswordHash, primaryOrigin } from "./index";
+import { createPasswordHash, primaryOrigin, totpVerifyOnce } from "./index"; // v1.127.0 - step-up before a signature is attached
 import { sendPush, type PushKeys } from "./webpush";
 import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
@@ -824,6 +824,51 @@ export async function notify(
       /* delivery is best-effort; in-app record already saved */
     }
   }
+}
+
+/* v1.127.0 — STEP-UP BEFORE A SIGNATURE IS ATTACHED (CEO, 06-09-2026).
+
+   The final approval on a leave form or a claim is the moment an officer's
+   chop lands on a document that releases time off or money. Until now the
+   only thing standing behind that chop was "somebody is signed in as the
+   CEO" — a session cookie on an unlocked laptop was enough.
+
+   So the final decision asks for a live TOTP code. It is genuinely small,
+   because the foundation is already there and already strong:
+   totpVerifyOnce() is replay-guarded at the 30-second step (migration 0086,
+   one atomic statement, armored against a missing migration), and every role
+   that holds a signature is in MANDATORY_2FA_ROLES, so no signer can be
+   locked out of their own approval by this.
+
+   What it is NOT: proof of what was signed. That needs the document hash and
+   a signing-event record, which are deliberately a later version. This makes
+   the identity behind the chop fresh; it does not yet make the CONTENT
+   tamper-evident, and the changelog says so rather than implying otherwise.
+
+   Returns null when the step-up passed (or does not apply), or a Response to
+   return to the caller when it did not. */
+async function requireFreshTotp(
+  env: Env,
+  user: { id: number; role: string },
+  code: unknown,
+  err: (c: string, m: string, s: number) => Response,
+): Promise<Response | null> {
+  let row: { totp_secret: string | null; totp_enabled: number } | null = null;
+  try {
+    row = await env.DB.prepare(
+      `SELECT totp_secret, totp_enabled FROM users WHERE id = ?1`,
+    ).bind(user.id).first<{ totp_secret: string | null; totp_enabled: number }>();
+  } catch { return null; } // pre-2FA schema: never block an approval on it
+  /* Somebody who has not finished enrolling cannot produce a code. Blocking
+     them here would make the portal unusable for the one action they are
+     there to perform; the portal already forces enrolment at sign-in. */
+  if (!row?.totp_secret || !row.totp_enabled) return null;
+  if (typeof code !== "string" || !/^\d{6}$/.test(code.trim())) {
+    return err("totp_required", "Enter your 6-digit authenticator code to sign this decision", 401);
+  }
+  const okCode = await totpVerifyOnce(env, user.id, row.totp_secret, code.trim());
+  if (!okCode) return err("totp_invalid", "That code is not valid (or has already been used) - open your authenticator and try the current one", 401);
+  return null;
 }
 
 async function audit(
@@ -3451,6 +3496,17 @@ export async function handleStaff(
 
     // Approve advances one stage along the applicant's chain.
     if (action === "approve") {
+      /* v1.127.0 — the step-up guards the SIGNATURE, so it applies to the two
+         approvals that attach the CEO chop: the override (straight to
+         approved) and the last stage of the normal chain. HR review and
+         pre-approval advance the form without putting the final chop on it,
+         and gating them would ask a manager for a code four times a day for
+         a decision that signs nothing. */
+      const willBeFinal = override || leaveNextStage(row.stage, row.applicant_role) === "approved";
+      if (willBeFinal) {
+        const stepUp = await requireFreshTotp(env, user, body?.totp, err);
+        if (stepUp) return stepUp;
+      }
       /* The bypass: straight to fully approved from whatever stage it was
          sitting at, with the CEO as the final signature. */
       if (override) {
@@ -4109,6 +4165,14 @@ export async function handleStaff(
     if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
     const action = body?.action;
     if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
+    /* v1.127.0: an APPROVAL puts the CEO chop on the form and releases money,
+       so it needs a live code. A REJECTION attaches no signature and stops
+       the money, so it is not gated - the gate is on the signature, not on
+       the click. */
+    if (action === "approve") {
+      const stepUp = await requireFreshTotp(env, user, body?.totp, err);
+      if (stepUp) return stepUp;
+    }
     const row = await env.DB.prepare(
       `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role
        FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
@@ -10787,68 +10851,176 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     ceo: "ceo-sign.png", coo: "coo-sign.png", cco: "cco-sign.png",
     hr_admin: "hr-admin-sign.png", sales_marketing: "sales-marketing-sign.png",
   };
-  const serveSignature = async (file: string, context: string): Promise<Response> => {
-    const obj = await env.MEDIA.get(`private/signatures/${file}`);
+  /* v1.127.0 — THE VAULT IS ENTITY-AWARE AND VERSIONED (CEO, 06-09-2026:
+     *"2 Entity of company ... both need separated e-signature due to the
+     company stamp on it"*).
+
+     Every document has carried issuer_code since 0073, and every renderer
+     already resolves its letterhead, registration and bank account from it.
+     The vault did not: it was keyed by role alone, five files, one CEO chop
+     for two companies. A re-printed AZ ONE invoice therefore came out with
+     AZ ONE letterhead and the A2Z stamp.
+
+     Resolution is TEMPORAL, not stored per document (see migration 0118 for
+     why): the signature on a document issued at time T is the newest version
+     of that entity+role uploaded AT OR BEFORE T. Upload a new chop tomorrow
+     and every document already approved keeps the one it was signed with,
+     with no column, no backfill and no write on the approval path. */
+  const resolveSignatureKey = async (
+    issuerCode: string | null | undefined,
+    role: string,
+    at: string | null | undefined,
+  ): Promise<string | null> => {
+    const entity = issuerCode === "a2z" ? "a2z" : "azoo"; // NULL = legacy = AZ ONE (0073)
+    const when = at && /^\d{4}-\d{2}-\d{2}/.test(at) ? at : new Date().toISOString();
+    try {
+      const row = await env.DB.prepare(
+        `SELECT r2_key FROM signature_assets
+          WHERE issuer_code = ?1 AND role = ?2 AND uploaded_at <= ?3
+          ORDER BY uploaded_at DESC, version DESC LIMIT 1`,
+      ).bind(entity, role, when).first<{ r2_key: string }>();
+      if (row) return row.r2_key;
+      /* Signed before the first upload for this entity+role: the earliest
+         chop on file is the honest answer, not "no signature". */
+      const first = await env.DB.prepare(
+        `SELECT r2_key FROM signature_assets
+          WHERE issuer_code = ?1 AND role = ?2
+          ORDER BY uploaded_at ASC, version ASC LIMIT 1`,
+      ).bind(entity, role).first<{ r2_key: string }>();
+      if (first) return first.r2_key;
+    } catch { /* pre-0118 schema: fall through to the legacy flat file */ }
+    /* THE LEGACY FALLBACK, and its one deliberate limit. The five flat files
+       at private/signatures/<role>-sign.png predate this table. They were
+       uploaded while A2Z was the operating issuer, so that is what they
+       demonstrably are, and they serve A2Z only.
+
+       An AZ ONE document with no AZ ONE chop on file therefore prints a BLANK
+       signature zone rather than the A2Z stamp. That is the safe direction:
+       an unsigned document is a document awaiting ink, which the forms already
+       handle; a document bearing the wrong company stamp is a false statement
+       about which entity approved it. */
+    if (entity !== "a2z") return null;
+    return `private/signatures/${SIG_ROLE_FILE[role] ?? `${role}-sign.png`}`;
+  };
+  const serveSignatureKey = async (key: string | null, context: string): Promise<Response> => {
+    if (!key) return err("not_found", "No signature on file for this entity — /admin → Staff → Signatures", 404);
+    const obj = await env.MEDIA.get(key);
     if (!obj) return err("not_found", "This signature has not been uploaded to the vault yet — /admin → Staff → Signatures", 404);
-    await audit(env, user.id, "signature.serve", "r2", file, { context });
+    await audit(env, user.id, "signature.serve", "r2", key, { context });
     return new Response(obj.body, {
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private" },
     });
   };
-  const sigServe = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  /* v1.127.0: the role-file door takes an ENTITY. /signature/a2z/ceo-sign.png
+     and /signature/azoo/ceo-sign.png are different chops, and asking without
+     an entity can no longer silently mean "whichever one is in the vault". */
+  const SIG_FILE_ROLE: Record<string, string> = Object.fromEntries(
+    Object.entries(SIG_ROLE_FILE).map(([r, f]) => [f, r]),
+  );
+  const sigServe = path.match(/^\/signature\/(a2z|azoo)\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
   if (sigServe && method === "GET") {
     if (!can(user.role, "sales") && !can(user.role, "hr_manage")) {
       return err("forbidden", "Signature access is limited to document and HR roles", 403);
     }
-    return serveSignature(sigServe[1]!, "role-file");
+    const role = SIG_FILE_ROLE[sigServe[2]!]!;
+    const key = await resolveSignatureKey(sigServe[1]!, role, null);
+    return serveSignatureKey(key, `role-file:${sigServe[1]}`);
+  }
+  /* The pre-v1.127.0 entity-less path. Kept ONLY so a page still open in
+     somebody's browser during the deploy does not break; it answers for the
+     OPERATING issuer, which is what it always meant. Nothing in the shipped
+     code calls it, and tests/signature-entities.mjs fails if anything does. */
+  const sigServeLegacy = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  if (sigServeLegacy && method === "GET") {
+    if (!can(user.role, "sales") && !can(user.role, "hr_manage")) {
+      return err("forbidden", "Signature access is limited to document and HR roles", 403);
+    }
+    const role = SIG_FILE_ROLE[sigServeLegacy[1]!]!;
+    const key = await resolveSignatureKey("a2z", role, null);
+    return serveSignatureKey(key, "role-file:legacy-path");
   }
   /* Claim-scoped: emp = the claimant's own chop (only officers have one),
      pre = the pre-approver's, ceo = only once the claim is APPROVED. */
   const sigClaim = path.match(/^\/claims\/(\d+)\/signature\/(emp|pre|ceo)$/);
   if (sigClaim && method === "GET") {
-    const cl = await env.DB.prepare(
-      `SELECT c.user_id, c.status, c.pre_approved_by, u.role AS claimant_role, p.role AS pre_role
-       FROM claims c JOIN users u ON u.id = c.user_id
-       LEFT JOIN users p ON p.id = c.pre_approved_by
-       WHERE c.id = ?1`,
-    ).bind(sigClaim[1]).first<{ user_id: number; status: string; pre_approved_by: number | null; claimant_role: string; pre_role: string | null }>();
+    /* v1.127.0: the claim's OWN issuer and its OWN dates decide which chop
+       appears on it — the entity that employed the claimant when it was
+       raised, at the version current on the day each stage signed. */
+    let cl: { user_id: number; status: string; pre_approved_by: number | null; claimant_role: string; pre_role: string | null; issuer_code?: string | null; created_at?: string | null; pre_approved_at?: string | null; decided_at?: string | null } | null = null;
+    try {
+      cl = await env.DB.prepare(
+        `SELECT c.user_id, c.status, c.pre_approved_by, c.issuer_code, c.created_at, c.pre_approved_at, c.decided_at,
+                u.role AS claimant_role, p.role AS pre_role
+         FROM claims c JOIN users u ON u.id = c.user_id
+         LEFT JOIN users p ON p.id = c.pre_approved_by
+         WHERE c.id = ?1`,
+      ).bind(sigClaim[1]).first();
+    } catch {
+      cl = await env.DB.prepare(
+        `SELECT c.user_id, c.status, c.pre_approved_by, u.role AS claimant_role, p.role AS pre_role
+         FROM claims c JOIN users u ON u.id = c.user_id
+         LEFT JOIN users p ON p.id = c.pre_approved_by
+         WHERE c.id = ?1`,
+      ).bind(sigClaim[1]).first();
+    }
     if (!cl) return err("not_found", "Claim not found", 404);
     const inChain = can(user.role, "hr_manage") || can(user.role, "claims_decide") || ["coo", "cco"].includes(user.role);
     if (cl.user_id !== user.id && !inChain) {
       return err("forbidden", "Only the claimant or the approval chain may fetch this claim's signatures", 403);
     }
     const which = sigClaim[2]!;
-    let file: string | null = null;
-    if (which === "emp") file = SIG_ROLE_FILE[cl.claimant_role] ?? null;
-    if (which === "pre") file = cl.pre_approved_by ? (SIG_ROLE_FILE[cl.pre_role ?? ""] ?? null) : null;
-    if (which === "ceo") file = cl.status === "approved" ? SIG_ROLE_FILE.ceo! : null;
-    if (!file) return err("not_found", "No signature applies at this stage", 404);
-    return serveSignature(file, `claim:${sigClaim[1]}`);
+    let sigRole: string | null = null;
+    let sigAt: string | null = null;
+    if (which === "emp") { sigRole = SIG_ROLE_FILE[cl.claimant_role] ? cl.claimant_role : null; sigAt = cl.created_at ?? null; }
+    if (which === "pre") { sigRole = cl.pre_approved_by && SIG_ROLE_FILE[cl.pre_role ?? ""] ? cl.pre_role! : null; sigAt = cl.pre_approved_at ?? null; }
+    if (which === "ceo") { sigRole = cl.status === "approved" ? "ceo" : null; sigAt = cl.decided_at ?? null; }
+    if (!sigRole) return err("not_found", "No signature applies at this stage", 404);
+    const claimKey = await resolveSignatureKey(cl.issuer_code, sigRole, sigAt);
+    return serveSignatureKey(claimKey, `claim:${sigClaim[1]}`);
   }
   /* Leave-scoped: same shape — owner or chain, and the CEO chop only on an
      APPROVED application. */
   const sigLeave = path.match(/^\/leave\/(\d+)\/signature\/(emp|pre|ceo)$/);
   if (sigLeave && method === "GET") {
-    const lv = await env.DB.prepare(
-      `SELECT l.user_id, l.status, l.preapp_by, u.role AS owner_role, p.role AS pre_role
-       FROM leave_requests l JOIN users u ON u.id = l.user_id
-       LEFT JOIN users p ON p.id = l.preapp_by
-       WHERE l.id = ?1`,
-    ).bind(sigLeave[1]).first<{ user_id: number; status: string; preapp_by: number | null; owner_role: string; pre_role: string | null }>();
+    /* v1.127.0: same rule as claims — the form carries the chop of the entity
+       that EMPLOYED the applicant, at the version current when each stage
+       signed. A leave form re-printed today still shows what it showed then. */
+    let lv: { user_id: number; status: string; preapp_by: number | null; owner_role: string; pre_role: string | null; issuer_code?: string | null; created_at?: string | null; preapp_at?: string | null; final_at?: string | null } | null = null;
+    try {
+      lv = await env.DB.prepare(
+        `SELECT l.user_id, l.status, l.preapp_by, l.issuer_code, l.created_at, l.preapp_at, l.final_at,
+                u.role AS owner_role, p.role AS pre_role
+         FROM leave_requests l JOIN users u ON u.id = l.user_id
+         LEFT JOIN users p ON p.id = l.preapp_by
+         WHERE l.id = ?1`,
+      ).bind(sigLeave[1]).first();
+    } catch {
+      lv = await env.DB.prepare(
+        `SELECT l.user_id, l.status, l.preapp_by, u.role AS owner_role, p.role AS pre_role
+         FROM leave_requests l JOIN users u ON u.id = l.user_id
+         LEFT JOIN users p ON p.id = l.preapp_by
+         WHERE l.id = ?1`,
+      ).bind(sigLeave[1]).first();
+    }
     if (!lv) return err("not_found", "Leave request not found", 404);
     const inChain = can(user.role, "hr_manage") || ["coo", "cco", "ceo"].includes(user.role);
     if (lv.user_id !== user.id && !inChain) {
       return err("forbidden", "Only the applicant or the approval chain may fetch this form's signatures", 403);
     }
     const which = sigLeave[2]!;
-    let file: string | null = null;
-    if (which === "emp") file = SIG_ROLE_FILE[lv.owner_role] ?? null;
-    if (which === "pre") file = lv.preapp_by ? (SIG_ROLE_FILE[lv.pre_role ?? ""] ?? null) : null;
-    if (which === "ceo") file = lv.status === "approved" ? SIG_ROLE_FILE.ceo! : null;
-    if (!file) return err("not_found", "No signature applies at this stage", 404);
-    return serveSignature(file, `leave:${sigLeave[1]}`);
+    let lvRole: string | null = null;
+    let lvAt: string | null = null;
+    if (which === "emp") { lvRole = SIG_ROLE_FILE[lv.owner_role] ? lv.owner_role : null; lvAt = lv.created_at ?? null; }
+    if (which === "pre") { lvRole = lv.preapp_by && SIG_ROLE_FILE[lv.pre_role ?? ""] ? lv.pre_role! : null; lvAt = lv.preapp_at ?? null; }
+    if (which === "ceo") { lvRole = lv.status === "approved" ? "ceo" : null; lvAt = lv.final_at ?? null; }
+    if (!lvRole) return err("not_found", "No signature applies at this stage", 404);
+    const leaveKey = await resolveSignatureKey(lv.issuer_code, lvRole, lvAt);
+    return serveSignatureKey(leaveKey, `leave:${sigLeave[1]}`);
   }
-  const sigUpload = path.match(/^\/signatures\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  /* v1.127.0 — an upload APPENDS a version for one entity. It never
+     overwrites: the previous chop stays in R2 and stays in the table, because
+     every document signed under it must be able to resolve it forever. */
+  const sigUpload = path.match(/^\/signatures\/(a2z|azoo)\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
   if (sigUpload && method === "POST") {
     if (!["super_admin", "admin", "ceo"].includes(user.role)) {
       return err("forbidden", "Only an admin or the CEO can upload signatures", 403);
@@ -10856,10 +11028,59 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!request.body) return err("invalid_input", "Image body required", 400);
     const ct = request.headers.get("Content-Type") ?? "";
     if (ct !== "image/png") return err("invalid_input", "Signatures must be PNG (transparent background)", 400);
-    const key = `private/signatures/${sigUpload[1]}`;
-    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
-    await audit(env, user.id, "staff.signature_upload", "r2", key);
-    return json({ ok: true, key }, 201);
+    const entity = sigUpload[1]!;
+    const role = SIG_FILE_ROLE[sigUpload[2]!]!;
+    /* Read the bytes once: R2 needs them, and so does the hash that makes a
+       swapped object in the bucket detectable. */
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.byteLength === 0) return err("invalid_input", "Image body required", 400);
+    if (bytes.byteLength > 2 * 1024 * 1024) return err("too_large", "Signature PNGs must be under 2 MB", 413);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    let version = 1;
+    try {
+      const last = await env.DB.prepare(
+        `SELECT MAX(version) AS v FROM signature_assets WHERE issuer_code = ?1 AND role = ?2`,
+      ).bind(entity, role).first<{ v: number | null }>();
+      version = (last?.v ?? 0) + 1;
+    } catch {
+      return err("invalid_state", "The signature vault table is missing - run the database migrations (0118), then upload again", 503);
+    }
+    const key = `private/signatures/${entity}/${role}-v${version}.png`;
+    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: ct } });
+    await env.DB.prepare(
+      `INSERT INTO signature_assets (issuer_code, role, version, r2_key, sha256, uploaded_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(entity, role, version, key, sha, user.id).run();
+    await audit(env, user.id, "staff.signature_upload", "r2", key, { entity, role, version, sha256: sha });
+    return json({ ok: true, key, entity, role, version }, 201);
+  }
+  /* The vault index, for the admin panel: which entity has which chop, at
+     which version, uploaded when and by whom. Never returns the image. */
+  if (path === "/signatures" && method === "GET") {
+    if (!["super_admin", "admin", "ceo"].includes(user.role)) {
+      return err("forbidden", "Only an admin or the CEO can read the signature vault", 403);
+    }
+    let rows: { issuer_code: string; role: string; version: number; uploaded_at: string; uploaded_by_name: string | null; sha256: string | null; retired_at: string | null }[] = [];
+    let ready = true;
+    try {
+      const r = await env.DB.prepare(
+        `SELECT s.issuer_code, s.role, s.version, s.uploaded_at, s.sha256, s.retired_at,
+                COALESCE(u.full_name, u.name) AS uploaded_by_name
+           FROM signature_assets s LEFT JOIN users u ON u.id = s.uploaded_by
+          ORDER BY s.issuer_code, s.role, s.version DESC`,
+      ).all<{ issuer_code: string; role: string; version: number; uploaded_at: string; sha256: string | null; retired_at: string | null; uploaded_by_name: string | null }>();
+      rows = r.results ?? [];
+    } catch { ready = false; }
+    /* Which of the five legacy flat files still exist. They serve A2Z only
+       (see resolveSignatureKey), so the panel can say plainly that AZ ONE has
+       nothing on file rather than letting a blank zone look like a bug. */
+    const legacy: string[] = [];
+    for (const [role, file] of Object.entries(SIG_ROLE_FILE)) {
+      const head = await env.MEDIA.head(`private/signatures/${file}`).catch(() => null);
+      if (head) legacy.push(role);
+    }
+    return json({ ready, rows, legacy });
   }
   /* v1.4.162 (CEO): fix a wrongly inserted item — edit SKU/name, or delete
      the row entirely. Deletion is blocked once shipment history exists

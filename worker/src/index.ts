@@ -277,7 +277,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0117_hotel_review_pipeline";
+const LATEST_MIGRATION = "0118_signature_vault";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -372,7 +372,7 @@ async function totpVerify(secret: string, code: string): Promise<boolean> {
  * fall back to plain verification rather than locking every staff member out
  * of their own account — a missing migration must never become a lockout.
  */
-async function totpVerifyOnce(env: Env, userId: number, secret: string, code: string): Promise<boolean> {
+export async function totpVerifyOnce(env: Env, userId: number, secret: string, code: string): Promise<boolean> {
   const step = await totpStepOf(secret, code);
   if (step === null) return false;
   try {
@@ -3240,14 +3240,22 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/public/doc-signature" && method === "GET") {
     const token = new URL(request.url).searchParams.get("t") ?? "";
     if (!/^[a-f0-9]{32}$/.test(token)) return errorResponse("not_found", "Unknown document", 404);
-    let sigDoc: { doc_type: string; created_by_role: string | null } | null = null;
+    let sigDoc: { doc_type: string; created_by_role: string | null; issuer_code?: string | null; issued_at?: string | null } | null = null;
     try {
       sigDoc = await env.DB.prepare(
-        `SELECT d.doc_type, cb.role AS created_by_role
+        `SELECT d.doc_type, d.issuer_code, d.created_at AS issued_at, cb.role AS created_by_role
          FROM sales_documents d LEFT JOIN users cb ON cb.id = d.created_by
          WHERE d.share_token = ?1`,
-      ).bind(token).first<{ doc_type: string; created_by_role: string | null }>();
-    } catch { sigDoc = null; }
+      ).bind(token).first();
+    } catch {
+      try {
+        sigDoc = await env.DB.prepare(
+          `SELECT d.doc_type, cb.role AS created_by_role
+           FROM sales_documents d LEFT JOIN users cb ON cb.id = d.created_by
+           WHERE d.share_token = ?1`,
+        ).bind(token).first();
+      } catch { sigDoc = null; }
+    }
     if (!sigDoc) return errorResponse("not_found", "Unknown document", 404);
     // Same signer rule as everywhere (v1.4.233): officer's doc → their chop;
     // anyone else's INV → CEO; anything else is signed in ink (no image).
@@ -3256,7 +3264,40 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ? (sigDoc.created_by_role as string)
       : (sigDoc.doc_type === "INV" ? "ceo" : null);
     if (!role) return errorResponse("not_found", "This document is signed in ink", 404);
-    const obj = await env.MEDIA.get(`private/signatures/${role}-sign.png`);
+    /* v1.127.0 — the customer's copy carries the chop of the entity that
+       ISSUED the document, at the version current on its document date. The
+       letterhead beside it has resolved from issuer_code since v1.28.0; until
+       now the signature under that letterhead could be the other company's.
+
+       resolveSignatureKey lives in staff.ts and is not importable here
+       (index.ts is the module staff.ts imports from, so the arrow would run
+       the wrong way). The rule is small enough to state twice; the guard
+       tests/signature-entities.mjs asserts the two agree. */
+    const sigEntity = sigDoc.issuer_code === "a2z" ? "a2z" : "azoo";
+    const sigWhen = sigDoc.issued_at && /^\d{4}-\d{2}-\d{2}/.test(sigDoc.issued_at)
+      ? sigDoc.issued_at : new Date().toISOString();
+    let sigKey: string | null = null;
+    try {
+      const pick = await env.DB.prepare(
+        `SELECT r2_key FROM signature_assets
+          WHERE issuer_code = ?1 AND role = ?2 AND uploaded_at <= ?3
+          ORDER BY uploaded_at DESC, version DESC LIMIT 1`,
+      ).bind(sigEntity, role, sigWhen).first<{ r2_key: string }>();
+      sigKey = pick?.r2_key ?? null;
+      if (!sigKey) {
+        const first = await env.DB.prepare(
+          `SELECT r2_key FROM signature_assets WHERE issuer_code = ?1 AND role = ?2
+            ORDER BY uploaded_at ASC, version ASC LIMIT 1`,
+        ).bind(sigEntity, role).first<{ r2_key: string }>();
+        sigKey = first?.r2_key ?? null;
+      }
+    } catch { sigKey = null; } // pre-0118 schema
+    /* The legacy flat files serve A2Z only — they were uploaded while A2Z was
+       the operating issuer. An AZ ONE document with no AZ ONE chop shows no
+       signature rather than the wrong company's stamp. */
+    if (!sigKey && sigEntity === "a2z") sigKey = `private/signatures/${role}-sign.png`;
+    if (!sigKey) return errorResponse("not_found", "No signature on file for the issuing entity", 404);
+    const obj = await env.MEDIA.get(sigKey);
     if (!obj) return errorResponse("not_found", "Signature not on file", 404);
     return new Response(obj.body, {
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private", "X-Robots-Tag": "noindex" },
@@ -4395,6 +4436,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0115 (watchers)", `SELECT ref FROM watcher_open LIMIT 1`],
       ["0116 (the hotel pipeline)", `SELECT stage, customer_id FROM hotels LIMIT 1`],
       ["0117 (the pipeline re-spoken for review outreach)", `SELECT review_url FROM hotels LIMIT 1`],
+      ["0118 (the signature vault, per entity and per version)", `SELECT issuer_code, role, version, r2_key FROM signature_assets LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4531,6 +4573,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0115_watchers",
       "0116_hotel_pipeline",
       "0117_hotel_review_pipeline",
+      "0118_signature_vault",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

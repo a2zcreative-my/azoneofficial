@@ -2,6 +2,47 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.127.0] - 2026-09-06 - each company signs with its own chop, and a signature stops changing after the fact
+
+**CEO**, 06-09-2026: *"2 Entity of company which is A2Z Creative Marketing and AZ One Official and both need separated e-signature due to the company stamp on it."*
+
+That is a live defect, not a feature request, and it was the most urgent thing in the signature audit.
+
+### What was wrong
+`issuer_code` has been on all six document tables since migration 0073, and since v1.28.0 every renderer has resolved the letterhead, the registration number, the registered address and the bank account from it. Re-print a 2026-07 invoice and you correctly get AZ ONE OFFICIAL.
+
+**The signature vault was the one thing that never learned about it.** Keyed by role alone — `private/signatures/ceo-sign.png`, five files — one CEO chop for two companies. So that AZ ONE invoice printed AZ ONE letterhead, AZ ONE registration and AZ ONE bank account, under the **A2Z stamp**: a document that contradicts itself about which legal entity approved it, on the document that entity is liable for. The same on leave forms, claim forms, receipts, credit notes and payslips, all of which carry `issuer_code` too.
+
+The audit listed "revocation/versioning" as a separate item #6. It is the same bug. A key with no dimensions can only ever hold *the current file*, which is why replacing a chop silently changed every document already issued and approved under the old one.
+
+### The fix, and the design decision inside it
+`signature_assets` (migration 0118) keys the vault by **entity, role and version**, and is append-only.
+
+**No column was added to the six document tables**, and that is deliberate. The obvious design records per document which asset signed it: six ALTERs, a backfill nobody can compute honestly for rows signed before the table existed, and a write on every approval path. Instead a document's chop resolves **temporally** — the newest version of that entity+role uploaded *at or before* the document's own date. It is a pure function of data every row already carries, and it gives "old documents keep the version they were signed with" for free: upload v3 tomorrow and yesterday's approval still resolves to v2, because v3 did not exist when it was signed.
+
+All four doors into the vault now take an entity: the role-file route, the claim-scoped route, the leave-scoped route and the public share-token route. So does the printed HTML and the saved PDF, which now ask for the same company's chop as the letterhead they draw it under.
+
+**One limit is deliberate and worth knowing.** The five pre-v1.127.0 flat files serve **A2Z only** — they were uploaded while A2Z was the operating issuer, so that is what they demonstrably are. Until you upload AZ ONE's chops, an AZ ONE document prints a **blank signature zone** rather than the A2Z stamp. That is the safe direction: an unsigned document is a document awaiting ink, which the forms already handle; a document bearing the other company's stamp is a false statement. The admin panel says so per cell rather than letting a blank zone look like a bug.
+
+### Signing now needs more than a session
+Approving a claim, or giving a leave form its final approval, attaches an officer's chop and releases money or time off. Until now the only thing behind that chop was "somebody is signed in as the CEO" — a session cookie on an unlocked laptop was enough. Those two actions now ask for a live authenticator code.
+
+It is a small change because the foundation was already strong: `totpVerifyOnce` is replay-guarded at the 30-second step (migration 0086, one atomic statement), and **every role that holds a signature is already in `MANDATORY_2FA_ROLES`** — I checked before requiring it, because a step-up that locks a signer out of their own approval is worse than no step-up.
+
+Two judgements in how it is scoped. The gate is on the **signature, not the click**: an approval is gated, a rejection is not, because a rejection attaches no chop. And only the approval that carries the final chop is gated — HR review and pre-approval advance a form without signing it, and gating them would ask a manager for a code four times a day to sign nothing. The portal does **not** work out which approval is final: it sends the decision, and only if the server answers `401 totp_required` does it ask for a code and send again. The chain arithmetic stays in one place, where it is already correct.
+
+### What this does NOT yet do — said plainly
+A fresh code makes the **identity** behind the chop current. It does not make the **content** tamper-evident. The document hash, the signing-event record, the verification stamp and the public verify page are a second version, as agreed.
+
+One trap to name before that version, because it would be easy to get wrong: these documents are not stored files — they are rendered at print time from live rows. Hashing the rendered HTML would mean every UI release invalidates every signature in the system; v1.120.0 reshaped the document form, v1.124.0 changed its colours and v1.126.0 changed its icons. Three releases, every signature broken. The hash has to be over a canonical serialisation of the **data** — issuer, parties, line items, totals, dates, approval chain — not the presentation. That is also what the Electronic Commerce Act's "detecting changes after signing" actually means here.
+
+### Under it
+New: `worker/migrations/0118_signature_vault.sql`, `tests/signature-entities.mjs`. Touched: `worker/src/staff.ts` (the resolver, all three staff doors, the versioned upload, the vault index, the step-up helper, the two gated approvals), `worker/src/index.ts` (the public share-token door, `totpVerifyOnce` exported, the migration triple-bump), `components/admin/signatures-panel.tsx` (a five-by-two grid with version history), `lib/doc-template.ts`, `lib/doc-pdf.ts`, `components/portal/page-shared.tsx` (`withStepUp`), `components/portal/leave.tsx`, `components/portal/role-panels.tsx`, `DATABASE.md`.
+
+Guard **#56 signature-entities** asserts the properties, not the spellings: every door takes an entity; resolution is bounded by the document's own date; uploads append and nothing updates or deletes a vault row; the legacy fallback refuses to answer for AZ ONE; the two copies of the resolution rule (staff.ts owns it, index.ts restates it because the import would run the wrong way) agree clause for clause; and the step-up gates the signature rather than the click. Negative-tested four ways.
+
+Full suite, `tsc`, `eslint`, the worker compile gate and a production build all pass.
+
 ## [1.126.0] - 2026-09-06 - the portal draws icons, not emoji
 
 **CEO**, 06-09-2026, an icon audit in four parts. Three were real and are fixed. The first one was not, and why it wasn't is worth more than the fix.
