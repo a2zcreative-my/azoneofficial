@@ -86,7 +86,7 @@ import { LeaderboardCard, MoneyCard } from "@/components/portal/commission";
 import { Dashboard, REVENUE_ROLES } from "@/components/portal/dashboard";
 import { Leave } from "@/components/portal/leave";
 import { OtApprovalsCard } from "@/components/portal/live-cards";
-import { L, MANAGE_ROLES, Notification, User, mytGreeting } from "@/components/portal/page-shared";
+import { L, MANAGE_ROLES, Notification, User, ZoneLabel, mytGreeting } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
@@ -1571,33 +1571,58 @@ export default function PortalPage() {
           )}
           {activeTab === "Ecommerce" && (
             <div className="space-y-3 md:space-y-6">
-              {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place —
-                connection health, the order tracker, LIVE GMV, the hourly
-                histogram and the fulfilment pipeline. */}
-              {/* v1.4.217 (CEO's order): Orders → GMV → by-hour → Fulfilment
-                → Connection status last (plumbing below the business).
-                v1.4.277: Sales revenue leads the tab (moved from Dashboard
-                per CEO — the month summary above the channel detail). */}
-              {/* v1.21.1 (CEO): the map LEADS the tab — where the country is
-                buying, at a glance, before the detail cards. */}
-              {/* v1.64.3 (CEO, on space): the leaderboard now rides in the
-                  map's side column, and targets + history + business lines
-                  are three tabs of one card. Five cards became two. */}
+              {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place.
+                v1.4.217: connection status last (plumbing below the business).
+                v1.21.1: the map leads. v1.64.3: leaderboard rides in the map's
+                side column; targets + history + lines are one three-tab card.
+
+                v1.117.0 — FOUR ZONES, like the Dashboard (CEO, 06-09-2026:
+                "Now review on Ecommerce"). THIS MONTH: the map (leaderboard
+                beside it), then Sales revenue and Sales by hour side by side -
+                how much, and when in the day. THE WORK: the order tracker with
+                Fulfilment beside it - the four counts are a summary of the same
+                orders. THE LONGER VIEW: targets / history / lines, and the
+                platform's own analytics. SETUP: the connection, last. The one
+                place the phone differs from the desk is by one card: the
+                month's total comes before the map on a small screen (a number
+                reads in a glance; a map needs a scroll and a tap) - done with
+                CSS order on the same three cards, so it is one tree. Every
+                card is unchanged inside; only the order and the grouping. */}
               {REVENUE_ROLES.includes(user.role) && (
-                <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
+                <section className="space-y-3 md:space-y-4">
+                  <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                    <div className="order-2 md:order-1 md:col-span-2">
+                      <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
+                    </div>
+                    <div className="order-1 md:order-2"><SalesRevenueCard /></div>
+                    <div className="order-3"><SalesByHourCard /></div>
+                  </div>
+                </section>
               )}
-              {REVENUE_ROLES.includes(user.role) && <MoneyCard user={user} />}
-              {REVENUE_ROLES.includes(user.role) && <SalesRevenueCard />}
-              <TikTokOrdersCard
-                role={user.role}
-                onChanged={() => {
-                  /* stock views live on Inventory */
-                }}
-              />
-              {REVENUE_ROLES.includes(user.role) && <SalesByHourCard />}
-              {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
-              {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
-              <ConnectionStatusCard />
+              <section className="space-y-3 md:space-y-4">
+                <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
+                <div className={`grid grid-cols-1 gap-3 md:gap-4 ${REVENUE_ROLES.includes(user.role) ? "md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" : ""}`}>
+                  <TikTokOrdersCard
+                    role={user.role}
+                    onChanged={() => {
+                      /* stock views live on Inventory */
+                    }}
+                  />
+                  {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
+                </div>
+              </section>
+              {REVENUE_ROLES.includes(user.role) && (
+                <section className="space-y-3 md:space-y-4">
+                  <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
+                  <MoneyCard user={user} />
+                  {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
+                </section>
+              )}
+              <section className="space-y-3 md:space-y-4">
+                <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
+                <ConnectionStatusCard />
+              </section>
             </div>
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}

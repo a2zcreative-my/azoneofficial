@@ -8,7 +8,7 @@ import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { OneDesk } from "@/components/portal/one-desk";
-import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, Task, User, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WatchersCard } from "@/components/portal/watchers-card";
@@ -103,12 +103,6 @@ export function PunchToast({
       </div>
     </div>
   );
-}
-
-/** v1.116.0 - the four zone captions of the Dashboard. Text, not chrome: the
-    same small-caps the KPI tiles already use for their own labels. */
-function ZoneLabel({ children }: { children: ReactNode }) {
-  return <p className="text-muted-foreground px-1 text-[10px] font-semibold tracking-widest uppercase">{children}</p>;
 }
 
 export function Dashboard({

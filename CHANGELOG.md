@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.117.0] - 2026-09-06 - the Ecommerce tab in four zones
+
+**CEO**, 06-09-2026: *"Now review on Ecommerce"* - the same review the Dashboard had in v1.116.0. Proposed as a side-by-side mockup for web and phone; approved as proposed.
+
+### What was wrong
+Eight cards in one column, in the order they were written between v1.4 and v1.64: map, then targets / history / lines, then the month's revenue, then the order tracker, then sales by hour, then fulfilment, then analytics, then the connection. Two views of *this month* separated by the long view; the tracker separated from the fulfilment counts that summarise it; sales-by-hour separated from the month it explains. Everyone on the tab sees all of it (only Analytics is CEO-only), so the fix was grouping, not gating.
+
+### Now
+1. **THIS MONTH** - the Operations map with the leaderboard beside it (as the CEO set in v1.21.1 and v1.64.3), then **Sales revenue** and **Sales by hour** side by side on the desk: how much, and when in the day.
+2. **THE WORK** - the **TikTok Orders** tracker wide, **Fulfilment** beside it - its four counts are a summary of the same orders, and pressing one opens them next door.
+3. **THE LONGER VIEW** - the Targets / Sales history / Business lines card, and TikTok Shop Analytics (CEO).
+4. **SETUP** - the TikTok connection, last, as v1.4.217 ordered.
+
+The phone reads the same zones in one column and differs from the desk by exactly one card: the month's total comes before the map on a small screen, since a number reads in a glance and a map needs a scroll and a tap. That is done with CSS order on the same three cards - one tree, not a phone copy. Every card is unchanged inside (Sync, the chips, the state drill, the month picker); every role gate is unchanged. The zone caption component moved to `page-shared` so the Dashboard and Ecommerce share it. No database change.
+
+### Under it
+`app/portal/page.tsx` (the Ecommerce block), `components/portal/page-shared.tsx` (`ZoneLabel` exported), `components/portal/dashboard.tsx` (imports it). Guard #49 `tests/tab-zones.mjs` holds the order, the one-card phone difference by CSS order, the shared caption and the gates; negative-tested two ways; registered in the runner. Full suite and a production build pass.
+
 ## [1.116.0] - 2026-09-06 - the Dashboard in four zones, one order for web and phone
 
 **CEO**, 06-09-2026: *"for the Dashboard I want UI/UX being re-organized for better user experience and at the same time the user interface well organized. I want to make sure both are being checked - Webview and Mobile apps view"*. Proposed as a side-by-side mockup first; he approved it as proposed.
