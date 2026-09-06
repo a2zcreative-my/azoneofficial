@@ -27,7 +27,11 @@ interface Receipt { id: number; receipt_number: string; invoice_number: string; 
 interface CreditNote { id: number; cn_number: string; invoice_number: string; amount_cents: number; reason?: string | null; company?: string | null; created_at: string; issuer_code?: string | null }
 interface Outstanding { id: number; doc_number: string; total_cents: number; due_date?: string | null; created_at: string; company?: string | null; phone?: string | null }
 
-export function DocumentsPanel() {
+/* v1.123.0 - `bare` drops the frame and the heading when this panel is a tab
+   body on the Sales tab. No default parameter: lazy-panels.tsx infers a
+   panel's props from its signature, and an optional props object erases them
+   to `object`, so the prop would not be passable through the lazy wrapper. */
+export function DocumentsPanel({ bare }: { bare?: boolean }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -66,9 +70,9 @@ export function DocumentsPanel() {
   const paidInvoices = invoices.filter((i) => (i.payment_status ?? "").toLowerCase() === "paid");
 
   return (
-    <div className={card}>
+    <div className={bare ? "" : card}>
       {toastNode}{promptNode}
-      <p className="text-sm font-semibold">{L("🧾 Documents — receipts, credit notes & outstanding", "🧾 Dokumen — resit, nota kredit & tertunggak")}</p>
+      {!bare && <p className="text-sm font-semibold">{L("🧾 Documents — receipts, credit notes & outstanding", "🧾 Dokumen — resit, nota kredit & tertunggak")}</p>}
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Issue a numbered receipt for a paid invoice, raise a credit note, and track every unpaid invoice in one place. Print carries the company letterhead.",
           "Keluarkan resit bernombor untuk invois berbayar, keluarkan nota kredit, dan jejak setiap invois belum dibayar di satu tempat. Cetakan membawa kepala surat syarikat.")}

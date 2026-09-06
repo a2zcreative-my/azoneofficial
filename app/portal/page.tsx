@@ -39,7 +39,6 @@ import {
    a document issued fresh TODAY (the SOA) carries DOCUMENT_ISSUER. */
 /* v1.4.212 (approved architecture review): three NEW isolated cards. */
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
-import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
@@ -91,7 +90,7 @@ import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
 import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
-import { SalesRevenueCard } from "@/components/portal/trading-desk";
+import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
 import { UsersPanel } from "@/components/portal/users-panel";
 
 /* v1.79.0 — ALL_TABS, TAB_ROLES and SALES_ROLES moved to lib/portal-tabs.ts.
@@ -1485,7 +1484,7 @@ export default function PortalPage() {
                 <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
                 <SalesMap />
               </section>
-              <Sales user={user} workExtra={<DocumentsPanel />} customersExtra={<ClientsCard />} />
+              <Sales user={user} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
               <section className="space-y-3 md:space-y-4">
                 <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
                 <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
@@ -1566,7 +1565,7 @@ export default function PortalPage() {
             /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
                before the table. v1.119.0: the panel draws it, beside the
                ELFIA bridge pulse, as the first row of its STOCK NOW zone. */
-            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
+            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard fill /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel />
@@ -1603,8 +1602,8 @@ export default function PortalPage() {
                     <div className="order-2 md:order-1 md:col-span-2">
                       <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
                     </div>
-                    <div className="order-1 md:order-2"><SalesRevenueCard /></div>
-                    <div className="order-3"><SalesByHourCard /></div>
+                    {/* v1.123.0 - revenue and by-hour are one tabbed card */}
+                    <div className="order-1 md:order-2 md:col-span-2"><RevenueAndHoursCard /></div>
                   </div>
                 </section>
               )}

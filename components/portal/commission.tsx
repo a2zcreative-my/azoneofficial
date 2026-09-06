@@ -3,7 +3,7 @@
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
-import { L, User } from "@/components/portal/page-shared";
+import { L, SectionTabs, User } from "@/components/portal/page-shared";
 import { BusinessLinesCard, SalesHistoryCard } from "@/components/portal/sales";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
@@ -305,18 +305,8 @@ export function MoneyCard({ user }: { user: User }) {
 
   return (
     <div className={card}>
-      <div className="flex flex-wrap items-center gap-1">
-        {tabs.map((t) => (
-          <button
-            key={t.k}
-            type="button"
-            className={`${btnSm} ${tab === t.k ? "!bg-primary !text-primary-foreground" : ""}`}
-            onClick={() => setTab(t.k)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* v1.123.0 - one tab style for the whole portal (page-shared SectionTabs). */}
+      <SectionTabs value={tab} onChange={setTab} tabs={tabs.map((t) => [t.k, t.label] as const)} />
       {canTargets && (
         <div className={tab === "targets" ? "mt-3" : "hidden"}>
           <TargetsCommissionCard bare />

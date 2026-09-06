@@ -38,6 +38,7 @@ import { compressImage } from "@/lib/compress-image";
 import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
+import { QuietCard, ZoneLabel } from "@/components/portal/page-shared"; // v1.122.0
 import { extractCatalogMap, type ExtractedMap, type PageRuns } from "@/lib/catalog-extract";
 
 const api = makeApi("/staff");
@@ -219,6 +220,7 @@ export function ElfiaStorePanel() {
   const [flashUntil, setFlashUntil] = useState("");
   /* Which collection the list is showing. Selection is scoped to it. */
   const [view, setView] = useState("all");
+  const [q, setQ] = useState(""); // v1.122.0 - find by SKU, name or collection
   /* v1.68.0: the flash sale sets its own price. "% off" by default, because
      a flash sale is nearly always announced as a percentage. */
   const [flashMode, setFlashMode] = useState<"percent" | "amount">("percent");
@@ -296,8 +298,10 @@ export function ElfiaStorePanel() {
      each. */
   const collections = [...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  const inView = view === "all" ? items
-    : items.filter((x) => (x.elfia_category ?? "").trim() === view);
+  const needle = q.trim().toLowerCase();
+  const inView = (view === "all" ? items
+    : items.filter((x) => (x.elfia_category ?? "").trim() === view))
+    .filter((x) => !needle || x.sku.toLowerCase().includes(needle) || x.name.toLowerCase().includes(needle) || (x.elfia_category ?? "").toLowerCase().includes(needle));
   const sorted = [...inView].sort((a, b) =>
     ((b.bridge_enabled ?? 0) - (a.bridge_enabled ?? 0)) ||
     a.sku.localeCompare(b.sku, undefined, { numeric: true }));
@@ -1049,6 +1053,14 @@ export function ElfiaStorePanel() {
           .map((c) => <option key={c} value={c} />)}
       </datalist>
 
+      {/* v1.122.0 — FOUR ZONES (CEO, 06-09-2026: "Check UI/UX for ELFIA Store").
+          THE SHOP: the pulse. PRODUCTS: the catalogue, moved up from the
+          bottom - it is the daily work - with a find box. THE SHOPFRONT: the
+          carousel, the catalog PDF and the hover backdrop, quiet until opened.
+          SETTINGS: delivery and the payment check, quiet. Nothing inside any
+          card changed. */}
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("The shop", "Kedai")}</ZoneLabel>
       {/* ---- the bridge's pulse + what this tab is ---- */}
       <div className={card}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -1119,526 +1131,9 @@ export function ElfiaStorePanel() {
         )}
       </div>
 
-      {/* ---- can customers pay online? (v1.53.0) ----
-          The CEO, 26-08, on the live shop: "This appear on the gateway
-          payment!" — the customer-facing "Payment gateway unavailable", with
-          nowhere to find out why. The store writes the gateway's own reply down
-          now; this is the window onto it. */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{L("Online payment (Bayarcash FPX)", "Pembayaran dalam talian (Bayarcash FPX)")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Checks the shop's payment token against Bayarcash. Read-only — it creates no payment and moves no money.",
-                 "Menyemak token pembayaran kedai dengan Bayarcash. Baca sahaja — tiada pembayaran dicipta dan tiada wang berpindah.")}
-            </p>
-          </div>
-          <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
-            {busyPay ? L("Checking…", "Menyemak…") : L("Check now", "Semak sekarang")}
-          </button>
-        </div>
-
-        {pay && (
-          <div className="mt-3 space-y-2 text-xs">
-            {pay.unavailable ? (
-              <p className="text-muted-foreground">{pay.message}</p>
-            ) : (
-              <>
-                <p className="flex flex-wrap items-center gap-2">
-                  <span className={pay.ok ? chipSuccess : chipWarn}>
-                    {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
-                  </span>
-                  {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
-                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
-                </p>
-                <p className="text-muted-foreground">{pay.message}</p>
-                {pay.warning && <p className="font-medium text-amber-700 dark:text-amber-400">{pay.warning}</p>}
-
-                {/* The credential check passing is a weaker claim than "the
-                    last customer could pay". This is the stronger one. */}
-                {pay.last_gateway_error && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
-                    <p className="font-semibold text-amber-900 dark:text-amber-300">
-                      {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
-                    </p>
-                    <p className="mt-1 font-mono text-[11px] break-words text-amber-900/90 dark:text-amber-200/90">
-                      {pay.last_gateway_error}
-                    </p>
-                    {pay.last_gateway_hint && (
-                      <p className="mt-1.5 text-amber-900 dark:text-amber-200">{pay.last_gateway_hint}</p>
-                    )}
-                  </div>
-                )}
-                {pay.ok && !pay.last_gateway_error && (
-                  <p className="text-muted-foreground">
-                    {L("No failed payment has been recorded on the shop.", "Tiada pembayaran gagal direkodkan di kedai.")}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ---- what delivery costs (v1.52.0) ----
-          The CEO, 26-08-2026: "I want to have the authority to update the
-          shipping fees which is above RM45.00, I will provide a free
-          delivery fees." Both numbers used to be in the store's config file,
-          so changing them meant a code edit and a deploy. They are hers now.
-          The sentence below the boxes is the exact sentence the shop shows a
-          customer, built from what is currently typed — the point being that
-          nobody should have to imagine what these two numbers add up to. */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("Delivery charges", "Caj penghantaran")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("What the shop charges for delivery, and the basket size that makes it free. Yours to change — the shop picks it up within a minute.",
-             "Kadar penghantaran yang dikenakan kedai, dan jumlah belian yang menjadikannya percuma. Anda boleh ubah — kedai mengambilnya dalam seminit.")}
-        </p>
-
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="block">
-            <span className="text-muted-foreground block text-xs">{L("Delivery charge", "Caj penghantaran")}</span>
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className="text-muted-foreground text-sm">RM</span>
-              <input value={ship} onChange={(e) => setShip(e.target.value)}
-                inputMode="decimal" placeholder="4.50" aria-label={L("Delivery charge in ringgit", "Caj penghantaran dalam ringgit")}
-                className={`${inputClass} w-24`} />
-            </span>
-          </label>
-          <label className="block">
-            <span className="text-muted-foreground block text-xs">{L("Free delivery from", "Penghantaran percuma dari")}</span>
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className="text-muted-foreground text-sm">RM</span>
-              <input value={freeAbove} onChange={(e) => setFreeAbove(e.target.value)}
-                inputMode="decimal" placeholder="45.00" aria-label={L("Free delivery threshold in ringgit", "Ambang penghantaran percuma dalam ringgit")}
-                className={`${inputClass} w-24`} />
-            </span>
-          </label>
-          <button type="button" className={btnSm} disabled={busyDelivery || !deliveryDirty}
-            onClick={() => void saveDelivery()}>
-            {busyDelivery ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
-          </button>
-        </div>
-
-        {/* The customer's sentence, live. */}
-        {rmToSen(ship) !== null && rmToSen(freeAbove) !== null && (
-          <p className="mt-3 text-xs">
-            {L("The shop will say:", "Kedai akan memaparkan:")}{" "}
-            <span className="font-medium">
-              {L(`Free delivery above RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} otherwise`,
-                 `Penghantaran percuma melebihi RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} jika tidak`)}
-            </span>
-          </p>
-        )}
-
-        {deliverySaved !== null && deliverySaved.ship === "" && (
-          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
-            {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
-               "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
-          </p>
-        )}
-      </div>
-
-      {/* ---- the catalog PDF (v1.55.0) ----
-          The CEO: "the portal can upload the PDF for this catalog without
-          the prices tag and it will automatically live price embedded to
-          the PDF uploaded." Choosing a file reads it HERE in the browser —
-          labels, positions, page-1 cover — and shows what was found before
-          anything uploads. The shop prices those spots live on every
-          download, so the PDF never goes stale. */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{L("Catalog PDF", "PDF Katalog")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Upload the catalog WITHOUT price tags — the shop writes today's prices under each product name itself, on every download, and makes every product tappable.",
-                 "Muat naik katalog TANPA tanda harga — kedai sendiri menulis harga hari ini di bawah setiap nama produk, pada setiap muat turun, dan menjadikan setiap produk boleh ditekan.")}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {cat?.live && <span className={chipSuccess}>{L("Live on the shop", "Disiarkan di kedai")}</span>}
-            {cat && !cat.live && !cat.unavailable && <span className={chipNeutral}>{L("Built-in catalog", "Katalog terbina dalam")}</span>}
-          </div>
-        </div>
-
-        {/* v1.77.0 — skeleton until the first fetch lands: the Choose-a-PDF
-            button row, where the real controls will sit. */}
-        {cat === null && (
-          <div className="mt-3 flex flex-wrap items-center gap-2" aria-hidden>
-            <Skel className="h-7 w-28" />
-            <Skel className="h-3 w-40" />
-          </div>
-        )}
-        {cat?.unavailable && (
-          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            {L("This api worker does not have the catalog routes yet — deploy azoneofficial-api, then reload.",
-               "Worker api ini belum ada laluan katalog — deploy azoneofficial-api, kemudian muat semula.")}
-          </p>
-        )}
-
-        {cat && !cat.unavailable && (
-          <div className="mt-3 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <input ref={catFileRef} type="file" accept="application/pdf" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void readCatalogFile(f); }} />
-              <button type="button" className={btnSm} disabled={catReading || catBusy}
-                onClick={() => catFileRef.current?.click()}>
-                {catReading
-                  ? L("Reading the PDF…", "Membaca PDF…")
-                  : cat.live ? L("Replace the catalog", "Ganti katalog") : L("Choose a PDF", "Pilih PDF")}
-              </button>
-              {cat.live && (
-                <>
-                  <span className="text-muted-foreground text-xs">
-                    {L("Uploaded", "Dimuat naik")} {cat.updated_at ? cat.updated_at.slice(0, 16).replace("T", " ") : ""}
-                  </span>
-                  <button type="button" className="text-muted-foreground ml-auto text-xs underline" disabled={catBusy}
-                    onClick={() => void removeCatalog()}>
-                    {L("remove — the shop returns to its built-in catalog", "buang — kedai kembali kepada katalog terbina dalam")}
-                  </button>
-                </>
-              )}
-            </div>
-
-            {cat.pending && !catDraft && (
-              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                {L("A previous upload did not finish — the shop was not changed. Choose the PDF again.",
-                   "Muat naik sebelum ini tidak selesai — kedai tidak diubah. Pilih PDF itu semula.")}
-              </p>
-            )}
-
-            {/* what was read, before anything uploads */}
-            {catDraft && (
-              <div className="rounded-lg border p-3">
-                <div className="flex flex-wrap items-start gap-3">
-                  {catDraft.coverUrl && (
-                    /* eslint-disable-next-line @next/next/no-img-element -- object URL preview */
-                    <img src={catDraft.coverUrl} alt={L("Catalog cover", "Kulit katalog")}
-                      className="w-20 rounded-md border object-cover" />
-                  )}
-                  <div className="min-w-0 flex-1 text-xs">
-                    <p className="font-medium">{catDraft.file.name}</p>
-                    <p className="text-muted-foreground mt-1">
-                      {L(`${catDraft.pages} pages · ${catDraft.map.sites.length} labels found · ${catDraft.matched} match a published product`,
-                         `${catDraft.pages} halaman · ${catDraft.map.sites.length} label dijumpai · ${catDraft.matched} sepadan dengan produk diterbitkan`)}
-                    </p>
-                    {catDraft.matched === 0 && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
-                        {L("None of the labels match a published product — the shop would add no prices. Check the names, or publish the products first.",
-                           "Tiada label sepadan dengan produk diterbitkan — kedai tidak akan menambah harga. Semak nama, atau terbitkan produk dahulu.")}
-                      </p>
-                    )}
-                    {/* v1.56.0 — the CEO's "missing prices tag": these are
-                        the exact labels that will print WITHOUT a price.
-                        Named, so a typo in the PDF or an unpublished
-                        product is caught here, not in the printed file. */}
-                    {catDraft.matched > 0 && catDraft.unmatched_labels.length > 0 && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
-                        {L("These get NO price (no published product matches): ",
-                           "Ini TIDAK mendapat harga (tiada produk diterbitkan sepadan): ")}
-                        {catDraft.unmatched_labels.slice(0, 12).join(" · ")}
-                        {catDraft.unmatched_labels.length > 12 ? ` +${catDraft.unmatched_labels.length - 12}` : ""}
-                        {" — "}
-                        {L("fix the name in the PDF, or publish/rename the product, then choose the file again.",
-                           "betulkan nama dalam PDF, atau terbitkan/namakan semula produk, kemudian pilih fail semula.")}
-                      </p>
-                    )}
-                    {/* v1.57.0 — printed prices are HANDLED now: each one is
-                        covered in its own page colour and the live price is
-                        written in the same spot. Good news, not a warning. */}
-                    {catDraft.prices_detected > 0 && (
-                      <p className="text-muted-foreground mt-1">
-                        {L(`${catDraft.prices_detected} printed price tag${catDraft.prices_detected === 1 ? "" : "s"} found — the shop covers each one and writes today's price in its place.`,
-                           `${catDraft.prices_detected} tanda harga bercetak dijumpai — kedai menutup setiap satu dan menulis harga hari ini di tempatnya.`)}
-                      </p>
-                    )}
-                    {catDraft.truncated && (
-                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
-                        {L("Over 300 labels — only the first 300 get prices.", "Melebihi 300 label — hanya 300 pertama mendapat harga.")}
-                      </p>
-                    )}
-                    <div className="mt-2 flex gap-2">
-                      <button type="button" className={btnSm} disabled={catBusy} onClick={() => void uploadCatalog()}>
-                        {catBusy ? L("Uploading…", "Memuat naik…") : L("Upload to the shop", "Muat naik ke kedai")}
-                      </button>
-                      <button type="button" className="text-muted-foreground text-xs underline" disabled={catBusy}
-                        onClick={() => { if (catDraft.coverUrl) URL.revokeObjectURL(catDraft.coverUrl); setCatDraft(null); }}>
-                        {L("cancel", "batal")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ---- the /catalog hover backdrop (v1.61.0) ---- */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{L("Catalog hover background", "Latar belakang hover katalog")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Optional. On the shop's /catalog page this picture appears behind each cut-out photo when a customer hovers over it. Nothing uploaded = the shop uses its shipped ELFIA backdrop. A square picture fits the circular tiles best.",
-                 "Pilihan. Di halaman /catalog kedai, gambar ini muncul di belakang setiap foto potongan apabila pelanggan menghalakan kursor. Tiada muat naik = kedai menggunakan latar ELFIA terbina dalamnya. Gambar segi empat sama paling sesuai dengan jubin bulat.")}
-            </p>
-          </div>
-          <label className={`${btnSm} cursor-pointer`}>
-            {busyBackdrop
-              ? L("Uploading…", "Memuat naik…")
-              : backdrop?.key ? L("Replace", "Ganti") : L("+ Add background", "+ Tambah latar")}
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadBackdrop(f); }} />
-          </label>
-        </div>
-
-        {/* v1.77.0 — skeleton until the first fetch lands: the circular
-            preview the shop's tiles crop to, beside its remove link. */}
-        {backdrop === null && (
-          <div className="mt-3 flex items-center gap-3" aria-hidden>
-            <Skel className="h-20 w-20 shrink-0 rounded-full" />
-            <Skel className="h-3 w-56 max-w-full" />
-          </div>
-        )}
-        {backdrop?.unavailable && loaded && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            {L("The api worker is older than v1.61.0 — deploy it (PUSH.bat) before this card can save.",
-               "Worker api lebih lama daripada v1.61.0 — deploy dahulu (PUSH.bat) sebelum kad ini boleh menyimpan.")}
-          </p>
-        )}
-        {backdrop !== null && !backdrop.unavailable && backdrop.key && backdrop.url && (
-          <div className="mt-3 flex items-center gap-3">
-            {/* The circle preview, because that is exactly how the shop's
-                tiles will crop it. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={backdrop.url} alt={L("Current hover background", "Latar hover semasa")}
-              className="h-20 w-20 rounded-full border object-cover object-top" />
-            <button type="button" className="text-muted-foreground text-xs underline" disabled={busyBackdrop}
-              onClick={() => void removeBackdrop()}>
-              {L("remove — the shop returns to its shipped ELFIA backdrop", "buang — kedai kembali kepada latar ELFIA terbina dalam")}
-            </button>
-          </div>
-        )}
-        {backdrop !== null && !backdrop.unavailable && !backdrop.key && (
-          <p className="text-muted-foreground mt-3 text-xs">
-            {L("No background uploaded — the shop is using its shipped ELFIA backdrop.",
-               "Tiada latar dimuat naik — kedai menggunakan latar ELFIA terbina dalamnya.")}
-          </p>
-        )}
-      </div>
-
-      {/* ---- the hero carousel (v1.46.0) ---- */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{L("Homepage carousel", "Karusel halaman utama")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("The big pictures at the top of the shop. The store mirrors this list exactly — remove a slide here and it leaves the shop; no slides at all and the shop shows no carousel.",
-                 "Gambar besar di bahagian atas kedai. Kedai mencerminkan senarai ini — buang slaid di sini dan ia hilang dari kedai; tiada slaid langsung dan kedai tidak memaparkan karusel.")}
-            </p>
-          </div>
-          <label className={`${btnSm} cursor-pointer`}>
-            {busySlide ? L("Uploading…", "Memuat naik…") : L("+ Add slide", "+ Tambah slaid")}
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f); }} />
-          </label>
-        </div>
-
-        {/* v1.77.0 — skeleton until the first fetch lands: three slide
-            cards in the carousel's own grid, each the shop's 21:9 banner. */}
-        {slides === null && !loaded && (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
-            {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="border-border rounded-xl border p-2">
-                <Skel className="aspect-[21/9] w-full" />
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <Skel className="h-3 w-24" />
-                  <Skel className="h-5 w-16 rounded-full" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {slides === null && loaded && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            {L("Migration 0087 has not reached the database yet — the carousel cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
-               "Migrasi 0087 belum sampai ke pangkalan data — karusel tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
-          </p>
-        )}
-        {slides !== null && slides.length === 0 && (
-          <p className="text-muted-foreground mt-3 text-xs">
-            {L("No slides yet — the shop's homepage has no carousel until you add one.",
-               "Belum ada slaid — halaman utama kedai tiada karusel sehingga anda tambah satu.")}
-          </p>
-        )}
-        {slides !== null && slides.length > 0 && (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {slides.map((sl, idx) => (
-              <div key={sl.id} className={`rounded-xl border p-2 ${sl.active === 1 ? "border-border" : "border-border/60 opacity-70"}`}>
-                {/* v1.48.0 — the CEO: "Instead of clickable, I want to zoom
-                    out at least I can see the full instead of like this!!!"
-                    So the control is a ZOOM SLIDER, not a click target: at
-                    100 the whole photo sits inside the shop's banner with
-                    nothing cut off, and sliding right grows it until it
-                    fills. The box is the shop's exact 21:9 shape and uses
-                    the shop's exact rule, so this IS the preview. Dragging
-                    inside it moves the photo when it is zoomed in far enough
-                    to be cropped. */}
-                <div className={`bg-secondary relative overflow-hidden rounded-lg ${zoomOf(sl) > 100 ? "cursor-move" : ""}`}
-                  title={zoomOf(sl) > 100
-                    ? L("Drag to move the photo", "Seret untuk gerakkan foto")
-                    : L("The whole photo is showing", "Keseluruhan foto dipaparkan")}
-                  onPointerDown={(e) => {
-                    if (zoomOf(sl) <= 100) return;   // nothing is cropped, nothing to move
-                    const box = e.currentTarget;
-                    const r = box.getBoundingClientRect();
-                    if (r.width === 0 || r.height === 0) return;
-                    const start = { x: e.clientX, y: e.clientY, fx: focusOf(sl).x, fy: focusOf(sl).y };
-                    let last = { x: start.fx, y: start.fy };
-                    box.setPointerCapture(e.pointerId);
-                    const move = (ev: PointerEvent) => {
-                      /* Dragging right should move the PHOTO right, which
-                         means looking further left — hence the minus. */
-                      const nx = Math.min(100, Math.max(0, Math.round(start.fx - ((ev.clientX - start.x) / r.width) * 100)));
-                      const ny = Math.min(100, Math.max(0, Math.round(start.fy - ((ev.clientY - start.y) / r.height) * 100)));
-                      last = { x: nx, y: ny };
-                      const img = box.querySelector("img");
-                      if (img) img.style.objectPosition = `${nx}% ${ny}%`;
-                    };
-                    const up = () => {
-                      box.removeEventListener("pointermove", move);
-                      box.removeEventListener("pointerup", up);
-                      if (last.x !== start.fx || last.y !== start.fy) {
-                        void patchSlide(sl.id, { focus_x: last.x, focus_y: last.y }, L("photo moved", "foto digerakkan"));
-                      }
-                    };
-                    box.addEventListener("pointermove", move);
-                    box.addEventListener("pointerup", up);
-                  }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photoUrl(sl.image_key)} alt="" draggable={false}
-                    className="aspect-[21/9] w-full object-contain select-none"
-                    style={{
-                      objectPosition: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
-                      transform: `scale(${zoomOf(sl) / 100})`,
-                      transformOrigin: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
-                    }} />
-                  {/* v1.50.0 — she is previewed INSIDE the box here, where
-                      the shop lets her rise above it. The box is a preview
-                      of the framing, not of the step-out; showing her
-                      overflowing a card in a list of cards would just look
-                      like a layout bug. */}
-                  {sl.cutout_key && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoUrl(sl.cutout_key)} alt="" draggable={false}
-                      className={`pointer-events-none absolute bottom-0 h-full w-auto max-w-[55%] object-contain object-bottom select-none ${
-                        sl.cutout_side === "left" ? "left-1" : "right-1"}`} />
-                  )}
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  <label className="flex flex-1 items-center gap-2" style={{ minWidth: "12rem" }}>
-                    <span className="text-muted-foreground shrink-0">{L("Zoom", "Zum")}</span>
-                    <input type="range" min={100} max={300} step={5} defaultValue={zoomOf(sl)}
-                      className="flex-1 accent-current"
-                      onInput={(e) => {
-                        /* Live preview while dragging; only the release is saved. */
-                        const z = Number((e.target as HTMLInputElement).value);
-                        const img = (e.currentTarget.closest("div")?.parentElement?.querySelector("img")) as HTMLImageElement | null;
-                        if (img) img.style.transform = `scale(${z / 100})`;
-                      }}
-                      onChange={(e) => void patchSlide(sl.id, { zoom: Number(e.target.value) },
-                        Number(e.target.value) <= 100
-                          ? L("showing the whole photo", "memaparkan keseluruhan foto")
-                          : L("zoom saved", "zum disimpan"))} />
-                  </label>
-                  <span className="text-muted-foreground shrink-0">
-                    {zoomOf(sl) <= 100
-                      ? L("whole photo", "foto penuh")
-                      : L("drag the photo to move it", "seret foto untuk gerakkannya")}
-                  </span>
-                  <label className={`${btnSm} cursor-pointer shrink-0`}>
-                    {L("Change photo", "Tukar foto")}
-                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
-                  </label>
-                </div>
-
-                {/* v1.50.0 — the model who steps OUT of the banner (CEO's
-                    reference: "the ladies 3D outside the carousel"). It is a
-                    second picture, so it gets its own row: upload, which end
-                    she stands at, and how far she rises above the card. */}
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  <label className={`${btnSm} cursor-pointer shrink-0`}>
-                    {sl.cutout_key ? L("Change model", "Tukar model") : L("+ Model cut-out", "+ Potongan model")}
-                    <input type="file" accept="image/png,image/webp" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadCutout(f, sl.id); }} />
-                  </label>
-                  {!sl.cutout_key && (
-                    <span className="text-muted-foreground">
-                      {L("a PNG with no background", "PNG tanpa latar belakang")}
-                    </span>
-                  )}
-                  {sl.cutout_key && (
-                    <>
-                      <button type="button" className={btnSm}
-                        title={L("Which end she stands at — the words take the other end",
-                                 "Di hujung mana dia berdiri — teks mengambil hujung satu lagi")}
-                        onClick={() => void patchSlide(sl.id,
-                          { cutout_side: sl.cutout_side === "left" ? "right" : "left" },
-                          L("moved to the other side", "dipindah ke sebelah lain"))}>
-                        {sl.cutout_side === "left" ? L("◀ Left", "◀ Kiri") : L("Right ▶", "Kanan ▶")}
-                      </button>
-                      <label className="flex flex-1 items-center gap-2" style={{ minWidth: "10rem" }}>
-                        <span className="text-muted-foreground shrink-0">{L("Height", "Tinggi")}</span>
-                        <input type="range" min={100} max={160} step={2}
-                          defaultValue={Number(sl.cutout_scale) || 118}
-                          className="flex-1 accent-current"
-                          onChange={(e) => void patchSlide(sl.id, { cutout_scale: Number(e.target.value) },
-                            L("height saved", "tinggi disimpan"))} />
-                      </label>
-                      <button type="button" className="text-muted-foreground shrink-0 underline"
-                        onClick={() => void patchSlide(sl.id, { remove_cutout: true },
-                          L("model removed", "model dibuang"))}>
-                        {L("remove model", "buang model")}
-                      </button>
-                    </>
-                  )}
-                </div>
-                <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
-                  placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
-                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
-                <input className="border-input bg-background mt-1 w-full rounded border px-2 py-1 text-xs"
-                  placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} defaultValue={sl.subtitle ?? ""} maxLength={200}
-                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.subtitle ?? "")) void patchSlide(sl.id, { subtitle: v }, L("caption saved", "kapsyen disimpan")); }} />
-                <div className="mt-1.5 flex items-center gap-2 text-xs">
-                  <button type="button" className={btnSm} disabled={idx === 0}
-                    title={L("Show earlier", "Papar lebih awal")}
-                    onClick={() => { const prev = slides[idx - 1]; if (prev) { void patchSlide(sl.id, { sort: prev.sort - 1 }, L("moved up", "dinaikkan")); } }}>
-                    ↑
-                  </button>
-                  <button type="button" className={btnSm} disabled={idx === slides.length - 1}
-                    title={L("Show later", "Papar kemudian")}
-                    onClick={() => { const nxt = slides[idx + 1]; if (nxt) { void patchSlide(sl.id, { sort: nxt.sort + 1 }, L("moved down", "diturunkan")); } }}>
-                    ↓
-                  </button>
-                  <label className="ml-1 flex items-center gap-1">
-                    <input type="checkbox" checked={sl.active === 1}
-                      onChange={(e) => void patchSlide(sl.id, { active: e.target.checked },
-                        e.target.checked ? L("slide shown", "slaid dipaparkan") : L("slide hidden (kept here)", "slaid disembunyikan (kekal di sini)"))} />
-                    {L("Show", "Papar")}
-                  </label>
-                  <button type="button" className="text-muted-foreground ml-auto underline"
-                    onClick={() => void patchSlide(sl.id, { remove: true }, L("slide removed — leaves the shop on the next sync", "slaid dibuang — hilang dari kedai pada penyegerakan seterusnya"))}>
-                    {L("remove", "buang")}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Products", "Produk")}</ZoneLabel>
       {/* ---- the catalogue ---- */}
       <div className={card}>
         <p className="text-sm font-semibold">{L("Products on the ELFIA store", "Produk di kedai ELFIA")}</p>
@@ -1722,6 +1217,8 @@ export function ElfiaStorePanel() {
                 tick you can no longer see is a tick you will forget you
                 made, and the next Apply would reprice it. */}
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+              <input className={`${inputClass} h-8 min-w-0 flex-1 text-xs sm:max-w-60`} value={q} placeholder={L("Find by SKU, name or collection", "Cari ikut SKU, nama atau koleksi")}
+                aria-label={L("Find a product", "Cari produk")} onChange={(e) => { setQ(e.target.value); setPicked(new Set()); }} />
               <span className="text-muted-foreground mr-1">{L("Show:", "Papar:")}</span>
               {([["all", L("All", "Semua"), items.length] as const,
                  ...collections.map((c) => [c, c, items.filter((x) => (x.elfia_category ?? "").trim() === c).length] as const)])
@@ -2100,6 +1597,535 @@ export function ElfiaStorePanel() {
           })}
         </div>
       </div>
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("The shopfront", "Muka kedai")}</ZoneLabel>
+      {/* ---- the hero carousel (v1.46.0) ---- */}
+      <QuietCard title={L("Homepage carousel", "Karusel halaman utama")} summary={slides ? `${slides.length} ${L("slides", "slaid")} · ${slides.filter((s) => s.active).length} ${L("active", "aktif")}` : undefined}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("The big pictures at the top of the shop. The store mirrors this list exactly — remove a slide here and it leaves the shop; no slides at all and the shop shows no carousel.",
+                 "Gambar besar di bahagian atas kedai. Kedai mencerminkan senarai ini — buang slaid di sini dan ia hilang dari kedai; tiada slaid langsung dan kedai tidak memaparkan karusel.")}
+            </p>
+          </div>
+          <label className={`${btnSm} cursor-pointer`}>
+            {busySlide ? L("Uploading…", "Memuat naik…") : L("+ Add slide", "+ Tambah slaid")}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f); }} />
+          </label>
+        </div>
+
+        {/* v1.77.0 — skeleton until the first fetch lands: three slide
+            cards in the carousel's own grid, each the shop's 21:9 banner. */}
+        {slides === null && !loaded && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="border-border rounded-xl border p-2">
+                <Skel className="aspect-[21/9] w-full" />
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <Skel className="h-3 w-24" />
+                  <Skel className="h-5 w-16 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {slides === null && loaded && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("Migration 0087 has not reached the database yet — the carousel cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
+               "Migrasi 0087 belum sampai ke pangkalan data — karusel tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
+          </p>
+        )}
+        {slides !== null && slides.length === 0 && (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {L("No slides yet — the shop's homepage has no carousel until you add one.",
+               "Belum ada slaid — halaman utama kedai tiada karusel sehingga anda tambah satu.")}
+          </p>
+        )}
+        {slides !== null && slides.length > 0 && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {slides.map((sl, idx) => (
+              <div key={sl.id} className={`rounded-xl border p-2 ${sl.active === 1 ? "border-border" : "border-border/60 opacity-70"}`}>
+                {/* v1.48.0 — the CEO: "Instead of clickable, I want to zoom
+                    out at least I can see the full instead of like this!!!"
+                    So the control is a ZOOM SLIDER, not a click target: at
+                    100 the whole photo sits inside the shop's banner with
+                    nothing cut off, and sliding right grows it until it
+                    fills. The box is the shop's exact 21:9 shape and uses
+                    the shop's exact rule, so this IS the preview. Dragging
+                    inside it moves the photo when it is zoomed in far enough
+                    to be cropped. */}
+                <div className={`bg-secondary relative overflow-hidden rounded-lg ${zoomOf(sl) > 100 ? "cursor-move" : ""}`}
+                  title={zoomOf(sl) > 100
+                    ? L("Drag to move the photo", "Seret untuk gerakkan foto")
+                    : L("The whole photo is showing", "Keseluruhan foto dipaparkan")}
+                  onPointerDown={(e) => {
+                    if (zoomOf(sl) <= 100) return;   // nothing is cropped, nothing to move
+                    const box = e.currentTarget;
+                    const r = box.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) return;
+                    const start = { x: e.clientX, y: e.clientY, fx: focusOf(sl).x, fy: focusOf(sl).y };
+                    let last = { x: start.fx, y: start.fy };
+                    box.setPointerCapture(e.pointerId);
+                    const move = (ev: PointerEvent) => {
+                      /* Dragging right should move the PHOTO right, which
+                         means looking further left — hence the minus. */
+                      const nx = Math.min(100, Math.max(0, Math.round(start.fx - ((ev.clientX - start.x) / r.width) * 100)));
+                      const ny = Math.min(100, Math.max(0, Math.round(start.fy - ((ev.clientY - start.y) / r.height) * 100)));
+                      last = { x: nx, y: ny };
+                      const img = box.querySelector("img");
+                      if (img) img.style.objectPosition = `${nx}% ${ny}%`;
+                    };
+                    const up = () => {
+                      box.removeEventListener("pointermove", move);
+                      box.removeEventListener("pointerup", up);
+                      if (last.x !== start.fx || last.y !== start.fy) {
+                        void patchSlide(sl.id, { focus_x: last.x, focus_y: last.y }, L("photo moved", "foto digerakkan"));
+                      }
+                    };
+                    box.addEventListener("pointermove", move);
+                    box.addEventListener("pointerup", up);
+                  }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoUrl(sl.image_key)} alt="" draggable={false}
+                    className="aspect-[21/9] w-full object-contain select-none"
+                    style={{
+                      objectPosition: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
+                      transform: `scale(${zoomOf(sl) / 100})`,
+                      transformOrigin: `${focusOf(sl).x}% ${focusOf(sl).y}%`,
+                    }} />
+                  {/* v1.50.0 — she is previewed INSIDE the box here, where
+                      the shop lets her rise above it. The box is a preview
+                      of the framing, not of the step-out; showing her
+                      overflowing a card in a list of cards would just look
+                      like a layout bug. */}
+                  {sl.cutout_key && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoUrl(sl.cutout_key)} alt="" draggable={false}
+                      className={`pointer-events-none absolute bottom-0 h-full w-auto max-w-[55%] object-contain object-bottom select-none ${
+                        sl.cutout_side === "left" ? "left-1" : "right-1"}`} />
+                  )}
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <label className="flex flex-1 items-center gap-2" style={{ minWidth: "12rem" }}>
+                    <span className="text-muted-foreground shrink-0">{L("Zoom", "Zum")}</span>
+                    <input type="range" min={100} max={300} step={5} defaultValue={zoomOf(sl)}
+                      className="flex-1 accent-current"
+                      onInput={(e) => {
+                        /* Live preview while dragging; only the release is saved. */
+                        const z = Number((e.target as HTMLInputElement).value);
+                        const img = (e.currentTarget.closest("div")?.parentElement?.querySelector("img")) as HTMLImageElement | null;
+                        if (img) img.style.transform = `scale(${z / 100})`;
+                      }}
+                      onChange={(e) => void patchSlide(sl.id, { zoom: Number(e.target.value) },
+                        Number(e.target.value) <= 100
+                          ? L("showing the whole photo", "memaparkan keseluruhan foto")
+                          : L("zoom saved", "zum disimpan"))} />
+                  </label>
+                  <span className="text-muted-foreground shrink-0">
+                    {zoomOf(sl) <= 100
+                      ? L("whole photo", "foto penuh")
+                      : L("drag the photo to move it", "seret foto untuk gerakkannya")}
+                  </span>
+                  <label className={`${btnSm} cursor-pointer shrink-0`}>
+                    {L("Change photo", "Tukar foto")}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadSlide(f, sl.id); }} />
+                  </label>
+                </div>
+
+                {/* v1.50.0 — the model who steps OUT of the banner (CEO's
+                    reference: "the ladies 3D outside the carousel"). It is a
+                    second picture, so it gets its own row: upload, which end
+                    she stands at, and how far she rises above the card. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <label className={`${btnSm} cursor-pointer shrink-0`}>
+                    {sl.cutout_key ? L("Change model", "Tukar model") : L("+ Model cut-out", "+ Potongan model")}
+                    <input type="file" accept="image/png,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadCutout(f, sl.id); }} />
+                  </label>
+                  {!sl.cutout_key && (
+                    <span className="text-muted-foreground">
+                      {L("a PNG with no background", "PNG tanpa latar belakang")}
+                    </span>
+                  )}
+                  {sl.cutout_key && (
+                    <>
+                      <button type="button" className={btnSm}
+                        title={L("Which end she stands at — the words take the other end",
+                                 "Di hujung mana dia berdiri — teks mengambil hujung satu lagi")}
+                        onClick={() => void patchSlide(sl.id,
+                          { cutout_side: sl.cutout_side === "left" ? "right" : "left" },
+                          L("moved to the other side", "dipindah ke sebelah lain"))}>
+                        {sl.cutout_side === "left" ? L("◀ Left", "◀ Kiri") : L("Right ▶", "Kanan ▶")}
+                      </button>
+                      <label className="flex flex-1 items-center gap-2" style={{ minWidth: "10rem" }}>
+                        <span className="text-muted-foreground shrink-0">{L("Height", "Tinggi")}</span>
+                        <input type="range" min={100} max={160} step={2}
+                          defaultValue={Number(sl.cutout_scale) || 118}
+                          className="flex-1 accent-current"
+                          onChange={(e) => void patchSlide(sl.id, { cutout_scale: Number(e.target.value) },
+                            L("height saved", "tinggi disimpan"))} />
+                      </label>
+                      <button type="button" className="text-muted-foreground shrink-0 underline"
+                        onClick={() => void patchSlide(sl.id, { remove_cutout: true },
+                          L("model removed", "model dibuang"))}>
+                        {L("remove model", "buang model")}
+                      </button>
+                    </>
+                  )}
+                </div>
+                <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
+                  placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
+                <input className="border-input bg-background mt-1 w-full rounded border px-2 py-1 text-xs"
+                  placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} defaultValue={sl.subtitle ?? ""} maxLength={200}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.subtitle ?? "")) void patchSlide(sl.id, { subtitle: v }, L("caption saved", "kapsyen disimpan")); }} />
+                <div className="mt-1.5 flex items-center gap-2 text-xs">
+                  <button type="button" className={btnSm} disabled={idx === 0}
+                    title={L("Show earlier", "Papar lebih awal")}
+                    onClick={() => { const prev = slides[idx - 1]; if (prev) { void patchSlide(sl.id, { sort: prev.sort - 1 }, L("moved up", "dinaikkan")); } }}>
+                    ↑
+                  </button>
+                  <button type="button" className={btnSm} disabled={idx === slides.length - 1}
+                    title={L("Show later", "Papar kemudian")}
+                    onClick={() => { const nxt = slides[idx + 1]; if (nxt) { void patchSlide(sl.id, { sort: nxt.sort + 1 }, L("moved down", "diturunkan")); } }}>
+                    ↓
+                  </button>
+                  <label className="ml-1 flex items-center gap-1">
+                    <input type="checkbox" checked={sl.active === 1}
+                      onChange={(e) => void patchSlide(sl.id, { active: e.target.checked },
+                        e.target.checked ? L("slide shown", "slaid dipaparkan") : L("slide hidden (kept here)", "slaid disembunyikan (kekal di sini)"))} />
+                    {L("Show", "Papar")}
+                  </label>
+                  <button type="button" className="text-muted-foreground ml-auto underline"
+                    onClick={() => void patchSlide(sl.id, { remove: true }, L("slide removed — leaves the shop on the next sync", "slaid dibuang — hilang dari kedai pada penyegerakan seterusnya"))}>
+                    {L("remove", "buang")}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </QuietCard>
+
+      {/* ---- the catalog PDF (v1.55.0) ----
+          The CEO: "the portal can upload the PDF for this catalog without
+          the prices tag and it will automatically live price embedded to
+          the PDF uploaded." Choosing a file reads it HERE in the browser —
+          labels, positions, page-1 cover — and shows what was found before
+          anything uploads. The shop prices those spots live on every
+          download, so the PDF never goes stale. */}
+      <QuietCard title={L("Catalog PDF", "PDF Katalog")} summary={cat?.live ? `${L("live on the shop", "disiarkan di kedai")}${cat.updated_at ? ` · ${cat.updated_at.slice(0, 10)}` : ""}` : L("built-in catalog", "katalog terbina dalam")}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Upload the catalog WITHOUT price tags — the shop writes today's prices under each product name itself, on every download, and makes every product tappable.",
+                 "Muat naik katalog TANPA tanda harga — kedai sendiri menulis harga hari ini di bawah setiap nama produk, pada setiap muat turun, dan menjadikan setiap produk boleh ditekan.")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {cat?.live && <span className={chipSuccess}>{L("Live on the shop", "Disiarkan di kedai")}</span>}
+            {cat && !cat.live && !cat.unavailable && <span className={chipNeutral}>{L("Built-in catalog", "Katalog terbina dalam")}</span>}
+          </div>
+        </div>
+
+        {/* v1.77.0 — skeleton until the first fetch lands: the Choose-a-PDF
+            button row, where the real controls will sit. */}
+        {cat === null && (
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-hidden>
+            <Skel className="h-7 w-28" />
+            <Skel className="h-3 w-40" />
+          </div>
+        )}
+        {cat?.unavailable && (
+          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("This api worker does not have the catalog routes yet — deploy azoneofficial-api, then reload.",
+               "Worker api ini belum ada laluan katalog — deploy azoneofficial-api, kemudian muat semula.")}
+          </p>
+        )}
+
+        {cat && !cat.unavailable && (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={catFileRef} type="file" accept="application/pdf" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void readCatalogFile(f); }} />
+              <button type="button" className={btnSm} disabled={catReading || catBusy}
+                onClick={() => catFileRef.current?.click()}>
+                {catReading
+                  ? L("Reading the PDF…", "Membaca PDF…")
+                  : cat.live ? L("Replace the catalog", "Ganti katalog") : L("Choose a PDF", "Pilih PDF")}
+              </button>
+              {cat.live && (
+                <>
+                  <span className="text-muted-foreground text-xs">
+                    {L("Uploaded", "Dimuat naik")} {cat.updated_at ? cat.updated_at.slice(0, 16).replace("T", " ") : ""}
+                  </span>
+                  <button type="button" className="text-muted-foreground ml-auto text-xs underline" disabled={catBusy}
+                    onClick={() => void removeCatalog()}>
+                    {L("remove — the shop returns to its built-in catalog", "buang — kedai kembali kepada katalog terbina dalam")}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {cat.pending && !catDraft && (
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                {L("A previous upload did not finish — the shop was not changed. Choose the PDF again.",
+                   "Muat naik sebelum ini tidak selesai — kedai tidak diubah. Pilih PDF itu semula.")}
+              </p>
+            )}
+
+            {/* what was read, before anything uploads */}
+            {catDraft && (
+              <div className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  {catDraft.coverUrl && (
+                    /* eslint-disable-next-line @next/next/no-img-element -- object URL preview */
+                    <img src={catDraft.coverUrl} alt={L("Catalog cover", "Kulit katalog")}
+                      className="w-20 rounded-md border object-cover" />
+                  )}
+                  <div className="min-w-0 flex-1 text-xs">
+                    <p className="font-medium">{catDraft.file.name}</p>
+                    <p className="text-muted-foreground mt-1">
+                      {L(`${catDraft.pages} pages · ${catDraft.map.sites.length} labels found · ${catDraft.matched} match a published product`,
+                         `${catDraft.pages} halaman · ${catDraft.map.sites.length} label dijumpai · ${catDraft.matched} sepadan dengan produk diterbitkan`)}
+                    </p>
+                    {catDraft.matched === 0 && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L("None of the labels match a published product — the shop would add no prices. Check the names, or publish the products first.",
+                           "Tiada label sepadan dengan produk diterbitkan — kedai tidak akan menambah harga. Semak nama, atau terbitkan produk dahulu.")}
+                      </p>
+                    )}
+                    {/* v1.56.0 — the CEO's "missing prices tag": these are
+                        the exact labels that will print WITHOUT a price.
+                        Named, so a typo in the PDF or an unpublished
+                        product is caught here, not in the printed file. */}
+                    {catDraft.matched > 0 && catDraft.unmatched_labels.length > 0 && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L("These get NO price (no published product matches): ",
+                           "Ini TIDAK mendapat harga (tiada produk diterbitkan sepadan): ")}
+                        {catDraft.unmatched_labels.slice(0, 12).join(" · ")}
+                        {catDraft.unmatched_labels.length > 12 ? ` +${catDraft.unmatched_labels.length - 12}` : ""}
+                        {" — "}
+                        {L("fix the name in the PDF, or publish/rename the product, then choose the file again.",
+                           "betulkan nama dalam PDF, atau terbitkan/namakan semula produk, kemudian pilih fail semula.")}
+                      </p>
+                    )}
+                    {/* v1.57.0 — printed prices are HANDLED now: each one is
+                        covered in its own page colour and the live price is
+                        written in the same spot. Good news, not a warning. */}
+                    {catDraft.prices_detected > 0 && (
+                      <p className="text-muted-foreground mt-1">
+                        {L(`${catDraft.prices_detected} printed price tag${catDraft.prices_detected === 1 ? "" : "s"} found — the shop covers each one and writes today's price in its place.`,
+                           `${catDraft.prices_detected} tanda harga bercetak dijumpai — kedai menutup setiap satu dan menulis harga hari ini di tempatnya.`)}
+                      </p>
+                    )}
+                    {catDraft.truncated && (
+                      <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                        {L("Over 300 labels — only the first 300 get prices.", "Melebihi 300 label — hanya 300 pertama mendapat harga.")}
+                      </p>
+                    )}
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" className={btnSm} disabled={catBusy} onClick={() => void uploadCatalog()}>
+                        {catBusy ? L("Uploading…", "Memuat naik…") : L("Upload to the shop", "Muat naik ke kedai")}
+                      </button>
+                      <button type="button" className="text-muted-foreground text-xs underline" disabled={catBusy}
+                        onClick={() => { if (catDraft.coverUrl) URL.revokeObjectURL(catDraft.coverUrl); setCatDraft(null); }}>
+                        {L("cancel", "batal")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </QuietCard>
+
+      {/* ---- the /catalog hover backdrop (v1.61.0) ---- */}
+      <QuietCard title={L("Catalog hover background", "Latar belakang hover katalog")} summary={backdrop?.key ? L("set", "ditetapkan") : L("none", "tiada")}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Optional. On the shop's /catalog page this picture appears behind each cut-out photo when a customer hovers over it. Nothing uploaded = the shop uses its shipped ELFIA backdrop. A square picture fits the circular tiles best.",
+                 "Pilihan. Di halaman /catalog kedai, gambar ini muncul di belakang setiap foto potongan apabila pelanggan menghalakan kursor. Tiada muat naik = kedai menggunakan latar ELFIA terbina dalamnya. Gambar segi empat sama paling sesuai dengan jubin bulat.")}
+            </p>
+          </div>
+          <label className={`${btnSm} cursor-pointer`}>
+            {busyBackdrop
+              ? L("Uploading…", "Memuat naik…")
+              : backdrop?.key ? L("Replace", "Ganti") : L("+ Add background", "+ Tambah latar")}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadBackdrop(f); }} />
+          </label>
+        </div>
+
+        {/* v1.77.0 — skeleton until the first fetch lands: the circular
+            preview the shop's tiles crop to, beside its remove link. */}
+        {backdrop === null && (
+          <div className="mt-3 flex items-center gap-3" aria-hidden>
+            <Skel className="h-20 w-20 shrink-0 rounded-full" />
+            <Skel className="h-3 w-56 max-w-full" />
+          </div>
+        )}
+        {backdrop?.unavailable && loaded && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {L("The api worker is older than v1.61.0 — deploy it (PUSH.bat) before this card can save.",
+               "Worker api lebih lama daripada v1.61.0 — deploy dahulu (PUSH.bat) sebelum kad ini boleh menyimpan.")}
+          </p>
+        )}
+        {backdrop !== null && !backdrop.unavailable && backdrop.key && backdrop.url && (
+          <div className="mt-3 flex items-center gap-3">
+            {/* The circle preview, because that is exactly how the shop's
+                tiles will crop it. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={backdrop.url} alt={L("Current hover background", "Latar hover semasa")}
+              className="h-20 w-20 rounded-full border object-cover object-top" />
+            <button type="button" className="text-muted-foreground text-xs underline" disabled={busyBackdrop}
+              onClick={() => void removeBackdrop()}>
+              {L("remove — the shop returns to its shipped ELFIA backdrop", "buang — kedai kembali kepada latar ELFIA terbina dalam")}
+            </button>
+          </div>
+        )}
+        {backdrop !== null && !backdrop.unavailable && !backdrop.key && (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {L("No background uploaded — the shop is using its shipped ELFIA backdrop.",
+               "Tiada latar dimuat naik — kedai menggunakan latar ELFIA terbina dalamnya.")}
+          </p>
+        )}
+      </QuietCard>
+
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Settings", "Tetapan")}</ZoneLabel>
+      <div className="grid grid-cols-1 items-start gap-3 md:gap-4 lg:grid-cols-2">
+      {/* ---- what delivery costs (v1.52.0) ----
+          The CEO, 26-08-2026: "I want to have the authority to update the
+          shipping fees which is above RM45.00, I will provide a free
+          delivery fees." Both numbers used to be in the store's config file,
+          so changing them meant a code edit and a deploy. They are hers now.
+          The sentence below the boxes is the exact sentence the shop shows a
+          customer, built from what is currently typed — the point being that
+          nobody should have to imagine what these two numbers add up to. */}
+      <QuietCard title={L("Delivery charges", "Caj penghantaran")} summary={deliverySaved ? `RM ${deliverySaved.ship || "0"} · ${L("free over RM", "percuma melebihi RM")} ${deliverySaved.free || "—"}` : undefined}>
+        
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("What the shop charges for delivery, and the basket size that makes it free. Yours to change — the shop picks it up within a minute.",
+             "Kadar penghantaran yang dikenakan kedai, dan jumlah belian yang menjadikannya percuma. Anda boleh ubah — kedai mengambilnya dalam seminit.")}
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Delivery charge", "Caj penghantaran")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={ship} onChange={(e) => setShip(e.target.value)}
+                inputMode="decimal" placeholder="4.50" aria-label={L("Delivery charge in ringgit", "Caj penghantaran dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Free delivery from", "Penghantaran percuma dari")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={freeAbove} onChange={(e) => setFreeAbove(e.target.value)}
+                inputMode="decimal" placeholder="45.00" aria-label={L("Free delivery threshold in ringgit", "Ambang penghantaran percuma dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <button type="button" className={btnSm} disabled={busyDelivery || !deliveryDirty}
+            onClick={() => void saveDelivery()}>
+            {busyDelivery ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
+          </button>
+        </div>
+
+        {/* The customer's sentence, live. */}
+        {rmToSen(ship) !== null && rmToSen(freeAbove) !== null && (
+          <p className="mt-3 text-xs">
+            {L("The shop will say:", "Kedai akan memaparkan:")}{" "}
+            <span className="font-medium">
+              {L(`Free delivery above RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} otherwise`,
+                 `Penghantaran percuma melebihi RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} jika tidak`)}
+            </span>
+          </p>
+        )}
+
+        {deliverySaved !== null && deliverySaved.ship === "" && (
+          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+            {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
+               "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
+          </p>
+        )}
+      </QuietCard>
+
+      {/* ---- can customers pay online? (v1.53.0) ----
+          The CEO, 26-08, on the live shop: "This appear on the gateway
+          payment!" — the customer-facing "Payment gateway unavailable", with
+          nowhere to find out why. The store writes the gateway's own reply down
+          now; this is the window onto it. */}
+      <QuietCard title={L("Online payment (Bayarcash FPX)", "Pembayaran dalam talian (Bayarcash FPX)")} summary={pay ? (pay.ok ? `${L("keys working", "kunci berfungsi")}${pay.sandbox ? " · sandbox" : ""}` : L("not working", "tidak berfungsi")) : L("not checked yet", "belum disemak")}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Checks the shop's payment token against Bayarcash. Read-only — it creates no payment and moves no money.",
+                 "Menyemak token pembayaran kedai dengan Bayarcash. Baca sahaja — tiada pembayaran dicipta dan tiada wang berpindah.")}
+            </p>
+          </div>
+          <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
+            {busyPay ? L("Checking…", "Menyemak…") : L("Check now", "Semak sekarang")}
+          </button>
+        </div>
+
+        {pay && (
+          <div className="mt-3 space-y-2 text-xs">
+            {pay.unavailable ? (
+              <p className="text-muted-foreground">{pay.message}</p>
+            ) : (
+              <>
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className={pay.ok ? chipSuccess : chipWarn}>
+                    {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
+                  </span>
+                  {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
+                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
+                </p>
+                <p className="text-muted-foreground">{pay.message}</p>
+                {pay.warning && <p className="font-medium text-amber-700 dark:text-amber-400">{pay.warning}</p>}
+
+                {/* The credential check passing is a weaker claim than "the
+                    last customer could pay". This is the stronger one. */}
+                {pay.last_gateway_error && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/40">
+                    <p className="font-semibold text-amber-900 dark:text-amber-300">
+                      {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] break-words text-amber-900/90 dark:text-amber-200/90">
+                      {pay.last_gateway_error}
+                    </p>
+                    {pay.last_gateway_hint && (
+                      <p className="mt-1.5 text-amber-900 dark:text-amber-200">{pay.last_gateway_hint}</p>
+                    )}
+                  </div>
+                )}
+                {pay.ok && !pay.last_gateway_error && (
+                  <p className="text-muted-foreground">
+                    {L("No failed payment has been recorded on the shop.", "Tiada pembayaran gagal direkodkan di kedai.")}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </QuietCard>
+
+      </div>
+      </section>
     </div>
   );
 }

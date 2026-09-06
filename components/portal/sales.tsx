@@ -5,7 +5,7 @@
    at the top are new and the declarations are exported. */
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
-import { L, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
+import { L, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -815,7 +815,7 @@ export function PnlCard({ inModal }: { inModal?: boolean } = {}) {
 
 /* v1.5.0: PipelineInsightsCard removed with the Social tab. */
 
-export function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
+export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boolean } = {}) {
   interface Cl {
     id: number;
     company: string;
@@ -844,6 +844,9 @@ export function ClientsCard({ inModal }: { inModal?: boolean } = {}) {
   const wrapCard = (node: ReactNode) =>
     inModal ? (
       <div className="flex flex-col pb-4 sm:pb-0">{node}</div>
+    ) : bare ? (
+      /* v1.123.0 - a tab body: the pill above already says "Clients". */
+      <div>{node}</div>
     ) : (
       <div className={card}>
         <p className="text-sm font-semibold">💎 {L("Clients", "Pelanggan")}</p>
@@ -1101,6 +1104,9 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
 }
 
 export function Sales({ user, workExtra, customersExtra }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode }) {
+  /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
+  const [custTab, setCustTab] = useState<"add" | "clients">("add");
+  const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts">("create");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -1691,9 +1697,387 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
           customer list under it, beside the Clients card (customersExtra).
           The customer form stays in this component because Edit on a
           customer loads it into the form. */}
+      {/* v1.123.0 — CUSTOMERS FIRST, AND TABBED. The CEO, 06-09-2026: bring
+          Customers above The work, and give it tabs. A document needs a
+          customer to exist, so the tab that creates one now reads first; the
+          two halves - the form (with the customer list under it) and the
+          Clients view - are one card, one at a time. */}
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
+        <div className={card}>
+          <SectionTabs value={custTab} onChange={setCustTab} tabs={[
+            ["add", L("Add customer", "Tambah pelanggan")],
+            ["clients", L("💎 Clients", "💎 Pelanggan")],
+          ] as const} />
+          <div className={custTab === "add" ? "mt-3" : "hidden"}>
+          <p className="text-sm font-semibold">
+            {editingCust ? (
+              <>
+                {L("Editing", "Menyunting")} {editingCust.company}{" "}
+                <button
+                  type="button"
+                  className="ml-1 text-xs font-normal underline"
+                  onClick={() => {
+                    setEditingCust(null);
+                    setCust({
+                      company: "",
+                      contact_person: "",
+                      phone: "",
+                      email: "",
+                      address: "",
+                      website: "",
+                    });
+                  }}
+                >
+                  {L("cancel", "batal")}
+                </button>
+              </>
+            ) : (
+              L("Add customer", "Tambah pelanggan")
+            )}
+          </p>
+          {/* v1.120.0 — THE BILLING BLOCK. The fields a document prints, in the
+              order and the frame it prints them (BILLING ADDRESS on every
+              Quotation, DO and Invoice for this customer), and under a
+              dashed line the two the portal keeps for itself. The CEO,
+              06-09-2026: make the form "like the actual format" so staff
+              know what to fill. Same fields, same handlers. */}
+          <div className="mt-3 space-y-3">
+            <div className="border-border bg-card rounded-md border p-3 shadow-sm">
+              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">
+                {L("Billing address — prints on every document for this customer", "Alamat bil — dicetak pada setiap dokumen untuk pelanggan ini")}
+              </p>
+              <div className="mt-2 space-y-2">
+                <Sub t={L("Company *", "Syarikat *")}>
+              <input
+                className={inputClass}
+                placeholder={L(
+                  "e.g. Acme Retail Sdn Bhd",
+                  "cth. Acme Retail Sdn Bhd"
+                )}
+                value={cust.company}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, company: e.target.value }))
+                }
+              />
+            </Sub>
+                <Sub t={L("Contact person", "Orang hubungan")}>
+                <input
+                  className={inputClass}
+                  placeholder={L("Full name", "Nama penuh")}
+                  value={cust.contact_person}
+                  onChange={(e) =>
+                    setCust((c) => ({ ...c, contact_person: e.target.value }))
+                  }
+                />
+              </Sub>
+                <Sub t={L("Address", "Alamat")}>
+              {/* v1.4.235: prints on the customer's documents. */}
+              <textarea
+                className={`${inputClass} min-h-16`}
+                placeholder={
+                  "No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"
+                }
+                value={cust.address}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, address: e.target.value }))
+                }
+              />
+            </Sub>
+                <div className="grid grid-cols-2 gap-2">
+                  <Sub t={L("Phone", "Telefon")}>
+                <input
+                  className={inputClass}
+                  placeholder="+60 12-345 6789"
+                  value={cust.phone}
+                  onChange={(e) =>
+                    setCust((c) => ({ ...c, phone: e.target.value }))
+                  }
+                />
+              </Sub>
+                  <Sub t={L("Email", "E-mel")}>
+              <input
+                className={inputClass}
+                placeholder="name@company.com"
+                value={cust.email}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, email: e.target.value }))
+                }
+              />
+            </Sub>
+                </div>
+              </div>
+              <p className="text-muted-foreground mt-2 text-[11px] leading-snug">
+                {L("Company, contact, address, phone, email — top to bottom, as the block prints. The state at the end of the address is what places this customer on the Sales map.",
+                   "Syarikat, kenalan, alamat, telefon, e-mel — atas ke bawah, seperti blok dicetak. Negeri di hujung alamat ialah yang menempatkan pelanggan ini pada peta Jualan.")}
+              </p>
+            </div>
+            <div className="border-border rounded-md border border-dashed p-3">
+              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Not printed — for the portal only", "Tidak dicetak — untuk portal sahaja")}</p>
+              <div className="mt-2 space-y-2">
+                {/* v1.30.0 (CEO: "customer or client can have a option to click
+                    on their logo then will redirecting to their own domain"):
+                    the client's OWN address on the web, and their own mark. */}
+                <Sub t={L("Their website", "Laman web mereka")}>
+              <input
+                className={inputClass}
+                placeholder="https://theirbrand.my"
+                value={cust.website}
+                onChange={(e) =>
+                  setCust((c) => ({ ...c, website: e.target.value }))
+                }
+              />
+            </Sub>
+                {editingCust && (
+              <Sub t={L("Their logo", "Logo mereka")}>
+                <span className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const row = customers.find((c) => c.id === editingCust.id);
+                    return row?.logo_key ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/v1/media/file/${encodeURIComponent(row.logo_key)}`}
+                        alt={row.company}
+                        className="border-border h-8 w-auto rounded border bg-white p-0.5"
+                      />
+                    ) : null;
+                  })()}
+                  <label className="border-border hover:bg-secondary inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs">
+                    {logoBusy === editingCust.id
+                      ? L("Uploading…", "Memuat naik…")
+                      : L("Upload logo", "Muat naik logo")}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!f) return;
+                        setLogoBusy(editingCust.id);
+                        const r = await api<{ error?: { message?: string } }>(
+                          `/staff/customers/${editingCust.id}/logo`,
+                          {
+                            method: "POST",
+                            body: f,
+                            headers: { "Content-Type": f.type },
+                          }
+                        );
+                        setLogoBusy(null);
+                        if (!r.ok) {
+                          showToast(
+                            L("No changes", "Tiada perubahan"),
+                            r.data?.error?.message ??
+                              L("Upload failed", "Muat naik gagal"),
+                            "notice"
+                          );
+                          return;
+                        }
+                        showToast(
+                          L("Saved", "Disimpan"),
+                          L(
+                            `${editingCust.company} logo updated`,
+                            `Logo ${editingCust.company} dikemas kini`
+                          )
+                        );
+                        void load();
+                      }}
+                    />
+                  </label>
+                  <span className="text-muted-foreground text-[11px]">
+                    {L(
+                      "PNG, JPG, WEBP or SVG. Shown to this client in their own area, linking to their website.",
+                      "PNG, JPG, WEBP atau SVG. Dipaparkan kepada klien ini di ruangan mereka, memaut ke laman web mereka."
+                    )}
+                  </span>
+                </span>
+              </Sub>
+            )}
+
+              </div>
+            </div>
+            <button
+              type="button"
+              className={btnClass}
+              onClick={() => void addCustomer()}
+            >
+              {editingCust
+                ? L("Update customer", "Kemas kini pelanggan")
+                : L("Save customer", "Simpan pelanggan")}
+            </button>
+          </div>
+          <div className="mt-3 max-h-56 overflow-y-auto">
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={3} />}
+            {loaded && customers.length === 0 && (
+              <p className="text-muted-foreground text-sm">
+                {L("No customers yet.", "Tiada pelanggan lagi.")}
+              </p>
+            )}
+            {loaded && customers.map((c) => (
+              <div
+                key={c.id}
+                className="border-border border-b py-1.5 text-sm last:border-0"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    {/* v1.4.249: the company name opens the record — contact
+                      details and both addresses were invisible in this list. */}
+                    <RecordToggle
+                      open={openCust === c.id}
+                      title={L("Contact and addresses", "Hubungan dan alamat")}
+                      onToggle={() =>
+                        setOpenCust(openCust === c.id ? null : c.id)
+                      }
+                    >
+                      {c.company}
+                    </RecordToggle>
+                    {c.contact_person && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {c.contact_person}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    {docs.some(
+                      (d) => d.doc_type === "INV" && d.company === c.company
+                    ) && (
+                      <button
+                        type="button"
+                        className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                        title={L(
+                          "Statement of Account — all invoices, paid + outstanding, printable",
+                          "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak"
+                        )}
+                        onClick={() => printSOA(c.company, docs)}
+                      >
+                        SOA
+                      </button>
+                    )}
+                    {/* v1.4.235: edit loads the record into the form above;
+                      delete is refused by the server while documents exist. */}
+                    <button
+                      type="button"
+                      className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                      onClick={() => {
+                        setEditingCust({ id: c.id, company: c.company });
+                        setCust({
+                          company: c.company,
+                          contact_person: c.contact_person ?? "",
+                          phone: c.phone ?? "",
+                          email: c.email ?? "",
+                          address:
+                            (c as { address?: string | null }).address ?? "",
+                          website: c.website ?? "",
+                        });
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      ✎ {L("Edit", "Sunting")}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
+                      onClick={async () => {
+                        if (
+                          !(await askConfirm({
+                            title: L(
+                              `Delete ${c.company}?`,
+                              `Padam ${c.company}?`
+                            ),
+                            message: L(
+                              "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
+                              "Hanya boleh apabila mereka tiada dokumen — sebut harga dan invois mesti mengekalkan pelanggannya untuk rekod."
+                            ),
+                            confirmLabel: L(
+                              "Delete customer",
+                              "Padam pelanggan"
+                            ),
+                            variant: "danger",
+                          }))
+                        )
+                          return;
+                        const res = await api<{ error?: { message?: string } }>(
+                          `/staff/customers/${c.id}`,
+                          { method: "DELETE" }
+                        );
+                        if (res.ok) {
+                          showToast(
+                            L("Deleted", "Dipadam"),
+                            L(`${c.company} removed`, `${c.company} dibuang`)
+                          );
+                          if (editingCust?.id === c.id) {
+                            setEditingCust(null);
+                            setCust({
+                              company: "",
+                              contact_person: "",
+                              phone: "",
+                              email: "",
+                              address: "",
+                              website: "",
+                            });
+                          }
+                          void load();
+                        } else
+                          showToast(
+                            L("No changes", "Tiada perubahan"),
+                            res.data?.error?.message ??
+                              L("Delete refused", "Padam ditolak"),
+                            "notice"
+                          );
+                      }}
+                    >
+                      {L("Delete", "Padam")}
+                    </button>
+                  </span>
+                </div>
+                {openCust === c.id && (
+                  <DetailGrid
+                    items={[
+                      {
+                        label: L("Contact", "Hubungan"),
+                        value: c.contact_person ?? "",
+                      },
+                      { label: L("Phone", "Telefon"), value: c.phone ?? "" },
+                      { label: L("Email", "E-mel"), value: c.email ?? "" },
+                      {
+                        label: L("Billing address", "Alamat bil"),
+                        wide: true,
+                        value: (c as { address?: string | null }).address ?? "",
+                      },
+                      {
+                        label: L("Delivery address", "Alamat penghantaran"),
+                        wide: true,
+                        value:
+                          (c as { delivery_address?: string | null })
+                            .delivery_address ?? "",
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          </div>
+          <div className={custTab === "clients" ? "mt-3" : "hidden"}>
+            {customersExtra}
+          </div>
+        </div>
+      </section>
+      {/* v1.123.0 — THE WORK, TABBED: writing a document, the documents
+          themselves, and the receipts / credit notes / outstanding report -
+          one at a time, in the portal's own pills. Bodies are hidden, never
+          unmounted: a half-written quotation survives a look at the list. */}
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
         <div className={card}>
+          <SectionTabs value={workTab} onChange={setWorkTab} tabs={[
+            ["create", L("Create document", "Buat dokumen")],
+            ["documents", L("Documents", "Dokumen")],
+            ["receipts", L("🧾 Receipts, credit notes & outstanding", "🧾 Resit, nota kredit & tertunggak")],
+          ] as const} />
+          <div className={workTab === "create" ? "mt-3" : "hidden"}>
           {toastNode}
           {confirmNode}
           {promptNode}
@@ -2437,8 +2821,8 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
             docNumber={editingDoc?.doc_number ?? null}
           />
           </div>
-        </div>
-
+          </div>
+          <div className={workTab === "documents" ? "mt-3" : "hidden"}>
       {(() => {
         // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
         const todayMs = Date.now() + 8 * 3600 * 1000;
@@ -2545,8 +2929,6 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
           </div>
         );
       })()}
-
-      <div className={card}>
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">{L("Documents", "Dokumen")}</p>
           <button
@@ -3051,365 +3433,10 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
             </div>
           ))}
         </div>
-      </div>
-        {workExtra}
-      </section>
-      <section className="space-y-3 md:space-y-4">
-        <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
-        <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
-        <div className={card}>
-          <p className="text-sm font-semibold">
-            {editingCust ? (
-              <>
-                {L("Editing", "Menyunting")} {editingCust.company}{" "}
-                <button
-                  type="button"
-                  className="ml-1 text-xs font-normal underline"
-                  onClick={() => {
-                    setEditingCust(null);
-                    setCust({
-                      company: "",
-                      contact_person: "",
-                      phone: "",
-                      email: "",
-                      address: "",
-                      website: "",
-                    });
-                  }}
-                >
-                  {L("cancel", "batal")}
-                </button>
-              </>
-            ) : (
-              L("Add customer", "Tambah pelanggan")
-            )}
-          </p>
-          {/* v1.120.0 — THE BILLING BLOCK. The fields a document prints, in the
-              order and the frame it prints them (BILLING ADDRESS on every
-              Quotation, DO and Invoice for this customer), and under a
-              dashed line the two the portal keeps for itself. The CEO,
-              06-09-2026: make the form "like the actual format" so staff
-              know what to fill. Same fields, same handlers. */}
-          <div className="mt-3 space-y-3">
-            <div className="border-border bg-card rounded-md border p-3 shadow-sm">
-              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">
-                {L("Billing address — prints on every document for this customer", "Alamat bil — dicetak pada setiap dokumen untuk pelanggan ini")}
-              </p>
-              <div className="mt-2 space-y-2">
-                <Sub t={L("Company *", "Syarikat *")}>
-              <input
-                className={inputClass}
-                placeholder={L(
-                  "e.g. Acme Retail Sdn Bhd",
-                  "cth. Acme Retail Sdn Bhd"
-                )}
-                value={cust.company}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, company: e.target.value }))
-                }
-              />
-            </Sub>
-                <Sub t={L("Contact person", "Orang hubungan")}>
-                <input
-                  className={inputClass}
-                  placeholder={L("Full name", "Nama penuh")}
-                  value={cust.contact_person}
-                  onChange={(e) =>
-                    setCust((c) => ({ ...c, contact_person: e.target.value }))
-                  }
-                />
-              </Sub>
-                <Sub t={L("Address", "Alamat")}>
-              {/* v1.4.235: prints on the customer's documents. */}
-              <textarea
-                className={`${inputClass} min-h-16`}
-                placeholder={
-                  "No. 12, Jalan Contoh 3/4,\nTaman Contoh, 81200 Johor Bahru, Johor"
-                }
-                value={cust.address}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, address: e.target.value }))
-                }
-              />
-            </Sub>
-                <div className="grid grid-cols-2 gap-2">
-                  <Sub t={L("Phone", "Telefon")}>
-                <input
-                  className={inputClass}
-                  placeholder="+60 12-345 6789"
-                  value={cust.phone}
-                  onChange={(e) =>
-                    setCust((c) => ({ ...c, phone: e.target.value }))
-                  }
-                />
-              </Sub>
-                  <Sub t={L("Email", "E-mel")}>
-              <input
-                className={inputClass}
-                placeholder="name@company.com"
-                value={cust.email}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, email: e.target.value }))
-                }
-              />
-            </Sub>
-                </div>
-              </div>
-              <p className="text-muted-foreground mt-2 text-[11px] leading-snug">
-                {L("Company, contact, address, phone, email — top to bottom, as the block prints. The state at the end of the address is what places this customer on the Sales map.",
-                   "Syarikat, kenalan, alamat, telefon, e-mel — atas ke bawah, seperti blok dicetak. Negeri di hujung alamat ialah yang menempatkan pelanggan ini pada peta Jualan.")}
-              </p>
-            </div>
-            <div className="border-border rounded-md border border-dashed p-3">
-              <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Not printed — for the portal only", "Tidak dicetak — untuk portal sahaja")}</p>
-              <div className="mt-2 space-y-2">
-                {/* v1.30.0 (CEO: "customer or client can have a option to click
-                    on their logo then will redirecting to their own domain"):
-                    the client's OWN address on the web, and their own mark. */}
-                <Sub t={L("Their website", "Laman web mereka")}>
-              <input
-                className={inputClass}
-                placeholder="https://theirbrand.my"
-                value={cust.website}
-                onChange={(e) =>
-                  setCust((c) => ({ ...c, website: e.target.value }))
-                }
-              />
-            </Sub>
-                {editingCust && (
-              <Sub t={L("Their logo", "Logo mereka")}>
-                <span className="flex flex-wrap items-center gap-2">
-                  {(() => {
-                    const row = customers.find((c) => c.id === editingCust.id);
-                    return row?.logo_key ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`/api/v1/media/file/${encodeURIComponent(row.logo_key)}`}
-                        alt={row.company}
-                        className="border-border h-8 w-auto rounded border bg-white p-0.5"
-                      />
-                    ) : null;
-                  })()}
-                  <label className="border-border hover:bg-secondary inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs">
-                    {logoBusy === editingCust.id
-                      ? L("Uploading…", "Memuat naik…")
-                      : L("Upload logo", "Muat naik logo")}
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0];
-                        e.target.value = "";
-                        if (!f) return;
-                        setLogoBusy(editingCust.id);
-                        const r = await api<{ error?: { message?: string } }>(
-                          `/staff/customers/${editingCust.id}/logo`,
-                          {
-                            method: "POST",
-                            body: f,
-                            headers: { "Content-Type": f.type },
-                          }
-                        );
-                        setLogoBusy(null);
-                        if (!r.ok) {
-                          showToast(
-                            L("No changes", "Tiada perubahan"),
-                            r.data?.error?.message ??
-                              L("Upload failed", "Muat naik gagal"),
-                            "notice"
-                          );
-                          return;
-                        }
-                        showToast(
-                          L("Saved", "Disimpan"),
-                          L(
-                            `${editingCust.company} logo updated`,
-                            `Logo ${editingCust.company} dikemas kini`
-                          )
-                        );
-                        void load();
-                      }}
-                    />
-                  </label>
-                  <span className="text-muted-foreground text-[11px]">
-                    {L(
-                      "PNG, JPG, WEBP or SVG. Shown to this client in their own area, linking to their website.",
-                      "PNG, JPG, WEBP atau SVG. Dipaparkan kepada klien ini di ruangan mereka, memaut ke laman web mereka."
-                    )}
-                  </span>
-                </span>
-              </Sub>
-            )}
-
-              </div>
-            </div>
-            <button
-              type="button"
-              className={btnClass}
-              onClick={() => void addCustomer()}
-            >
-              {editingCust
-                ? L("Update customer", "Kemas kini pelanggan")
-                : L("Save customer", "Simpan pelanggan")}
-            </button>
           </div>
-          <div className="mt-3 max-h-56 overflow-y-auto">
-            {/* v1.77.0 — skeleton until the first fetch lands. */}
-            {!loaded && <SkelRows rows={3} />}
-            {loaded && customers.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                {L("No customers yet.", "Tiada pelanggan lagi.")}
-              </p>
-            )}
-            {loaded && customers.map((c) => (
-              <div
-                key={c.id}
-                className="border-border border-b py-1.5 text-sm last:border-0"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0">
-                    {/* v1.4.249: the company name opens the record — contact
-                      details and both addresses were invisible in this list. */}
-                    <RecordToggle
-                      open={openCust === c.id}
-                      title={L("Contact and addresses", "Hubungan dan alamat")}
-                      onToggle={() =>
-                        setOpenCust(openCust === c.id ? null : c.id)
-                      }
-                    >
-                      {c.company}
-                    </RecordToggle>
-                    {c.contact_person && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {c.contact_person}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap items-center justify-end gap-1.5">
-                    {docs.some(
-                      (d) => d.doc_type === "INV" && d.company === c.company
-                    ) && (
-                      <button
-                        type="button"
-                        className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
-                        title={L(
-                          "Statement of Account — all invoices, paid + outstanding, printable",
-                          "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak"
-                        )}
-                        onClick={() => printSOA(c.company, docs)}
-                      >
-                        SOA
-                      </button>
-                    )}
-                    {/* v1.4.235: edit loads the record into the form above;
-                      delete is refused by the server while documents exist. */}
-                    <button
-                      type="button"
-                      className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
-                      onClick={() => {
-                        setEditingCust({ id: c.id, company: c.company });
-                        setCust({
-                          company: c.company,
-                          contact_person: c.contact_person ?? "",
-                          phone: c.phone ?? "",
-                          email: c.email ?? "",
-                          address:
-                            (c as { address?: string | null }).address ?? "",
-                          website: c.website ?? "",
-                        });
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                    >
-                      ✎ {L("Edit", "Sunting")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-red-200 px-2.5 text-xs text-red-600 hover:bg-red-50"
-                      onClick={async () => {
-                        if (
-                          !(await askConfirm({
-                            title: L(
-                              `Delete ${c.company}?`,
-                              `Padam ${c.company}?`
-                            ),
-                            message: L(
-                              "Only possible when they have no documents — quotations and invoices must keep their customer for records.",
-                              "Hanya boleh apabila mereka tiada dokumen — sebut harga dan invois mesti mengekalkan pelanggannya untuk rekod."
-                            ),
-                            confirmLabel: L(
-                              "Delete customer",
-                              "Padam pelanggan"
-                            ),
-                            variant: "danger",
-                          }))
-                        )
-                          return;
-                        const res = await api<{ error?: { message?: string } }>(
-                          `/staff/customers/${c.id}`,
-                          { method: "DELETE" }
-                        );
-                        if (res.ok) {
-                          showToast(
-                            L("Deleted", "Dipadam"),
-                            L(`${c.company} removed`, `${c.company} dibuang`)
-                          );
-                          if (editingCust?.id === c.id) {
-                            setEditingCust(null);
-                            setCust({
-                              company: "",
-                              contact_person: "",
-                              phone: "",
-                              email: "",
-                              address: "",
-                              website: "",
-                            });
-                          }
-                          void load();
-                        } else
-                          showToast(
-                            L("No changes", "Tiada perubahan"),
-                            res.data?.error?.message ??
-                              L("Delete refused", "Padam ditolak"),
-                            "notice"
-                          );
-                      }}
-                    >
-                      {L("Delete", "Padam")}
-                    </button>
-                  </span>
-                </div>
-                {openCust === c.id && (
-                  <DetailGrid
-                    items={[
-                      {
-                        label: L("Contact", "Hubungan"),
-                        value: c.contact_person ?? "",
-                      },
-                      { label: L("Phone", "Telefon"), value: c.phone ?? "" },
-                      { label: L("Email", "E-mel"), value: c.email ?? "" },
-                      {
-                        label: L("Billing address", "Alamat bil"),
-                        wide: true,
-                        value: (c as { address?: string | null }).address ?? "",
-                      },
-                      {
-                        label: L("Delivery address", "Alamat penghantaran"),
-                        wide: true,
-                        value:
-                          (c as { delivery_address?: string | null })
-                            .delivery_address ?? "",
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-            ))}
+          <div className={workTab === "receipts" ? "mt-3" : "hidden"}>
+            {workExtra}
           </div>
-        </div>
-
-          {customersExtra}
         </div>
       </section>
     </div>

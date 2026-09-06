@@ -6,7 +6,7 @@
 import { ActiveStokisSummary, DashSummary, HourBucket, InTodaySummary, LowStockSummary, OutstandingDocsSummary, PendingClaimsSummary, PendingLeaveSummary, REVENUE_ROLES, RevLineLite, RevenueData, autoTargetCents } from "@/components/portal/dashboard";
 import { AttendanceDonutCard, MonthlyBarsCard, TodayAssignmentsCard } from "@/components/portal/dashboard-cards";
 import { LiveScheduleCard, OtApprovalsCard } from "@/components/portal/live-cards";
-import { DAY_NAMES, L, User } from "@/components/portal/page-shared";
+import { DAY_NAMES, L, SectionTabs, User } from "@/components/portal/page-shared";
 import { ClientsCard, PnlCard } from "@/components/portal/sales";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -879,7 +879,28 @@ export function TradingDesk({
   );
 }
 
-export function SalesRevenueCard() {
+/* v1.123.0 — THE MONTH, TWO WAYS. The CEO, 06-09-2026: *"UI tabs for: Sales
+   revenue — 2026-09 & Sales by hour — last 7 days to minimalist the interface
+   and also use globally css / style that created before"*. Two cards that
+   answer one question - how much this month, and when in the day it comes -
+   are one card with the portal's own tab pills. Each keeps its own heading
+   (they carry the month and the window), loses only its frame, and stays
+   MOUNTED when the other is showing, so switching costs no refetch. */
+export function RevenueAndHoursCard() {
+  const [tab, setTab] = useState<"revenue" | "hours">("revenue");
+  return (
+    <div className={card}>
+      <SectionTabs value={tab} onChange={setTab} tabs={[
+        ["revenue", L("Sales revenue", "Hasil jualan")],
+        ["hours", L("Sales by hour", "Jualan mengikut jam")],
+      ] as const} />
+      <div className={tab === "revenue" ? "mt-3" : "hidden"}><SalesRevenueCard bare /></div>
+      <div className={tab === "hours" ? "mt-3" : "hidden"}><SalesByHourCard bare /></div>
+    </div>
+  );
+}
+
+export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
   const [rev, setRev] = useState<RevenueData | null>(null);
   /* v1.77.0 — skeleton until the first fetch lands. */
   const [loaded, setLoaded] = useState(false);
@@ -895,7 +916,7 @@ export function SalesRevenueCard() {
   if (!rev) {
     if (!loaded)
       return (
-        <div className={card} aria-hidden>
+        <div className={bare ? "" : card} aria-hidden>
           <Skel className="h-4 w-48" />
           <SkelText lines={2} className="mt-2" />
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -937,7 +958,7 @@ export function SalesRevenueCard() {
     </div>
   );
   return (
-    <div className={card}>
+    <div className={bare ? "" : card}>
       <p className="text-sm font-semibold">
         {L("Sales revenue", "Hasil jualan")} — {rev.month}
       </p>

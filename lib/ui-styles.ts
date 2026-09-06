@@ -149,3 +149,15 @@ export const chipInfo = `${chip} bg-info-soft text-info`;
 
 /** Dashboard tile styling. */
 export const tile = card;
+
+/* v1.123.0 — THE TAB PILL, globally. The CEO, 06-09-2026: *"like tabs inside
+   Attendance ... also use globally css / style that created before"*. The
+   style is the one v1.80.0 introduced on the attendance card and v1.4.x used
+   on MoneyCard; it lived twice, hand-rolled. It lives here now, and
+   components/portal/page-shared.tsx SectionTabs is the one component that
+   draws it. A card with more than one thing to show uses that, so a pill
+   means the same thing on every tab of the portal. */
+export const tabPill =
+  "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs";
+export const tabPillOn =
+  "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium";

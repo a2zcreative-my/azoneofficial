@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.123.0] - 2026-09-06 - one tab style for the whole portal; Ecommerce, Inventory and Sales tabbed
+
+**CEO**, 06-09-2026, a list per tab: tabs for revenue and by-hour on Ecommerce *"to minimalist the interface and also use globally css / style that created before"*; Stock status and the ELFIA bridge *"properly aligned … for better UI"*; Record and What moved as tabs *"like tabs inside Attendance — Staff attendance — corrections & back-entry"*; tabs on Sales for Create document / Documents / receipts, and *"Bring up Customers above The work"* with tabs for Add customer / Clients.
+
+### The tab pill is now one thing
+It existed twice, hand-rolled: the attendance card's pill row (v1.80.0) and MoneyCard's `btnSm` variant. `tabPill` / `tabPillOn` now live in `lib/ui-styles.ts` and **`SectionTabs`** in `page-shared` is the one component that draws them - a real `role="tablist"` with `aria-selected`. Both older rows were converted to it, so a pill means the same thing on every tab. Every tabbed card keeps its bodies **hidden, never unmounted**: switching tabs costs no refetch and never loses a half-typed form.
+
+### Ecommerce
+*Sales revenue — 2026-09* and *🕐 Sales by hour — last 7 days* are one card, two tabs. Each keeps its own heading (they carry the month and the window) and loses only its frame; on the phone the card still reads before the map.
+
+### Inventory
+- **Stock now** - the stock-status strip was an inline pill beside a full-height card, so the row read as two different things. It is the house card now (`fill`), stretched level with the ELFIA bridge beside it.
+- **Record** - *Supplier returns*, *Postage tracking* and *Marketing materials* are one card with three tabs.
+- **What moved** - *📉 TikTok Live — stock out* and *🛠 Manual stock movements* are one card with two tabs.
+- The stock table stays open: it is the daily work.
+
+### Sales
+- **Customers moved above The work** - a document needs a customer to exist - with tabs **Add customer** (the billing-block form and the customer list) and **💎 Clients**.
+- **The work** has three tabs: **Create document** (the paper-shaped form and its live preview), **Documents** (the invoice aging line and the documents list), **🧾 Receipts, credit notes & outstanding**.
+
+Nothing inside any card changed - every control, save, rule and role gate is as it was. No database change.
+
+### Under it
+`lib/ui-styles.ts`, `components/portal/page-shared.tsx` (`SectionTabs`), `trading-desk.tsx` (`RevenueAndHoursCard`, `SalesRevenueCard bare`), `sales-by-hour-card.tsx`, `documents-panel.tsx` and `sales.tsx` (`bare` bodies; `ClientsCard bare`), `role-panels.tsx`, `commission.tsx`, `company-monitor.tsx`, `app/portal/page.tsx`. One real bug found on the way: `lazy-panels.tsx` infers a panel's props from its signature, and an optional props object (`= {}`) erases them to `object` - so a prop could not be passed through the lazy wrapper at all; `DocumentsPanel` now declares its props without the default. Guard #49 rewritten for the new shape and given the tab rules (one global pill, no hand-rolled copies, bodies hidden not unmounted, Customers above The work); the paper-form checks are now scoped to the Create tab's own slice, because "Billing address" also occurs in the customer list that moved above it. Negative-tested four ways. Full suite and a production build pass.
+
+## [1.122.0] - 2026-09-06 - the ELFIA Store tab in four zones; products first
+
+**CEO**, 06-09-2026: *"Check UI/UX for ELFIA Store - webview and mobile apps view"*. Proposed as a mockup; approved as proposed.
+
+### What was wrong
+Seven cards in the order they were built: the store pulse, the online-payment check, delivery charges, the catalog PDF, the catalog hover background, the homepage carousel - and last, under all of that, the products. The products are the daily work; the rest is set once and touched rarely. The product rows were already phone-friendly cards and the bulk tools already appear only on selection, so this was order and quiet, not rows.
+
+### Now
+1. **THE SHOP** - the pulse and *Update the shop now*.
+2. **PRODUCTS** - the catalogue, moved up from the bottom, with a **find box** (SKU, name or collection) beside the Show chips; finding clears the selection so a bulk action can never hit a hidden row. Rows unchanged.
+3. **THE SHOPFRONT** - Homepage carousel (*4 slides · 3 active*), Catalog PDF (*live on the shop · date*), Catalog hover background (*set / none*) - quiet one-line cards that open on a tap.
+4. **SETTINGS** - Delivery charges (*RM 8 · free over RM 150*) and the Online payment check (*keys working / not working*), quiet, side by side on the desk.
+
+Same order on the phone. Nothing inside any card changed - every control, every save, the bulk discount / price / flash-sale tools, the carousel's framing, the catalog flow. The quiet card moved to `page-shared` so Inventory and ELFIA Store share one component. No database change; the store is untouched.
+
+`components/portal/elfia-store-panel.tsx`, `components/portal/page-shared.tsx` (`QuietCard` exported), `components/portal/role-panels.tsx` (imports it). Guard #49 gains the ELFIA checks - four zones in order, products before every set-once card, the five quiet with their figures, the products card not quiet, the find box cutting the same list the chips cut; negative-tested by putting the products back at the bottom.
+
 ## [1.121.0] - 2026-09-06 - Inventory: the five history and record cards are quiet
 
 **CEO**, 06-09-2026: *"I want minimalist UI/UX for this Inventory tabs - TikTok Live stock out, Manual stock movements, Supplier returns, Postage tracking, Marketing materials"*.

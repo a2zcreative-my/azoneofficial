@@ -29,9 +29,13 @@ const root = new URL("..", import.meta.url).pathname;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const page = read("app/portal/page.tsx");
 const shared = read("components/portal/page-shared.tsx");
+const styles = read("lib/ui-styles.ts");
+const commission = read("components/portal/commission.tsx");
+const trading = read("components/portal/trading-desk.tsx");
 const dash = read("components/portal/dashboard.tsx");
 const panels = read("components/portal/role-panels.tsx");
 const sales = read("components/portal/sales.tsx");
+const elfia = read("components/portal/elfia-store-panel.tsx");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
 
@@ -41,11 +45,11 @@ const tab = page.slice(a, b);
 ok("the Ecommerce block was found", a > 0 && b > a);
 
 /* 1. the order */
-const seq = ["<OpsMapCard", "<SalesRevenueCard", "<SalesByHourCard", "<TikTokOrdersCard", "<FulfilmentCard", "<MoneyCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
+const seq = ["<OpsMapCard", "<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<MoneyCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
 const pos = seq.map((s) => tab.indexOf(s));
 ok("every card is still on the tab", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
-ok("map, revenue, by-hour, tracker, fulfilment, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
-ok("the connection is last, as v1.4.217 ordered", pos[7] === Math.max(...pos));
+ok("map, the month card, tracker, fulfilment, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
+ok("the connection is last, as v1.4.217 ordered", pos[6] === Math.max(...pos));
 ok("the leaderboard rides in the map's side column", /<OpsMapCard aside=\{<LeaderboardCard user=\{user\} compact \/>\} \/>/.test(tab));
 const caps = ["This month", "The work", "The longer view", "Setup"];
 ok("the four zones are captioned", caps.every((c) => tab.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !tab.includes(`<ZoneLabel>{L("${c}"`)).join(","));
@@ -53,7 +57,7 @@ ok("revenue and by-hour share a row on the desk, the map spans it", /md:grid-col
 ok("the tracker is wide and fulfilment beside it", /md:grid-cols-\[minmax\(0,2fr\)_minmax\(0,1fr\)\]/.test(tab));
 
 /* 2. the phone differs by one card, on the same tree */
-ok("on the phone the month's total comes before the map, by CSS order", /className="order-1 md:order-2"><SalesRevenueCard \/>/.test(tab) && /className="order-2 md:order-1 md:col-span-2">\s*<OpsMapCard/.test(tab),
+ok("on the phone the month's figures come before the map, by CSS order", /className="order-1 md:order-2 md:col-span-2"><RevenueAndHoursCard \/>/.test(tab) && /className="order-2 md:order-1 md:col-span-2">\s*<OpsMapCard/.test(tab),
    "a second copy of the cards for the phone would be two trees to keep in step");
 ok("...and the cards appear once each", seq.every((s) => tab.split(s).length === 2));
 
@@ -73,7 +77,10 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   const caps = ["Stock now", "Record", "What moved"];
   const cpos = caps.map((c) => inv.indexOf(`<ZoneLabel>{L("${c}"`));
   ok("Inventory has its three zones, in order", cpos.every((x) => x > 0) && cpos[0] < cpos[1] && cpos[1] < cpos[2], cpos.join(" < "));
-  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard \/> : undefined\}/.test(page));
+  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard fill \/> : undefined\}/.test(page));
+  /* v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge") - two
+     cards of the same kind, stretched to the same height, not a pill beside a card */
+  ok("stock status and the bridge are the same card, stretched level", /items-stretch/.test(inv) && /\$\{card\} w-full/.test(inv) && /fill \? "flex w-full" : "max-w-full self-start"/.test(read("components/portal/company-monitor.tsx")));
   const order = ["Inventory — live status & stock", "Supplier returns", "Postage tracking", "TikTok Live — stock out", "Manual stock movements"].map((t) => inv.indexOf(t));
   ok("table, then the two forms, then the two histories", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
   ok("the table and the phone list draw from ONE filtered list", inv.split("{visibleItems.map((it) => (").length === 3 && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),
@@ -91,18 +98,22 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
 {
   const s0 = sales.indexOf("export function Sales(");
   const comp = sales.slice(s0, sales.indexOf("\n}\n", s0));
+  /* v1.123.0 - the tab bodies. The document form's own labels ("Billing
+     address") also occur in the customer list, which now comes first, so
+     every paper-form check reads the CREATE tab's slice, not the component. */
+  const form = comp.slice(comp.indexOf('workTab === "create" ? "mt-3" : "hidden"'), comp.indexOf('workTab === "documents" ? "mt-3" : "hidden"'));
   ok("the Sales component was found", s0 > 0);
   /* the meta strip: the five cells, in the order the template prints them */
-  const meta = ['L("Sales person", "Jurujual")', 'L("Doc no.", "No. dok.")', 'L("Date", "Tarikh")', 'L("Valid until", "Sah hingga")', 'L("Reference", "Rujukan")'].map((m) => comp.indexOf(m));
+  const meta = ['L("Sales person", "Jurujual")', 'L("Doc no.", "No. dok.")', 'L("Date", "Tarikh")', 'L("Valid until", "Sah hingga")', 'L("Reference", "Rujukan")'].map((m) => form.indexOf(m));
   ok("the meta strip is the paper's: sales person, doc no., date, valid-until / due / delivery, reference", meta.every((x) => x > 0) && meta.every((x, i) => i === 0 || x > meta[i - 1]), meta.join(" < "));
-  ok("the system's own fields are shown greyed, not as inputs", /L\("auto on save", "auto semasa simpan"\)/.test(comp) && /L\("On receipt", "Semasa terima"\)/.test(comp));
+  ok("the system's own fields are shown greyed, not as inputs", /L\("auto on save", "auto semasa simpan"\)/.test(form) && /L\("On receipt", "Semasa terima"\)/.test(comp));
   /* the parties: billing, with the customer inside it, before delivery */
-  const bill = comp.indexOf('L("Billing address", "Alamat bil")'), ship = comp.indexOf('L("Delivery address", "Alamat penghantaran")'), custSel = comp.indexOf("value={doc.customer_id}");
+  const bill = form.indexOf('L("Billing address", "Alamat bil")'), ship = form.indexOf('L("Delivery address", "Alamat penghantaran")'), custSel = form.indexOf("value={doc.customer_id}");
   ok("BILLING ADDRESS holds the customer and comes before DELIVERY ADDRESS", bill > 0 && custSel > bill && ship > custSel);
   ok("a customer without an address is warned about where it prints", /No address on the customer card/.test(comp));
   ok("a service document shows a service address, not a delivery one", /L\("Service address", "Alamat perkhidmatan"\)/.test(comp));
   /* the ladder, in print order */
-  const ladder = ['L("Subtotal", "Subjumlah")', 'L("Less: discount (whole document)"', 'L("Tax %", "Cukai %")', 'L("Delivery / postage", "Penghantaran / pos")', 'L("TOTAL (RM)", "JUMLAH (RM)")'].map((m) => comp.indexOf(m));
+  const ladder = ['L("Subtotal", "Subjumlah")', 'L("Less: discount (whole document)"', 'L("Tax %", "Cukai %")', 'L("Delivery / postage", "Penghantaran / pos")', 'L("TOTAL (RM)", "JUMLAH (RM)")'].map((m) => form.indexOf(m));
   ok("the totals ladder reads subtotal, discount, tax, delivery, total", ladder.every((x) => x > 0) && ladder.every((x, i) => i === 0 || x > ladder[i - 1]), ladder.join(" < "));
   ok("the lines stay under the paper's column headers", /L\("Description", "Keterangan"\)/.test(comp) && /L\("Unit price \(RM\)", "Harga seunit \(RM\)"\)/.test(comp) && /L\("Discount \(RM\)", "Diskaun \(RM\)"\)/.test(comp));
   ok("a Delivery Order says its prices are not printed", /prices are kept but not printed on a Delivery Order/.test(comp));
@@ -122,21 +133,62 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   /* the tab's zones */
   const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
   const z = [st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf("<Sales user={user}"), st.indexOf('L("The longer view"')];
-  ok("the Sales tab reads: this month, the work + customers, the longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel \/>\}/.test(st) && /customersExtra=\{<ClientsCard \/>\}/.test(st));
-  const inner = [comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
-  ok("inside: the document form and documents under THE WORK, the customer form and clients under CUSTOMERS", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
+  ok("the Sales tab reads: this month, the Sales component, the longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st));
+  /* v1.123.0 (CEO: "Bring up Customers above The work") - a document needs a
+     customer to exist, so the tab that makes one reads first. */
+  const inner = [comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}"), comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}")];
+  ok("CUSTOMERS comes above THE WORK, each with its form then its list", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
+  ok("Customers has two tabs and The work three", /value=\{custTab\} onChange=\{setCustTab\}/.test(comp) && ["add", "clients"].every((k) => comp.includes(`["${k}", L(`))
+     && /value=\{workTab\} onChange=\{setWorkTab\}/.test(comp) && ["create", "documents", "receipts"].every((k) => comp.includes(`["${k}", L(`)));
+  ok("every Sales tab body is hidden, never unmounted", ["add", "clients"].every((k) => comp.includes(`custTab === "${k}" ? "mt-3" : "hidden"`)) && ["create", "documents", "receipts"].every((k) => comp.includes(`workTab === "${k}" ? "mt-3" : "hidden"`)),
+     "a half-written quotation must survive a look at the documents list");
 }
 
 /* ---- v1.121.0: the five history / record cards on Inventory are quiet ---- */
 {
   const s = panels.indexOf("export function InventoryPanel(");
   const inv = panels.slice(s, panels.indexOf("\n}\n", s));
-  const five = ["TikTok Live — stock out", "Manual stock movements — traceability", "Supplier returns — rejects to claim back", "Postage tracking — non-TikTok orders", "Marketing materials"];
-  ok("the five cards under the table are quiet cards, one line each until opened", five.every((t) => new RegExp(`<QuietCard title=\\{L\\("[^"]*${t.replace(/[-—]/g, ".")}`).test(inv)), five.filter((t) => !new RegExp(`<QuietCard title=\\{L\\("[^"]*${t.replace(/[-—]/g, ".")}`).test(inv)).join(" | "));
-  ok("each quiet card carries its one figure", inv.split("<QuietCard ").length === 6 && inv.split("summary={").length === 6);
-  ok("a quiet card draws its body only when open", /\{open && <div className="mt-3">\{children\}<\/div>\}/.test(panels) && /^function QuietCard\(/m.test(panels));
-  ok("the stock table itself is not quiet", !/<QuietCard title=\{L\("Inventory — live status/.test(inv));
+  /* v1.123.0 - the CEO replaced the five quiet cards with two tabbed cards:
+     Record (returns / postage / materials) and What moved (TikTok / manual). */
+  const recTabs = ["returns", "postage", "materials"], mvTabs = ["tiktok", "manual"];
+  ok("Record is one card with three tabs", /value=\{recordTab\} onChange=\{setRecordTab\}/.test(inv) && recTabs.every((k) => new RegExp(`\\["${k}", L\\(`).test(inv)));
+  ok("What moved is one card with two tabs", /value=\{movedTab\} onChange=\{setMovedTab\}/.test(inv) && mvTabs.every((k) => new RegExp(`\\["${k}", L\\(`).test(inv)));
+  ok("each tab body is hidden, never unmounted - a half-typed return survives a look at postage",
+     recTabs.every((k) => inv.includes(`recordTab === "${k}" ? "mt-3" : "hidden"`)) && mvTabs.every((k) => inv.includes(`movedTab === "${k}" ? "mt-3" : "hidden"`)),
+     "unmounting would refetch and lose what was typed");
+  ok("the five cards kept their bodies", ["Record rejected/defective items sent back to the supplier", "TikTok orders arrive automatically", "Track what sales needs", "Units deducted by TikTok orders", "Every manual In + and Out"].every((t) => inv.includes(t)));
+  ok("the stock table is not behind a tab - it is the daily work", !/<QuietCard title=\{L\("Inventory — live status/.test(inv) && /L\("Inventory — live status & stock"/.test(inv));
+}
+
+/* ---- v1.122.0: ELFIA Store - the shop, the products, the shopfront, settings ---- */
+{
+  const s = elfia.indexOf("export function ElfiaStorePanel(");
+  const el = elfia.slice(s, elfia.indexOf("\n}\n", s));
+  const caps = ["The shop", "Products", "The shopfront", "Settings"].map((c) => el.indexOf(`<ZoneLabel>{L("${c}"`));
+  ok("ELFIA Store has its four zones, in order", caps.every((x) => x > 0) && caps.every((x, i) => i === 0 || x > caps[i - 1]), caps.join(" < "));
+  const order = ['L("ELFIA web store", "Kedai web ELFIA")', 'L("Products on the ELFIA store"', 'title={L("Homepage carousel"', 'title={L("Catalog PDF"', 'title={L("Catalog hover background"', 'title={L("Delivery charges"', 'title={L("Online payment (Bayarcash FPX)"'].map((m) => el.indexOf(m));
+  ok("pulse, products, carousel, catalog PDF, hover backdrop, delivery, payment - in that order", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
+  ok("the products come before every set-once card", order[1] < Math.min(...order.slice(2)), "the daily work was last");
+  ok("the five set-once cards are quiet, each with its figure", el.split("<QuietCard ").length === 6 && el.split("summary={").length === 6);
+  ok("the products card is not quiet", !/<QuietCard title=\{L\("Products on the ELFIA store/.test(el));
+  ok("the find box cuts the same list the Show chips cut", /const needle = q\.trim\(\)\.toLowerCase\(\);/.test(el) && /\.filter\(\(x\) => !needle \|\| x\.sku\.toLowerCase\(\)\.includes\(needle\)/.test(el) && /L\("Find by SKU, name or collection"/.test(el));
+  ok("finding clears the selection so a bulk action cannot hit a hidden row", /onChange=\{\(e\) => \{ setQ\(e\.target\.value\); setPicked\(new Set\(\)\); \}\}/.test(el));
+}
+
+/* ---- v1.123.0: one tab component, one style, everywhere ---- */
+{
+  ok("the tab pill is a global style, not a per-card string", /export const tabPill =/.test(styles) && /export const tabPillOn =/.test(styles));
+  ok("SectionTabs is the one component that draws it", /export function SectionTabs</.test(shared) && /className=\{value === k \? tabPillOn : tabPill\}/.test(shared));
+  ok("...and it is a real tablist", /role="tablist"/.test(shared) && /role="tab" aria-selected=\{value === k\}/.test(shared));
+  /* the two rows that had their own copy of this markup - the attendance card
+     (v1.80.0) and MoneyCard - now use the component, so there is one style */
+  const handRolled = [["role-panels.tsx", panels], ["commission.tsx", commission], ["sales.tsx", sales], ["elfia-store-panel.tsx", elfia], ["trading-desk.tsx", trading]]
+    .filter(([, src]) => /rounded-full px-3 py-1 text-xs font-medium"/.test(src) || /!bg-primary !text-primary-foreground/.test(src));
+  ok("no card hand-rolls the tab pill any more", handRolled.length === 0, handRolled.map(([f]) => f).join(", "));
+  for (const [file, src] of [["role-panels.tsx", panels], ["commission.tsx", commission], ["sales.tsx", sales], ["trading-desk.tsx", trading]]) {
+    if (src.includes("<SectionTabs")) ok(`${file} imports SectionTabs from page-shared`, /import \{[^}]*SectionTabs[^}]*\} from "@\/components\/portal\/page-shared"/.test(src));
+  }
 }
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }
-console.log(`PASS — Ecommerce, Inventory and Sales read in zones; the document form is the paper, previewed by the template that prints (${passed} checks)`);
+console.log(`PASS — every tab reads in zones, one card shows one thing at a time through one shared tab component, and the document form is still the paper (${passed} checks)`);

@@ -44,7 +44,7 @@ import { card, inputClass, inputClassSm, btnClass, chipNeutral, fieldRow, th, td
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { ZoneLabel } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by
+import { SectionTabs, ZoneLabel } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
@@ -496,26 +496,6 @@ const rmR = fmtRM; // v1.4.272: global
    coloured, In / Out under the thumb - the SAME rows and the SAME handlers
    as the desk table (one data source, two renderings); price, rebate, net
    and the web toggle stay on the desk. Every action and rule is unchanged. */
-/** v1.121.0 - THE QUIET CARD. The CEO, 06-09-2026: "I want minimalist UI/UX
-    for this Inventory tabs" - the five history / record cards under the stock
-    table. Each is now one line - its title and its one figure - and opens on a
-    tap; nothing inside changed. Module scope (house rule #30). */
-function QuietCard({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className={card}>
-      <button type="button" className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="min-w-0">
-          <span className="block text-sm font-semibold">{title}</span>
-          {summary && <span className="text-muted-foreground mt-0.5 block truncate text-xs">{summary}</span>}
-        </span>
-        <span aria-hidden className={`text-muted-foreground shrink-0 text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
-      </button>
-      {open && <div className="mt-3">{children}</div>}
-    </div>
-  );
-}
-
 export function InventoryPanel({ role = "", statusCard }: { role?: string; statusCard?: ReactNode }) {
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
@@ -563,6 +543,9 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   const [invQ, setInvQ] = useState("");
   const [invFilter, setInvFilter] = useState<"all" | "low" | "out">("all");
   const [addOpen, setAddOpen] = useState(false);
+  /* v1.123.0 - one area at a time in Record and What moved */
+  const [recordTab, setRecordTab] = useState<"returns" | "postage" | "materials">("returns");
+  const [movedTab, setMovedTab] = useState<"tiktok" | "manual">("tiktok");
   const cycleInv = (col: InvCol) =>
     setInvSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   type TtCol = "sku" | "name" | "hot" | "month" | "total" | "price" | "value" | "stock" | "last";
@@ -827,10 +810,14 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Stock now", "Stok sekarang")}</ZoneLabel>
       {/* v1.119.0 - two one-line facts, one row: the status strip (manage
-          roles; page.tsx passes it in) and the ELFIA bridge pulse. */}
-      <div className={`grid grid-cols-1 gap-3 md:gap-4 ${statusCard ? "md:grid-cols-2" : ""}`}>
+          roles; page.tsx passes it in) and the ELFIA bridge pulse.
+          v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge for
+          better UI") - they were an inline pill beside a full card, so the
+          row read as two different things at two different heights. Both are
+          the house card now, stretched to the same height. */}
+      <div className={`grid grid-cols-1 items-stretch gap-3 md:gap-4 ${statusCard ? "md:grid-cols-2" : ""}`}>
         {statusCard}
-        <div>
+        <div className="flex">
       {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
           it last report a sale, and (the part a human must act on) SKUs it
           sent that the portal does not hold. Compact strip, reads before the
@@ -838,7 +825,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
           card so the table below does not jump up when the pulse arrives. */}
       {!loaded && (
-        <div className={card} aria-hidden>
+        <div className={`${card} w-full`} aria-hidden>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Skel className="h-4 w-24" />
             <Skel className="h-3 w-40" />
@@ -848,7 +835,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         </div>
       )}
       {bridgeHealth && (
-        <div className={card}>
+        <div className={`${card} w-full`}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
             {bridgeHealth.unavailable && (
@@ -1294,11 +1281,18 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       </section>
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Record", "Rekod")}</ZoneLabel>
-      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
-      {/* v1.4.148: rejected stock back to the supplier, costing tracked for
-          the claim-back. Recording a return deducts stock immediately. */}
-      <QuietCard title={L("Supplier returns — rejects to claim back", "Pemulangan pembekal — barang ditolak untuk dituntut semula")} summary={retTotals ? `${L("Outstanding", "Tertunggak")} ${rmR(retTotals.outstanding_cents)}` : L("no returns yet", "belum ada pemulangan")}>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+      {/* v1.123.0 — ONE CARD, THREE TABS. The CEO, 06-09-2026, naming the
+          attendance card: the three ways a movement is recorded are one
+          area at a time, chosen by the portal's own tab pills. Bodies are
+          hidden, never unmounted, so a half-typed return survives a look at
+          postage. Nothing inside them changed. */}
+      <div className={card}>
+        <SectionTabs value={recordTab} onChange={setRecordTab} tabs={[
+          ["returns", L("Supplier returns", "Pemulangan pembekal")],
+          ["postage", L("Postage tracking", "Penjejakan pos")],
+          ["materials", L("Marketing materials", "Bahan pemasaran")],
+        ] as const} />
+        <div className={recordTab === "returns" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Record rejected/defective items sent back to the supplier. Stock is deducted on record. The supplier settles either way: mark the row credited when money comes back, or replaced when replacement goods arrive (stock returns automatically) — the outstanding figure is what the supplier still owes the company.", "Rekod barang ditolak/cacat yang dihantar semula kepada pembekal. Stok ditolak semasa direkod. Pembekal menyelesaikan sama ada cara: tanda baris sebagai dikredit apabila wang kembali, atau diganti apabila barang gantian tiba (stok kembali secara automatik) — angka tertunggak ialah apa yang pembekal masih berhutang kepada syarikat.")}
         </p>
         {retTotals && retTotals.total_cents > 0 && (
@@ -1549,11 +1543,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           ))}
         </div>
         </DetailsToggle>
-      </QuietCard>
-
-      <div className="grid grid-cols-1 items-start gap-4 md:gap-6">
-        <QuietCard title={L("Postage tracking — non-TikTok orders", "Penjejakan pos — pesanan bukan TikTok")} summary={`${postage.length} ${L("records", "rekod")}`}>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+        </div>
+        <div className={recordTab === "postage" ? "mt-3" : "hidden"}>          <p className="text-muted-foreground mt-0.5 text-xs">
             {L("TikTok orders arrive automatically (webhook + 30-minute sync) with their items and tracking. Use this form only for other channels — Shopee, WhatsApp/direct sales, replacements.", "Pesanan TikTok tiba secara automatik (webhook + segerak 30 minit) dengan barang dan penjejakannya. Guna borang ini hanya untuk saluran lain — Shopee, jualan WhatsApp/terus, penggantian.")}
           </p>
           <div className="mt-3 space-y-2">
@@ -1667,10 +1658,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </li>
             ))}
           </ul>
-        </QuietCard>
-
-        <QuietCard title={L("Marketing materials", "Bahan pemasaran")} summary={`${materials.length} ${L("items", "item")}`}>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+        </div>
+        <div className={recordTab === "materials" ? "mt-3" : "hidden"}>          <p className="text-muted-foreground mt-0.5 text-xs">
             {L("Track what sales needs — request new material, mark it done when produced.", "Jejak apa yang jualan perlukan — minta bahan baharu, tanda selesai apabila dihasilkan.")}
           </p>
           {/* v1.4.155: items-end + matched button height (38px input vs 36px
@@ -1717,18 +1706,19 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </li>
             ))}
           </ul>
-        </QuietCard>
-      </div>
+        </div>
       </div>
       </section>
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("What moved", "Apa yang bergerak")}</ZoneLabel>
-      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
-      {/* v1.4.165 (CEO): which items went OUT through TikTok Live sales —
-          straight from the stock deductions the sync/webhook recorded on
-          TT- orders (returned orders excluded). Times are MYT. */}
-      <QuietCard title={L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")} summary={`${ttOut.length} ${L("items moved this month", "barang bergerak bulan ini")}`}>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+      {/* v1.123.0 — one card, two tabs: what TikTok moved, and what a
+          person moved by hand. */}
+      <div className={card}>
+        <SectionTabs value={movedTab} onChange={setMovedTab} tabs={[
+          ["tiktok", L("📉 TikTok Live — stock out", "📉 TikTok Live — stok keluar")],
+          ["manual", L("🛠 Manual stock movements", "🛠 Pergerakan stok manual")],
+        ] as const} />
+        <div className={movedTab === "tiktok" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
         </p>
         {/* v1.77.0 — skeleton until the first fetch lands (nine columns, like the real table). */}
@@ -1827,12 +1817,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
           </>
         )}
-      </QuietCard>
-
-      {/* v1.4.170 (CEO): the traceability card — every manual stock out with
-          the mandatory remark, who and when. Scrollable like the rest. */}
-      <QuietCard title={L("🛠 Manual stock movements — traceability", "🛠 Pergerakan stok manual — kebolehjejakan")} summary={`${manualOuts.length} ${L("records", "rekod")}`}>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+        </div>
+        <div className={movedTab === "manual" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
           <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
         </p>
@@ -1933,8 +1919,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
           </DetailsToggle>
         )}
-      </QuietCard>
-
+        </div>
       </div>
       </section>
     </div>
@@ -2407,22 +2392,15 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           records he came to look at were off the bottom of the screen. One
           area at a time now, chosen here. Find & filter opens by default
           because it is the one that decides what the table below shows. */}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {([
-          ["find", L("Find & filter", "Cari & tapis")],
-          ["add", L("Add record", "Tambah rekod")],
-          ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const] : []),
-          ...(canHours ? [["hours", L("Working hours", "Waktu bekerja")] as const] : []),
-        ] as [typeof section, string][]).map(([key, label]) => (
-          <button key={key} type="button"
-            className={section === key
-              ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-              : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
-            onClick={() => setSection(key)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* v1.123.0 - the pill row this card introduced in v1.80.0 is now the
+          portal's one tab component (page-shared SectionTabs, lib/ui-styles
+          tabPill), so Inventory, Ecommerce and Sales read the same way. */}
+      <SectionTabs className="mt-3" value={section} onChange={setSection} tabs={([
+        ["find", L("Find & filter", "Cari & tapis")],
+        ["add", L("Add record", "Tambah rekod")],
+        ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const] : []),
+        ...(canHours ? [["hours", L("Working hours", "Waktu bekerja")] as const] : []),
+      ] as [typeof section, string][])} />
 
       {section === "add" && (
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

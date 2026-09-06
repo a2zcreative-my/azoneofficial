@@ -3,7 +3,8 @@
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { card, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { Lang, getLang } from "@/lib/i18n";
 
 /* v1.25.1 — remembered-data keys for the Dashboard's own four requests. */
@@ -248,4 +249,48 @@ export interface LeaveReq {
     every tab teaches the same reading habit. Module scope (house rule #30). */
 export function ZoneLabel({ children }: { children: ReactNode }) {
   return <p className="text-muted-foreground px-1 text-[10px] font-semibold tracking-widest uppercase">{children}</p>;
+}
+
+/** v1.121.0 - THE QUIET CARD. The CEO, 06-09-2026: "I want minimalist UI/UX
+    for this Inventory tabs" - a card that is one line (its title and its one
+    figure) until tapped; nothing inside changes. v1.122.0: shared with the
+    ELFIA Store tab, so the same gesture means the same thing everywhere. */
+export function QuietCard({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={card}>
+      <button type="button" className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{title}</span>
+          {summary && <span className="text-muted-foreground mt-0.5 block truncate text-xs">{summary}</span>}
+        </span>
+        <span aria-hidden className={`text-muted-foreground shrink-0 text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
+
+/** v1.123.0 - ONE ROW OF TABS, everywhere. The CEO, 06-09-2026, naming the
+    attendance card as the reference: a card that holds several things shows
+    one at a time, chosen by a pill row, instead of stacking them all open.
+    The bodies are HIDDEN, never unmounted - a tab that refetched and lost
+    its half-typed form on every switch would be a worse card than the stack
+    it replaced. Module scope (house rule #30). */
+export function SectionTabs<T extends string>({ value, onChange, tabs, className = "" }: {
+  value: T;
+  onChange: (v: T) => void;
+  tabs: readonly (readonly [T, string])[];
+  className?: string;
+}) {
+  return (
+    <div role="tablist" className={`flex flex-wrap gap-1.5 ${className}`}>
+      {tabs.map(([k, label]) => (
+        <button key={k} type="button" role="tab" aria-selected={value === k}
+          className={value === k ? tabPillOn : tabPill} onClick={() => onChange(k)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }

@@ -19,7 +19,7 @@ interface Bucket { hour: number; cents: number; orders: number }
 import { fmtRM as rm } from "@/lib/format"; // v1.4.272: global
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
-export function SalesByHourCard() {
+export function SalesByHourCard({ bare }: { bare?: boolean } = {}) {
   const [data, setData] = useState<{ days: number; buckets: Bucket[] } | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -37,7 +37,7 @@ export function SalesByHourCard() {
   const total = buckets.reduce((a, b) => a + b.cents, 0);
   const peak = buckets.reduce<Bucket | null>((a, b) => (b.cents > (a?.cents ?? 0) ? b : a), null);
   return (
-    <div className={card}>
+    <div className={bare ? "" : card}>
       <p className="text-sm font-semibold">🕐 Sales by hour — last {data?.days ?? 7} days</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
         All channels by the hour the order came in (MYT) — schedule the LIVE sessions where the bars are.

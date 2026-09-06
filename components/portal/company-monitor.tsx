@@ -182,7 +182,11 @@ export function TaskProgressCard() {
     out-of-stock chips PULSE while their count is above zero, and clicking
     one opens the affected items right under the strip — SKU, name and the
     exact quantity left — no trip to the inventory table. */
-export function InventoryStatusCard() {
+/* v1.123.0 (CEO: "Stock now - properly aligned for Stock status & ELFIA
+   bridge for better UI") - `fill` makes this the house card at full width and
+   height, so it sits level with the bridge pulse beside it instead of being a
+   small inline pill against a full card. Everything inside is unchanged. */
+export function InventoryStatusCard({ fill }: { fill?: boolean } = {}) {
   const data = useOverview();
   const [open, setOpen] = useState<string | null>(null);
   const [items, setItems] = useState<{ sku: string; name: string; stock: number; status: string }[] | null>(null);
@@ -198,8 +202,10 @@ export function InventoryStatusCard() {
   };
   const openItems = open ? (items ?? []).filter((i) => i.status === open) : [];
   return (
-    <div className="max-w-full self-start">
-      <div className="border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+    <div className={fill ? "flex w-full" : "max-w-full self-start"}>
+      <div className={fill
+        ? `${card} flex w-full flex-wrap items-center gap-2`
+        : "border-border bg-card inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border px-3 py-2"}>
         <span className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{L("Stock status", "Status stok")}</span>
         {data.inventory_status.map((r) => {
           const alert = ALERT[r.status] && r.n > 0;
