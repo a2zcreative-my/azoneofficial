@@ -14,7 +14,13 @@ export type DashCache = {
   ot_eligible?: boolean;
   /* v1.133.0 — every block of today's pattern, so the card can say which
      shifts to clock for. null when the schedule cannot be read. */
-  today_shift?: { kind: string; label: string; windows: { start: string; end: string }[] } | null;
+  today_shift?: {
+    kind: string; label: string; windows: { start: string; end: string }[];
+    /* v1.133.2 — the SHIFTS (blocks + roster + live board), which are
+       already clocked in for, and whether a clock-in is possible right now. */
+    slots?: { start: string; end: string; what: string | null; claimed: boolean }[];
+    slots_label?: string; can_clock_in?: boolean; why_not?: string | null;
+  } | null;
 };
 export const DASH_ATT = "dash:attendance";
 export const DASH_LEAVE = "dash:leave";

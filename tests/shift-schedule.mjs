@@ -89,8 +89,11 @@ const ok = (label, cond, extra = "") => {
   });
   ok("nothing flags attendance against the old company-wide shift", offenders.length === 0,
      `worker/src/staff.ts lines ${offenders.join(", ")} — hours come from shiftOn() now`);
+  /* v1.133.2 - read once, earlier, for the shift rule; the classifier
+     reuses it. The property is that the classifier's `sh` IS that person's
+     shift for today. */
   ok("the punch classifier resolves the person's shift",
-     /const sh = await shiftOn\(env, user\.id, todayMYT\);/.test(staff));
+     /const shEarly = await shiftOn\(env, user\.id, todayMYT\);/.test(staff) && /const sh = shEarly;/.test(staff));
   ok("a rest-day punch is flagged as one, not as an early-out",
      /if \(sh\.kind === "rest_day"\) \{\s*flag = "rest_day";/.test(staff),
      "measuring a Saturday against hours that do not apply produced a false early_out");

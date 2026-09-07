@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.133.2] - 2026-09-07 - a clock-in must have a shift to clock in for
+
+**CEO**, 07-09-2026, having clocked in and out four times at 23:32 on a 10:00-18:00 pattern: *"this is wrong flow for clock in next! user can clock in more than 2 time which is not correct! it is supposed to based on the working hours that scheduled for them and based on the Roster and Scheduled assigned to them also!"*
+
+He is right. v1.133.0 let a clock-in follow any clock-out and bounded the day by nothing.
+
+### The bound is the schedule
+A day's **shifts** are the pattern's blocks plus whatever the roster and the live board assigned that day, merged where they touch — a 20:00 live inside a 20:30-22:30 block is *one* evening shift, not two, or the same evening could be clocked in for twice. Each shift is clocked in for **once**. A clock-in is for the shift it falls inside, else the next one ahead (turning up early), else the last one behind (turning up late — the half-day rule says how late). With nothing left, it is refused, and the refusal names the shifts: *"You have clocked in for every shift today (10:00-18:00). Work outside your schedule needs a roster assignment or a live session first."*
+
+Two consequences, both his rule stated plainly:
+
+- **A rest day with nothing on the roster has nothing to clock in for.** Weekend work now has to be on the live board or the roster before it can be clocked — which is also what makes it approvable overtime with a name on it.
+- **A break inside a shift spends that shift.** Clock out at 15:00 and back in at 15:20 on an 11-17 + 20-22 day, and the 15:20 session counts as the evening shift. One clock-in per shift means exactly that; the honest way to take a break is not to clock out.
+
+### What the phone does
+Clock in is enabled only while a shift is left — the worker says so with the punches, and names the shifts including roster and live-board ones: *Today's shifts: 11:00-17:00 · 20:00-22:00 (Sara Beauty) — 1 left.* With none left the button reads *All shifts clocked ✓*; with none at all, *No shift today*. A refused press explains itself.
+
+### Under it
+`worker/src/clock-day.ts` (`daySlots`, `slotFor`, `claimedSlots`, `canClockIn`, `slotsLabel`), `staff.ts` (the punch route, the assignment resolver now lists a day, `/attendance` ships the shifts), `components/portal/dashboard.tsx`, `page-shared.tsx`. Guard #60 gains twelve checks that run the rule on his exact test — 09:00-19:17 then 23:32 on a 10-18 pattern is refused — plus the merge, the rest day, the assigned evening; negative-tested by letting a claimed shift be clocked again and by not merging. No migration.
+
 ## [1.133.1] - 2026-09-07 - a pattern is saved under the name that was typed
 
 **CEO**, 07-09-2026, a screenshot of the Working hours card: *"why pattern name like this?! I already set the preferred name!"* - the pattern is called **1.0**.

@@ -171,3 +171,94 @@ export function earlyAgainst(blocks: Block[], minutes: number): number | null {
   const before = [...sorted].reverse().find((b) => b.end < minutes);
   return before ? before.end : null;
 }
+
+/* ── v1.133.2 — A CLOCK-IN MUST HAVE A SHIFT TO CLOCK IN FOR ─────────────
+ *
+ * The CEO, 07-09-2026, having clocked in and out four times at 23:32 on a
+ * 10:00-18:00 pattern: *"user can clock in more than 2 time which is not
+ * correct! it is supposed to based on the working hours that scheduled for
+ * them and based on the Roster and Scheduled assigned to them also!"*
+ *
+ * v1.133.0 bounded the day by nothing: any clock-out could be followed by a
+ * clock-in. The bound is the SCHEDULE — the pattern's blocks, plus whatever
+ * the roster and the live board have assigned that day. Each of those is one
+ * shift, and one shift can be clocked in for once.
+ */
+
+/** A shift somebody can clock in for. `what` names an assignment (a client,
+    a task); a pattern block has none. */
+export interface Slot { start: number; end: number; what?: string }
+
+/**
+ * The day's shifts: pattern blocks and assignments, merged where they touch.
+ * A 20:00 live inside a 20:30-22:30 block is ONE evening shift, not two — an
+ * unmerged pair would let the same evening be clocked in for twice, which is
+ * the bug this exists to close. Sorted by start.
+ */
+export function daySlots(blocks: Block[], assigned: Slot[]): Slot[] {
+  const all: Slot[] = [
+    ...blocks.map((b) => ({ start: b.start, end: b.end })),
+    ...assigned.map((a) => ({ start: a.start, end: a.end, what: a.what })),
+  ].filter((s) => s.end > s.start).sort((a, b) => a.start - b.start || a.end - b.end);
+  const out: Slot[] = [];
+  for (const s of all) {
+    const last = out[out.length - 1];
+    if (last && s.start <= last.end) {
+      last.end = Math.max(last.end, s.end);
+      if (!last.what && s.what) last.what = s.what;
+    } else out.push({ ...s });
+  }
+  return out;
+}
+
+/**
+ * Which shift a clock-in at `minute` is FOR. The one it falls inside; else
+ * the next one ahead (turning up early); else the last one behind (turning
+ * up late — the half-day rule deals with how late). -1 with no shifts.
+ */
+export function slotFor(slots: Slot[], minute: number): number {
+  const inside = slots.findIndex((s) => minute >= s.start && minute <= s.end);
+  if (inside >= 0) return inside;
+  const next = slots.findIndex((s) => s.start > minute);
+  if (next >= 0) return next;
+  return slots.length ? slots.length - 1 : -1;
+}
+
+/** The shifts already clocked in for, each session claiming the shift its
+    clock-in was for. Two sessions cannot claim one shift: the second falls
+    through to the next unclaimed one, so a clock-out-and-back-in inside the
+    same block still counts against the day's shifts. */
+export function claimedSlots(slots: Slot[], sessions: Session[]): Set<number> {
+  const claimed = new Set<number>();
+  for (const se of sessions) {
+    let i = slotFor(slots, mytMinutes(se.in));
+    if (i < 0) continue;
+    while (i < slots.length && claimed.has(i)) i++;
+    if (i < slots.length) claimed.add(i);
+  }
+  return claimed;
+}
+
+/**
+ * THE RULE. A clock-in at `minute` may open a session only for an unclaimed
+ * shift: the one it is for, or failing that the next unclaimed one still
+ * ahead. No shifts at all → "no_slots" (a rest day with nothing on the
+ * roster). Every shift already clocked → "all_claimed".
+ */
+export function canClockIn(
+  slots: Slot[], sessions: Session[], minute: number,
+): { ok: true; slot: Slot } | { ok: false; reason: "no_slots" | "all_claimed" } {
+  if (slots.length === 0) return { ok: false, reason: "no_slots" };
+  const claimed = claimedSlots(slots, sessions);
+  const i = slotFor(slots, minute);
+  if (i >= 0 && !claimed.has(i)) return { ok: true, slot: slots[i]! };
+  const ahead = slots.findIndex((s, j) => !claimed.has(j) && s.end > minute);
+  if (ahead >= 0) return { ok: true, slot: slots[ahead]! };
+  return { ok: false, reason: "all_claimed" };
+}
+
+/** "10:00-18:00 · 20:00-22:00 (Sara Beauty)" — the day's shifts as a person reads them. */
+export function slotsLabel(slots: Slot[]): string {
+  const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return slots.map((s) => `${hh(s.start)}-${hh(Math.min(s.end, 24 * 60))}${s.what ? ` (${s.what})` : ""}`).join(" · ");
+}

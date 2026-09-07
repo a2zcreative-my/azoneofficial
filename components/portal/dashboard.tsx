@@ -673,6 +673,19 @@ export function Dashboard({
         }, 2700);
       }
     } else if (
+      (res.data?.error as { code?: string } | undefined)?.code === "no_shift"
+    ) {
+      /* v1.133.2 — nothing left to clock in for. The server's sentence names
+         the shifts and what to do. */
+      setPunchToast({
+        title: L("No shift to clock in for", "Tiada syif untuk didaftar"),
+        sub: res.data?.error?.message ?? L("Your shifts today are all clocked.", "Semua syif anda hari ini sudah didaftar."),
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 5200);
+      void load();
+      return;
+    } else if (
       (res.data?.error as { code?: string } | undefined)?.code === "no_clock_in"
     ) {
       setPunchToast({
@@ -735,6 +748,12 @@ export function Dashboard({
   const hasIn = shiftsToday > 0;
   const hasOut = today.some((r) => r.type === "clock_out");
   const openSince = openNow ? mytTime(today[0]!.created_at) : null;
+  /* v1.133.2 — Clock in is offered only while there is a SHIFT to clock in
+     for: a pattern block, a roster task or a live session not yet clocked.
+     The worker decides (today_shift.can_clock_in); an older worker that does
+     not say is treated as "yes" so the button never dies on a stale API. */
+  const canClockIn = todayShift?.can_clock_in ?? true;
+  const shiftsLeft = (todayShift?.slots ?? []).filter((x) => !x.claimed).length;
 
   /* v1.15.0 — personal month stats from the punches already fetched.
      v1.133.0 — hours are the SUM OF THE DAY'S SHIFTS, paired in the order
@@ -846,11 +865,15 @@ export function Dashboard({
               /* v1.133.0: green whenever NOTHING is open — the first shift of
                  the day and the evening one alike. */
               className={`${qaPrimary} ${!openNow ? "max-md:bg-tile-success max-md:text-tile-success-fg max-md:hover:bg-tile-success/90" : ""}`}
-              disabled={!!busy || openNow}
+              disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
               {openNow
                 ? `${tr("Clocked in ✓", lang)} ${openSince}`
+                : !canClockIn
+                  ? (todayShift?.why_not === "no_slots"
+                      ? L("No shift today", "Tiada syif hari ini")
+                      : L("All shifts clocked ✓", "Semua syif didaftar ✓"))
                 : <><AppIcon name="place" className="mr-1 -mt-0.5" />
                     {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}</>}
             </button>
@@ -907,11 +930,14 @@ export function Dashboard({
             without a second pair of buttons. */}
         {attKnown && todayShift && (
           <p className="text-muted-foreground mt-2 text-xs">
-            {todayShift.kind === "rest_day" || todayShift.windows.length === 0
-              ? L("Rest day on your pattern — anything you clock today goes to the CEO as overtime.",
-                  "Hari rehat pada corak anda — apa sahaja yang anda daftar hari ini dihantar kepada CEO sebagai OT.")
-              : L(`Today's shifts: ${todayShift.label}. Clock in and out for each shift — time outside these hours is sent to the CEO as overtime automatically.`,
-                  `Syif hari ini: ${todayShift.label}. Daftar masuk dan keluar bagi setiap syif — masa di luar waktu ini dihantar kepada CEO sebagai OT secara automatik.`)}
+            {/* v1.133.2 — the SHIFTS, including roster and live-board
+                assignments, not only the pattern. One clock-in per shift;
+                a day with none has nothing to clock in for. */}
+            {(todayShift.slots?.length ?? todayShift.windows.length) === 0
+              ? L("No shift today — nothing on your pattern, the roster or the live board. Work has to be on the roster before it can be clocked.",
+                  "Tiada syif hari ini — tiada pada corak, roster atau papan LIVE anda. Kerja perlu ada di roster sebelum boleh didaftar.")
+              : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
+                  `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
           </p>
         )}
         {fence?.configured && (

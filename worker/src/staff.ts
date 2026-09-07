@@ -16,6 +16,7 @@ import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the compan
 import { BREAK_AFTER_MINUTES, hourlyPaidForSessions } from "./hourly"; // v1.109.0 - paid by the clock, less the break; v1.133.0 - per session
 import {
   pairSessions, sessionMinutes, firstIn, lastOut, isOpen, mytMinutes, earlyAgainst, overtimeSegments,
+  daySlots, canClockIn, claimedSlots, slotsLabel,
   type Punch, type Session,
 } from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
@@ -572,8 +573,13 @@ export interface AssignedAt {
   end: number;
 }
 
-/** One person, one date, one moment -> the commitment covering it, if any. */
-export type AssignedLookup = (userId: number, iso: string, minutes: number) => AssignedAt | null;
+/** One person, one date, one moment -> the commitment covering it, if any.
+    v1.133.2: `.list` gives the whole day's commitments, for the shifts a
+    person may clock in for. */
+export interface AssignedLookup {
+  (userId: number, iso: string, minutes: number): AssignedAt | null;
+  list: (userId: number, iso: string) => AssignedAt[];
+}
 
 /** v1.80.0 - WORK THE SCHEDULE DOES NOT KNOW ABOUT.
  *
@@ -646,8 +652,10 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
       add(r.uid, r.d, { kind: "task", what: r.what, start: st, end: hm(r.en) ?? st + OPEN_BLOCK_MINUTES });
     }
   } catch { /* pre-0095 */ }
-  return (userId, iso, minutes) =>
-    by.get(`${userId}|${iso}`)?.find((a) => minutes >= a.start && minutes <= a.end) ?? null;
+  const lookup = ((userId: number, iso: string, minutes: number) =>
+    by.get(`${userId}|${iso}`)?.find((a) => minutes >= a.start && minutes <= a.end) ?? null) as AssignedLookup;
+  lookup.list = (userId, iso) => by.get(`${userId}|${iso}`) ?? [];
+  return lookup;
 }
 
 /** Every person's shift for one date, in one pass - for the register, the
@@ -2160,6 +2168,34 @@ export async function handleStaff(
     const sessionsToday = pairSessions((pressedToday ?? []).map((r) => ({ type: r.type, at: r.created_at })));
     const openNow = isOpen(sessionsToday);
     const mytClock = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+    /* v1.133.2 (CEO: "user can clock in more than 2 time which is not
+       correct! it is supposed to based on the working hours that scheduled
+       for them and based on the Roster and Scheduled assigned to them
+       also!") — v1.133.0 bounded the day by nothing. The bound is the
+       SCHEDULE: the pattern's blocks plus whatever the roster and the live
+       board assigned today, merged where they touch (clock-day.ts,
+       daySlots). Each is one shift; one shift is clocked in for once. A day
+       with nothing scheduled and nothing assigned has nothing to clock in
+       for — the work goes on the roster first, then the clock. */
+    const shEarly = await shiftOn(env, user.id, todayMYT);
+    const assignedToday = (await assignedResolver(env, todayMYT, todayMYT)).list(user.id, todayMYT);
+    const slotsToday = daySlots(shEarly.windows, assignedToday.map((a) => ({ start: a.start, end: a.end, what: a.what })));
+    if (body.type === "clock_in" && !openNow) {
+      const mytNowP = new Date(punchAt.getTime() + 8 * 3600 * 1000);
+      const verdict = canClockIn(slotsToday, sessionsToday, mytNowP.getUTCHours() * 60 + mytNowP.getUTCMinutes());
+      if (!verdict.ok) {
+        return json(
+          { error: {
+              code: "no_shift",
+              message: verdict.reason === "no_slots"
+                ? "You have no shift scheduled today and nothing on the roster or the live board. Ask for the work to be put on the roster first, then clock in."
+                : `You have clocked in for every shift today (${slotsLabel(slotsToday)}). Work outside your schedule needs a roster assignment or a live session first.`,
+            },
+            shifts: slotsLabel(slotsToday) },
+          409,
+        );
+      }
+    }
     if (body.type === "clock_in" && openNow) {
       const since = mytClock(sessionsToday[sessionsToday.length - 1]!.in);
       return json(
@@ -2205,7 +2241,7 @@ export async function handleStaff(
        hours that do not apply. */
     const myt = new Date(punchAt.getTime() + 8 * 3600 * 1000);
     const mins = myt.getUTCHours() * 60 + myt.getUTCMinutes();
-    const sh = await shiftOn(env, user.id, todayMYT);
+    const sh = shEarly; // read once above, for the shift rule
     /* v1.80.0 — ASSIGNED WORK OUTRANKS THE PATTERN. The CEO: *"If user clock
        in after working hour need to check if their task is assigned to work
        at 8pm above? if yes, then it is consider their working time."* Checked
@@ -2214,7 +2250,7 @@ export async function handleStaff(
        queries to confirm what we know. */
     const inWindow = windowAt(sh, mins);
     const assigned = inWindow ? null
-      : (await assignedResolver(env, todayMYT, todayMYT))(user.id, todayMYT, mins);
+      : (assignedToday.find((a) => mins >= a.start && mins <= a.end) ?? null);
     /* v1.109.0 - an hourly host is not late, not early, not on a rest day:
        there is no pattern to be measured against. The hours are the hours. */
     const hourlyPunch = await isHourlyUserId(env, user.id);
@@ -3132,13 +3168,32 @@ export async function handleStaff(
        20:00-22:00 · clock in and out for each" instead of leaving the person
        to remember. Every block, not the first: the first block alone is what
        made the evening look like it did not exist. */
-    let today_shift: { kind: string; label: string; windows: { start: string; end: string }[] } | null = null;
+    let today_shift: {
+      kind: string; label: string; windows: { start: string; end: string }[];
+      slots: { start: string; end: string; what: string | null; claimed: boolean }[];
+      slots_label: string; can_clock_in: boolean; why_not: string | null;
+    } | null = null;
     try {
       const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const shT = await shiftOn(env, forUser, tdy);
+      /* v1.133.2 — the SHIFTS, not only the pattern: blocks plus today's
+         roster and live-board assignments, and which are already clocked
+         in for, so the phone can disable Clock in when nothing is left. */
+      const asgT = (await assignedResolver(env, tdy, tdy)).list(forUser, tdy);
+      const slotsT = daySlots(shT.windows, asgT.map((a) => ({ start: a.start, end: a.end, what: a.what })));
+      const sessT = pairSessions((results as { type: string; created_at: string }[])
+        .filter((r) => new Date(new Date(r.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10) === tdy)
+        .map((r) => ({ type: r.type, at: r.created_at })));
+      const claimedT = claimedSlots(slotsT, sessT);
+      const nowT = new Date(Date.now() + 8 * 3600 * 1000);
+      const verdictT = canClockIn(slotsT, sessT, nowT.getUTCHours() * 60 + nowT.getUTCMinutes());
       today_shift = {
         kind: shT.kind, label: shiftLabel(shT),
         windows: shT.windows.map((w) => ({ start: hhmm(w.start), end: hhmm(w.end) })),
+        slots: slotsT.map((sl, i) => ({ start: hhmm(sl.start), end: hhmm(Math.min(sl.end, 24 * 60)), what: sl.what ?? null, claimed: claimedT.has(i) })),
+        slots_label: slotsLabel(slotsT),
+        can_clock_in: verdictT.ok,
+        why_not: verdictT.ok ? null : verdictT.reason,
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
     return json({ month, records: results, ot, ot_eligible, today_shift });
