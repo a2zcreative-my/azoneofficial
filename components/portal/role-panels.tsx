@@ -40,7 +40,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, chipNeutral, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -2117,7 +2117,25 @@ function utcToMytLocal(utc: string): string {
 /* v1.76.0 — working hours, and the punches waiting on the CEO. */
 type ShiftPattern = {
   id: number; name: string; half_day_minutes: number; is_default: number;
-  [k: string]: number | string | null;
+  /* v1.134.0 - normal | afternoon | evening | custom (absent pre-0119). */
+  category?: string | null;
+  [k: string]: number | string | null | undefined;
+};
+/* v1.134.0 - the three shapes the CEO named, and everything else. */
+const PATTERN_CATS: [string, string, string][] = [
+  ["normal", "Normal working hour", "Waktu bekerja biasa"],
+  ["afternoon", "Afternoon working hour", "Waktu bekerja petang"],
+  ["evening", "Evening working hour", "Waktu bekerja malam"],
+  ["custom", "Custom", "Tersuai"],
+];
+const patternCatLabel = (c: string | null | undefined) => {
+  const hit = PATTERN_CATS.find(([k]) => k === (c ?? "custom")) ?? PATTERN_CATS[3]!;
+  return getLang() === "ms" ? hit[2] : hit[1];
+};
+/* v1.134.0 - one overtime row on the register, as /attendance/report ships it. */
+type OtRow = {
+  user_id: number; name: string; d: string; status: string; amended: boolean; note: string | null;
+  ot_in: string | null; ot_out: string | null; minutes: number; open: boolean;
 };
 type ShiftAssignment = {
   id: number; user_id: number; name: string; pattern_id: number;
@@ -2236,7 +2254,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   /* v1.80.0 — a day is TWO optional blocks now (CEO: "require 8 hours, 11:00am
      to 5:00pm then continue work at 8:30pm to 10:30pm"). `start`/`end` stay
      the first block, so an existing pattern loads and saves unchanged. */
-  const [editP, setEditP] = useState<{ id?: number; name: string; half: string; brk: number; days: Record<string, DayEdit> } | null>(null);
+  const [editP, setEditP] = useState<{ id?: number; name: string; category: string; half: string; brk: number; days: Record<string, DayEdit> } | null>(null);
   /* v1.80.0 (CEO: "bulk choose day for me to update easily") — the days ticked
      in the editor, and the times about to be applied to all of them. Typing
      the same 11:00-17:00 into five rows is how a Thursday ends up at 11:00-
@@ -2247,7 +2265,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      which area that I want to update") — four full forms were stacked open at
      once and the card ran off the screen before the records began. One area
      at a time, chosen from the row of buttons at the top. */
-  const [section, setSection] = useState<"find" | "add" | "unpaid" | "hours">("find");
+  const [section, setSection] = useState<"find" | "add" | "unpaid" | "hours" | "ot">("find");
+  /* v1.134.0 - the month's overtime, and the CEO's amendment drafts. */
+  const [otRows, setOtRows] = useState<OtRow[]>([]);
+  const [otDraft, setOtDraft] = useState<Record<string, { ot_in: string; ot_out: string }>>({});
+  const canAmendOt = ["ceo", "super_admin"].includes(role);
   const [assign, setAssign] = useState({ user_id: 0, pattern_id: 0, effective_from: "" });
   // v1.4.80: click a column HEADER to sort (▲ asc / ▼ desc); click again to
   // flip. Default = the API's chronological order.
@@ -2338,10 +2360,10 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const load = useCallback(async () => {
     void loadShifts();
     const [r, u] = await Promise.all([
-      api<{ records: AttRecord[]; leave?: LeaveDay[] }>(`/attendance/report?month=${month}`),
+      api<{ records: AttRecord[]; leave?: LeaveDay[]; overtime?: OtRow[] }>(`/attendance/report?month=${month}`),
       api<{ users?: StaffPick[]; staff?: StaffPick[] }>(`/users`),
     ]);
-    if (r.data) { setRows(r.data.records ?? []); setLeave(r.data.leave ?? []); }
+    if (r.data) { setRows(r.data.records ?? []); setLeave(r.data.leave ?? []); setOtRows(r.data.overtime ?? []); setOtDraft({}); }
     const list = u.data?.users ?? u.data?.staff ?? [];
     /* v1.87.0 (CEO: "If staff already resigned after that day, the day after
        it no more listed the staff on task ... except staff tabs") — /users
@@ -2412,7 +2434,86 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
         ["add", L("Add record", "Tambah rekod")],
         ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const] : []),
         ...(canHours ? [["hours", L("Working hours", "Waktu bekerja")] as const] : []),
+        ["ot", L("Overtime", "OT")],
       ] as [typeof section, string][])} />
+
+      {/* v1.134.0 (CEO: "OT ... recorded at attendance for me to perform a
+          manual update or amendment if needed (ceo only)") - the month's
+          overtime beside the punches, with its decision, and the CEO alone
+          may change the times. An amended stretch says so; an approved one
+          stays approved, because the amender is the approver. */}
+      {section === "ot" && (
+        <div className="mt-3">
+          <p className="text-muted-foreground text-xs">
+            {L("Every overtime stretch this month - OT in / OT out after the working schedule, and any shift clocked out past its end. Pending ones are decided in Overtime approvals; approved hours go straight to the payroll.",
+               "Setiap OT bulan ini - OT in / OT out selepas jadual kerja, dan mana-mana syif yang didaftar keluar melepasi penghujungnya. Yang menunggu diputuskan di Kelulusan OT; jam yang diluluskan terus masuk ke gaji.")}
+            {canAmendOt ? " " + L("Change a time and press Save to amend it.", "Tukar masa dan tekan Simpan untuk meminda.") : ""}
+          </p>
+          {otRows.length === 0 ? (
+            <p className="text-muted-foreground mt-2 text-xs">{L("No overtime recorded this month.", "Tiada OT direkodkan bulan ini.")}</p>
+          ) : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground text-left">
+                  <tr>
+                    <th className="py-1 pr-3">{L("Date", "Tarikh")}</th>
+                    <th className="py-1 pr-3">{L("Staff", "Kakitangan")}</th>
+                    <th className="py-1 pr-3">OT in</th>
+                    <th className="py-1 pr-3">OT out</th>
+                    <th className="py-1 pr-3">{L("Hours", "Jam")}</th>
+                    <th className="py-1 pr-3">{L("Status", "Status")}</th>
+                    {canAmendOt && <th className="py-1" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {otRows.map((o) => {
+                    const k = `${o.user_id}:${o.d}`;
+                    const d = otDraft[k] ?? { ot_in: o.ot_in ?? "", ot_out: o.ot_out ?? "" };
+                    const dirty = d.ot_in !== (o.ot_in ?? "") || d.ot_out !== (o.ot_out ?? "");
+                    const hm = `${Math.floor(o.minutes / 60)}h${String(o.minutes % 60).padStart(2, "0")}`;
+                    return (
+                      <tr key={k} className="border-border border-t">
+                        <td className="py-1.5 pr-3 tabular-nums">{dmy(o.d)}</td>
+                        <td className="py-1.5 pr-3">{properName(o.name)}</td>
+                        <td className="py-1.5 pr-3">
+                          {canAmendOt
+                            ? <input type="time" className={`${inputClassSm} w-28`} value={d.ot_in}
+                                onChange={(e) => setOtDraft((m) => ({ ...m, [k]: { ...d, ot_in: e.target.value } }))} />
+                            : <span className="tabular-nums">{o.ot_in ?? "—"}</span>}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {canAmendOt
+                            ? <input type="time" className={`${inputClassSm} w-28`} value={d.ot_out}
+                                onChange={(e) => setOtDraft((m) => ({ ...m, [k]: { ...d, ot_out: e.target.value } }))} />
+                            : <span className="tabular-nums">{o.ot_out ?? (o.open ? L("open", "terbuka") : "—")}</span>}
+                        </td>
+                        <td className="py-1.5 pr-3 tabular-nums">{o.minutes > 0 ? hm : "—"}</td>
+                        <td className="py-1.5 pr-3">
+                          <span className={o.status === "approved" ? chipSuccess : o.status === "rejected" ? chipNeutral : chipWarn}>
+                            {o.status === "approved" ? L("approved", "diluluskan") : o.status === "rejected" ? L("rejected", "ditolak") : L("pending", "menunggu")}
+                          </span>
+                          {o.amended && <span className="text-muted-foreground ml-1 text-[10px]">{L("amended by CEO", "dipinda oleh CEO")}</span>}
+                        </td>
+                        {canAmendOt && (
+                          <td className="py-1.5">
+                            <button type="button" className={rowBtnPrimary} disabled={!dirty || !d.ot_in || !d.ot_out}
+                              onClick={() => void act(`/attendance/ot/amend`, {
+                                method: "POST",
+                                body: JSON.stringify({ user_id: o.user_id, date: o.d, ot_in: d.ot_in, ot_out: d.ot_out }),
+                              }, L(`Overtime amended - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`, `OT dipinda - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`))}>
+                              {L("Save", "Simpan")}
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {section === "add" && (
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -2609,6 +2710,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                      name blank, so Save stays disabled until a real name is
                      typed instead of quietly re-saving "1.0". */
                   name: /^1(\.0)?$/.test(String(pt.name)) ? "" : pt.name,
+                  category: (pt.category as string | null) ?? "custom",
                   half: toTime(pt.half_day_minutes as number),
                   /* Absent on a pre-0103 row. 60 is what 0103 gives every
                      existing pattern, so the editor shows what the server
@@ -2624,12 +2726,15 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                   }])),
                 }); }}>
                 {pt.name}{pt.is_default ? ` · ${L("default", "lalai")}` : ""}
+                {/* v1.134.0 - the shape, so the three the CEO named are told
+                    apart at a glance and a custom one says it is custom. */}
+                <span className="text-muted-foreground ml-1.5 text-[10px] uppercase tracking-wide">{patternCatLabel(pt.category)}</span>
               </button>
             ))}
             <button type="button"
               className={`${chipNeutral} border-border hover:bg-secondary/70 border border-dashed bg-transparent`}
               onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
-                name: "", half: "12:00", brk: 60,
+                name: "", category: "custom", half: "12:00", brk: 60,
                 days: Object.fromEntries(DAYS.map(([k]) => [k, { ...EMPTY_DAY }])),
               }); }}>
               {L("+ New pattern", "+ Corak baharu")}
@@ -2638,11 +2743,19 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
           {editP && (
             <div className="border-border mt-2 rounded-xl border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
                 <SubR t={L("Pattern name", "Nama corak")} className="sm:col-span-2">
                   <input className={inputClass} value={editP.name} maxLength={60}
                     placeholder={L("e.g. Late shift (11:00-19:00)", "cth. Syif lewat (11:00-19:00)")}
                     onChange={(e) => setEditP({ ...editP, name: e.target.value })} />
+                </SubR>
+                <SubR t={L("Category", "Kategori")}>
+                  <select className={inputClass} value={editP.category}
+                    title={L("Normal, afternoon (11:00-17:00 + home 20:30-22:30) or evening (14:00-22:00) - the three shapes the company works. Anything else is custom.",
+                             "Biasa, petang (11:00-17:00 + di rumah 20:30-22:30) atau malam (14:00-22:00) - tiga bentuk yang syarikat bekerja. Selain itu tersuai.")}
+                    onChange={(e) => setEditP({ ...editP, category: e.target.value })}>
+                    {PATTERN_CATS.map(([k, en, ms]) => <option key={k} value={k}>{getLang() === "ms" ? ms : en}</option>)}
+                  </select>
                 </SubR>
                 <SubR t={L("Half day after", "Separuh hari selepas")}>
                   <input type="time" className={inputClass} value={editP.half}
@@ -2799,6 +2912,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     const payload: Record<string, unknown> = {
                       ...(editP.id ? { id: editP.id } : {}),
                       name: editP.name.trim(),
+                      category: editP.category,
                       half_day_minutes: toMins(editP.half) ?? 720,
                       break_minutes: editP.brk,
                     };
@@ -2861,7 +2975,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               <select className={inputClass} value={assign.pattern_id}
                 onChange={(e) => setAssign((d) => ({ ...d, pattern_id: Number(e.target.value) }))}>
                 <option value={0}>{L("Pattern…", "Corak…")}</option>
-                {patterns.map((pt) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
+                {/* v1.134.0 - grouped by category, so "give her the afternoon
+                    hours" is one glance rather than a read of every name. */}
+                {PATTERN_CATS.filter(([k]) => patterns.some((pt) => (pt.category ?? "custom") === k)).map(([k, en, ms]) => (
+                  <optgroup key={k} label={getLang() === "ms" ? ms : en}>
+                    {patterns.filter((pt) => (pt.category ?? "custom") === k).map((pt) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </SubR>
             <SubR t={L("Effective from", "Berkuat kuasa dari")}>

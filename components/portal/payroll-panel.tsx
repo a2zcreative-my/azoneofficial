@@ -565,6 +565,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   };
 
   const [attDays, setAttDays] = useState<Record<number, number>>({});
+  /* v1.134.0 (CEO: "once approved, it will directly recorded into the
+     payroll") - approved overtime for the month, in minutes, per person.
+     The OT hours box fills from it; the box stays editable, like days. */
+  const [otApproved, setOtApproved] = useState<Record<number, { minutes: number; days: number }>>({});
+  const otHoursFrom = (minutes: number) => Math.round((minutes / 60) * 2) / 2;
   // v1.4.79: approved unpaid-leave days — the payslip auto-deducts these.
   const [unpaidDays, setUnpaidDays] = useState<Record<number, number>>({});
   /* v1.77.0 — the unpaid-leave DEDUCTION, from the server, per person. The
@@ -621,12 +626,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
       api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } }>(`/payroll?month=${month}`),
-      api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[] }>(`/payroll/attendance-days?month=${month}`),
+      api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[]; ot_approved?: { user_id: number; minutes: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
     const dmap: Record<number, number> = {};
     for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
     setAttDays(dmap);
+    const omap: Record<number, { minutes: number; days: number }> = {};
+    for (const r of a.data?.ot_approved ?? []) omap[r.user_id] = { minutes: r.minutes, days: r.days };
+    setOtApproved(omap);
     /* v1.77.0 — the server's unpaid deduction and what it is made of. */
     const udmap: Record<number, UnpaidDetail> = {};
     for (const r of a.data?.unpaid_detail ?? []) udmap[r.user_id] = r;
@@ -694,6 +702,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     for (const [uid, d] of Object.entries(dmap)) {
       const id = Number(uid);
       if (!(id in savedDays) && d > 0) savedDays[id] = d;
+    }
+    /* v1.134.0 - approved overtime lands in the OT hours box by itself. A
+       saved figure wins (the CEO may have corrected it); an entry with none
+       takes the approved total, rounded to the half hour the box accepts. */
+    for (const [uid, o] of Object.entries(omap)) {
+      const id = Number(uid);
+      const h = otHoursFrom(o.minutes);
+      if (h <= 0) continue;
+      const cur = map[id];
+      if (cur && cur.ot_hours) continue;
+      /* An entry that does not exist yet still pre-fills Basic from the base
+         salary, exactly as entry() would have. */
+      map[id] = { ...(cur ?? { user_id: id, basic_cents: bmap[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 }), ot_hours: h };
     }
     setEntries(map);
     setWorkedDays(savedDays);
@@ -1322,6 +1343,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     />
                     )}
                     {ot > 0 && <span className="text-muted-foreground block text-[10px]">= {rm(ot)}</span>}
+                    {!hourlyRow && otApproved[u.id] && otApproved[u.id]!.minutes > 0 && (
+                      <span className={`block text-[10px] ${(e.ot_hours ?? 0) === otHoursFrom(otApproved[u.id]!.minutes) ? "text-success" : "text-warning"}`}
+                        title={L("Approved overtime this month, from the Attendance approvals. A different figure in the box is a manual override.", "OT diluluskan bulan ini, daripada kelulusan Kehadiran. Angka berbeza dalam kotak ialah pindaan manual.")}>
+                        {L(`approved: ${otHoursFrom(otApproved[u.id]!.minutes)}h · ${otApproved[u.id]!.days} day${otApproved[u.id]!.days === 1 ? "" : "s"}`,
+                           `diluluskan: ${otHoursFrom(otApproved[u.id]!.minutes)}j · ${otApproved[u.id]!.days} hari`)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1.5">
                     <input

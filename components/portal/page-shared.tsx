@@ -20,6 +20,8 @@ export type DashCache = {
        already clocked in for, and whether a clock-in is possible right now. */
     slots?: { start: string; end: string; what: string | null; claimed: boolean }[];
     slots_label?: string; can_clock_in?: boolean; why_not?: string | null;
+    /* v1.134.0 - OT in / OT out open only after the schedule. */
+    can_ot?: boolean;
   } | null;
 };
 export const DASH_ATT = "dash:attendance";

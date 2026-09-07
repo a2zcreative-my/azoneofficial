@@ -353,7 +353,7 @@ const ok = (label, cond, extra = "") => {
      /const dayMinutes = /.test(panels) && /Week: \$\{hLabel\(/.test(panels),
      "eight hours split across two blocks is not a sum to do in your head");
   ok("the card opens one section at a time",
-     /const \[section, setSection\] = useState<"find" \| "add" \| "unpaid" \| "hours">/.test(panels),
+     /const \[section, setSection\] = useState<"find" \| "add" \| "unpaid" \| "hours" \| "ot">/.test(panels),
      "the CEO: I want minimalist interface for me to easier to choose which area that I want to update");
   ok("the register can filter to assigned-work punches",
      /<option value="assigned">/.test(panels));
@@ -421,7 +421,7 @@ const ok = (label, cond, extra = "") => {
      month which is for me easier to pull the data". A month of attendance
      without the leave beside it has holes in it, and every one of these
      checks is a way the two could disagree. */
-  ok("the register carries the month's leave", /records: annotated, leave \}/.test(staff));
+  ok("the register carries the month's leave", /records: annotated, leave, overtime: otRows \}/.test(staff));
   ok("leave is matched by OVERLAP, not by the month it starts in",
      /AND l\.start_date <= \?1 \|\| '-31' AND l\.end_date >= \?1 \|\| '-01'/.test(staff),
      "payroll attributes a leave to the month it starts in - a September register that omitted an August-to-September leave would be lying about September");

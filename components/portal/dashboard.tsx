@@ -125,10 +125,17 @@ export function Dashboard({
         (r) => mytDateOf(r.created_at) === mytToday()
       )
   );
-  /* v1.133.0 — today's shifts from the person's own pattern, every block.
-     The OT punch list that used to sit here is gone with the OT buttons. */
+  /* v1.133.0 — today's shifts from the person's own pattern, every block. */
   const [todayShift, setTodayShift] = useState<DashCache["today_shift"]>(
     () => cacheRead<DashCache>(DASH_ATT)?.today_shift ?? null
+  );
+  /* v1.134.0 — the OT pair is back, AFTER the schedule (CEO: "after their
+     working schedule, does they be able to OT clock in and out?"). */
+  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>(
+    () => (cacheRead<DashCache>(DASH_ATT)?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday())
+  );
+  const [otEligible, setOtEligible] = useState(
+    () => cacheRead<DashCache>(DASH_ATT)?.ot_eligible === true
   );
   /* v1.15.0: the same attendance response, kept un-filtered — powers the
      personal month chart and the KPI strip without a second request. */
@@ -197,6 +204,8 @@ export function Dashboard({
       (d.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday())
     );
     setTodayShift(d.today_shift ?? null);
+    setTodayOt((d.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
+    setOtEligible(d.ot_eligible === true);
     setAttKnown(true);
   }, []);
   const applyTasks = useCallback((all: Task[]) => {
@@ -729,6 +738,49 @@ export function Dashboard({
     void load();
   };
 
+  /* v1.134.0 — OT in / OT out. Opens only after the working schedule (the
+     worker says so: today_shift.can_ot), records the stretch, and the pair
+     goes straight to the CEO as pending. */
+  const punchOt = async (type: string) => {
+    setBusy(type);
+    setPunchError("");
+    const { gps, denied: otDenied } = await getGpsFull();
+    if (!gps) {
+      setBusy("");
+      setPunchToast({
+        title: L("Location needed", "Lokasi diperlukan"),
+        sub: otDenied
+          ? L("OT punches need your location — allow location access and try again.", "Punch OT memerlukan lokasi anda — benarkan akses lokasi dan cuba lagi.")
+          : L("No GPS fix yet — step outside or wait a moment, then try again.", "Belum ada isyarat GPS — keluar sebentar atau tunggu, kemudian cuba lagi."),
+        variant: "notice",
+      });
+      window.setTimeout(() => setPunchToast(null), 4200);
+      return;
+    }
+    const res = await api<{ at?: string; ot_minutes?: number; error?: { message?: string } }>("/staff/attendance/ot", {
+      method: "POST",
+      body: JSON.stringify({ type, gps }),
+    });
+    setBusy("");
+    if (res.ok && res.data?.at) {
+      const m = res.data.ot_minutes ?? 0;
+      const hm = `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+      setPunchToast({
+        title: type === "ot_in" ? L("OT in recorded", "OT masuk direkodkan") : L(`${hm} overtime sent for approval`, `${hm} OT dihantar untuk kelulusan`),
+        sub: type === "ot_in"
+          ? L(`${res.data.at} MYT — tap OT out when you finish.`, `${res.data.at} MYT — tekan OT out apabila selesai.`)
+          : L("The CEO decides it. Approved overtime goes straight into your payroll, and you get a bell either way.",
+              "CEO yang memutuskan. OT yang diluluskan terus masuk ke gaji anda, dan anda akan dapat loceng sama ada diluluskan atau tidak."),
+        variant: "success",
+      });
+      window.setTimeout(() => setPunchToast(null), 5200);
+    } else {
+      setPunchToast({ title: L("Overtime", "OT"), sub: res.data?.error?.message ?? L("OT punch failed — try again.", "Punch OT gagal — cuba lagi."), variant: "notice" });
+      window.setTimeout(() => setPunchToast(null), 4800);
+    }
+    void load();
+  };
+
   /* v1.133.0 — A DAY IS A LIST OF SHIFTS.
      CEO, 07-09-2026: "I want my staff being clock in and out based on their
      working schedule ... 11:00am to 05:00pm then next shift schedule 08:00pm
@@ -754,6 +806,12 @@ export function Dashboard({
      not say is treated as "yes" so the button never dies on a stale API. */
   const canClockIn = todayShift?.can_clock_in ?? true;
   const shiftsLeft = (todayShift?.slots ?? []).filter((x) => !x.claimed).length;
+  const hasOtIn = todayOt.some((r) => r.type === "ot_in");
+  const hasOtOut = todayOt.some((r) => r.type === "ot_out");
+  /* OT is offered after the schedule (nothing open, nothing left to clock in
+     for), to eligible staff, until the day's pair is complete. Kept visible
+     once an OT in exists so the OT out can never lose its button. */
+  const showOt = otEligible && !openNow && ((todayShift?.can_ot ?? false) || (hasOtIn && !hasOtOut));
 
   /* v1.15.0 — personal month stats from the punches already fetched.
      v1.133.0 — hours are the SUM OF THE DAY'S SHIFTS, paired in the order
@@ -901,7 +959,25 @@ export function Dashboard({
                 {tr("Create quotation", lang)}
               </button>
             )}
+            {showOt && (
+              <>
+                <button type="button" className={hasOtIn ? qaGhost : qaPrimary} disabled={!!busy || hasOtIn}
+                  onClick={() => void punchOt("ot_in")}>
+                  {hasOtIn ? "OT in ✓" : "OT in"}
+                </button>
+                <button type="button" className={qaGhost} disabled={!!busy || !hasOtIn || hasOtOut}
+                  onClick={() => void punchOt("ot_out")}>
+                  {hasOtOut ? "OT out ✓" : "OT out"}
+                </button>
+              </>
+            )}
           </div>
+        )}
+        {showOt && !hasOtOut && (
+          <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
+            {L("Working on after your schedule? Tap OT in when overtime starts and OT out when you finish — it goes to the CEO to approve, and approved overtime is paid on your payslip.",
+               "Bekerja selepas jadual anda? Tekan OT in apabila OT bermula dan OT out apabila selesai — ia dihantar kepada CEO untuk kelulusan, dan OT yang diluluskan dibayar pada slip gaji anda.")}
+          </p>
         )}
         {punchError && (
           <p className="text-destructive mt-2 text-xs font-medium">
@@ -1057,20 +1133,20 @@ export function Dashboard({
           <Skel className="mt-3 h-3 w-48" />
         ) : (
           <p className="text-muted-foreground mt-3 text-xs">
-            {today.length === 0
+            {today.length === 0 && todayOt.length === 0
               ? L(
                   "No attendance recorded today.",
                   "Tiada kehadiran direkodkan hari ini."
                 )
-              : `${L("Today", "Hari ini")}: ${today.slice().reverse()
+              : `${L("Today", "Hari ini")}: ${[...today.slice().reverse(), ...todayOt.slice().reverse()]
                   .map(
                     (r) =>
                       `${
                         getLang() === "ms"
                           ? ((
-                              { clock_in: "masuk", clock_out: "keluar" } as Record<string, string>
+                              { clock_in: "masuk", clock_out: "keluar", ot_in: "OT masuk", ot_out: "OT keluar" } as Record<string, string>
                             )[r.type] ?? r.type)
-                          : r.type.replace("_", " ")
+                          : r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")
                       } ${mytTime(r.created_at)}`
                   )
                   .join(" · ")}${shiftsToday > 1 ? ` · ${shiftsToday} ${L("shifts", "syif")}` : ""}`}

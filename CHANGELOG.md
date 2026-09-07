@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.134.0] - 2026-09-07 - OT after the schedule, into payroll on approval; working-hour categories
+
+**CEO**, 07-09-2026: *"after their working schedule, does they be able to OT clock in and out? but OT should straight away deliver to me for an approval which is once approved, it will directly recorded into the payroll and at the same time will be recorded at attendance for me to perform a manual update or amendment if needed (ceo only). for normal working shift should be no next schedule clock in. and working hour should be category for me to update which is normal working hour, afternoon working hour (11:00am to 5:00pm and at home 8:30pm to 10:30pm) and evening working hour (2:00pm to 10:00pm) so that easy for me to control"*
+
+### OT in / OT out are back - after the working schedule
+v1.133.0 retired the pair. They return with one gate that never existed before: they open only when there is **no shift left to clock in for** - every scheduled shift clocked, or a day with none. While a shift remains, the answer is Clock in; while one is open, Clock out. Overtime is what comes after the working schedule, exactly as said. Same eligibility as always (not executives, not part-timers - a part-timer is paid every clocked minute already). One stretch a day. OT out delivers it to the CEO and COO as pending on the spot, with the hours.
+
+The clock-out overrun from v1.133.0 stays: a shift clocked out past its end still writes the overrun as pending. The two cannot overlap - OT in needs nothing open.
+
+### Approved overtime goes straight into the payroll
+`/payroll/attendance-days` now carries the month's **approved** overtime per person (pending and rejected count for nothing - that is the point of the decision). The Payroll tab fills the OT hours box from it, rounded to the half hour the box accepts, with a chip under the box: *approved: 2.5h · 2 days*. The box stays editable, exactly as the days box does, and a figure the CEO has saved is never overwritten; the chip turns amber when the box disagrees with the approved total, so an override is visible.
+
+### Recorded at attendance, amendable by the CEO
+Attendance → corrections gains an **Overtime** section: every stretch this month, with in/out, hours, its decision, and *amended by CEO* where that happened. The CEO alone can change the times (`POST /attendance/ot/amend`); an amended stretch keeps its status, because the amender is the approver; the staff member is told. Everybody else sees the list read-only.
+
+### No "next shift" on a normal pattern
+Already true since v1.133.2 - a single-block pattern has one shift, so after clock-out the button reads *All shifts clocked* and the OT pair appears instead. Said here because he asked.
+
+### Working-hour categories
+A pattern now carries a **category**: normal, afternoon, evening or custom. Migration `0119` categorises the patterns already built by their Monday hours (11-17 + 20:30 → afternoon; 14-22 → evening; the default → normal) and seeds the two named shapes only where no pattern has those hours yet. The editor has a Category box; each pattern chip shows its category; the assign dropdown is grouped by it, so *give her the afternoon hours* is one glance.
+
+### Under it
+Migration `0119_shift_categories_ot_amend` (category on patterns, `amended_by`/`amended_at` on overtime), triple-bumped. `worker/src/staff.ts` (OT punch route with the schedule gate, the amend route, the register's overtime rows, the payroll feed, categories on the pattern routes); `components/portal/dashboard.tsx`, `role-panels.tsx`, `payroll-panel.tsx`, `page-shared.tsx`. Guard #60 up to 83 checks - OT refused before the schedule is done, pending OT never reaching payroll, the COO unable to amend; negative-tested three more ways. Guard #24 re-pointed for the new section and the register's payload.
+
 ## [1.133.2] - 2026-09-07 - a clock-in must have a shift to clock in for
 
 **CEO**, 07-09-2026, having clocked in and out four times at 23:32 on a 10:00-18:00 pattern: *"this is wrong flow for clock in next! user can clock in more than 2 time which is not correct! it is supposed to based on the working hours that scheduled for them and based on the Roster and Scheduled assigned to them also!"*

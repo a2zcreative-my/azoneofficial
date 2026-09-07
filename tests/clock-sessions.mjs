@@ -220,8 +220,37 @@ ok("once — a retried clock-out does not write the evening twice",
    /SELECT id FROM ot_records WHERE user_id = \?1 AND type = 'ot_in' AND created_at = \?2/.test(staff));
 ok("the approvers hear about it", /Overtime to decide - \$\{whoOt\?\.n/.test(staff));
 ok("a failure to derive never un-records the punch", /await logError\(env, "ot_derive"/.test(staff));
-ok("the OT punch route is retired with an answer, not a 404",
-   /if \(path === "\/attendance\/ot" && method === "POST"\) \{\s*\n\s*return err\("retired"/.test(staff));
+/* ---- v1.134.0 — OT in / OT out are back, AFTER the schedule ------------
+   CEO: "after their working schedule, does they be able to OT clock in and
+   out? but OT should straight away deliver to me for an approval which is
+   once approved, it will directly recorded into the payroll and at the same
+   time will be recorded at attendance for me to perform a manual update or
+   amendment if needed (ceo only)". */
+ok("the OT punch route exists again", /if \(path === "\/attendance\/ot" && method === "POST"\) \{\s*\n\s*const otTypes/.test(staff));
+ok("OT in is refused while a shift is still to be clocked in for",
+   /const verdictO = canClockIn\(slotsO, sessO, minsO\);[\s\S]{0,120}?if \(verdictO\.ok && body\.type === "ot_in"\)/.test(staff) && /code: "shift_left"|err\("shift_left"/.test(staff),
+   "overtime is what comes AFTER the working schedule");
+ok("...and while a shift is open", /err\("shift_open"/.test(staff));
+ok("the same eligibility as before: not executives, not part-timers",
+   /Executive roles \(CEO\/COO\/CCO\) are not eligible for OT punches/.test(staff) && /meO\?\.employment_status === "part_time"/.test(staff));
+ok("OT out delivers straight to the approvers", /after the working schedule\)\.`,\s*\n\s*`ot:\$\{user\.id\}:\$\{todayO\}`/.test(staff));
+ok("the phone offers OT only after the schedule",
+   /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash));
+ok("approved overtime reaches the payroll by itself",
+   /WHERE status = 'approved' AND strftime\('%Y-%m', created_at, '\+8 hours'\) = \?1/.test(staff) && /ot_approved: otApproved/.test(staff)
+   && /if \(cur && cur\.ot_hours\) continue;/.test(read("components/portal/payroll-panel.tsx")),
+   "pending and rejected count for nothing - that is the point of the decision; a saved figure wins");
+ok("overtime is on the attendance register", /overtime: otRows/.test(staff) && /section === "ot"/.test(read("components/portal/role-panels.tsx")));
+ok("only the CEO can amend it",
+   /path === "\/attendance\/ot\/amend"[\s\S]{0,200}?if \(!\["ceo", "super_admin"\]\.includes\(user\.role\)\)/.test(staff)
+   && /const canAmendOt = \["ceo", "super_admin"\]\.includes\(role\);/.test(read("components/portal/role-panels.tsx")));
+ok("an amendment is written on the row and in the trail",
+   /amended_by = \?2, amended_at = datetime\('now'\)/.test(staff) && /"ot\.amend"/.test(staff));
+ok("a pattern has a category, and the three the CEO named are seeded",
+   /const CATS = \["normal", "afternoon", "evening", "custom"\] as const;/.test(staff)
+   && /category = 'afternoon'/.test(read("worker/migrations/0119_shift_categories_ot_amend.sql"))
+   && /660, 1020, 660, 1020/.test(read("worker/migrations/0119_shift_categories_ot_amend.sql"))
+   && /840, 1320, 840, 1320/.test(read("worker/migrations/0119_shift_categories_ot_amend.sql")));
 ok("the pending list sums a day's stretches instead of last-out minus first-in",
    /minutes: sessionMinutes\(closed\), stretches: closed\.length/.test(staff));
 ok("...and names the live session or task that vouches for it", /assigned: asg \? asg\.what : null/.test(staff));
@@ -235,7 +264,8 @@ ok("the dashboard reads 'clocked in now' off the LATEST punch",
    /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = latestPunch === "clock_in";/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
 ok("Clock in is offered whenever nothing is open AND a shift is left", /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash) && /Clock in · next shift/.test(dash));
-ok("the OT buttons are gone", !/punchOt\(/.test(dash) && !/"OT in"/.test(dash) && !/"OT out"/.test(dash) && !/ot_in/.test(dash));
+ok("the OT buttons are back, and disabled once the day's pair is done",
+   /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
 ok("the card names today's shifts - pattern, roster and live board - and says the rule",
    /Today's shifts: \$\{todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Syif hari ini/.test(dash) && /sent to the CEO as overtime/.test(dash));
 ok("a clock-out that produced overtime says so, in hours",

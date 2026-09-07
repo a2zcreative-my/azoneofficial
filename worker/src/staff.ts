@@ -3115,17 +3115,150 @@ export async function handleStaff(
     }
   }
 
-  /* ---- overtime punches — RETIRED in v1.133.0 ----
-     OT in / OT out (v1.4.155) recorded a second pair of punches for an
-     evening the clock had already recorded. Overtime is now read off the
-     ordinary clock punches: whatever part of a session lies outside the
-     person's scheduled blocks lands in ot_records as pending, on the
-     clock-out that closes it (see POST /attendance). The buttons are gone
-     from the Dashboard; this answers a phone that has not reloaded yet, and
-     tells it what to do instead of failing with a 404 it cannot explain. */
+  /* ---- overtime punches — OT in / OT out, AFTER the schedule (v1.134.0) ----
+     v1.133.0 retired the buttons and read overtime off the clock. The CEO,
+     07-09-2026: "after their working schedule, does they be able to OT clock
+     in and out? but OT should straight away deliver to me for an approval".
+     So the pair is back, with one gate that did not exist before: it opens
+     only when there is NO SHIFT LEFT to clock in for - every scheduled shift
+     clocked, or a day with none (a rest day, nothing on the roster). While a
+     shift remains, the answer is the ordinary Clock in; while one is open,
+     Clock out. OT is what comes after the working schedule, exactly as said.
+
+     Eligibility is unchanged since v1.4.156/158: not executives, not
+     part-timers (paid by the clock already). One OT in and one OT out per
+     day. The pair lands pending, bells the approvers, and the CEO decides
+     from the Attendance card, the desk or the KPI - the same three places
+     the clock-derived overrun already goes. The overrun rule stays: a shift
+     clocked out late still writes its overrun; this pair cannot overlap it,
+     because OT in needs nothing open. */
   if (path === "/attendance/ot" && method === "POST") {
-    return err("retired",
-      "OT in / OT out are no longer needed. Clock in and clock out for each shift — anything outside your working hours is sent to the CEO as overtime automatically.", 410);
+    const otTypes = ["ot_in", "ot_out"];
+    if (!body || typeof body.type !== "string" || !otTypes.includes(body.type)) {
+      return err("invalid_input", `type must be one of: ${otTypes.join(", ")}`, 400);
+    }
+    if (["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
+      return err("not_eligible", "Executive roles (CEO/COO/CCO) are not eligible for OT punches.", 403);
+    }
+    const meO = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ employment_status: string | null }>();
+    if (meO?.employment_status === "part_time") {
+      return err("not_eligible", "Part-time staff are paid by the clock - every minute is counted already, so there is no separate overtime.", 403);
+    }
+    const nowO = new Date();
+    const todayO = new Date(nowO.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const minsO = new Date(nowO.getTime() + 8 * 3600 * 1000).getUTCHours() * 60 + new Date(nowO.getTime() + 8 * 3600 * 1000).getUTCMinutes();
+    /* The schedule gate. Today's shifts (pattern + roster + live board) and
+       today's clock sessions, exactly as POST /attendance reads them. */
+    const { results: pressedO } = await env.DB.prepare(
+      `SELECT type, created_at FROM attendance_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+    ).bind(user.id, todayO).all<{ type: string; created_at: string }>();
+    const sessO = pairSessions((pressedO ?? []).map((r) => ({ type: r.type, at: r.created_at })));
+    if (isOpen(sessO)) {
+      return err("shift_open", "You are still clocked in on a shift. Clock out first - overtime starts after your working schedule.", 409);
+    }
+    const shO = await shiftOn(env, user.id, todayO);
+    const asgO = (await assignedResolver(env, todayO, todayO)).list(user.id, todayO);
+    const slotsO = daySlots(shO.windows, asgO.map((a) => ({ start: a.start, end: a.end, what: a.what })));
+    const verdictO = canClockIn(slotsO, sessO, minsO);
+    if (verdictO.ok && body.type === "ot_in") {
+      return err("shift_left",
+        `You still have a shift to clock in for (${slotsLabel(slotsO)}). Use Clock in for it - overtime is what comes after your working schedule.`, 409);
+    }
+    try {
+      const { results: otToday } = await env.DB.prepare(
+        `SELECT type, created_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+      ).bind(user.id, todayO).all<{ type: string; created_at: string }>();
+      const otSess = pairSessions((otToday ?? []).map((r) => ({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at })));
+      const hhO = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+      if (body.type === "ot_in") {
+        if (isOpen(otSess)) return err("already_punched", `You already recorded OT in today at ${hhO(otSess[otSess.length - 1]!.in)} MYT.`, 409);
+        if (otSess.length > 0) return err("already_punched", `You already recorded overtime today (${hhO(otSess[0]!.in)}-${hhO(otSess[0]!.out!)}). One overtime stretch a day.`, 409);
+      } else {
+        if (!isOpen(otSess)) {
+          return err("no_ot_in", otSess.length > 0
+            ? `You already recorded OT out today at ${hhO(otSess[otSess.length - 1]!.out!)} MYT.`
+            : "You haven't recorded OT in - tap OT in when overtime starts, then OT out when you finish.", 400);
+        }
+      }
+      /* v1.9.1/v1.21.4 - the same office fence and location requirement as a
+         clock punch; the check gates, ot_records has no gps column. */
+      const gateO = await gateGeofence(env, body, body.type === "ot_in" ? "OT in" : "OT out");
+      if (gateO.resp) return gateO.resp;
+      await env.DB.prepare(
+        `INSERT INTO ot_records (user_id, type, ip, user_agent) VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(user.id, body.type, request.headers.get("CF-Connecting-IP"),
+             (request.headers.get("User-Agent") ?? "").slice(0, 300)).run();
+      let otMins = 0;
+      if (body.type === "ot_out") {
+        const openIn = otSess[otSess.length - 1]!.in;
+        otMins = Math.max(0, Math.round((nowO.getTime() - Date.parse(`${openIn.replace(" ", "T")}Z`)) / 60000));
+        /* "OT should straight away deliver to me for an approval." */
+        const whoO = await env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`)
+          .bind(user.id).first<{ n: string }>();
+        const hmO = `${Math.floor(otMins / 60)}h${String(otMins % 60).padStart(2, "0")}`;
+        const { results: approversO } = await env.DB.prepare(
+          `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','coo')`,
+        ).all<{ id: number }>();
+        for (const a of approversO ?? []) {
+          await notify(env, a.id, "ot",
+            `Overtime to decide - ${whoO?.n ?? "staff"}, ${todayO.split("-").reverse().join("-")}: ${hmO} (${hhO(openIn)}-${hhO(nowO.toISOString().slice(0, 19).replace("T", " "))}, after the working schedule).`,
+            `ot:${user.id}:${todayO}`);
+        }
+      }
+      await audit(env, user.id, body.type === "ot_in" ? "ot.in" : "ot.out", "ot_records", todayO, { minutes: otMins });
+      return json({ ok: true, at: new Date(nowO.getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16), ot_minutes: otMins }, 201);
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0044_overtime)", 500);
+      throw e;
+    }
+  }
+
+  /* ---- v1.134.0 - the CEO amends an overtime record ----
+     "recorded at attendance for me to perform a manual update or amendment if
+     needed (ceo only)". The pair's times are replaced; who and when is
+     written on the rows (0119) and in the audit trail; the status is kept,
+     so an approved stretch amended by the CEO stays approved - he is the
+     approver. Nobody else has this route. */
+  if (path === "/attendance/ot/amend" && method === "POST") {
+    if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "Only the CEO can amend an overtime record", 403);
+    const uidA = Number(body?.user_id);
+    const dayA = typeof body?.date === "string" ? body.date : "";
+    const inA = typeof body?.ot_in === "string" ? body.ot_in : "";
+    const outA = typeof body?.ot_out === "string" ? body.ot_out : "";
+    if (!uidA || !/^\d{4}-\d{2}-\d{2}$/.test(dayA) || !/^\d{2}:\d{2}$/.test(inA) || !/^\d{2}:\d{2}$/.test(outA)) {
+      return err("invalid_input", "user_id, date (YYYY-MM-DD), ot_in and ot_out (HH:MM, Malaysia time) are required", 400);
+    }
+    const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    if (toMin(outA) <= toMin(inA)) return err("invalid_input", "OT out must be after OT in", 400);
+    const stampA = (m: number) => new Date(Date.parse(`${dayA}T00:00:00Z`) + (m - 8 * 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
+    const { results: rowsA } = await env.DB.prepare(
+      `SELECT id, type, status FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+    ).bind(uidA, dayA).all<{ id: number; type: string; status: string }>();
+    const inRow = (rowsA ?? []).find((r) => r.type === "ot_in");
+    const outRow = (rowsA ?? []).find((r) => r.type === "ot_out");
+    try {
+      if (inRow) {
+        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`)
+          .bind(stampA(toMin(inA)), user.id, inRow.id).run();
+      } else {
+        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at) VALUES (?1, 'ot_in', 'ceo:amend', ?2, ?3, datetime('now'))`)
+          .bind(uidA, stampA(toMin(inA)), user.id).run();
+      }
+      if (outRow) {
+        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`)
+          .bind(stampA(toMin(outA)), user.id, outRow.id).run();
+      } else {
+        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at) VALUES (?1, 'ot_out', 'ceo:amend', ?2, ?3, datetime('now'))`)
+          .bind(uidA, stampA(toMin(outA)), user.id).run();
+      }
+    } catch (eA) {
+      if (String(eA).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0119)", 500);
+      throw eA;
+    }
+    await audit(env, user.id, "ot.amend", "users", String(uidA), { date: dayA, ot_in: inA, ot_out: outA, was: rowsA?.length ?? 0 });
+    await notify(env, uidA, "ot", `Your overtime on ${dayA.split("-").reverse().join("-")} was amended by the CEO to ${inA}-${outA}.`, `ot:amend:${dayA}`);
+    return json({ ok: true });
   }
 
   if (path === "/attendance" && method === "GET") {
@@ -3171,7 +3304,7 @@ export async function handleStaff(
     let today_shift: {
       kind: string; label: string; windows: { start: string; end: string }[];
       slots: { start: string; end: string; what: string | null; claimed: boolean }[];
-      slots_label: string; can_clock_in: boolean; why_not: string | null;
+      slots_label: string; can_clock_in: boolean; why_not: string | null; can_ot: boolean;
     } | null = null;
     try {
       const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -3194,6 +3327,9 @@ export async function handleStaff(
         slots_label: slotsLabel(slotsT),
         can_clock_in: verdictT.ok,
         why_not: verdictT.ok ? null : verdictT.reason,
+        /* v1.134.0 - OT in / OT out open only AFTER the schedule: nothing
+           open, nothing left to clock in for. The same gate the route runs. */
+        can_ot: !verdictT.ok && !isOpen(sessT),
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
     return json({ month, records: results, ot, ot_eligible, today_shift });
@@ -3413,6 +3549,43 @@ export async function handleStaff(
        FROM attendance_records a JOIN users u ON u.id = a.user_id
        WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
     ).bind(month).all();
+    /* v1.134.0 (CEO: "recorded at attendance for me to perform a manual
+       update or amendment if needed") - the month's overtime, one row per
+       person per day, paired, with its status and whether the CEO changed it.
+       Beside the punches, never merged into them: a punch is what happened,
+       an overtime row is a claim with a decision on it. */
+    let otRows: Record<string, unknown>[] = [];
+    try {
+      const { results: otRaw } = await env.DB.prepare(
+        `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
+                date(o.created_at, '+8 hours') AS d, o.type, o.created_at, o.status, o.amended_by, o.decision_note
+           FROM ot_records o JOIN users u ON u.id = o.user_id
+          WHERE strftime('%Y-%m', o.created_at, '+8 hours') = ?1
+          ORDER BY o.created_at`,
+      ).bind(month).all<{ user_id: number; name: string; d: string; type: string; created_at: string; status: string; amended_by: number | null; decision_note: string | null }>();
+      const grp = new Map<string, { user_id: number; name: string; d: string; punches: Punch[]; status: string; amended: boolean; note: string | null }>();
+      for (const r of otRaw ?? []) {
+        const k = `${r.user_id}|${r.d}`;
+        const g = grp.get(k) ?? { user_id: r.user_id, name: r.name, d: r.d, punches: [], status: r.status, amended: false, note: null };
+        g.punches.push({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at });
+        if (r.amended_by) g.amended = true;
+        if (r.decision_note) g.note = r.decision_note;
+        if (r.status !== "pending") g.status = r.status;
+        grp.set(k, g);
+      }
+      const hmR = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+      for (const g of grp.values()) {
+        const sess = pairSessions(g.punches);
+        const closed = sess.filter((x) => x.out);
+        otRows.push({
+          user_id: g.user_id, name: g.name, d: g.d, status: g.status, amended: g.amended, note: g.note,
+          ot_in: sess[0] ? hmR(sess[0].in) : null,
+          ot_out: closed.length ? hmR(closed[closed.length - 1]!.out!) : null,
+          minutes: sessionMinutes(closed), open: isOpen(sess),
+        });
+      }
+      otRows.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+    } catch { otRows = []; /* pre-0044 */ }
     /* v1.76.0 — annotated against EACH PERSON'S schedule on that date, not
        one company shift. `day_kind` is what makes weekend answerable per
        staff member: a pattern with no hours on Saturday makes Saturday a rest
@@ -3514,7 +3687,7 @@ export async function handleStaff(
         }
       }
     } catch { /* pre-leave_requests, or a column this database has not got */ }
-    return json({ month, shift: "per staff schedule (v1.80.0, split shifts)", records: annotated, leave });
+    return json({ month, shift: "per staff schedule (v1.80.0, split shifts)", records: annotated, leave, overtime: otRows });
   }
 
   /* ---- leave ---- */
@@ -7396,6 +7569,11 @@ export async function handleStaff(
        site in this file uses the guard as a guard (`str(x) ? x : ...`). */
     const nameS = str(body?.name, 60) ? (body!.name as string).trim() : "";
     if (!nameS) return err("invalid_input", "A name is required", 400);
+    /* v1.134.0 (CEO: "working hour should be category for me to update ...
+       normal ... afternoon ... evening ... so that easy for me to control")
+       - the shape a pattern is, named once. Anything else is custom. */
+    const CATS = ["normal", "afternoon", "evening", "custom"] as const;
+    const catS = CATS.includes(body?.category as typeof CATS[number]) ? String(body!.category) : "custom";
     /* Minutes since midnight, or null for a day this pattern does not work.
        Validated rather than trusted: a start after its own end would silently
        make every punch that day an early-out. */
@@ -7453,9 +7631,9 @@ export async function handleStaff(
              mon_start2 = ?18, mon_end2 = ?19, tue_start2 = ?20, tue_end2 = ?21,
              wed_start2 = ?22, wed_end2 = ?23, thu_start2 = ?24, thu_end2 = ?25,
              fri_start2 = ?26, fri_end2 = ?27, sat_start2 = ?28, sat_end2 = ?29,
-             sun_start2 = ?30, sun_end2 = ?31, break_minutes = ?32
+             sun_start2 = ?30, sun_end2 = ?31, break_minutes = ?32, category = ?33
            WHERE id = ?17`,
-        ).bind(nameS, ...vals, halfV, idS, ...vals2, brkV).run();
+        ).bind(nameS, ...vals, halfV, idS, ...vals2, brkV, catS).run();
         await audit(env, user.id, "shift_pattern.update", "shift_patterns", String(idS), { name: nameS });
         return json({ ok: true, id: idS });
       }
@@ -7466,17 +7644,17 @@ export async function handleStaff(
             sun_start, sun_end, half_day_minutes, created_by,
             mon_start2, mon_end2, tue_start2, tue_end2, wed_start2, wed_end2,
             thu_start2, thu_end2, fri_start2, fri_end2, sat_start2, sat_end2,
-            sun_start2, sun_end2, break_minutes)
+            sun_start2, sun_end2, break_minutes, category)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                 ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
+                 ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)
          RETURNING id`,
-      ).bind(nameS, ...vals, halfV, user.id, ...vals2, brkV).first<{ id: number }>();
+      ).bind(nameS, ...vals, halfV, user.id, ...vals2, brkV, catS).first<{ id: number }>();
       await audit(env, user.id, "shift_pattern.create", "shift_patterns", String(res?.id), { name: nameS });
       return json({ ok: true, id: res?.id }, 201);
     } catch (eS) {
       const msgS = String(eS);
       if (!msgS.includes("no such table") && !msgS.includes("no such column")) throw eS;
-      return err("migration_missing", `Migration ${msgS.includes("no such column") ? "0102/0103" : "0099"} is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.`, 500);
+      return err("migration_missing", `Migration ${msgS.includes("no such column") ? "0102/0103/0119" : "0099"} is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.`, 500);
     }
   }
 
@@ -8798,6 +8976,37 @@ export async function handleStaff(
         (u.joined_on && u.joined_on.slice(0, 7) === mA) || (u.left_on && u.left_on.slice(0, 7) === mA),
       ),
     }));
+    /* v1.134.0 (CEO: "once approved, it will directly recorded into the
+       payroll") - APPROVED overtime for the month, per person, in minutes.
+       Pending and rejected count for nothing - the whole point of the
+       decision. Paired per day so two stretches on one day sum rather than
+       span. The panel fills the OT hours box from this; the box stays
+       editable, exactly as the days box does. */
+    const otApproved: { user_id: number; minutes: number; days: number }[] = [];
+    try {
+      const { results: otA } = await env.DB.prepare(
+        `SELECT user_id, date(created_at, '+8 hours') AS d, type, created_at FROM ot_records
+          WHERE status = 'approved' AND strftime('%Y-%m', created_at, '+8 hours') = ?1
+          ORDER BY created_at`,
+      ).bind(mA).all<{ user_id: number; d: string; type: string; created_at: string }>();
+      const byUD = new Map<string, Punch[]>();
+      for (const r of otA ?? []) {
+        const k = `${r.user_id}|${r.d}`;
+        const list = byUD.get(k) ?? [];
+        list.push({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at });
+        byUD.set(k, list);
+      }
+      const perUser = new Map<number, { minutes: number; days: number }>();
+      for (const [k, punches] of byUD) {
+        const uid = Number(k.split("|")[0]);
+        const m = sessionMinutes(pairSessions(punches));
+        if (m <= 0) continue;
+        const cur = perUser.get(uid) ?? { minutes: 0, days: 0 };
+        cur.minutes += m; cur.days += 1;
+        perUser.set(uid, cur);
+      }
+      for (const [uid, v] of perUser) otApproved.push({ user_id: uid, ...v });
+    } catch { /* pre-0054 */ }
 
     /* v1.77.0 — THE DEDUCTION ITSELF, computed here rather than in the
        browser. The panel used to re-derive `base / 26 * days` at three
@@ -8844,7 +9053,7 @@ export async function handleStaff(
       };
     }).filter((r) => r.days > 0 || r.clocked_beyond_employment || r.ph_worked > 0);
 
-    return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed });
+    return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed, ot_approved: otApproved });
   }
 
   /* v1.75.0 (CEO: "Unpaid will be count based on their no data in") — the
