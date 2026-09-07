@@ -929,9 +929,7 @@ export function Dashboard({
               {openNow
                 ? `${tr("Clocked in ✓", lang)} ${openSince}`
                 : !canClockIn
-                  ? (todayShift?.why_not === "no_slots"
-                      ? L("No shift today", "Tiada syif hari ini")
-                      : L("All shifts clocked ✓", "Semua syif didaftar ✓"))
+                  ? L("All shifts clocked ✓", "Semua syif didaftar ✓")
                 : <><AppIcon name="place" className="mr-1 -mt-0.5" />
                     {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}</>}
             </button>
@@ -1010,8 +1008,8 @@ export function Dashboard({
                 assignments, not only the pattern. One clock-in per shift;
                 a day with none has nothing to clock in for. */}
             {(todayShift.slots?.length ?? todayShift.windows.length) === 0
-              ? L("No shift today — nothing on your pattern, the roster or the live board. Work has to be on the roster before it can be clocked.",
-                  "Tiada syif hari ini — tiada pada corak, roster atau papan LIVE anda. Kerja perlu ada di roster sebelum boleh didaftar.")
+              ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
+                  "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
               : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
                   `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
           </p>

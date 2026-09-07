@@ -114,6 +114,28 @@ export function RestDayCreditCard({ role = "" }: { role?: string }) {
     if (res.ok) void load();
   };
 
+  /* v1.134.2 (CEO: "supposed for me to decide either OT or replacement
+     leave") - the other answer. The day's clocked stretches become approved
+     overtime, reach the payroll, and the day leaves this list. */
+  const payOt = async (r: RestDay) => {
+    setBusy(`${r.user_id}|${r.date}`);
+    const res = await api<{ minutes?: number; error?: { message?: string } }>(`/rest-day-ot`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: r.user_id, date: r.date }),
+    });
+    setBusy("");
+    const m = res.data?.minutes ?? 0;
+    showToast(
+      res.ok ? L("Paid as overtime", "Dibayar sebagai OT") : L("Not recorded", "Tidak direkodkan"),
+      res.ok
+        ? L(`${properName(r.name)} — ${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")} approved overtime for ${dmy(r.date)}. It goes into the payroll; they have been notified.`,
+            `${properName(r.name)} — ${Math.floor(m / 60)}j${String(m % 60).padStart(2, "0")} OT diluluskan bagi ${dmy(r.date)}. Ia masuk ke gaji; mereka telah dimaklumkan.`)
+        : (res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya")),
+      res.ok ? undefined : "notice",
+    );
+    if (res.ok) void load();
+  };
+
   const loading = rest === null;
 
   return (
@@ -122,7 +144,7 @@ export function RestDayCreditCard({ role = "" }: { role?: string }) {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">{L("Rest days worked — credit replacement leave", "Hari rehat dibekerja — kredit cuti gantian")}</p>
+          <p className="text-sm font-semibold">{L("Rest days worked — replacement leave or overtime", "Hari rehat dibekerja — cuti gantian atau OT")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "Work on somebody's own rest day, waiting to be credited back as replacement leave. A CEO decision, and audited. Leave records themselves — including unpaid days — are in the register below.",
@@ -183,6 +205,13 @@ export function RestDayCreditCard({ role = "" }: { role?: string }) {
                   <button type="button" className={btnSmPrimary} disabled={busy === k}
                     onClick={() => void credit(r, 1)}>
                     {L("Full day", "Sehari penuh")}
+                  </button>
+                  <button type="button" className={btnSm} disabled={busy === k || !r.out_myt}
+                    title={r.out_myt
+                      ? L("Pay the clocked hours as approved overtime instead of crediting leave", "Bayar jam yang didaftar sebagai OT diluluskan, bukan kredit cuti")
+                      : L("Needs a clock-out first", "Perlu daftar keluar dahulu")}
+                    onClick={() => void payOt(r)}>
+                    {L("Pay as OT", "Bayar sebagai OT")}
                   </button>
                 </span>
               </div>

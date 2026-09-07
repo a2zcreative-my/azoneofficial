@@ -2470,7 +2470,14 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     const k = `${o.user_id}:${o.d}`;
                     const d = otDraft[k] ?? { ot_in: o.ot_in ?? "", ot_out: o.ot_out ?? "" };
                     const dirty = d.ot_in !== (o.ot_in ?? "") || d.ot_out !== (o.ot_out ?? "");
-                    const hm = `${Math.floor(o.minutes / 60)}h${String(o.minutes % 60).padStart(2, "0")}`;
+                    /* The worker's sum; failing that (an older worker), out
+                       minus in, so the column is never a dash beside two
+                       times that plainly differ. */
+                    const toM = (t: string | null) => (t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : null);
+                    const mins = typeof o.minutes === "number" && o.minutes > 0
+                      ? o.minutes
+                      : (toM(o.ot_in) !== null && toM(o.ot_out) !== null ? Math.max(0, toM(o.ot_out)! - toM(o.ot_in)!) : 0);
+                    const hm = `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
                     return (
                       <tr key={k} className="border-border border-t">
                         <td className="py-1.5 pr-3 tabular-nums">{dmy(o.d)}</td>
@@ -2487,7 +2494,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                                 onChange={(e) => setOtDraft((m) => ({ ...m, [k]: { ...d, ot_out: e.target.value } }))} />
                             : <span className="tabular-nums">{o.ot_out ?? (o.open ? L("open", "terbuka") : "—")}</span>}
                         </td>
-                        <td className="py-1.5 pr-3 tabular-nums">{o.minutes > 0 ? hm : "—"}</td>
+                        <td className="py-1.5 pr-3 tabular-nums">{mins > 0 ? hm : (o.open ? L("open", "terbuka") : "—")}</td>
                         <td className="py-1.5 pr-3">
                           <span className={o.status === "approved" ? chipSuccess : o.status === "rejected" ? chipNeutral : chipWarn}>
                             {o.status === "approved" ? L("approved", "diluluskan") : o.status === "rejected" ? L("rejected", "ditolak") : L("pending", "menunggu")}
@@ -2502,6 +2509,26 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                                 body: JSON.stringify({ user_id: o.user_id, date: o.d, ot_in: d.ot_in, ot_out: d.ot_out }),
                               }, L(`Overtime amended - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`, `OT dipinda - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`))}>
                               {L("Save", "Simpan")}
+                            </button>
+                            {/* v1.134.2 (CEO: "cant be remove if it is not
+                                valid???") - gone entirely, whatever its
+                                status; a rest day returns to the decision
+                                card. Asks first: it is a payroll figure. */}
+                            <button type="button" className="text-danger ml-2 text-xs underline"
+                              onClick={async () => {
+                                const yes = await askPat({
+                                  title: L("Remove this overtime record?", "Buang rekod OT ini?"),
+                                  message: L(`${properName(o.name)}, ${dmy(o.d)} - ${o.ot_in ?? "?"}-${o.ot_out ?? "?"}. It is removed whatever its status and cannot be undone. A rest day goes back to the Rest days worked card for a fresh decision.`,
+                                             `${properName(o.name)}, ${dmy(o.d)} - ${o.ot_in ?? "?"}-${o.ot_out ?? "?"}. Ia dibuang tanpa mengira status dan tidak boleh dibatalkan. Hari rehat kembali ke kad Hari rehat dibekerja untuk keputusan baharu.`),
+                                  confirmLabel: L("Remove", "Buang"),
+                                  variant: "danger",
+                                });
+                                if (!yes) return;
+                                void act(`/attendance/ot/remove`, {
+                                  method: "POST", body: JSON.stringify({ user_id: o.user_id, date: o.d }),
+                                }, L(`Overtime removed - ${properName(o.name)}, ${dmy(o.d)}.`, `OT dibuang - ${properName(o.name)}, ${dmy(o.d)}.`));
+                              }}>
+                              {L("Remove", "Buang")}
                             </button>
                           </td>
                         )}
@@ -3004,12 +3031,29 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           </div>
           {assignments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {assignments.map((a) => (
-                <span key={a.id} className={chipNeutral}>
-                  <span className="font-medium">{properName(a.name)}</span>
-                  <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}</span>
-                </span>
-              ))}
+              {assignments.map((a) => {
+                /* v1.134.1 - a planned assignment (dated ahead) can be
+                   withdrawn here; one already in force cannot, because the
+                   days behind it were measured against it - it is
+                   superseded by assigning from a new date instead. */
+                const future = a.effective_from > new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+                return (
+                  <span key={a.id} className={`${chipNeutral} ${future ? "border-gold border border-dashed" : ""}`}
+                    title={future ? L("Planned - starts on this date. Press × to withdraw it.", "Dirancang - bermula pada tarikh ini. Tekan × untuk menariknya balik.")
+                                  : L("In force. To change the hours, assign another pattern from a new date.", "Berkuat kuasa. Untuk menukar waktu, tetapkan corak lain dari tarikh baharu.")}>
+                    <span className="font-medium">{properName(a.name)}</span>
+                    <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}{future ? ` · ${L("planned", "dirancang")}` : ""}</span>
+                    {canHours && future && (
+                      <button type="button" className="text-muted-foreground hover:text-danger ml-1"
+                        aria-label={L(`Withdraw ${a.pattern_name} for ${properName(a.name)} from ${a.effective_from}`, `Tarik balik ${a.pattern_name} untuk ${properName(a.name)} dari ${a.effective_from}`)}
+                        onClick={() => void act(`/staff-shifts/${a.id}`, { method: "DELETE" },
+                          L(`Withdrawn - ${properName(a.name)} stays on their current hours.`, `Ditarik balik - ${properName(a.name)} kekal pada waktu semasa.`))}>
+                        ✕
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
             </div>
           )}
         </>

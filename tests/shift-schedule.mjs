@@ -140,6 +140,23 @@ const ok = (label, cond, extra = "") => {
      /name: \/\^1\(\\\.0\)\?\$\/\.test\(String\(pt\.name\)\) \? "" : pt\.name,/.test(panels));
 }
 
+/* ---- 2c. a plan can be dropped; a record cannot (v1.134.1) -----------
+   The CEO could not remove a pattern because one person had an assignment
+   to it dated NEXT WEEK. That assignment had measured nothing. The line is
+   effective_from against today: in force blocks, planned does not. */
+{
+  ok("only an assignment already IN FORCE blocks removing a pattern",
+     /WHERE s\.pattern_id = \?1 AND s\.effective_from <= \?2 ORDER BY name/.test(staff),
+     "a plan dated next week has measured nothing and paid nothing");
+  ok("planned assignments go with the pattern they point at",
+     /DELETE FROM staff_shifts WHERE pattern_id = \?1 AND effective_from > \?2/.test(staff));
+  ok("an assignment can be withdrawn on its own", /path\.match\(\/\^\\\/staff-shifts\\\/\(\\d\+\)\$\/\)/.test(staff) && /"staff_shift\.unassign"/.test(staff));
+  ok("...but not one already in force",
+     /if \(rowX\.effective_from <= todayX\) \{[\s\S]{0,300}?the days since then were measured against it/.test(staff),
+     "the days behind it were measured against it; it is superseded from a new date instead");
+  ok("the chip offers the × only on a planned assignment", /\{canHours && future && \(/.test(panels));
+}
+
 /* ---- 3. effective dating ---- */
 {
   ok("the pattern in force is the latest one that had started",
@@ -370,7 +387,7 @@ const ok = (label, cond, extra = "") => {
      /FROM staff_shifts s JOIN users u ON u\.id = s\.user_id[\s\S]{0,80}?WHERE s\.pattern_id = \?1/.test(staff),
      "assignments are effective-dated history - deleting the pattern makes shiftOn fall through to the default and silently re-flags months already paid");
   ok("the refusal names the people",
-     /still on this pattern\. Assign them to another one first/.test(staff),
+     /\$\{who\}\$\{more\} \$\{\(users \?\? \[\]\)\.length === 1 \? "is" : "are"\} on this pattern today\. Assign them another pattern/.test(staff),
      "reassign them first is only useful advice if you know who they are");
   ok("removing a pattern asks first",
      /await askPat\(\{/.test(panels) && /variant: "danger"/.test(panels));

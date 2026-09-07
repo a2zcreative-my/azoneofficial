@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.134.2] - 2026-09-07 - a rest day worked is one decision, and an overtime record can be removed
+
+**CEO**, 07-09-2026, on the Overtime rows of the attendance card: *"OT cant be editable? and cant be remove if it is not valid??? this one she work after working day which is supposed for me to decide either OT or replacement leave!!!"*
+
+Three things were wrong, and the third was a rule. **Save** did nothing because the amend route is in v1.134.0, which is not deployed yet - the portal is talking to the worker of 27 August. **Hours** read "-" for the same reason (the old worker sends no minutes), so the column now works the hours out from the two punches itself, and says "open" for an OT in with no OT out. And a **rest day worked** had two paths that did not meet: v1.134.1 refused the clock-in outright ("no shift today"), while the Rest days worked card only ever credited replacement leave - so the day she came in after a working day was either unrecorded or decided for him.
+
+Now a rest day is **one clock-in and one clock-out**, recorded like any day, and the clock does NOT turn it into overtime by itself and offers no OT buttons on it: the day waits on the **Rest days worked** card, which has three buttons - half a day or a full day of replacement leave, as before, or **Pay as OT**, which writes the stretch as approved overtime under the CEO's name so it reaches the payroll like any approved overtime. Decided either way, the day leaves the card. And every overtime record - derived, punched or paid - has a **Remove** on its row for the CEO: the whole day goes, whatever its status, the trail says what went, and a rest day returns to the card for a fresh decision.
+
+`worker/src/clock-day.ts` (a rest day with nothing on the roster is one clock-in, not none), `worker/src/staff.ts` (rest-day refusal copy; no derived OT on a rest day; `can_ot` needs a shift; `POST /rest-day-ot`; `POST /attendance/ot/remove`; the card's done-set counts an OT day as decided), `components/portal/rest-day-credits.tsx`, `components/portal/role-panels.tsx`, `components/portal/dashboard.tsx`. Guard #60 gains ten checks; negative-tested by refusing the rest-day clock-in again, deriving OT on a rest day, opening the pay route to everyone, writing the paid pair as pending, and confirming the removal with `window.confirm`.
+
+**Needs `PUSH.bat`**: Save and Hours on the Overtime rows, Pay as OT and Remove all talk to routes the deployed worker does not have.
+
+## [1.134.1] - 2026-09-07 - a planned assignment can be dropped; a record cannot
+
+**CEO**, 07-09-2026, on *Remove pattern*: *"I cant remove it, this is wrong!"* - refused because one person was "still on this pattern". Her assignment to it was dated **2026-09-10** - three days ahead. It had measured nothing and paid nothing. He was right.
+
+The guard counted every assignment to the pattern. The line is `effective_from` against today: an assignment **in force** has days behind it that were measured against it, and that one blocks (with the message now saying what to do - assign another pattern from a date on or before today); a **planned** one is a plan, and it is removed with the pattern. And an assignment can now be withdrawn on its own - the chip gets a × while it is still ahead, dashed gold so a plan reads as a plan - but never once it is in force: the honest way to change hours that have already been measured is to assign another pattern from a new date, which supersedes without rewriting.
+
+`worker/src/staff.ts` (`DELETE /shift-patterns/:id` counts only in-force assignments and drops planned ones; new `DELETE /staff-shifts/:id`), `components/portal/role-panels.tsx`. Guard #24 gains five checks; negative-tested by counting every assignment again.
+
 ## [1.134.0] - 2026-09-07 - OT after the schedule, into payroll on approval; working-hour categories
 
 **CEO**, 07-09-2026: *"after their working schedule, does they be able to OT clock in and out? but OT should straight away deliver to me for an approval which is once approved, it will directly recorded into the payroll and at the same time will be recorded at attendance for me to perform a manual update or amendment if needed (ceo only). for normal working shift should be no next schedule clock in. and working hour should be category for me to update which is normal working hour, afternoon working hour (11:00am to 5:00pm and at home 8:30pm to 10:30pm) and evening working hour (2:00pm to 10:00pm) so that easy for me to control"*

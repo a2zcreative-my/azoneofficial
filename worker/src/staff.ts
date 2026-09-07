@@ -2187,8 +2187,8 @@ export async function handleStaff(
         return json(
           { error: {
               code: "no_shift",
-              message: verdict.reason === "no_slots"
-                ? "You have no shift scheduled today and nothing on the roster or the live board. Ask for the work to be put on the roster first, then clock in."
+              message: slotsToday.length === 0
+                ? "You have already clocked in and out once today, and it is a rest day on your pattern - one stretch a day. The CEO decides whether it counts as overtime or replacement leave."
                 : `You have clocked in for every shift today (${slotsLabel(slotsToday)}). Work outside your schedule needs a roster assignment or a live session first.`,
             },
             shifts: slotsLabel(slotsToday) },
@@ -2400,7 +2400,11 @@ export async function handleStaff(
        A pending punch derives nothing: it counts for nothing until the CEO
        approves it, and the approval is where its hours are set. */
     let otMinutes = 0;
-    if (closingSession && !storedPending && !hourlyPunch
+    /* v1.134.2 - NOT on a rest day. A rest day worked is the CEO's decision:
+       overtime OR replacement leave (Rest days worked card). Writing it here
+       as overtime would make that decision for him and list the same day in
+       two places. Only a WORKDAY's overrun is derived. */
+    if (closingSession && !storedPending && !hourlyPunch && sh.kind !== "rest_day"
         && !["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
       try {
         const meOt = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
@@ -3162,8 +3166,9 @@ export async function handleStaff(
     const slotsO = daySlots(shO.windows, asgO.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     const verdictO = canClockIn(slotsO, sessO, minsO);
     if (verdictO.ok && body.type === "ot_in") {
-      return err("shift_left",
-        `You still have a shift to clock in for (${slotsLabel(slotsO)}). Use Clock in for it - overtime is what comes after your working schedule.`, 409);
+      return err("shift_left", slotsO.length === 0
+        ? "It is a rest day on your pattern - use Clock in / Clock out for the day. The CEO decides whether it counts as overtime or replacement leave."
+        : `You still have a shift to clock in for (${slotsLabel(slotsO)}). Use Clock in for it - overtime is what comes after your working schedule.`, 409);
     }
     try {
       const { results: otToday } = await env.DB.prepare(
@@ -3212,6 +3217,64 @@ export async function handleStaff(
       if (String(e).includes("no such table")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0044_overtime)", 500);
       throw e;
     }
+  }
+
+  /* ---- v1.134.2 - a rest day worked, PAID AS OVERTIME ----
+     CEO: "this one she work after working day which is supposed for me to
+     decide either OT or replacement leave". The Rest days worked card had
+     two buttons - half a day, a full day - and both were replacement leave.
+     This is the third: the day's clocked stretches become an APPROVED
+     overtime record (he is the approver, so it needs no second decision),
+     it reaches the payroll like any approved overtime, and the day leaves
+     the card. CEO only, like the credit. */
+  if (path === "/rest-day-ot" && method === "POST") {
+    if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "Only the CEO can pay a rest day as overtime", 403);
+    const uidO = Number(body?.user_id);
+    const dateO = typeof body?.date === "string" ? body.date : "";
+    if (!uidO || !/^\d{4}-\d{2}-\d{2}$/.test(dateO)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    const shRO = (await shiftResolver(env))(uidO, dateO);
+    if (shRO.kind !== "rest_day") return err("invalid_input", `${dateO} is a working day on ${shRO.pattern}, not a rest day`, 400);
+    const sessRO = (await clockedSessions(env, { day: dateO, userId: uidO })).get(`${uidO}|${dateO}`) ?? [];
+    const closedRO = sessRO.filter((x) => x.out && x.minutes > 0);
+    if (closedRO.length === 0) return err("invalid_input", "There is no approved clock-in and clock-out on that day to pay", 400);
+    const haveRO = await env.DB.prepare(
+      `SELECT id FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
+    ).bind(uidO, dateO).first<{ id: number }>().catch(() => null);
+    if (haveRO) return err("already_decided", "That day already has an overtime record - see the Overtime section of the attendance card", 409);
+    let minsRO = 0;
+    for (const se of closedRO) {
+      await env.DB.prepare(
+        `INSERT INTO ot_records (user_id, type, user_agent, created_at, status, decided_by, decided_at)
+         VALUES (?1, 'ot_in', 'ceo:rest-day', ?2, 'approved', ?3, datetime('now')),
+                (?1, 'ot_out', 'ceo:rest-day', ?4, 'approved', ?3, datetime('now'))`,
+      ).bind(uidO, se.in, user.id, se.out).run();
+      minsRO += se.minutes;
+    }
+    const hmRO = `${Math.floor(minsRO / 60)}h${String(minsRO % 60).padStart(2, "0")}`;
+    await audit(env, user.id, "ot.rest_day_paid", "users", String(uidO), { date: dateO, minutes: minsRO, stretches: closedRO.length });
+    await notify(env, uidO, "ot", `Your rest day ${dateO.split("-").reverse().join("-")} is paid as overtime: ${hmRO}, approved by the CEO.`, `ot:${uidO}:${dateO}`);
+    return json({ ok: true, minutes: minsRO });
+  }
+
+  /* ---- v1.134.2 - the CEO removes an overtime record ----
+     "cant be remove if it is not valid???" - a one-minute test, an OT in
+     with no OT out, a stretch that should never have been recorded. Gone
+     entirely, whatever its status, with the trail saying who and what. A
+     rest day whose overtime is removed returns to the Rest days worked card
+     for a fresh decision. CEO only. */
+  if (path === "/attendance/ot/remove" && method === "POST") {
+    if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "Only the CEO can remove an overtime record", 403);
+    const uidR = Number(body?.user_id);
+    const dateR = typeof body?.date === "string" ? body.date : "";
+    if (!uidR || !/^\d{4}-\d{2}-\d{2}$/.test(dateR)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    const { results: goneR } = await env.DB.prepare(
+      `SELECT id, type, status, created_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2`,
+    ).bind(uidR, dateR).all<{ id: number; type: string; status: string; created_at: string }>();
+    if ((goneR ?? []).length === 0) return err("not_found", "No overtime record on that day", 404);
+    await env.DB.prepare(`DELETE FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2`).bind(uidR, dateR).run();
+    await audit(env, user.id, "ot.remove", "users", String(uidR), { date: dateR, rows: goneR });
+    await notify(env, uidR, "ot", `The overtime record on ${dateR.split("-").reverse().join("-")} was removed by the CEO.`, `ot:rm:${uidR}:${dateR}`);
+    return json({ ok: true, removed: goneR!.length });
   }
 
   /* ---- v1.134.0 - the CEO amends an overtime record ----
@@ -3329,7 +3392,7 @@ export async function handleStaff(
         why_not: verdictT.ok ? null : verdictT.reason,
         /* v1.134.0 - OT in / OT out open only AFTER the schedule: nothing
            open, nothing left to clock in for. The same gate the route runs. */
-        can_ot: !verdictT.ok && !isOpen(sessT),
+        can_ot: !verdictT.ok && !isOpen(sessT) && slotsT.length > 0,
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
     return json({ month, records: results, ot, ot_eligible, today_shift });
@@ -7689,23 +7752,34 @@ export async function handleStaff(
       if (row.is_default === 1) {
         return err("invalid_input", "This is the default pattern - everybody without their own schedule is measured against it. Make another pattern the default before removing this one.", 400);
       }
+      /* v1.134.1 (CEO: "I cant remove it, this is wrong!") - the guard used
+         to count EVERY assignment to the pattern, including one dated next
+         week. A future-dated assignment has measured nothing and paid
+         nothing; it is a plan, and a plan can be dropped with the pattern
+         it points at. Only an assignment already IN FORCE - effective on or
+         before today - has days behind it that would be re-flagged, and
+         that is the one the message is about. */
+      const todayD = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const { results: users } = await env.DB.prepare(
         `SELECT DISTINCT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
            FROM staff_shifts s JOIN users u ON u.id = s.user_id
-          WHERE s.pattern_id = ?1 ORDER BY name`,
-      ).bind(idD).all<{ name: string }>();
+          WHERE s.pattern_id = ?1 AND s.effective_from <= ?2 ORDER BY name`,
+      ).bind(idD, todayD).all<{ name: string }>();
       if ((users ?? []).length > 0) {
         const who = (users ?? []).map((u) => u.name).slice(0, 6).join(", ");
         const more = (users ?? []).length > 6 ? ` and ${(users ?? []).length - 6} more` : "";
         return err(
           "invalid_input",
-          `${who}${more} ${(users ?? []).length === 1 ? "is" : "are"} still on this pattern. Assign them to another one first - removing it now would re-flag the months they have already been paid for.`,
+          `${who}${more} ${(users ?? []).length === 1 ? "is" : "are"} on this pattern today. Assign them another pattern from a date on or before today first - removing it now would re-flag the days they have already been measured against it. (An assignment dated in the future does not block this; it is removed with the pattern.)`,
           400,
         );
       }
+      const dropped = await env.DB.prepare(`DELETE FROM staff_shifts WHERE pattern_id = ?1 AND effective_from > ?2`)
+        .bind(idD, todayD).run();
       await env.DB.prepare(`DELETE FROM shift_patterns WHERE id = ?1`).bind(idD).run();
-      await audit(env, user.id, "shift_pattern.delete", "shift_patterns", String(idD), { name: row.name });
-      return json({ ok: true });
+      await audit(env, user.id, "shift_pattern.delete", "shift_patterns", String(idD),
+                  { name: row.name, future_assignments_removed: dropped.meta?.changes ?? 0 });
+      return json({ ok: true, future_assignments_removed: dropped.meta?.changes ?? 0 });
     } catch (eD) {
       if (!String(eD).includes("no such table")) throw eD;
       return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
@@ -7737,6 +7811,35 @@ export async function handleStaff(
       `Your working hours change from ${fromS}: ${pat?.name ?? "a new schedule"}.`, `shift:${uidS}:${fromS}`);
     await audit(env, user.id, "staff_shift.assign", "users", String(uidS), { pattern_id: pidS, from: fromS });
     return json({ ok: true }, 201);
+  }
+
+  /* v1.134.1 - REMOVE AN ASSIGNMENT. There was no way to: the chips were
+     read-only, so a wrong pattern given to the wrong person from the wrong
+     date could only be papered over with another assignment on top. The
+     rule is the same one the pattern delete uses: a plan that has not
+     started can be dropped; an assignment already in force has days behind
+     it that were measured against it, so it stays and is superseded by
+     assigning another pattern from a new date. */
+  const asgDel = path.match(/^\/staff-shifts\/(\d+)$/);
+  if (asgDel && method === "DELETE") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const idX = Number(asgDel[1]);
+    const rowX = await env.DB.prepare(
+      `SELECT s.user_id, s.pattern_id, s.effective_from, p.name AS pattern_name
+         FROM staff_shifts s JOIN shift_patterns p ON p.id = s.pattern_id WHERE s.id = ?1`,
+    ).bind(idX).first<{ user_id: number; pattern_id: number; effective_from: string; pattern_name: string }>().catch(() => null);
+    if (!rowX) return err("not_found", "That assignment no longer exists", 404);
+    const todayX = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    if (rowX.effective_from <= todayX) {
+      return err("invalid_input",
+        `This assignment has been in force since ${rowX.effective_from}; the days since then were measured against it. To change the hours, assign another pattern from a new date - that supersedes it without touching what was already measured.`, 400);
+    }
+    await env.DB.prepare(`DELETE FROM staff_shifts WHERE id = ?1`).bind(idX).run();
+    await audit(env, user.id, "staff_shift.unassign", "users", String(rowX.user_id),
+                { pattern_id: rowX.pattern_id, from: rowX.effective_from });
+    await notify(env, rowX.user_id, "attendance",
+      `The working hours planned for you from ${rowX.effective_from} (${rowX.pattern_name}) were withdrawn - your current hours continue.`, `shift:${rowX.user_id}:${rowX.effective_from}:x`);
+    return json({ ok: true });
   }
 
   const attMatch = path.match(/^\/attendance\/(\d+)$/);
@@ -8005,6 +8108,16 @@ export async function handleStaff(
       ).bind(mR).all<{ user_id: number; work_date: string }>();
       done = new Set(cr.map((c) => `${c.user_id}|${c.work_date}`));
     } catch { /* pre-0101 - nothing has been credited yet */ }
+    /* v1.134.2 - the OTHER answer. A rest day the CEO paid as overtime has
+       been decided too, and leaves this list the same way a credited one
+       does. Any overtime row on that day counts: the decision was made. */
+    try {
+      const { results: otD } = await env.DB.prepare(
+        `SELECT DISTINCT user_id, date(created_at, '+8 hours') AS d FROM ot_records
+          WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+      ).bind(mR).all<{ user_id: number; d: string }>();
+      for (const o of otD ?? []) done.add(`${o.user_id}|${o.d}`);
+    } catch { /* pre-0044 */ }
 
     const shiftAtW = await shiftResolver(env);
     const out: {

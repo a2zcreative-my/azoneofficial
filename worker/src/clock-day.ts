@@ -247,8 +247,14 @@ export function claimedSlots(slots: Slot[], sessions: Session[]): Set<number> {
  */
 export function canClockIn(
   slots: Slot[], sessions: Session[], minute: number,
-): { ok: true; slot: Slot } | { ok: false; reason: "no_slots" | "all_claimed" } {
-  if (slots.length === 0) return { ok: false, reason: "no_slots" };
+): { ok: true; slot: Slot | null } | { ok: false; reason: "no_slots" | "all_claimed" } {
+  /* v1.134.2 - a REST DAY with nothing on the roster is ONE clock-in, not
+     none. The CEO: a rest day worked is "for me to decide either OT or
+     replacement leave" - and there is nothing to decide about a day the
+     clock refused to record. One session; the decision is his. */
+  if (slots.length === 0) {
+    return sessions.length === 0 ? { ok: true, slot: null } : { ok: false, reason: "all_claimed" };
+  }
   const claimed = claimedSlots(slots, sessions);
   const i = slotFor(slots, minute);
   if (i >= 0 && !claimed.has(i)) return { ok: true, slot: slots[i]! };

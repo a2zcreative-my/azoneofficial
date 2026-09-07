@@ -151,9 +151,14 @@ const D = "2026-09-07";
   ok("clocking out at 15:00 and back in at 15:20 claims the SAME shift, not a second one",
      cd.claimedSlots(cd.daySlots(split, []), sess(["11:00", "15:00"], ["15:20", "17:00"])).size === 2,
      "a break in the afternoon spends the evening shift - the CEO said one clock-in per shift");
-  ok("a rest day with nothing on the roster: nothing to clock in for",
-     JSON.stringify(cd.canClockIn(cd.daySlots([], []), [], H(11))) === JSON.stringify({ ok: false, reason: "no_slots" }),
-     "the work goes on the roster first, then the clock");
+  /* v1.134.2 - the CEO: a rest day worked is "for me to decide either OT or
+     replacement leave". Nothing to decide about a day the clock refused. */
+  ok("a rest day with nothing on the roster: ONE clock-in, so the day is recorded for the CEO to decide",
+     JSON.stringify(cd.canClockIn(cd.daySlots([], []), [], H(11))) === JSON.stringify({ ok: true, slot: null }),
+     "a refused rest day is a day the CEO cannot pay as OT or credit as replacement leave");
+  ok("...and not a second one",
+     JSON.stringify(cd.canClockIn(cd.daySlots([], []), sess(["11:00", "15:00"]), H(16))) === JSON.stringify({ ok: false, reason: "all_claimed" }),
+     "one stretch a day on a rest day");
   ok("a rest day WITH a live session on the board: that is the shift",
      cd.canClockIn(cd.daySlots([], [{ start: H(20), end: H(22), what: "Sara Beauty" }]), [], H(19, 45)).ok === true);
   ok("an 11-17 person with a 20:00 live assigned: the evening is a second shift",
@@ -198,7 +203,7 @@ ok("the refusal names the shifts", /every shift today \(\$\{slotsLabel\(slotsTod
 ok("the phone is told whether a clock-in is possible, and why not",
    /can_clock_in: verdictT\.ok/.test(staff) && /why_not: verdictT\.ok \? null : verdictT\.reason/.test(staff));
 ok("...and disables Clock in on that answer",
-   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash) && /All shifts clocked/.test(dash) && /No shift today/.test(dash));
+   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash) && /All shifts clocked/.test(dash) && /No shift to clock in for/.test(dash));
 ok("a clock-out is refused only with nothing open, and says what to do next",
    /if \(body\.type === "clock_out" && !openNow\) \{/.test(staff) && /Clock in again when your next shift starts/.test(staff));
 ok("the forgotten-punch flow survives: a clock-out on a day with NO session is still taken as pending",
@@ -236,6 +241,38 @@ ok("the same eligibility as before: not executives, not part-timers",
 ok("OT out delivers straight to the approvers", /after the working schedule\)\.`,\s*\n\s*`ot:\$\{user\.id\}:\$\{todayO\}`/.test(staff));
 ok("the phone offers OT only after the schedule",
    /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash));
+/* ---- v1.134.2 — a rest day worked is ONE decision, the CEO's ---------------
+   CEO: "OT cant be editable? and cant be remove if it is not valid??? this
+   one she work after working day which is supposed for me to decide either
+   OT or replacement leave". */
+const rdc = read("components/portal/rest-day-credits.tsx");
+const rp = read("components/portal/role-panels.tsx");
+ok("a rest day is clocked with Clock in / Clock out, and the clock does not decide it is overtime",
+   /if \(closingSession && !storedPending && !hourlyPunch && sh\.kind !== "rest_day"/.test(staff),
+   "derived OT on a rest day would pre-empt the CEO's choice between OT and replacement leave");
+ok("...and offers no OT buttons on a rest day either", /can_ot: !verdictT\.ok && !isOpen\(sessT\) && slotsT\.length > 0/.test(staff));
+ok("the refusal of a second rest-day clock-in says who decides",
+   /one stretch a day\. The CEO decides whether it counts as overtime or replacement leave/.test(staff)
+   && /clock in and out once — the CEO decides whether it counts as overtime or replacement leave/.test(dash));
+ok("the CEO can pay a rest day as overtime, from the same card as replacement leave",
+   /path === "\/rest-day-ot" && method === "POST"[\s\S]{0,200}?if \(!\["ceo", "super_admin"\]\.includes\(user\.role\)\)/.test(staff)
+   && /`\/rest-day-ot`/.test(rdc) && /Pay as OT/.test(rdc));
+ok("...only for a rest day with a closed stretch on it, once",
+   /if \(shRO\.kind !== "rest_day"\) return err/.test(staff) && /closedRO\.length === 0\) return err/.test(staff) && /err\("already_decided"/.test(staff));
+ok("...written as APPROVED, so it reaches the payroll like any approved overtime",
+   /'ot_in', 'ceo:rest-day', \?2, 'approved', \?3/.test(staff) && /'ot_out', 'ceo:rest-day', \?4, 'approved', \?3/.test(staff)
+   && /"ot\.rest_day_paid"/.test(staff));
+ok("a day decided either way leaves the Rest days worked card",
+   /FROM ot_records[\s\S]{0,400}?done\.add|done\.add[\s\S]{0,400}?FROM ot_records/.test(
+     staff.slice(staff.indexOf('path === "/rest-day-work"'), staff.indexOf('path === "/rest-day-work"') + 4000)));
+ok("the CEO can remove an overtime record - the whole day, whatever its status, with the trail saying what went",
+   /path === "\/attendance\/ot\/remove" && method === "POST"[\s\S]{0,200}?if \(!\["ceo", "super_admin"\]\.includes\(user\.role\)\)/.test(staff)
+   && /DELETE FROM ot_records WHERE user_id = \?1 AND date\(created_at, '\+8 hours'\) = \?2/.test(staff)
+   && /"ot\.remove", "users", String\(uidR\), \{ date: dateR, rows: goneR \}/.test(staff));
+ok("...from the Overtime rows, behind the house confirm, not window.confirm",
+   /askPat\(\{[\s\S]{0,300}?Remove this overtime record\?[\s\S]{0,1200}?act\(`\/attendance\/ot\/remove`/.test(rp) && !/window\.confirm/.test(rp));
+ok("an OT row with no minutes yet still shows its hours from the two punches, or says 'open'",
+   /o\.open \? L\("open", "terbuka"\)/.test(rp));
 ok("approved overtime reaches the payroll by itself",
    /WHERE status = 'approved' AND strftime\('%Y-%m', created_at, '\+8 hours'\) = \?1/.test(staff) && /ot_approved: otApproved/.test(staff)
    && /if \(cur && cur\.ot_hours\) continue;/.test(read("components/portal/payroll-panel.tsx")),
