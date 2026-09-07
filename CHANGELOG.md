@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.133.1] - 2026-09-07 - a pattern is saved under the name that was typed
+
+**CEO**, 07-09-2026, a screenshot of the Working hours card: *"why pattern name like this?! I already set the preferred name!"* - the pattern is called **1.0**.
+
+### What happened
+`str()` in the worker is a type guard: it answers *"is this a usable string"* and returns `true` or `false`. The pattern-save route wrote `const nameS = str(body?.name, 60)` and bound that answer - the boolean `true` - as the name. D1 stored it as `1.0`. **Every pattern created since v1.76.0 was saved as "1.0"**, whatever was typed; only the migration-seeded *Office* pattern kept its name, because no one typed it. Every other call site in the file uses the guard as a guard (`str(x) ? x : ...`); this was the one that did not.
+
+### Fixed
+The route reads the typed name. Opening a pattern still called "1.0" starts the name box **blank**, so Save stays disabled until a real name is typed - it cannot be quietly re-saved as "1.0". To repair yours: open the *1.0* chip, type the name you meant, Save pattern. The hours on it are intact; only the name was lost.
+
+Guard #24 gains three checks: the name is the typed string; **no line in the worker binds `str()`'s boolean as a value**; a legacy "1.0" opens blank. Negative-tested by putting the bare guard back.
+
+`worker/src/staff.ts`, `components/portal/role-panels.tsx`, `tests/shift-schedule.mjs`. No migration.
+
 ## [1.133.0] - 2026-09-07 - clock in and out per shift; overtime is what lies outside the schedule
 
 **CEO**, 07-09-2026: *"OT pending is not appear. there should a conditional for Clock in and Clock out on the staff which is maybe they will work on 11:00am to 5:00pm, then continue work on night which is 8:00pm to 10:00pm"* - and then: *"I want my staff being clock in and out based on their working schedule ... 11:00am to 05:00pm then next shift schedule 08:00pm to 10:00pm or 8:30pm to 10:30pm it is either. then another shift maybe will be started at 2:00pm to 10:00pm. OT is based on outside of their working schedule."*

@@ -120,6 +120,23 @@ const ok = (label, cond, extra = "") => {
      "11:00 to 22:30 is 11.5 hours elapsed and 8 hours worked - comparing the span against a scheduled 8 reports a short day as a long one");
 }
 
+/* ---- 2b. the pattern is saved under the name that was typed ---------
+   v1.133.1 - `str()` is a type guard (`v is string`); it returns a boolean.
+   `const nameS = str(body?.name, 60)` bound `true` as the name, and D1
+   stored 1.0. Every pattern the CEO created since v1.76.0 was called "1.0".
+   The property: the guard's answer is never bound as a value - every use of
+   `= str(` is a ternary that reads the ORIGINAL field. */
+{
+  ok("the pattern name is the typed string, not the guard's answer",
+     /const nameS = str\(body\?\.name, 60\) \? \(body!\.name as string\)\.trim\(\) : "";/.test(staff),
+     "binding a type guard's boolean stores 1.0 as the name");
+  const bound = [...staff.matchAll(/const (\w+) = str\([^)]*\);/g)].map((m) => m[1]);
+  ok("no line in the worker binds str()'s boolean as a value", bound.length === 0,
+     `bound directly: ${bound.join(", ")} - str() answers a question, it does not return the string`);
+  ok("a legacy pattern named 1.0 opens with a blank name so it cannot be re-saved as 1.0",
+     /name: \/\^1\(\\\.0\)\?\$\/\.test\(String\(pt\.name\)\) \? "" : pt\.name,/.test(panels));
+}
+
 /* ---- 3. effective dating ---- */
 {
   ok("the pattern in force is the latest one that had started",

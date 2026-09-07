@@ -2603,7 +2603,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 className={`${chipNeutral} hover:bg-secondary/70`}
                 title={L("Edit this pattern", "Sunting corak ini")}
                 onClick={() => { setBulkDays([]); setBulk({ start: "", end: "", start2: "", end2: "" }); setEditP({
-                  id: pt.id, name: pt.name, half: toTime(pt.half_day_minutes as number),
+                  id: pt.id,
+                  /* v1.133.1 - a pattern saved before the fix is named "1.0"
+                     (the worker stored a boolean). Opening one starts the
+                     name blank, so Save stays disabled until a real name is
+                     typed instead of quietly re-saving "1.0". */
+                  name: /^1(\.0)?$/.test(String(pt.name)) ? "" : pt.name,
+                  half: toTime(pt.half_day_minutes as number),
                   /* Absent on a pre-0103 row. 60 is what 0103 gives every
                      existing pattern, so the editor shows what the server
                      will apply rather than a zero it would then overwrite. */

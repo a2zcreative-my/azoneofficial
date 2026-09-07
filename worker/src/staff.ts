@@ -7332,7 +7332,14 @@ export async function handleStaff(
 
   if (path === "/shift-patterns" && (method === "POST" || method === "PATCH")) {
     if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
-    const nameS = str(body?.name, 60);
+    /* v1.133.1 (CEO: "why pattern name like this?! I already set the
+       preferred name!") - `str()` is a TYPE GUARD: it answers "is this a
+       usable string", it does not return the string. Since v1.76.0 this line
+       bound its answer - the boolean `true` - as the pattern's name, and D1
+       stored it as 1.0. Every pattern he ever created was called "1.0"; only
+       the migration-seeded Office pattern kept its name. Every other call
+       site in this file uses the guard as a guard (`str(x) ? x : ...`). */
+    const nameS = str(body?.name, 60) ? (body!.name as string).trim() : "";
     if (!nameS) return err("invalid_input", "A name is required", 400);
     /* Minutes since midnight, or null for a day this pattern does not work.
        Validated rather than trusted: a start after its own end would silently
