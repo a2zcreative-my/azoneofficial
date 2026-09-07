@@ -205,6 +205,7 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
                       <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={orderDraft.paid} onChange={(e) => setOrderDraft((o) => ({ ...o, paid: e.target.checked }))} /> {L("paid", "dibayar")}</label>
                       <button type="button" className={btnSm} onClick={() => void addOrder(s.id)}>{L("Add purchase", "Tambah pembelian")}</button>
                       <label className="text-xs">{L("Target RM", "Sasaran RM")}<input type="number" min={0} step="100" className={`${inputClass} ml-1 h-8 w-28`} placeholder={month ? ym(month) : ""}
+                        key={`target:${s.target_cents ?? ""}`}
                         defaultValue={s.target_cents ? (s.target_cents / 100).toString() : ""}
                         onBlur={async (e) => { if (e.target.value && month) { await api(`/stokis/${s.id}/target`, { method: "POST", body: JSON.stringify({ month, target_cents: Math.round(Number(e.target.value) * 100) }) }); showToast(L("Saved", "Disimpan"), L("Target set", "Sasaran ditetapkan")); void load(); } }} /></label>
                     </div>

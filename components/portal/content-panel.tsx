@@ -246,7 +246,7 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
                   <div className="mt-2 flex flex-wrap items-end gap-2">
                     <label className="flex-1">
                       <span className={fieldLabel}>{L("Log performance (views / GMV / notes)", "Catat prestasi (tontonan / GMV / nota)")}</span>
-                      <input className={inputClass} defaultValue={c.performance ?? ""} placeholder={L("e.g. 42k views · RM3,200 GMV · 3.1% CVR", "cth. 42k tontonan · RM3,200 GMV · 3.1% CVR")}
+                      <input className={inputClass} key={`perf:${c.performance ?? ""}`} defaultValue={c.performance ?? ""} placeholder={L("e.g. 42k views · RM3,200 GMV · 3.1% CVR", "cth. 42k tontonan · RM3,200 GMV · 3.1% CVR")}
                         onBlur={async (e) => { if (e.target.value !== (c.performance ?? "")) { await api(`/content/${c.id}`, { method: "PATCH", body: JSON.stringify({ performance: e.target.value }) }); showToast(L("Saved", "Disimpan"), L("Performance logged", "Prestasi dicatat")); void load(); } }} />
                     </label>
                   </div>

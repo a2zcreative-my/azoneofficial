@@ -45,6 +45,14 @@ import { AppIcon } from "@/components/ui/app-icon";
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
+/** A flash deadline, in the form the CEO reads dates in. Local time on
+    purpose: the deadline is a moment in his shop's day, not a UTC stamp. */
+const flashWhen = (ms: number): string => {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 interface ElfiaItem {
   id: number;
   sku: string;
@@ -59,7 +67,11 @@ interface ElfiaItem {
   elfia_description?: string | null;
   elfia_image_key?: string | null;
   elfia_image_updated_at?: string | null;
-  elfia_discount_cents?: number | null; // v1.46.0
+  elfia_discount_cents?: number | null;
+  /* The flash deadline. Declared since v1.46.0 and returned by /inventory all
+     along (SELECT i.*) - the panel simply never READ it, which is how an ended
+     sale went on being drawn as a live one until v1.132.0. */
+  elfia_flash_until?: string | null;
 }
 
 interface Slide { // v1.46.0 — one hero-carousel slide
@@ -1464,9 +1476,32 @@ export function ElfiaStorePanel() {
                         {L("Publish", "Terbitkan")}
                       </label>
 
+                      {/* v1.132.0 — THE BOX MUST SHOW WHAT IS STORED.
+                          CEO, 07-09-2026, screenshot: Web price 39.00,
+                          Discount 11.00, and beside them "Customer pays
+                          RM 29.00". 39 − 11 is 28. The line was right and the
+                          BOX was lying: the stored discount was RM 10.00 from
+                          a bulk "RM 10 off", and 11.00 was text he had typed
+                          into the box earlier that never became data.
+
+                          Why: these inputs are uncontrolled — `defaultValue`
+                          is read ONCE, when React first mounts the node.
+                          Every save calls load(), which replaces `items`, but
+                          the row is keyed by `it.id`, so React REUSES the same
+                          <input> element and never touches its value again.
+                          Type into it and don't blur, or change the number
+                          from the bulk bar, and the box keeps showing a figure
+                          the database has never heard of — for the rest of the
+                          session.
+
+                          The fix is the key: fold the STORED value into it, so
+                          the node is remounted (and `defaultValue` re-read)
+                          exactly when the stored value changes, and left alone
+                          — mid-typing undisturbed — when it does not. */}
                       <label className="flex items-center gap-1.5">
                         {L("Web price RM", "Harga web RM")}
                         <input type="number" min={0} step="0.01"
+                          key={`webprice:${it.elfia_price_cents ?? ""}`}
                           className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right"
                           placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
                           defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
@@ -1491,6 +1526,7 @@ export function ElfiaStorePanel() {
                         <input type="number" min={0} step="0.01"
                           className="border-input bg-background w-16 rounded border px-1.5 py-0.5 text-right"
                           placeholder="0"
+                          key={`discount:${it.elfia_discount_cents ?? ""}`}
                           defaultValue={it.elfia_discount_cents ? rmBare(it.elfia_discount_cents) : ""}
                           title={L("Web discount — the shop shows the old price struck through and charges price minus this. Empty = no discount.",
                                     "Diskaun web — kedai memaparkan harga lama dipotong dan mencaj harga tolak jumlah ini. Kosong = tiada diskaun.")}
@@ -1509,15 +1545,60 @@ export function ElfiaStorePanel() {
                           }} />
                       </label>
 
+                      {/* v1.132.0 — AND IT MUST AGREE WITH THE SHOP.
+                          This line used to be `base - disc`, full stop. The
+                          feed has never worked that way: since v1.63.0 a
+                          discount may carry a FLASH DEADLINE, and once that
+                          deadline passes the feed stops applying the discount
+                          — that is the whole point of the word "flash", the
+                          price reverting by itself with nobody having to
+                          remember to clear it.
+
+                          So an expired flash sale left this panel promising
+                          "Customer pays RM 29.00" for ever while the shop
+                          charged RM 39.00, and the row gave no hint why: the
+                          deadline appeared nowhere on screen, so the two
+                          systems looked like they had simply failed to sync.
+
+                          The rule below is the one bridge-feed.ts runs
+                          (flashExpired / flashActiveUntil). That file OWNS it;
+                          this is a second copy, because a client panel cannot
+                          import worker code — so tests/input-truth.mjs holds
+                          the two spellings together, which is what pays for
+                          the duplication. */}
                       {(() => {
                         const base = it.elfia_price_cents ?? it.unit_price_cents ?? 0;
                         const disc = it.elfia_discount_cents ?? 0;
                         if (!(disc > 0 && disc < base)) return null;
+                        const raw = it.elfia_flash_until;
+                        /* SQLite writes "2026-09-09 18:00:00" — no T, no zone.
+                           Read as UTC, exactly as the feed reads it. */
+                        const at = typeof raw === "string" && raw.trim() !== ""
+                          ? Date.parse(raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`)
+                          : NaN;
+                        const ended = Number.isFinite(at) && at <= Date.now();
+                        const running = Number.isFinite(at) && at > Date.now();
+                        if (ended) {
+                          /* The honest sentence, and the way out of it. */
+                          return (
+                            <span className="text-warning font-medium"
+                              title={L("The feed stops applying a discount once its flash deadline has passed — the shop charges the full price.",
+                                       "Suapan berhenti mengenakan diskaun apabila tarikh tamat jualan kilat berlalu — kedai mengenakan harga penuh.")}>
+                              {L(`Flash sale ended ${flashWhen(at)} — the shop charges RM ${rmBare(base)}, not RM ${rmBare(base - disc)}. Press End flash sale to keep the discount without a deadline.`,
+                                 `Jualan kilat tamat ${flashWhen(at)} — kedai mengenakan RM ${rmBare(base)}, bukan RM ${rmBare(base - disc)}. Tekan Tamatkan jualan kilat untuk kekalkan diskaun tanpa tarikh tamat.`)}
+                            </span>
+                          );
+                        }
                         return (
                           <span className="font-medium text-success"
                             title={L("What the shop shows: old price struck through, this charged", "Apa yang kedai papar: harga lama dipotong, ini dicaj")}>
                             {L("Customer pays", "Pelanggan bayar")} RM {rmBare(base - disc)}
                             <s className="text-muted-foreground ml-1 font-normal">RM {rmBare(base)}</s>
+                            {running && (
+                              <span className="text-gold-deep ml-1 font-normal">
+                                {L(`· flash until ${flashWhen(at)}`, `· kilat hingga ${flashWhen(at)}`)}
+                              </span>
+                            )}
                           </span>
                         );
                       })()}
@@ -1535,6 +1616,7 @@ export function ElfiaStorePanel() {
                         {L("Collection", "Koleksi")}
                         <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5"
                           list="elfia-collections"
+                          key={`collection:${it.elfia_category ?? ""}`}
                           defaultValue={it.elfia_category ?? ""}
                           maxLength={40}
                           placeholder={L("Bawal", "Bawal")}
@@ -1580,6 +1662,7 @@ export function ElfiaStorePanel() {
                     {openDesc[it.id] && (
                       <div className="mt-2">
                         <textarea className={`${inputClass} h-20 text-xs`} maxLength={2000}
+                          key={`desc:${it.elfia_description ?? ""}`}
                           defaultValue={it.elfia_description ?? ""}
                           placeholder={L("What the ELFIA product page says about this item — material, feel, sizing. Saves when you click away; empty keeps the store's own text.",
                                           "Apa yang halaman produk ELFIA katakan tentang barang ini — bahan, rasa, saiz. Disimpan apabila klik di luar; kosong mengekalkan teks kedai sendiri.")}
@@ -1712,7 +1795,8 @@ export function ElfiaStorePanel() {
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                   <label className="flex flex-1 items-center gap-2" style={{ minWidth: "12rem" }}>
                     <span className="text-muted-foreground shrink-0">{L("Zoom", "Zum")}</span>
-                    <input type="range" min={100} max={300} step={5} defaultValue={zoomOf(sl)}
+                    <input type="range" min={100} max={300} step={5}
+                      key={`zoom:${zoomOf(sl)}`} defaultValue={zoomOf(sl)}
                       className="flex-1 accent-current"
                       onInput={(e) => {
                         /* Live preview while dragging; only the release is saved. */
@@ -1765,6 +1849,7 @@ export function ElfiaStorePanel() {
                       <label className="flex flex-1 items-center gap-2" style={{ minWidth: "10rem" }}>
                         <span className="text-muted-foreground shrink-0">{L("Height", "Tinggi")}</span>
                         <input type="range" min={100} max={160} step={2}
+                          key={`cutscale:${Number(sl.cutout_scale) || 118}`}
                           defaultValue={Number(sl.cutout_scale) || 118}
                           className="flex-1 accent-current"
                           onChange={(e) => void patchSlide(sl.id, { cutout_scale: Number(e.target.value) },
@@ -1779,10 +1864,10 @@ export function ElfiaStorePanel() {
                   )}
                 </div>
                 <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
-                  placeholder={L("Big line (optional)", "Baris besar (pilihan)")} defaultValue={sl.title ?? ""} maxLength={120}
+                  placeholder={L("Big line (optional)", "Baris besar (pilihan)")} key={`title:${sl.title ?? ""}`} defaultValue={sl.title ?? ""} maxLength={120}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
                 <input className="border-input bg-background mt-1 w-full rounded border px-2 py-1 text-xs"
-                  placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} defaultValue={sl.subtitle ?? ""} maxLength={200}
+                  placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} key={`subtitle:${sl.subtitle ?? ""}`} defaultValue={sl.subtitle ?? ""} maxLength={200}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.subtitle ?? "")) void patchSlide(sl.id, { subtitle: v }, L("caption saved", "kapsyen disimpan")); }} />
                 <div className="mt-1.5 flex items-center gap-2 text-xs">
                   <button type="button" className={btnSm} disabled={idx === 0}

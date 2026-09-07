@@ -2,6 +2,41 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.132.0] - 2026-09-07 - the ELFIA panel stops promising a price the shop will not charge
+
+**CEO**, 07-09-2026, a screenshot of the ELFIA tab beside one of the live shop: *"price update on ELFIA store tabs was not sync into the ELFIA store website ... not updated at all!"*
+
+### The screenshot answered it
+Web price **39.00**, Discount **11.00**, and on the same row **"Customer pays RM 29.00 - RM 39.00"**. 39 minus 11 is 28. Two different things were wrong on one line, and neither of them was the sync.
+
+### 1. The boxes were showing figures the database had never heard of
+The stored discount was **RM 10.00** - which is why the sentence said 29.00, and it was right. The **11.00** was text typed into the box earlier that never became data.
+
+These fields are uncontrolled: `<input defaultValue={row.x}>` with a save on blur. React reads `defaultValue` **once**, when it first mounts that node. Every save calls `load()`, which replaces the rows - but each row is keyed by its id, so React reuses the same `<input>` element and never touches its value again. From that moment the box is a scratchpad. Type into it without blurring, or change the number from the bulk bar, and it keeps showing a figure nothing agrees with, for the rest of the session.
+
+That is not cosmetic. Two of these are the **ELFIA web price** and the **list price** - the numbers a customer is charged. The fix is the key: fold the stored value into it, so the node is remounted (and `defaultValue` re-read) exactly when the stored value changes, and left alone - mid-typing undisturbed - when it does not. Applied to all thirteen bound inputs across the ELFIA panel, Inventory, Stokis, Watchers and Content.
+
+### 2. An ended flash sale looked exactly like a live discount
+Since v1.63.0 a discount may carry a **flash deadline**, and once that deadline passes `bridge-feed.ts` stops applying the discount - the price reverts by itself, which is the whole point of the word "flash". One clock, and it is the portal's.
+
+The panel had never heard of deadlines. `elfia_flash_until` has been in the API response since v1.46.0 (`SELECT i.*`) and the panel simply never read it, so an expired sale went on being drawn as `Customer pays RM 29.00` for ever while the shop correctly charged RM 39.00 - **and the row gave no hint why**, because the deadline appeared nowhere on screen. Two systems that were each behaving correctly looked like a broken sync.
+
+The row now runs the same rule the feed runs, and says the outcome out loud:
+
+> *Flash sale ended 05-09-2026 14:19 - the shop charges RM 39.00, not RM 29.00. Press End flash sale to keep the discount without a deadline.*
+
+A sale still running shows its deadline beside the price instead of hiding it.
+
+### Under it
+`components/portal/elfia-store-panel.tsx`, `role-panels.tsx`, `stokis-panel.tsx`, `watchers-card.tsx`, `content-panel.tsx`. Guard **#59** `tests/input-truth.mjs`, 15 checks: it finds every uncontrolled input bound to server data and fails one that is unkeyed **or keyed on something constant** (the bug wearing a key); it holds the panel and `bridge-feed.ts` to the same flash rule, including reading a bare SQLite stamp as UTC on both sides - a zone difference would make them disagree by eight hours, at exactly the moment a sale ends. Negative-tested six ways.
+
+Rendered against the real panel with the CEO's own figures at 1280px and 390px - the expired row, a running sale, an ordinary discount and no discount at all; no overflow, no page errors.
+
+Full suite, `tsc`, `eslint` and a production build pass. No database change, and the store is untouched.
+
+### Still outstanding, and separate from this
+Nothing has been deployed to either system since **27 August**. `PUSH.bat` publishes both, and store versions v1.44.1 to v1.46.2 are waiting on it - including v1.46.0, which replaces Billplz with BayarCash. Three of the portal's files are also sitting in the store folder (`worker/src/index-2.ts`, `package-1.json`, `CHANGELOG-1.md`), saved there by accident on 5 September; they are harmless to `PUSH.bat` but they stop the store's own `DEPLOY.bat` at its first gate with a misleading "a credential is written into the code".
+
 ## [1.131.0] - 2026-09-06 - an approved leave day cannot be booked
 
 **CEO**, 06-09-2026, looking at a week with two "On leave" cells in it: *"should if there is a leave that taken by the staff, then the date that I want to select should not be available to her/him if the date is leave date apply"*

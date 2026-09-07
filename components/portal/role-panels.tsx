@@ -1108,6 +1108,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   <td className={tdR2}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
                       title={L("Price per unit (RM) — saves on change", "Harga seunit (RM) — disimpan apabila diubah")}
+                      key={`unitprice:${it.unit_price_cents ?? ""}`}
                       defaultValue={it.unit_price_cents ? rmBare(it.unit_price_cents) : ""}
                       onBlur={async (e) => {
                         const v = Number(e.target.value);
@@ -1150,6 +1151,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                           className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
                           placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
                           title={L("Web price (RM) — what the ELFIA store charges. Empty = the list price/unit. The live rebate never applies online.", "Harga web (RM) — yang dicaj oleh kedai ELFIA. Kosong = harga senarai/unit. Rebat live tidak sekali-kali terpakai dalam talian.")}
+                          key={`webprice:${it.elfia_price_cents ?? ""}`}
                           defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
                           onBlur={async (e) => {
                             const raw = e.target.value.trim();
@@ -2022,6 +2024,7 @@ export function BirthdaysPanel() {
               <input
                 type="date"
                 className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                key={`bday:${u.birthday ?? ""}`}
                 defaultValue={u.birthday ?? ""}
                 onChange={(e) => setDraft((d) => ({ ...d, [u.id]: e.target.value }))}
               />

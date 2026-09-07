@@ -121,6 +121,7 @@ const GUARDS = [
   ["signature-entities", "a document is signed by the entity that issued it, at the version it was signed with"],
   ["cards-tab", "the Cards tab belongs to the three officers, and says what that restriction is"],
   ["roster-leave", "an approved leave day cannot be booked, on any of the five doors that choose one"],
+  ["input-truth", "a box that shows a saved figure shows the SAVED one, and the ELFIA panel agrees with the shop"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

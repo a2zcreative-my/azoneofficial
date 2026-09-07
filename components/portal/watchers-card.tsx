@@ -139,7 +139,7 @@ export function WatchersCard({ role, go }: { role: string; go: (tab: string) => 
               </label>
               {w.threshold_label && (
                 <span className="flex items-center gap-1.5">
-                  <input type="number" min={0} max={3650} className={`${inputClassSm} w-20 text-right tabular-nums`} defaultValue={w.threshold ?? w.default_threshold ?? 0}
+                  <input type="number" min={0} max={3650} className={`${inputClassSm} w-20 text-right tabular-nums`} key={`thr:${w.threshold ?? w.default_threshold ?? 0}`} defaultValue={w.threshold ?? w.default_threshold ?? 0}
                     disabled={!canEdit || busy === w.key} aria-label={L(`${w.label} threshold`, `Ambang ${w.label}`)}
                     onBlur={(e) => { const n = Number(e.target.value); if (Number.isInteger(n) && n !== (w.threshold ?? w.default_threshold)) void save(w, { threshold: n }); }} />
                   <span className="text-muted-foreground">{L(w.threshold_label, UNIT_MS[w.threshold_label] ?? w.threshold_label)}</span>
