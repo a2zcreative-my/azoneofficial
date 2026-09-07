@@ -7,6 +7,7 @@ import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // 
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
+import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
 import { serializeBridgeBackdrop, serializeBridgeCatalog, serializeBridgeItems, serializeBridgeSettings, serializeBridgeSlides, type BridgeRow, type SlideRow } from "./bridge-feed";
@@ -1063,29 +1064,85 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_n
          product/variant name AND only ONE inventory item qualifies — a
          multi-hit never deducts, so an ambiguous name can't move the wrong
          stock. Names shorter than 3 chars never contains-match. */
-async function matchInventoryItem(env: Env, sku: string, name: string, variant: string):
-    Promise<{ id: number; stock: number; name: string; unit_price_cents: number | null; via: "sku" | "name" } | null> {
+type MatchedItem = { id: number; stock: number; name: string; unit_price_cents: number | null; via: "sku" | "name" | "words" };
+type LineMatch = { kind: "one"; item: MatchedItem } | { kind: "ambiguous"; names: string[] } | { kind: "none" };
+async function matchInventoryItem(env: Env, sku: string, name: string, variant: string): Promise<LineMatch> {
+  type Row = { id: number; stock: number; name: string; unit_price_cents: number | null };
   if (sku) {
     const bySku = await env.DB.prepare(
       `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(sku)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(sku).first<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
-    if (bySku) return { ...bySku, via: "sku" };
+    ).bind(sku).first<Row>();
+    if (bySku) return { kind: "one", item: { ...bySku, via: "sku" } };
+    /* v1.135.0 - the store's rule for the same SKU: 'LUMI001' on the TikTok
+       listing is 'LUMI 001' in inventory (0079 sku_key). */
+    const byKey = await env.DB.prepare(
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE sku_key = ?1 LIMIT 1`,
+    ).bind(lineSkuKey(sku)).first<Row>().catch(() => null);
+    if (byKey) return { kind: "one", item: { ...byKey, via: "sku" } };
   }
   for (const cand of [variant, name]) {
     if (!cand) continue;
     const exact = await env.DB.prepare(
       `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(cand).first<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
-    if (exact) return { ...exact, via: "name" };
+    ).bind(cand).first<Row>();
+    if (exact) return { kind: "one", item: { ...exact, via: "name" } };
   }
   if (name) {
     const contains = await env.DB.prepare(
       `SELECT id, stock, name, unit_price_cents FROM inventory_items
        WHERE length(trim(name)) >= 3 AND instr(lower(?1), lower(trim(name))) > 0 LIMIT 2`,
-    ).bind(name).all<{ id: number; stock: number; name: string; unit_price_cents: number | null }>();
-    if (contains.results.length === 1) return { ...contains.results[0]!, via: "name" };
+    ).bind(name).all<Row>();
+    if (contains.results.length === 1) return { kind: "one", item: { ...contains.results[0]!, via: "name" } };
+    /* v1.135.0 (CEO: "LUMI was not deducted from the inventory ... it is
+       supposed to deduct automatically!!!") - "Bawal lumi Lilac" is not a
+       substring of "BAWAL LUMI COTTON VOILE Lilac", but every word of it
+       that matters is in there. The rule in line-match.ts: all distinctive
+       words present, best-covered name wins, a tie is refused as ambiguous. */
+    const { results: everything } = await env.DB.prepare(
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE length(trim(name)) >= 3`,
+    ).all<Row>();
+    const m = matchByWords(name, everything ?? []);
+    if (m.kind === "one") return { kind: "one", item: { ...m.item, via: "words" } };
+    if (m.kind === "ambiguous") return m;
   }
-  return null;
+  return { kind: "none" };
+}
+
+/** v1.135.0 - one resolver for the three places a TikTok order's lines meet
+    inventory (first import, the retry on every sync, the webhook), so they
+    cannot drift. Returns what to deduct and the notes that explain what did
+    not happen, in the words the TikTok Orders card prints. */
+async function resolveTiktokLines(env: Env, lines: { sku: string; name: string; variant: string; qty: number; unit_sale_cents: number | null }[]): Promise<{
+  resolved: { id: number; qty: number; unit_sale_cents: number | null }[];
+  notes: string[];
+  deductible: boolean;
+}> {
+  const resolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
+  const unknown: string[] = [];
+  const ambiguous: string[] = [];
+  const shortages: string[] = [];
+  const nameMatched: string[] = [];
+  const wordMatched: string[] = [];
+  for (const l of lines) {
+    const m = await matchInventoryItem(env, l.sku, l.name, l.variant);
+    if (m.kind === "none") { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
+    if (m.kind === "ambiguous") { ambiguous.push(`${l.qty}× ${l.sku || l.name} could be ${m.names.join(" or ")}`); continue; }
+    const item = m.item;
+    if (item.via === "name") nameMatched.push(item.name);
+    if (item.via === "words") wordMatched.push(`${item.name} ← ${l.name}`);
+    if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
+    resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
+  }
+  const notes: string[] = [];
+  if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
+  if (wordMatched.length) notes.push(`matched by words: ${wordMatched.join(", ")}`);
+  if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
+  if (ambiguous.length) notes.push(`NOT deducted — ambiguous, rename one item so only one fits: ${ambiguous.join("; ")}`);
+  if (shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
+  /* Same all-or-nothing rule as before: a shortage on one line holds the
+     whole order, and a line that matched nothing (or two things) simply
+     is not moved - the note says so and the next sync retries it. */
+  return { resolved, notes, deductible: shortages.length === 0 && resolved.length > 0 };
 }
 
 /** v1.4.166: write a TikTok stock movement with the actual sold price, then
@@ -1694,18 +1751,9 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
         ).bind(exists.id).first<{ n: number }>();
         if ((moved?.n ?? 0) === 0) {
           const rLines = groupLineItems(o.line_items ?? []);
-          const rResolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
-          const rUnknown: string[] = [];
-          const rShortages: string[] = [];
-          const rNameMatched: string[] = [];
-          for (const l of rLines) {
-            const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
-            if (!item) { rUnknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
-            if (item.via === "name") rNameMatched.push(item.name);
-            if (item.stock < l.qty) rShortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
-            rResolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
-          }
-          if (rShortages.length === 0 && rResolved.length > 0) {
+          const rr = await resolveTiktokLines(env, rLines); // v1.135.0
+          const rResolved = rr.resolved;
+          if (rr.deductible) {
             for (const l of rResolved) {
               const upd = await env.DB.prepare(
                 `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
@@ -1720,9 +1768,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
             }
             const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
             const stamp = `${String(mytNow.getUTCDate()).padStart(2, "0")}-${String(mytNow.getUTCMonth() + 1).padStart(2, "0")} ${String(mytNow.getUTCHours()).padStart(2, "0")}:${String(mytNow.getUTCMinutes()).padStart(2, "0")} MYT`;
-            const rNotes = ["TikTok order (synced)", `✔ stock deducted on retry ${stamp}`];
-            if (rNameMatched.length) rNotes.push(`matched by item name: ${rNameMatched.join(", ")}`);
-            if (rUnknown.length) rNotes.push(`not in inventory (SKU or name): ${rUnknown.join(", ")}`);
+            const rNotes = ["TikTok order (synced)", `✔ stock deducted on retry ${stamp}`, ...rr.notes];
             await env.DB.prepare(
               `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
             ).bind(rNotes.join(" · "), exists.id).run();
@@ -1730,9 +1776,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
           } else if (rLines.length > 0) {
             // Still can't deduct — refresh the reason so the CEO sees the
             // CURRENT blocker (fixing one SKU updates the list next sync).
-            const rNotes = ["TikTok order (synced)"];
-            if (rUnknown.length) rNotes.push(`not in inventory (SKU or name): ${rUnknown.join(", ")}`);
-            if (rShortages.length) rNotes.push(`NOT deducted — ${rShortages.join("; ")}`);
+            const rNotes = ["TikTok order (synced)", ...rr.notes];
             await env.DB.prepare(
               `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
             ).bind(rNotes.join(" · "), exists.id).run();
@@ -1743,24 +1787,10 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       continue;
     }
     const lines = groupLineItems(o.line_items ?? []);
-    const resolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
-    const unknown: string[] = [];
-    const shortages: string[] = [];
-    const nameMatched: string[] = [];
-    for (const l of lines) {
-      // v1.4.162: SKU first, item-name fallback (see matchInventoryItem)
-      const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
-      if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
-      if (item.via === "name") nameMatched.push(item.name);
-      if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} < ${l.qty}`);
-      resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
-    }
+    const { resolved, notes: lineNotes, deductible } = await resolveTiktokLines(env, lines); // v1.135.0
     // v1.5.0: never deduct stock for an order that is already returned/cancelled.
-    const canDeduct = shortages.length === 0 && resolved.length > 0 && uiNow !== "returned";
-    const notes = ["TikTok order (synced)"];
-    if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
-    if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
-    if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
+    const canDeduct = deductible && uiNow !== "returned";
+    const notes = ["TikTok order (synced)", ...lineNotes];
     const rec = await env.DB.prepare(
       `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
        VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, ?6, NULL) RETURNING id`,
@@ -1780,7 +1810,8 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
         }
       }
     }
-    if (unknown.length) problems.push(`${orderRef}: unmatched ${unknown.join(", ")}`);
+    const stuck = lineNotes.filter((n) => /^not in inventory|^NOT deducted/.test(n));
+    if (stuck.length) problems.push(`${orderRef}: ${stuck.join(" · ")}`);
     imported += 1;
   }
   if (imported > 0 || retried > 0 || actorId) {
@@ -2967,25 +2998,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // Line items are not in the webhook — fetch them from the Order API.
       const detail = await tiktokOrderItems(env, orderId);
       const lines = detail.items;
-      const resolved: { id: number; qty: number; unit_sale_cents: number | null }[] = [];
-      const unknown: string[] = [];
-      const shortages: string[] = [];
-      const nameMatched: string[] = [];
-      for (const l of lines) {
-        // v1.4.162: SKU first, item-name fallback (see matchInventoryItem)
-        const item = await matchInventoryItem(env, l.sku, l.name, l.variant);
-        if (!item) { unknown.push(`${l.qty}× ${l.sku || l.name}`); continue; }
-        if (item.via === "name") nameMatched.push(item.name);
-        if (item.stock < l.qty) shortages.push(`${item.name}: ${item.stock} in stock, order needs ${l.qty}`);
-        resolved.push({ id: item.id, qty: l.qty, unit_sale_cents: l.unit_sale_cents });
-      }
-      const canDeduct = shortages.length === 0 && resolved.length > 0;
+      const { resolved, notes: lineNotes, deductible: canDeduct } = await resolveTiktokLines(env, lines); // v1.135.0
       const notes = ["TikTok order (auto)"];
       if (lines.length === 0) notes.push("items not retrieved — authorize the app to enable stock movement");
-      if (nameMatched.length) notes.push(`matched by item name: ${nameMatched.join(", ")}`);
-      if (unknown.length) notes.push(`not in inventory (SKU or name): ${unknown.join(", ")}`);
-      if (!canDeduct && shortages.length) notes.push(`NOT deducted — ${shortages.join("; ")}`);
-
+      notes.push(...lineNotes);
       const rec = await env.DB.prepare(
         `INSERT INTO postage_records (order_ref, courier, buyer_city, status, note, updated_by)
          VALUES (?1, 'TikTok', ?2, 'preparing', ?3, NULL) RETURNING id`,
@@ -3006,7 +3022,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         }
       }
       await audit(env, null, "tiktok.order", "postage_records", String(rec?.id), { status: rawStatus, deducted: canDeduct });
-      return json({ ok: true, order_ref: orderRef, deducted: canDeduct, unknown_skus: unknown, shortages }, 201);
+      return json({ ok: true, order_ref: orderRef, deducted: canDeduct, notes: lineNotes }, 201);
     }
 
     if (reversal.some((k) => rawStatus.includes(k))) {

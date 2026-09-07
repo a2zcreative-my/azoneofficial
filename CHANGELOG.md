@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.135.0] - 2026-09-07 - a TikTok line finds its item by its distinctive words
+
+**CEO**, 07-09-2026, on two shipped TikTok orders sitting on *No stock movement recorded - not in inventory (SKU or name): 1x BAWAL LUMI COTTON VOILE Lilac*: *"LUMI was not deducted from the inventory which is it is not correct. it is supposed to deduct automatically!!!"*
+
+The listing on TikTok is **BAWAL LUMI COTTON VOILE**, variant **Lilac**. The item in inventory is **Bawal lumi Lilac**. The name fallback (v1.4.162) asked whether the inventory name appeared *inside* the TikTok name as one unbroken string - and it does not, because the fabric sits between the brand and the shade. So the line matched nothing, the stock stood still, and every sync since has said so.
+
+The rule the store and the ELFIA panel already use for catalogue labels (v1.57.0) is the right one here too: an item matches a line when **every distinctive word of its name appears in the line**, in any order, with anything in between. *Bawal lumi Lilac* has one distinctive word - lilac - and the line has it. Family and fabric words (bawal, lumi, shawl, chiffon, cotton, voile...) are never distinctive on their own, and neither is a word under three letters. Two safeguards, because a rule that can move the wrong stock is worse than one that moves none: when more than one item qualifies, the one whose whole name the line covers best wins (*Bawal lumi Lilac* over *Shawl chiffon Lilac* for a line that says bawal and lumi), and a **tie is refused as ambiguous**, naming both on the card so a human renames one. A SKU is also tried by the store's key first, so `LUMI001` on the listing finds `LUMI 001` in inventory.
+
+The three places an order's lines meet inventory - first import, the retry on every sync, the webhook - now share one resolver, so they cannot drift again. The card says *matched by words: Bawal lumi Lilac ← BAWAL LUMI COTTON VOILE Lilac* when this rule is what matched, and the retry that has run every thirty minutes since v1.4.168 heals both stuck orders on the first sync after deploy - nothing to do by hand.
+
+`worker/src/line-match.ts` (new, zero imports), `worker/src/index.ts`, `tests/tiktok-line-match.mjs` (guard #61, 24 checks, registered), `scripts/run-guards.mjs`. Negative-tested by matching on any one word, letting a tie pick the first, treating "lumi" as distinctive, dropping the SKU-key step, and giving one door a loop of its own.
+
+**Needs `PUSH.bat`**, then *Sync from TikTok* once (or wait for the half-hour cron).
+
 ## [1.134.2] - 2026-09-07 - a rest day worked is one decision, and an overtime record can be removed
 
 **CEO**, 07-09-2026, on the Overtime rows of the attendance card: *"OT cant be editable? and cant be remove if it is not valid??? this one she work after working day which is supposed for me to decide either OT or replacement leave!!!"*
