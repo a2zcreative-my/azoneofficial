@@ -227,7 +227,7 @@ const page = readPortalSource(root);
   ];
   for (const [marker, src, what] of listings) {
     const i = src.indexOf(marker);
-    const win = i < 0 ? "" : src.slice(i, i + 2600);
+    const win = i < 0 ? "" : src.slice(i, i + 4000);
     ok(`${what} reads the one order`, win.length > 100 && /ORDER BY \$\{STAFF_ORDER_SQL\}/.test(win),
        `${marker} orders by something else — one list on ORDER BY name is one tab disagreeing with the rest`);
   }
@@ -251,11 +251,12 @@ const page = readPortalSource(root);
      /if \(shC\.kind !== "rest_day"\)/.test(staff) && /shiftAtW\(p\.user_id, p\.d\)/.test(staff),
      "not Saturday and Sunday — somebody rostered to work Saturdays is not owed a day for it");
   ok("there must be an approved clock-in behind it",
-     /if \(!dayC\?\.i\) return err\("invalid_input", "There is no approved clock-in for that day"/.test(staff),
+     /if \(!firstIn\(sessC\)\) return err\("invalid_input", "There is no approved clock-in for that day"/.test(staff),
      "otherwise this route grants leave for any date at all");
   ok("a pending punch is not evidence",
-     /const notPendingR = await notPendingSql\(env, "a\."\);/.test(staff)
-       && /const notPendingC = await notPendingSql\(env, "a\."\);/.test(staff),
+     /const sessR = await clockedSessions\(env, \{ month: mR \}\);/.test(staff)
+       && /await clockedSessions\(env, \{ day: dateC, userId: uidC \}\)/.test(staff)
+       && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
      "an unapproved claim of having worked Saturday would otherwise buy a day off");
   ok("half a day or a whole one, nothing else",
      /if \(daysC !== 0\.5 && daysC !== 1\)/.test(staff),

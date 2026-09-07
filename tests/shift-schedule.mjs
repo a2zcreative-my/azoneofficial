@@ -45,16 +45,28 @@ const ok = (label, cond, extra = "") => {
   const uses = (staff.match(/notPendingSql\(env/g) ?? []).length;
   ok("every counting query uses it", uses >= 6,
      `${uses} references (1 definition + 5 call sites expected) — a counting query without it pays out on an unapproved claim`);
+  /* v1.133.0 - the six day-reading queries became ONE (clockedSessions),
+     which pairs a day's punches into sessions and applies the clause once.
+     The property is unchanged: every reader of clocked time excludes an
+     unapproved punch. It is now held in two halves - the shared reader
+     carries the clause, and each site reads through it. */
+  ok("the shared session reader excludes pending punches",
+     /async function clockedSessions\([\s\S]{0,1200}?WHERE \$\{where\.join\(" AND "\)\}\$\{notPending\}/.test(staff),
+     "an unapproved claim would be counted as time worked in six places at once");
   for (const [what, re] of [
-    ["hourly pay", /const clockedMinutes[\s\S]{0,900}?\$\{notPending\}/],
+    ["hourly pay", /const clockedMinutes[\s\S]{0,900}?await clockedSessions\(env, \{ month, userId \}\)/],
+    ["the absence scan", /const clocked = await clockedSessions\(env, \{ month: mA2 \}\);/],
+    ["the month reconciliation", /const clockMap = await clockedSessions\(env, \{ month: monthV \}\);/],
     ["the payslip's working days", /const wd = await env\.DB\.prepare\([\s\S]{0,300}?\$\{notPendingX\}/],
     ["the payroll day-fill", /COUNT\(DISTINCT date\(created_at, '\+8 hours'\)\) AS days[\s\S]{0,200}?\$\{notPendingA\}/],
-    ["the absence scan", /const notPendingS = await notPendingSql\(env\);[\s\S]{0,500}?\$\{notPendingS\}/],
     ["the payroll export", /\$\{notPendingE\}/],
   ]) {
     ok(`${what} excludes pending punches`, re.test(staff),
        "an unapproved claim would be counted as time worked");
   }
+  ok("no query still reads a day as ONE first-in/last-out pair",
+     !/MIN\(CASE WHEN (?:a\.)?type = 'clock_in'\s+THEN (?:a\.)?created_at END\) AS i/.test(staff),
+     "that shape pays the hours at home between an afternoon shift and an evening one");
   ok("the clause is only added when the column exists",
      /pendingColKnown \? ` AND COALESCE\(\$\{alias\}pending_approval, 0\) != 1` : ""/.test(staff),
      "a pre-0100 database must keep working rather than 500 on every payroll query");
@@ -103,7 +115,8 @@ const ok = (label, cond, extra = "") => {
      /const scheduled = \w+\(shD\) \|\| WORK_DAY_MINUTES/.test(staff),
      "somebody on 11:00-19:00 is not short at 18:00, and a split day owes both blocks");
   ok("the short-day scan compares like with like",
-     /const inside = minutesInWindows\(shD, fromD, fromD \+ span\);/.test(staff),
+     /const \{ counted: mins \} = dayMinutesInSchedule\(shD, c\);/.test(staff)
+     && /function dayMinutesInSchedule\([\s\S]{0,500}?inside \+= minutesInWindows\(sh, from, from \+ se\.minutes\);/.test(staff),
      "11:00 to 22:30 is 11.5 hours elapsed and 8 hours worked - comparing the span against a scheduled 8 reports a short day as a long one");
 }
 
@@ -253,9 +266,14 @@ const ok = (label, cond, extra = "") => {
   const lateUses = (staff.match(/lateAgainst\(/g) ?? []).length;
   ok("every clock-in flag is measured against the right block", lateUses >= 4,
      `${lateUses} references (1 definition + the live route, the register and the CSV export) — a call site still on sh.start calls the evening shift late`);
-  const endUses = (staff.match(/endOfDay\(/g) ?? []).length;
-  ok("every clock-out flag is measured against the LAST block", endUses >= 4,
-     `${endUses} references — sh.end is the first block's finish, so an early-out against it is meaningless on a split day`);
+  /* v1.133.0 - clocking is PER SHIFT, so a clock-out is judged against the
+     block being LEFT (clock-day.ts, earlyAgainst): 17:00 on an 11-17 +
+     20-22 day ended a shift and is not five hours early against 22:00. */
+  const endUses = (staff.match(/earlyAgainst\(/g) ?? []).length;
+  ok("every clock-out flag is measured against the shift being left", endUses >= 4,
+     `${endUses} references (the live route, the reconciliation, the register and the CSV export) - a call site still on endOfDay calls every afternoon departure early`);
+  ok("...and none is still measured against the end of the whole day",
+     !/minutes < \(endOfDay\(/.test(staff) && !/mins < \(endOfDay\(/.test(staff) && !/outMin < \(endOfDay\(/.test(staff));
 
   /* Assigned work. */
   ok("there is a batch resolver for assigned work", /export async function assignedResolver/.test(staff));
@@ -285,9 +303,9 @@ const ok = (label, cond, extra = "") => {
      span IS the pay, less one hour of break on a day that ran past five
      hours, and a part-timer has no pattern to be measured against. The four
      checks below hold the new rule as firmly as the old ones held the old. */
-  ok("hourly pay is the clock span, less the break",
-     /const brk = hourlyBreakFor\(span\);[\s\S]{0,120}?counted \+= span - brk;/.test(staff),
-     "the CEO's rule: working hours minus one hour of break");
+  ok("hourly pay is the clocked sessions, less the break",
+     /const pay = hourlyPaidForSessions\(closed\.map\(\(x\) => x\.minutes\)\);[\s\S]{0,160}?counted \+= pay\.counted;/.test(staff),
+     "the CEO's rule: working hours minus one hour of break - and the hours between two shifts are not working hours");
   ok("the break is one hour, once, and only past five hours",
      /export const HOURLY_BREAK_MINUTES = 60;/.test(read("worker/src/hourly.ts")) &&
      /return spanMinutes > BREAK_AFTER_MINUTES \? HOURLY_BREAK_MINUTES : 0;/.test(read("worker/src/hourly.ts")),
@@ -349,7 +367,7 @@ const ok = (label, cond, extra = "") => {
      rule; staff.ts imports it and the pattern still reads it. */
   ok("the break is earned by law, not by policy",
      /export const BREAK_AFTER_MINUTES = 5 \* 60;/.test(read("worker/src/hourly.ts")) &&
-     /import \{ BREAK_AFTER_MINUTES, hourlyBreakFor \} from "\.\/hourly"/.test(staff) &&
+     /import \{ BREAK_AFTER_MINUTES, hourlyPaidForSessions \} from "\.\/hourly"/.test(staff) &&
      /sh\.windows\.some\(\(w\) => w\.end - w\.start > BREAK_AFTER_MINUTES\)/.test(staff),
      "Employment Act 1955 s.60A(1)(a) - five consecutive hours is what earns a break, so a two-hour evening block earns none");
   ok("the break comes off ONCE",
@@ -465,7 +483,7 @@ const ok = (label, cond, extra = "") => {
      is how a row reads 19 worked beside 46h34 of 131h and looks like a
      mystery. It is a missing punch, and the report names it. */
   ok("a day with no clock-out is counted and named",
-     /if \(!c\.o\) \{ noClockOut\+\+; openDates\.push\(d\); \}/.test(staff) &&
+     /if \(isOpen\(sess\)\) \{ noClockOut\+\+; openDates\.push\(d\); \}/.test(staff) &&
      /no_clock_out: noClockOut, open_dates: openDates,/.test(staff));
   ok("and it is on the row, not only in the total",
      /no clock-out`, `\$\{r\.no_clock_out\} tiada keluar`/.test(vcard),

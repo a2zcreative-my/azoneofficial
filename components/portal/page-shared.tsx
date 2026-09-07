@@ -12,6 +12,9 @@ export type DashCache = {
   records: { type: string; created_at: string }[];
   ot?: { type: string; created_at: string }[];
   ot_eligible?: boolean;
+  /* v1.133.0 — every block of today's pattern, so the card can say which
+     shifts to clock for. null when the schedule cannot be read. */
+  today_shift?: { kind: string; label: string; windows: { start: string; end: string }[] } | null;
 };
 export const DASH_ATT = "dash:attendance";
 export const DASH_LEAVE = "dash:leave";

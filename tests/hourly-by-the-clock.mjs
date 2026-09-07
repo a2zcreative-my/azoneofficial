@@ -50,10 +50,16 @@ const { hourlyBreakFor, hourlyPaidMinutes, HOURLY_BREAK_MINUTES, BREAK_AFTER_MIN
 
 /* ---- the wiring ---- */
 {
-  ok("clockedMinutes pays the span less the break", /const brk = hourlyBreakFor\(span\);[\s\S]{0,120}?counted \+= span - brk;/.test(staff));
+  /* v1.133.0 - per SESSION now (clock-day.ts). One session a day comes to
+     exactly the span less the break, which the checks above still run. */
+  ok("clockedMinutes pays the clocked sessions less the break",
+     /const pay = hourlyPaidForSessions\(closed\.map\(\(x\) => x\.minutes\)\);[\s\S]{0,160}?counted \+= pay\.counted;/.test(staff));
   ok("...and no longer trims to a pattern", !/let day = minutesInWindows\(sh, from, to\);/.test(staff) && !/counted \+= day > 0 \? day : span;/.test(staff),
      "a part-timer has no pattern to be measured against");
-  ok("...and still excludes pending punches", /const clockedMinutes[\s\S]{0,900}?\$\{notPending\}/.test(staff), "an unapproved claim is not wages");
+  ok("...and still excludes pending punches",
+     /const clockedMinutes[\s\S]{0,900}?await clockedSessions\(env, \{ month, userId \}\)/.test(staff)
+     && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
+     "an unapproved claim is not wages");
   ok("the payslip row carries clocked, break and days", /r\.hourly_break_live = cm\.breaks;/.test(staff) && /r\.hourly_days_live = cm\.days;/.test(staff));
   ok("the register marks a part-timer by the clock, not as a rest day", /day_kind: hourly \? "hourly" : shR\.kind,/.test(staff) && /part-time · by the clock/.test(panels),
      "the CEO's screenshot: two punches on a Saturday, both saying rest day");

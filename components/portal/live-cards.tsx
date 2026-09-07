@@ -43,6 +43,13 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     d: string;
     ot_in: string | null;
     ot_out: string | null;
+    /* v1.133.0 — the day's overtime MINUTES, summed over its stretches by
+       the worker. Out minus in would count the hours at home between an
+       early start and a late finish. */
+    minutes?: number;
+    stretches?: number;
+    /** The live session or roster task that vouches for it, by name. */
+    assigned?: string | null;
   }
   const [pending, setPending] = useState<Pend[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -95,12 +102,17 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     void load();
   };
   const dur = (p: Pend) => {
-    if (!p.ot_in || !p.ot_out) return "";
-    const [h1, m1] = p.ot_in.split(":").map(Number);
-    const [h2, m2] = p.ot_out.split(":").map(Number);
-    const mins = h2! * 60 + m2! - (h1! * 60 + m1!);
+    /* The worker's sum when it sends one; the old span for a worker that
+       predates it. */
+    let mins = typeof p.minutes === "number" ? p.minutes : -1;
+    if (mins < 0) {
+      if (!p.ot_in || !p.ot_out) return "";
+      const [h1, m1] = p.ot_in.split(":").map(Number);
+      const [h2, m2] = p.ot_out.split(":").map(Number);
+      mins = h2! * 60 + m2! - (h1! * 60 + m1!);
+    }
     return mins > 0
-      ? ` · ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`
+      ? ` · ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m${(p.stretches ?? 1) > 1 ? ` (${p.stretches} ${L("stretches", "bahagian")})` : ""}`
       : "";
   };
 
@@ -114,8 +126,8 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
         </PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
-            "Completed OT day-pairs awaiting a decision. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.",
-            "Pasangan hari OT yang selesai dan menunggu keputusan. Hanya OT yang DILULUSKAN dikira apabila OT masuk ke gaji. Kakitangan dimaklumkan bagi setiap keputusan."
+            "Time clocked outside each person's scheduled shifts, read off their clock-in and clock-out. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.",
+            "Masa yang didaftarkan di luar syif berjadual setiap orang, dibaca daripada daftar masuk dan keluar mereka. Hanya OT yang DILULUSKAN dikira apabila OT masuk ke gaji. Kakitangan dimaklumkan bagi setiap keputusan."
           )}
         </p>
         <div className="mt-3 space-y-0">{node}</div>
@@ -150,6 +162,13 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
                 <span className="text-muted-foreground text-xs">
                   {dmy(p.d)} · {p.ot_in}–{p.ot_out}
                   {dur(p)}
+                  {/* v1.133.0 — the evidence that decides most approvals:
+                      the live session or roster task that covered the time. */}
+                  {p.assigned && (
+                    <span className="text-success ml-1 font-medium">
+                      · {L("assigned", "ditugaskan")}: {p.assigned}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="flex items-center gap-1.5">

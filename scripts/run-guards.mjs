@@ -122,6 +122,7 @@ const GUARDS = [
   ["cards-tab", "the Cards tab belongs to the three officers, and says what that restriction is"],
   ["roster-leave", "an approved leave day cannot be booked, on any of the five doors that choose one"],
   ["input-truth", "a box that shows a saved figure shows the SAVED one, and the ELFIA panel agrees with the shop"],
+  ["clock-sessions", "a day is a list of shifts, the hours between them count as nothing, and overtime is what lies outside the schedule"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

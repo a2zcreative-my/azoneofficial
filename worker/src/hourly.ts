@@ -35,3 +35,23 @@ export function hourlyPaidMinutes(spanMinutes: number): number {
   if (spanMinutes <= 0) return 0;
   return spanMinutes - hourlyBreakFor(spanMinutes);
 }
+
+/**
+ * v1.133.0 - the same day, clocked in SESSIONS (clock-day.ts).
+ *
+ * A part-timer can now clock out at 17:00 and in again at 20:00. The break is
+ * still one hour, still once, and still only when it was earned - and "earned"
+ * is now read the way the Act writes it: MORE THAN FIVE CONSECUTIVE HOURS.
+ * A six-hour afternoon earns it; a two-hour evening beside it does not earn a
+ * second one; and a day of two four-hour sessions with a break between them
+ * earns none, because nobody worked five hours straight. The hours between
+ * sessions are inside no session and are paid as nothing.
+ *
+ * On a day of one session this is exactly hourlyPaidMinutes(span) - the
+ * v1.109.0 rule, unchanged, which tests/hourly-by-the-clock.mjs still runs.
+ */
+export function hourlyPaidForSessions(sessionMinutes: number[]): { clocked: number; breaks: number; counted: number } {
+  const clocked = sessionMinutes.reduce((n, m) => n + Math.max(0, m), 0);
+  const breaks = sessionMinutes.some((m) => m > BREAK_AFTER_MINUTES) ? HOURLY_BREAK_MINUTES : 0;
+  return { clocked, breaks, counted: Math.max(0, clocked - breaks) };
+}

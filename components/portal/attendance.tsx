@@ -46,6 +46,10 @@ export function Attendance({ user }: { user: User }) {
       employment_status?: string | null;
       in_at?: string | null;
       out_at?: string | null;
+      /* v1.133.0 — a day is shifts now. The latest punch says what the
+         person is doing right now; in_at/out_at are the day's first and last. */
+      last_type?: string | null;
+      shifts?: number;
     }[];
   } | null>(null);
   /* v1.77.0 — skeleton until the first fetch lands. */
@@ -97,7 +101,12 @@ export function Attendance({ user }: { user: User }) {
           const isWeekend = [0, 6].includes(nowMYT.getUTCDay());
           const afterShift = nowMYT.getUTCHours() >= 18;
           const notIn = monitor.staff.filter((s) => !s.in_at);
-          const stillIn = monitor.staff.filter((s) => s.in_at && !s.out_at);
+          /* v1.133.0 — "still in" is the LATEST punch being a clock-in, not
+             the absence of any clock-out: somebody back for the evening
+             shift is in, however many times they clocked out before. */
+          const inNow = (s: { in_at?: string | null; out_at?: string | null; last_type?: string | null }) =>
+            s.last_type ? s.last_type === "clock_in" : Boolean(s.in_at && !s.out_at);
+          const stillIn = monitor.staff.filter(inNow);
           return (
             <div className={card}>
               <PanelTitle icon="preview">
@@ -170,20 +179,23 @@ export function Attendance({ user }: { user: User }) {
                             </span>
                           )}
                           {st.in_at &&
-                            (st.out_at ? (
+                            (!inNow(st) && st.out_at ? (
                               <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
                                 {L("Out", "Keluar")} {hm(st.out_at)}
+                                {(st.shifts ?? 1) > 1 ? ` · ${st.shifts} ${L("shifts", "syif")}` : ""}
                               </span>
                             ) : (
+                              /* v1.133.0 — somebody on their SECOND shift of
+                                 the day at 20:30 is not "no clock-out"; they
+                                 are on shift, and the warning would be noise. */
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift ?"bg-warning-soft text-warning" :"bg-info-soft text-info"}`}
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift && (st.shifts ?? 1) <= 1 ? "bg-warning-soft text-warning" : "bg-info-soft text-info"}`}
                               >
-                                {afterShift
-                                  ? L(
-                                      "no clock-out",
-                                      "tiada daftar keluar"
-                                    )
-                                  : L("still in", "belum keluar")}
+                                {(st.shifts ?? 1) > 1
+                                  ? L(`on shift ${st.shifts}`, `syif ke-${st.shifts}`)
+                                  : afterShift
+                                    ? L("no clock-out", "tiada daftar keluar")
+                                    : L("still in", "belum keluar")}
                               </span>
                             ))}
                         </span>

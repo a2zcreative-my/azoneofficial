@@ -265,7 +265,8 @@ const AUG = (() => {
      /AND kind IN \('public', 'replacement'\)/.test(staff),
      "a company day off is the company's gift, not a statutory holiday");
   ok("a pending punch does not earn a holiday premium",
-     /WHERE strftime\('%Y-%m', created_at, '\+8 hours'\) = \?1\$\{notPendingP\}/.test(staff),
+     /for \(const \[k, sessions\] of await clockedSessions\(env, \{ month \}\)\)/.test(staff)
+     && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
      "an unapproved claim of having worked Merdeka Day would otherwise pay three days");
   ok("every writer of net_cents adds it",
      (staff.match(/await phWorkResolver\(/g) ?? []).length === 4,

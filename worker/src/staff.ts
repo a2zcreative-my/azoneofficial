@@ -13,7 +13,11 @@ import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { handleSalesMap } from "./sales-map"; // v1.113.0
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
-import { BREAK_AFTER_MINUTES, hourlyBreakFor } from "./hourly"; // v1.109.0 - paid by the clock, less the break
+import { BREAK_AFTER_MINUTES, hourlyPaidForSessions } from "./hourly"; // v1.109.0 - paid by the clock, less the break; v1.133.0 - per session
+import {
+  pairSessions, sessionMinutes, firstIn, lastOut, isOpen, mytMinutes, earlyAgainst, overtimeSegments,
+  type Punch, type Session,
+} from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
 import { logError as sharedLogError, postJournal, readVersions } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce } from "./index"; // v1.127.0 - step-up before a signature is attached
@@ -337,9 +341,11 @@ export function lateAgainst(sh: DayShift, minutes: number): number | null {
   return sh.windows.length ? sh.windows[sh.windows.length - 1]!.start : sh.start;
 }
 
-/** When the day is over — the END OF THE LAST BLOCK, which is what an
-    early-out means. Against `sh.end` (17:00) a host who worked the evening
-    and left at 22:30 was "on time" while one who left at 17:05 was too. */
+/** When the day is over — the END OF THE LAST BLOCK.
+    v1.133.0: no longer what an early-out is judged against. Clocking is per
+    shift now, so leaving at 17:00 from an 11-17 + 20-22 day is a shift
+    ending, and the punch is judged against THAT block (clock-day.ts,
+    earlyAgainst). Kept for callers that want the day's last minute. */
 export function endOfDay(sh: DayShift): number | null {
   return sh.windows.length ? sh.windows[sh.windows.length - 1]!.end : sh.end;
 }
@@ -674,6 +680,60 @@ export async function notPendingSql(env: Env, alias = ""): Promise<string> {
     } catch { pendingColKnown = false; }
   }
   return pendingColKnown ? ` AND COALESCE(${alias}pending_approval, 0) != 1` : "";
+}
+
+/* ── v1.133.0 — THE DAY, AS SESSIONS, IN ONE QUERY ──────────────────────
+   Six places used to ask the database for a day's first clock-in and last
+   clock-out (MIN/MAX per person per day) and compute from that one pair.
+   That shape cannot see a person who left at 17:00 and came back at 20:00:
+   it pays the three hours in between, or counts them as a day, or reports
+   them as short, depending on which of the six was asking.
+
+   So the punches come out raw, in time order, and clock-day.ts pairs them.
+   ONE helper, so the six cannot pair them six ways. A punch waiting for
+   approval is excluded exactly as before — an unapproved claim is not
+   evidence that anybody was anywhere. */
+async function clockedSessions(
+  env: Env,
+  scope: { month?: string; day?: string; userId?: number },
+): Promise<Map<string, Session[]>> {
+  const notPending = await notPendingSql(env);
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (scope.month) { args.push(scope.month); where.push(`strftime('%Y-%m', created_at, '+8 hours') = ?${args.length}`); }
+  if (scope.day) { args.push(scope.day); where.push(`date(created_at, '+8 hours') = ?${args.length}`); }
+  if (scope.userId) { args.push(scope.userId); where.push(`user_id = ?${args.length}`); }
+  if (where.length === 0) return new Map();
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, date(created_at, '+8 hours') AS d, type, created_at
+       FROM attendance_records
+      WHERE ${where.join(" AND ")}${notPending}
+      ORDER BY created_at`,
+  ).bind(...args).all<{ user_id: number; d: string; type: string; created_at: string }>();
+  const byDay = new Map<string, Punch[]>();
+  for (const r of results ?? []) {
+    const k = `${r.user_id}|${r.d}`;
+    const list = byDay.get(k) ?? [];
+    list.push({ type: r.type, at: r.created_at });
+    byDay.set(k, list);
+  }
+  const out = new Map<string, Session[]>();
+  for (const [k, punches] of byDay) out.set(k, pairSessions(punches));
+  return out;
+}
+
+/** Minutes of a day INSIDE the scheduled blocks, summed across its sessions,
+    falling back to the clocked total when there is nothing to intersect with
+    — the v1.80.0 rule, per session instead of per day. */
+function dayMinutesInSchedule(sh: DayShift, sessions: Session[]): { inside: number; clocked: number; counted: number } {
+  let inside = 0, clocked = 0;
+  for (const se of sessions) {
+    if (!se.out) continue;
+    const from = mytMinutes(se.in);
+    inside += minutesInWindows(sh, from, from + se.minutes);
+    clocked += se.minutes;
+  }
+  return { inside, clocked, counted: inside > 0 ? inside : clocked };
 }
 
 /** hh:mm from minutes-since-midnight, for a message a human reads. */
@@ -2071,58 +2131,72 @@ export async function handleStaff(
        is the truth exactly as before. */
     const sentLateFrom = clientAt(request, path);
     const punchAt = sentLateFrom ?? new Date();
-    // One clock-in and one clock-out per day (v1.4.29). Enforced here, not
-    // just in the UI — a double-click or stale tab can't duplicate a punch.
+    /* v1.133.0 — A DAY IS A LIST OF SESSIONS, ONE PER SHIFT.
+       CEO, 07-09-2026: "I want my staff being clock in and out based on their
+       working schedule ... 11:00am to 05:00pm then next shift schedule
+       08:00pm to 10:00pm ... OT is based on outside of their working
+       schedule."
+
+       v1.4.29 allowed one clock-in and one clock-out per day. v1.80.0 kept
+       that and taught the SCHEDULE about split days, so 11:00 in, 22:30 out
+       paid eight hours when the pattern said 11-17 + 20:30-22:30. That
+       works only when the evening is in the pattern. The moment it is not —
+       a client books a 20:00 live for somebody whose day ends at 17:00 — the
+       honest thing at 17:00 is to clock out, and there was then no way back
+       in at 20:00.
+
+       The rule now is the one a person would guess: Clock in opens a
+       session, Clock out closes it, and there are as many as the day has
+       shifts. The only refusals are the two that make no sense — a second
+       clock-in while one is open, a clock-out with nothing open. Every
+       punch pressed today counts for this decision, pending ones included:
+       the state machine is about what was PRESSED, and approval is a
+       separate question about what is PAID. */
     const todayMYT = new Date(punchAt.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const dup = await env.DB.prepare(
-      `SELECT id, created_at FROM attendance_records
-       WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
-    ).bind(user.id, body.type, todayMYT).first<{ id: number; created_at: string }>();
-    // v1.4.113 (CEO's rule): the flow is clock IN first, then clock OUT.
-    // A clock-out without today's clock-in is refused with a clear message —
-    // enforced here, not just in the UI.
-    if (body.type === "clock_out") {
-      const inRow = await env.DB.prepare(
-        `SELECT id FROM attendance_records
-         WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
-      ).bind(user.id, todayMYT).first<{ id: number }>();
-      if (!inRow) {
-        /* v1.76.0 (CEO: "if they forget to clock in or clock out, they will
-           be able to clock in and out but system will require them to get the
-           approval"). Refusing was worse than it looked: the person had
-           worked the day, could not record it, and the day then vanished
-           from payroll entirely. So the clock-out IS taken - and marked
-           pending, because a shift with no start time is exactly the claim
-           nobody can verify. It counts for nothing until the CEO approves it
-           and sets the real times. */
-        if (body.forgot !== true) {
-          return json(
-            { error: { code: "no_clock_in", message: "You haven't clocked in today. If you forgot, press Clock out again and confirm — it will be sent to the CEO to approve." },
-              can_flag_forgot: true },
-            400,
-          );
-        }
-      }
-    }
-    if (dup) {
-      // Tell them WHEN they punched, so the confirmation is useful rather
-      // than just a refusal. Time returned in Malaysia time.
-      const at = new Date(new Date(dup.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000)
-        .toISOString().slice(11, 16);
+    const { results: pressedToday } = await env.DB.prepare(
+      `SELECT type, created_at FROM attendance_records
+        WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+    ).bind(user.id, todayMYT).all<{ type: string; created_at: string }>();
+    const sessionsToday = pairSessions((pressedToday ?? []).map((r) => ({ type: r.type, at: r.created_at })));
+    const openNow = isOpen(sessionsToday);
+    const mytClock = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+    if (body.type === "clock_in" && openNow) {
+      const since = mytClock(sessionsToday[sessionsToday.length - 1]!.in);
       return json(
-        {
-          error: {
-            code: "already_punched",
-            message: body.type === "clock_in"
-              ? `You already clocked in today at ${at} MYT.`
-              : `You already clocked out today at ${at} MYT.`,
-          },
-          already: true,
-          at,
-        },
+        { error: { code: "already_punched", message: `You are clocked in since ${since} MYT. Clock out when this shift ends, then clock in again for the next one.` },
+          already: true, at: since },
         409,
       );
     }
+    if (body.type === "clock_out" && !openNow) {
+      if (sessionsToday.length > 0) {
+        /* A shift already closed and nothing open: this press is a mistake,
+           and the useful answer names the next thing to do. */
+        const at = mytClock(lastOut(sessionsToday) ?? sessionsToday[sessionsToday.length - 1]!.in);
+        return json(
+          { error: { code: "already_punched", message: `You already clocked out at ${at} MYT. Clock in again when your next shift starts.` },
+            already: true, at },
+          409,
+        );
+      }
+      /* v1.76.0 (CEO: "if they forget to clock in or clock out, they will be
+         able to clock in and out but system will require them to get the
+         approval"). Refusing was worse than it looked: the person had worked
+         the day, could not record it, and the day then vanished from payroll
+         entirely. So the clock-out IS taken - and marked pending, because a
+         shift with no start time is exactly the claim nobody can verify. It
+         counts for nothing until the CEO approves it and sets the real times. */
+      if (body.forgot !== true) {
+        return json(
+          { error: { code: "no_clock_in", message: "You haven't clocked in today. If you forgot, press Clock out again and confirm — it will be sent to the CEO to approve." },
+            can_flag_forgot: true },
+          400,
+        );
+      }
+    }
+    /* The session this clock-out is closing, if any. Read now, before the
+       insert, so the overtime below is measured from the punch that opened it. */
+    const closingSession = body.type === "clock_out" && openNow ? sessionsToday[sessionsToday.length - 1]! : null;
     /* v1.76.0 — classified against THIS PERSON'S hours on THIS date, not
        against one constant. Somebody on 11:00-19:00 is not late at 10:30,
        and a Friday finish is 17:30 for the office pattern. A day their
@@ -2161,7 +2235,13 @@ export async function handleStaff(
       const due = lateAgainst(sh, mins) ?? SHIFT.startMinutes;
       flag = mins <= due ? "ok" : mins <= sh.halfDay ? "late" : "half_day";
     } else {
-      flag = mins < (endOfDay(sh) ?? SHIFT.endMinutes) ? "early_out" : "completed";
+      /* v1.133.0 — against the END OF THE SHIFT being left, not the end of
+         the day. Clocking out at 17:00 on an 11-17 + 20-22 day is a shift
+         ending, not five hours early against 22:00; that misreading is what
+         made one-pair-per-day the only workable rule. Between blocks, or
+         after the last one: the shift just finished, so not early. */
+      const dueOut = earlyAgainst(sh.windows, mins);
+      flag = dueOut !== null && mins < dueOut ? "early_out" : "completed";
     }
     /* v1.9.1 — OFFICE GEOFENCE (replaces the selfie step). Placed AFTER the
        dup/no_clock_in checks (an "already punched" answer never needs
@@ -2263,11 +2343,86 @@ export async function handleStaff(
       } catch { /* notification must never fail the punch */ }
       await audit(env, user.id, "attendance.no_location", "users", String(user.id), { type: body.type, reason: gate.noLocation });
     }
+    /* ── v1.133.0 — OVERTIME, READ OFF THE CLOCK ─────────────────────────
+       "OT is based on outside of their working schedule." A clock-out that
+       closes a session is the moment the session's length is known, so it
+       is the moment its overtime is known: whatever part of it lies outside
+       the person's scheduled blocks, as long as it is a shift rather than a
+       lingering (OT_MIN_MINUTES). On a rest day the whole session is
+       outside. It lands in ot_records exactly as the two OT buttons used to
+       put it there — pending, decided by the CEO/COO, bell-notified either
+       way — so every approval screen, the desk bucket and the KPI keep
+       working untouched.
+
+       Who: the same people the OT buttons served. Not executives (v1.4.158)
+       and not part-timers (v1.4.156) — a part-timer is paid every clocked
+       minute already (hourly.ts), so overtime would pay the evening twice.
+       Not on a public holiday: a holiday worked is paid under its own rule
+       (s.60D(3), two days' ORP), and writing it here as well would count it
+       twice the day overtime reaches payroll.
+
+       A pending punch derives nothing: it counts for nothing until the CEO
+       approves it, and the approval is where its hours are set. */
+    let otMinutes = 0;
+    if (closingSession && !storedPending && !hourlyPunch
+        && !["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
+      try {
+        const meOt = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
+          .bind(user.id).first<{ employment_status: string | null }>();
+        const holiday = await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1 LIMIT 1`)
+          .bind(todayMYT).first<{ x: number }>().catch(() => null);
+        if (meOt?.employment_status !== "part_time" && !holiday) {
+          const from = mytMinutes(closingSession.in);
+          const to = from + Math.max(0, Math.round((punchAt.getTime() - Date.parse(`${closingSession.in.replace(" ", "T")}Z`)) / 60000));
+          const segs = overtimeSegments(sh.windows, from, to);
+          /* MYT minutes back to the UTC stamp the table stores. */
+          const stamp = (m: number) => new Date(Date.parse(`${todayMYT}T00:00:00Z`) + (m - 8 * 60) * 60000)
+            .toISOString().slice(0, 19).replace("T", " ");
+          for (const seg of segs) {
+            const inAt = stamp(seg.from), outAt = stamp(seg.to);
+            /* Once. A retried clock-out must not write the evening twice. */
+            const have = await env.DB.prepare(
+              `SELECT id FROM ot_records WHERE user_id = ?1 AND type = 'ot_in' AND created_at = ?2 LIMIT 1`,
+            ).bind(user.id, inAt).first<{ id: number }>();
+            if (have) continue;
+            await env.DB.prepare(
+              `INSERT INTO ot_records (user_id, type, ip, user_agent, created_at)
+               VALUES (?1, 'ot_in', ?2, 'clock:derived', ?3), (?1, 'ot_out', ?2, 'clock:derived', ?4)`,
+            ).bind(user.id, request.headers.get("CF-Connecting-IP"), inAt, outAt).run();
+            otMinutes += seg.minutes;
+          }
+          if (otMinutes > 0) {
+            const whoOt = await env.DB.prepare(
+              `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
+            ).bind(user.id).first<{ n: string }>();
+            const hm = `${Math.floor(otMinutes / 60)}h${String(otMinutes % 60).padStart(2, "0")}`;
+            const { results: approvers } = await env.DB.prepare(
+              `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','coo')`,
+            ).all<{ id: number }>();
+            for (const a of approvers ?? []) {
+              await notify(env, a.id, "ot",
+                `Overtime to decide - ${whoOt?.n ?? "staff"}, ${todayMYT.split("-").reverse().join("-")}: ${hm} outside the schedule (${hhmm(from)}-${hhmm(Math.min(to, 24 * 60))} clocked).`,
+                `ot:${user.id}:${todayMYT}`);
+            }
+            await audit(env, user.id, "ot.derived", "ot_records", todayMYT, { minutes: otMinutes, segments: segs.length });
+          }
+        }
+      } catch (eOt) {
+        /* The punch is recorded; the overtime is a consequence of it. A
+           failure here must never un-record a clock-out. */
+        await logError(env, "ot_derive", eOt instanceof Error ? eOt.message : String(eOt));
+      }
+    }
     return json({
       ok: true, flag, no_location: gate.noLocation ?? null,
       /* v1.76.0 — the client says so plainly: recorded, but not counted yet. */
       pending: storedPending,
       shift: { start: hhmm(sh.start), end: hhmm(sh.end), kind: sh.kind, pattern: sh.pattern },
+      /* v1.133.0 — so the phone can say "2h00 overtime sent for approval"
+         at the moment it happens, and how many shifts today so far. */
+      ot_minutes: otMinutes,
+      sessions_today: sessionsToday.length + (body.type === "clock_in" ? 1 : 0),
+      clocked_in: body.type === "clock_in",
     }, 201);
   }
 
@@ -2361,16 +2516,44 @@ export async function handleStaff(
       return err("forbidden", "OT approvals are for the CEO/COO", 403);
     }
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT o.user_id, u.name, date(o.created_at, '+8 hours') AS d, o.status,
-                MIN(CASE WHEN o.type = 'ot_in'  THEN strftime('%H:%M', o.created_at, '+8 hours') END) AS ot_in,
-                MAX(CASE WHEN o.type = 'ot_out' THEN strftime('%H:%M', o.created_at, '+8 hours') END) AS ot_out
-         FROM ot_records o JOIN users u ON u.id = o.user_id
-         GROUP BY o.user_id, d
-         HAVING o.status = 'pending' AND ot_out IS NOT NULL
-         ORDER BY d DESC LIMIT 100`,
-      ).all();
-      return json({ pending: results });
+      /* v1.133.0 — a day may now hold MORE THAN ONE overtime stretch (an
+         early start and a late finish, each read off its own session), so
+         the day's minutes are the sum of its pairs, not last-out minus
+         first-in. And each stretch is checked against the live board and the
+         roster, so the CEO sees "assigned: Sara Beauty" beside it — the
+         evidence that decides most approvals in one glance. */
+      const { results: rows } = await env.DB.prepare(
+        `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
+                date(o.created_at, '+8 hours') AS d, o.type, o.created_at
+           FROM ot_records o JOIN users u ON u.id = o.user_id
+          WHERE o.status = 'pending'
+          ORDER BY o.created_at`,
+      ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>();
+      const byDay = new Map<string, { user_id: number; name: string; d: string; punches: Punch[] }>();
+      for (const r of rows ?? []) {
+        const k = `${r.user_id}|${r.d}`;
+        const g = byDay.get(k) ?? { user_id: r.user_id, name: r.name, d: r.d, punches: [] };
+        g.punches.push({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at });
+        byDay.set(k, g);
+      }
+      const days = [...byDay.values()].map((g) => g.d).sort();
+      const assignedOt = days.length > 0 ? await assignedResolver(env, days[0]!, days[days.length - 1]!) : null;
+      const pending: Record<string, unknown>[] = [];
+      for (const g of byDay.values()) {
+        const sess = pairSessions(g.punches);
+        const closed = sess.filter((x) => x.out);
+        if (closed.length === 0) continue; // an OT in with no OT out is not decidable yet
+        const hm = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+        const asg = assignedOt ? assignedOt(g.user_id, g.d, mytMinutes(closed[0]!.in)) : null;
+        pending.push({
+          user_id: g.user_id, name: g.name, d: g.d, status: "pending",
+          ot_in: hm(closed[0]!.in), ot_out: hm(closed[closed.length - 1]!.out!),
+          minutes: sessionMinutes(closed), stretches: closed.length,
+          assigned: asg ? asg.what : null,
+        });
+      }
+      pending.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+      return json({ pending: pending.slice(0, 100) });
     } catch (e) {
       if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0054_ot_approval)", 500);
       throw e;
@@ -2896,114 +3079,17 @@ export async function handleStaff(
     }
   }
 
+  /* ---- overtime punches — RETIRED in v1.133.0 ----
+     OT in / OT out (v1.4.155) recorded a second pair of punches for an
+     evening the clock had already recorded. Overtime is now read off the
+     ordinary clock punches: whatever part of a session lies outside the
+     person's scheduled blocks lands in ot_records as pending, on the
+     clock-out that closes it (see POST /attendance). The buttons are gone
+     from the Dashboard; this answers a phone that has not reloaded yet, and
+     tells it what to do instead of failing with a 404 it cannot explain. */
   if (path === "/attendance/ot" && method === "POST") {
-    const otTypes = ["ot_in", "ot_out"];
-    if (!body || typeof body.type !== "string" || !otTypes.includes(body.type)) {
-      return err("invalid_input", `type must be one of: ${otTypes.join(", ")}`, 400);
-    }
-    // v1.4.156 — two changes here:
-    // (1) BUG FIX: v1.4.155 queried a non-existent `status` column; the real
-    //     column is `employment_status` — the route would have thrown.
-    // (2) CEO's clarified rule: OT eligibility follows EMPLOYMENT STATUS, not
-    //     role. Permanent live hosts DO work overtime; part-time staff
-    //     (part-time live hosts, part-time designers) are not eligible.
-    // v1.4.158 (CEO): OT does not appear for ceo/coo/cco — executives are not
-    // OT-paid staff (admin tier likewise; they're system accounts). Combined
-    // with the part-time rule, OT eligibility is: a non-executive staff role
-    // whose employment_status isn't part_time.
-    if (["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
-      return err("not_eligible", "Executive roles (CEO/COO/CCO) are not eligible for OT punches.", 403);
-    }
-    const me = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
-      .bind(user.id).first<{ employment_status: string | null }>();
-    if (me?.employment_status === "part_time") {
-      return err("not_eligible", "Part-time staff are not eligible for OT punches.", 403);
-    }
-    /* v1.4.179 (CEO: "for OT there should be appear on Weekend … except of
-       executive"): WEEKENDS (Sat/Sun MYT) are rest days — any work IS
-       overtime, so OT punches are open ALL DAY and need no prior clock-in
-       (there is no normal shift to extend). WEEKDAYS keep the original
-       rule: window from 18:00 MYT, after a clocked-in working day. The
-       executive/part-time exclusions above apply on every day. */
-    const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
-    const isWeekendOT = [0, 6].includes(mytNow.getUTCDay());
-    const nowMins = mytNow.getUTCHours() * 60 + mytNow.getUTCMinutes();
-    if (!isWeekendOT && nowMins < 18 * 60) {
-      return err("too_early", "Overtime punches open at 18:00 MYT, after the normal shift ends. (Weekends: OT is open all day.)", 400);
-    }
-    const todayMYT = mytNow.toISOString().slice(0, 10);
-    if (!isWeekendOT) {
-      // Weekday OT extends a worked day — must have clocked in today.
-      const dayIn = await env.DB.prepare(
-        `SELECT id FROM attendance_records
-         WHERE user_id = ?1 AND type = 'clock_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
-      ).bind(user.id, todayMYT).first<{ id: number }>();
-      if (!dayIn) {
-        return json(
-          { error: { code: "no_clock_in", message: "No clock-in recorded today — weekday overtime can only follow a worked day." } },
-          400,
-        );
-      }
-    }
-    try {
-      if (body.type === "ot_out") {
-        const otIn = await env.DB.prepare(
-          `SELECT id FROM ot_records
-           WHERE user_id = ?1 AND type = 'ot_in' AND date(created_at, '+8 hours') = ?2 LIMIT 1`,
-        ).bind(user.id, todayMYT).first<{ id: number }>();
-        if (!otIn) {
-          return json(
-            { error: { code: "no_ot_in", message: "You haven't recorded OT in — tap OT in when overtime starts, then OT out when you finish." } },
-            400,
-          );
-        }
-      }
-      // One OT in and one OT out per day, enforced server-side like clock punches.
-      const dup = await env.DB.prepare(
-        `SELECT id, created_at FROM ot_records
-         WHERE user_id = ?1 AND type = ?2 AND date(created_at, '+8 hours') = ?3 LIMIT 1`,
-      ).bind(user.id, body.type, todayMYT).first<{ id: number; created_at: string }>();
-      if (dup) {
-        const at = new Date(new Date(dup.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000)
-          .toISOString().slice(11, 16);
-        return json(
-          {
-            error: {
-              code: "already_punched",
-              message: body.type === "ot_in"
-                ? `You already recorded OT in today at ${at} MYT.`
-                : `You already recorded OT out today at ${at} MYT.`,
-            },
-            already: true,
-            at,
-          },
-          409,
-        );
-      }
-      /* v1.9.1 review fix: OT punches are gated by the SAME office fence as
-         clock punches — OT hours are the paid ones, leaving them open would
-         let the fence be bypassed for exactly the records that feed payroll.
-         (ot_records has no gps column — the check gates, it doesn't store;
-         the IP below remains the stored cross-check.) */
-      const otGate = await gateGeofence(env, body, body.type === "ot_in" ? "record OT in" : "record OT out");
-      if (otGate.resp) return otGate.resp;
-      await env.DB.prepare(
-        `INSERT INTO ot_records (user_id, type, ip, user_agent)
-         VALUES (?1, ?2, ?3, ?4)`,
-      ).bind(
-        user.id,
-        body.type,
-        request.headers.get("CF-Connecting-IP"),
-        (request.headers.get("User-Agent") ?? "").slice(0, 300),
-      ).run();
-    } catch (e) {
-      if (String(e).includes("no such table")) {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0044_overtime)", 500);
-      }
-      throw e;
-    }
-    const hhmm = mytNow.toISOString().slice(11, 16);
-    return json({ ok: true, at: hhmm }, 201);
+    return err("retired",
+      "OT in / OT out are no longer needed. Clock in and clock out for each shift — anything outside your working hours is sent to the CEO as overtime automatically.", 410);
   }
 
   if (path === "/attendance" && method === "GET") {
@@ -3042,7 +3128,20 @@ export async function handleStaff(
     // the OT buttons, alongside the part-time exclusion.
     const ot_eligible = !["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)
       && meRow?.employment_status !== "part_time";
-    return json({ month, records: results, ot, ot_eligible });
+    /* v1.133.0 — TODAY'S SHIFTS, so the phone can say "11:00-17:00 +
+       20:00-22:00 · clock in and out for each" instead of leaving the person
+       to remember. Every block, not the first: the first block alone is what
+       made the evening look like it did not exist. */
+    let today_shift: { kind: string; label: string; windows: { start: string; end: string }[] } | null = null;
+    try {
+      const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const shT = await shiftOn(env, forUser, tdy);
+      today_shift = {
+        kind: shT.kind, label: shiftLabel(shT),
+        windows: shT.windows.map((w) => ({ start: hhmm(w.start), end: hhmm(w.end) })),
+      };
+    } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
+    return json({ month, records: results, ot, ot_eligible, today_shift });
   }
 
   if (path === "/attendance/monitor" && method === "GET") {
@@ -3063,6 +3162,16 @@ export async function handleStaff(
                 WHERE a.user_id = u.id AND a.type = 'clock_in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
               (SELECT MAX(a.created_at) FROM attendance_records a
                 WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1) AS out_at,
+              /* v1.133.0 — a day is sessions now. "in_at" and "out_at" are the
+                 first and last of the day; this is what the person is doing
+                 RIGHT NOW, which is the question the monitor exists to answer:
+                 somebody back for the evening shift is clocked in, not "out
+                 since 17:00". */
+              (SELECT a.type FROM attendance_records a
+                WHERE a.user_id = u.id AND date(a.created_at, '+8 hours') = ?1
+                ORDER BY a.created_at DESC LIMIT 1) AS last_type,
+              (SELECT COUNT(*) FROM attendance_records a
+                WHERE a.user_id = u.id AND a.type = 'clock_in' AND date(a.created_at, '+8 hours') = ?1) AS shifts,
               /* v1.18.1 (CEO: "get user clock in accurately without cheating"):
                  the position stored on the FIRST clock-in of the day, so
                  management sees where each punch happened. */
@@ -3137,16 +3246,10 @@ export async function handleStaff(
     const assignedAtV = await assignedResolver(env, `${monthV}-01`, `${monthV}-${lastV}`);
     const notPendingV = await notPendingSql(env);
 
-    /* One clocked pair per person per day, in one query. */
-    const { results: clockV } = await env.DB.prepare(
-      `SELECT user_id, date(created_at, '+8 hours') AS d,
-              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
-              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
-         FROM attendance_records
-        WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingV}
-        GROUP BY user_id, d`,
-    ).bind(monthV).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
-    const clockMap = new Map((clockV ?? []).map((c) => [`${c.user_id}|${c.d}`, c]));
+    /* v1.133.0 — every session of every day, paired once (clock-day.ts).
+       notPendingV is applied inside clockedSessions. */
+    void notPendingV;
+    const clockMap = await clockedSessions(env, { month: monthV });
 
     /* Approved leave overlapping the month, by OVERLAP for the same reason
        the register uses it: a leave from 29 August covers 1 September too. */
@@ -3195,30 +3298,30 @@ export async function handleStaff(
           leaveDates.push({ d, type: lv.type });
           continue;
         }
-        const c = clockMap.get(`${u.id}|${d}`);
-        if (!c?.i) {
+        const sess = clockMap.get(`${u.id}|${d}`) ?? [];
+        const cIn = firstIn(sess);
+        if (!cIn) {
           /* A day still in the future, or today before anybody has clocked,
              is not an absence yet. */
           if (d <= todayV) { absent++; absentDates.push(d); }
           continue;
         }
         worked++;
-        const mytMin = (iso: string) => {
-          const t = new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000);
-          return t.getUTCHours() * 60 + t.getUTCMinutes();
-        };
-        const inMin = mytMin(c.i);
+        const inMin = mytMinutes(cIn);
         if (assignedAtV(u.id, d, inMin) && !windowAt(sh, inMin)) assignedDays++;
         else if (inMin > (lateAgainst(sh, inMin) ?? 0)) late++;
-        if (!c.o) { noClockOut++; openDates.push(d); }
-        if (c.o) {
-          const outMin = mytMin(c.o);
-          const span = Math.max(0, Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000));
-          const inside = minutesInWindows(sh, inMin, inMin + span);
-          const mins = inside > 0 ? inside : span;
+        /* v1.133.0 — a day is a list of sessions. "No clock-out" means the
+           LAST one is still open; the hours are the sum of the closed ones
+           inside the schedule, so the three hours between two shifts are
+           inside no session and count as nothing. Early-out is judged per
+           shift: leaving at 17:00 from an 11-17 + 20-22 day ended a shift. */
+        if (isOpen(sess)) { noClockOut++; openDates.push(d); }
+        const closed = sess.filter((x) => x.out);
+        if (closed.length > 0) {
+          const { counted: mins } = dayMinutesInSchedule(sh, sess);
           workedMins += mins;
           const owed = workMinutes(sh) || WORK_DAY_MINUTES;
-          if (outMin < (endOfDay(sh) ?? 0)) earlyOut++;
+          if (closed.some((x) => { const o = mytMinutes(x.out!); const due = earlyAgainst(sh.windows, o); return due !== null && o < due; })) earlyOut++;
           if (owed - mins >= owed / 4) shortDays++;
         }
       }
@@ -3300,7 +3403,8 @@ export async function handleStaff(
           : shR.kind === "rest_day" ? "rest_day"
           : r.type === "clock_in"
             ? (minutes <= (lateAgainst(shR, minutes) ?? SHIFT.startMinutes) ? "ok" : minutes <= shR.halfDay ? "late" : "half_day")
-            : (minutes < (endOfDay(shR) ?? SHIFT.endMinutes) ? "early_out" : "ok"),
+            /* v1.133.0 — against the shift being left, not the end of the day. */
+            : ((() => { const due = earlyAgainst(shR.windows, minutes); return due !== null && minutes < due; })() ? "early_out" : "ok"),
       });
     }
     /* v1.82.0 (CEO: "find and filter should include UPL and also Leave on
@@ -7635,15 +7739,15 @@ export async function handleStaff(
 
     /* A punch waiting for approval is a claim, not evidence that anybody was
        anywhere - the same rule the payroll counting queries use. */
-    const notPendingR = await notPendingSql(env, "a.");
-    const { results: punches } = await env.DB.prepare(
-      `SELECT a.user_id, date(a.created_at, '+8 hours') AS d,
-              MIN(CASE WHEN a.type = 'clock_in'  THEN a.created_at END) AS i,
-              MAX(CASE WHEN a.type = 'clock_out' THEN a.created_at END) AS o
-       FROM attendance_records a
-       WHERE strftime('%Y-%m', a.created_at, '+8 hours') = ?1${notPendingR}
-       GROUP BY a.user_id, d`,
-    ).bind(mR).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
+    /* v1.133.0 — sessions, not one pair: a rest day worked in two shifts is
+       credited for the hours of both, not for the gap between them. */
+    const sessR = await clockedSessions(env, { month: mR });
+    const punches = [...sessR].map(([k, sessions]) => {
+      const [uid, d] = k.split("|");
+      const closed = sessions.filter((x) => x.out);
+      return { user_id: Number(uid), d: d!, i: firstIn(sessions), o: lastOut(sessions),
+               mins: closed.length > 0 ? sessionMinutes(sessions) : null };
+    });
     if (punches.length === 0) return json({ month: mR, staff: [] });
 
     const { results: peopleR } = await env.DB.prepare(
@@ -7675,9 +7779,7 @@ export async function handleStaff(
       if (done.has(`${p.user_id}|${p.d}`)) continue;
       const sh = shiftAtW(p.user_id, p.d);
       if (sh.kind !== "rest_day") continue;
-      const mins = p.i && p.o
-        ? Math.max(0, Math.round((new Date(p.o + "Z").getTime() - new Date(p.i + "Z").getTime()) / 60000))
-        : null;
+      const mins = p.mins;
       const myt = (iso: string | null) =>
         iso ? new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16) : null;
       out.push({
@@ -7727,17 +7829,10 @@ export async function handleStaff(
     if (shC.kind !== "rest_day") {
       return err("invalid_input", `${dateC} is a working day on ${shC.pattern}, not a rest day`, 400);
     }
-    const notPendingC = await notPendingSql(env, "a.");
-    const dayC = await env.DB.prepare(
-      `SELECT MIN(CASE WHEN a.type = 'clock_in'  THEN a.created_at END) AS i,
-              MAX(CASE WHEN a.type = 'clock_out' THEN a.created_at END) AS o
-       FROM attendance_records a
-       WHERE a.user_id = ?1 AND date(a.created_at, '+8 hours') = ?2${notPendingC}`,
-    ).bind(uidC, dateC).first<{ i: string | null; o: string | null }>();
-    if (!dayC?.i) return err("invalid_input", "There is no approved clock-in for that day", 400);
-    const minsC = dayC.o
-      ? Math.max(0, Math.round((new Date(dayC.o + "Z").getTime() - new Date(dayC.i + "Z").getTime()) / 60000))
-      : null;
+    /* v1.133.0 — the minutes of every closed session that day. */
+    const sessC = (await clockedSessions(env, { day: dateC, userId: uidC })).get(`${uidC}|${dateC}`) ?? [];
+    if (!firstIn(sessC)) return err("invalid_input", "There is no approved clock-in for that day", 400);
+    const minsC = sessC.some((x) => x.out) ? sessionMinutes(sessC) : null;
 
     const yearC = Number(dateC.slice(0, 4));
     try {
@@ -8105,20 +8200,15 @@ export async function handleStaff(
     const byUser = new Map<number, { d: string; mins: number }[]>();
     if (phDates.size > 0) {
       try {
-        const { results } = await env.DB.prepare(
-          `SELECT user_id, date(created_at, '+8 hours') AS d,
-                  MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
-                  MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
-           FROM attendance_records
-           WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingP}
-           GROUP BY user_id, d`,
-        ).bind(month).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
-        for (const r of results) {
-          if (!phDates.has(r.d) || !r.i) continue; // not a holiday, or no clock-in
-          const mins = r.o ? Math.max(0, Math.round((new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000)) : 0;
-          const list = byUser.get(r.user_id) ?? [];
-          list.push({ d: r.d, mins });
-          byUser.set(r.user_id, list);
+        /* v1.133.0 — sessions: a holiday worked in two shifts pays the
+           hours of both, and nothing for the hours at home in between. */
+        void notPendingP;
+        for (const [k, sessions] of await clockedSessions(env, { month })) {
+          const [uidS, d] = k.split("|");
+          if (!phDates.has(d!) || !firstIn(sessions)) continue; // not a holiday, or no clock-in
+          const list = byUser.get(Number(uidS)) ?? [];
+          list.push({ d: d!, mins: sessionMinutes(sessions) });
+          byUser.set(Number(uidS), list);
         }
       } catch { /* attendance_records has existed since 0002 */ }
     }
@@ -8375,25 +8465,21 @@ export async function handleStaff(
     userId: number,
     month: string,
   ): Promise<{ counted: number; clocked: number; breaks: number; days: number }> => {
-    /* An unapproved punch pays nobody - this is an hourly host's wage. */
-    const notPending = await notPendingSql(env);
-    const { results } = await env.DB.prepare(
-      `SELECT date(created_at, '+8 hours') AS d,
-              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
-              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
-       FROM attendance_records
-       WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2${notPending}
-       GROUP BY d`,
-    ).bind(userId, month).all<{ d: string; i: string | null; o: string | null }>();
+    /* An unapproved punch pays nobody - this is an hourly host's wage.
+       (clockedSessions applies the pending filter.) */
+    /* v1.133.0 — SESSIONS. In at 11:05, out at 17:00, in at 20:00, out at
+       22:30 is 8h25 clocked and nothing for the evening at home; the break
+       is earned once, by the six-hour afternoon, and the two-hour evening
+       does not earn a second (hourly.ts, hourlyPaidForSessions). A day of
+       one session comes to exactly what v1.109.0 paid for it. */
     let counted = 0, clocked = 0, breaks = 0, days = 0;
-    for (const r of results) {
-      if (!r.i || !r.o) continue; // an unpaired day earns nothing until fixed
-      const span = Math.round((new Date(r.o + "Z").getTime() - new Date(r.i + "Z").getTime()) / 60000);
-      if (span <= 0) continue;
-      const brk = hourlyBreakFor(span);
-      clocked += span;
-      breaks += brk;
-      counted += span - brk;
+    for (const [, sessions] of await clockedSessions(env, { month, userId })) {
+      const closed = sessions.filter((x) => x.out && x.minutes > 0);
+      if (closed.length === 0) continue; // an unpaired day earns nothing until fixed
+      const pay = hourlyPaidForSessions(closed.map((x) => x.minutes));
+      clocked += pay.clocked;
+      breaks += pay.breaks;
+      counted += pay.counted;
       days++;
     }
     return { counted, clocked, breaks, days };
@@ -8725,17 +8811,8 @@ export async function handleStaff(
     /* A punch waiting for approval is not evidence that somebody was here -
        if it were, a forgotten-punch claim would quietly cancel the very
        absence it is claiming about. */
-    const notPendingS = await notPendingSql(env);
-    const { results: att } = await env.DB.prepare(
-      `SELECT user_id, date(created_at, '+8 hours') AS d,
-              MIN(CASE WHEN type = 'clock_in'  THEN created_at END) AS i,
-              MAX(CASE WHEN type = 'clock_out' THEN created_at END) AS o
-       FROM attendance_records
-       WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1${notPendingS}
-       GROUP BY user_id, d`,
-    ).bind(mA2).all<{ user_id: number; d: string; i: string | null; o: string | null }>();
-    const clocked = new Map<string, { i: string | null; o: string | null }>();
-    for (const a of att) clocked.set(`${a.user_id}|${a.d}`, { i: a.i, o: a.o });
+    /* v1.133.0 — sessions (clock-day.ts); the pending filter is inside. */
+    const clocked = await clockedSessions(env, { month: mA2 });
 
     /* Any approved leave covers the day - paid or unpaid. A day already
        covered is not a question. */
@@ -8774,22 +8851,16 @@ export async function handleStaff(
            office day of 10:00-18:00 is eight hours on the clock and seven of
            work, and everybody owed seven was being judged against eight. */
         const scheduled = workMinutes(shD) || WORK_DAY_MINUTES;
-        const c = clocked.get(`${u.id}|${d}`);
-        if (!c || !c.i) { missing.push(d); continue; }
-        if (!c.o) continue; // still open or never clocked out - not a pay question
-        const span = Math.round((new Date(c.o + "Z").getTime() - new Date(c.i + "Z").getTime()) / 60000);
-        /* And the time actually inside those blocks, for the same reason the
-           hourly wage counts the overlap: 11:00 to 22:30 is 11.5 hours of
-           elapsed time and 8 hours of work, and comparing 11.5 against a
-           scheduled 8 would report a short day as a long one. Falls back to
-           the span when there is nothing to intersect with. */
-        const mytOf = (iso: string) => {
-          const t = new Date(new Date(iso + "Z").getTime() + 8 * 3600 * 1000);
-          return t.getUTCHours() * 60 + t.getUTCMinutes();
-        };
-        const fromD = mytOf(c.i);
-        const inside = minutesInWindows(shD, fromD, fromD + span);
-        const mins = inside > 0 ? inside : span;
+        const c = clocked.get(`${u.id}|${d}`) ?? [];
+        if (!firstIn(c)) { missing.push(d); continue; }
+        if (isOpen(c) || !c.some((x) => x.out)) continue; // still open or never clocked out - not a pay question
+        /* And the time actually inside those blocks, summed over the day's
+           sessions, for the same reason the hourly wage counts the overlap:
+           11:00 to 22:30 is 11.5 hours of elapsed time and 8 hours of work,
+           and comparing 11.5 against a scheduled 8 would report a short day
+           as a long one. Falls back to the clocked total when there is
+           nothing to intersect with. */
+        const { counted: mins } = dayMinutesInSchedule(shD, c);
         /* A quarter of the scheduled day is the smallest thing worth raising -
            below that this becomes a list of people who left ten minutes
            early, which is a conversation, not a payroll line. */
@@ -9240,7 +9311,7 @@ export async function handleStaff(
       const flag = asgE ? "assigned"
         : shE.kind === "rest_day" ? "rest_day"
         : r.type === "clock_in" && shE.windows.length > 0 && minutes > (lateAgainst(shE, minutes) ?? 0) ? "late"
-        : r.type === "clock_out" && endOfDay(shE) !== null && minutes < endOfDay(shE)! ? "early_out"
+        : r.type === "clock_out" && (() => { const due = earlyAgainst(shE.windows, minutes); return due !== null && minutes < due; })() ? "early_out"
         : "ok";
       rows.push([r.employee_id ?? "", r.name, r.email, date, myt.toISOString().slice(11, 16),
                  r.type, flag, shE.kind, shE.pattern, shiftLabel(shE), scheduledMinutes(shE),

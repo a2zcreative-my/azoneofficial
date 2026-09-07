@@ -2,6 +2,43 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.133.0] - 2026-09-07 - clock in and out per shift; overtime is what lies outside the schedule
+
+**CEO**, 07-09-2026: *"OT pending is not appear. there should a conditional for Clock in and Clock out on the staff which is maybe they will work on 11:00am to 5:00pm, then continue work on night which is 8:00pm to 10:00pm"* - and then: *"I want my staff being clock in and out based on their working schedule ... 11:00am to 05:00pm then next shift schedule 08:00pm to 10:00pm or 8:30pm to 10:30pm it is either. then another shift maybe will be started at 2:00pm to 10:00pm. OT is based on outside of their working schedule."*
+
+Decided with him before building: overtime is **outside the person's own scheduled blocks** (not "anything after 18:00"); a **second Clock in is allowed after a Clock out**; the **OT in / OT out buttons go**.
+
+### Why OT pending never appeared
+Overtime lived in two buttons of its own, and "OT pending" was fed by nothing else. A host who clocked in at 11:00 and out at 22:00 produced no overtime, ever - since v1.80.0 the evening was counted as *assigned working time* if a live session covered it, and as nothing if it did not. And since v1.4.29 a day was **one clock-in and one clock-out**, so the honest thing at 17:00 - clocking out - left no way back in at 20:00. The two rules together made an ad-hoc evening unrecordable except by remembering a second pair of buttons that only appeared after 18:00.
+
+### A day is a list of shifts
+Clock in opens a shift, Clock out closes it, and there are as many as the day has. The only refusals are the two that make no sense - a second clock-in while one is open, a clock-out with nothing open - and each one says what to do next. The forgotten-punch flow (v1.76.0) is untouched: a clock-out on a day with no shift at all is still taken as pending.
+
+The three hours at home between 17:00 and 20:00 are inside no shift and are counted as **nothing**. Six places used to read a day as its first clock-in and last clock-out and compute from that pair - the month reconciliation, the short-day scan, hourly pay, holiday pay, and both rest-day credit routes. They read sessions now, through one shared reader (`clockedSessions`), so they cannot pair a day six ways. `clock-day.ts` holds the pairing and the overtime rule with zero imports, and guard #60 **runs** it on his examples.
+
+**Early-out is judged per shift.** Leaving at 17:00 from an 11-17 + 20-22 day is a shift ending, not five hours early against 22:00 - that misreading is precisely what made one-pair-per-day the only workable rule before.
+
+**The part-timer's break, per shift.** Still one hour, still once, and "earned" now reads the way the Act writes it: more than five *consecutive* hours. A six-hour afternoon earns it; the two-hour evening beside it does not earn a second; two four-hour shifts earn none. A day of one shift pays exactly what v1.109.0 paid.
+
+### Overtime, read off the clock
+The clock-out that closes a shift is the moment its length is known, so it is the moment its overtime is known: whatever part of it lies outside the person's blocks, if it is at least thirty minutes - packing up at 17:12 is not a shift. On a rest day the whole shift is outside. It lands in `ot_records` exactly as the buttons used to put it there - pending, decided by the CEO/COO, bell-notified either way - so the approval card, the desk bucket and the KPI keep working untouched. The approvers get a bell with the hours.
+
+Who, and who not: the same people the buttons served. **Not part-timers** - they are paid every clocked minute already, and overtime on top would pay the evening twice. **Not executives.** **Not on a public holiday** - that day is paid under its own rule (two days' ORP), and writing it here too would count it twice the day overtime reaches payroll. **Not from a pending punch.** And **once** - a retried clock-out cannot write the evening twice.
+
+A day can now hold more than one stretch (an early start and a late finish), so the pending list and the desk **sum the stretches** rather than taking last-out minus first-in, which would have counted the hours at home between them. The approval row also names the live session or roster task that vouches for the time - *assigned: Sara Beauty* - the evidence that decides most approvals at a glance.
+
+### What the phone says
+"Clocked in now" is read off the **latest** punch, not "has a clock-in happened today" - that was true from 11:00 to midnight. Clock in is green whenever nothing is open, and reads *Clock in · next shift* after the first. The card names today's shifts from the person's own pattern, every block, and says the rule in one line. A clock-out that produced overtime says so in hours and where it went. Month hours add the shifts up. The monitor reads "in now" the same way, and somebody on their second shift at 20:30 is *on shift 2*, not "no clock-out".
+
+**The OT in / OT out buttons are gone.** The route answers a phone that has not reloaded with what to do instead of a 404. Existing OT records and decisions are untouched. OT still does not feed payroll automatically - that was true before and is unchanged.
+
+**"maybe I need schedule working shift for them"** - yes, and that screen already exists: Attendance → Working hours, where a weekday can carry two blocks (v1.80.0) and days can be set in bulk. Overtime is measured against whatever is set there, so a person with no evening block who works the evening gets it as overtime, and a person whose pattern has the evening block gets it as scheduled hours.
+
+### Under it
+`worker/src/clock-day.ts` (new), `hourly.ts`, `staff.ts` (punch route, six day-readers, OT pending, monitor, today's shifts, retired route), `desk.ts`; `components/portal/dashboard.tsx`, `attendance.tsx`, `live-cards.tsx`, `page-shared.tsx`. Guard **#60** `tests/clock-sessions.mjs` (56 checks, the rule run on his examples, negative-tested six ways). Guards #24, #44, payroll-days and staff-order re-pointed from the one-pair shape to the property, plus a new check that no query still reads a day as one pair. No migration.
+
+Rendered on a 390px phone between shifts: *Clock in · next shift* green, *Clocked out ✓*, the shifts line, 6.0 hours; no page errors.
+
 ## [1.132.0] - 2026-09-07 - the ELFIA panel stops promising a price the shop will not charge
 
 **CEO**, 07-09-2026, a screenshot of the ELFIA tab beside one of the live shop: *"price update on ELFIA store tabs was not sync into the ELFIA store website ... not updated at all!"*
