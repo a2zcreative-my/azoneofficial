@@ -43,7 +43,7 @@ import {
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
-  Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX,
+  Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
   type LucideIcon,
 } from "lucide-react";
 import type React from "react";
@@ -57,6 +57,8 @@ export const APP_ICON = {
   blocked: Ban,
   celebrate: PartyPopper,
   /* actions */
+  edit: Pencil,
+  search: Search,
   download: Download,
   upload: Upload,
   attach: Paperclip,

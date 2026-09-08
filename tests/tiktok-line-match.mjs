@@ -77,7 +77,7 @@ ok("the worker imports the shipped rule", /import \{ matchByWords, skuKey as lin
 ok("a SKU is tried by the store's key before the name is looked at",
    /WHERE sku_key = \?1 LIMIT 1`,\s*\n\s*\)\.bind\(lineSkuKey\(sku\)\)/.test(ix));
 ok("the words rule runs over the whole catalogue, after the exact and contains rules",
-   /instr\(lower\(\?1\), lower\(trim\(name\)\)\) > 0 LIMIT 2[\s\S]{0,1200}?const m = matchByWords\(name, everything \?\? \[\]\);/.test(ix));
+   /instr\(lower\(\?1\), lower\(trim\(name\)\)\) > 0 LIMIT 2[\s\S]{0,2000}?const m = matchByWords\(name, everything\);/.test(ix));
 ok("an ambiguous line is its own outcome, not 'not in inventory'",
    /if \(m\.kind === "ambiguous"\) return m;/.test(ix) && /NOT deducted — ambiguous, rename one item so only one fits/.test(ix));
 ok("a line matched by words says so on the card, with what it matched",
@@ -92,6 +92,33 @@ ok("the retry on every sync still heals a movement-less order against CURRENT in
 ok("all-or-nothing survives: a shortage on one line holds the order, an unmatched line is just not moved",
    /deductible: shortages\.length === 0 && resolved\.length > 0/.test(ix));
 ok("a returned order still never deducts", /const canDeduct = deductible && uiNow !== "returned";/.test(ix));
+
+/* ---- 3. v1.136.0 - the family breaks a tie ---------------------------
+   CEO, 08-09-2026: "I want to have a category ... either shawl or bawal".
+   The shop names its items by shade alone (BLACK, KHAKI, CHAMPAGNE), so two
+   items called Lilac are otherwise indistinguishable - and the line says
+   which family it is. */
+{
+  const shades = [
+    { id: 1, name: "LILAC", category: "Bawal" },
+    { id: 2, name: "LILAC", category: "Shawl" },
+    { id: 3, name: "CHAMPAGNE", category: "Bawal" },
+  ];
+  ok("two items named LILAC, one bawal one shawl: the BAWAL line takes the bawal",
+     lm.matchByWords("BAWAL LUMI COTTON VOILE Lilac", shades).item?.id === 1);
+  ok("...and the SHAWL line takes the shawl", lm.matchByWords("SHAWL CHIFFON PREMIUM Lilac", shades).item?.id === 2);
+  ok("a line naming NEITHER family is still ambiguous - a tie is not a guess",
+     lm.matchByWords("COTTON VOILE Lilac", shades).kind === "ambiguous");
+  ok("a shade in one family only needs no tie-break", lm.matchByWords("SHAWL CHIFFON Champagne", shades).item?.id === 3);
+  ok("an uncategorised pair is still ambiguous",
+     lm.matchByWords("BAWAL LUMI Lilac", [{ id: 1, name: "LILAC" }, { id: 2, name: "LILAC" }]).kind === "ambiguous",
+     "the fix for that is to file them, which is what the category column is for");
+  ok("the family never widens the match: a bawal category cannot make a wrong shade fit",
+     lm.matchByWords("BAWAL LUMI COTTON VOILE Midnight", shades).kind === "none");
+  ok("the matcher is given the family, tolerant of 0120 not being applied",
+     /SELECT id, stock, name, unit_price_cents, category FROM inventory_items/.test(ix)
+     && /catch \{\s*\n\s*const r = await env\.DB\.prepare\(\s*\n\s*`SELECT id, stock, name, unit_price_cents FROM inventory_items/.test(ix));
+}
 
 console.log(`${failed ? "✗" : "✓"} tiktok-line-match: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

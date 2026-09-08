@@ -278,7 +278,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0119_shift_categories_ot_amend";
+const LATEST_MIGRATION = "0120_inventory_category";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1098,10 +1098,21 @@ async function matchInventoryItem(env: Env, sku: string, name: string, variant: 
        substring of "BAWAL LUMI COTTON VOILE Lilac", but every word of it
        that matters is in there. The rule in line-match.ts: all distinctive
        words present, best-covered name wins, a tie is refused as ambiguous. */
-    const { results: everything } = await env.DB.prepare(
-      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE length(trim(name)) >= 3`,
-    ).all<Row>();
-    const m = matchByWords(name, everything ?? []);
+    /* v1.136.0 - the family comes along, to break a tie between two items
+       that share a shade name. Tolerant of 0120 not being applied yet. */
+    let everything: (Row & { category?: string | null })[] = [];
+    try {
+      const r = await env.DB.prepare(
+        `SELECT id, stock, name, unit_price_cents, category FROM inventory_items WHERE length(trim(name)) >= 3`,
+      ).all<Row & { category?: string | null }>();
+      everything = r.results ?? [];
+    } catch {
+      const r = await env.DB.prepare(
+        `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE length(trim(name)) >= 3`,
+      ).all<Row>();
+      everything = r.results ?? [];
+    }
+    const m = matchByWords(name, everything);
     if (m.kind === "one") return { kind: "one", item: { ...m.item, via: "words" } };
     if (m.kind === "ambiguous") return m;
   }
@@ -4454,6 +4465,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0117 (the pipeline re-spoken for review outreach)", `SELECT review_url FROM hotels LIMIT 1`],
       ["0118 (the signature vault, per entity and per version)", `SELECT issuer_code, role, version, r2_key FROM signature_assets LIMIT 1`],
       ["0119 (working-hour categories, amendable overtime)", `SELECT category FROM shift_patterns LIMIT 1`],
+      ["0120 (inventory category)", `SELECT category FROM inventory_items LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4592,6 +4604,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0117_hotel_review_pipeline",
       "0118_signature_vault",
       "0119_shift_categories_ot_amend",
+      "0120_inventory_category",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

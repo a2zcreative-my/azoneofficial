@@ -55,7 +55,11 @@ export function skuKey(sku: string): string {
   return sku.toUpperCase().replace(/\s+/g, "");
 }
 
-export interface Candidate { id: number; name: string }
+/** v1.136.0 - `category` is the item's family (Bawal, Shawl). It is not part
+    of the match: it only breaks a tie, because a shop that names its items by
+    shade alone ("LILAC" as both a bawal and a shawl) has nothing else to tell
+    them apart, and the line itself says which family it is. */
+export interface Candidate { id: number; name: string; category?: string | null }
 
 export type WordMatch<T extends Candidate> =
   | { kind: "one"; item: T }
@@ -87,6 +91,18 @@ export function matchByWords<T extends Candidate>(text: string, items: T[]): Wor
   scored.sort((a, b) => b.score - a.score);
   const best = scored[0]!;
   const tied = scored.filter((s) => s.score === best.score);
-  if (tied.length > 1) return { kind: "ambiguous", names: tied.map((s) => s.item.name) };
+  if (tied.length > 1) {
+    /* v1.136.0 - the family breaks the tie. "BAWAL LUMI COTTON VOILE Lilac"
+       against two items both called Lilac: the one filed under Bawal. Only
+       when EXACTLY one of the tied items has its family named in the line -
+       none, or both, is still a question for a human. */
+    const byCat = tied.filter((s) => {
+      const c = (s.item.category ?? "").trim();
+      const cw = words(c).filter((w) => w.length >= 3);
+      return cw.length > 0 && cw.every(has);
+    });
+    if (byCat.length === 1) return { kind: "one", item: byCat[0]!.item };
+    return { kind: "ambiguous", names: tied.map((s) => s.item.name) };
+  }
   return { kind: "one", item: best.item };
 }

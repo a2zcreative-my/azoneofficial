@@ -273,6 +273,7 @@ interface InvItem {
   status: string;
   unit_price_cents?: number; // v1.4.101
   live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
+  category?: string | null; // v1.136.0 — the item's family: Bawal, Shawl, …
   bridge_enabled?: number | null; // v1.35.0 — published to the ELFIA web store
   elfia_price_cents?: number | null; // v1.35.0 — explicit web price (empty = list price)
   updated_by_name?: string;
@@ -508,7 +509,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   const [items, setItems] = useState<InvItem[]>([]);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
-  const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "" });
+  const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "", category: "" });
   const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null); // v1.36.0
   const [postDraft, setPostDraft] = useState({ order_ref: "", courier: "", tracking_no: "", order_amount: "" }); // v1.4.169 += amount
   const [postLines, setPostLines] = useState<{ inventory_item_id: number; qty: number }[]>([]);
@@ -543,11 +544,16 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   // again to reverse. Defaults unchanged: inventory by SKU 1→end; stock-out
   // by today's hot sales first.
   // v1.4.281: all-column sort — col + asc/desc direction.
-  type InvCol = "sku" | "name" | "price" | "net" | "stock";
+  type InvCol = "sku" | "name" | "category" | "price" | "net" | "stock";
   const [invSort, setInvSort] = useState<{ col: InvCol; asc: boolean }>({ col: "sku", asc: true });
   /* v1.119.0 - find box, status chips, and the add-item form behind a button */
   const [invQ, setInvQ] = useState("");
   const [invFilter, setInvFilter] = useState<"all" | "low" | "out">("all");
+  /* v1.136.0 (CEO: "I want to have a category ... so that I can easily review
+     based on the category that I choose") - "" is every family; "\u0000none"
+     is the items nobody has filed yet, which is a list worth being able to
+     reach. */
+  const [invCat, setInvCat] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   /* v1.123.0 - one area at a time in Record and What moved */
   const [recordTab, setRecordTab] = useState<"returns" | "postage" | "materials">("returns");
@@ -633,6 +639,13 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
     switch (invSort.col) {
       case "sku":   return dir * bySku(a, b);
       case "name":  return dir * (a.name ?? "").localeCompare(b.name ?? "");
+      /* v1.136.0 - uncategorised sorts LAST either way: the point of sorting
+         by family is to read the families, not to lead with the gap. */
+      case "category": {
+        const ca = (a.category ?? "").trim(), cb = (b.category ?? "").trim();
+        if (!ca !== !cb) return ca ? -1 : 1;
+        return dir * ca.localeCompare(cb) || bySku(a, b);
+      }
       case "price": return dir * ((a.unit_price_cents ?? 0) - (b.unit_price_cents ?? 0));
       case "net":   return dir * (Math.max(0, (a.unit_price_cents ?? 0) - (a.live_rebate_cents ?? 0)) - Math.max(0, (b.unit_price_cents ?? 0) - (b.live_rebate_cents ?? 0)));
       case "stock": return dir * (a.stock - b.stock);
@@ -644,9 +657,35 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   const lowCount = items.filter((it) => it.status === "low").length;
   const outCount = items.filter((it) => it.status === "out_of_stock").length;
   const needle = invQ.trim().toLowerCase();
+  /* v1.136.0 - the families in use, in the order a person reads them, plus
+     how many items each holds. Built from the items themselves: a category
+     exists because something is filed under it, so a family empties itself
+     off the strip when its last item is refiled. */
+  const catOf = (it: InvItem) => (it.category ?? "").trim();
+  const invCats = [...new Set(items.map(catOf).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const uncatCount = items.filter((it) => !catOf(it)).length;
   const visibleItems = sortedItems.filter((it) =>
     (invFilter === "all" || (invFilter === "low" ? it.status === "low" : it.status === "out_of_stock"))
-    && (!needle || it.sku.toLowerCase().includes(needle) || it.name.toLowerCase().includes(needle)));
+    && (invCat === "" || (invCat === "\u0000none" ? !catOf(it) : catOf(it) === invCat))
+    && (!needle || it.sku.toLowerCase().includes(needle) || it.name.toLowerCase().includes(needle)
+        || catOf(it).toLowerCase().includes(needle)));
+  /* v1.136.0 - saving a family. One field, one route, and the list reloads,
+     so the strip above and the cell agree without either being told twice. */
+  const saveInvCategory = async (it: InvItem, next: string) => {
+    const cat = next.trim().replace(/\s+/g, " ").slice(0, 40);
+    if (cat === catOf(it)) return;
+    const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/edit`, {
+      method: "POST", body: JSON.stringify({ category: cat }),
+    });
+    if (!res.ok) {
+      invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Category not saved", "Kategori tidak disimpan"), "notice");
+      return;
+    }
+    invToast(L("Saved", "Disimpan"), cat
+      ? `${it.sku} — ${cat}`
+      : `${it.sku} — ${L("category cleared", "kategori dikosongkan")}`);
+    void load();
+  };
   // Hot = today's sales first (ties: month, then SKU) — deterministic.
   const byToday = (a: TtOut, b: TtOut) => (b.today_qty - a.today_qty) || (b.month_qty - a.month_qty) || bySku(a, b);
   const sortedTtOut = [...ttOut].sort((a, b) => {
@@ -920,22 +959,26 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               const rows: (string | number)[][] = [
                 [`# ${DOCUMENT_ISSUER.name} — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`],
                 [`# ${L("Generated", "Dijana")} ${csvStampMyt()} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`],
-                ["SKU", L("Item", "Barang"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")],
+                [`# ${invCat === "" ? L("Every category", "Semua kategori") : invCat === "\u0000none" ? L("Uncategorised items only", "Barang tanpa kategori sahaja") : `${L("Category", "Kategori")}: ${invCat}`}${invFilter === "all" ? "" : ` · ${invFilter === "low" ? L("low stock only", "stok rendah sahaja") : L("out of stock only", "habis stok sahaja")}`}${needle ? ` · ${L("search", "carian")}: ${invQ.trim()}` : ""}`],
+                ["SKU", L("Item", "Barang"), L("Category", "Kategori"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")],
               ];
               let units = 0;
-              for (const it of sortedItems) {
+              /* v1.136.0 - the sheet is the LIST ON SCREEN. Counting one
+                 family means downloading that family, not the whole shelf
+                 with the other one crossed out by hand. */
+              for (const it of visibleItems) {
                 const price = it.unit_price_cents ?? 0;
                 const rebate = it.live_rebate_cents ?? 0;
                 const net = Math.max(0, price - rebate);
                 units += it.stock;
                 rows.push([
-                  it.sku, it.name, rmBare(price),
+                  it.sku, it.name, (it.category ?? "").trim(), rmBare(price),
                   rebate > 0 ? `-${rmBare(rebate)}` : "",
                   rmBare(net), it.stock, it.status ?? "", "", "", "",
                 ]);
               }
-              rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", units, "", "", "", ""]);
-              downloadCsv(`azoo-stock-count-${now.slice(0, 10)}`, rows);
+              rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", "", units, "", "", "", ""]);
+              downloadCsv(`azoo-stock-count-${invCat && invCat !== "\u0000none" ? `${invCat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-` : ""}${now.slice(0, 10)}`, rows);
             }}>
             <><AppIcon name="download" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("CSV — stock count", "CSV — kiraan stok")}</>
           </button>
@@ -963,6 +1006,35 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             {addOpen ? L("Close", "Tutup") : L("+ Add item", "+ Tambah barang")}
           </button>
         </div>
+        {/* v1.136.0 (CEO: "I want to have a category ... either shawl or
+            bawal so that I can easily review based on the category that I
+            choose") - the families, as their own strip so they are not read
+            as more status chips. It appears once something is filed; until
+            then the Category column in the table is where filing happens.
+            The phone list and the table both draw from visibleItems, so this
+            strip narrows BOTH - one control, one answer. */}
+        {(invCats.length > 0 || uncatCount > 0) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground mr-0.5 text-[11px] font-medium uppercase tracking-wide">{L("Category", "Kategori")}</span>
+            <span role="tablist" aria-label={L("Show one category", "Tunjuk satu kategori")} className="flex flex-wrap gap-1.5">
+              {([["", L("All", "Semua"), items.length] as const,
+                 ...invCats.map((c) => [c, c, items.filter((it) => catOf(it) === c).length] as const),
+                 ...(uncatCount > 0 ? [["\u0000none", L("Uncategorised", "Tanpa kategori"), uncatCount] as const] : [])])
+                .map(([k, label, n]) => (
+                  <button key={k || "all"} type="button" role="tab" aria-selected={invCat === k} onClick={() => setInvCat(k)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${invCat === k ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                    {label} {n}
+                  </button>
+                ))}
+            </span>
+          </div>
+        )}
+        {/* The families already in use, offered to every Category box below
+            (the browser's own suggestion list) so the second item of a family
+            is picked, not retyped. */}
+        <datalist id="inv-categories">
+          {invCats.map((c) => <option key={c} value={c} />)}
+        </datalist>
         {/* v1.4.150: app-standard widths — a 2-up grid on phones (full-width
             fields, full-width button), the tidy inline row from sm: up. */}
         {addOpen && (
@@ -983,10 +1055,15 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-32`} placeholder="0.00" value={invDraft.unit_price}
               onChange={(e) => setInvDraft((d) => ({ ...d, unit_price: e.target.value }))} />
           </SubR>
+          {/* v1.136.0 - file it as it is added, so nothing arrives uncategorised. */}
+          <SubR t={L("Category", "Kategori")}>
+            <input list="inv-categories" className={`${inputClass} sm:max-w-32`} placeholder={L("e.g. Bawal", "cth. Bawal")} value={invDraft.category}
+              onChange={(e) => setInvDraft((d) => ({ ...d, category: e.target.value }))} />
+          </SubR>
           <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:h-[38px] sm:justify-start`}
             onClick={async () => {
               await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
-              setInvDraft({ sku: "", name: "", stock: 0, unit_price: "" });
+              setInvDraft({ sku: "", name: "", stock: 0, unit_price: "", category: "" });
               void load();
             }}>
             {L("Add item", "Tambah barang")}
@@ -998,7 +1075,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         {!loaded && (
           <>
             <div className="mt-3 hidden overflow-x-auto pr-1 md:block">
-              <SkelTable rows={6} cols={10} className="min-w-[920px]" />
+              <SkelTable rows={6} cols={11} className="min-w-[1000px]" />
             </div>
             <SkelRows rows={4} className="mt-3 md:hidden" />
           </>
@@ -1008,7 +1085,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         )}
         {items.length > 0 && visibleItems.length === 0 && (
           <p className="text-muted-foreground mt-3 text-sm">
-            {invFilter === "low" ? L("Nothing is low.", "Tiada yang rendah.") : invFilter === "out" ? L("Nothing is out of stock.", "Tiada yang habis.") : L("Nothing matches that.", "Tiada yang sepadan.")}
+            {invCat !== "" && invFilter === "all" && !needle
+              ? (invCat === "\u0000none"
+                  ? L("Everything is filed under a category.", "Semua sudah ada kategori.")
+                  : `${L("Nothing in", "Tiada apa-apa dalam")} ${invCat}.`)
+              : invFilter === "low" ? L("Nothing is low.", "Tiada yang rendah.") : invFilter === "out" ? L("Nothing is out of stock.", "Tiada yang habis.") : L("Nothing matches that.", "Tiada yang sepadan.")}
           </p>
         )}
         {items.length > 0 && visibleItems.length > 0 && (
@@ -1025,6 +1106,12 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{it.name}</p>
                   <p className="text-muted-foreground truncate text-[11px]"><span className="font-mono">{it.sku}</span>{it.unit_price_cents ? ` · RM ${rmBare(it.unit_price_cents)}` : ""}</p>
+                  {/* v1.136.0 - the family on the phone too. Read-only here:
+                      the strip above is how a phone narrows to one family,
+                      and filing an item is desk work like the price edits. */}
+                  {catOf(it) && (
+                    <span className="bg-secondary text-muted-foreground mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium">{catOf(it)}</span>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className={`text-2xl font-bold tabular-nums ${it.status === "out_of_stock" ? "text-destructive" : it.status === "low" ? "text-warning" : ""}`}>{it.stock}</p>
@@ -1043,7 +1130,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         {/* v1.4.199 (CEO): pills removed — click the SKU / Item headers to
             sort, click again to reverse. */}
         <div className="mt-3 hidden max-h-96 overflow-x-auto overflow-y-auto pr-1 md:block">
-          <table className="tbl-sticky w-full min-w-[920px] border-collapse">
+          <table className="tbl-sticky w-full min-w-[1000px] border-collapse">
             <thead>
               <tr className="border-border border-b">
                 {/* v1.4.281: all columns are sortable — click to asc, click again to desc */}
@@ -1057,6 +1144,13 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     {label}{invSort.col === col ? (invSort.asc ? " ▲" : " ▼") : ""}
                   </th>
                 ))}
+                {/* v1.136.0 - the family, sortable like the rest: one click
+                    puts every bawal together without touching the strip. */}
+                <th className={`${th} cursor-pointer select-none whitespace-nowrap`}
+                  title={L("Sort by category — click again to reverse", "Susun ikut kategori — klik lagi untuk terbalik")}
+                  onClick={() => cycleInv("category")}>
+                  {L("Category", "Kategori")}{invSort.col === "category" ? (invSort.asc ? " ▲" : " ▼") : ""}
+                </th>
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
                   title={L("Sort by price — click again to reverse", "Susun ikut harga — klik lagi untuk terbalik")}
                   onClick={() => cycleInv("price")}>
@@ -1104,6 +1198,20 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       ? <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" value={invEditDraft.name}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, name: e.target.value }))} />
                       : it.name}
+                  </td>
+                  {/* v1.136.0 - the family, typed once and picked thereafter
+                      from the browser's own list of the families in use.
+                      KEYED on the saved value (v1.132.0 rule): the box shows
+                      what the database holds, never a stale keystroke. */}
+                  <td className={td}>
+                    <input list="inv-categories" maxLength={40}
+                      className="border-input bg-background w-28 rounded border px-1.5 py-0.5 text-xs"
+                      title={L("Category — Bawal, Shawl, … saves when you leave the box; empty clears it", "Kategori — Bawal, Shawl, … disimpan apabila keluar kotak; kosong membuangnya")}
+                      placeholder={L("—", "—")}
+                      key={`cat:${it.category ?? ""}`}
+                      defaultValue={it.category ?? ""}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      onBlur={(e) => { void saveInvCategory(it, e.target.value); }} />
                   </td>
                   <td className={tdR2}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
@@ -1254,7 +1362,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 stock-out card (v1.4.172). */}
             <tfoot>
               {(() => {
-                const tot = sortedItems.reduce(
+                /* v1.136.0 - the footer counts WHAT IS ON SCREEN. Choosing
+                   Bawal and still reading the whole shelf's value is the
+                   opposite of "easily review based on the category that I
+                   choose"; the label says which set it is. */
+                const tot = visibleItems.reduce(
                   (a, it) => {
                     const price = it.unit_price_cents ?? 0;
                     const net = Math.max(0, price - (it.live_rebate_cents ?? 0));
@@ -1267,7 +1379,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 );
                 return (
                   <tr className="border-border border-t-2 font-semibold">
-                    <td className={td} colSpan={2}>{L("TOTAL — stock on hand", "JUMLAH — stok dalam tangan")}</td>
+                    <td className={td} colSpan={3}>
+                      {visibleItems.length === items.length
+                        ? L("TOTAL — stock on hand", "JUMLAH — stok dalam tangan")
+                        : `${L("TOTAL", "JUMLAH")} — ${invCat && invCat !== "\u0000none" ? invCat : invCat === "\u0000none" ? L("uncategorised", "tanpa kategori") : L("this view", "paparan ini")} (${visibleItems.length}/${items.length})`}
+                    </td>
                     <td className={tdR2} title={L("Σ stock × price/unit — the value sitting in stock at list price", "Σ stok × harga/unit — nilai stok pada harga senarai")}>
                       RM {rmBare(tot.value)}
                     </td>

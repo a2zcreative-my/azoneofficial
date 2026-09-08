@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.137.0] - 2026-09-08 - the Users tab joins the design system, and gets a phone view
+
+**CEO**, 08-09-2026: *"review Users UI/UX for webview and mobile apps view which is globally css/style use."*
+
+The panel was moved verbatim out of the 605 KB portal page in v1.114.0 and never adopted the vocabulary that arrived with it. It imported ONE token - `card` - and hand-rolled the rest: eight chips at a size no other panel uses (so the same "part time" chip read smaller here than on Attendance), `fieldLabel` retyped twice, a Save button that was `btnClass` minus its hover and disabled states and with no busy flag at all, and two selects in a spelling found nowhere else - because until now **there was no `selectClass` to use**. That was the real finding: twelve different select spellings across six files, and no name for any of them.
+
+**Four names added to `lib/ui-styles.ts`**, each because something was being spelled out by hand: `selectClass` (a select needs a fixed height where an input takes padding - the arrow the browser draws makes py-based sizing land a pixel off); `chipSm` and its five tones, one dense chip for list rows so no panel invents a third size; `listBox`, the bordered hairline-divided scroll list that lives inside a card; and `iconBtn`, a **44px** labelled tap target until `sm:`, then the desk's 28px. `selectClassSm` was drafted and dropped before shipping: nothing uses it yet, and an unused name reads as the standard while the code does otherwise. It arrives with the sweep of the other six files.
+
+**The phone view had never been designed, only inherited.** The only edit control was a bare pencil glyph inside an 11px underlined button - about 12x14px of target, unlabelled for a screen reader, sitting beside three chips. Name and email shared one truncated line, so the email, which is what tells two accounts apart, was the half that got cut. Three scroll regions nested inside the page scroll. And the role editor opened INSIDE a flex-wrap row and reflowed the row it belonged to.
+
+Now: the action is a named 44px button (`aria-label` says whose role it changes); name and email get a line each; the chips take a line of their own below `sm:` and sit back on the row above it - **found by rendering the panel at 390px, where the first attempt still let four chips squeeze a name down to "Siti N..."**; a phone shows one list at a time behind Staff / Customers tabs while `lg:` keeps them side by side; and the editor is the house bottom sheet on a phone, the inline panel from `md:` up, with `hidden` as the only base display class so exactly one is ever shown (the v1.15.0 lesson).
+
+**And the honest small things.** One find box over BOTH lists (name, email or role) - the customer list is Google sign-ups and only grows. Counts on both headings, reading "3/12" while a search is on. Each list tells "none yet" from "none matching". A failed load reads `text-destructive`, not `text-warning`. The left / rejoined dates are on screen instead of inside a `title=` tooltip a phone cannot show. The activity skeleton is rows, because rows are what arrive - `SkelTable` drew three columns that never appeared. And a role reads as its own name: **CEO**, not "Ceo"; **HR Admin**, not "Hr Admin" - `capitalize` had been title-casing the acronyms.
+
+`lib/ui-styles.ts`, `components/portal/users-panel.tsx` (rewritten), `components/ui/app-icon.tsx` (`edit`, `search`), `tests/users-ui.mjs` (guard #63, 34 checks, registered), `scripts/run-guards.mjs`. Verified in a real browser at 390px and 1440px: no horizontal scroll at either, edit target measured at exactly 44x44. Negative-tested by putting a hand-rolled chip back, restoring the old select literal, making the action a bare glyph again, letting the chips shrink the identity, searching only one list, and dropping the busy state.
+
+Front-end only - no worker change, no migration. Still needs `PUSH.bat` to reach the site.
+
+## [1.136.0] - 2026-09-08 - the stock list reads one family at a time
+
+**CEO**, 08-09-2026: *"for inventory live status I want to have a category based on their category which is either shawl or bawal so that I can easily review based on the category that I choose. it is also same to the Mobile apps view"*
+
+Every item now carries a **category** of its own - Bawal, Shawl, whatever comes next; it is free text, so the next thing the shop sells needs no migration. **Migration 0120** adds the column and backfills it from the ELFIA collection wherever one is already set, so the grouping already built for the shop is not typed a second time here. The shop's own `elfia_category` is untouched and keeps its own job: which collection an item appears in ON THE SHOP. This new column is the warehouse answer to what kind of thing an item is.
+
+Setting one is a box in the new **Category** column that saves when you leave it, offering the families already in use from the browser's own list - typed once, picked thereafter. The column sorts like the rest (unfiled items sort last either way, because the point of sorting by family is to read the families, not to lead with the gap), and a new item can be filed as it is added.
+
+Choosing one is a **strip of chips above the list** - All, each family with its count, and **Uncategorised** so the items nobody has filed yet are one tap away rather than invisible work. The strip sits above BOTH renderings and the phone list and the desk table draw from the same filtered list, so **the phone narrows exactly as the desk does** - which is what the CEO asked for; the phone card also shows the family under the SKU. The find box searches the family too.
+
+And the numbers follow the choice, which is what makes this a review rather than a filter: the **footer total** sums what is on screen and says which set it is (*TOTAL - Bawal (12/22)*), and the **CSV stock-count sheet** holds the rows on screen, with a Category column, the family in the file name, and a header line naming the view - so a one-family count can never be read later as a full one.
+
+One more thing falls out of it: v1.135.0 refuses a TikTok line that fits two items equally, and a shop that names its items by shade alone (BLACK, KHAKI, CHAMPAGNE) has nothing to tell two Lilacs apart. **The family breaks that tie** - "BAWAL LUMI COTTON VOILE Lilac" takes the bawal - but only when exactly one of the tied items has its family named in the line. None, or both, is still a question for a human.
+
+`worker/migrations/0120_inventory_category.sql`, `worker/src/index.ts` (triple bump; the matcher is given the family, tolerant of 0120 not being applied), `worker/src/staff.ts` (the edit route sets and CLEARS a category - COALESCE would make a wrongly filed item unfilable), `worker/src/line-match.ts`, `components/portal/role-panels.tsx`, `tests/inventory-category.mjs` (guard #62, 25 checks, registered), `tests/tiktok-line-match.mjs` (+7). Negative-tested by totalling the whole shelf again, exporting the whole shelf, dropping the Uncategorised chip, letting the route COALESCE, and leaving the footer one cell short.
+
+**Needs `PUSH.bat`** - it carries migration 0120.
+
 ## [1.135.0] - 2026-09-07 - a TikTok line finds its item by its distinctive words
 
 **CEO**, 07-09-2026, on two shipped TikTok orders sitting on *No stock movement recorded - not in inventory (SKU or name): 1x BAWAL LUMI COTTON VOILE Lilac*: *"LUMI was not deducted from the inventory which is it is not correct. it is supposed to deduct automatically!!!"*

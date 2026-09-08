@@ -195,6 +195,18 @@ export const fieldLabelSm = "text-muted-foreground mb-1 block text-xs";
 export const inputClassSm =
   "rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring";
 
+/* v1.137.0 — THE SELECT, at last.
+   `inputClass` has existed since v1.4.154 and every <select> in the app went
+   without: twelve different class strings across six files, in four heights,
+   three radii and two type sizes. A dropdown beside a text field looked like
+   a different control on Users, Attendance and the trading desk.
+   A select needs a fixed HEIGHT where an input can take padding — the arrow
+   the browser draws makes py-based sizing land a pixel off — hence h-9/h-7
+   rather than py-2/py-1. Everything else matches the input it stands next
+   to, deliberately. */
+export const selectClass =
+  "h-9 w-full rounded-lg border border-input bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:w-auto";
+
 /** Card-header row: title left, actions right, wraps politely on phones. */
 export const rowHead = "flex flex-wrap items-center justify-between gap-2";
 
@@ -209,6 +221,38 @@ export const chipSuccess = `${chip} bg-success-soft text-success`;
 export const chipWarn = `${chip} bg-warning-soft text-warning`;
 export const chipDanger = `${chip} bg-danger-soft text-danger`;
 export const chipInfo = `${chip} bg-info-soft text-info`;
+
+/* v1.137.0 — the DENSE chip, for a chip that sits in a list row rather than
+   in a card. Users had eight of these hand-rolled at `px-1.5 py-px
+   text-[10px]`, which is why the same "part time" chip read smaller on Users
+   than on Attendance. One size for rows, one for cards, and no third size
+   invented per panel. */
+export const chipSm = "inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium";
+export const chipSmNeutral = `${chipSm} bg-secondary`;
+export const chipSmSuccess = `${chipSm} bg-success-soft text-success`;
+export const chipSmWarn = `${chipSm} bg-warning-soft text-warning`;
+export const chipSmDanger = `${chipSm} bg-danger-soft text-danger`;
+export const chipSmInfo = `${chipSm} bg-info-soft text-info`;
+
+/* v1.137.0 — THE LIST BOX. A bordered, hairline-divided, scrollable list
+   INSIDE a card: the staff list, the customer list, an events log. It is not
+   an insetCard — it has no padding and no fill of its own, because its rows
+   bring their own — and spelling it out by hand is how one list ended up
+   `max-h-80` while the one beside it was `max-h-96`. The caller sets the
+   height; everything else is here. */
+export const listBox = "border-border divide-border divide-y overflow-y-auto overscroll-contain rounded-lg border";
+
+/* v1.137.0 — THE ROW ACTION. A square, labelled tap target for the ✎ / ✕ that
+   sit at the end of a list row.
+
+   Users had its edit affordance as a bare `✎` inside `text-[11px] underline`:
+   about 12×14 px of touch target, unlabelled for a screen reader, and sitting
+   directly beside three chips. On a phone that is a mis-tap waiting to
+   happen — which is why the height is 44px until `sm`, the platform minimum,
+   and only then relaxes to the desk's 28px. Always give it an aria-label:
+   a glyph is not a name. */
+export const iconBtn =
+  "text-muted-foreground hover:text-foreground hover:bg-secondary inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-base transition-colors sm:h-7 sm:w-7 sm:text-sm";
 
 /** Dashboard tile styling. */
 export const tile = card;

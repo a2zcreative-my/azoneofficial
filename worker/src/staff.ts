@@ -10106,7 +10106,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         `UPDATE inventory_items SET sku_key = ?1 WHERE sku = ?2`,
       ).bind(skuKey(body.sku as string), body.sku).run();
     } catch { /* pre-0079 — the migration backfills every key on apply */ }
-    await audit(env, user.id, "inventory.create");
+    /* v1.136.0 - a new item can be filed under its family in the same breath. */
+    const addCat = String(body.category ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+    if (addCat) {
+      try {
+        await env.DB.prepare(`UPDATE inventory_items SET category = ?1 WHERE sku = ?2`).bind(addCat, body.sku).run();
+      } catch { /* pre-0120 - the item is added, uncategorised, and the card says so */ }
+    }
+    await audit(env, user.id, "inventory.create", "inventory_items", String(body.sku), { category: addCat || null });
     return json({ ok: true }, 201);
   }
   const invMatch = path.match(/^\/inventory\/(\d+)$/);
@@ -11746,9 +11753,21 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
     const newSku = str(body?.sku, 60) ? (body!.sku as string).trim() : null;
     const newName = str(body?.name, 200) ? (body!.name as string).trim() : null;
-    if (!newSku && !newName) return err("invalid_input", "Provide a sku and/or name to update", 400);
-    const target = await env.DB.prepare(`SELECT id, sku, name FROM inventory_items WHERE id = ?1`)
-      .bind(invEdit[1]).first<{ id: number; sku: string; name: string }>();
+    /* v1.136.0 (CEO: "I want to have a category ... either shawl or bawal so
+       that I can easily review based on the category that I choose") - the
+       item's own family. Free text so the next thing the shop sells needs no
+       migration; "" clears it, and a key sent at all is a key being SET, so
+       clearing is possible where COALESCE would make it impossible. */
+    const hasCat = body !== null && typeof body === "object" && "category" in (body as object);
+    let newCat: string | null = null;
+    if (hasCat) {
+      const c = String(body!.category ?? "").trim().replace(/\s+/g, " ");
+      if (c.length > 40) return err("invalid_input", "A category is at most 40 characters", 400);
+      newCat = c === "" ? null : c;
+    }
+    if (!newSku && !newName && !hasCat) return err("invalid_input", "Provide a sku, name and/or category to update", 400);
+    const target = await env.DB.prepare(`SELECT * FROM inventory_items WHERE id = ?1`)
+      .bind(invEdit[1]).first<{ id: number; sku: string; name: string; category?: string | null }>();
     if (!target) return err("not_found", "Item not found", 404);
     if (newSku) {
       const clash = await env.DB.prepare(
@@ -11760,6 +11779,16 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       `UPDATE inventory_items SET sku = COALESCE(?1, sku), name = COALESCE(?2, name),
          updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
     ).bind(newSku, newName, user.id, target.id).run();
+    if (hasCat) {
+      try {
+        await env.DB.prepare(`UPDATE inventory_items SET category = ?1 WHERE id = ?2`).bind(newCat, target.id).run();
+      } catch (e) {
+        if (String(e).includes("no such column")) {
+          return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0120, inventory category)", 500);
+        }
+        throw e;
+      }
+    }
     /* v1.36.0/v1.39.0 (AUDIT M8): a SKU rename must move the bridge match
        key with it, computed by the same JS normalisation the movements
        handler uses. */
@@ -11770,7 +11799,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       ).bind(skuKey(finalSku), target.id).run();
     } catch { /* pre-0079 */ }
     await audit(env, user.id, "inventory.edit", "inventory_items", String(target.id),
-      { from: { sku: target.sku, name: target.name }, to: { sku: newSku ?? target.sku, name: newName ?? target.name } });
+      { from: { sku: target.sku, name: target.name, category: target.category ?? null },
+        to: { sku: newSku ?? target.sku, name: newName ?? target.name, category: hasCat ? newCat : (target.category ?? null) } });
     return json({ ok: true });
   }
   const invDelete = path.match(/^\/inventory\/(\d+)\/delete$/);

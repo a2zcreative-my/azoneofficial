@@ -124,6 +124,8 @@ const GUARDS = [
   ["input-truth", "a box that shows a saved figure shows the SAVED one, and the ELFIA panel agrees with the shop"],
   ["clock-sessions", "a day is a list of shifts, the hours between them count as nothing, and overtime is what lies outside the schedule"],
   ["tiktok-line-match", "a TikTok line finds its inventory item by its distinctive words, in any order; a tie is refused, never guessed"],
+  ["inventory-category", "the stock list reads one family at a time - the same strip on the desk and the phone, and the totals follow the choice"],
+  ["users-ui", "the Users tab draws from the shared vocabulary, one filtered list feeds the desk and the phone, and a row action is a real tap target with a real name"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
