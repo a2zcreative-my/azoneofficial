@@ -21,7 +21,7 @@ import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { card, toastCard } from "@/lib/ui-styles";
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 
 /**
@@ -244,7 +244,26 @@ export function Dashboard({
     void load();
   }, [load]);
   /* v1.65.0 live: The dashboard is four cards in a trench coat, so it watches all four. */
-  useLiveRefresh(["attendance", "leave", "tasks", "announcements"], load);
+  /* v1.139.0 - ...and the ROSTER topics too: today's shifts come from the live
+     board and the task blocks, so a live booked for tonight left the phone
+     saying "All shifts clocked" with Clock in disabled until a reload. */
+  useLiveRefresh(["attendance", "leave", "tasks", "announcements", "live-sessions", "task-blocks"], load);
+  /* v1.139.0 - AND WHEN THE DAY TURNS OVER. Everything on this card is
+     computed from a fetch, and the only thing that triggers a new one is
+     somebody else writing. A host who leaves the app open overnight and is
+     the first to open it in the morning saw yesterday's card: "All shifts
+     clocked", Clock in disabled, until she force-refreshed. */
+  const dayRef = useRef(mytToday());
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    const t = setInterval(() => {
+      const d = mytToday();
+      if (d !== dayRef.current) { dayRef.current = d; void loadRef.current(); }
+    }, 60_000);
+    return () => clearInterval(t);
+  }, []);
+  
 
   const [punchToast, setPunchToast] = useState<{
     title: string;

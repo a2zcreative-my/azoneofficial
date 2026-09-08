@@ -3,6 +3,22 @@
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 
+## v1.139.0 — `0121_postage_order_ref_unique.sql`
+
+`postage_records.order_ref` has been the identity of a TikTok order since 0007 and was never unique, so the webhook and the 30-minute sync could both pass their `SELECT` and both `INSERT` — one order recorded twice and its stock deducted twice. This folds any duplicates that already exist (oldest row kept, later copies deleted with their line items) and adds `idx_postage_order_ref`. Both routes became `INSERT OR IGNORE` in the same release, so the loser of a race does nothing rather than failing.
+
+Nothing is deducted or added back by the migration: a shelf that was already double-deducted stays as it is and the CEO corrects it with **Manual in**, which is a movement with a reason on it.
+
+## v1.136.0 — `0120_inventory_category.sql`
+
+`inventory_items.category` — the item's own family (Bawal, Shawl, …), free text, backfilled from `elfia_category` wherever one is set. `elfia_category` keeps its own separate job: which collection an item appears in **on the shop**. The new column is what the stock list, the CSV count sheet and the TikTok line matcher read.
+
+## v1.134.0 — `0119_shift_categories_ot_amend.sql`
+
+`shift_patterns.category` (`normal` / `afternoon` / `evening` / `custom`, backfilled by the hours each pattern already had, plus the CEO's Afternoon and Evening patterns seeded where none matched) and `ot_records.amended_by` / `amended_at` — who changed an overtime record and when.
+
+**Audit B4 note:** this file carries three `ALTER TABLE` statements plus its seeds, against the one-non-idempotent-statement-per-file rule. It is left as it is deliberately: if it has already applied remotely, splitting it now would rename an applied migration, which is worse. If a future migration needs several ALTERs, split it.
+
 ## v1.127.0 — `0118_signature_vault.sql`
 
 `signature_assets` — the officers' chops, keyed by **entity, role and version**, append-only.

@@ -42,10 +42,18 @@ import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 const clientSrc = read("lib/outbox.ts");
 const serverSrc = read("worker/src/outbox.ts");
@@ -66,7 +74,7 @@ const ok = (label, cond, why = "") => {
 const dir = mkdtempSync(join(tmpdir(), "outbox-"));
 const bundle = (src, name) => {
   const out = join(dir, `${name}.mjs`);
-  execSync(`npx esbuild ${src} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+  execSync(`npx esbuild "${src}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
   return import(pathToFileURL(out).href);
 };
 const server = await bundle(join(root, "worker/src/outbox.ts"), "server");
@@ -155,12 +163,22 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
 
 /* ---- 3. when the phone said ---- */
 {
-  const at = (iso, key = "abcdefgh-1234") => server.clientAt(new Request("https://x/", { method: "POST", headers: { "Idempotency-Key": key, "X-Client-At": iso } }), "/attendance");
+  /* v1.139.0 - the stamp is honoured only on a request the client MARKED as
+     a replay. Guessing "late" from the stamp alone made every live punch
+     from a slow phone look like an offline replay, so every punch was
+     recorded at the phone's time and stored pending. */
+  const at = (iso, key = "abcdefgh-1234", replay = true) => server.clientAt(new Request("https://x/", {
+    method: "POST",
+    headers: { "Idempotency-Key": key, "X-Client-At": iso, ...(replay ? { "X-Outbox-Replay": "1" } : {}) },
+  }), "/attendance");
   const ago = (ms) => new Date(Date.now() - ms).toISOString();
   ok("a live request (now) is null - now is the truth", at(ago(0)) === null);
   ok("twenty seconds ago is still live", at(ago(20_000)) === null);
-  ok("five minutes ago is a Date", at(ago(5 * 60_000)) instanceof Date);
-  ok("forty hours ago is a Date", at(ago(40 * 3600_000)) instanceof Date);
+  ok("five minutes ago on a REPLAY is a Date", at(ago(5 * 60_000)) instanceof Date);
+  ok("...but five minutes ago on a LIVE request is null, however slow the phone",
+     at(ago(5 * 60_000), "abcdefgh-1234", false) === null,
+     "a phone two minutes behind had every punch stored pending and deriving no overtime");
+  ok("forty hours ago on a replay is a Date", at(ago(40 * 3600_000)) instanceof Date);
   ok("three days ago is null - a phone clock a week out is not a punch", at(ago(3 * 86400_000)) === null);
   ok("the future is null", at(new Date(Date.now() + 3600_000).toISOString()) === null);
   ok("garbage is null", at("yesterday-ish") === null);
@@ -185,7 +203,8 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("offline for certain parks without trying", /if \(kind && typeof navigator !== "undefined" && navigator\.onLine === false\) return park\(\);/.test(apiSrc));
   ok("a thrown fetch parks a queueable write and fails the rest as before", /catch \{[\s\S]{0,300}?if \(kind\) return park\(\);\s*return \{ ok: false, status: 0, data: null \};/.test(apiSrc));
   ok("a parked write says so", /return \{ ok: true, status: 202, data: null, queued: true \};/.test(apiSrc));
-  ok("the replay sends the SAME key and pressed-at", /"Idempotency-Key": e\.id, "X-Client-At": e\.clientAt/.test(apiSrc));
+  ok("the replay sends the SAME key and pressed-at, and says it IS a replay",
+     /"Idempotency-Key": e\.id,\s*\n?\s*"X-Client-At": e\.clientAt, "X-Outbox-Replay": "1"/.test(apiSrc));
   ok("a network failure stops the drain and keeps the entry", /if \(r === null\) \{ await bumpAttempts\(e\); break; \}/.test(clientSrc));
   ok("a refusal removes the entry AND tells the person", /else if \(r\.status >= 400 && r\.status < 500\) \{[\s\S]{0,300}?onRefused\?\.\(/.test(clientSrc),
      "dropping it silently would be the old failure in a new coat");

@@ -149,7 +149,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
     time. null means the network is still not there. */
 export async function sendOutboxEntry(e: OutboxEntry): Promise<{ status: number; data: unknown } | null> {
   try {
-    const headers = new Headers({ "Content-Type": "application/json", "Idempotency-Key": e.id, "X-Client-At": e.clientAt });
+    /* v1.139.0 - X-Outbox-Replay marks this as a write that WAS queued and is
+       now being sent late. Without it the worker had to guess "late" from the
+       stamp alone, and a phone whose clock ran a minute slow made every LIVE
+       punch look like an offline replay - so every clock-in and clock-out was
+       stored pending, counted for nothing until the CEO approved it one by
+       one, and derived no overtime. */
+    const headers = new Headers({
+      "Content-Type": "application/json", "Idempotency-Key": e.id,
+      "X-Client-At": e.clientAt, "X-Outbox-Replay": "1",
+    });
     const csrf = getCsrfToken();
     if (csrf) headers.set("X-CSRF-Token", csrf);
     let res = await fetch(`${API}${e.path}`, { method: e.method, credentials: "include", headers, body: e.body });

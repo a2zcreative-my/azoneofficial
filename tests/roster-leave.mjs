@@ -44,7 +44,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
@@ -214,6 +224,14 @@ ok("the task dialog applies the same rule to its own run",
      /WHERE l\.user_id = \?3 AND l\.status = 'approved'/.test(door));
   ok("approved only, here too", (door.match(/status = 'approved'/g) ?? []).length >= 2);
 }
+
+/* v1.139.0 - the override is a decision, and a decision does not carry from
+   one dialog into the next. Ticking "Book anyway", cancelling, then opening
+   an existing session via Edit sent leave_override: true without anybody
+   choosing it again. */
+ok("the leave override is reset by BOTH dialogs, not only the assign one",
+   (board.match(/setLeaveOverride\(false\);/g) ?? []).length >= 2,
+   "a cancelled override survived into Edit and moved a session onto a leave day silently");
 
 console.log(`${failed ? "✗" : "✓"} roster-leave: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

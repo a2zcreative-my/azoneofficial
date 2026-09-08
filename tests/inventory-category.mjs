@@ -27,7 +27,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
@@ -44,10 +54,10 @@ ok("...backfilled from the collection the CEO already set for the shop, so nothi
 ok("...and the shop's own collection is left alone", !/DROP COLUMN elfia_category|SET elfia_category/.test(mig),
    "elfia_category answers which collection an item appears in ON THE SHOP - a different question");
 ok("the migration is on all three registers",
-   /const LATEST_MIGRATION = "0120_inventory_category";/.test(ix)
-   && /"0120_inventory_category",/.test(ix)
-   && /SELECT category FROM inventory_items LIMIT 1/.test(ix),
-   "LATEST_MIGRATION, EXPECTED_MIGRATIONS and the probe list - the house triple bump");
+   /"0120_inventory_category",/.test(ix)
+   && /SELECT category FROM inventory_items LIMIT 1/.test(ix)
+   && /const LATEST_MIGRATION = "01\d\d_/.test(ix),
+   "EXPECTED_MIGRATIONS and the probe list carry 0120; LATEST_MIGRATION names whichever migration is last (registry-parity checks that separately)");
 ok("a category is SET by sending the key, so it can also be cleared",
    /const hasCat = body !== null && typeof body === "object" && "category" in \(body as object\)/.test(staff)
    && /newCat = c === "" \? null : c;/.test(staff)
@@ -60,7 +70,12 @@ ok("a new item can be filed as it is added", /UPDATE inventory_items SET categor
    && /list="inv-categories"[\s\S]{0,200}?value=\{invDraft\.category\}/.test(rp));
 
 /* ---- 2. one strip, both views ---------------------------------------- */
-ok("the strip is the item's family, counted", /const invCats = \[\.\.\.new Set\(items\.map\(catOf\)\.filter\(Boolean\)\)\]/.test(rp));
+ok("the strip is the item's family, counted, one chip per family",
+   /const invCats = \[\.\.\.new Map\(items\.map\(catOf\)\.filter\(Boolean\)\.map\(\(c\) => \[c\.toLowerCase\(\), c\]\)\)\.values\(\)\]/.test(rp),
+   "0120 backfills the shop's lowercase collection, so typing Bawal beside bawal made two chips for one family");
+ok("...and choosing one is case-insensitive throughout",
+   /catOf\(it\)\.toLowerCase\(\) === invCat\.toLowerCase\(\)/.test(rp)
+   && /const known = invCats\.find\(\(c\) => c\.toLowerCase\(\) === cat\.toLowerCase\(\)\);/.test(rp));
 {
   /* Both renderings draw from visibleItems, and nothing else: the phone list
      (md:hidden) and the desk table (md:block) are one list, filtered once. */
@@ -72,7 +87,7 @@ ok("the strip is the item's family, counted", /const invCats = \[\.\.\.new Set\(
   const table = card.indexOf("<table className=");
   const firstDraw = card.indexOf("{visibleItems.map(");
   ok("the desk table and the phone list are the SAME filtered list",
-     /const visibleItems = sortedItems\.filter\([\s\S]{0,600}?catOf\(it\) === invCat/.test(rp)
+     /const visibleItems = sortedItems\.filter\([\s\S]{0,700}?catOf\(it\)\.toLowerCase\(\) === invCat\.toLowerCase\(\)/.test(rp)
      && draws === 2 && phone > 0 && phone < firstDraw && firstDraw < table,
      `the CEO asked for the phone too; one list is how they cannot drift apart (draws ${draws})`);
 }
@@ -130,6 +145,24 @@ ok("two items sharing a shade name are told apart by their family",
    /const byCat = tied\.filter/.test(read("worker/src/line-match.ts"))
    && /if \(byCat\.length === 1\) return \{ kind: "one", item: byCat\[0\]!\.item \};/.test(read("worker/src/line-match.ts")),
    "a shop that names items by shade alone (BLACK, KHAKI, CHAMPAGNE) has nothing else to tell two Lilacs apart");
+
+/* ---- 6. v1.139.0 - A SAVE CHANGES WHAT IT SAYS IT CHANGES ---------------
+   The 08-09 audit: the price box on an inventory row sent `stock: it.stock`
+   beside the new price - the count as it stood when the PAGE WAS LOADED -
+   and the route set stock absolutely. So editing a price ten minutes after
+   opening the tab silently undid every TikTok deduction and every bridge
+   movement since, and the trail recorded only "inventory.update". */
+ok("the price box sends the price, and nothing about the count",
+   /await api\(`\/inventory\/\$\{it\.id\}`, \{ method: "PATCH", body: JSON\.stringify\(\{ unit_price: v \}\) \}\)/.test(rp)
+   && !/JSON\.stringify\(\{ stock: it\.stock/.test(rp),
+   "re-sending a stale count is how a deduction gets undone by somebody editing a price");
+ok("...and the route leaves the count alone when the body does not carry one",
+   /stock = COALESCE\(\?1, stock\)/.test(staff)
+   && /const setsStock = typeof body\.stock === "number";/.test(staff)
+   && /status = CASE WHEN COALESCE\(\?1, stock\) = 0 THEN 'out_of_stock'/.test(staff),
+   "the status is recomputed from whatever the count ends as, so a price-only save leaves no stale 'low'");
+ok("...and says in the trail which of the two it changed",
+   /"inventory\.update", "inventory_items", invMatch\[1\],\s*\n?\s*\{ \.\.\.\(setsStock \? \{ stock \} : \{\}\)/.test(staff));
 
 console.log(`${failed ? "✗" : "✓"} inventory-category: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

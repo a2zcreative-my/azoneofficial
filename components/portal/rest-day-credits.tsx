@@ -42,6 +42,7 @@ import { makeApi } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { dmy } from "@/lib/format";
 import { properName } from "@/lib/names";
+import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.139.0
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { card, chipNeutral, chipWarn, inputClass, fieldLabel, btnSm, btnSmPrimary } from "@/lib/ui-styles";
@@ -93,6 +94,10 @@ export function RestDayCreditCard({ role = "" }: { role?: string }) {
   }, [month, canReview]);
 
   useEffect(() => { void load(); }, [load]);
+  /* v1.139.0 - a rest-day clock-out, an overtime record removed (which
+     returns the day to this card) and a credit made from the Leave tab all
+     change this list; none of them reached it. */
+  useLiveRefresh(["attendance", "replacement-credit", "rest-day-ot"], load);
 
   if (!canReview) return null;
 

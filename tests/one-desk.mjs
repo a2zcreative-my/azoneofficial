@@ -26,10 +26,18 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const deskSrc = read("worker/src/desk.ts");
@@ -44,10 +52,10 @@ const ok = (label, cond, why = "") => {
 
 const dir = mkdtempSync(join(tmpdir(), "desk-"));
 const out = join(dir, "desk.mjs");
-execSync(`npx esbuild ${join(root, "worker/src/desk.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(root, "worker/src/desk.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const { claimStepFor, claimChain } = await import(pathToFileURL(out).href);
 const out2 = join(dir, "leave.mjs");
-execSync(`npx esbuild ${join(root, "worker/src/leave-chain.ts")} --bundle --format=esm --platform=neutral --outfile=${out2} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(root, "worker/src/leave-chain.ts")}" --bundle --format=esm --platform=neutral --outfile="${out2}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const { leaveCanActAt } = await import(pathToFileURL(out2).href);
 
 /* ---- 1. the claim chain, run ---- */

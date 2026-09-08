@@ -29,10 +29,28 @@ import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
+/* v1.139.2 - AN EXTERNAL IMPORT IS RESOLVED BY NODE, NOT BY ESBUILD, SO IT
+   IS A file:// URL. The stubs below are marked --external, which means
+   esbuild copies their specifier into the bundle untouched and Node resolves
+   it when the bundle is imported. Node accepts a bare absolute path only
+   where a path cannot be mistaken for a URL: "C:/Users/..." reads as the
+   protocol "c:", and Node refuses it with ERR_UNSUPPORTED_ESM_URL_SCHEME -
+   the CEO's third run, 08-09-2026. A file:// URL is what Node documents for
+   an absolute specifier, and it is the same string the test itself imports
+   the stub by, so both sides share one module instance. */
+const stubUrl = (p) => pathToFileURL(p).href;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const src = read("worker/src/watchers.ts");
 const index = read("worker/src/index.ts");
@@ -54,15 +72,15 @@ writeFileSync(join(dir, "staff.js"), "export const notified = []; export async f
 writeFileSync(join(dir, "desk.js"), "export let deskByUser = {}; export function setDesk(m) { deskByUser = m; } export async function deskItems(env, user) { const items = deskByUser[user.id] ?? []; return { items, counts: {}, missing: [] }; }");
 writeFileSync(join(dir, "shared.js"), "export const bumps = []; export async function bumpVersion(env, topic) { bumps.push(topic); }");
 const rewritten = src
-  .replace('from "./staff"', `from "${join(dir, "staff.js")}"`)
-  .replace('from "./desk"', `from "${join(dir, "desk.js")}"`)
-  .replace('from "./shared"', `from "${join(dir, "shared.js")}"`);
+  .replace('from "./staff"', `from "${stubUrl(join(dir, "staff.js"))}"`)
+  .replace('from "./desk"', `from "${stubUrl(join(dir, "desk.js"))}"`)
+  .replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`);
 writeFileSync(join(dir, "watchers.ts"), rewritten);
 const out = join(dir, "watchers.mjs");
 /* the stubs stay EXTERNAL so the bundle imports the same module instances
    this file reads `notified` and `setDesk` from - inlined, they would be
    private copies and the recorder would see nothing */
-execSync(`npx esbuild ${join(dir, "watchers.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error --external:*/staff.js --external:*/desk.js --external:*/shared.js`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(dir, "watchers.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error --external:*/staff.js --external:*/desk.js --external:*/shared.js`, { cwd: root, stdio: "inherit" });
 const W = await import(pathToFileURL(out).href);
 const { notified } = await import(pathToFileURL(join(dir, "staff.js")).href);
 const deskStub = await import(pathToFileURL(join(dir, "desk.js")).href);

@@ -34,7 +34,17 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 
 let pass = 0;

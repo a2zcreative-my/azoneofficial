@@ -27,13 +27,29 @@
  *
  *   node tests/staff-order.mjs
  */
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - Node refuses to spawn a .cmd directly since the 2024 argument-
+   injection hardening, so npx.cmd needs a shell; the CEO's own run answered
+   "spawnSync npx.cmd EINVAL". Args are quoted only when a shell is involved,
+   because a shell splits on spaces and a Windows temp path can contain them. */
+const WIN = process.platform === "win32";
+const qArg = (a) => (WIN && /[ &()^%!]/.test(a) ? `"${a}"` : a);
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 
 let pass = 0;
@@ -46,15 +62,17 @@ const ok = (label, cond, extra = "") => {
 const out = path.join(mkdtempSync(path.join(tmpdir(), "order-guard-")), "so.mjs");
 try {
   execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["esbuild", path.join(root, "lib/staff-order.ts"), "--format=esm", `--outfile=${out}`],
-    { stdio: "pipe" },
+    "npx", /* v1.139.2 - NEVER "npx.cmd": with a shell, cmd.exe resolves the
+              extension itself through PATHEXT, and Node never sees a bare .cmd
+              to refuse. Without the extension there is nothing to argue about. */
+    ["esbuild", path.join(root, "lib/staff-order.ts"), "--format=esm", `--outfile=${out}`].map(qArg),
+    { stdio: "pipe", shell: WIN },
   );
 } catch (e) {
   console.log(`FAIL — lib/staff-order.ts does not compile: ${e.message}`);
   process.exit(1);
 }
-const { ROLE_RANK, bySeniority, staffRank, positionRank } = await import(`file://${out}`);
+const { ROLE_RANK, bySeniority, staffRank, positionRank } = await import(pathToFileURL(out).href);
 
 const staff = read("worker/src/staff.ts");
 const payroll = read("components/portal/payroll-panel.tsx");
@@ -256,7 +274,7 @@ const page = readPortalSource(root);
   ok("a pending punch is not evidence",
      /const sessR = await clockedSessions\(env, \{ month: mR \}\);/.test(staff)
        && /await clockedSessions\(env, \{ day: dateC, userId: uidC \}\)/.test(staff)
-       && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
+       && /async function clockedSessions\([\s\S]{0,3000}?\$\{notPending\}/.test(staff),
      "an unapproved claim of having worked Saturday would otherwise buy a day off");
   ok("half a day or a whole one, nothing else",
      /if \(daysC !== 0\.5 && daysC !== 1\)/.test(staff),

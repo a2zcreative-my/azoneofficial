@@ -45,3 +45,37 @@ worker/.wrangler/
 *.p12
 id_rsa*
 Thumbs.db
+
+# --- v1.139.0: the strays the 08-09 audit found on disk ------------------
+# Windows names a file it cannot overwrite with a "-1" suffix, and those
+# copies were being committed and pushed: worker/src/index-1.ts and -2.ts in
+# the store, public/sw-1.js here. A duplicate is never a source file. The
+# suffixes are listed one by one rather than as a range because a glob would
+# also swallow a real file called something-v2.ts.
+*-1.ts
+*-2.ts
+*-3.ts
+*-1.tsx
+*-2.tsx
+*-1.js
+*-2.js
+*-1.mjs
+*-2.mjs
+*-1.json
+*-2.json
+*-1.md
+*-2.md
+
+# Working notes this session writes into the folder - never part of the app.
+Claude outputs/
+deploy-log.txt
+*.log
+
+# Belt and braces on the v1.38.0 leak. The signature vault is private R2 and
+# tests/no-public-signatures.mjs fails the build if a real image is served
+# from here, but a real PNG dropped into this folder must not reach GitHub
+# even for the minutes before that guard runs. The 1x1 placeholders and the
+# README are kept, by name.
+public/signatures/*
+!public/signatures/README.txt
+!public/signatures/*-sign.png

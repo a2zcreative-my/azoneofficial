@@ -18,7 +18,7 @@
  * Run: node tests/brands-guard.mjs
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 const errors = [];
 const brandsSrc = readFileSync('constants/brands.ts', 'utf8');
@@ -84,7 +84,11 @@ const walk = (dir) => {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) { walk(p); continue; }
     if (!/\.(ts|tsx)$/.test(p)) continue;
-    if (ALLOW.has(p)) continue;
+    /* v1.139.1 - compare the path the way the allowlist is WRITTEN. join()
+       gives "constants\\brands.ts" on Windows, so on the CEO's own PC the two
+       files that are ALLOWED to name a sister domain - the brand registry and
+       the letterhead issuers - were reported as the offenders. */
+    if (ALLOW.has(p.split(sep).join("/"))) continue;
     const src = readFileSync(p, 'utf8');
     /* Comments may name these domains freely — the rule is about CODE. That
        needs a real block-comment tracker, not a per-line prefix test: the

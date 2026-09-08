@@ -22,9 +22,11 @@
  *
  *   node tests/tiktok-id-precision.mjs
  */
+import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-const src = readFileSync(path.join(new URL("..", import.meta.url).pathname, "worker/src/index.ts"), "utf8");
+/* v1.139.1 - fileURLToPath, not .pathname (Windows: "C:\\C:\\Users\\..."). */
+const src = readFileSync(path.join(fileURLToPath(new URL("..", import.meta.url)), "worker/src/index.ts"), "utf8");
 const start = src.indexOf("function ttParse(raw: string): unknown {");
 if (start < 0) { console.log("  FAIL ttParse is gone from the worker — every TikTok id is being rounded again"); process.exit(1); }
 const end = src.indexOf("\n}", start) + 2;

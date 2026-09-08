@@ -278,7 +278,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0120_inventory_category";
+const LATEST_MIGRATION = "0121_postage_order_ref_unique";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1042,7 +1042,10 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_n
     const sku = (li.seller_sku ?? li.sku_id ?? "").trim();
     const variant = (li.sku_name ?? "").trim();
     const name = [li.product_name, li.sku_name].filter(Boolean).join(" ").trim();
-    const key = (sku || name).toLowerCase();
+    /* v1.139.0 - two variants can share one seller SKU; keying on the SKU
+       alone merged them into a single line carrying the first variant's name
+       and BOTH units, so one shade was deducted twice and the other never. */
+    const key = `${sku}|${variant || name}`.toLowerCase();
     if (!key) continue;
     const saleC = Math.round(Number(li.sale_price ?? NaN) * 100);
     const cur = merged.get(key) ?? { sku, name, variant, qty: 0, saleSum: 0, salePriced: 0 };
@@ -1066,57 +1069,141 @@ function groupLineItems(items: { seller_sku?: string; sku_id?: string; product_n
          stock. Names shorter than 3 chars never contains-match. */
 type MatchedItem = { id: number; stock: number; name: string; unit_price_cents: number | null; via: "sku" | "name" | "words" };
 type LineMatch = { kind: "one"; item: MatchedItem } | { kind: "ambiguous"; names: string[] } | { kind: "none" };
+type InvRow = { id: number; stock: number; name: string; unit_price_cents: number | null; category?: string | null };
+
+/** v1.139.0 - the catalogue the word rule reads, with the family when 0120
+    is applied. One query per resolve; the caller resolves a handful of lines
+    per order, and correctness beats a cache that can go stale mid-sync. */
+async function inventoryForMatching(env: Env): Promise<InvRow[]> {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT id, stock, name, unit_price_cents, category FROM inventory_items WHERE length(trim(name)) >= 3`,
+    ).all<InvRow>();
+    return r.results ?? [];
+  } catch {
+    const r = await env.DB.prepare(
+      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE length(trim(name)) >= 3`,
+    ).all<InvRow>();
+    return r.results ?? [];
+  }
+}
+
 async function matchInventoryItem(env: Env, sku: string, name: string, variant: string): Promise<LineMatch> {
-  type Row = { id: number; stock: number; name: string; unit_price_cents: number | null };
   if (sku) {
     const bySku = await env.DB.prepare(
       `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(sku)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(sku).first<Row>();
+    ).bind(sku).first<InvRow>();
     if (bySku) return { kind: "one", item: { ...bySku, via: "sku" } };
     /* v1.135.0 - the store's rule for the same SKU: 'LUMI001' on the TikTok
        listing is 'LUMI 001' in inventory (0079 sku_key). */
     const byKey = await env.DB.prepare(
       `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE sku_key = ?1 LIMIT 1`,
-    ).bind(lineSkuKey(sku)).first<Row>().catch(() => null);
+    ).bind(lineSkuKey(sku)).first<InvRow>().catch(() => null);
     if (byKey) return { kind: "one", item: { ...byKey, via: "sku" } };
   }
+  if (!name && !variant) return { kind: "none" };
+  const catalogue = await inventoryForMatching(env);
+
+  /* v1.139.0 - THE WORD RULE COMES FIRST NOW.
+     It used to come last, behind an exact-name match (LIMIT 1, no ordering)
+     and a substring match. That order made the v1.135.0 ambiguity refusal
+     and the v1.136.0 family tie-break UNREACHABLE for the naming this shop
+     actually uses: with a bawal LILAC and a shawl LILAC in stock, a line for
+     "BAWAL LUMI COTTON VOILE / Lilac" matched the exact name and took
+     whichever row the table returned first - a coin toss between two
+     families, decided by rowid, with no note saying anything was uncertain.
+     The word rule knows about both candidates and about the family, so it
+     answers the question the shortcuts were guessing at. */
+  const m = matchByWords(`${name} ${variant}`.trim(), catalogue);
+  if (m.kind === "one") return { kind: "one", item: { ...m.item, via: "words" } };
+  if (m.kind === "ambiguous") return m;
+
+  /* An item whose whole name is family and fabric words ("Bawal lumi") has
+     no distinctive word, so the word rule cannot see it. An EXACT name is
+     still an answer for those - but only when exactly one item has it. */
   for (const cand of [variant, name]) {
     if (!cand) continue;
-    const exact = await env.DB.prepare(
-      `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE lower(trim(name)) = lower(trim(?1)) LIMIT 1`,
-    ).bind(cand).first<Row>();
-    if (exact) return { kind: "one", item: { ...exact, via: "name" } };
-  }
-  if (name) {
-    const contains = await env.DB.prepare(
-      `SELECT id, stock, name, unit_price_cents FROM inventory_items
-       WHERE length(trim(name)) >= 3 AND instr(lower(?1), lower(trim(name))) > 0 LIMIT 2`,
-    ).bind(name).all<Row>();
-    if (contains.results.length === 1) return { kind: "one", item: { ...contains.results[0]!, via: "name" } };
-    /* v1.135.0 (CEO: "LUMI was not deducted from the inventory ... it is
-       supposed to deduct automatically!!!") - "Bawal lumi Lilac" is not a
-       substring of "BAWAL LUMI COTTON VOILE Lilac", but every word of it
-       that matters is in there. The rule in line-match.ts: all distinctive
-       words present, best-covered name wins, a tie is refused as ambiguous. */
-    /* v1.136.0 - the family comes along, to break a tie between two items
-       that share a shade name. Tolerant of 0120 not being applied yet. */
-    let everything: (Row & { category?: string | null })[] = [];
-    try {
-      const r = await env.DB.prepare(
-        `SELECT id, stock, name, unit_price_cents, category FROM inventory_items WHERE length(trim(name)) >= 3`,
-      ).all<Row & { category?: string | null }>();
-      everything = r.results ?? [];
-    } catch {
-      const r = await env.DB.prepare(
-        `SELECT id, stock, name, unit_price_cents FROM inventory_items WHERE length(trim(name)) >= 3`,
-      ).all<Row>();
-      everything = r.results ?? [];
-    }
-    const m = matchByWords(name, everything);
-    if (m.kind === "one") return { kind: "one", item: { ...m.item, via: "words" } };
-    if (m.kind === "ambiguous") return m;
+    const key = cand.trim().toLowerCase();
+    const exact = catalogue.filter((r) => r.name.trim().toLowerCase() === key);
+    if (exact.length === 1) return { kind: "one", item: { ...exact[0]!, via: "name" } };
+    if (exact.length > 1) return { kind: "ambiguous", names: exact.map((r) => r.name) };
   }
   return { kind: "none" };
+}
+
+/** v1.139.0 - MOVE THE STOCK FOR THESE LINES, ONCE EACH.
+ *
+ * Three doors deducted with three copies of this loop, and each one decided
+ * "already done" by counting postage_items rows for the WHOLE order. An
+ * order with one matched line and one ambiguous line therefore counted as
+ * done after the first line moved, and the ambiguous one was never retried
+ * however many times the SKU was fixed - the opposite of what v1.4.168
+ * promises. The unit of "already done" is the LINE.
+ *
+ * Returns how many lines actually moved: a guarded UPDATE that changed
+ * nothing (somebody sold the last piece in between) must not be reported as
+ * a deduction, which is what the retry note used to do.
+ */
+async function deductLines(
+  env: Env, postageId: number, lines: { id: number; qty: number; unit_sale_cents: number | null }[],
+  orderRef: string, actorId: number | null, source: string,
+): Promise<{ moved: number; short: string[] }> {
+  const { results: already } = await env.DB.prepare(
+    `SELECT inventory_item_id AS id FROM postage_items WHERE postage_id = ?1`,
+  ).bind(postageId).all<{ id: number }>();
+  const done = new Set((already ?? []).map((r) => r.id));
+  let moved = 0;
+  const short: string[] = [];
+  for (const l of lines) {
+    if (done.has(l.id)) continue;
+    const upd = await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
+    ).bind(l.qty, l.id).run();
+    if (!upd.meta.changes) {
+      const it = await env.DB.prepare(`SELECT name, stock FROM inventory_items WHERE id = ?1`)
+        .bind(l.id).first<{ name: string; stock: number }>();
+      short.push(`${it?.name ?? `item ${l.id}`}: ${it?.stock ?? 0} in stock, order needs ${l.qty}`);
+      continue;
+    }
+    await recordTiktokLine(env, postageId, l.id, l.qty, l.unit_sale_cents);
+    await env.DB.prepare(
+      `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
+    ).bind(l.id).run();
+    await audit(env, actorId, "inventory.out", "inventory_items", String(l.id),
+      { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source });
+    moved += 1;
+  }
+  return { moved, short };
+}
+
+/** v1.139.0 - PUT AN ORDER'S PIECES BACK, ONCE.
+ *
+ * The webhook has done this since v1.4.x; the 30 minute sync, which is the
+ * door that actually sees most cancellations, only wrote status = returned
+ * and left the shelf short. Same loop, one place, guarded by `restocked` so
+ * whichever door gets there first is the only one that moves anything.
+ */
+async function restockOrder(env: Env, postageId: number, reason: string, actorId: number | null, source: string): Promise<number> {
+  const claim = await env.DB.prepare(
+    `UPDATE postage_records SET status = 'returned', restocked = 1, updated_at = datetime('now')
+      WHERE id = ?1 AND COALESCE(restocked, 0) = 0`,
+  ).bind(postageId).run();
+  if (!claim.meta.changes) return 0;
+  const { results } = await env.DB.prepare(
+    `SELECT inventory_item_id, qty FROM postage_items WHERE postage_id = ?1`,
+  ).bind(postageId).all<{ inventory_item_id: number; qty: number }>();
+  let back = 0;
+  for (const l of results ?? []) {
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock + ?1,
+         status = CASE WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
+         updated_at = datetime('now') WHERE id = ?2`,
+    ).bind(l.qty, l.inventory_item_id).run();
+    await audit(env, actorId, "inventory.in", "inventory_items", String(l.inventory_item_id),
+      { qty: l.qty, reason, source });
+    back += 1;
+  }
+  return back;
 }
 
 /** v1.135.0 - one resolver for the three places a TikTok order's lines meet
@@ -1699,6 +1786,12 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       !stNow ? null
       : stNow.includes("return") || stNow.includes("cancel") || stNow.includes("refund") ? "returned"
       : stNow.includes("deliver") || stNow.includes("complete") ? "delivered"
+      /* v1.139.0 - AWAITING_SHIPMENT and AWAITING_COLLECTION both contain
+         "ship"/"collect" and were read as SHIPPED here while the webhook
+         recorded the same state as preparing, so every unshipped order
+         flipped out of New thirty minutes after it arrived. "Awaiting"
+         anything is a parcel that has not moved. */
+      : stNow.includes("await") ? "preparing"
       : stNow.includes("ship") || stNow.includes("transit") ? "shipped"
       : "preparing";
     const trackNow =
@@ -1756,42 +1849,48 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
          the sold price captured and the rebate auto-synced as usual.
          Returned/restocked orders are excluded; same all-or-nothing
          shortage rule as first import. */
+      /* v1.139.0 - a cancellation seen by the SYNC now puts the pieces
+         back. Only the webhook ever did, so an order cancelled while no
+         webhook arrived left the shelf short for good and then dropped out
+         of the stock-out report because its status was 'returned'. */
+      if (uiNow === "returned" && !exists.restocked) {
+        const back = await restockOrder(env, exists.id, "tiktok_cancelled", actorId, actorId ? "tiktok_sync" : "tiktok_cron");
+        if (back > 0) {
+          await audit(env, actorId, "tiktok.order_reversal", "postage_records", String(exists.id), { status: stNow, lines: back });
+          problems.push(`${orderRef}: cancelled - ${back} line(s) put back on the shelf`);
+        }
+      }
       if (exists.status !== "returned" && !exists.restocked && uiNow !== "returned") {
-        const moved = await env.DB.prepare(
-          `SELECT COUNT(*) AS n FROM postage_items WHERE postage_id = ?1`,
-        ).bind(exists.id).first<{ n: number }>();
-        if ((moved?.n ?? 0) === 0) {
-          const rLines = groupLineItems(o.line_items ?? []);
-          const rr = await resolveTiktokLines(env, rLines); // v1.135.0
-          const rResolved = rr.resolved;
-          if (rr.deductible) {
-            for (const l of rResolved) {
-              const upd = await env.DB.prepare(
-                `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
-              ).bind(l.qty, l.id).run();
-              if (upd.meta.changes) {
-                await recordTiktokLine(env, exists.id, l.id, l.qty, l.unit_sale_cents);
-                await env.DB.prepare(
-                  `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
-                ).bind(l.id).run();
-                await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: "tiktok_retry" });
-              }
-            }
-            const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
-            const stamp = `${String(mytNow.getUTCDate()).padStart(2, "0")}-${String(mytNow.getUTCMonth() + 1).padStart(2, "0")} ${String(mytNow.getUTCHours()).padStart(2, "0")}:${String(mytNow.getUTCMinutes()).padStart(2, "0")} MYT`;
-            const rNotes = ["TikTok order (synced)", `✔ stock deducted on retry ${stamp}`, ...rr.notes];
-            await env.DB.prepare(
-              `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
-            ).bind(rNotes.join(" · "), exists.id).run();
-            retried += 1;
-          } else if (rLines.length > 0) {
-            // Still can't deduct — refresh the reason so the CEO sees the
-            // CURRENT blocker (fixing one SKU updates the list next sync).
-            const rNotes = ["TikTok order (synced)", ...rr.notes];
-            await env.DB.prepare(
-              `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
-            ).bind(rNotes.join(" · "), exists.id).run();
+        /* v1.4.168 retry, per LINE since v1.139.0: an order whose second
+           line was ambiguous used to count as done the moment its first line
+           moved, and was never looked at again. */
+        const rLines = groupLineItems(o.line_items ?? []);
+        const rr = await resolveTiktokLines(env, rLines);
+        const { results: haveR } = await env.DB.prepare(
+          `SELECT inventory_item_id AS id FROM postage_items WHERE postage_id = ?1`,
+        ).bind(exists.id).all<{ id: number }>();
+        const doneR = new Set((haveR ?? []).map((r) => r.id));
+        const pendingR = rr.resolved.filter((l) => !doneR.has(l.id));
+        if (rLines.length > 0 && (pendingR.length > 0 || rr.notes.length > 0)) {
+          let movedR = 0; let shortR: string[] = [];
+          if (rr.deductible && pendingR.length > 0) {
+            const res = await deductLines(env, exists.id, pendingR, orderRef, actorId, "tiktok_retry");
+            movedR = res.moved; shortR = res.short;
           }
+          const mytNow = new Date(Date.now() + 8 * 3600 * 1000);
+          const stamp = `${String(mytNow.getUTCDate()).padStart(2, "0")}-${String(mytNow.getUTCMonth() + 1).padStart(2, "0")} ${String(mytNow.getUTCHours()).padStart(2, "0")}:${String(mytNow.getUTCMinutes()).padStart(2, "0")} MYT`;
+          /* The note says what MOVED, not what was intended: a guarded
+             update that changed nothing used to be reported as a deduction. */
+          const rNotes = ["TikTok order (synced)"];
+          if (movedR > 0) rNotes.push(`✔ stock deducted on retry ${stamp}`);
+          rNotes.push(...rr.notes);
+          if (shortR.length) rNotes.push(`NOT deducted — ${shortR.join("; ")}`);
+          await env.DB.prepare(
+            `UPDATE postage_records SET note = ?1, updated_at = datetime('now') WHERE id = ?2`,
+          ).bind(rNotes.join(" · "), exists.id).run();
+          if (movedR > 0) retried += 1;
+          const stuckR = [...rr.notes.filter((n) => /^not in inventory|^NOT deducted/.test(n)), ...shortR];
+          if (stuckR.length) problems.push(`${orderRef}: ${stuckR.join(" · ")}`);
         }
       }
       skipped += 1;
@@ -1802,23 +1901,22 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     // v1.5.0: never deduct stock for an order that is already returned/cancelled.
     const canDeduct = deductible && uiNow !== "returned";
     const notes = ["TikTok order (synced)", ...lineNotes];
+    /* v1.139.0 - INSERT OR IGNORE against the 0121 unique index. The webhook
+       and this sync both ran SELECT-then-INSERT, and an order that arrived
+       while the sync walked its window was recorded twice and deducted
+       twice. Whoever loses the race now inserts nothing, gets no id back,
+       and does nothing - instead of quietly doubling the order. */
     const rec = await env.DB.prepare(
-      `INSERT INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
+      `INSERT OR IGNORE INTO postage_records (order_ref, courier, tracking_no, buyer_city, order_amount_cents, status, note, updated_by)
        VALUES (?1, 'TikTok', ?2, ?3, ?4, ?5, ?6, NULL) RETURNING id`,
     ).bind(orderRef, trackNow, cityNow, amountNow, uiNow ?? "preparing", notes.join(" · ")).first<{ id: number }>();
+    if (!rec) { skipped += 1; continue; }
     if (canDeduct) {
-      for (const l of resolved) {
-        const upd = await env.DB.prepare(
-          `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
-        ).bind(l.qty, l.id).run();
-        if (upd.meta.changes) {
-          // v1.4.166: movement carries the actual sold price; rebate auto-syncs
-          await recordTiktokLine(env, rec!.id, l.id, l.qty, l.unit_sale_cents);
-          await env.DB.prepare(
-            `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
-          ).bind(l.id).run();
-          await audit(env, actorId, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: actorId ? "tiktok_sync" : "tiktok_cron" });
-        }
+      const res = await deductLines(env, rec.id, resolved, orderRef, actorId, actorId ? "tiktok_sync" : "tiktok_cron");
+      if (res.short.length) {
+        await env.DB.prepare(`UPDATE postage_records SET note = ?1 WHERE id = ?2`)
+          .bind([...notes, `NOT deducted — ${res.short.join("; ")}`].join(" · "), rec.id).run();
+        problems.push(`${orderRef}: ${res.short.join("; ")}`);
       }
     }
     const stuck = lineNotes.filter((n) => /^not in inventory|^NOT deducted/.test(n));
@@ -1990,8 +2088,14 @@ export default {
         const { results: openShifts } = await env.DB.prepare(
           `SELECT u.id FROM users u
            WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
-             AND EXISTS (SELECT 1 FROM attendance_records ai WHERE ai.user_id = u.id AND ai.type = 'clock_in'  AND date(ai.created_at, '+8 hours') = ?1)
-             AND NOT EXISTS (SELECT 1 FROM attendance_records ao WHERE ao.user_id = u.id AND ao.type = 'clock_out' AND date(ao.created_at, '+8 hours') = ?1)
+             /* v1.139.0 - a day is OPEN when the LAST punch is a clock-in.
+                "has a clock-in and no clock-out" was the one-pair-a-day
+                shape v1.133.0 retired: somebody who worked 11-17 and then
+                clocked in again at 20:00 already had a clock-out today, so
+                the reminder never fired for the shift they were still on. */
+             AND (SELECT ax.type FROM attendance_records ax
+                   WHERE ax.user_id = u.id AND date(ax.created_at, '+8 hours') = ?1
+                   ORDER BY ax.created_at DESC LIMIT 1) = 'clock_in' 
              AND NOT EXISTS (SELECT 1 FROM notifications nr WHERE nr.user_id = u.id AND nr.ref = ?2)
              ${otSkip}
            LIMIT 200`,
@@ -3013,47 +3117,30 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const notes = ["TikTok order (auto)"];
       if (lines.length === 0) notes.push("items not retrieved — authorize the app to enable stock movement");
       notes.push(...lineNotes);
+      /* v1.139.0 - INSERT OR IGNORE (0121): the sync may have recorded this
+         same order in the moment between the SELECT above and here. */
       const rec = await env.DB.prepare(
-        `INSERT INTO postage_records (order_ref, courier, buyer_city, status, note, updated_by)
+        `INSERT OR IGNORE INTO postage_records (order_ref, courier, buyer_city, status, note, updated_by)
          VALUES (?1, 'TikTok', ?2, 'preparing', ?3, NULL) RETURNING id`,
       ).bind(orderRef, detail.city, notes.join(" · ")).first<{ id: number }>();
+      if (!rec) return json({ ok: true, duplicate: true });
       if (canDeduct) {
-        for (const l of resolved) {
-          const upd = await env.DB.prepare(
-            `UPDATE inventory_items SET stock = stock - ?1, updated_at = datetime('now') WHERE id = ?2 AND stock >= ?1`,
-          ).bind(l.qty, l.id).run();
-          if (upd.meta.changes) {
-            // v1.4.166: movement carries the actual sold price; rebate auto-syncs
-            await recordTiktokLine(env, rec!.id, l.id, l.qty, l.unit_sale_cents);
-            await env.DB.prepare(
-              `UPDATE inventory_items SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END WHERE id = ?1`,
-            ).bind(l.id).run();
-            await audit(env, null, "inventory.out", "inventory_items", String(l.id), { qty: l.qty, unit_sale_cents: l.unit_sale_cents, order: orderRef, source: "tiktok" });
-          }
+        const res = await deductLines(env, rec.id, resolved, orderRef, null, "tiktok");
+        if (res.short.length) {
+          await env.DB.prepare(`UPDATE postage_records SET note = ?1 WHERE id = ?2`)
+            .bind([...notes, `NOT deducted — ${res.short.join("; ")}`].join(" · "), rec.id).run();
         }
       }
-      await audit(env, null, "tiktok.order", "postage_records", String(rec?.id), { status: rawStatus, deducted: canDeduct });
+      await audit(env, null, "tiktok.order", "postage_records", String(rec.id), { status: rawStatus, deducted: canDeduct });
       return json({ ok: true, order_ref: orderRef, deducted: canDeduct, notes: lineNotes }, 201);
     }
 
     if (reversal.some((k) => rawStatus.includes(k))) {
       if (!existing) return json({ ok: true, ignored: "unknown order" });
-      if (!existing.restocked) {
-        const { results } = await env.DB.prepare(
-          `SELECT inventory_item_id, qty FROM postage_items WHERE postage_id = ?1`,
-        ).bind(existing.id).all();
-        for (const l of results as { inventory_item_id: number; qty: number }[]) {
-          await env.DB.prepare(
-            `UPDATE inventory_items SET stock = stock + ?1,
-               status = CASE WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
-               updated_at = datetime('now') WHERE id = ?2`,
-          ).bind(l.qty, l.inventory_item_id).run();
-          await audit(env, null, "inventory.in", "inventory_items", String(l.inventory_item_id), { qty: l.qty, reason: rawStatus, source: "tiktok" });
-        }
-        await env.DB.prepare(
-          `UPDATE postage_records SET status = 'returned', restocked = 1, updated_at = datetime('now') WHERE id = ?1`,
-        ).bind(existing.id).run();
-      }
+      /* v1.139.0 - one restock helper, shared with the sync; the `restocked`
+         flag is claimed inside it, so two doors cannot both put the pieces
+         back. */
+      await restockOrder(env, existing.id, rawStatus, null, "tiktok");
       await audit(env, null, "tiktok.order_reversal", "postage_records", String(existing.id), { status: rawStatus });
       return json({ ok: true, restocked: true });
     }
@@ -4466,6 +4553,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0118 (the signature vault, per entity and per version)", `SELECT issuer_code, role, version, r2_key FROM signature_assets LIMIT 1`],
       ["0119 (working-hour categories, amendable overtime)", `SELECT category FROM shift_patterns LIMIT 1`],
       ["0120 (inventory category)", `SELECT category FROM inventory_items LIMIT 1`],
+      ["0121 (one record per TikTok order)", `SELECT 1 FROM postage_records WHERE order_ref = 'x' LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4605,6 +4693,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0118_signature_vault",
       "0119_shift_categories_ot_amend",
       "0120_inventory_category",
+      "0121_postage_order_ref_unique",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

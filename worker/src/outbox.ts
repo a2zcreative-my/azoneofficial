@@ -58,9 +58,20 @@ export function idempotencyKey(request: Request, subPath: string): string | null
 const MIN_LATE_MS = 60 * 1000;
 const MAX_LATE_MS = 48 * 3600 * 1000;
 
-/** When the phone says the button was pressed - or null, meaning "now". */
+/** When the phone says the button was pressed - or null, meaning "now".
+ *
+ * v1.139.0 - ONLY FOR A WRITE THAT WAS ACTUALLY QUEUED.
+ * The stamp used to be honoured on any queueable request that was more than
+ * a minute old, which is a description of an offline replay AND of a live
+ * press from a phone whose clock is slow. A staff phone two minutes behind
+ * therefore had every punch recorded at the phone's time and marked pending
+ * - it counted for nothing until the CEO approved it, and a late clock-out
+ * derived no overtime because a pending punch derives none. The client now
+ * says which is which (`X-Outbox-Replay` in lib/api.ts's sender), and a live
+ * request is timed by the server, as it always should have been. */
 export function clientAt(request: Request, subPath: string): Date | null {
   if (!idempotencyKey(request, subPath)) return null;
+  if (request.headers.get("X-Outbox-Replay") !== "1") return null;
   const raw = request.headers.get("X-Client-At");
   if (!raw) return null;
   const t = new Date(raw);

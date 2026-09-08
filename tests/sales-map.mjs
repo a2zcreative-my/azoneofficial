@@ -31,9 +31,40 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+/* v1.139.2 - A PATH THAT GOES INTO GENERATED SOURCE IS WRITTEN WITH
+   FORWARD SLASHES. This guard bundles a COPY of the module under test with
+   its imports repointed at stubs in a temp folder. On Windows join() answers
+   C:\Users\...
+   and the moment that string sits inside a double-quoted import specifier
+   its backslashes are ESCAPE SEQUENCES, not separators: esbuild was handed
+   "C:UsersAlifAppDataLocalTempx" and answered Could not resolve. That is the
+   whole of the 08-09-2026 failure in this guard and four of its neighbours.
+   A forward slash is a legal absolute path on Windows and is an escape in
+   nothing, so the same string is correct on both machines. */
+const importPath = (p) => p.replace(/\\/g, "/");
+
+/* v1.139.2 - AN EXTERNAL IMPORT IS RESOLVED BY NODE, NOT BY ESBUILD, SO IT
+   IS A file:// URL. The stubs below are marked --external, which means
+   esbuild copies their specifier into the bundle untouched and Node resolves
+   it when the bundle is imported. Node accepts a bare absolute path only
+   where a path cannot be mistaken for a URL: "C:/Users/..." reads as the
+   protocol "c:", and Node refuses it with ERR_UNSUPPORTED_ESM_URL_SCHEME -
+   the CEO's third run, 08-09-2026. A file:// URL is what Node documents for
+   an absolute specifier, and it is the same string the test itself imports
+   the stub by, so both sides share one module instance. */
+const stubUrl = (p) => pathToFileURL(p).href;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const src = read("worker/src/sales-map.ts");
 const staff = read("worker/src/staff.ts");
@@ -49,15 +80,15 @@ const ok = (label, cond, why = "") => {
 
 const dir = mkdtempSync(join(tmpdir(), "smap-"));
 const out = join(dir, "my-state.mjs");
-execSync(`npx esbuild ${join(root, "worker/src/my-state.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(root, "worker/src/my-state.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const S = await import(pathToFileURL(out).href);
 /* the aggregator, with shared/permissions stubbed so only the pure parts load */
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(dir, "shared.js"), `export function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s }); } export function err(c, m, s) { return json({ error: { code: c, message: m } }, s); }`);
 writeFileSync(join(dir, "permissions.js"), `export function can(role) { return role === "ceo"; }`);
-writeFileSync(join(dir, "sales-map.ts"), src.replace('from "./shared"', `from "${join(dir, "shared.js")}"`).replace('from "./permissions"', `from "${join(dir, "permissions.js")}"`).replace('from "./my-state"', `from "${join(root, "worker/src/my-state.ts")}"`));
+writeFileSync(join(dir, "sales-map.ts"), src.replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`).replace('from "./permissions"', `from "${stubUrl(join(dir, "permissions.js"))}"`).replace('from "./my-state"', `from "${importPath(join(root, "worker/src/my-state.ts"))}"`));
 const out2 = join(dir, "sales-map.mjs");
-execSync(`npx esbuild ${join(dir, "sales-map.ts")} --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/permissions.js --outfile=${out2} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(dir, "sales-map.ts")}" --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/permissions.js --outfile="${out2}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const M = await import(pathToFileURL(out2).href);
 
 /* ---- 1. the reader ---- */

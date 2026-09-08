@@ -155,11 +155,22 @@ if errorlevel 1 goto :failed
 REM  v1.90.1 - the engine is COMPILED before it is published (the 19-08
 REM  outage: wrangler bundles without checking types, so a line naming
 REM  something that does not exist goes live and every request 500s).
-echo   [4/7] Checking the ENGINE code compiles...
+echo   [4/8] Checking the ENGINE code compiles...
 call node tests\worker-compile-gate.mjs
 if errorlevel 1 goto :failed
 
-echo   [5/7] Database columns...
+REM  v1.139.0 - AND EVERY OTHER GUARD, BEFORE ANYTHING IS PUBLISHED.
+REM  The 08-09 audit found that this file ran exactly one of the 63 guards.
+REM  The rest lived only in "npm run ci", which is the Cloudflare BUILD
+REM  command - so a broken authorization rule, a wrong bridge price or a
+REM  silent delete went live first and was reported in a build log
+REM  afterwards. run-guards installs the API's type definitions itself if
+REM  they are missing, so this needs nothing else.
+echo   [5/8] Checking every rule that protects live data...
+call node scripts\run-guards.mjs
+if errorlevel 1 goto :guardsfailed
+
+echo   [6/8] Database columns...
 set CI=true
 cd worker
 call npx wrangler d1 migrations apply azoneofficial --remote
@@ -167,19 +178,19 @@ if errorlevel 1 goto :failedpop
 cd ..
 set CI=
 
-echo   [6/7] Publishing the ENGINE (azoneofficial-api)...
+echo   [7/8] Publishing the ENGINE (azoneofficial-api)...
 cd worker
 call :deployretry
 if errorlevel 1 goto :failedpop
 cd ..
 
-echo   [7/7] Building and publishing the WEBSITE (azoneofficial)...
+echo   [8/8] Building and publishing the WEBSITE (azoneofficial)...
 echo         ^(this is the half that was missing^)
 call pnpm build
 if errorlevel 1 goto :failed
 if not exist "out\index.html" goto :nobuild
 call :deployretry
-if errorlevel 1 goto :sitefailed
+if errorlevel 1 set SITEREFUSED=1
 
 REM ============================================================
 REM  STORE
@@ -217,7 +228,7 @@ if not exist "out\index.html" goto :nobuild
 
 echo   [6/6] Publishing the WEBSITE (elfia-store)...
 call npx wrangler pages deploy out --project-name=elfia-store --commit-dirty=true
-if errorlevel 1 goto :sitefailed
+if errorlevel 1 set STOREREFUSED=1
 
 REM ============================================================
 REM  SAVE THE CODE (never blocks a deploy - it runs last)
@@ -248,6 +259,12 @@ echo     --- https://elfiaofficialstore.my/api/v1/health
 curl.exe -s -m 20 https://elfiaofficialstore.my/api/v1/health
 echo.
 echo.
+REM  v1.139.0 - the website step used to EXIT here, so a refusal on the
+REM  portal's pages meant the store - engine, migrations and all - was never
+REM  deployed at all, and neither health check ran. A refusal is reported at
+REM  the end now, after everything that CAN be published has been.
+if defined SITEREFUSED goto :sitefailed
+if defined STOREREFUSED goto :sitefailed
 echo   ============================================
 echo    DONE - engines AND websites are published.
 echo   ============================================
@@ -362,6 +379,18 @@ echo      - Settings - Build - Disconnect
 echo    then run this file again.
 echo.
 echo    Copy this window and send it over.
+echo.
+pause
+exit /b 1
+
+:guardsfailed
+echo.
+echo   ============================================
+echo    [X] A RULE THAT PROTECTS LIVE DATA IS BROKEN.
+echo   ============================================
+echo    Nothing was deployed and the database was not touched.
+echo    The failing guard is named above with what it protects.
+echo    Fix that, then run this file again.
 echo.
 pause
 exit /b 1

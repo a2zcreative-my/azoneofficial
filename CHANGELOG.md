@@ -2,6 +2,244 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.139.3] - 2026-09-08 - the other half of the same specifier
+
+59 of 63 guards passed. The four that did not are the four that mark a stub
+`--external`, and they failed one step further along than in v1.139.2:
+
+```
+ERR_UNSUPPORTED_ESM_URL_SCHEME ... Received protocol 'c:'
+```
+
+v1.139.2 gave every generated import specifier a forward-slash path, which is
+what **esbuild** needs. But an `--external` import is the one esbuild does NOT
+resolve: it copies the specifier into the bundle untouched, and **Node**
+resolves it when the bundle is imported. Node reads `C:/Users/...` as the
+protocol `c:` and refuses it - on Windows an absolute specifier must be a
+`file://` URL. On Linux `/tmp/x/shared.js` is a valid specifier and a valid
+path at the same time, so one spelling served both readers and the difference
+between them never showed.
+
+So a generated specifier has two possible readers with opposite requirements,
+and which one applies is not a matter of taste - it is decided by whether that
+stub is in the guard's own `--external` list:
+
+| the stub is | resolved by | must be written as |
+| --- | --- | --- |
+| bundled | esbuild | a path, forward slashes - `importPath()` |
+| `--external` | Node | a `file://` URL - `stubUrl()` |
+
+`watchers`, `hotel-pipeline`, `enquiries` and `sales-map` externalise their
+stubs and now write `stubUrl()`; the two real modules they bundle
+(`worker/src/permissions.ts`, `worker/src/my-state.ts`) keep `importPath()`,
+and `remembered-views`, which externalises nothing, was right already.
+
+`registry-parity` no longer asks which helper was used. It **reads the
+`--external` flags out of each guard's own command line** and holds every
+specifier to the spelling that command line asks for - and counts them, so a
+specifier written in a shape the check cannot read is itself a failure, which
+is how both of these reached a deploy. Negative-tested four ways: an external
+stub spelled as a path, a bundled path spelled as a URL, a specifier in an
+unreadable shape, and a `stubUrl` that does not build a URL.
+
+Verified beyond the guards passing: a probe confirms esbuild copies
+`file:///tmp/.../shared.js` into the bundle verbatim and Node loads it, so the
+mechanism is what the table says and not a coincidence that happens to work.
+
+Guards: **63 of 63.** Again, no portal code, no worker code, no migration and
+no style - every file in this release is a test.
+
+## [1.139.2] - 2026-09-08 - a path is not a string literal
+
+**CEO**, 08-09-2026, second `PUSH.bat` run: 18 guards failed instead of 49.
+Fourteen of those eighteen were reading the OLD file. The run started while
+v1.139.1 was still being written into `tests/`, and the proof is in the stack
+traces: `roster-tasks.mjs:29` is the line the crash names, and in the file that
+now sits on disk line 29 is a blank line inside a comment. Guards whose file
+had already landed passed (`csv-export`, `clock-sessions`, `registry-parity`);
+guards a few hundred milliseconds behind it did not. Nothing was wrong with
+them, and nothing needed fixing. **A deploy must not be started while files are
+still arriving** - that is the only lesson in those fourteen.
+
+**Four were real, and they are fixed here.** `remembered-views`,
+`hotel-pipeline`, `enquiries`, `sales-map` (and `watchers`, which was also
+stale) bundle a COPY of the module under test with its imports repointed at
+stubs in a temp folder, so the module is exercised without its neighbours. The
+repointing wrote the path straight into the specifier:
+
+```js
+.replace('from "react"', `from "${join(dir, "react.js")}"`)
+```
+
+On Windows `join()` answers `C:\Users\Alif\AppData\Local\Temp\cache-TR40xl\react.js`,
+and the moment that string sits inside a double-quoted import, its backslashes
+stop being separators and become **escape sequences**. esbuild was handed
+`C:UsersAlifAppDataLocalTempcache-TR40xlreact.js` and said, correctly, that it
+could not resolve it. The path now goes through `importPath()`, which writes it
+with forward slashes - a legal absolute path on Windows and an escape in
+nothing, so one spelling is right on both machines.
+
+`npx` is no longer spawned as a file anywhere. v1.139.1 spawned `npx.cmd`
+with a shell, which works; spawning plain `npx` with a shell cannot fail even
+in the ways `.cmd` can, because `cmd.exe` resolves the extension itself through
+`PATHEXT` and Node never sees a `.cmd` to refuse.
+
+`registry-parity` gained the two checks that would have caught this before it
+reached a deploy - no guard may write a raw path into a generated import
+specifier, and `importPath` must actually be a backslash-to-slash replacement
+wherever it is called - and its npx check now asserts the property (npx is
+never spawned as a file without a shell) instead of the spelling `npx.cmd`.
+Both were negative-tested by re-breaking a guard in each direction.
+
+Guards: **63 of 63 pass.** No portal code, no worker code, no migration and no
+style changed in this release; every file in it is a test.
+
+## [1.139.1] - 2026-09-08 - the guards had never run on Windows
+
+**CEO**, 08-09-2026, running `PUSH.bat`: 49 of 63 guards failed and nothing was deployed.
+
+Not one of them was about the code it checks. The paths in the log say it:
+
+```
+C:\C:\Users\Alif\Desktop\a2zcreative-official\worker\src\staff.ts
+```
+
+A doubled drive letter. Forty-five guards took their root from
+`new URL("..", import.meta.url).pathname`, which returns **`/C:/Users/...`** on
+Windows - a URL path with a leading slash, not a file path. `join()` turned it
+into `\C:\Users\...` and the filesystem resolved that against the working
+directory as `C:\C:\Users\...`. On Linux the two spellings are identical
+character for character, which is precisely why this survived: **the suite had
+only ever run inside Cloudflare's Linux build container.** v1.139.0 moved it
+into `PUSH.bat`, which runs on the CEO's own PC, and a year-old latent bug
+surfaced all at once. The gate refusing to publish was the gate working.
+
+Three more Windows faults rode along:
+
+- **`spawnSync npx.cmd EINVAL`** (csv-export, payroll-days, staff-order). Node
+  has refused to spawn a bare `.cmd` since the 2024 argument-injection
+  hardening; those three need a shell, and their arguments now get quoted -
+  but only when a shell is involved, because a shell splits on spaces and a
+  Windows temp path can contain them.
+- **`spawnSync cmd.exe ENOENT`** (clock-sessions, tiktok-line-match). Not a
+  missing shell: `execSync` was handed `cwd: root`, and that root did not
+  exist. Fixed by the root fix.
+- **`ERR_INVALID_MODULE_SPECIFIER`** (cards-tab). A filesystem path is not a
+  module specifier; it needs `pathToFileURL(p).href`.
+
+**And two content failures that were real, though not what they said.**
+
+- `brands-guard` reported the brand registry and the letterhead issuers - the
+  two files that are *allowed* to name a sister domain - as the offenders. Its
+  allowlist is written with forward slashes and `join()` gives backslashes, so
+  on Windows the exemption never matched. It compares normalised paths now.
+- `permissions-policy` said the geolocation self-diagnosis was gone from
+  `app/portal/page.tsx`. It is not gone: **v1.114.0 moved it** into
+  `components/portal/dashboard.tsx` when the 605 KB page was split, and the
+  guard was still asking the old file. It has been failing since - invisibly,
+  because nothing has deployed since 27 August. The check now looks for the
+  behaviour across the portal rather than in one named file, which is the
+  standing rule this guard had drifted from.
+
+**A guard for the guards.** `registry-parity` gains three checks: no guard may
+build a file path from a URL's `.pathname`, spawn `npx.cmd` without a shell, or
+import a bare filesystem path. It found two files the first sweep had missed
+(`migration-safety`, `tiktok-id-precision`) the moment it was written. A gate
+that works on one operating system only is a gate that gets switched off the
+first time it blocks a release.
+
+Verified by simulating Windows path resolution against the CEO's exact folder -
+old spelling reproduces `C:\C:\Users\...`, new spelling resolves correctly -
+and by `node scripts/run-guards.mjs`: **all 63 pass**.
+
+47 guard files, `tests/registry-parity.mjs`. No application code changed.
+
+## [1.139.0] - 2026-09-08 - the audit fixes: everything the 08-09 review found
+
+**CEO**, 08-09-2026, after the senior-QA audit of the whole tree: *"Fix all of it without make it not function, I need to ensure that this system can live for Production without any bug!"*
+
+Seventy findings, fixed in four verified passes - money, then the clock, then the client, then the deploy path. Every pass was type-checked, run against the full guard suite, and negative-tested by breaking each fix and watching a guard go red. The guard count went from 63 to 63 with **48 new checks inside them**, and three guards that were pinned to WHERE code lived were re-pointed at what it DOES, because the rule that they must assert a property and not an implementation is the reason four of them broke when the code moved.
+
+### The four that would have moved money or stock the wrong way
+
+**Approved overtime never reached the payslip.** The auto-fill wrote into the entries *before* the pristine snapshot was taken, so the filled figure counted as "already saved": the box showed 2.5, the chip was green, and Save all answered "every row already matches what's saved" while `payroll_entries.ot_cents` - what the payslip, the M2E bank file and Expenses all read - stayed at zero. The snapshot is now taken from the entries as loaded.
+
+**The TikTok matcher could deduct the wrong item, unattended, every thirty minutes.** Two separate faults, both mine from v1.135.0/v1.136.0. The word rule matched a substring of the whole line with its spaces removed, so *Tangerine* deducted a **Shawl Tan**, *Cashmere* deducted a **Bawal ASH**, *Rosewood* deducted a **ROSE** - a different real product each time. And the rule only read one way, so an item matched a line that named something MORE: *Dusty Olive* deducted **Olive**, *Rose Gold* deducted **ROSE**. Fixed together:
+- a substring is not a word - fused display faces are undone in `words()` by splitting a lower-upper boundary, so *lumiMahogany* still works and *Tangerine* no longer contains *Tan*;
+- a run of digits is always distinctive however short, so *Bidang 50* no longer answers for a **Bidang 45**;
+- **the rule reads both ways now, against the shop's own vocabulary.** A word the LINE says must be in the item too - but only a word that names some item somewhere. If *dusty* names a real product, a line that says dusty means it; if no item anywhere says *closet*, "CLOSET SALE Black" is the seller talking and still finds **BLACK**. That is exactly the line between the two mistakes;
+- ranked so a compound shade beats the plain one even when the line names no family;
+- a family is matched as a word, never inside one (a family called *Set* was being found inside "CLOSET").
+
+**And the safeguards were unreachable.** The exact-name step ran *before* the word rule with `LIMIT 1` and no ordering, so with a bawal **LILAC** and a shawl **LILAC** in stock - the shade-only naming this shop actually uses - a line for "BAWAL LUMI COTTON VOILE / Lilac" took whichever row the table returned first: a coin toss between two families, no ambiguity note, no family tie-break. The word rule runs first now; the unsafe `instr` step is gone; an exact-name fallback survives only for a name made entirely of generic words, and refuses a tie.
+
+**One order could be recorded and deducted twice.** `postage_records.order_ref` was never unique, and both doors did SELECT-then-INSERT. **Migration 0121** folds existing duplicates and adds the index; both routes are `INSERT OR IGNORE` and do nothing if they lose the race.
+
+### The clock and overtime
+
+- **A shift that ran past midnight could not be clocked out.** A live host who finished at 00:20 met "You haven't clocked in today", sent a pending orphan, and lost the night: the session stayed open for ever and paid nothing. A clock-out now closes yesterday's open session (within sixteen hours), and `clockedSessions` files the pair under the day the shift began - so the night is paid on the day it was worked.
+- **A phone whose clock ran a minute slow had every punch stored pending.** `X-Client-At` was honoured on any queueable write more than a minute old - a description of an offline replay *and* of a live press from a slow phone. The client now marks a real replay (`X-Outbox-Replay`), and a live request is timed by the server.
+- **Overtime is derived from four doors, not one.** The rule lived inline in the punch route, so a clock-out the CEO approved later, a punch HR corrected afterwards, and a shift past midnight all produced no overtime at all. One `deriveOtForDay` helper, called from the clock-out, the forgotten-punch approval, and both punch corrections - which also clears a still-pending derived claim first, so amending a clock-out from 22:00 to 18:00 no longer leaves four hours standing.
+- **...and never from a session whose clock-in is still pending.** A clock-in replayed from the outbox and rejected the next morning left its overtime approvable on a day that paid nothing.
+- **A rest day worked is one decision, held at the ROUTE.** The API accepted OT punches on a rest day once the single session was closed, taking the day off the Rest days worked card before the CEO chose; and *any* overtime row - pending, or rejected - hid the day for good. Only a decided row counts now, and **Pay as OT** and **replacement leave** refuse each other, in both directions.
+- **Pay as OT gained the refusals every other OT door has**: not yourself, not an executive, not somebody paid by the clock.
+- **"One overtime stretch a day" counts punched pairs**, not the ones the clock derived - leaving thirty minutes late used to block the OT in button for the rest of the day while the phone went on offering it. And OT in is refused before the schedule has finished, however the shifts were claimed: clocking out early used to let overtime be recorded inside your own paid hours.
+- **Two lookups agreed on which pattern is in force.** The batch resolver sorted by date alone, so on the same effective date the OLDEST assignment won there and the NEWEST won in the single-row query: the punch route measured a day against one pattern while payroll and the register measured it against another - and assigning a new pattern from today is exactly the repair v1.134.1 tells the CEO to make.
+- **Amend is what the screen says it is.** On a two-stretch day it rewrote only the first pair and the CEO's edit was silently re-paired away; a missing half was inserted `pending` beside an `approved` sibling, so the register said approved and payroll paid nothing; `25:99` was accepted and moved the record to the next day; a rejected stretch could be "amended" and still pay nothing. All four fixed, with the replaced stretches named in the trail.
+- **Decide only decides closed pairs** - approving an open `ot_in` left the later `ot_out` pending, invisible to the approvals list and worthless to payroll.
+- **Overtime cannot be quietly changed after payslips are released** without an explicit `force_released`, which is audited.
+- **A month is a Malaysian month.** Every `created_at LIKE 'YYYY-MM%'` on attendance and overtime was a UTC month, so a punch at 00:30 MYT on the 1st was missing from this month and present in the last - the dashboard offered Clock in while the punch route refused "already clocked in".
+- Only a holiday that pays its own premium blocks derivation, so a **company day off worked** is no longer worked for nothing; a live or task block crossing midnight stays on the day; a derived stamp can no longer land on tomorrow; the clock-out reminder reads a day as open when the LAST punch is a clock-in; and a rest day worked no longer trips the "clocked beyond employment" badge.
+- **A closed session claims every shift it covered.** A lunch break used to spend the evening shift the person had not worked yet; a session that ran straight through both shifts left the evening clockable again and payable twice.
+
+### Stock, and what a save changes
+
+- **Editing a price no longer rewrites the stock count.** The price box sent `stock` as it stood when the page was LOADED and the route set it absolutely, so a price edit ten minutes later silently undid every TikTok deduction since - recorded in the trail only as "inventory.update". Stock is optional now, the status is recomputed in SQL from whatever the count ends as, and the trail says which of the two changed.
+- **A partly matched order is healed line by line.** The retry was gated on "this order has no movements at all", so an order with one matched line and one ambiguous line counted as done the moment the first line moved and was never looked at again, however many times the SKU was fixed.
+- **A cancellation seen by the sync puts the pieces back.** Only the webhook ever restocked, so a cancellation it missed left the shelf short for good - and then dropped out of the stock-out report because the status was 'returned'.
+- A guarded update that moved nothing is no longer reported as a deduction; `AWAITING_SHIPMENT` is a parcel that has not moved on both doors; two variants sharing one seller SKU stay two lines; adding an item reports what the server said; SKUs are stored trimmed and a case-only duplicate is refused.
+
+### The client
+
+- **A live refresh no longer wipes an amendment in progress** - v1.138.0's subscription cleared every OT draft on every load, so a colleague clocking in erased the CEO's half-typed time with no message. A draft is dropped only when the database agrees with it.
+- **A slow answer for another month cannot land on top of this one.**
+- **The Overtime approvals card is told when the same records change elsewhere** - v1.138.0 fixed one direction only, so Approve could be pressed on a stretch the table had just removed. The Rest days worked card is subscribed too.
+- **The dashboard refetches when the Malaysian day turns over**, and follows the roster topics - a live booked for tonight left the phone saying "All shifts clocked" with Clock in disabled until a reload.
+- **Changing a leaver's role no longer sets them back to permanent**, which had been quietly returning resigned people to every staff picker and onto payroll.
+- The phone role sheet locks the page behind it and closes on Escape; the find box searches both names and the role as written; one chip per family whatever case it was typed in; a refused category save no longer leaves the refused text in the box; flash-sale deadlines are shown in MYT and say so; the leave override is reset by both roster dialogs.
+
+### The deploy path
+
+- **`PUSH.bat` runs all 63 guards before anything is published.** It ran exactly one; the rest lived only in the Cloudflare build command, which runs *after* everything is live.
+- **A refused website step no longer skips the store.** The portal's pages being refused used to exit the script, so the store - engine, migrations, BayarCash and all - was never deployed and neither health check ran. Refusals are reported at the end, after everything that can be published has been.
+- **The store repo can pass its own gates again.** `brand-isolation` failed on the operator disclosure Malaysian law requires (the v1.44.1 changelog says the exemption was added; it never was), `DEPLOY.bat` called two test files that do not exist and reported the missing file as a broken rule, `VERSION` was hard-coded five versions behind so the health check the CEO reads after every deploy always said 1.41.0, and migration `0018` carried the exact em-dash-and-apostrophe comment shape that stopped D1 with error 7500 on 25-08. All four fixed; all seven store gates now pass. Store bumped to **1.46.3**.
+- **The stale browser guard is rewritten and RUN.** `no-false-attendance` still asserted the one-pair-per-day rule v1.133.0 retired, with an oldest-first fixture against an API that answers newest-first - it would have failed correct code. It now expects the shift-based card, and it was run green against a real v1.139.0 build in a browser. All four browser guards take their binary, port and screenshot folder from the environment so they can run somewhere other than the machine they were written on.
+- `DATABASE.md` documents 0119, 0120 and 0121, including why 0119 is deliberately left as it is.
+
+### Validation and access, in one pass
+
+`25:99` and `2026-13-01` refused everywhere they were accepted; a non-string category refused rather than stored as `[object Object]`; `/attendance/report` refuses a month that is not `YYYY-MM` (`?month=%` returned every attendance row the database held); the leave calendar's 400-day cap can no longer be defeated by a regex-valid non-date; `PATCH /shift-patterns` refuses a null id instead of answering ok; amend refuses a user that does not exist instead of writing orphan rows and then throwing; and a non-manager can no longer move or delete a task block sitting on somebody else's row.
+
+`worker/migrations/0121_postage_order_ref_unique.sql`, `worker/src/{line-match,index,staff,outbox,clock-day}.ts`, `lib/api.ts`, `components/portal/{payroll-panel,role-panels,live-cards,rest-day-credits,dashboard,users-panel,roster-board,elfia-store-panel}.tsx`, `PUSH.bat`, `DATABASE.md`, and the store's `tests/brand-isolation.mjs`, `DEPLOY.bat`, `worker/src/index.ts`, `worker/tsconfig.json`, `worker/migrations/0018_flash_sale.sql`. Guards: `tiktok-line-match` (+21), `clock-sessions` (+12), `inventory-category` (+4), `action-feedback` (+6), `users-ui` (+4), `payroll-days` (+1), `roster-leave` (+1), `outbox` and `shift-schedule` re-pointed, `no-false-attendance` rewritten.
+
+**Needs `PUSH.bat`** - it carries migrations 0118 through 0121 and every version since v1.111.0.
+
+## [1.138.0] - 2026-09-08 - a dead button no longer looks alive, and two cards stop disagreeing
+
+**CEO**, 08-09-2026, on the Overtime rows: *"when I clicked save there is no popup box appear as per globally style"* and, minutes later, *"I also observed that once approve the status was not change to approved!"*
+
+Both were real, and neither was where it looked.
+
+**The Save that did nothing was DISABLED.** It carried `disabled={!dirty}` - press it without changing a time and there is nothing to save - which is defensible, except that **not one of the four row-button tokens carried a `disabled:` class**. So a dead button was pixel-identical to a live one, across the whole portal: twenty-odd buttons that can look pressable while ignoring the click. That is the same uncertainty guard #25 was written to remove, arriving through CSS instead of a missing toast. `rowBtn`, `rowBtnDanger`, `rowBtnPrimary` and `rowBtnGood` now all carry `disabled:pointer-events-none disabled:opacity-50` - the same weight `btnClass` has always used, so the two button families finally agree.
+
+And where the reason is not obvious from the row, the honest control is an **enabled one that answers**. The Overtime Save is always pressable now and every press ends in the house toast: *Overtime amended*, or *No changes - Nursyazwani binti Azizi, 08-09-2026 is already 18:00-18:43. Change a time first.*, or *An overtime record needs both an OT in and an OT out.* Verified in a real browser by pressing Save on an untouched row - the exact action he took.
+
+**The status that stayed pending was two cards not talking.** Overtime approvals is its own card; approving there wrote the decision and reloaded ITS OWN list, so the row left the approvals card while the Overtime table below went on showing the pending chip it had fetched on mount - two cards on one screen disagreeing about one record. The plumbing was already there: every successful staff write bumps its topic (v1.65.0, `index.ts`), and `POST /staff/attendance/ot/decide` bumps `attendance`. The attendance corrections card had simply **never subscribed**. One line - `useLiveRefresh(["attendance", "leave"], load)` - and a decision made anywhere on the screen reaches it.
+
+`components/ui/row-button.tsx`, `components/portal/role-panels.tsx`, `tests/action-feedback.mjs` (guard #25 gains rules 4 and 5, 27 checks). Negative-tested by stripping a token's disabled state, restoring `disabled={!dirty}`, unsubscribing the card, and deleting the "No changes" branch.
+
+Front-end only - no worker change, no migration. Needs `PUSH.bat`.
+
 ## [1.137.0] - 2026-09-08 - the Users tab joins the design system, and gets a phone view
 
 **CEO**, 08-09-2026: *"review Users UI/UX for webview and mobile apps view which is globally css/style use."*

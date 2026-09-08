@@ -520,16 +520,24 @@ export async function shiftResolver(env: Env): Promise<ShiftLookup> {
     [col: string]: number | string | null;
   }
   let pats: Pat[] = [];
-  let assigns: { user_id: number; pattern_id: number; effective_from: string }[] = [];
+  let assigns: { id: number; user_id: number; pattern_id: number; effective_from: string }[] = [];
   try {
     pats = (await env.DB.prepare(`SELECT * FROM shift_patterns`).all<Pat>()).results ?? [];
     /* Newest first, so the first assignment at or before a date wins - the
        same "latest that had started" rule as the single-row query, kept as a
        sort rather than a second SQL ORDER BY that could drift from it. */
     assigns = ((await env.DB.prepare(
-      `SELECT user_id, pattern_id, effective_from FROM staff_shifts`,
-    ).all<{ user_id: number; pattern_id: number; effective_from: string }>()).results ?? [])
-      .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+      `SELECT id, user_id, pattern_id, effective_from FROM staff_shifts`,
+    ).all<{ id: number; user_id: number; pattern_id: number; effective_from: string }>()).results ?? [])
+      /* v1.139.0 - ...and on the SAME date the newest assignment wins, which
+         is what `shiftOn` has always done (ORDER BY effective_from DESC, id
+         DESC). Sorting by the date alone left equal dates in rowid order, so
+         the OLDEST won here and the NEWEST won there: the punch route and
+         `today_shift` measured a day against one pattern while payroll, the
+         register and the rest-day routes measured it against another. That
+         is the exact repair the CEO was told to make in v1.134.1 - assign a
+         new pattern from a date on or before today. */
+      .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.id - a.id);
   } catch {
     return (_u, iso) => shiftFallback(new Date(`${iso}T00:00:00Z`).getUTCDay()); // pre-0099
   }
@@ -612,6 +620,17 @@ export interface AssignedLookup {
  */
 const OPEN_BLOCK_MINUTES = 180;
 
+/** v1.139.0 - an assignment that runs past midnight keeps running.
+    `daySlots` drops any slot whose end is not after its start, so a live
+    booked 23:00-01:00 vanished from the day's shifts entirely: the host was
+    told "you have clocked in for every shift today" at 23:00 and could not
+    record the night at all. Past midnight is expressed as minutes beyond
+    1440, which daySlots merges and slotsLabel clamps for display. */
+function endAfter(start: number, end: number | null): number {
+  if (end === null) return start + OPEN_BLOCK_MINUTES;
+  return end < start ? end + 24 * 60 : end;
+}
+
 export async function assignedResolver(env: Env, fromIso: string, toIso: string): Promise<AssignedLookup> {
   const hm = (t: string | null | undefined): number | null => {
     const m = /^(\d{1,2}):(\d{2})/.exec(String(t ?? ""));
@@ -636,7 +655,7 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
     for (const r of results ?? []) {
       const st = hm(r.st);
       if (st === null) continue;
-      add(r.uid, r.d, { kind: "live", what: r.what, start: st, end: hm(r.en) ?? st + OPEN_BLOCK_MINUTES });
+      add(r.uid, r.d, { kind: "live", what: r.what, start: st, end: endAfter(st, hm(r.en)) });
     }
   } catch { /* pre-live_sessions */ }
   try {
@@ -649,7 +668,7 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
     for (const r of results ?? []) {
       const st = hm(r.st);
       if (st === null) continue;
-      add(r.uid, r.d, { kind: "task", what: r.what, start: st, end: hm(r.en) ?? st + OPEN_BLOCK_MINUTES });
+      add(r.uid, r.d, { kind: "task", what: r.what, start: st, end: endAfter(st, hm(r.en)) });
     }
   } catch { /* pre-0095 */ }
   const lookup = ((userId: number, iso: string, minutes: number) =>
@@ -708,26 +727,166 @@ async function clockedSessions(
   const notPending = await notPendingSql(env);
   const where: string[] = [];
   const args: unknown[] = [];
-  if (scope.month) { args.push(scope.month); where.push(`strftime('%Y-%m', created_at, '+8 hours') = ?${args.length}`); }
-  if (scope.day) { args.push(scope.day); where.push(`date(created_at, '+8 hours') = ?${args.length}`); }
+  /* v1.139.0 - THE WINDOW REACHES ONE DAY FURTHER BACK THAN THE SCOPE.
+     A live that runs 20:00 to 00:20 is one shift, and the clock-out lands on
+     the next calendar day. Asking only for the scope's own days would leave
+     that clock-out with no clock-in to pair with, so the night was recorded
+     and paid as nothing. The extra day is read, paired, and then dropped. */
+  if (scope.month) {
+    args.push(scope.month);
+    where.push(`strftime('%Y-%m', created_at, '+8 hours', '+1 day') = ?${args.length}`
+      + ` OR strftime('%Y-%m', created_at, '+8 hours') = ?${args.length}`);
+  }
+  if (scope.day) {
+    args.push(scope.day);
+    where.push(`date(created_at, '+8 hours') BETWEEN date(?${args.length}, '-1 day') AND ?${args.length}`);
+  }
   if (scope.userId) { args.push(scope.userId); where.push(`user_id = ?${args.length}`); }
   if (where.length === 0) return new Map();
   const { results } = await env.DB.prepare(
     `SELECT user_id, date(created_at, '+8 hours') AS d, type, created_at
        FROM attendance_records
-      WHERE ${where.join(" AND ")}${notPending}
-      ORDER BY created_at`,
+      WHERE ${where.map((w) => `(${w})`).join(" AND ")}${notPending}
+      ORDER BY user_id, created_at`,
   ).bind(...args).all<{ user_id: number; d: string; type: string; created_at: string }>();
+  /* A session belongs to the day its clock-IN happened: a clock-out that
+     closes an open session is filed with that session, whatever date it
+     carries. Everything else keeps its own day, exactly as before. */
   const byDay = new Map<string, Punch[]>();
+  const openDay = new Map<number, string>();
   for (const r of results ?? []) {
-    const k = `${r.user_id}|${r.d}`;
+    const held = openDay.get(r.user_id);
+    let day = r.d;
+    if (r.type === "clock_in") { openDay.set(r.user_id, r.d); }
+    else if (r.type === "clock_out" && held) { day = held; openDay.delete(r.user_id); }
+    const k = `${r.user_id}|${day}`;
     const list = byDay.get(k) ?? [];
     list.push({ type: r.type, at: r.created_at });
     byDay.set(k, list);
   }
+  const inScope = (k: string) => {
+    const d = k.slice(k.indexOf("|") + 1);
+    if (scope.day) return d === scope.day;
+    if (scope.month) return d.slice(0, 7) === scope.month;
+    return true;
+  };
   const out = new Map<string, Session[]>();
-  for (const [k, punches] of byDay) out.set(k, pairSessions(punches));
+  for (const [k, punches] of byDay) if (inScope(k)) out.set(k, pairSessions(punches));
   return out;
+}
+
+/** v1.139.0 - DERIVE ONE DAY'S OVERTIME, from wherever the day was settled.
+ *
+ * The rule lived inline in the punch route, so it only ever ran at the
+ * moment somebody pressed Clock out with everything already approved. Three
+ * ways of settling a day therefore produced no overtime at all: a clock-out
+ * the CEO approved later (the forgotten-punch flow said "the approval is
+ * where its hours are set" and it was not), a punch HR corrected afterwards,
+ * and a shift that ran past midnight. One helper, called from all four.
+ *
+ * Still-PENDING derived rows for the day are cleared first, so a corrected
+ * punch re-derives instead of leaving the old claim standing. A row the CEO
+ * has already decided is never touched.
+ */
+export async function deriveOtForDay(
+  env: Env, userId: number, day: string, role: string, ip: string | null,
+): Promise<number> {
+  if (["ceo", "coo", "cco", "super_admin", "admin"].includes(role)) return 0;
+  const me = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
+    .bind(userId).first<{ employment_status: string | null }>();
+  if (me?.employment_status === "part_time") return 0;
+  if (await isHourlyUserId(env, userId)) return 0;
+  const sh = await shiftOn(env, userId, day);
+  if (sh.kind === "rest_day") return 0;
+  const holiday = await env.DB.prepare(
+    `SELECT 1 AS x FROM holidays WHERE holiday_date = ?1 AND COALESCE(kind, 'public') IN ('public','replacement') LIMIT 1`,
+  ).bind(day).first<{ x: number }>().catch(() => null);
+  if (holiday) return 0;
+  await env.DB.prepare(
+    `DELETE FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2
+       AND user_agent = 'clock:derived' AND COALESCE(status, 'pending') = 'pending'`,
+  ).bind(userId, day).run();
+  const sessions = (await clockedSessions(env, { day, userId })).get(`${userId}|${day}`) ?? [];
+  const stamp = (m: number) => new Date(Date.parse(`${day}T00:00:00Z`) + (m - 8 * 60) * 60000)
+    .toISOString().slice(0, 19).replace("T", " ");
+  let minutes = 0;
+  for (const se of sessions) {
+    if (!se.out) continue;
+    const from = mytMinutes(se.in);
+    for (const seg of overtimeSegments(sh.windows, from, from + se.minutes)) {
+      const inAt = stamp(seg.from), outAt = stamp(Math.min(seg.to, 24 * 60 - 1));
+      const have = await env.DB.prepare(
+        `SELECT id FROM ot_records WHERE user_id = ?1 AND type = 'ot_in' AND created_at = ?2 LIMIT 1`,
+      ).bind(userId, inAt).first<{ id: number }>();
+      if (have) continue;
+      await env.DB.prepare(
+        `INSERT INTO ot_records (user_id, type, ip, user_agent, created_at)
+         VALUES (?1, 'ot_in', ?2, 'clock:derived', ?3), (?1, 'ot_out', ?2, 'clock:derived', ?4)`,
+      ).bind(userId, ip, inAt, outAt).run();
+      minutes += seg.minutes;
+    }
+  }
+  if (minutes > 0) {
+    const who = await env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
+    ).bind(userId).first<{ n: string }>();
+    const hm = `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}`;
+    const { results: approvers } = await env.DB.prepare(
+      `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','coo')`,
+    ).all<{ id: number }>();
+    for (const a of approvers ?? []) {
+      await notify(env, a.id, "ot",
+        `Overtime to decide - ${who?.n ?? "staff"}, ${day.split("-").reverse().join("-")}: ${hm} outside the schedule.`,
+        `ot:${userId}:${day}`);
+    }
+    await audit(env, userId, "ot.derived", "ot_records", day, { minutes });
+  }
+  return minutes;
+}
+
+/** v1.139.0 - a month whose payslips are out is not a month to edit quietly.
+    Approving, amending or removing overtime after a release changed the
+    register and the payroll figure while the SAVED payslip - the one the
+    staff member has already read - kept its own number, with nothing on it
+    to say so. The CEO can still do it, but he has to mean it. */
+async function releasedMonthBlock(env: Env, day: string, force: unknown): Promise<Response | null> {
+  if (force === true) return null;
+  const month = day.slice(0, 7);
+  const rel = await env.DB.prepare(`SELECT released_at FROM payslip_releases WHERE month = ?1`)
+    .bind(month).first<{ released_at: string }>().catch(() => null);
+  if (!rel) return null;
+  return err("month_released",
+    `Payslips for ${month} were released on ${String(rel.released_at).slice(0, 10)}. Changing overtime now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
+    409);
+}
+
+/** v1.139.0 - one time-of-day validator. `^\d{2}:\d{2}$` accepted 25:99,
+    and the stamp built from it landed on the following day. */
+function validMyTime(t: unknown): t is string {
+  if (typeof t !== "string" || !/^\d{2}:\d{2}$/.test(t)) return false;
+  const [h, m] = t.split(":").map(Number);
+  return h! < 24 && m! < 60;
+}
+
+/** v1.139.0 - a real calendar date, not merely ten characters in that shape.
+    "2026-13-01" passed the regex and then threw inside toISOString. */
+function validDay(d: unknown): d is string {
+  if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const t = Date.parse(`${d}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().startsWith(d);
+}
+
+/** v1.139.0 - re-derive the overtime of the days a correction touched.
+    Amending a clock-out from 22:00 to 18:00 used to leave the four hours it
+    had already derived standing, pending, ready to be approved and paid. */
+async function reDeriveDays(env: Env, userId: number, days: (string | undefined)[]): Promise<void> {
+  if (!userId) return;
+  const seen = new Set(days.filter((d): d is string => Boolean(d)));
+  if (seen.size === 0) return;
+  try {
+    const who = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(userId).first<{ role: string }>();
+    for (const d of seen) await deriveOtForDay(env, userId, d, who?.role ?? "", null);
+  } catch (e) { await logError(env, "ot_derive", e instanceof Error ? e.message : String(e)); }
 }
 
 /** Minutes of a day INSIDE the scheduled blocks, summed across its sessions,
@@ -2162,9 +2321,16 @@ export async function handleStaff(
        separate question about what is PAID. */
     const todayMYT = new Date(punchAt.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const { results: pressedToday } = await env.DB.prepare(
-      `SELECT type, created_at FROM attendance_records
+      `SELECT type, created_at, COALESCE(pending_approval, 0) AS pending FROM attendance_records
         WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
-    ).bind(user.id, todayMYT).all<{ type: string; created_at: string }>();
+    ).bind(user.id, todayMYT).all<{ type: string; created_at: string; pending: number }>();
+    /* v1.139.0 - which clock-ins are still waiting on the CEO. The state
+       machine counts every punch PRESSED today (pending included), but
+       overtime may not be derived from a session whose start nobody has
+       approved: a clock-in replayed from the outbox at 08:00 and rejected
+       the next morning would otherwise leave four hours of approvable
+       overtime hanging off a day that paid nothing. */
+    const pendingIns = new Set((pressedToday ?? []).filter((r) => r.pending === 1).map((r) => r.created_at));
     const sessionsToday = pairSessions((pressedToday ?? []).map((r) => ({ type: r.type, at: r.created_at })));
     const openNow = isOpen(sessionsToday);
     const mytClock = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
@@ -2204,7 +2370,30 @@ export async function handleStaff(
         409,
       );
     }
+    /* v1.139.0 - A SHIFT THAT RAN PAST MIDNIGHT.
+       `sessionsToday` is scoped to the MYT date of THIS punch, so a live host
+       who clocked in at 20:00 and finished at 00:20 met "You haven't clocked
+       in today", pressed again, and sent a pending orphan - while yesterday's
+       session stayed open for good and paid nothing. If yesterday's last
+       session is still open and started within the last sixteen hours, this
+       clock-out closes it; `clockedSessions` files the pair under the day the
+       shift began, so the night is paid on the day it was worked. */
+    let closesYesterday: string | null = null;
     if (body.type === "clock_out" && !openNow) {
+      const ydayMYT = new Date(punchAt.getTime() + 8 * 3600 * 1000 - 86400000).toISOString().slice(0, 10);
+      const { results: yPunches } = await env.DB.prepare(
+        `SELECT type, created_at FROM attendance_records
+          WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 AND COALESCE(pending_approval, 0) = 0
+          ORDER BY created_at`,
+      ).bind(user.id, ydayMYT).all<{ type: string; created_at: string }>().catch(() => ({ results: [] as { type: string; created_at: string }[] }));
+      const ySess = pairSessions((yPunches ?? []).map((r) => ({ type: r.type, at: r.created_at })));
+      const yLast = ySess[ySess.length - 1];
+      if (yLast && !yLast.out
+          && punchAt.getTime() - Date.parse(`${yLast.in.replace(" ", "T")}Z`) <= 16 * 3600 * 1000) {
+        closesYesterday = ydayMYT;
+      }
+    }
+    if (body.type === "clock_out" && !openNow && !closesYesterday) {
       if (sessionsToday.length > 0) {
         /* A shift already closed and nothing open: this press is a mistake,
            and the useful answer names the next thing to do. */
@@ -2403,50 +2592,18 @@ export async function handleStaff(
     /* v1.134.2 - NOT on a rest day. A rest day worked is the CEO's decision:
        overtime OR replacement leave (Rest days worked card). Writing it here
        as overtime would make that decision for him and list the same day in
-       two places. Only a WORKDAY's overrun is derived. */
-    if (closingSession && !storedPending && !hourlyPunch && sh.kind !== "rest_day"
-        && !["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)) {
+       two places. Only a WORKDAY's overrun is derived.
+       v1.139.0 - the rule itself moved into `deriveOtForDay`, so the three
+       other ways a day gets settled (an approved pending punch, an HR
+       correction, a shift that ran past midnight) derive it too. A session
+       whose clock-in is still pending derives nothing: the start nobody has
+       approved is exactly the claim that cannot support a second claim. */
+    if ((closingSession || closesYesterday) && !storedPending && !hourlyPunch
+        && !(closingSession && pendingIns.has(closingSession.in))) {
       try {
-        const meOt = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
-          .bind(user.id).first<{ employment_status: string | null }>();
-        const holiday = await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1 LIMIT 1`)
-          .bind(todayMYT).first<{ x: number }>().catch(() => null);
-        if (meOt?.employment_status !== "part_time" && !holiday) {
-          const from = mytMinutes(closingSession.in);
-          const to = from + Math.max(0, Math.round((punchAt.getTime() - Date.parse(`${closingSession.in.replace(" ", "T")}Z`)) / 60000));
-          const segs = overtimeSegments(sh.windows, from, to);
-          /* MYT minutes back to the UTC stamp the table stores. */
-          const stamp = (m: number) => new Date(Date.parse(`${todayMYT}T00:00:00Z`) + (m - 8 * 60) * 60000)
-            .toISOString().slice(0, 19).replace("T", " ");
-          for (const seg of segs) {
-            const inAt = stamp(seg.from), outAt = stamp(seg.to);
-            /* Once. A retried clock-out must not write the evening twice. */
-            const have = await env.DB.prepare(
-              `SELECT id FROM ot_records WHERE user_id = ?1 AND type = 'ot_in' AND created_at = ?2 LIMIT 1`,
-            ).bind(user.id, inAt).first<{ id: number }>();
-            if (have) continue;
-            await env.DB.prepare(
-              `INSERT INTO ot_records (user_id, type, ip, user_agent, created_at)
-               VALUES (?1, 'ot_in', ?2, 'clock:derived', ?3), (?1, 'ot_out', ?2, 'clock:derived', ?4)`,
-            ).bind(user.id, request.headers.get("CF-Connecting-IP"), inAt, outAt).run();
-            otMinutes += seg.minutes;
-          }
-          if (otMinutes > 0) {
-            const whoOt = await env.DB.prepare(
-              `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
-            ).bind(user.id).first<{ n: string }>();
-            const hm = `${Math.floor(otMinutes / 60)}h${String(otMinutes % 60).padStart(2, "0")}`;
-            const { results: approvers } = await env.DB.prepare(
-              `SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo','coo')`,
-            ).all<{ id: number }>();
-            for (const a of approvers ?? []) {
-              await notify(env, a.id, "ot",
-                `Overtime to decide - ${whoOt?.n ?? "staff"}, ${todayMYT.split("-").reverse().join("-")}: ${hm} outside the schedule (${hhmm(from)}-${hhmm(Math.min(to, 24 * 60))} clocked).`,
-                `ot:${user.id}:${todayMYT}`);
-            }
-            await audit(env, user.id, "ot.derived", "ot_records", todayMYT, { minutes: otMinutes, segments: segs.length });
-          }
-        }
+        otMinutes = await deriveOtForDay(
+          env, user.id, closesYesterday ?? todayMYT, user.role, request.headers.get("CF-Connecting-IP"),
+        );
       } catch (eOt) {
         /* The punch is recorded; the overtime is a consequence of it. A
            failure here must never un-record a clock-out. */
@@ -2605,15 +2762,39 @@ export async function handleStaff(
     }
     const uid = Number(body?.user_id); const day = typeof body?.date === "string" ? body.date : "";
     const decision = body?.decision === "approved" ? "approved" : body?.decision === "rejected" ? "rejected" : null;
-    if (!uid || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !decision) {
+    if (!uid || !validDay(day) || !decision) {
       return err("invalid_input", "user_id, date (YYYY-MM-DD) and decision (approved/rejected) required", 400);
     }
     if (uid === user.id) return err("forbidden", "You cannot decide your own OT", 403);
+    const relD = await releasedMonthBlock(env, day, body?.force_released);
+    if (relD) return relD;
     const note = typeof body?.note === "string" ? body.note.slice(0, 300) : null;
+    /* v1.139.0 - only rows that belong to a CLOSED pair are decided. The
+       blanket update approved an open ot_in as well, and the ot_out that
+       arrived afterwards landed pending: the stretch was then invisible to
+       the approvals list (which pairs pending rows and saw an orphan out)
+       and worth nothing to payroll (which reads approved pairs and saw an
+       open in). Neither screen could reach it again. */
+    const { results: rowsD } = await env.DB.prepare(
+      `SELECT id, type, created_at FROM ot_records
+        WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 AND COALESCE(status, 'pending') = 'pending'
+        ORDER BY created_at`,
+    ).bind(uid, day).all<{ id: number; type: string; created_at: string }>();
+    const closedIds: number[] = [];
+    let openIn: number | null = null;
+    for (const row of rowsD ?? []) {
+      if (row.type === "ot_in") { if (openIn === null) openIn = row.id; }
+      else if (row.type === "ot_out" && openIn !== null) { closedIds.push(openIn, row.id); openIn = null; }
+    }
+    if (closedIds.length === 0) {
+      return err("not_found", (rowsD ?? []).length > 0
+        ? "That overtime has no OT out yet, so there is nothing to decide. Amend it to set the times, or remove it."
+        : "No pending OT punches for that day", 404);
+    }
     const r = await env.DB.prepare(
       `UPDATE ot_records SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3
-       WHERE user_id = ?4 AND date(created_at, '+8 hours') = ?5 AND status = 'pending'`,
-    ).bind(decision, user.id, note, uid, day).run();
+       WHERE id IN (${closedIds.map((_, i) => `?${i + 4}`).join(", ")})`,
+    ).bind(decision, user.id, note, ...closedIds).run();
     if ((r.meta?.changes ?? 0) === 0) return err("not_found", "No pending OT punches for that day", 404);
     await notify(env, uid, "ot", `Your overtime on ${day.split("-").reverse().join("-")} was ${decision}${note ? ` — ${note}` : ""}`, `ot:${day}`);
     await audit(env, user.id, "ot.decide", "users", String(uid), { date: day, decision });
@@ -3165,14 +3346,38 @@ export async function handleStaff(
     const asgO = (await assignedResolver(env, todayO, todayO)).list(user.id, todayO);
     const slotsO = daySlots(shO.windows, asgO.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     const verdictO = canClockIn(slotsO, sessO, minsO);
+    /* v1.139.0 - a rest day is ONE decision, and the route has to hold that
+       line. The refusal below only fired while a shift was still clockable,
+       so once the single rest-day session was closed `canClockIn` answered
+       "all_claimed" and the API accepted OT punches on a day the phone
+       offers no OT buttons for - taking the day off the Rest days worked
+       card before the CEO had chosen between overtime and replacement leave. */
+    if (slotsO.length === 0 && body.type === "ot_in") {
+      return err("shift_left", "It is a rest day on your pattern - use Clock in / Clock out for the day. The CEO decides whether it counts as overtime or replacement leave.", 409);
+    }
+    /* v1.139.0 - and overtime is what comes AFTER the schedule, not merely
+       after the last shift was claimed. Clocking out early closed the shift
+       and let OT in be accepted inside the person's own paid hours. */
+    const endOfSchedule = slotsO.length > 0 ? Math.max(...slotsO.map((x) => x.end)) : 0;
+    if (body.type === "ot_in" && slotsO.length > 0 && minsO < endOfSchedule) {
+      return err("shift_left", `Your working schedule runs to ${hhmm(endOfSchedule)} (${slotsLabel(slotsO)}). Overtime is what comes after it.`, 409);
+    }
     if (verdictO.ok && body.type === "ot_in") {
       return err("shift_left", slotsO.length === 0
         ? "It is a rest day on your pattern - use Clock in / Clock out for the day. The CEO decides whether it counts as overtime or replacement leave."
         : `You still have a shift to clock in for (${slotsLabel(slotsO)}). Use Clock in for it - overtime is what comes after your working schedule.`, 409);
     }
     try {
+      /* v1.139.0 - PUNCHED pairs only. A stretch the clock DERIVED from a
+         late clock-out is not a stretch the person punched, and counting it
+         made "one overtime stretch a day" refuse the OT in button for
+         anybody who left thirty minutes late - while the phone went on
+         offering it, because `can_ot` never looked at ot_records at all. */
       const { results: otToday } = await env.DB.prepare(
-        `SELECT type, created_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+        `SELECT type, created_at FROM ot_records
+          WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2
+            AND COALESCE(user_agent, '') NOT IN ('clock:derived', 'ceo:rest-day')
+          ORDER BY created_at`,
       ).bind(user.id, todayO).all<{ type: string; created_at: string }>();
       const otSess = pairSessions((otToday ?? []).map((r) => ({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at })));
       const hhO = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
@@ -3231,7 +3436,36 @@ export async function handleStaff(
     if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "Only the CEO can pay a rest day as overtime", 403);
     const uidO = Number(body?.user_id);
     const dateO = typeof body?.date === "string" ? body.date : "";
-    if (!uidO || !/^\d{4}-\d{2}-\d{2}$/.test(dateO)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    if (!uidO || !validDay(dateO)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    /* v1.139.0 - the same three refusals every other OT door has, and the
+       one this door needs on its own.
+       Self: the CEO cannot approve his own overtime anywhere else (the
+       decide route has refused it since v1.4.155) and must not here, where
+       he is approver and beneficiary in one press.
+       Executives and hourly staff: an executive is not OT-eligible, and a
+       part-timer is already paid for every clocked minute - paying the same
+       stretch again as overtime pays the day twice.
+       Replacement leave: the two decisions are exclusive by definition, and
+       they were only exclusive in the CARD's done-set, so two tabs (or one
+       double press) could take both. */
+    if (uidO === user.id) return err("forbidden", "You cannot pay your own rest day as overtime", 403);
+    const whoRO = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
+      .bind(uidO).first<{ role: string; employment_status: string | null }>();
+    if (!whoRO) return err("not_found", "No such staff member", 404);
+    if (["ceo", "coo", "cco", "super_admin", "admin"].includes(whoRO.role)) {
+      return err("not_eligible", "Executive roles are not eligible for overtime", 400);
+    }
+    if (whoRO.employment_status === "part_time" || await isHourlyUserId(env, uidO)) {
+      return err("not_eligible", "This person is paid by the clock, so the day is already paid in full - overtime on top would pay it twice", 400);
+    }
+    const creditedRO = await env.DB.prepare(
+      `SELECT id FROM replacement_credits WHERE user_id = ?1 AND work_date = ?2 LIMIT 1`,
+    ).bind(uidO, dateO).first<{ id: number }>().catch(() => null);
+    if (creditedRO) {
+      return err("already_decided", "That day was already credited as replacement leave. Withdraw the credit first if it should be overtime instead.", 409);
+    }
+    const relRO = await releasedMonthBlock(env, dateO, body?.force_released);
+    if (relRO) return relRO;
     const shRO = (await shiftResolver(env))(uidO, dateO);
     if (shRO.kind !== "rest_day") return err("invalid_input", `${dateO} is a working day on ${shRO.pattern}, not a rest day`, 400);
     const sessRO = (await clockedSessions(env, { day: dateO, userId: uidO })).get(`${uidO}|${dateO}`) ?? [];
@@ -3266,7 +3500,9 @@ export async function handleStaff(
     if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "Only the CEO can remove an overtime record", 403);
     const uidR = Number(body?.user_id);
     const dateR = typeof body?.date === "string" ? body.date : "";
-    if (!uidR || !/^\d{4}-\d{2}-\d{2}$/.test(dateR)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    if (!uidR || !validDay(dateR)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
+    const relR = await releasedMonthBlock(env, dateR, body?.force_released);
+    if (relR) return relR;
     const { results: goneR } = await env.DB.prepare(
       `SELECT id, type, status, created_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2`,
     ).bind(uidR, dateR).all<{ id: number; type: string; status: string; created_at: string }>();
@@ -3289,44 +3525,83 @@ export async function handleStaff(
     const dayA = typeof body?.date === "string" ? body.date : "";
     const inA = typeof body?.ot_in === "string" ? body.ot_in : "";
     const outA = typeof body?.ot_out === "string" ? body.ot_out : "";
-    if (!uidA || !/^\d{4}-\d{2}-\d{2}$/.test(dayA) || !/^\d{2}:\d{2}$/.test(inA) || !/^\d{2}:\d{2}$/.test(outA)) {
+    /* v1.139.0 - `^\d{2}:\d{2}$` accepted 25:99, and the stamp built from it
+       moved the record to the following day; the date regex accepted
+       2026-13-01, which threw inside toISOString and answered 500. */
+    if (!uidA || !validDay(dayA) || !validMyTime(inA) || !validMyTime(outA)) {
       return err("invalid_input", "user_id, date (YYYY-MM-DD), ot_in and ot_out (HH:MM, Malaysia time) are required", 400);
     }
     const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
     if (toMin(outA) <= toMin(inA)) return err("invalid_input", "OT out must be after OT in", 400);
+    const whoA = await env.DB.prepare(`SELECT id FROM users WHERE id = ?1`).bind(uidA).first<{ id: number }>();
+    if (!whoA) return err("not_found", "No such staff member", 404);
+    const relA = await releasedMonthBlock(env, dayA, body?.force_released);
+    if (relA) return relA;
     const stampA = (m: number) => new Date(Date.parse(`${dayA}T00:00:00Z`) + (m - 8 * 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
     const { results: rowsA } = await env.DB.prepare(
-      `SELECT id, type, status FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
-    ).bind(uidA, dayA).all<{ id: number; type: string; status: string }>();
-    const inRow = (rowsA ?? []).find((r) => r.type === "ot_in");
-    const outRow = (rowsA ?? []).find((r) => r.type === "ot_out");
+      `SELECT id, type, status, decided_by, decided_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
+    ).bind(uidA, dayA).all<{ id: number; type: string; status: string | null; decided_by: number | null; decided_at: string | null }>();
+    const allA = rowsA ?? [];
+    /* v1.139.0 - a REJECTED stretch is not amendable: it pays nothing, no
+       card lists it for a second decision, and telling the staff member it
+       was "amended to 18:00-21:00" would be describing a record that still
+       counts for zero. Remove it and record the real one. */
+    if (allA.length > 0 && allA.every((r) => r.status === "rejected")) {
+      return err("invalid_state", "That overtime was rejected. Remove it and record the correct stretch instead - amending a rejected record would still pay nothing.", 409);
+    }
+    /* v1.139.0 - ONE PAIR. The row on screen shows first-in, last-out and
+       the SUM of the day's stretches, but this route only ever rewrote the
+       first ot_in and the first ot_out - so on a two-stretch day the CEO's
+       edit was silently re-paired against the survivors and discarded. The
+       amendment is now what the screen says it is: the day becomes the one
+       pair he typed, and the stretches it replaces are named in the trail. */
+    const inRow = allA.find((r) => r.type === "ot_in");
+    const outRow = allA.find((r) => r.type === "ot_out");
+    /* The status of the surviving pair carries to any half that has to be
+       created: inserting at the table default left a `pending` ot_out beside
+       an `approved` ot_in, which the register showed as approved and payroll
+       paid as nothing. */
+    const keepStatus = inRow?.status ?? outRow?.status ?? "pending";
+    const keepBy = inRow?.decided_by ?? outRow?.decided_by ?? null;
+    const keepAt = inRow?.decided_at ?? outRow?.decided_at ?? null;
+    const extraA = allA.filter((r) => r.id !== inRow?.id && r.id !== outRow?.id);
     try {
       if (inRow) {
-        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`)
-          .bind(stampA(toMin(inA)), user.id, inRow.id).run();
+        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now'), status = ?4 WHERE id = ?3`)
+          .bind(stampA(toMin(inA)), user.id, inRow.id, keepStatus).run();
       } else {
-        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at) VALUES (?1, 'ot_in', 'ceo:amend', ?2, ?3, datetime('now'))`)
-          .bind(uidA, stampA(toMin(inA)), user.id).run();
+        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at, status, decided_by, decided_at) VALUES (?1, 'ot_in', 'ceo:amend', ?2, ?3, datetime('now'), ?4, ?5, ?6)`)
+          .bind(uidA, stampA(toMin(inA)), user.id, keepStatus, keepBy, keepAt).run();
       }
       if (outRow) {
-        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`)
-          .bind(stampA(toMin(outA)), user.id, outRow.id).run();
+        await env.DB.prepare(`UPDATE ot_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now'), status = ?4 WHERE id = ?3`)
+          .bind(stampA(toMin(outA)), user.id, outRow.id, keepStatus).run();
       } else {
-        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at) VALUES (?1, 'ot_out', 'ceo:amend', ?2, ?3, datetime('now'))`)
-          .bind(uidA, stampA(toMin(outA)), user.id).run();
+        await env.DB.prepare(`INSERT INTO ot_records (user_id, type, user_agent, created_at, amended_by, amended_at, status, decided_by, decided_at) VALUES (?1, 'ot_out', 'ceo:amend', ?2, ?3, datetime('now'), ?4, ?5, ?6)`)
+          .bind(uidA, stampA(toMin(outA)), user.id, keepStatus, keepBy, keepAt).run();
+      }
+      for (const x of extraA) {
+        await env.DB.prepare(`DELETE FROM ot_records WHERE id = ?1`).bind(x.id).run();
       }
     } catch (eA) {
       if (String(eA).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0119)", 500);
       throw eA;
     }
-    await audit(env, user.id, "ot.amend", "users", String(uidA), { date: dayA, ot_in: inA, ot_out: outA, was: rowsA?.length ?? 0 });
+    await audit(env, user.id, "ot.amend", "users", String(uidA), {
+      date: dayA, ot_in: inA, ot_out: outA, was: allA.length,
+      replaced_stretches: extraA.length ? extraA.map((x) => ({ id: x.id, type: x.type })) : undefined,
+      status: keepStatus,
+    });
     await notify(env, uidA, "ot", `Your overtime on ${dayA.split("-").reverse().join("-")} was amended by the CEO to ${inA}-${outA}.`, `ot:amend:${dayA}`);
     return json({ ok: true });
   }
 
   if (path === "/attendance" && method === "GET") {
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    /* v1.139.0 - and the DEFAULT month is the Malaysian one: before 08:00
+       MYT on the 1st, `new Date()` still says last month. */
+    const month = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return err("invalid_input", "month must be YYYY-MM", 400);
     const targetUser = url.searchParams.get("user_id");
     /* v1.91.0 — whoever may correct a register may read it: COO and CCO
        were handed the corrections card and then shown their own punches. */
@@ -3335,8 +3610,14 @@ export async function handleStaff(
     // selfie_key no longer rides along (nothing in the UI rendered it).
     // Selfies already in R2 stay behind the owner/HR media gate.
     const results = (await env.DB.prepare(
+      /* v1.139.0 - a MALAYSIA month. `created_at LIKE '2026-10%'` is a UTC
+         month, so a punch at 00:30 MYT on the 1st (16:30 UTC on the last of
+         the previous month) was missing from this month and present in the
+         one before - the dashboard showed no punch and offered Clock in
+         while the punch route, which has always worked in MYT, refused
+         "already clocked in". */
       `SELECT type, ip, created_at FROM attendance_records
-       WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+       WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
        ORDER BY created_at DESC LIMIT 400`,
     ).bind(forUser, month).all()).results;
     // v1.4.155: overtime punches ride along (own dashboard + HR views). Guarded
@@ -3345,7 +3626,7 @@ export async function handleStaff(
     try {
       const o = await env.DB.prepare(
         `SELECT type, created_at FROM ot_records
-         WHERE user_id = ?1 AND created_at LIKE ?2 || '%'
+         WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
          ORDER BY created_at DESC LIMIT 100`,
       ).bind(forUser, month).all();
       ot = o.results;
@@ -3604,13 +3885,17 @@ export async function handleStaff(
       return err("forbidden", "HR access required", 403);
     }
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const month = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    /* v1.139.0 - and it is validated: an unchecked `month` went into a LIKE
+       prefix with no LIMIT, so `?month=%` returned every attendance row the
+       database held. */
+    if (!/^\d{4}-\d{2}$/.test(month)) return err("invalid_input", "month must be YYYY-MM", 400);
     /* The pending flag only exists after 0100; ask for it only then. */
     const pendingCol = (await notPendingSql(env)) ? ", a.pending_approval" : "";
     const { results } = await env.DB.prepare(
       `SELECT a.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.role, u.employment_status, a.user_id, a.type, a.created_at, a.manual_by, a.amended_by, a.gps${pendingCol}
        FROM attendance_records a JOIN users u ON u.id = a.user_id
-       WHERE a.created_at LIKE ?1 || '%' ORDER BY a.created_at`,
+       WHERE strftime('%Y-%m', a.created_at, '+8 hours') = ?1 ORDER BY a.created_at`,
     ).bind(month).all();
     /* v1.134.0 (CEO: "recorded at attendance for me to perform a manual
        update or amendment if needed") - the month's overtime, one row per
@@ -3824,7 +4109,10 @@ export async function handleStaff(
     const url = new URL(request.url);
     const from = url.searchParams.get("from") ?? "";
     const to = url.searchParams.get("to") ?? "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+    /* v1.139.0 - a REAL date on both ends. "2099-99-99" passed the regex,
+       and `NaN > 400 * 86400000` is false, so the 400-day cap below simply
+       did not apply and the window was unbounded. */
+    if (!validDay(from) || !validDay(to) || to < from) {
       return err("invalid_input", "from and to must be YYYY-MM-DD, and to must not precede from", 400);
     }
     /* A window, not a history dump. 400 days is more than any repeat rule can
@@ -5787,9 +6075,13 @@ export async function handleStaff(
         throw e;
       }
       if (!blk) return err("not_found", "Block not found", 404);
+      /* v1.139.0 - a non-manager may act on a block on THEIR OWN row. The
+         `assigned_to` escape let somebody move or delete a block sitting on
+         a colleague's row simply because the task behind it was theirs -
+         POST has always required both (own task AND own row). */
       const mgrB = can(user.role, "team_manage");
-      if (!mgrB && blk.user_id !== user.id && blk.assigned_to !== user.id) {
-        return err("forbidden", "Not your block", 403);
+      if (!mgrB && blk.user_id !== user.id) {
+        return err("forbidden", "That block is on somebody else's row - ask a manager to move it", 403);
       }
 
       if (method === "DELETE") {
@@ -7441,7 +7733,7 @@ export async function handleStaff(
     if (!staff) return err("not_found", "Staff not found", 404);
     // Attendance summary for the month (MYT), by clock event flag.
     const { results: att } = await env.DB.prepare(
-      `SELECT type, created_at FROM attendance_records WHERE user_id = ?1 AND created_at LIKE ?2 || '%'`,
+      `SELECT type, created_at FROM attendance_records WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2`,
     ).bind(uid, month).all();
     let present = 0, late = 0, halfDay = 0, earlyOut = 0;
     const days = new Set<string>();
@@ -7597,6 +7889,18 @@ export async function handleStaff(
     await audit(env, user.id, "attendance.forgot_approve", "attendance_records", String(idP), {
       user_id: rowP.user_id, claimed: rowP.created_at, set_to: setTime || null,
     });
+    /* v1.139.0 - "the approval is where its hours are set" (v1.76.0) was
+       true of the hours and false of the overtime: a clock-out replayed from
+       the outbox derived nothing at punch time because it was pending, and
+       nothing here either, so a four-hour overrun approved the next morning
+       was simply lost. The day is derived now that its punches count. */
+    try {
+      const roleP = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+        .bind(rowP.user_id).first<{ role: string }>();
+      const dayP = new Date(Date.parse(`${(setTime || rowP.created_at).replace(" ", "T")}Z`) + 8 * 3600 * 1000)
+        .toISOString().slice(0, 10);
+      await deriveOtForDay(env, rowP.user_id, dayP, roleP?.role ?? "", null);
+    } catch (e) { await logError(env, "ot_derive", e instanceof Error ? e.message : String(e)); }
     return json({ ok: true });
   }
 
@@ -7683,8 +7987,14 @@ export async function handleStaff(
       ? Math.max(0, Math.min(240, Math.round(body.break_minutes))) : 60;
     try {
       if (method === "PATCH") {
+        /* v1.139.0 - Number(null) is 0 and passes isFinite, so a body with
+           no id ran UPDATE ... WHERE id = 0 and answered ok; a pattern
+           deleted in another tab did the same. */
         const idS = Number(body?.id);
-        if (!Number.isFinite(idS)) return err("invalid_input", "id is required", 400);
+        if (!Number.isInteger(idS) || idS <= 0) return err("invalid_input", "id is required", 400);
+        const havePat = await env.DB.prepare(`SELECT 1 AS x FROM shift_patterns WHERE id = ?1`)
+          .bind(idS).first<{ x: number }>();
+        if (!havePat) return err("not_found", "That working-hours pattern no longer exists - reload the page", 404);
         await env.DB.prepare(
           `UPDATE shift_patterns SET name = ?1,
              mon_start = ?2, mon_end = ?3, tue_start = ?4, tue_end = ?5,
@@ -7851,18 +8161,28 @@ export async function handleStaff(
     }
     const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
     const createdAt = utc.toISOString().slice(0, 19).replace("T", " ");
+    /* v1.139.0 - the day BEFORE the change, so a punch moved across midnight
+       re-derives both days rather than leaving the old claim on the old one. */
+    const beforeA = await env.DB.prepare(
+      `SELECT user_id, date(created_at, '+8 hours') AS d FROM attendance_records WHERE id = ?1`,
+    ).bind(attMatch[1]).first<{ user_id: number; d: string }>();
     const res = await env.DB.prepare(
       `UPDATE attendance_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`,
     ).bind(createdAt, user.id, attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
-    await audit(env, user.id, "attendance.amend", "attendance_records", attMatch[1]);
+    await audit(env, user.id, "attendance.amend", "attendance_records", attMatch[1], { from: beforeA?.d, to: myt.slice(0, 10) });
+    await reDeriveDays(env, beforeA?.user_id ?? 0, [beforeA?.d, myt.slice(0, 10)]);
     return json({ ok: true });
   }
   if (attMatch && method === "DELETE") {
     if (!ATT_ADMIN) return err("forbidden", "Attendance corrections need CEO, COO, CCO or HR admin", 403);
+    const beforeD = await env.DB.prepare(
+      `SELECT user_id, date(created_at, '+8 hours') AS d FROM attendance_records WHERE id = ?1`,
+    ).bind(attMatch[1]).first<{ user_id: number; d: string }>();
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
-    await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1]);
+    await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1], { day: beforeD?.d });
+    await reDeriveDays(env, beforeD?.user_id ?? 0, [beforeD?.d]);
     return json({ ok: true });
   }
 
@@ -8112,9 +8432,14 @@ export async function handleStaff(
        been decided too, and leaves this list the same way a credited one
        does. Any overtime row on that day counts: the decision was made. */
     try {
+      /* v1.139.0 - a DECIDED overtime row, not any row. A pending stretch the
+         staff member punched, or one the CEO rejected, used to hide the day
+         from this card for good - so a rest day could end with neither
+         overtime nor replacement leave and no way back to the question. */
       const { results: otD } = await env.DB.prepare(
         `SELECT DISTINCT user_id, date(created_at, '+8 hours') AS d FROM ot_records
-          WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+          WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1
+            AND (COALESCE(status, 'pending') = 'approved' OR user_agent = 'ceo:rest-day')`,
       ).bind(mR).all<{ user_id: number; d: string }>();
       for (const o of otD ?? []) done.add(`${o.user_id}|${o.d}`);
     } catch { /* pre-0044 */ }
@@ -8175,6 +8500,16 @@ export async function handleStaff(
     if (!whoC) return err("not_found", "No such staff member", 404);
     if (isHourlyUser(whoC.role, whoC.employment_status)) {
       return err("invalid_input", "An hourly part-timer is paid for the hours they clocked that day, so there is nothing to replace", 400);
+    }
+    /* v1.139.0 - the mirror of the check in /rest-day-ot. Overtime and
+       replacement leave are the two answers to one question, and until now
+       nothing but the card's own done-set stopped a day getting both. */
+    const otPaidC = await env.DB.prepare(
+      `SELECT id FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2
+         AND (COALESCE(status, 'pending') = 'approved' OR user_agent = 'ceo:rest-day') LIMIT 1`,
+    ).bind(uidC, dateC).first<{ id: number }>().catch(() => null);
+    if (otPaidC) {
+      return err("already_decided", "That day is already paid as overtime. Remove the overtime record first if it should be replacement leave instead.", 409);
     }
     /* It has to actually BE a rest day for them. Without this the route is a
        way to grant leave for any date at all, which is not what it is. */
@@ -9160,7 +9495,12 @@ export async function handleStaff(
         ph_worked: pw.days, ph_worked_dates: pw.dates, ph_worked_cents: pw.cents,
         /* The contradiction the CEO found: more days clocked than the
            person was employed for. Nothing can make both true. */
-        clocked_beyond_employment: (clockedA.get(u.id) ?? 0) > payable,
+        /* v1.139.0 - a rest day or a public holiday WORKED is a clocked day
+           that is not a payable working day, so anybody who came in on one
+           Saturday tripped this contradiction badge. The comparison counts
+           the days the person could be paid for PLUS the ones they worked
+           outside them. */
+        clocked_beyond_employment: (clockedA.get(u.id) ?? 0) > payable + b.rest_days + pw.days,
         clocked_days: clockedA.get(u.id) ?? 0,
         payable_days: payable,
       };
@@ -9667,7 +10007,7 @@ export async function handleStaff(
     const { results } = await env.DB.prepare(
       `SELECT a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
        FROM attendance_records a JOIN users u ON u.id = a.user_id
-       WHERE a.created_at LIKE ?1 || '%'${notPendingE} ORDER BY ${STAFF_ORDER_SQL}, a.created_at`,
+       WHERE strftime('%Y-%m', a.created_at, '+8 hours') = ?1${notPendingE} ORDER BY ${STAFF_ORDER_SQL}, a.created_at`,
     ).bind(month).all();
     // Convert each event to Malaysia time and flag against the shift, so the
     // CSV that goes to payroll already reflects local working hours.
@@ -10085,13 +10425,23 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!body || !str(body.sku, 60) || !str(body.name, 200)) {
       return err("invalid_input", "sku and name are required", 400);
     }
+    /* v1.139.0 - stored trimmed, and a SKU that differs only in case is the
+       same SKU: the edit route has always compared case-insensitively, so
+       "lumi001" and "LUMI001" could both be created and then neither could
+       be renamed to the other. */
+    const skuN = (body.sku as string).trim();
+    const nameN = (body.name as string).trim();
+    const clashN = await env.DB.prepare(
+      `SELECT id FROM inventory_items WHERE lower(trim(sku)) = lower(?1) LIMIT 1`,
+    ).bind(skuN.toLowerCase()).first<{ id: number }>();
+    if (clashN) return err("conflict", "An item with this SKU already exists", 409);
     const stock = typeof body.stock === "number" && body.stock >= 0 ? Math.floor(body.stock) : 0;
     const priceC = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : 0; // v1.4.101
     try {
       await env.DB.prepare(
         `INSERT INTO inventory_items (sku, name, stock, status, note, unit_price_cents, updated_by)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      ).bind(body.sku, body.name, stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceC, user.id).run();
+      ).bind(skuN, nameN, stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceC, user.id).run();
     } catch {
       return err("conflict", "An item with this SKU already exists", 409);
     }
@@ -10104,44 +10454,67 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     try {
       await env.DB.prepare(
         `UPDATE inventory_items SET sku_key = ?1 WHERE sku = ?2`,
-      ).bind(skuKey(body.sku as string), body.sku).run();
+      ).bind(skuKey(skuN), skuN).run();
     } catch { /* pre-0079 — the migration backfills every key on apply */ }
     /* v1.136.0 - a new item can be filed under its family in the same breath. */
-    const addCat = String(body.category ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+    /* v1.139.0 - text or nothing. `String({})` is "[object Object]", which
+       became a chip on the strip and a tie-break word for the TikTok
+       matcher; and POST truncated at 40 where the edit route refuses. */
+    if (body.category !== undefined && body.category !== null && typeof body.category !== "string") {
+      return err("invalid_input", "category must be text", 400);
+    }
+    const addCat = (body.category as string | undefined ?? "").trim().replace(/\s+/g, " ");
+    if (addCat.length > 40) return err("invalid_input", "A category is at most 40 characters", 400);
     if (addCat) {
       try {
-        await env.DB.prepare(`UPDATE inventory_items SET category = ?1 WHERE sku = ?2`).bind(addCat, body.sku).run();
+        await env.DB.prepare(`UPDATE inventory_items SET category = ?1 WHERE sku = ?2`).bind(addCat, skuN).run();
       } catch { /* pre-0120 - the item is added, uncategorised, and the card says so */ }
     }
-    await audit(env, user.id, "inventory.create", "inventory_items", String(body.sku), { category: addCat || null });
+    await audit(env, user.id, "inventory.create", "inventory_items", skuN, { category: addCat || null });
     return json({ ok: true }, 201);
   }
   const invMatch = path.match(/^\/inventory\/(\d+)$/);
   if (invMatch && method === "PATCH") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
-    if (!body || typeof body.stock !== "number" || body.stock < 0) {
+    /* v1.139.0 - STOCK IS OPTIONAL NOW, AND OMITTING IT LEAVES IT ALONE.
+       The price box on the inventory row sent `stock: it.stock` alongside
+       the new price - the count as it stood when the page was LOADED - and
+       this route set it absolutely. So editing a price ten minutes after
+       opening the tab silently undid every TikTok deduction and every bridge
+       movement since, with nothing in the trail to say a count had changed.
+       A caller that means to set the count still sends it; a caller that
+       means to set a price no longer has to lie about the count. */
+    if (!body) return err("invalid_input", "a body is required", 400);
+    const setsStock = typeof body.stock === "number";
+    const stockRaw = setsStock ? (body.stock as number) : null;
+    if (stockRaw !== null && (!Number.isFinite(stockRaw) || stockRaw < 0)) {
       return err("invalid_input", "stock (>= 0) is required", 400);
     }
-    const stock = Math.floor(body.stock);
+    const stock = stockRaw === null ? null : Math.floor(stockRaw);
     const priceU = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : null; // v1.4.101
     // v1.4.164: rebate given during TikTok Live — net live price = price − rebate.
     const rebateU = typeof body.live_rebate === "number" && body.live_rebate >= 0 ? Math.round(body.live_rebate * 100) : null;
     try {
+      /* The status is recomputed from whatever the count ENDS as, in SQL, so
+         a price-only save cannot leave a stale "low" behind either. */
+      const setStockSql = `stock = COALESCE(?1, stock),
+             status = CASE WHEN COALESCE(?1, stock) = 0 THEN 'out_of_stock'
+                           WHEN COALESCE(?1, stock) <= 5 THEN 'low' ELSE 'in_stock' END`;
       if (rebateU !== null) {
         await env.DB.prepare(
-          `UPDATE inventory_items SET stock = ?1, status = ?2,
-             note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
-             live_rebate_cents = ?5,
-             updated_by = ?6, updated_at = datetime('now')
-           WHERE id = ?7`,
-        ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, rebateU, user.id, invMatch[1]).run();
-      } else {
-        await env.DB.prepare(
-          `UPDATE inventory_items SET stock = ?1, status = ?2,
-             note = COALESCE(?3, note), unit_price_cents = COALESCE(?4, unit_price_cents),
+          `UPDATE inventory_items SET ${setStockSql},
+             note = COALESCE(?2, note), unit_price_cents = COALESCE(?3, unit_price_cents),
+             live_rebate_cents = ?4,
              updated_by = ?5, updated_at = datetime('now')
            WHERE id = ?6`,
-        ).bind(stock, stockStatus(stock), str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
+        ).bind(stock, str(body.note, 500) ? body.note : null, priceU, rebateU, user.id, invMatch[1]).run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET ${setStockSql},
+             note = COALESCE(?2, note), unit_price_cents = COALESCE(?3, unit_price_cents),
+             updated_by = ?4, updated_at = datetime('now')
+           WHERE id = ?5`,
+        ).bind(stock, str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
       }
     } catch (e) {
       if (String(e).includes("no such column")) {
@@ -10149,7 +10522,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       }
       throw e;
     }
-    await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1]);
+    await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1],
+      { ...(setsStock ? { stock } : {}), ...(priceU !== null ? { unit_price_cents: priceU } : {}) });
       await checkLowStock(Number(invMatch[1]));
     return json({ ok: true });
   }
@@ -11761,6 +12135,9 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const hasCat = body !== null && typeof body === "object" && "category" in (body as object);
     let newCat: string | null = null;
     if (hasCat) {
+      if (body!.category !== null && typeof body!.category !== "string") {
+        return err("invalid_input", "category must be text", 400);
+      }
       const c = String(body!.category ?? "").trim().replace(/\s+/g, " ");
       if (c.length > 40) return err("invalid_input", "A category is at most 40 characters", 400);
       newCat = c === "" ? null : c;

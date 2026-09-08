@@ -32,7 +32,17 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
@@ -140,6 +150,26 @@ ok("the activity skeleton is the shape of what arrives",
    "SkelTable drew three columns that never appeared - these are divided rows");
 ok("the 2FA nudge counts in words a person would say",
    /active account without 2FA[\s\S]{0,200}?active accounts without 2FA/.test(src));
+
+/* ---- 7. v1.139.0 - what the 08-09 audit found in the v1.137.0 rewrite --- */
+ok("a leaver keeps the status they have, and the form shows it",
+   /employment_status: u\.employment_status \?\? "permanent"/.test(src)
+   && /EMP_OPTIONS\.includes\(draft\.employment_status\) \? EMP_OPTIONS : \[draft\.employment_status, \.\.\.EMP_OPTIONS\]/.test(src),
+   "changing a resigned person's role quietly set them back to permanent, and every staff picker listed them again");
+ok("the phone sheet locks the page behind it, closes on Escape, and restores on the way out",
+   /document\.body\.style\.overflow = "hidden";/.test(src)
+   && /if \(e\.key === "Escape"\) setEditId\(null\);/.test(src)
+   && /document\.body\.style\.overflow = prev;/.test(src)
+   && /window\.matchMedia\("\(max-width: 767px\)"\)/.test(src),
+   "the lock belongs to the sheet, so it must not apply when the desk panel is the visible editor");
+ok("the find box searches BOTH names and the role as it is written on screen",
+   /\(u\.full_name \?\? ""\)\.toLowerCase\(\)\.includes\(needle\)/.test(src)
+   && /\(u\.name \?\? ""\)\.toLowerCase\(\)\.includes\(needle\)/.test(src)
+   && /roleLabel\(u\.role\)\.toLowerCase\(\)\.includes\(needle\)/.test(src),
+   "it tested full_name OR name, so the other one found nobody");
+ok("the list height has a fallback for a browser that does not know svh",
+   /max-h-\[60vh\] max-h-\[60svh\] md:max-h-80/.test(src),
+   "iOS 15.0-15.3 ignores svh and the list grew without bound");
 
 console.log(`${failed ? "✗" : "✓"} users-ui: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

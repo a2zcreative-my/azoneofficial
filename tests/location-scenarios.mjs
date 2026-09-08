@@ -1,6 +1,6 @@
 import { chromium } from 'playwright-core';
 const LISTY = ['claims','leaves','tasks','announcements','users','entries','lines','cities','sessions','requests','hosts','records','items','banks','movements','invoices','orders','products','assets','prospects','notes','birthdays','punches','holidays','expenses','payslips','targets','user_targets','team_targets','rules','buckets','categories','accounts','suppliers','alerts','logs','events','comments','files','sales','days','rows','rates','staff','members','videos','contents','posts','stokis','codes','returns','stockouts','conflicts','free_today','unassigned','customers','docs','clients','credit_notes','packages','receipts','reconciliations','leave','enquiries','materials','outs'];
-const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const b = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? '/opt/pw-browsers/chromium' });
 async function scenario(name, geoScript) {
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 } })).newPage();
   let punchBody = null;
@@ -18,7 +18,7 @@ async function scenario(name, geoScript) {
     route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(body) });
   });
   await p.addInitScript(geoScript);
-  await p.goto('http://localhost:8931/portal.html', { waitUntil:'networkidle' });
+  await p.goto(`${process.env.PORTAL_BASE ?? 'http://localhost:8931'}/portal.html`, { waitUntil:'networkidle' });
   await p.waitForTimeout(1500);
   const pre = await p.evaluate(()=>document.body.innerText);
   if (!/Clock in/.test(pre)) { console.log(name, '-> CRASH detail:', (pre.match(/Detail for support:[^\n]*/)||['(none)'])[0]); await p.close(); return; }

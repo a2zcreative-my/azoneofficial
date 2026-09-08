@@ -19,12 +19,28 @@
  *
  *   node tests/payroll-days.mjs
  */
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - Node refuses to spawn a .cmd directly since the 2024 argument-
+   injection hardening, so npx.cmd needs a shell; the CEO's own run answered
+   "spawnSync npx.cmd EINVAL". Args are quoted only when a shell is involved,
+   because a shell splits on spaces and a Windows temp path can contain them. */
+const WIN = process.platform === "win32";
+const qArg = (a) => (WIN && /[ &()^%!]/.test(a) ? `"${a}"` : a);
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 
 let pass = 0;
@@ -37,9 +53,11 @@ const ok = (label, cond, extra = "") => {
 const out = path.join(mkdtempSync(path.join(tmpdir(), "pay-guard-")), "pd.mjs");
 try {
   execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["esbuild", path.join(root, "lib/payroll-days.ts"), "--format=esm", `--outfile=${out}`],
-    { stdio: "pipe" },
+    "npx", /* v1.139.2 - NEVER "npx.cmd": with a shell, cmd.exe resolves the
+              extension itself through PATHEXT, and Node never sees a bare .cmd
+              to refuse. Without the extension there is nothing to argue about. */
+    ["esbuild", path.join(root, "lib/payroll-days.ts"), "--format=esm", `--outfile=${out}`].map(qArg),
+    { stdio: "pipe", shell: WIN },
   );
 } catch (e) {
   console.log(`FAIL — lib/payroll-days.ts does not compile: ${e.message}`);
@@ -47,7 +65,7 @@ try {
 }
 const { incompleteCents, unpaidDaysFromHours, unpaidCents, WORK_DAY_MINUTES, unpaidDeduction,
         publicHolidayWorkedCents, partTimeHolidayPremiumCents } =
-  await import(`file://${out}`);
+  await import(pathToFileURL(out).href);
 
 /* August 2026 — the real month the CEO was looking at. 21 weekdays, two
    public holidays on weekdays (Maulidur Rasul 25-08, Merdeka 31-08), so 19
@@ -266,7 +284,7 @@ const AUG = (() => {
      "a company day off is the company's gift, not a statutory holiday");
   ok("a pending punch does not earn a holiday premium",
      /for \(const \[k, sessions\] of await clockedSessions\(env, \{ month \}\)\)/.test(staff)
-     && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
+     && /async function clockedSessions\([\s\S]{0,3000}?\$\{notPending\}/.test(staff),
      "an unapproved claim of having worked Merdeka Day would otherwise pay three days");
   ok("every writer of net_cents adds it",
      (staff.match(/await phWorkResolver\(/g) ?? []).length === 4,
@@ -484,6 +502,23 @@ const AUG = (() => {
      "netFor(u.id) would price the OLD basic still in React state");
   ok("a hand-set Basic is flagged in the row with both figures, not silently replaced",
      /\{L\("≠ base", "≠ asas"\)\} \{fmtRM\(base\[u\.id\] \?\? 0\)\}/.test(panel) && /held\.push\(u\.name\); continue; \}\s*const next: Entry/.test(win));
+}
+
+/* ---- v1.139.0 - AN AUTO-FILLED OT FIGURE IS A CHANGE, NOT A SAVED ONE ----
+   The 08-09 audit: the approved-OT fill mutated the entries BEFORE the
+   pristine snapshot was taken, so the filled figure became "what is already
+   saved" and Save all answered "every row already matches" while
+   payroll_entries.ot_cents - the figure the payslip, the M2E bank file and
+   Expenses all read - stayed at zero. */
+{
+  const pay = readFileSync(path.join(root, "components/portal/payroll-panel.tsx"), "utf8");
+  const fillAt = pay.indexOf("for (const [uid, o] of Object.entries(omap))");
+  const snapAt = pay.indexOf("const snap: Record<number, string> = {};");
+  const copyAt = pay.indexOf("const loadedEntries: Record<number, Entry | undefined> = { ...map };");
+  ok("the payroll snapshot is taken from the entries AS LOADED, before the OT fill",
+     copyAt > 0 && copyAt < fillAt && fillAt < snapAt
+     && /const e = loadedEntries\[u\.id\] \?\?/.test(pay),
+     "a filled OT box that counts as already-saved never reaches the payslip");
 }
 
 console.log(

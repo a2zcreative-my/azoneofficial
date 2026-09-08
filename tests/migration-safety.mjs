@@ -26,10 +26,13 @@
  *
  *   node tests/migration-safety.mjs
  */
+import { fileURLToPath } from "node:url";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-const DIR = new URL("../worker/migrations", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, not .pathname: on Windows the latter is
+   "/C:/Users/..." and every read became "C:\\C:\\Users\\...". */
+const DIR = fileURLToPath(new URL("../worker/migrations", import.meta.url));
 
 /* Everything up to and including this number is GRANDFATHERED: those files
    are already applied on the live database, several of them break the rule,

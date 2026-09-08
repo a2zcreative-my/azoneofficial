@@ -37,9 +37,27 @@ import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
+/* v1.139.2 - AN EXTERNAL IMPORT IS RESOLVED BY NODE, NOT BY ESBUILD, SO IT
+   IS A file:// URL. The stubs below are marked --external, which means
+   esbuild copies their specifier into the bundle untouched and Node resolves
+   it when the bundle is imported. Node accepts a bare absolute path only
+   where a path cannot be mistaken for a URL: "C:/Users/..." reads as the
+   protocol "c:", and Node refuses it with ERR_UNSUPPORTED_ESM_URL_SCHEME -
+   the CEO's third run, 08-09-2026. A file:// URL is what Node documents for
+   an absolute specifier, and it is the same string the test itself imports
+   the stub by, so both sides share one module instance. */
+const stubUrl = (p) => pathToFileURL(p).href;
 const read = (p) => readFileSync(join(root, p), "utf8");
 const src = read("worker/src/hotel-pipeline.ts");
 const hotels = read("worker/src/hotels.ts");
@@ -66,11 +84,11 @@ export async function audit(env, userId, action, table, id, meta) { audits.push(
 `);
 writeFileSync(join(dir, "permissions.js"), `export function can(role, perm) { return role === "ceo"; }`);
 const rewritten = src
-  .replace('from "./shared"', `from "${join(dir, "shared.js")}"`)
-  .replace('from "./permissions"', `from "${join(dir, "permissions.js")}"`);
+  .replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`)
+  .replace('from "./permissions"', `from "${stubUrl(join(dir, "permissions.js"))}"`);
 writeFileSync(join(dir, "hotel-pipeline.ts"), rewritten);
 const out = join(dir, "hotel-pipeline.mjs");
-execSync(`npx esbuild ${join(dir, "hotel-pipeline.ts")} --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/permissions.js --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(dir, "hotel-pipeline.ts")}" --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/permissions.js --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const P = await import(pathToFileURL(out).href);
 const { audits } = await import(pathToFileURL(join(dir, "shared.js")).href);
 

@@ -472,6 +472,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
 
   /* v1.22.6 — amend/typo-fix: the dialog opens prefilled from the session. */
   const openEdit = (s: RosterSession) => {
+    /* v1.139.0 - a "Book anyway" ticked in the assign dialog and then
+       cancelled used to survive into this one, so moving an existing session
+       onto a leave day carried leave_override: true without anybody
+       deciding it again. */
+    setLeaveOverride(false);
     setDraft({
       session_date: s.session_date, start_time: s.start_time, end_time: s.end_time ?? "",
       platform: s.platform, client_name: s.client ?? "", host_user_id: String(s.host_user_id), notes: s.notes ?? "",

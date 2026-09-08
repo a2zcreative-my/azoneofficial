@@ -19,7 +19,7 @@
 
 import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
@@ -27,6 +27,7 @@ import { properName, firstName, displayName } from "@/lib/names";
 import { isCurrentStaff } from "@/lib/staff-order"; // v1.87.0 - a picker offers people who work here
 import { compressImage } from "@/lib/compress-image";
 import { SITE_CONFIG } from "@/constants/site";
+import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.138.0 - this card was never told when another card decided an OT
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
@@ -662,27 +663,38 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
      exists because something is filed under it, so a family empties itself
      off the strip when its last item is refiled. */
   const catOf = (it: InvItem) => (it.category ?? "").trim();
-  const invCats = [...new Set(items.map(catOf).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  /* v1.139.0 - one chip per family, whatever case it was typed in. */
+  const invCats = [...new Map(items.map(catOf).filter(Boolean).map((c) => [c.toLowerCase(), c])).values()]
+    .sort((a, b) => a.localeCompare(b));
   const uncatCount = items.filter((it) => !catOf(it)).length;
   const visibleItems = sortedItems.filter((it) =>
     (invFilter === "all" || (invFilter === "low" ? it.status === "low" : it.status === "out_of_stock"))
-    && (invCat === "" || (invCat === "\u0000none" ? !catOf(it) : catOf(it) === invCat))
+    && (invCat === "" || (invCat === "\u0000none" ? !catOf(it) : catOf(it).toLowerCase() === invCat.toLowerCase()))
     && (!needle || it.sku.toLowerCase().includes(needle) || it.name.toLowerCase().includes(needle)
         || catOf(it).toLowerCase().includes(needle)));
   /* v1.136.0 - saving a family. One field, one route, and the list reloads,
      so the strip above and the cell agree without either being told twice. */
-  const saveInvCategory = async (it: InvItem, next: string) => {
+  const saveInvCategory = async (it: InvItem, next: string, onFail?: () => void) => {
     const cat = next.trim().replace(/\s+/g, " ").slice(0, 40);
     if (cat === catOf(it)) return;
+    /* v1.139.0 - a family already in use keeps ITS spelling. 0120 backfills
+       from the shop's collection, which is stored lowercase, so typing
+       "Bawal" beside a backfilled "bawal" made two chips for one family -
+       and the CSV named one of them while showing the other's rows. */
+    const known = invCats.find((c) => c.toLowerCase() === cat.toLowerCase());
+    const finalCat = known ?? cat;
     const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/edit`, {
-      method: "POST", body: JSON.stringify({ category: cat }),
+      method: "POST", body: JSON.stringify({ category: finalCat }),
     });
     if (!res.ok) {
       invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Category not saved", "Kategori tidak disimpan"), "notice");
+      /* The box must not keep text the database refused - the v1.132.0 rule
+         applies to the failure path too. */
+      onFail?.();
       return;
     }
-    invToast(L("Saved", "Disimpan"), cat
-      ? `${it.sku} — ${cat}`
+    invToast(L("Saved", "Disimpan"), finalCat
+      ? `${it.sku} — ${finalCat}`
       : `${it.sku} — ${L("category cleared", "kategori dikosongkan")}`);
     void load();
   };
@@ -978,7 +990,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 ]);
               }
               rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", "", units, "", "", "", ""]);
-              downloadCsv(`azoo-stock-count-${invCat && invCat !== "\u0000none" ? `${invCat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-` : ""}${now.slice(0, 10)}`, rows);
+              downloadCsv(`azoo-stock-count-${invCat && invCat !== "\u0000none" ? `${invCat.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-")}-` : ""}${now.slice(0, 10)}`, rows);
             }}>
             <><AppIcon name="download" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("CSV — stock count", "CSV — kiraan stok")}</>
           </button>
@@ -1018,7 +1030,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             <span className="text-muted-foreground mr-0.5 text-[11px] font-medium uppercase tracking-wide">{L("Category", "Kategori")}</span>
             <span role="tablist" aria-label={L("Show one category", "Tunjuk satu kategori")} className="flex flex-wrap gap-1.5">
               {([["", L("All", "Semua"), items.length] as const,
-                 ...invCats.map((c) => [c, c, items.filter((it) => catOf(it) === c).length] as const),
+                 ...invCats.map((c) => [c, c, items.filter((it) => catOf(it).toLowerCase() === c.toLowerCase()).length] as const),
                  ...(uncatCount > 0 ? [["\u0000none", L("Uncategorised", "Tanpa kategori"), uncatCount] as const] : [])])
                 .map(([k, label, n]) => (
                   <button key={k || "all"} type="button" role="tab" aria-selected={invCat === k} onClick={() => setInvCat(k)}
@@ -1062,7 +1074,19 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </SubR>
           <button type="button" className={`${btnClass} col-span-2 justify-center sm:col-span-1 sm:h-[38px] sm:justify-start`}
             onClick={async () => {
-              await api(`/inventory`, { method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }) });
+              /* v1.139.0 - the answer was thrown away: a duplicate SKU, a
+                 missing name or an expired session all emptied the form and
+                 showed nothing, which is the silence guard #25 exists to
+                 remove. */
+              const resAdd = await api<{ error?: { message?: string } }>(`/inventory`, {
+                method: "POST", body: JSON.stringify({ ...invDraft, unit_price: Number(invDraft.unit_price) || 0 }),
+              });
+              if (!resAdd.ok) {
+                invToast(L("Not added", "Tidak ditambah"),
+                  resAdd.data?.error?.message ?? L("Could not add the item", "Tidak dapat menambah barang"), "notice");
+                return;
+              }
+              invToast(L("Added", "Ditambah"), `${invDraft.sku} — ${invDraft.name}`);
               setInvDraft({ sku: "", name: "", stock: 0, unit_price: "", category: "" });
               void load();
             }}>
@@ -1211,7 +1235,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       key={`cat:${it.category ?? ""}`}
                       defaultValue={it.category ?? ""}
                       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                      onBlur={(e) => { void saveInvCategory(it, e.target.value); }} />
+                      onBlur={(e) => { const el = e.target; void saveInvCategory(it, el.value, () => { el.value = it.category ?? ""; }); }} />
                   </td>
                   <td className={tdR2}>
                     <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
@@ -1221,7 +1245,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       onBlur={async (e) => {
                         const v = Number(e.target.value);
                         if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.unit_price_cents ?? 0)) return;
-                        await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ stock: it.stock, unit_price: v }) });
+                        /* v1.139.0 - the PRICE only. Sending `stock` here
+                           re-sent the count as it was when the page loaded,
+                           which the route then wrote back - undoing every
+                           TikTok deduction since. */
+                        await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ unit_price: v }) });
                         void load();
                       }} />
                   </td>
@@ -2473,13 +2501,41 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
     setPending(pp.data?.pending ?? []);
   }, []);
 
+  /* v1.139.0 - one generation counter, so a slow answer for LAST month
+     cannot land after a fast answer for this one. The card is live-refreshed
+     now, so a version bump and a month change genuinely do overlap: the
+     rows would say September while the select said August, and the CSV
+     "for August" would hold September's rows. */
+  const attGen = useRef(0);
   const load = useCallback(async () => {
+    const gen = ++attGen.current;
     void loadShifts();
     const [r, u] = await Promise.all([
       api<{ records: AttRecord[]; leave?: LeaveDay[]; overtime?: OtRow[] }>(`/attendance/report?month=${month}`),
       api<{ users?: StaffPick[]; staff?: StaffPick[] }>(`/users`),
     ]);
-    if (r.data) { setRows(r.data.records ?? []); setLeave(r.data.leave ?? []); setOtRows(r.data.overtime ?? []); setOtDraft({}); }
+    if (gen !== attGen.current) return;
+    if (r.data) {
+      setRows(r.data.records ?? []);
+      setLeave(r.data.leave ?? []);
+      const nextOt = r.data.overtime ?? [];
+      setOtRows(nextOt);
+      /* v1.139.0 - KEEP AN EDIT THAT IS STILL AN EDIT.
+         This cleared every draft on every load, and v1.138.0 subscribed the
+         card to `attendance` - so a colleague clocking in anywhere in the
+         company snapped the CEO's half-typed OT time back to the stored one,
+         with no toast, and Save then said "No changes". A draft is dropped
+         only once the database agrees with it (the amend landed), which is
+         the same rule the keyed inputs elsewhere on this card follow. */
+      setOtDraft((m) => {
+        const keep: typeof m = {};
+        for (const [k, v] of Object.entries(m)) {
+          const o = nextOt.find((x) => `${x.user_id}:${x.d}` === k);
+          if (o && (v.ot_in !== (o.ot_in ?? "") || v.ot_out !== (o.ot_out ?? ""))) keep[k] = v;
+        }
+        return keep;
+      });
+    }
     const list = u.data?.users ?? u.data?.staff ?? [];
     /* v1.87.0 (CEO: "If staff already resigned after that day, the day after
        it no more listed the staff on task ... except staff tabs") — /users
@@ -2491,6 +2547,15 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   useEffect(() => {
     void load().finally(() => setLoaded(true)); // v1.77.0 — a failed request clears the skeleton too
   }, [load]);
+  /* v1.138.0 (CEO: "once approve the status was not change to approved!") -
+     Overtime approvals sits in ANOTHER card. Approving there wrote the
+     decision and reloaded ITS OWN list, so the row left the approvals card
+     while this table went on showing the pending chip it had fetched on
+     mount - two cards on one screen disagreeing about the same record.
+     Every staff write already bumps its topic (v1.65.0, index.ts); this card
+     had simply never subscribed. `attendance` covers the punches, the OT
+     rows and the shift assignments this card draws. */
+  useLiveRefresh(["attendance", "leave"], load);
 
   /* v1.80.1 (CEO: "there is a issue to update pattern name!") — HIS RENAME
      WAS FAILING AND THE CARD WAS TELLING HIM IN GREEN, OFF-SCREEN.
@@ -2619,11 +2684,31 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                         </td>
                         {canAmendOt && (
                           <td className="py-1.5">
-                            <button type="button" className={rowBtnPrimary} disabled={!dirty || !d.ot_in || !d.ot_out}
-                              onClick={() => void act(`/attendance/ot/amend`, {
-                                method: "POST",
-                                body: JSON.stringify({ user_id: o.user_id, date: o.d, ot_in: d.ot_in, ot_out: d.ot_out }),
-                              }, L(`Overtime amended - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`, `OT dipinda - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`))}>
+                            {/* v1.138.0 (CEO: "when I clicked save there is no
+                                popup box appear as per globally style") - it
+                                was DISABLED until a time changed, and no row
+                                button carried a disabled style, so a dead
+                                button looked exactly like a live one. Save
+                                is always pressable now and always answers:
+                                amended, or why not. */}
+                            <button type="button" className={rowBtnPrimary}
+                              onClick={() => {
+                                if (!d.ot_in || !d.ot_out) {
+                                  showToast(L("Not saved", "Tidak disimpan"),
+                                    L("An overtime record needs both an OT in and an OT out.", "Rekod OT memerlukan OT in dan OT out."), "notice");
+                                  return;
+                                }
+                                if (!dirty) {
+                                  showToast(L("No changes", "Tiada perubahan"),
+                                    L(`${properName(o.name)}, ${dmy(o.d)} is already ${d.ot_in}-${d.ot_out}. Change a time first.`,
+                                      `${properName(o.name)}, ${dmy(o.d)} sudah pun ${d.ot_in}-${d.ot_out}. Tukar masa dahulu.`), "notice");
+                                  return;
+                                }
+                                void act(`/attendance/ot/amend`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ user_id: o.user_id, date: o.d, ot_in: d.ot_in, ot_out: d.ot_out }),
+                                }, L(`Overtime amended - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`, `OT dipinda - ${properName(o.name)}, ${dmy(o.d)} ${d.ot_in}-${d.ot_out}.`));
+                              }}>
                               {L("Save", "Simpan")}
                             </button>
                             {/* v1.134.2 (CEO: "cant be remove if it is not

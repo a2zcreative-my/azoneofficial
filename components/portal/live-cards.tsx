@@ -6,13 +6,14 @@
 import { Sub } from "@/components/portal/leave";
 import { L, User, sessStatusL } from "@/components/portal/page-shared";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.139.0 - the rows here are changed by three other cards
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { dmy } from "@/lib/format";
 import { properName } from "@/lib/names";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
-import { ReactNode, useEffect, useState } from "react";
+import { useCallback, ReactNode, useEffect, useState } from "react";
 import { PanelTitle } from "@/components/ui/app-icon";
 
 /* v1.4.181 (CEO: customers must be able to reach staff for package/service
@@ -56,14 +57,20 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
   const { show: showOtToast, node: otToastNode } = useSaveToast();
-  const load = async () => {
+  const load = useCallback(async () => {
     const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
     if (r.ok) setPending(r.data?.pending ?? []);
     setLoaded(true);
-  };
+  }, []);
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
+  /* v1.139.0 - v1.138.0 made the Overtime TABLE follow this card; this is the
+     other direction. A stretch removed in the table, a rest day paid as OT,
+     or a clock-out that has just derived one all change the very rows listed
+     here, and none of them reached it - so Approve could be pressed on a
+     record that no longer existed and answer "No pending OT punches". */
+  useLiveRefresh(["attendance", "rest-day-ot"], load);
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
     if (
       decision === "rejected" &&

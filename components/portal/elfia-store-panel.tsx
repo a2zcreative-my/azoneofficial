@@ -47,10 +47,14 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /** A flash deadline, in the form the CEO reads dates in. Local time on
     purpose: the deadline is a moment in his shop's day, not a UTC stamp. */
+/* v1.139.0 - MALAYSIA TIME, and it says so. This formatted in whatever zone
+   the browser was set to and printed no label, so a laptop on another clock
+   showed a different "flash sale ended" time from the office - about a
+   deadline that decides what the shop charges. */
 const flashWhen = (ms: number): string => {
-  const d = new Date(ms);
+  const d = new Date(ms + 8 * 3600 * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${p(d.getUTCDate())}-${p(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} MYT`;
 };
 
 interface ElfiaItem {
@@ -1584,8 +1588,8 @@ export function ElfiaStorePanel() {
                             <span className="text-warning font-medium"
                               title={L("The feed stops applying a discount once its flash deadline has passed — the shop charges the full price.",
                                        "Suapan berhenti mengenakan diskaun apabila tarikh tamat jualan kilat berlalu — kedai mengenakan harga penuh.")}>
-                              {L(`Flash sale ended ${flashWhen(at)} — the shop charges RM ${rmBare(base)}, not RM ${rmBare(base - disc)}. Press End flash sale to keep the discount without a deadline.`,
-                                 `Jualan kilat tamat ${flashWhen(at)} — kedai mengenakan RM ${rmBare(base)}, bukan RM ${rmBare(base - disc)}. Tekan Tamatkan jualan kilat untuk kekalkan diskaun tanpa tarikh tamat.`)}
+                              {L(`Flash sale ended ${flashWhen(at)} — the shop charges RM ${rmBare(base)}, not RM ${rmBare(base - disc)}. Tick the row, then press End flash sale to keep the discount without a deadline.`,
+                                 `Jualan kilat tamat ${flashWhen(at)} — kedai mengenakan RM ${rmBare(base)}, bukan RM ${rmBare(base - disc)}. Tandakan baris itu, kemudian tekan Tamatkan jualan kilat untuk kekalkan diskaun tanpa tarikh tamat.`)}
                             </span>
                           );
                         }

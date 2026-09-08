@@ -703,6 +703,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       const id = Number(uid);
       if (!(id in savedDays) && d > 0) savedDays[id] = d;
     }
+    /* v1.139.0 - THE SNAPSHOT IS TAKEN BEFORE THE OT FILL.
+       It used to be taken after, so the auto-filled OT hours became part of
+       "what is already saved" and the row was never dirty: the box showed
+       2.5, the chip was green, the net went up, and Save all answered "every
+       row already matches what's saved" while payroll_entries.ot_cents - the
+       figure the payslip, the M2E bank file and Expenses all read - stayed
+       at zero. A fill is a proposed change, so it has to read as one.
+       These are the entries AS LOADED; the fill below replaces objects
+       rather than mutating them, so this copy keeps the saved truth. */
+    const loadedEntries: Record<number, Entry | undefined> = { ...map };
     /* v1.134.0 - approved overtime lands in the OT hours box by itself. A
        saved figure wins (the CEO may have corrected it); an entry with none
        takes the approved total, rounded to the half hour the box accepts. */
@@ -722,7 +732,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     // Snapshot the just-loaded state per row for no-change detection.
     const snap: Record<number, string> = {};
     for (const u of list) {
-      const e = map[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+      const e = loadedEntries[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
       const d = savedDays[u.id];
       // v1.4.128: the SAVED month_working_days anchors the snapshot — if the
       // calendar changed since this row was saved, it must count as dirty.

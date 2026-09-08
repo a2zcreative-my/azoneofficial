@@ -12,7 +12,10 @@
       ever forbids geolocation again the portal says "site build blocked it
       — redeploy" instead of blaming the phone.
    Run: node tests/permissions-policy.mjs */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('..', import.meta.url));
 
 const errors = [];
 const headers = readFileSync('public/_headers', 'utf8');
@@ -34,9 +37,20 @@ if (afterRules.some((l) => /^\s+#/.test(l) || (/^#/.test(l) && afterRules.indexO
   errors.push('comment line found inside/after a rule block in public/_headers — move comments above the first rule');
 }
 
-const page = readFileSync('app/portal/page.tsx', 'utf8');
-if (!page.includes('allowsFeature("geolocation")')) errors.push('app/portal/page.tsx lost the featurePolicy self-diagnosis — a policy-blocked build would again masquerade as a phone problem');
-if (!/reason: "policy"/.test(page)) errors.push('the "policy" GpsFail reason is gone from the punch flow');
+/* v1.139.1 - THE PUNCH FLOW, WHEREVER IT LIVES.
+   This read app/portal/page.tsx by name. v1.114.0 split that 605 KB page into
+   fourteen domain files and the clock went with it, so both checks below have
+   been failing since - invisibly, because run-guards only ever ran inside the
+   Cloudflare build and nothing has deployed since 27 August. The diagnosis is
+   alive and correct in components/portal/dashboard.tsx; the guard was asking
+   the wrong file. Assert the PROPERTY, and let the file move. */
+const punchFiles = [
+  'app/portal/page.tsx',
+  ...readdirSync(join(root, 'components/portal')).filter((f) => /\.tsx$/.test(f)).map((f) => `components/portal/${f}`),
+].filter((f) => existsSync(join(root, f)));
+const punchSrc = punchFiles.map((f) => readFileSync(join(root, f), 'utf8')).join('\n');
+if (!punchSrc.includes('allowsFeature("geolocation")')) errors.push('the featurePolicy self-diagnosis is gone from the portal — a policy-blocked build would again masquerade as a phone problem');
+if (!/reason: "policy"/.test(punchSrc)) errors.push('the "policy" GpsFail reason is gone from the punch flow');
 
 
 /* v1.27.0 — the Android self-help step names the installed app by its

@@ -149,7 +149,10 @@ export function UsersPanel({ role }: { role: string }) {
         <span className={fieldLabel}>{L("Employment status", "Status pekerjaan")}</span>
         <select className={selectClass} value={draft.employment_status}
           onChange={(e) => setDraft((d) => ({ ...d, employment_status: e.target.value }))}>
-          {EMP_OPTIONS.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            {/* A status the CEO cannot set from here (resigned, terminated)
+              still has to be SHOWN, or saving would silently change it. */}
+          {(EMP_OPTIONS.includes(draft.employment_status) ? EMP_OPTIONS : [draft.employment_status, ...EMP_OPTIONS])
+            .map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
       </label>
       <button type="button" className={`${btnClass} col-span-1 justify-center`} disabled={saving} onClick={() => void saveRole(u)}>
@@ -167,9 +170,14 @@ export function UsersPanel({ role }: { role: string }) {
   );
 
   const needle = q.trim().toLowerCase();
+  /* v1.139.0 - BOTH names, and the role as it is written on screen. Testing
+     `full_name || name` missed the other one, and matching the raw key meant
+     typing what the chip says ("Sales & Marketing") found nobody. */
   const match = (u: Account) =>
     !needle || u.email.toLowerCase().includes(needle)
-    || (u.full_name || u.name || "").toLowerCase().includes(needle)
+    || (u.full_name ?? "").toLowerCase().includes(needle)
+    || (u.name ?? "").toLowerCase().includes(needle)
+    || roleLabel(u.role).toLowerCase().includes(needle)
     || u.role.replace(/_/g, " ").includes(needle);
   const allStaff = rows.filter((u) => u.role !== "customer");
   const allCustomers = rows.filter((u) => u.role === "customer");
@@ -224,8 +232,13 @@ export function UsersPanel({ role }: { role: string }) {
               title={kind === "staff" ? L("Change role", "Tukar peranan") : L("Promote", "Naik taraf")}
               onClick={() => {
                 setEditId(u.id);
+                /* v1.139.0 - a LEAVER keeps their status. Falling back to
+                   "permanent" for resigned/terminated meant that changing a
+                   leaver's role quietly brought them back into every staff
+                   picker and onto payroll, because the route COALESCEs
+                   whatever the form sends. */
                 setDraft(kind === "staff"
-                  ? { role: u.role, employment_status: EMP_OPTIONS.includes(u.employment_status ?? "") ? u.employment_status! : "permanent" }
+                  ? { role: u.role, employment_status: u.employment_status ?? "permanent" }
                   : { role: "live_host", employment_status: "part_time" });
               }}>
               <AppIcon name="edit" />
@@ -245,6 +258,19 @@ export function UsersPanel({ role }: { role: string }) {
   );
 
   const editing = rows.find((u) => u.id === editId) ?? null;
+  /* v1.139.0 - the phone sheet behaves like the house sheet: the page behind
+     it does not scroll, Escape closes it, and focus moves into it. Without
+     the lock a drag on the dimmed area scrolled the list underneath, and a
+     keyboard user had no way out at all. */
+  useEffect(() => {
+    if (!editing || !canEdit) return;
+    if (typeof window === "undefined" || !window.matchMedia("(max-width: 767px)").matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setEditId(null); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [editing, canEdit]);
 
   return (
     <div className={card}>
@@ -286,7 +312,7 @@ export function UsersPanel({ role }: { role: string }) {
             {L("Role always shows — chips flag exceptions only (part-time, disabled, missing 2FA).",
                "Peranan sentiasa dipaparkan — cip menanda pengecualian sahaja (separuh masa, dinyahaktif, tiada 2FA).")}
           </p>
-          <ul className={`${listBox} mt-2 max-h-[60svh] md:max-h-80`}>
+          <ul className={`${listBox} mt-2 max-h-[60vh] max-h-[60svh] md:max-h-80`}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={6} className="px-3" />}
             {loaded && staffRows.length === 0 && (
@@ -325,7 +351,7 @@ export function UsersPanel({ role }: { role: string }) {
               : L("Sign-ups land here with zero staff access — promotions by the super admin only.",
                   "Pendaftaran mendarat di sini tanpa akses kakitangan — naik taraf oleh super admin sahaja.")}
           </p>
-          <ul className={`${listBox} mt-2 max-h-[60svh] md:max-h-80`}>
+          <ul className={`${listBox} mt-2 max-h-[60vh] max-h-[60svh] md:max-h-80`}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={4} className="px-3" />}
             {loaded && customerRows.length === 0 && (

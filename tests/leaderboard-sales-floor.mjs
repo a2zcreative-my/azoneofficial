@@ -46,7 +46,7 @@ const BOARD = { month: '2026-08', has_rules: false, me_included: true, me: 1, ro
   { user_id: 9, name: 'NUR NASUHA BINTI ROSLI', role: 'sales_marketing', photo_key: null, sales_cents: 0, target_cents: null, pct: null, commission_cents: 0, rank: null },
 ]};
 
-const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const b = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? '/opt/pw-browsers/chromium' });
 const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
 const p = await ctx.newPage();
 await p.route('**/api/v1/**', async (route) => {
@@ -58,7 +58,7 @@ await p.route('**/api/v1/**', async (route) => {
   else if (url.includes('/staff/revenue') && !url.includes('/lines')) body = { month: '2026-08', tiktok: { this_cents: 0, this_orders: 0, last_cents: 0, last_orders: 0 }, invoiced: { this_cents: 0, this_docs: 0, last_cents: 0, last_docs: 0 } };
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 });
-await p.goto('http://localhost:8931/portal.html', { waitUntil: 'domcontentloaded' });
+await p.goto(`${process.env.PORTAL_BASE ?? 'http://localhost:8931'}/portal.html`, { waitUntil: 'domcontentloaded' });
 // the board lives on the Ecommerce tab. On desktop the sidebar is an icon
 // rail, so the label lives on aria-label, not in the text.
 await p.waitForSelector('button[aria-label="Ecommerce"]', { timeout: 20_000 }).catch(() => {});
@@ -76,7 +76,7 @@ else {
   const emoji = (cardText.match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu) || []).filter((c) => c !== '️');
   if (emoji.length) errors.push(`emoji in the leaderboard card: ${[...new Set(emoji)].join(' ')}`);
 }
-await p.screenshot({ path: '/root/azone/shots/leaderboard-sales-floor.png', fullPage: false });
+await p.screenshot({ path: (process.env.SHOTS_DIR ?? '/root/azone/shots') + '/leaderboard-sales-floor.png', fullPage: false });
 await b.close();
 console.log(cardText ? `\ncard:\n${cardText}\n` : '\ncard: (not found)\n');
 if (errors.length) { console.log('FAIL\n - ' + errors.join('\n - ')); process.exit(1); }

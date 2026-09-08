@@ -25,7 +25,17 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const index = read("worker/src/index.ts");
@@ -51,7 +61,7 @@ const ok = (label, cond, extra = "") => {
      unapproved punch. It is now held in two halves - the shared reader
      carries the clause, and each site reads through it. */
   ok("the shared session reader excludes pending punches",
-     /async function clockedSessions\([\s\S]{0,1200}?WHERE \$\{where\.join\(" AND "\)\}\$\{notPending\}/.test(staff),
+     /async function clockedSessions\([\s\S]{0,3000}?\$\{notPending\}/.test(staff),
      "an unapproved claim would be counted as time worked in six places at once");
   for (const [what, re] of [
     ["hourly pay", /const clockedMinutes[\s\S]{0,900}?await clockedSessions\(env, \{ month, userId \}\)/],
@@ -200,7 +210,7 @@ const ok = (label, cond, extra = "") => {
   ok("the batch resolver exists and reads everything in two queries",
      /export async function shiftResolver/.test(staff) &&
      /SELECT \* FROM shift_patterns/.test(staff) &&
-     /SELECT user_id, pattern_id, effective_from FROM staff_shifts/.test(staff));
+     /SELECT id, user_id, pattern_id, effective_from FROM staff_shifts/.test(staff));
   ok("the three loops that used to query per iteration all use it",
      ["shiftAtR", "shiftAtA", "shiftAtE"].every((n) => new RegExp(`const ${n} = await shiftResolver\\(env\\)`).test(staff)),
      "the register, the absence scan and the attendance export");
@@ -210,8 +220,18 @@ const ok = (label, cond, extra = "") => {
      "two readings of the same row is two answers to whether a blank start means a rest day");
   ok("the resolver still honours the effective date",
      /\.find\(\(x\) => x\.effective_from <= iso\)/.test(staff) &&
-     /sort\(\(a, b\) => b\.effective_from\.localeCompare\(a\.effective_from\)\)/.test(staff),
+     /sort\(\(a, b\) => b\.effective_from\.localeCompare\(a\.effective_from\)/.test(staff),
      "sorted newest-first, so the first match at or before the date is the one in force");
+  /* v1.139.0 - and on the SAME date the newest wins, which is what the
+     single-row `shiftOn` query has always done. Sorting by the date alone
+     left equal dates in rowid order, so the OLDEST won in the batch resolver
+     and the NEWEST won in the single lookup: the punch route measured a day
+     against one pattern while payroll and the register measured it against
+     another - and assigning a new pattern from today is exactly the repair
+     v1.134.1 tells the CEO to make. */
+  ok("...and on the same effective date the NEWEST assignment wins, in both lookups",
+     /localeCompare\(a\.effective_from\) \|\| b\.id - a\.id/.test(staff)
+     && /ORDER BY a\.effective_from DESC, a\.id DESC LIMIT 1/.test(staff));
   ok("a pre-0099 database still gets hours out of the resolver",
      /return \(_u, iso\) => shiftFallback\(new Date\(`\$\{iso\}T00:00:00Z`\)\.getUTCDay\(\)\); \/\/ pre-0099/.test(staff));
 

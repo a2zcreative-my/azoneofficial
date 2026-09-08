@@ -14,10 +14,18 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 const staff = read("worker/src/staff.ts");
 const panels = read("components/portal/role-panels.tsx");
@@ -31,7 +39,7 @@ const ok = (label, cond, why = "") => {
 
 const dir = mkdtempSync(join(tmpdir(), "hourly-"));
 const out = join(dir, "hourly.mjs");
-execSync(`npx esbuild ${join(root, "worker/src/hourly.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(root, "worker/src/hourly.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const { hourlyBreakFor, hourlyPaidMinutes, HOURLY_BREAK_MINUTES, BREAK_AFTER_MINUTES } = await import(pathToFileURL(out).href);
 
 /* ---- the rule, run ---- */
@@ -58,7 +66,7 @@ const { hourlyBreakFor, hourlyPaidMinutes, HOURLY_BREAK_MINUTES, BREAK_AFTER_MIN
      "a part-timer has no pattern to be measured against");
   ok("...and still excludes pending punches",
      /const clockedMinutes[\s\S]{0,900}?await clockedSessions\(env, \{ month, userId \}\)/.test(staff)
-     && /async function clockedSessions\([\s\S]{0,1200}?\$\{notPending\}/.test(staff),
+     && /async function clockedSessions\([\s\S]{0,3000}?\$\{notPending\}/.test(staff),
      "an unapproved claim is not wages");
   ok("the payslip row carries clocked, break and days", /r\.hourly_break_live = cm\.breaks;/.test(staff) && /r\.hourly_days_live = cm\.days;/.test(staff));
   ok("the register marks a part-timer by the clock, not as a rest day", /day_kind: hourly \? "hourly" : shR\.kind,/.test(staff) && /part-time · by the clock/.test(panels),

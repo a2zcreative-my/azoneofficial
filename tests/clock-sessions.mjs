@@ -26,9 +26,17 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
@@ -36,7 +44,7 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 const dir = mkdtempSync(join(tmpdir(), "clock-"));
 const bundle = async (src, name) => {
   const out = join(dir, name);
-  execSync(`npx esbuild ${join(root, src)} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`, { cwd: root, stdio: "inherit" });
+  execSync(`npx esbuild "${join(root, src)}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
   return import(pathToFileURL(out).href);
 };
 const cd = await bundle("worker/src/clock-day.ts", "clock-day.mjs");
@@ -148,9 +156,20 @@ const D = "2026-09-07";
      cd.canClockIn(cd.daySlots(split, []), sess(["11:00", "17:00"]), H(19, 50)).ok === true);
   ok("...and after both, 22:40 is refused",
      cd.canClockIn(cd.daySlots(split, []), sess(["11:00", "17:00"], ["20:00", "22:00"]), H(22, 40)).ok === false);
-  ok("clocking out at 15:00 and back in at 15:20 claims the SAME shift, not a second one",
-     cd.claimedSlots(cd.daySlots(split, []), sess(["11:00", "15:00"], ["15:20", "17:00"])).size === 2,
-     "a break in the afternoon spends the evening shift - the CEO said one clock-in per shift");
+  /* v1.139.0 - a CLOSED session claims every shift it covered. */
+  ok("clocking out at 15:00 and back in at 15:20 claims the SAME shift, and leaves the evening",
+     cd.claimedSlots(cd.daySlots(split, []), sess(["11:00", "15:00"], ["15:20", "17:00"])).size === 1,
+     "a lunch break used to spend the evening shift the person had not worked yet");
+  ok("...so the evening can still be clocked in for",
+     cd.canClockIn(cd.daySlots(split, []), sess(["11:00", "15:00"], ["15:20", "17:00"]), H(20)).ok === true);
+  ok("a session that ran straight through BOTH shifts claims both",
+     cd.claimedSlots(cd.daySlots(split, []), sess(["11:00", "22:00"])).size === 2,
+     "claiming only the afternoon let the same evening be clocked in for again at 22:05 and paid twice");
+  ok("...and there is nothing left to clock in for after it",
+     cd.canClockIn(cd.daySlots(split, []), sess(["11:00", "22:00"]), H(22, 5)).ok === false);
+  ok("four clock-ins at 23:32 on a 10-18 pattern are still refused after the first",
+     cd.canClockIn(cd.daySlots([{ start: H(10), end: H(18) }], []), sess(["23:32", "23:33"]), H(23, 34)).ok === false,
+     "the CEO's original report - the bound is the schedule");
   /* v1.134.2 - the CEO: a rest day worked is "for me to decide either OT or
      replacement leave". Nothing to decide about a day the clock refused. */
   ok("a rest day with nothing on the roster: ONE clock-in, so the day is recorded for the CEO to decide",
@@ -208,22 +227,46 @@ ok("a clock-out is refused only with nothing open, and says what to do next",
    /if \(body\.type === "clock_out" && !openNow\) \{/.test(staff) && /Clock in again when your next shift starts/.test(staff));
 ok("the forgotten-punch flow survives: a clock-out on a day with NO session is still taken as pending",
    /if \(sessionsToday\.length > 0\) \{[\s\S]{0,1600}?if \(body\.forgot !== true\) \{/.test(staff));
+/* v1.139.0 - the rule moved into `deriveOtForDay`, called from the clock-out
+   AND from the three other ways a day gets settled (an approved pending
+   punch, an HR correction, a shift that ran past midnight). The checks below
+   ask what the rule DOES, wherever it lives. */
 ok("overtime is written on the clock-out that closes a shift",
    /const closingSession = body\.type === "clock_out" && openNow/.test(staff)
-   && /const segs = overtimeSegments\(sh\.windows, from, to\);/.test(staff));
+   && /await deriveOtForDay\(/.test(staff)
+   && /for \(const seg of overtimeSegments\(sh\.windows, from, from \+ se\.minutes\)\)/.test(staff));
+ok("...and from every other door a day can be settled by",
+   /await deriveOtForDay\(\s*\n?\s*env, user\.id, closesYesterday \?\? todayMYT/.test(staff)
+   && /attendance\.forgot_approve[\s\S]{0,1500}?await deriveOtForDay\(env, rowP\.user_id, dayP/.test(staff)
+   && /await reDeriveDays\(env, beforeA\?\.user_id \?\? 0, \[beforeA\?\.d, myt\.slice\(0, 10\)\]\)/.test(staff)
+   && /await reDeriveDays\(env, beforeD\?\.user_id \?\? 0, \[beforeD\?\.d\]\)/.test(staff),
+   "a clock-out, an approved pending punch, an amended punch, a deleted punch");
+ok("a shift that ran past midnight can be clocked out, and is paid on the day it began",
+   /let closesYesterday: string \| null = null;/.test(staff)
+   && /if \(body\.type === "clock_out" && !openNow && !closesYesterday\) \{/.test(staff)
+   && /else if \(r\.type === "clock_out" && held\) \{ day = held; openDay\.delete\(r\.user_id\); \}/.test(staff),
+   "a live host who finished at 00:20 met 'You haven\'t clocked in today' and lost the night");
 ok("...into ot_records, as pending, so every approval screen keeps working",
    /INSERT INTO ot_records \(user_id, type, ip, user_agent, created_at\)[\s\S]{0,80}?'ot_in'[\s\S]{0,80}?'ot_out'/.test(staff)
    && /'clock:derived'/.test(staff));
 ok("never for a part-timer — they are paid every clocked minute already",
-   /if \(closingSession && !storedPending && !hourlyPunch/.test(staff) && /meOt\?\.employment_status !== "part_time"/.test(staff),
+   /if \(me\?\.employment_status === "part_time"\) return 0;/.test(staff)
+   && /if \(await isHourlyUserId\(env, userId\)\) return 0;/.test(staff),
    "overtime on top of by-the-clock pay would pay the evening twice");
-ok("never for an executive", /!\["ceo", "coo", "cco", "super_admin", "admin"\]\.includes\(user\.role\)\) \{\s*\n\s*try \{\s*\n\s*const meOt/.test(staff));
+ok("never for an executive",
+   /if \(\["ceo", "coo", "cco", "super_admin", "admin"\]\.includes\(role\)\) return 0;/.test(staff));
 ok("never on a public holiday — that day is paid under its own rule",
-   /SELECT 1 AS x FROM holidays WHERE holiday_date = \?1/.test(staff) && /&& !holiday\)/.test(staff));
+   /SELECT 1 AS x FROM holidays WHERE holiday_date = \?1 AND COALESCE\(kind, 'public'\) IN \('public','replacement'\)/.test(staff)
+   && /if \(holiday\) return 0;/.test(staff));
+/* v1.139.0 - ...but a COMPANY day off is not one of those: it pays no
+   premium of its own, so a day worked on it derived nothing and earned
+   nothing. */
+ok("...only a holiday that pays its own premium, which is what phWorkResolver pays for",
+   /kind IN \('public', 'replacement'\)|IN \('public','replacement'\)/.test(staff));
 ok("never from a pending punch", /!storedPending/.test(staff));
 ok("once — a retried clock-out does not write the evening twice",
    /SELECT id FROM ot_records WHERE user_id = \?1 AND type = 'ot_in' AND created_at = \?2/.test(staff));
-ok("the approvers hear about it", /Overtime to decide - \$\{whoOt\?\.n/.test(staff));
+ok("the approvers hear about it", /Overtime to decide - \$\{who\?\.n/.test(staff));
 ok("a failure to derive never un-records the punch", /await logError\(env, "ot_derive"/.test(staff));
 /* ---- v1.134.0 — OT in / OT out are back, AFTER the schedule ------------
    CEO: "after their working schedule, does they be able to OT clock in and
@@ -233,8 +276,20 @@ ok("a failure to derive never un-records the punch", /await logError\(env, "ot_d
    amendment if needed (ceo only)". */
 ok("the OT punch route exists again", /if \(path === "\/attendance\/ot" && method === "POST"\) \{\s*\n\s*const otTypes/.test(staff));
 ok("OT in is refused while a shift is still to be clocked in for",
-   /const verdictO = canClockIn\(slotsO, sessO, minsO\);[\s\S]{0,120}?if \(verdictO\.ok && body\.type === "ot_in"\)/.test(staff) && /code: "shift_left"|err\("shift_left"/.test(staff),
+   /const verdictO = canClockIn\(slotsO, sessO, minsO\);[\s\S]{0,2000}?if \(verdictO\.ok && body\.type === "ot_in"\)/.test(staff) && /err\("shift_left"/.test(staff),
    "overtime is what comes AFTER the working schedule");
+/* v1.139.0 - and AFTER means after the schedule, not merely after the last
+   shift was claimed: clocking out early closed the shift and let OT in be
+   accepted inside the person's own paid hours. */
+ok("...and refused before the schedule has finished, however the shifts were claimed",
+   /const endOfSchedule = slotsO\.length > 0 \? Math\.max\(\.\.\.slotsO\.map\(\(x\) => x\.end\)\) : 0;/.test(staff)
+   && /if \(body\.type === "ot_in" && slotsO\.length > 0 && minsO < endOfSchedule\)/.test(staff));
+ok("...and refused outright on a rest day, whatever the shifts say",
+   /if \(slotsO\.length === 0 && body\.type === "ot_in"\) \{/.test(staff),
+   "the phone hides the buttons on a rest day; the route has to hold the same line");
+ok("the one-stretch rule counts PUNCHED pairs, not the ones the clock derived",
+   /AND COALESCE\(user_agent, ''\) NOT IN \('clock:derived', 'ceo:rest-day'\)/.test(staff),
+   "a 30-minute late clock-out used to block the OT in button for the rest of the day");
 ok("...and while a shift is open", /err\("shift_open"/.test(staff));
 ok("the same eligibility as before: not executives, not part-timers",
    /Executive roles \(CEO\/COO\/CCO\) are not eligible for OT punches/.test(staff) && /meO\?\.employment_status === "part_time"/.test(staff));
@@ -248,8 +303,16 @@ ok("the phone offers OT only after the schedule",
 const rdc = read("components/portal/rest-day-credits.tsx");
 const rp = read("components/portal/role-panels.tsx");
 ok("a rest day is clocked with Clock in / Clock out, and the clock does not decide it is overtime",
-   /if \(closingSession && !storedPending && !hourlyPunch && sh\.kind !== "rest_day"/.test(staff),
+   /if \(sh\.kind === "rest_day"\) return 0;/.test(staff),
    "derived OT on a rest day would pre-empt the CEO's choice between OT and replacement leave");
+/* v1.139.0 - the two other ways a derived claim could stand on nothing. */
+ok("never from a session whose clock-in is still waiting on the CEO",
+   /!\(closingSession && pendingIns\.has\(closingSession\.in\)\)/.test(staff)
+   && /const pendingIns = new Set\(/.test(staff),
+   "a clock-in replayed from the outbox and later rejected would leave its overtime approvable");
+ok("a still-pending derived claim is cleared before the day is derived again",
+   /DELETE FROM ot_records WHERE user_id = \?1 AND date\(created_at, '\+8 hours'\) = \?2[\s\S]{0,120}?user_agent = 'clock:derived' AND COALESCE\(status, 'pending'\) = 'pending'/.test(staff),
+   "correcting a clock-out from 22:00 to 18:00 used to leave the four hours standing");
 ok("...and offers no OT buttons on a rest day either", /can_ot: !verdictT\.ok && !isOpen\(sessT\) && slotsT\.length > 0/.test(staff));
 ok("the refusal of a second rest-day clock-in says who decides",
    /one stretch a day\. The CEO decides whether it counts as overtime or replacement leave/.test(staff)

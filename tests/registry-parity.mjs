@@ -262,4 +262,85 @@ if (pinM.length === 0) {
 }
 
 if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); process.exit(1); }
+
+
+/* ---- v1.139.1 - THE GUARDS THEMSELVES MUST RUN WHERE THEY ARE RUN --------
+ *
+ * PUSH.bat now runs the whole suite on the CEO's Windows PC before anything
+ * is published. Until v1.139.0 it ran ONE guard and the other 62 had only
+ * ever executed inside Cloudflare's Linux build container - so the first real
+ * Windows run failed 49 of them at once, every one on the same latent bug and
+ * none on the code they check:
+ *
+ *   new URL("..", import.meta.url).pathname   is   "/C:/Users/..."
+ *
+ * a URL path with a leading slash, which join() turns into "\\C:\\Users\\..."
+ * and the filesystem resolves as "C:\\C:\\Users\\...". On Linux the two
+ * spellings are identical, which is exactly why it survived for a year.
+ *
+ * A gate that works on one operating system only is a gate that gets switched
+ * off the first time it blocks a release. These four keep the suite portable.
+ *
+ * v1.139.2 adds the rest, from the second and third Windows runs. A guard
+ * that bundles a COPY of its module repoints that copy's imports at stubs,
+ * and a generated specifier has TWO readers, which want opposite spellings:
+ *
+ *   BUNDLED  - esbuild resolves it, so it must be a PATH. On Windows a path
+ *              carries backslashes, and inside a double-quoted specifier
+ *              those are escape sequences: esbuild was handed
+ *              "C:UsersAlifAppDataLocalTempx" and could not resolve it.
+ *              importPath() writes the path with forward slashes.
+ *   EXTERNAL - esbuild copies it into the bundle untouched and NODE resolves
+ *              it, so it must be a file:// URL. Node reads "C:/Users/..." as
+ *              the protocol "c:" and refuses with ERR_UNSUPPORTED_ESM_URL_SCHEME.
+ *              stubUrl() writes pathToFileURL(p).href.
+ *
+ * Which one a specifier needs is not a matter of taste: it is decided by
+ * whether that stub appears in the guard's own --external list. So the check
+ * below reads the --external flags out of each guard and holds every
+ * specifier to the spelling its own command line asks for. Neither mistake
+ * can be made on Linux, where a path has no backslash and looks like nothing
+ * but a path.
+ */
+{
+  const names = readdirSync("tests").filter((f) => f.endsWith(".mjs"));
+  const badRoot = [], badCmd = [], badImport = [], badSpec = [], badHelper = [];
+  for (const f of names) {
+    const src = readFileSync(`tests/${f}`, "utf8");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    if (/import\.meta\.url\s*\)\s*\.pathname/.test(code)) badRoot.push(f);
+    /* v1.139.2 - the property is "npx is never spawned as a FILE on Windows",
+       not "the string npx.cmd is absent": execFileSync("npx") fails there too,
+       because npx on Windows IS npx.cmd and only a shell knows that. */
+    if (/(execFileSync|execFile|spawnSync|spawn)\(\s*(?:WIN \?\s*)?"npx/.test(code) && !/shell:\s*(WIN|true)/.test(code)) badCmd.push(f);
+    if (/await import\(\s*(join|path\.join)\(/.test(code) || /await import\(`file:\/\//.test(code)) badImport.push(f);
+    /* v1.139.2 - every generated import specifier, held to the spelling its
+       own --external list asks for (see the note above). */
+    const externals = new Set([...code.matchAll(/--external:\*\/([\w.-]+)/g)].map((m) => m[1]));
+    let seen = 0;
+    for (const m of code.matchAll(/`from "\$\{(\w+)\((?:join|path\.join)\(\s*\w+\s*,\s*"([^"]+)"\s*\)\)\}"`/g)) {
+      seen += 1;
+      const helper = m[1], base = m[2].split("/").pop();
+      if (externals.has(base) && helper !== "stubUrl") badSpec.push(`${f}: ${base} is --external, so Node resolves it - stubUrl, not ${helper}`);
+      if (!externals.has(base) && helper !== "importPath") badSpec.push(`${f}: ${base} is bundled, so esbuild resolves it - importPath, not ${helper}`);
+    }
+    /* anything of that shape the pattern above could not read is a specifier
+       nobody is checking, which is how both faults reached a deploy. */
+    const shaped = (code.match(/`from "\$\{/g) || []).length;
+    if (shaped !== seen) badSpec.push(`${f}: ${shaped - seen} generated specifier(s) in a shape this check cannot read`);
+    if (/importPath\(\s*(join|path\.join)\(/.test(code) && !code.includes('replace(/\\\\/g, "/")')) badHelper.push(`${f} (importPath)`);
+    if (/stubUrl\(\s*(join|path\.join)\(/.test(code) && !code.includes("pathToFileURL(p).href")) badHelper.push(`${f} (stubUrl)`);
+  }
+  if (badRoot.length) fail(`a guard builds a file path from a URL .pathname (breaks on Windows): ${badRoot.join(", ")} - use fileURLToPath(new URL("..", import.meta.url))`);
+  else ok("no guard builds a file path out of a URL's .pathname");
+  if (badCmd.length) fail(`a guard spawns npx as a file without a shell (on Windows npx is npx.cmd, which Node refuses to spawn directly): ${badCmd.join(", ")}`);
+  else ok("no guard spawns npx without a shell");
+  if (badImport.length) fail(`a guard imports a bare filesystem path: ${badImport.join(", ")} - use pathToFileURL(p).href`);
+  else ok("no guard imports a bare filesystem path");
+  if (badSpec.length) fail(`a generated import specifier is spelled for the wrong reader:\n      ${badSpec.join("\n      ")}`);
+  else ok("every generated import specifier is spelled for whoever resolves it");
+  if (badHelper.length) fail(`a guard calls a specifier helper that does not do what its name says: ${badHelper.join(", ")}`);
+  else ok("importPath writes a path, stubUrl writes a file:// URL, wherever either is used");
+}
+
 console.log("\nregistry-parity: all registries agree.");

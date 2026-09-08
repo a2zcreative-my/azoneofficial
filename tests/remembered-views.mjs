@@ -31,10 +31,30 @@ import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+/* v1.139.2 - A PATH THAT GOES INTO GENERATED SOURCE IS WRITTEN WITH
+   FORWARD SLASHES. This guard bundles a COPY of the module under test with
+   its imports repointed at stubs in a temp folder. On Windows join() answers
+   C:\Users\...
+   and the moment that string sits inside a double-quoted import specifier
+   its backslashes are ESCAPE SEQUENCES, not separators: esbuild was handed
+   "C:UsersAlifAppDataLocalTempx" and answered Could not resolve. That is the
+   whole of the 08-09-2026 failure in this guard and four of its neighbours.
+   A forward slash is a legal absolute path on Windows and is an escape in
+   nothing, so the same string is correct on both machines. */
+const importPath = (p) => p.replace(/\\/g, "/");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const cache = read("lib/cached-api.ts");
 
@@ -55,12 +75,12 @@ const ok = (label, cond, why = "") => {
      rewritten on a COPY of the source - the module under test is otherwise
      byte-for-byte the real file. */
   const src = read("lib/cached-api.ts")
-    .replace('from "react"', `from "${join(dir, "react.js")}"`)
-    .replace('from "@/lib/api"', `from "${join(dir, "api.js")}"`)
-    .replace('from "@/hooks/use-live-refresh"', `from "${join(dir, "live.js")}"`);
+    .replace('from "react"', `from "${importPath(join(dir, "react.js"))}"`)
+    .replace('from "@/lib/api"', `from "${importPath(join(dir, "api.js"))}"`)
+    .replace('from "@/hooks/use-live-refresh"', `from "${importPath(join(dir, "live.js"))}"`);
   writeFileSync(join(dir, "cached-api.ts"), src);
   const out = join(dir, "cache.mjs");
-  execSync(`npx esbuild ${join(dir, "cached-api.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`,
+  execSync(`npx esbuild "${join(dir, "cached-api.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`,
     { cwd: root, stdio: "inherit" });
 
   /* A localStorage with a quota, like a real one. */

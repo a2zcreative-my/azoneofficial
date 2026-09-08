@@ -20,12 +20,21 @@
  *
  *   node tests/csv-export.mjs
  */
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 
 let pass = 0;
@@ -35,19 +44,28 @@ const ok = (label, cond, extra = "") => {
   else fails.push(`${label}${extra ? ` — ${extra}` : ""}`);
 };
 
+/* v1.139.1 - Node refuses to spawn a .cmd directly since the 2024 argument-
+   injection hardening, so npx.cmd needs a shell; the CEO's own run answered
+   "spawnSync npx.cmd EINVAL". Args are quoted below because a shell splits
+   on spaces and a Windows temp path can contain them. */
+const WIN = process.platform === "win32";
+const qArg = (a) => (WIN && /[ &()^%!]/.test(a) ? `"${a}"` : a);
+
 /* ---- 1. the file Excel actually receives ---- */
 const out = path.join(mkdtempSync(path.join(tmpdir(), "csv-guard-")), "csv.mjs");
 try {
   execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["esbuild", path.join(root, "lib/csv.ts"), "--format=esm", `--outfile=${out}`],
-    { stdio: "pipe" },
+    "npx", /* v1.139.2 - NEVER "npx.cmd": with a shell, cmd.exe resolves the
+              extension itself through PATHEXT, and Node never sees a bare .cmd
+              to refuse. Without the extension there is nothing to argue about. */
+    ["esbuild", path.join(root, "lib/csv.ts"), "--format=esm", `--outfile=${out}`].map(qArg),
+    { stdio: "pipe", shell: WIN },
   );
 } catch (e) {
   console.log(`FAIL — lib/csv.ts does not compile: ${e.message}`);
   process.exit(1);
 }
-const { buildCsv, csvCell } = await import(`file://${out}`);
+const { buildCsv, csvCell } = await import(pathToFileURL(out).href);
 
 {
   const file = buildCsv([["Staff", "Type"], ["Nur Nasuha binti Zainal Abidin", "In"]]);

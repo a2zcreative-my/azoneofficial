@@ -47,7 +47,17 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const root = new URL("..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 /* Anything the person actually sees: a toast, a banner, an inline message, or
    being taken somewhere else. */
@@ -252,6 +262,74 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
   ok("the task delete reports failure differently from success",
      /res\.ok[\s\S]{0,400}?showTaskToast\(L\("Not deleted"[\s\S]{0,200}?"notice"/.test(page) ||
      /if \(!res\.ok\) \{[\s\S]{0,300}?showTaskToast\(L\("Not deleted"/.test(page));
+
+  /* ---- RULE 4 (v1.138.0) — A DEAD CONTROL MUST NOT LOOK LIVE -----------
+     The CEO, 08-09-2026, on the Overtime rows: *"when I clicked save there
+     is no popup box appear as per globally style."* Nothing happened
+     because the button was DISABLED until a time changed — and not one of
+     the four row-button tokens carried a `disabled:` class, so it was
+     pixel-identical to a live one. Pressing a live-looking button and
+     getting silence is the same uncertainty rules 1-3 exist to remove; it
+     just arrives through CSS instead of a missing toast. */
+  const rowBtns = readFileSync(path.join(root, "components/ui/row-button.tsx"), "utf8");
+  ok("every row-button token shows when it is disabled",
+     (rowBtns.match(/export const rowBtn\w* =\s*\n?\s*`[^`]*\$\{OFF\}`/g) ?? []).length === 4
+     && /const OFF = "disabled:pointer-events-none disabled:opacity-50"/.test(rowBtns),
+     "a button that looks pressable and does nothing is silence with extra steps");
+
+  /* And where the reason is not obvious from the row, the honest control is
+     an ENABLED one that answers — which is what the Overtime Save does. */
+  {
+    /* The Save on an Overtime row: pressable whatever the state, and every
+       press ends in a toast — amended, nothing changed, or a missing time. */
+    const at = panels.indexOf("act(`/attendance/ot/amend`");
+    const btn = panels.slice(panels.lastIndexOf("<button", at), at + 120);
+    ok("the Overtime Save answers on every press, not only when something changed",
+       !/\bdisabled=/.test(btn) && /No changes/.test(btn) && /act\(`\/attendance\/ot\/amend`/.test(btn),
+       "it was disabled={!dirty} and the CEO pressed it expecting the house toast");
+  }
+  ok("...and says which half is missing when a time is empty",
+     /An overtime record needs both an OT in and an OT out\./.test(panels));
+
+  /* ---- RULE 5 (v1.138.0) — TWO CARDS, ONE RECORD, ONE TRUTH ------------
+     The CEO, same screen: *"once approve the status was not change to
+     approved!"* Overtime approvals lives in another card; approving there
+     reloaded ITS list, and this table went on showing the pending chip it
+     had fetched on mount. Every staff write already bumps its topic
+     (v1.65.0); the card had simply never subscribed. */
+  ok("the attendance corrections card is told when another card decides an OT",
+     /useLiveRefresh\(\["attendance", "leave"\], load\);/.test(panels)
+     && /from "@\/hooks\/use-live-refresh"/.test(panels),
+     "an approval in the card above must reach the Overtime table below it");
+  /* ---- RULE 6 (v1.139.0) — THE OTHER DIRECTION, AND THE EDIT IN PROGRESS ----
+     The 08-09 audit: v1.138.0 made the Overtime table follow the approvals
+     card, and nothing made the approvals card follow anything - so Approve
+     could be pressed on a stretch the table had just removed and answer
+     "No pending OT punches". And the subscription it DID add cleared every
+     OT draft on every load, so a colleague clocking in wiped the CEO's
+     half-typed amendment with no message at all. */
+  const live = readFileSync(path.join(root, "components/portal/live-cards.tsx"), "utf8");
+  const rest = readFileSync(path.join(root, "components/portal/rest-day-credits.tsx"), "utf8");
+  ok("the Overtime approvals card is told when the same records change elsewhere",
+     /useLiveRefresh\(\["attendance", "rest-day-ot"\], load\)/.test(live),
+     "Approve on a removed stretch answered 'No pending OT punches for that day'");
+  ok("...and so is the Rest days worked card",
+     /useLiveRefresh\(\["attendance", "replacement-credit", "rest-day-ot"\], load\)/.test(rest));
+  ok("a live refresh keeps an amendment the CEO is still typing",
+     /setOtDraft\(\(m\) => \{[\s\S]{0,500}?if \(o && \(v\.ot_in !== \(o\.ot_in \?\? ""\) \|\| v\.ot_out !== \(o\.ot_out \?\? ""\)\)\) keep\[k\] = v;/.test(panels)
+     && !/setOtDraft\(\{\}\)/.test(panels),
+     "clearing every draft on every load made a colleague's clock-in erase his edit, silently");
+  ok("...and a slow answer for another month cannot land on top of this one",
+     /const gen = \+\+attGen\.current;/.test(panels) && /if \(gen !== attGen\.current\) return;/.test(panels));
+  ok("adding an inventory item reports what the server said",
+     /const resAdd = await api<\{ error\?: \{ message\?: string \} \}>\(`\/inventory`/.test(panels)
+     && /if \(!resAdd\.ok\) \{[\s\S]{0,220}?invToast\(L\("Not added"/.test(panels),
+     "a duplicate SKU emptied the form and said nothing");
+  ok("a refused category save does not leave the refused text in the box",
+     /onFail\?\.\(\);/.test(panels) && /el\.value = it\.category \?\? "";/.test(panels));
+  ok("...and the decision is a staff write, so the topic really is bumped",
+     /`\/staff\/attendance\/ot\/decide`/.test(readFileSync(path.join(root, "components/portal/live-cards.tsx"), "utf8")),
+     "topicOf('/attendance/ot/decide') is 'attendance' - index.ts bumps every successful staff mutation");
 }
 
 console.log(

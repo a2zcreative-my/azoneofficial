@@ -38,9 +38,17 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+/* v1.139.1 - fileURLToPath, NOT .pathname.
+   On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
+   a URL path with a leading slash, not a file path - so join() produced
+   "\\C:\\Users\\..." and every read failed with "C:\\C:\\Users\\...". These
+   guards had only ever run in Cloudflare's Linux build container, where the
+   two happen to be the same string; the day PUSH.bat started running them on
+   the CEO's own PC, 49 of them failed at once on a bug that was never about
+   the code they check. */
+const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8");
 const perms = read("worker/src/permissions.ts");
 const staff = read("worker/src/staff.ts");
@@ -56,7 +64,7 @@ const ok = (label, cond, why = "") => {
 /* ---- run the real module ---- */
 const dir = mkdtempSync(join(tmpdir(), "org-"));
 const out = join(dir, "org-tree.mjs");
-execSync(`npx esbuild ${join(root, "lib/org-tree.ts")} --bundle --format=esm --platform=neutral --outfile=${out} --log-level=error`,
+execSync(`npx esbuild "${join(root, "lib/org-tree.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`,
   { cwd: root, stdio: "inherit" });
 const { buildOrg, divisionOf, descendantsOf, ORG_ASSIGN_ROLES, isHere } = await import(pathToFileURL(out).href);
 

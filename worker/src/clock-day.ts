@@ -231,7 +231,28 @@ export function slotFor(slots: Slot[], minute: number): number {
 export function claimedSlots(slots: Slot[], sessions: Session[]): Set<number> {
   const claimed = new Set<number>();
   for (const se of sessions) {
-    let i = slotFor(slots, mytMinutes(se.in));
+    const from = mytMinutes(se.in);
+    /* v1.139.0 - a CLOSED session claims every shift it actually covered.
+       Claiming only the shift its clock-in was for had it both ways: a
+       session that ran 11:00-22:00 straight through claimed the afternoon
+       and left the evening open, so the same evening could be clocked in for
+       again at 22:05 and paid twice; while a lunch break - out at 15:00, in
+       at 15:20 - spent the evening shift the person had not worked yet, and
+       they could not clock in for it at 20:00.
+       Overlap answers both: the long session covers both shifts, the two
+       halves of the afternoon cover one. */
+    if (se.out) {
+      const to = mytMinutes(se.out);
+      const end = to <= from ? 24 * 60 : to; // a session that ran past midnight
+      let any = false;
+      slots.forEach((s, j) => {
+        if (s.start < end && s.end > from) { claimed.add(j); any = true; }
+      });
+      if (any) continue;
+    }
+    /* Nothing overlapped (an open session, or one clocked entirely outside
+       every shift): the shift it was FOR, or the next one still unclaimed. */
+    let i = slotFor(slots, from);
     if (i < 0) continue;
     while (i < slots.length && claimed.has(i)) i++;
     if (i < slots.length) claimed.add(i);
