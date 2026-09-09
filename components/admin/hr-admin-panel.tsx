@@ -3,7 +3,6 @@
 /**
  * HR / payroll administration (v1.4.16), for the admin Staff area:
  *   - Public holidays / company calendar (feeds leave day-counting)
- *   - Leave entitlement editor per staff per year (what balances deduct from)
  *   - Payslip: attendance + approved-leave summary for a month, printable
  */
 
@@ -31,12 +30,7 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 const btn = "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium";
 
-const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"];
 // Display-only BM labels for API values — the values themselves never change.
-const LEAVE_TYPE_MS: Record<string, string> = {
-  annual: "tahunan", medical: "perubatan", emergency: "kecemasan",
-  unpaid: "tanpa gaji", replacement: "gantian",
-};
 const HOLIDAY_KIND_MS: Record<string, string> = {
   public: "umum", company: "syarikat", replacement: "gantian",
 };
@@ -54,9 +48,9 @@ export function HrAdminPanel() {
   const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [holDraft, setHolDraft] = useState({ holiday_date: "", name: "", kind: "public" });
 
-  const [entUser, setEntUser] = useState(0);
+  /* v1.145.0 - entYear outlives the entitlement editor: the holidays list
+     above is fetched for the same year. */
   const [entYear] = useState(new Date().getFullYear());
-  const [ent, setEnt] = useState<Record<string, number>>({});
 
   const [payUser, setPayUser] = useState(0);
   const [payMonth, setPayMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
@@ -76,14 +70,6 @@ export function HrAdminPanel() {
     void load();
   }, [load]);
 
-  const loadEnt = useCallback(async (uid: number) => {
-    if (!uid) return setEnt({});
-    const r = await api<{ entitlement: Record<string, number> }>(`/leave/entitlement?user_id=${uid}&year=${entYear}`);
-    setEnt(r.data?.entitlement ?? {});
-  }, [entYear]);
-  useEffect(() => {
-    void loadEnt(entUser);
-  }, [entUser, loadEnt]);
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -148,35 +134,22 @@ export function HrAdminPanel() {
         </ul>
       </div>
 
-      {/* Leave entitlement */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("Leave entitlement", "Kelayakan cuti")} ({entYear})</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Days granted per type. Balances deduct approved leave from these numbers.", "Hari yang diberikan mengikut jenis. Baki menolak cuti yang diluluskan daripada angka ini.")}
-        </p>
-        <select className={`${input} mt-3 max-w-72`} value={entUser} onChange={(e) => setEntUser(Number(e.target.value))}>
-          <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
-          {staff.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}
-        </select>
-        {entUser > 0 && (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {LEAVE_TYPES.map((t) => (
-              <label key={t} className="block">
-                <span className="text-muted-foreground mb-0.5 block text-[11px] capitalize">{L(t, LEAVE_TYPE_MS[t] ?? t)}</span>
-                <input type="number" min={0} step={0.5} className={input}
-                  value={ent[t] ?? 0}
-                  onChange={(e) => setEnt((s) => ({ ...s, [t]: Number(e.target.value) }))}
-                  onBlur={async () => {
-                    await api(`/leave/entitlement`, {
-                      method: "PUT",
-                      body: JSON.stringify({ user_id: entUser, year: entYear, type: t, entitled: ent[t] ?? 0 }),
-                    });
-                  }} />
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* v1.145.0 - THE ENTITLEMENT EDITOR LIVED HERE TWICE.
+          The CEO, 09-09-2026: *"Leave entitlement (2026) seem appear double
+          which is Leave entitlement also appear. I want only Leave entitlement
+          in the Leave tabs."*
+
+          It was not a second way in - it was a DEAD card. `leave_entitlement`
+          is ["super_admin", "ceo"] in the permissions matrix and every
+          entitlement route answers everyone else with "Only the CEO can view
+          or change leave entitlements", so hr_admin and admin could see this
+          control and never use it: an empty "Select staff..." and a save that
+          would have been refused. Removing it takes nothing from anybody who
+          ever had it.
+
+          The editor that remains is the one in the Leave tab, behind the same
+          chooser as the company leave board - the tab where leave is actually
+          decided, gated client-side on the same two roles the worker enforces. */}
 
       {/* Payslip */}
       <div className={card}>

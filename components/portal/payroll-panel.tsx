@@ -389,6 +389,10 @@ export function printPayslip(
 type AbsenceRow = {
   user_id: number; name: string; missing: string[];
   short: { d: string; hours: number; of?: number; break_minutes?: number }[];
+  /* v1.145.0 - days with a leave application still waiting on a decision.
+     Reported separately by the server, and NOT pressable here: payroll follows
+     the leave decision, it does not race it. */
+  pending?: { d: string; type: string }[];
 };
 
 /** v1.77.0 — the server's unpaid-leave deduction, and what it is made of. */
@@ -588,6 +592,10 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
      them; a person decides. Marking is CEO-only on the server (unpaid_leave),
      so the card is too — a button that 403s is worse than no button. */
   const [absences, setAbsences] = useState<AbsenceRow[]>([]);
+  /* v1.145.0 - how many days in this list are waiting on a leave decision.
+     Counted from what the server sent, so it can never disagree with the
+     chips below it. */
+  const waitingOnLeave = absences.reduce((n, a) => n + (a.pending?.length ?? 0), 0);
   const [marking, setMarking] = useState("");
   /* One click = one recorded unpaid day. `hours` present means a short day:
      the server turns hours-short into a quarter-day fraction, so the rule
@@ -969,6 +977,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           <p className="text-sm font-semibold">
             {L("Days with no clock-in — not deducted unless you say so", "Hari tanpa daftar masuk — tidak dipotong melainkan anda tetapkan")}
           </p>
+          {/* v1.145.0 (CEO: "on payrolls, should check if there is any apply
+              leave pending before judgement") — said at the top, because it
+              is a reason to stop and go to the Leave tab, not a footnote. */}
+          {waitingOnLeave > 0 && (
+            <p className="text-warning mt-1 text-xs font-semibold">
+              {L(`${waitingOnLeave} day${waitingOnLeave === 1 ? "" : "s"} here are waiting on a leave decision — decide the leave first, then this list is right.`,
+                 `${waitingOnLeave} hari di sini menunggu keputusan cuti — putuskan cuti dahulu, barulah senarai ini betul.`)}
+            </p>
+          )}
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L("Working days in this month with no clock-in and no approved leave, and days clocked short of the hours that person's schedule owes — the unpaid break is already taken off, so a 10:00–18:00 day owes 7 hours, not 8. Marking one records it as unpaid leave at 1/26 of the monthly wage per day — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada jam yang dijadualkan untuk orang itu — rehat tanpa gaji sudah ditolak, jadi hari 10:00–18:00 memerlukan 7 jam, bukan 8. Menandakannya merekodkannya sebagai cuti tanpa gaji pada 1/26 gaji bulanan sehari — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
           </p>
@@ -984,6 +1001,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       onClick={() => void markUnpaid(a.user_id, d)}>
                       {d.slice(8)}/{d.slice(5, 7)} · {L("no clock-in", "tiada masuk")}
                     </button>
+                  ))}
+                  {/* v1.145.0 - waiting on a decision: shown, named, and not a
+                      button. Deducting a day somebody has applied for answers
+                      their application by ignoring it. */}
+                  {(a.pending ?? []).map((pw) => (
+                    <span key={`p${pw.d}`}
+                      className="border-warning text-warning rounded-full border border-dashed px-2 py-0.5"
+                      title={L(`${pw.type} leave applied for this day and still waiting on a decision — decide it on the Leave tab`, `Cuti ${pw.type} dipohon untuk hari ini dan masih menunggu keputusan — putuskan di tab Cuti`)}>
+                      {pw.d.slice(8)}/{pw.d.slice(5, 7)} · {L(`${pw.type} leave pending`, `cuti ${pw.type} menunggu`)}
+                    </span>
                   ))}
                   {a.short.map((sh) => (
                     <button key={sh.d} type="button" disabled={marking === `${a.user_id}|${sh.d}`}

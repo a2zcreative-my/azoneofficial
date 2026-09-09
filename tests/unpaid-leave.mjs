@@ -311,6 +311,95 @@ ok("the attendance panel is actually given the role",
      /\{p\.hourly && \(\s*\n?\s*<td className=\{`\$\{td\} text-muted-foreground text-xs`\} colSpan=\{ENT_TYPES\.length \+ 1\}>/.test(page) && /\{!p\.hourly && ENT_TYPES\.map/.test(page));
 }
 
+/* ---- v1.145.0: PAYROLL FOLLOWS THE LEAVE DECISION ----------------------
+ *
+ * The CEO, 09-09-2026: *"on payrolls, should check if there is any apply leave
+ * pending before judgement."* The absences route asked only whether leave was
+ * APPROVED, so a day somebody had applied for and was waiting on him for was
+ * listed as a plain absence beside a button that deducts 1/26 of their month -
+ * deciding the application by ignoring it, on a screen that never said it
+ * existed.
+ *
+ * The properties, not the wording:
+ *   - the route reads what is still WAITING, not only what is approved;
+ *   - a waiting day is reported on its own, never mixed in with the days that
+ *     really are unexplained;
+ *   - the refusal lives in the WORKER. That payroll screen lists a month and
+ *     stays open; somebody can apply for a day in it while it is up. A rule
+ *     enforced only in the browser is a rule that loses that race;
+ *   - and it is not a block for ever: it keys on the request being undecided,
+ *     so a rejection releases the day the moment it is saved.
+ */
+{
+  const abs = (() => {
+    const i = staff.indexOf('if (path === "/payroll/absences" && method === "GET")');
+    const j = staff.indexOf('if (path ===', i + 40);
+    return i >= 0 && j > i ? staff.slice(i, j) : "";
+  })();
+  const unpaidPost = (() => {
+    const i = staff.indexOf('if (path === "/attendance/unpaid" && method === "POST")');
+    const j = staff.indexOf('if (path === "/attendance/unpaid" && method === "DELETE")', i);
+    return i >= 0 && j > i ? staff.slice(i, j) : "";
+  })();
+  ok("both routes were found", abs.length > 100 && unpaidPost.length > 100,
+     "the checks below would pass on nothing");
+
+  const NOT_TERMINAL = /status NOT IN \('approved', 'rejected', 'cancelled'\)/;
+  ok("the absence scan reads leave that is still waiting on a decision",
+     NOT_TERMINAL.test(abs),
+     "asking only for approved leave is what listed an applied-for day as an absence");
+  ok("a waiting day is reported on its own, not as an absence",
+     /pending\.push\(\{ d, type: waiting\.type \}\); continue;/.test(abs),
+     "mixed in with the real absences it is one indistinguishable chip away from being deducted");
+  ok("a person with only waiting days is still returned",
+     /missing\.length \|\| short\.length \|\| pending\.length/.test(abs),
+     "otherwise the warning disappears for exactly the person it is about");
+
+  ok("the deduction itself refuses a day with an open application",
+     NOT_TERMINAL.test(unpaidPost) && /leave_requests[\s\S]{0,200}?start_date <= \?2 AND end_date >= \?2/.test(unpaidPost),
+     "the payroll screen can be minutes old by the time somebody presses");
+  ok("the refusal names the leave rather than saying no",
+     /waiting on a decision - decide the leave first/.test(unpaidPost));
+  ok("the refusal is a conflict, not a bad request",
+     /decide the leave first`,[\s\S]{0,40}?409\)/.test(unpaidPost),
+     "409 is the honest code for 'not now' - the request is well formed, the state is not ready");
+  ok("it does not key on 'pending' alone",
+     !/status = 'pending'[\s\S]{0,80}?start_date <= \?2/.test(unpaidPost),
+     "the approval chain moves a request through stages; anything undecided is still a question");
+
+  ok("the panel shows a waiting day and does not offer it as a button",
+     /a\.pending \?\? \[\]/.test(payroll)
+     && !/a\.pending[\s\S]{0,400}?onClick=\{\(\) => void markUnpaid/.test(payroll),
+     "a chip that deducts is not the right shape for a day nobody has decided yet");
+  ok("and says at the top how many days are waiting",
+     /waitingOnLeave/.test(payroll) && /waiting on a leave decision/.test(payroll),
+     "a reason to stop and go to the Leave tab is not a footnote");
+}
+
+/* ---- v1.145.0: ONE ENTITLEMENT EDITOR, AND IT IS THE CEO'S ---------------
+ *
+ * The CEO, 09-09-2026: *"Leave entitlement (2026) seem appear double... I want
+ * only Leave entitlement in the Leave tabs."* The HR panel carried a second
+ * copy. It was never a second way in - `leave_entitlement` is ["super_admin",
+ * "ceo"] and every route refuses everyone else - so it was a control HR staff
+ * could see and never use. The property is that there is exactly one, and that
+ * the surface it lives on is gated the same way the worker is.
+ */
+{
+  const hrPanel = read("components/admin/hr-admin-panel.tsx");
+  ok("the HR panel no longer carries an entitlement editor",
+     !/leave\/entitlement/.test(hrPanel),
+     "two editors for one number is how the CEO found this");
+  ok("the permission is still the two roles the worker enforces",
+     /leave_entitlement: \["super_admin", "ceo"\]/.test(read("worker/src/permissions.ts")));
+  ok("every entitlement route still refuses everyone else",
+     (staff.match(/Only the CEO can view or change leave entitlements/g) ?? []).length >= 3,
+     "the read, the per-person read and the write");
+  ok("the editor that remains is gated on those same two roles in the browser",
+     /canSetEntitlement = \["ceo", "super_admin"\]/.test(read("components/portal/leave.tsx")),
+     "a control that renders for somebody the API will refuse is a promise the system cannot keep");
+}
+
 console.log(
   fails.length === 0
     ? `PASS — CEO-only powers are CEO-only, the cascade is complete, and one unpaid day is deducted once (${pass} checks)`

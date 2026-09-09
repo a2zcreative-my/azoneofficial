@@ -2,6 +2,74 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.145.0] - 2026-09-09 - payroll follows the leave decision
+
+Two things the CEO found in one message, 09-09-2026.
+
+### "Leave entitlement (2026) seem appear double... I want only Leave entitlement in the Leave tabs"
+
+The HR panel carried a second entitlement editor. It was never a second way in:
+`leave_entitlement` is `["super_admin", "ceo"]` in the permissions matrix and
+every entitlement route answers everyone else with *"Only the CEO can view or
+change leave entitlements"*. So it was a **dead control** - `hr_admin` and
+`admin` could see it and never use it, which is exactly how it looked in his
+screenshot: an empty "Select staff..." and nothing under it.
+
+It is gone, with the state and the two constants that only fed it. The editor
+that remains is the one on the Leave tab, behind the same chooser as the
+company leave board, gated in the browser on the same two roles the worker
+enforces. Nobody who could use it has lost it. `super_admin` works in `/admin`
+rather than `/portal` and no longer has it at all - deliberate: the size of the
+company's leave bank is the CEO's number, decided on the tab where leave is
+decided.
+
+### "on payrolls, should check if there is any apply leave pending before judgement"
+
+He was right, and it was a real hole. `/payroll/absences` asked only whether
+leave on a day was **approved**. A day somebody had applied for and was waiting
+on him for was listed as a plain absence, beside a button that deducts 1/26 of
+their month - **deciding the application by ignoring it, on a screen that never
+said it existed.** `POST /attendance/unpaid` was no better: it refused a day
+that was already approved unpaid leave, and nothing else.
+
+Now:
+
+- **The scan reads what is still waiting**, not only what is approved - and
+  `status NOT IN ('approved','rejected','cancelled')` rather than
+  `status = 'pending'`, because the approval chain moves a request through
+  stages and anything undecided is still a question nobody has answered.
+- **A waiting day is reported on its own.** It is not an absence and not a
+  short day; mixed in with them it is one indistinguishable chip away from
+  being deducted. A person with only waiting days is still returned, or the
+  warning would disappear for exactly the person it is about.
+- **The refusal lives in the worker.** The payroll screen lists a month and
+  stays open; somebody can apply for a day in it while it is up. A rule
+  enforced only in the browser loses that race. The route answers **409** and
+  names the leave: *"NUR NASUHA ... has applied for annual leave on that day
+  and it is still waiting on a decision - decide the leave first"*, which the
+  panel already surfaces as a toast.
+- **It is not a block for ever.** It keys on the request being undecided, so
+  rejecting the application releases the day the moment the rejection is saved.
+  Payroll follows the leave decision instead of contradicting it.
+- **The panel shows the day and does not offer it.** A dashed warning-coloured
+  chip naming the leave type, not a button, and a line at the top of the block:
+  *"2 days here are waiting on a leave decision - decide the leave first, then
+  this list is right."* Counted from what the server sent, so the two can never
+  disagree.
+
+Guard #20 (`unpaid-leave`) grows to **89 checks** and now owns both rules -
+it is the guard that already protects the CEO-only powers. Negative-tested four
+ways: a waiting day listed as a plain absence, the deduction no longer refusing
+an open application, a waiting day rendered as a button, and the HR panel
+getting an entitlement editor back. All four caught.
+
+`components/admin/hr-admin-panel.tsx`, `worker/src/staff.ts`
+(`/payroll/absences`, `POST /attendance/unpaid`),
+`components/portal/payroll-panel.tsx`, `tests/unpaid-leave.mjs`.
+**No migration**, and nothing else touched.
+
+Guards 65 of 65, typecheck clean, build clean.
+
 ## [1.144.0] - 2026-09-09 - an event can name who has to be there
 
 The CEO, 09-09-2026, on a Brand2Market class for four people: *"I want some

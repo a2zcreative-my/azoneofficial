@@ -8395,6 +8395,25 @@ export async function handleStaff(
          AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
     ).bind(body.user_id, dateU).first<{ id: number }>();
     if (clashU) return err("invalid_input", "That day is already unpaid leave", 400);
+    /* v1.145.0 - AND NOT WHILE A LEAVE APPLICATION FOR IT IS STILL OPEN.
+       The CEO, 09-09-2026: *"on payrolls, should check if there is any apply
+       leave pending before judgement."* This refusal lives HERE and not only
+       on the payroll screen, because that screen can be minutes old by the
+       time somebody presses: it lists a month, and a person can apply for a
+       day in it while the list is open. Payroll follows the leave decision;
+       it does not race it.
+       Not a block for ever - reject the application and the day is markable
+       the moment the rejection is saved. */
+    const openLeaveU = await env.DB.prepare(
+      `SELECT id, type FROM leave_requests
+       WHERE user_id = ?1 AND status NOT IN ('approved', 'rejected', 'cancelled')
+         AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
+    ).bind(body.user_id, dateU).first<{ id: number; type: string }>();
+    if (openLeaveU) {
+      return err("invalid_input",
+        `${targetU.name} has applied for ${openLeaveU.type} leave on that day and it is still waiting on a decision - decide the leave first`,
+        409);
+    }
     /* v1.75.0 (CEO: "on unpaid I should able to deduct for half day or based
        on their time in like example work for 2 hours the remaining hours will
        be deducted. the working hours is 8 hours include their break time").
@@ -9670,12 +9689,29 @@ export async function handleStaff(
        WHERE status = 'approved' AND start_date <= ?1 || '-31' AND end_date >= ?1 || '-01'`,
     ).bind(mA2).all<{ user_id: number; type: string; start_date: string; end_date: string }>();
 
+    /* v1.145.0 - AND ANY LEAVE STILL WAITING ON A DECISION.
+       The CEO, 09-09-2026: *"on payrolls, should check if there is any apply
+       leave pending before judgement."* Until now this route asked only
+       whether leave was APPROVED, so a day somebody had applied for and was
+       waiting on him for was listed as a plain absence with a button that
+       deducts 1/26 of their month - deciding the application by ignoring it,
+       on a screen that never mentioned it existed.
+       Not in the three terminal states rather than status = 'pending': the
+       approval chain moves a request through stages, and anything not yet
+       finished is still a question nobody has answered. */
+    const { results: lvP } = await env.DB.prepare(
+      `SELECT user_id, type, start_date, end_date FROM leave_requests
+       WHERE status NOT IN ('approved', 'rejected', 'cancelled')
+         AND start_date <= ?1 || '-31' AND end_date >= ?1 || '-01'`,
+    ).bind(mA2).all<{ user_id: number; type: string; start_date: string; end_date: string }>();
+
     /* v1.77.0 — read the whole schedule once, BEFORE the two nested loops
        below. Resolving it per (person, day) inside them was two database
        round trips per iteration, which is what made the Payroll tab sit at
        "0 staff" for the better part of a minute. */
     const shiftAtA = await shiftResolver(env);
-    const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[] }[] = [];
+    const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[];
+                 pending: { d: string; type: string }[] }[] = [];
     for (const u of staffA) {
       /* Hourly part-timers are paid by the clock already - a day they did not
          work is simply a day they are not paid for, not a deduction. */
@@ -9683,8 +9719,15 @@ export async function handleStaff(
       const mineDays = employedDays(dayList, u.joined_on, u.left_on, u.rejoined_on).filter((d) => d <= todayMyt);
       const missing: string[] = [];
       const short: { d: string; hours: number; of: number; break_minutes: number }[] = [];
+      const pending: { d: string; type: string }[] = [];
       for (const d of mineDays) {
         if (lv.some((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d)) continue;
+        /* v1.145.0 - a day with an undecided application is neither absent nor
+           short: it is WAITING. It is reported on its own so the payroll screen
+           can show it and refuse to deduct it, instead of quietly listing it
+           beside the days that really are unexplained. */
+        const waiting = lvP.find((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        if (waiting) { pending.push({ d, type: waiting.type }); continue; }
         /* v1.76.0 — THEIR hours, not one company constant. A person on a
            pattern that does not work this day is not absent from it, and
            somebody on 11:00-19:00 is measured against eight of their own
@@ -9724,8 +9767,8 @@ export async function handleStaff(
           });
         }
       }
-      if (missing.length || short.length) {
-        out.push({ user_id: u.id, name: u.full_name || u.name, missing, short });
+      if (missing.length || short.length || pending.length) {
+        out.push({ user_id: u.id, name: u.full_name || u.name, missing, short, pending });
       }
     }
     return json({ month: mA2, work_day_hours: WORK_DAY_MINUTES / 60, staff: out });
