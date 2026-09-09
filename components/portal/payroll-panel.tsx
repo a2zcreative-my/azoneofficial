@@ -144,6 +144,13 @@ function monthDMY(m: string): string {
    drifting apart is not a cosmetic bug — it is two different answers to
    "what was I paid". So the layout may exist twice; the arithmetic does not. */
 export type SlipExtras = { working_day: number; public_holiday: number; annual_leave: number; medical_leave: number; emergency_leave?: number; unpaid_leave?: number; unpaid_deduction_cents?: number; annual_bal: number; sick_bal: number;
+  /* v1.148.0 — emergency_leave above is now ONLY the days that were paid
+     (started before 01-09-2026). These two say the rest: the emergency days
+     that were charged for, and the days from a plain unpaid request. Both
+     are already inside unpaid_leave, which is the number the deduction was
+     computed from — they exist so the slip can name WHY the unpaid line is
+     not zero, never to be added to it. */
+  emergency_unpaid?: number; unpaid_type_leave?: number;
   /* v1.75.0 — the employment-date figures. The server computes the
      incomplete-month deduction once and the slip prints THAT number. */
   month_working_days?: number; payable_days?: number; incomplete_deduction_cents?: number;
@@ -208,6 +215,17 @@ export function payslipData(
     const d = x?.unpaid_leave ?? 0;
     const rest = x?.unpaid_rest_days ?? 0;
     const parts = [`${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE`];
+    /* v1.148.0: when some of those days were EMERGENCY days, the line says
+       so. Somebody who applied for emergency leave and never for unpaid
+       leave would otherwise read a deduction headed UNPAID LEAVE and have no
+       way to connect it to anything they did. */
+    const eu = x?.emergency_unpaid ?? 0;
+    if (eu > 0) {
+      const plain = x?.unpaid_type_leave ?? 0;
+      parts.push(plain > 0
+        ? `${n2v(eu)} EMERGENCY + ${n2v(plain)} UNPAID`
+        : `${n2v(eu)} EMERGENCY LEAVE — UNPAID FROM 01-09-2026`);
+    }
     if (rest > 0) parts.push(`${rest} REST DAY${rest === 1 ? "" : "S"} IN FULLY UNPAID WEEKS`);
     if (x?.unpaid_capped) parts.push(`CAPPED — ${x.public_holiday} PUBLIC HOLIDAY${x.public_holiday === 1 ? "" : "S"} STAY PAID`);
     deductions.push([`UNPAID LEAVE (${parts.join("; ")})`, unpaidDed]);
@@ -227,8 +245,14 @@ export function payslipData(
     if (x.public_holiday > 0) others.push(["PUBLIC HOLIDAY", x.public_holiday]);
     if (x.annual_leave > 0) others.push(["ANNUAL LEAVE", x.annual_leave]);
     if (x.medical_leave > 0) others.push(["MEDICAL LEAVE", x.medical_leave]);
+    /* v1.148.0: "(PAID)" is now only ever printed against days that really
+       were paid — emergency leave that started before 01-09-2026. Days on or
+       after that date appear on their own line, marked unpaid, and are part
+       of the UNPAID LEAVE deduction above rather than a second, contradictory
+       statement about the same days. */
     if ((x.emergency_leave ?? 0) > 0) others.push(["EMERGENCY LEAVE (PAID)", x.emergency_leave!]);
-    if ((x.unpaid_leave ?? 0) > 0) others.push(["UNPAID LEAVE", x.unpaid_leave!]);
+    if ((x.emergency_unpaid ?? 0) > 0) others.push(["EMERGENCY LEAVE (UNPAID — IN THE DEDUCTION ABOVE)", x.emergency_unpaid!]);
+    if ((x.unpaid_leave ?? 0) > 0) others.push(["UNPAID LEAVE (TOTAL DAYS DEDUCTED)", x.unpaid_leave!]);
   }
 
   return {
@@ -542,8 +566,39 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     return Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
   };
 
+  /* v1.148.0 — CHANGING A MONTH WHOSE PAYSLIPS ARE OUT.
+     The API now refuses (409 month_released) on the four routes that set net
+     pay, the same way it has always refused an overtime edit. A refusal with
+     no way through would be worse than the bug: a genuine correction to a
+     released month has to remain possible. So the refusal becomes a question
+     — asked once, answered deliberately, and the retry is audited under the
+     name of whoever said yes. A batch asks once for the whole batch, not
+     once per person. */
+  const forceAsked = useRef(false);
+  const releaseOverride = async (serverMsg: string): Promise<boolean> =>
+    await payConfirm({
+      title: L("These payslips are already out", "Slip gaji ini sudah dikeluarkan"),
+      message: `${serverMsg} ${L("Changing it now will not change the payslip anybody was handed — tell them and re-print, or this figure and their copy will disagree. This is logged under your name.", "Mengubahnya sekarang tidak akan mengubah slip gaji yang telah diterima sesiapa — beritahu mereka dan cetak semula, atau angka ini akan bercanggah dengan salinan mereka. Ini dilog atas nama anda.")}`,
+      confirmLabel: L("Change it anyway", "Ubah juga"),
+      variant: "danger",
+    });
+  /** POST that offers the override once when the month is released. `batch`
+      carries the answer across the rows of one Save all. */
+  const postPay = async (url: string, payload: Record<string, unknown>, batch = false) => {
+    const send = (force: boolean) =>
+      api<{ working_days?: number; rows?: number; error?: { code?: string; message?: string } }>(
+        url, { method: "POST", body: JSON.stringify(force ? { ...payload, force_released: true } : payload) });
+    if (batch && forceAsked.current) return await send(true);
+    const first = await send(false);
+    if (first.ok || first.data?.error?.code !== "month_released") return first;
+    if (!(await releaseOverride(first.data?.error?.message ?? ""))) return first;
+    if (batch) forceAsked.current = true;
+    return await send(true);
+  };
+
   const saveAll = async () => {
     setMsg("");
+    forceAsked.current = false; // v1.148.0: each Save all asks for itself
     let n = 0;
     for (const u of staff) {
       const e = entries[u.id];
@@ -551,16 +606,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       const hasDays = typeof d === "number" && !Number.isNaN(d);
       if (!e && !hasDays) continue; // nothing entered for this row
       if (fingerprint(u.id) === pristineRef.current[u.id]) continue; // unchanged
-      const res = await api(`/payroll`, {
-        method: "POST",
-        body: JSON.stringify({
-          ...entry(u.id), month,
-          ot_cents: otPay(entry(u.id).basic_cents, entry(u.id).ot_hours),
-          worked_days: hasDays ? d : null,
-          month_working_days: hasDays ? monthDays : null,
-          net_cents: netFor(u.id),
-        }),
-      });
+      const res = await postPay(`/payroll`, {
+        ...entry(u.id), month,
+        ot_cents: otPay(entry(u.id).basic_cents, entry(u.id).ot_hours),
+        worked_days: hasDays ? d : null,
+        month_working_days: hasDays ? monthDays : null,
+        net_cents: netFor(u.id),
+      }, true);
       if (res.ok) n += 1;
     }
     if (n === 0) showToast(L("No changes", "Tiada perubahan"), L("Every row already matches what's saved", "Setiap baris sudah sepadan dengan yang disimpan"), "notice");
@@ -602,14 +654,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
      lives in exactly one place rather than being computed here as well. */
   const markUnpaid = async (userId: number, date: string, hours?: number) => {
     setMarking(`${userId}|${date}`);
-    const r = await api<{ days?: number; error?: { message?: string } }>(`/attendance/unpaid`, {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: userId, date,
-        ...(hours !== undefined ? { hours_worked: hours } : {}),
-        reason: hours !== undefined ? `Short day - clocked ${hours}h of 8h` : "No clock-in",
-      }),
-    });
+    /* v1.148.0: this is one of the four routes that can now refuse a
+       released month. postPay asks the question and retries under audit. */
+    const r = await postPay(`/attendance/unpaid`, {
+      user_id: userId, date,
+      ...(hours !== undefined ? { hours_worked: hours } : {}),
+      reason: hours !== undefined ? `Short day - clocked ${hours}h of 8h` : "No clock-in",
+    }) as { ok: boolean; data?: { days?: number; error?: { message?: string } } };
     setMarking("");
     if (!r.ok) {
       showToast(L("Not recorded", "Tidak direkod"), r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
@@ -691,11 +742,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
       (x) => x.role !== "customer" && x.role !== "super_admin" && inMonth(x),
     );
-    const RANK: Record<string, number> = {
-      ceo: 1, coo: 2, cco: 3, hr_admin: 4, sales_marketing: 5,
-      admin: 6, editor: 7, marketing: 7, live_host: 7,
-    };
-    list.sort((a, b) => (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9) || a.name.localeCompare(b.name));
+    /* v1.148.0 - this used to be a SECOND, hand-written role order living
+       here: it put admin AFTER hr_admin and sales_marketing, the opposite of
+       the order the CEO gave on 04-09-2026, and it collapsed editor,
+       marketing and live_host into one tie. The main table hid the drift by
+       re-sorting on screen with bySeniority, but the Base salaries grid
+       renders this array straight, so it listed people in the wrong order on
+       the one screen where somebody's pay is set. One company order, and
+       this file already imported it. */
+    list.sort(bySeniority);
     setStaff(list);
     const map: Record<number, Entry> = {};
     const savedDays: Record<number, number> = {};
@@ -773,15 +828,12 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       return;
     }
     const d = workedDays[id];
-    const res = await api<{ error?: { message?: string } }>(`/payroll`, {
-      method: "POST",
-      body: JSON.stringify({
-        ...entry(id), month,
-        ot_cents: otPay(entry(id).basic_cents, entry(id).ot_hours),
-        worked_days: typeof d === "number" && !Number.isNaN(d) ? d : null,
-        month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
-        net_cents: netFor(id),
-      }),
+    const res = await postPay(`/payroll`, {
+      ...entry(id), month,
+      ot_cents: otPay(entry(id).basic_cents, entry(id).ot_hours),
+      worked_days: typeof d === "number" && !Number.isNaN(d) ? d : null,
+      month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
+      net_cents: netFor(id),
     });
     if (res.ok) showToast(L("Saved", "Disimpan"), name ?? L("Payroll entry saved", "Entri gaji disimpan"));
     else setMsg(res.data?.error?.message ?? L("Save failed", "Simpan gagal"));
@@ -812,8 +864,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           <p className="text-sm font-semibold">{L("Payroll processing", "Pemprosesan gaji")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (1/26 of monthly wage per day, Employment Act — a FIXED divisor; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × working days not yet employed ÷ this month's working days — joiners, leavers and re-joiners only). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave is paid, never deducted.",
-              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari bekerja belum diambil bekerja ÷ hari bekerja bulan ini — pekerja baharu, berhenti dan kembali sahaja). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan dibayar, tidak sekali-kali dipotong.",
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (1/26 of monthly wage per day, Employment Act — a FIXED divisor; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × working days not yet employed ÷ this month's working days — joiners, leavers and re-joiners only). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
+              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari bekerja belum diambil bekerja ÷ hari bekerja bulan ini — pekerja baharu, berhenti dan kembali sahaja). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
             )}
           </p>
         </div>
@@ -854,9 +906,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
             title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri yang disimpan — guna selepas sebarang perubahan kalendar")}
             onClick={async () => {
-              const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
-                method: "POST", body: JSON.stringify({ month }),
-              });
+              const r = await postPay(`/payroll/recompute`, { month });
               if (r.ok) showToast(L("Saved", "Disimpan"), L(`Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`, `${r.data?.rows ?? 0} entri dikira semula pada ${r.data?.working_days ?? "?"} hari bekerja`));
               else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Kira semula gagal"), "notice");
               void load();

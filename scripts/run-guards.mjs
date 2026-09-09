@@ -129,6 +129,8 @@ const GUARDS = [
   ["event-attendees", "an event can name who has to be there - only they are told, an empty list still means everyone, and the whole floor still sees the event"],
   ["map-extrusion", "a raised state is still Malaysia - every wall belongs to its own state, nothing raised leaves the frame, and a state with no figure draws no wall"],
   ["movement-cost", "money on a stock movement says per unit AND line total, a correction is valued at cost, and an item with no cost is named rather than treated as free"],
+  ["movement-purpose", "the REASON a movement happened decides whether it is a sale - a marketing loan is neither revenue nor a loss, and a return is not a revert"],
+  ["audit-0909", "the findings of the 09-09 audit stay fixed - the payslip cannot call a day paid and deduct it, a released month is protected everywhere pay is set, and the commit gate is real"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
@@ -154,6 +156,12 @@ if (!existsSync(join(root, "worker", "node_modules"))) {
 
 console.log(`\nRunning ${GUARDS.length} guards before anything is published.\n`);
 
+/* One number, used by the call and by the message that reports it - a
+   hard-coded "120s" in the text is how a message starts lying about the
+   thing it describes. worker-compile-gate is the slow one (it type-checks
+   the whole API); everything else finishes in well under a second. */
+const GUARD_TIMEOUT_MS = 120_000;
+
 const failed = [];
 for (const [name, what] of GUARDS) {
   const file = join(root, "tests", `${name}.mjs`);
@@ -168,14 +176,28 @@ for (const [name, what] of GUARDS) {
     continue;
   }
 
-  const run = spawnSync(process.execPath, [file], { cwd: root, encoding: "utf8" });
+  /* v1.148.1 - a guard gets 120 seconds. Eighteen of them `await import()` a
+     .ts module, which used to end in process.exit() and abort Node on
+     Windows during loader teardown; they set exitCode now and let Node drain
+     on its own. That is the right fix, and it introduces one new way to fail
+     that did not exist before: a guard could in principle keep the event loop
+     alive and never return, hanging the deploy with no output at all. A
+     timeout turns that into a named failure instead of a frozen window. Every
+     guard runs in well under a second today. */
+  const run = spawnSync(process.execPath, [file], { cwd: root, encoding: "utf8", timeout: GUARD_TIMEOUT_MS });
   if (run.status === 0) {
     console.log("ok");
   } else {
     console.log("FAILED");
-    failed.push(`${name} — ${what}`);
+    /* signal SIGTERM with no status is what spawnSync reports on a timeout;
+       say so, because "FAILED" with no output reads like a broken guard. */
+    const timedOut = run.status === null && run.signal !== null;
+    failed.push(timedOut
+      ? `${name} — did not finish within ${GUARD_TIMEOUT_MS / 1000}s (it was killed, not failed)`
+      : `${name} — ${what}`);
     const out = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
     if (out) console.log(out.split("\n").map((l) => `      ${l}`).join("\n"));
+    if (timedOut) console.log("      (no verdict - the guard never returned)");
   }
 }
 

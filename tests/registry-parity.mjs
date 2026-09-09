@@ -145,6 +145,30 @@ else ok("bm-coverage derives its tab list");
 
 /* ---- B. the migration registries ---- */
 const stems = readdirSync("worker/migrations").filter((f) => f.endsWith(".sql")).map((f) => f.replace(/\.sql$/, "")).sort();
+
+/* ---- v1.148.0: no two migrations share a number ------------------------
+   The 09-09 audit found 0086_elfia_product_fields and 0086_totp_replay_guard.
+   Nothing is broken by it - D1 applies by full filename and the alphabetical
+   order is stable - but this registry only ever diffed the file LIST against
+   the array, never the prefixes, so the next person reading the folder and
+   writing "0086" would get a third one with nothing to stop them.
+   The known pair is grandfathered BY NAME: renaming a migration makes D1
+   treat it as new and apply it again, which is a far worse outcome than a
+   duplicated number. Anything NEW fails. */
+{
+  const KNOWN_DUP = "0086";
+  const byNum = new Map();
+  for (const stem of stems) {
+    const m = /^(\d{4})_/.exec(stem);
+    if (!m) continue;
+    byNum.set(m[1], [...(byNum.get(m[1]) ?? []), stem]);
+  }
+  const dups = [...byNum.entries()].filter(([n, l]) => l.length > 1 && n !== KNOWN_DUP);
+  if (dups.length) fail(`two migrations share a number: ${dups.map(([n, l]) => `${n} -> ${l.join(" + ")}`).join("; ")}`);
+  else ok("no two migrations share a number (0086 is the one grandfathered pair)");
+  const known = byNum.get(KNOWN_DUP) ?? [];
+  if (known.length > 2) fail(`0086 now has ${known.length} files - the grandfathered pair has grown`);
+}
 const expM = index.match(/const EXPECTED_MIGRATIONS = \[([\s\S]*?)\];/);
 const expected = [...(expM?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 if (JSON.stringify(stems) !== JSON.stringify(expected)) {

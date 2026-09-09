@@ -23,7 +23,8 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
-import { properName, firstName, displayName } from "@/lib/names";
+/* v1.148.0 - displayName dropped with BirthdaysPanel, its only user. */
+import { properName, firstName } from "@/lib/names";
 import { isCurrentStaff } from "@/lib/staff-order"; // v1.87.0 - a picker offers people who work here
 import { compressImage } from "@/lib/compress-image";
 import { SITE_CONFIG } from "@/constants/site";
@@ -87,8 +88,56 @@ const REASON_MS: Record<string, string> = {
   "Restock from supplier": "Stok semula daripada pembekal",
   "Customer return": "Pemulangan pelanggan",
   "Returned from sample / event": "Dipulangkan daripada sampel / acara",
+  "Marketing / content shoot — coming back": "Pemasaran / penggambaran — akan dipulangkan",
+  "Returned from marketing / internal use": "Dipulangkan daripada pemasaran / kegunaan dalaman",
 };
 const reasonLabel = (r: string) => (getLang() === "ms" ? (REASON_MS[r] ?? r) : r);
+
+/* v1.148.0 — WHAT THE REASON MEANS, as a key the code can act on (0124).
+ *
+ * The CEO, 09-09-2026, on RM 1,025.00 of "sales" made on a day with no
+ * orders: *"the manual stock out price sales should not recorded as a
+ * sales."* Until now the reason was only ever a label that got pasted onto
+ * the front of the remark; the PRICE BOX alone decided whether a movement
+ * was revenue. Ten pieces sent to a marketing shoot, recorded correctly as
+ * Internal use with a price beside them, became ten sales.
+ *
+ * The reason carries a key now, the key travels to the API, and the API
+ * decides from the key. SOLD OFFLINE is the only reason that is a sale. */
+const PURPOSE_OF: Record<string, string> = {
+  "Stock count variance — missing": "variance_missing",
+  "Damaged / defective": "damaged",
+  "Sample or giveaway": "sample",
+  "Internal use": "internal_use",
+  "Marketing / content shoot — coming back": "marketing_loan",
+  "Sold offline": "sold_offline",
+  "Data entry correction": "correction",
+  "Other": "other",
+  "Stock count variance — found extra": "variance_found",
+  "Restock from supplier": "restock",
+  "Customer return": "customer_return",
+  "Returned from sample / event": "sample_return",
+  "Returned from marketing / internal use": "loan_return",
+};
+/** The one reason that earns money. Everything else moves stock and nothing else. */
+const SALE_PURPOSE = "sold_offline";
+/** Stock that LEFT expecting to come back — what marketing is holding. */
+const LOAN_PURPOSES = ["marketing_loan", "internal_use"];
+const PURPOSE_LABEL: Record<string, [string, string]> = {
+  variance_missing: ["stock count variance", "varians kiraan stok"],
+  damaged: ["damaged", "rosak"],
+  sample: ["sample / giveaway", "sampel / hadiah"],
+  internal_use: ["internal use", "kegunaan dalaman"],
+  marketing_loan: ["marketing shoot", "penggambaran pemasaran"],
+  sold_offline: ["sold offline", "dijual luar talian"],
+  correction: ["data correction", "pembetulan data"],
+  other: ["other", "lain-lain"],
+  variance_found: ["variance — found", "varians — dijumpai"],
+  restock: ["restock", "stok semula"],
+  customer_return: ["customer return", "pemulangan pelanggan"],
+  sample_return: ["sample returned", "sampel dipulangkan"],
+  loan_return: ["returned from marketing", "dipulangkan dari pemasaran"],
+};
 
 
 
@@ -300,6 +349,12 @@ interface ManualOut { // v1.4.170 — traceability row for a manual stock out
   /* v1.147.0 — the item's cost per unit, joined by the server. NULL means
      nobody has entered a cost for that item; it is never read as zero. */
   item_cost_cents?: number | null;
+  /* v1.148.0 (0124) — WHY the stock moved, as a key. The reason used to be
+     prose inside `remark` and nothing read it, so a price alone decided
+     whether a movement was revenue. `returned_at` is set when a loan closes,
+     which is a different event from `reverted` (a record that was wrong). */
+  purpose?: string | null;
+  returned_at?: string | null;
 }
 
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
@@ -577,11 +632,17 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
      modal now handles both directions, and the reason is a picked list rather
      than a blank box — so a variance is always described the same way and can
      be reported on later. */
+  /* v1.148.0 — "Marketing / content shoot" is its own reason now. It was
+     being recorded as Internal use, which is close enough to be tempting and
+     wrong enough to matter: a shoot is stock that is COMING BACK, and the
+     register of what is still out is built from exactly this choice. */
   const REASONS: Record<"in" | "out", string[]> = {
     out: ["Stock count variance — missing", "Damaged / defective", "Sample or giveaway",
-          "Internal use", "Sold offline", "Data entry correction", "Other"],
+          "Internal use", "Marketing / content shoot — coming back", "Sold offline",
+          "Data entry correction", "Other"],
     in: ["Stock count variance — found extra", "Restock from supplier", "Customer return",
-         "Returned from sample / event", "Data entry correction", "Other"],
+         "Returned from marketing / internal use", "Returned from sample / event",
+         "Data entry correction", "Other"],
   };
   const [outModal, setOutModal] = useState<{ dir: "in" | "out"; edit_id: number | null; item_id: number; qty: string; price: string; reason: string; remark: string; out_date: string } | null>(null);
   /* v1.4.252 (CEO: "I want the details inside while the button outside for me
@@ -593,6 +654,18 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   const [openRet, setOpenRet] = useState<number | null>(null);
   const todayMYT = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const [manualOuts, setManualOuts] = useState<ManualOut[]>([]);
+  /* v1.148.0 (CEO: "I want search box for me to search the item or SKU") —
+     42 movements in one scroll box and growing; finding the three rows for
+     one SKU meant scrolling past forty. One box, matching either the SKU or
+     the item name, because a person looking for a piece knows one or the
+     other and should not have to know which the list is keyed on. */
+  const [moveQ, setMoveQ] = useState("");
+  /* v1.148.0 — the two figures the CEO asked for on 09-09-2026: what
+     marketing is holding, and what is sitting in revenue that never was. */
+  type LoanRow = { id: number; sku: string | null; item_name: string | null; qty: number; unit_sale_cents: number | null; item_cost_cents: number | null; purpose: string | null; remark: string | null; out_date: string | null; created_at: string; created_by_name: string | null };
+  const [onLoan, setOnLoan] = useState<{ rows: LoanRow[]; cost_cents: number; retail_cents: number; no_cost: number; pieces: number }>({ rows: [], cost_cents: 0, retail_cents: 0, no_cost: 0, pieces: 0 });
+  type MisRow = { id: number; sku: string | null; item_name: string | null; qty: number; unit_sale_cents: number; purpose: string | null; out_date: string | null; created_at: string; created_by_name: string | null };
+  const [misSold, setMisSold] = useState<{ rows: MisRow[]; total_cents: number }>({ rows: [], total_cents: 0 });
   /* v1.77.0 — skeleton until the first fetch lands. Every list above starts
      [] so "no items yet" cannot be told from "still loading"; this flag can. */
   const [loaded, setLoaded] = useState(false);
@@ -621,17 +694,20 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   };
   // v1.4.172: create-path wrapper adding the backdatable date.
   // v1.4.251: signed — the same path records a stock IN.
-  const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out") => {
+  const adjust2 = async (id: number, qty: number, price: string, remark: string, outDate: string, dir: "in" | "out" = "out", purpose?: string) => {
     setInvMsg("");
     const sale = dir === "out" && price.trim() !== "" ? Number(price) : undefined;
     if (sale !== undefined && (!Number.isFinite(sale) || sale < 0)) { invToast(L("Not saved", "Tidak disimpan"), L("Sold @ must be a valid RM amount", "Dijual @ mesti amaun RM yang sah"), "notice"); return false; }
-    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
+    /* v1.148.0 — the REASON goes with the movement, and the API decides from
+       it whether this is revenue. The browser no longer implies it by
+       filling in a price box. */
+    const res = await api<{ error?: { message?: string }; sale_recorded?: boolean; sale?: boolean; stock?: number }>(`/inventory/${id}/adjust`, {
       method: "POST",
-      body: JSON.stringify({ delta: dir === "out" ? -qty : qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(outDate ? { out_date: outDate } : {}) }),
+      body: JSON.stringify({ delta: dir === "out" ? -qty : qty, ...(sale !== undefined ? { sale_price: sale } : {}), remark, ...(purpose ? { purpose } : {}), ...(outDate ? { out_date: outDate } : {}) }),
     });
     if (!res.ok) { invToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Adjustment failed", "Pelarasan gagal"), "notice"); void load(); return false; }
     const level = typeof res.data?.stock === "number" ? ` ${L("— now", "— kini")} ${res.data.stock} ${L("in stock", "dalam stok")}` : "";
-    if (res.data?.sale_recorded) invToast(L("Sale recorded", "Jualan direkodkan"), `${qty} × RM ${rmBare(Math.round(sale! * 100))} ${L("— counted in total sales", "— dikira dalam jumlah jualan")}${level}`);
+    if (res.data?.sale_recorded ?? res.data?.sale) invToast(L("Sale recorded", "Jualan direkodkan"), `${qty} × RM ${rmBare(Math.round(sale! * 100))} ${L("— counted in total sales", "— dikira dalam jumlah jualan")}${level}`);
     else invToast(dir === "in" ? L("Stock in recorded", "Stok masuk direkodkan") : L("Stock out recorded", "Stok keluar direkodkan"), `${qty} pcs${level} ${L("— logged with your remark", "— dilog dengan catatan anda")}`);
     void load();
     return true;
@@ -723,7 +799,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   });
 
   const load = useCallback(async () => {
-    const [i, p, m, r, t, mo, bh] = await Promise.all([
+    const [i, p, m, r, t, mo, bh, ol, ms] = await Promise.all([
       api<{ items: InvItem[] }>(`/inventory`),
       api<{ records: PostRec[] }>(`/postage`),
       api<{ materials: Material[] }>(`/materials`),
@@ -731,6 +807,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       api<{ items: TtOut[] }>(`/inventory/tiktok-out`), // v1.4.165
       api<{ outs: ManualOut[] }>(`/inventory/manual-outs`), // v1.4.170
       api<BridgeHealth>(`/inventory/bridge-health`), // v1.36.0
+      api<{ rows: LoanRow[]; cost_cents: number; retail_cents: number; no_cost: number; pieces: number }>(`/inventory/on-loan`), // v1.148.0
+      api<{ rows: MisRow[]; total_cents: number }>(`/inventory/mis-sold`), // v1.148.0
     ]);
     /* v1.22.7 (a staff member's Inventory tab white-screened: "Application
        error: a client-side exception"): D1 can hand back NULL in columns the
@@ -746,6 +824,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
     }
     if (t.data?.items) setTtOut(t.data.items.map((x) => ({ ...x, sku: x.sku ?? "", name: x.name ?? "", stock: Number(x.stock) || 0, today_qty: Number(x.today_qty) || 0, month_qty: Number(x.month_qty) || 0, total_qty: Number(x.total_qty) || 0 })));
     if (mo.data?.outs) setManualOuts(mo.data.outs.map((x) => ({ ...x, sku: x.sku ?? "", item_name: x.item_name ?? "", qty: Number(x.qty) || 0, remark: x.remark ?? "", created_at: x.created_at ?? "" })));
+    if (ol.data) setOnLoan({ rows: ol.data.rows ?? [], cost_cents: ol.data.cost_cents ?? 0, retail_cents: ol.data.retail_cents ?? 0, no_cost: ol.data.no_cost ?? 0, pieces: ol.data.pieces ?? 0 });
+    if (ms.data) setMisSold({ rows: ms.data.rows ?? [], total_cents: ms.data.total_cents ?? 0 });
     /* v1.38.1: `if (bh.data)` was wrong — an ERROR body is truthy too, so a
        404 (the API worker being older than this page: the two workers deploy
        independently, AUTO-DEPLOY.md) or a 403 landed here with
@@ -799,13 +879,25 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 </SubR>
                 {/* nothing is sold on the way IN, so the price box only exists
                     on an out (v1.4.169: a price is what makes an out a sale). */}
-                {outModal.dir === "out" ? (
-                  <SubR t={L("Sold @ (RM/unit, optional)", "Dijual @ (RM/unit, pilihan)")}>
-                    <input type="number" min={0} step="0.01" className={inputClass} placeholder={L("empty = correction", "kosong = pembetulan")}
-                      value={outModal.price}
-                      onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
-                  </SubR>
-                ) : <span />}
+                {/* v1.148.0 — the box changes meaning with the reason, and
+                    says so. On Sold offline it is a SALE and counts as
+                    revenue. On any other reason it is the VALUE of the pieces
+                    that moved — recorded, reviewable, and not revenue. The
+                    old label ("Sold @") on an Internal use movement is what
+                    booked a marketing shoot as RM 1,025 of income. */}
+                {outModal.dir === "out" ? (() => {
+                  const isSale = PURPOSE_OF[outModal.reason] === SALE_PURPOSE;
+                  return (
+                    <SubR t={isSale
+                      ? L("Sold @ (RM/unit) — counts as a sale", "Dijual @ (RM/unit) — dikira sebagai jualan")
+                      : L("Value @ (RM/unit, optional) — NOT a sale", "Nilai @ (RM/unit, pilihan) — BUKAN jualan")}>
+                      <input type="number" min={0} step="0.01" className={inputClass}
+                        placeholder={isSale ? L("what the customer paid", "apa yang pelanggan bayar") : L("what the pieces are worth", "nilai barang tersebut")}
+                        value={outModal.price}
+                        onChange={(e) => setOutModal((m) => m && ({ ...m, price: e.target.value }))} />
+                    </SubR>
+                  );
+                })() : <span />}
               </div>
               {/* v1.147.0 (CEO: "I should visible to view what is the cost that
                   I need to aware for the internal or correction") — the cost is
@@ -815,21 +907,26 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   because that is exactly the movement that costs the company
                   money without earning any. No cost on the item is said as
                   such, never as zero. */}
-              {outModal.dir === "out" && outModal.price.trim() === "" && (() => {
+              {outModal.dir === "out" && PURPOSE_OF[outModal.reason] !== SALE_PURPOSE && (() => {
                 const it = items.find((x) => x.id === outModal.item_id);
                 const qtyN = Math.floor(Number(outModal.qty));
                 const n = Number.isFinite(qtyN) && qtyN > 0 ? qtyN : 0;
                 if (!it) return null;
+                const isLoan = LOAN_PURPOSES.includes(PURPOSE_OF[outModal.reason] ?? "");
+                const head = isLoan
+                  ? L("This goes out on loan and is expected back — it is not a sale. It costs", "Ini keluar sebagai pinjaman dan dijangka pulang — bukan jualan. Ia berkos")
+                  : L("This is not a sale — it costs", "Ini bukan jualan — ia berkos");
                 return it.unit_cost_cents != null ? (
                   <p className="border-warning/40 bg-warning-soft/40 rounded-lg border px-2.5 py-1.5 text-xs">
-                    {L("This is a correction, not a sale — it costs", "Ini pembetulan, bukan jualan — ia berkos")}{" "}
+                    {head}{" "}
                     <span className="font-semibold tabular-nums">RM {rmBare(it.unit_cost_cents)}{L("/unit", "/unit")}</span>
                     {n > 0 && <> · <span className="font-bold tabular-nums">RM {rmBare(it.unit_cost_cents * n)}</span></>}
+                    {isLoan && <> · {L("it will appear under \u201cOut with marketing\u201d until you mark it returned.", "ia akan muncul di bawah \u201cBersama pemasaran\u201d sehingga anda tandakan sebagai dipulangkan.")}</>}
                   </p>
                 ) : (
                   <p className="text-muted-foreground border-border rounded-lg border border-dashed px-2.5 py-1.5 text-xs">
-                    {L("This is a correction, not a sale. No Cost/unit is set for this item, so what it costs the company cannot be shown — set it on the stock list.",
-                       "Ini pembetulan, bukan jualan. Tiada Kos/unit ditetapkan untuk barang ini, jadi kosnya kepada syarikat tidak dapat ditunjukkan — tetapkannya dalam senarai stok.")}
+                    {L("This is not a sale. No Cost/unit is set for this item, so what it costs the company cannot be shown — set it on the stock list.",
+                       "Ini bukan jualan. Tiada Kos/unit ditetapkan untuk barang ini, jadi kosnya kepada syarikat tidak dapat ditunjukkan — tetapkannya dalam senarai stok.")}
                   </p>
                 );
               })()}
@@ -870,7 +967,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     const note = outModal.remark.trim();
                     const full = outModal.edit_id ? note : note ? `${outModal.reason} — ${note}` : outModal.reason;
                     if (!outModal.edit_id) {
-                      const ok = await adjust2(outModal.item_id, qtyN, outModal.price, full, outModal.out_date, outModal.dir);
+                      const ok = await adjust2(outModal.item_id, qtyN, outModal.price, full, outModal.out_date, outModal.dir, PURPOSE_OF[outModal.reason]);
                       if (ok) setOutModal(null);
                       return;
                     }
@@ -2066,6 +2163,153 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
         ) : (
           <>
+          {/* ============ v1.148.0: WHAT MARKETING IS HOLDING ============
+              CEO, 09-09-2026: *"I need to review that the total of price that
+              I hold under my stock manual which is internal use for marketing
+              and need to revert back when the marketing use completed."*
+              Stock that left on loan and has not come back, with a total, and
+              one button per row to close the loan. This did not exist in any
+              form - the pieces simply left and nothing tracked their return. */}
+          {onLoan.rows.length > 0 && (
+            <div className="border-info/40 bg-info-soft/40 mt-3 rounded-xl border p-3">
+              <p className="text-sm font-semibold">
+                {L("Out with marketing / internal use — still to come back",
+                   "Bersama pemasaran / kegunaan dalaman — belum dipulangkan")}
+              </p>
+              <p className="mt-1 text-lg font-bold tabular-nums">
+                RM {rmBare(onLoan.cost_cents)}
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  {L(`at cost · ${onLoan.pieces} pcs in ${onLoan.rows.length} movement${onLoan.rows.length === 1 ? "" : "s"}`,
+                     `pada kos · ${onLoan.pieces} pcs dalam ${onLoan.rows.length} pergerakan`)}
+                  {onLoan.retail_cents > 0 ? L(` · RM ${rmBare(onLoan.retail_cents)} at retail`, ` · RM ${rmBare(onLoan.retail_cents)} pada harga jualan`) : ""}
+                </span>
+              </p>
+              {onLoan.no_cost > 0 && (
+                <p className="text-warning mt-1 text-xs font-semibold">
+                  {L(`${onLoan.no_cost} of them have no Cost/unit set, so the cost figure is lower than the truth.`,
+                     `${onLoan.no_cost} daripadanya tiada Kos/unit, jadi angka kos lebih rendah daripada yang sebenar.`)}
+                </p>
+              )}
+              <div className="mt-2 max-h-56 space-y-0 overflow-y-auto pr-1">
+                {onLoan.rows.map((r) => (
+                  <div key={r.id} className="border-border/60 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-sm last:border-0">
+                    <span className="min-w-0">
+                      <span className="font-medium">{r.sku}</span> · {r.qty} pcs
+                      <span className="text-muted-foreground"> · {L(...(PURPOSE_LABEL[r.purpose ?? ""] ?? ["", ""]))}</span>
+                      {r.out_date && <span className="text-muted-foreground"> · {L("out", "keluar")} {dmy(r.out_date)}</span>}
+                    </span>
+                    <span className="flex flex-wrap items-center justify-end gap-1.5">
+                      <span className="text-muted-foreground text-[10px] tabular-nums">
+                        {r.item_cost_cents != null
+                          ? `RM ${rmBare(r.item_cost_cents * r.qty)} ${L("at cost", "pada kos")}`
+                          : L("cost not set", "kos belum ditetapkan")}
+                      </span>
+                      {r.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {r.created_by_name.split(" ")[0]}</span>}
+                      <button type="button" className={rowBtn}
+                        title={L("Marketing finished with it and the pieces are back on the shelf — this puts the stock back and closes the loan", "Pemasaran telah selesai dan barang telah kembali ke rak — ini memulangkan stok dan menutup pinjaman")}
+                        onClick={async () => {
+                          if (!(await invConfirm({
+                            title: L("Mark as returned?", "Tandakan sebagai dipulangkan?"),
+                            message: `${r.qty} × ${r.sku} ${L("goes back into stock. The movement stays in the records, marked returned rather than reverted — it was not a mistake, the loan closed.", "kembali ke dalam stok. Pergerakan kekal dalam rekod, ditanda dipulangkan dan bukan dibatalkan — ia bukan kesilapan, pinjaman telah ditutup.")}`,
+                            confirmLabel: L("Returned", "Dipulangkan"),
+                          }))) return;
+                          const res = await api<{ error?: { message?: string } }>(`/inventory/manual-outs/${r.id}/returned`, { method: "POST", body: JSON.stringify({}) });
+                          if (!res.ok) { invToast(L("Not recorded", "Tidak direkod"), res.data?.error?.message ?? L("Failed", "Gagal"), "notice"); return; }
+                          invToast(L("Back on the shelf", "Kembali ke rak"), `${r.qty} × ${r.sku}`);
+                          void load();
+                        }}>{L("✓ Returned", "✓ Dipulangkan")}</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* ====== v1.148.0: REVENUE THAT WAS NEVER A SALE ======
+              The rows 0124 reclassified that still carry a manual_sales row.
+              The migration deliberately moved no money: what a company earned
+              is not something to rewrite inside a schema change with nobody
+              looking. It is named here, and removed on his word. */}
+          {misSold.rows.length > 0 && (
+            <div className="border-danger/40 bg-danger-soft/40 mt-3 rounded-xl border p-3">
+              <p className="text-sm font-semibold">
+                {L("Counted as revenue, but recorded as not a sale", "Dikira sebagai hasil, tetapi direkod sebagai bukan jualan")}
+              </p>
+              <p className="mt-1 text-lg font-bold tabular-nums">
+                RM {rmBare(misSold.total_cents)}
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  {L(`across ${misSold.rows.length} movement${misSold.rows.length === 1 ? "" : "s"}`, `merentas ${misSold.rows.length} pergerakan`)}
+                </span>
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {L("Until now a price in the box made a movement a sale, whatever reason was picked — so stock taken for a shoot or an internal use was booked as income. These are those rows. Removing them takes the amount out of Total sales, today's sales and the KPI; the movements themselves stay, with their value, in the records below.",
+                   "Sehingga kini harga dalam kotak menjadikan pergerakan sebagai jualan, apa pun sebab yang dipilih — jadi stok untuk penggambaran atau kegunaan dalaman dikira sebagai pendapatan. Ini baris tersebut. Membuangnya akan mengeluarkan amaun daripada Jumlah jualan, jualan hari ini dan KPI; pergerakan itu sendiri kekal, dengan nilainya, dalam rekod di bawah.")}
+              </p>
+              <div className="mt-2 max-h-40 space-y-0 overflow-y-auto pr-1">
+                {misSold.rows.map((r) => (
+                  <div key={r.id} className="border-border/60 flex flex-wrap items-center justify-between gap-x-2 border-b py-1 text-xs last:border-0">
+                    <span>{r.out_date ? dmy(r.out_date) : dmyMYT(r.created_at)} · <span className="font-medium">{r.sku}</span> · {r.qty} pcs · {L(...(PURPOSE_LABEL[r.purpose ?? ""] ?? ["", ""]))}</span>
+                    <span className="tabular-nums">RM {rmBare(r.unit_sale_cents * r.qty)}</span>
+                  </div>
+                ))}
+              </div>
+              {canDeleteMovements ? (
+                <button type="button" className={`${rowBtnDanger} mt-2`}
+                  onClick={async () => {
+                    if (!(await invConfirm({
+                      title: L("Remove these from sales?", "Buang ini daripada jualan?"),
+                      message: `RM ${rmBare(misSold.total_cents)} ${L(`across ${misSold.rows.length} movements stops counting as revenue. Total sales, today's sales, the month figure and the KPI all drop by that amount. The movements stay in the records with their value on them. This is logged under your name and cannot be undone from here.`, `merentas ${misSold.rows.length} pergerakan berhenti dikira sebagai hasil. Jumlah jualan, jualan hari ini, angka bulanan dan KPI semuanya turun sebanyak itu. Pergerakan kekal dalam rekod dengan nilainya. Ini dilog atas nama anda dan tidak boleh dibatalkan dari sini.`)}`,
+                      confirmLabel: L("Remove from sales", "Buang daripada jualan"), variant: "danger",
+                    }))) return;
+                    const res = await api<{ removed?: number; cents?: number; error?: { message?: string } }>(`/inventory/mis-sold`, { method: "POST", body: JSON.stringify({}) });
+                    if (!res.ok) { invToast(L("Not removed", "Tidak dibuang"), res.data?.error?.message ?? L("Failed", "Gagal"), "notice"); return; }
+                    invToast(L("Removed from sales", "Dibuang daripada jualan"),
+                      `RM ${rmBare(res.data?.cents ?? 0)} ${L("across", "merentas")} ${res.data?.removed ?? 0} ${L("movements", "pergerakan")}`);
+                    void load();
+                  }}>{L("Remove from sales", "Buang daripada jualan")}</button>
+              ) : (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {L("Only the CEO or COO can remove revenue recorded in error.", "Hanya CEO atau COO boleh membuang hasil yang direkod secara silap.")}
+                </p>
+              )}
+            </div>
+          )}
+          {/* v1.148.0 (CEO: "I want search box for me to search the item or
+              SKU") — one box over both fields. The SUMMARY FOLLOWS THE
+              SEARCH: asking for LUMI 010 and being told what the whole shelf
+              lost would answer a question nobody asked, and the band says
+              which set it is counting so a filtered figure can never be read
+              as the company total. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input type="search" className={`${inputClass} sm:max-w-72`}
+              placeholder={L("Search SKU or item…", "Cari SKU atau barang…")}
+              aria-label={L("Search movements by SKU or item name", "Cari pergerakan mengikut SKU atau nama barang")}
+              value={moveQ} onChange={(e) => setMoveQ(e.target.value)} />
+            {moveQ.trim() !== "" && (
+              <button type="button" className={rowBtn} onClick={() => setMoveQ("")}>
+                {L("Clear", "Kosongkan")}
+              </button>
+            )}
+          </div>
+          {(() => {
+          /* Matching is done once, here, and both the band and the list read
+             it - two filters written separately are two filters that drift.
+             Every word must appear somewhere in "SKU + name", in any order,
+             so "lumi 010" and "010 lumi" find the same row and a half-typed
+             SKU still narrows. */
+          const terms = moveQ.trim().toLowerCase().split(/\s+/).filter(Boolean);
+          const shown = terms.length === 0 ? manualOuts : manualOuts.filter((o) => {
+            const hay = `${o.sku ?? ""} ${o.item_name ?? ""}`.toLowerCase();
+            return terms.every((t) => hay.includes(t));
+          });
+          const filtered = shown.length !== manualOuts.length;
+          return (
+          <>
+          {filtered && shown.length === 0 && (
+            <p className="text-muted-foreground mt-2 text-sm">
+              {L(`Nothing matches "${moveQ.trim()}" — the search reads the SKU and the item name.`,
+                 `Tiada padanan untuk "${moveQ.trim()}" — carian membaca SKU dan nama barang.`)}
+            </p>
+          )}
           {/* v1.147.0 (CEO: "I should visible to view what is the cost that I
               need to aware for the internal or correction") — the money that
               left the shelf without being sold, said before the rows rather
@@ -2075,7 +2319,18 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               Rows whose item has no cost are COUNTED AND NAMED rather than
               treated as free, so the figure can never quietly understate. */}
           {(() => {
-            const live = manualOuts.filter((o) => !o.reverted && o.unit_sale_cents == null);
+            /* v1.148.0 — "without a sale" is decided by the REASON now, not
+               by an empty price box, and a loan is excluded: stock at a
+               marketing shoot has not left the company, it is upstairs. It
+               has its own band above, and counting it here as well would say
+               the same pieces were lost and lent at the same time. Returned
+               loans are out too - those pieces are back. */
+            const live = shown.filter((o) => {
+              if (o.reverted || o.returned_at) return false;
+              const wasSale = o.unit_sale_cents != null && (o.purpose == null || o.purpose === SALE_PURPOSE);
+              if (wasSale) return false;
+              return !LOAN_PURPOSES.includes(o.purpose ?? "");
+            });
             const outs = live.filter((o) => o.direction !== "in");
             const ins = live.filter((o) => o.direction === "in");
             const cost = (rows: typeof live) =>
@@ -2087,6 +2342,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               <div className="border-warning/40 bg-warning-soft/40 mt-3 rounded-xl border p-3">
                 <p className="text-sm font-semibold">
                   {L("What left the shelf without a sale", "Apa yang keluar dari rak tanpa jualan")}
+                  {filtered && (
+                    <span className="text-warning ml-1.5 text-xs font-bold">
+                      {L(`— matching "${moveQ.trim()}" only`, `— yang sepadan "${moveQ.trim()}" sahaja`)}
+                    </span>
+                  )}
                 </p>
                 <p className="mt-1 text-lg font-bold tabular-nums">
                   RM {rmBare(outCost)}
@@ -2109,10 +2369,25 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </div>
             );
           })()}
-          {/* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */}
-          <DetailsToggle label={`${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
+          {/* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view.
+              v1.148.0: the count says how many of how many while a search is
+              on, so a short list reads as "filtered" and not as "lost". */}
+          {shown.length > 0 && (
+          <DetailsToggle
+            key={filtered ? "movements-filtered" : "movements-all"}
+            defaultOpen={filtered}
+            label={filtered
+              ? `${L("Show records", "Tunjuk rekod")} (${shown.length} ${L("of", "daripada")} ${manualOuts.length})`
+              : `${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
           <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
-            {manualOuts.map((o) => (
+            {shown.map((o) => {
+            /* v1.148.0 — one place decides what this row IS, and every chip
+               below reads it. `purpose == null` is a movement written before
+               0124: it keeps the old meaning (a price made it a sale) rather
+               than being silently reclassified. */
+            const isSaleRow = o.unit_sale_cents != null && (o.purpose == null || o.purpose === SALE_PURPOSE);
+            const isLoanRow = LOAN_PURPOSES.includes(o.purpose ?? "") && o.direction !== "in";
+            return (
               <div key={o.id} className={`border-border border-b py-1.5 text-sm last:border-0 ${o.reverted ? "opacity-60" : ""}`}>
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
                 <span className={`min-w-0 ${o.reverted ? "line-through" : ""}`}>
@@ -2130,14 +2405,32 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
                     <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
-                  ) : o.unit_sale_cents != null
+                  ) : o.returned_at ? (
+                    /* v1.148.0: a loan that closed. Deliberately NOT the same
+                       chip as reverted — one says the record was wrong, this
+                       says marketing brought the stock back as planned. */
+                    <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                      {L("✓ returned — back on the shelf","✓ dipulangkan — kembali ke rak")}
+                    </span>
+                  ) : isLoanRow ? (
+                    /* Out on loan and not back yet — the one chip on this
+                       screen that is about money he has NOT lost and has NOT
+                       earned, only lent. */
+                    <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">
+                      {L("out with","bersama")} {L(...(PURPOSE_LABEL[o.purpose ?? ""] ?? ["", ""]))}
+                      {o.item_cost_cents != null ? ` · RM ${rmBare(o.item_cost_cents * o.qty)} ${L("at cost","pada kos")}` : ""}
+                    </span>
+                  ) : isSaleRow
                     /* v1.147.0 (CEO: "this one should RM per unit instead") —
                        the stored figure has always been per unit, and the chip
-                       printed it bare: a −4 pcs row at RM 25 a unit read as if
-                       RM 25 left the building when the sale was RM 100. Both
-                       numbers now, in that order. */
+                       printed it bare: a −4 pcs row at −4 pcs at RM 25 a unit
+                       read as if RM 25 left the building when the sale was
+                       RM 100. Both numbers now, in that order.
+                       v1.148.0 — and it only says "Sold" when the REASON says
+                       it was sold. A price on an internal-use movement is the
+                       value of the pieces, not income. */
                     ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
-                        {L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents)}{L("/unit","/unit")} · RM {rmBare(o.unit_sale_cents * o.qty)}
+                        {L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents!)}{L("/unit","/unit")} · RM {rmBare(o.unit_sale_cents! * o.qty)}
                       </span>
                     /* And a movement that is NOT a sale still costs the
                        company something. It used to say only "correction". */
@@ -2210,9 +2503,14 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 ]} />
               )}
               </div>
-            ))}
+            );
+            })}
           </div>
           </DetailsToggle>
+          )}
+          </>
+          );
+          })()}
           </>
         )}
         </div>
@@ -2231,103 +2529,14 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
    (the Overview tab is retired; its two unique cards live on in
    components/portal/company-monitor.tsx on the Tasks and Inventory tabs). */
 
-/* ================= Birthdays (CEO + HR tier) ================= */
-
-/**
- * Dedicated birthday manager. HR tier reaches birthdays via the HR tab, but
- * the CEO — read-only elsewhere — has an explicit birthday exception, so this
- * gives the CEO (and HR/COO/CCO) a place to set and see them. Writes go through
- * PATCH /staff/users/:id with only the birthday field, which the API permits
- * for the CEO by policy.
- */
-export function BirthdaysPanel() {
-  const [staff, setStaff] = useState<{ id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[]>([]);
-  const [draft, setDraft] = useState<Record<number, string>>({});
-  const [saved, setSaved] = useState<number | null>(null);
-  /* v1.77.0 — skeleton until the first fetch lands (`staff` starts []). */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    const r = await api<{ users?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[], staff?: { id: number; name: string; full_name?: string | null; role: string; birthday?: string | null }[] }>(`/users`);
-    if (r.data) {
-      const list = r.data.users ?? r.data.staff ?? [];
-      setStaff(list.filter((u) => u.role !== "customer"));
-    }
-    setLoaded(true);
-  }, []);
-  useEffect(() => {
-    void load().finally(() => setLoaded(true)); // a failed request clears the skeleton too
-  }, [load]);
-
-  const [birthdayMsg, setBirthdayMsg] = useState("");
-  const save = async (id: number) => {
-    const v = draft[id];
-    if (v === undefined) return;
-    setBirthdayMsg("");
-    const res = await api<{ error?: { message?: string } }>(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ birthday: v }) });
-    if (res.ok) {
-      setSaved(id);
-      window.setTimeout(() => setSaved(null), 2500);
-      void load();
-    } else {
-      // A set birthday is locked — amendments happen in /admin (v1.4.22 policy).
-      setBirthdayMsg(res.data?.error?.message ?? L("Save failed — check access", "Simpanan gagal — semak akses"));
-    }
-  };
-
-  // Sort by month-day for an "upcoming" feel.
-  const sorted = [...staff].sort((a, b) =>
-    (a.birthday?.slice(5) ?? "99").localeCompare(b.birthday?.slice(5) ?? "99"));
-
-  return (
-    <div className={card}>
-      <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {L("Set each person's birthday (YYYY-MM-DD). Sorted by month and day. Once saved, a birthday locks — corrections are made by an admin.", "Tetapkan hari lahir setiap orang (YYYY-MM-DD). Disusun mengikut bulan dan hari. Setelah disimpan, hari lahir dikunci — pembetulan dibuat oleh admin.")}
-      </p>
-      {birthdayMsg && <p className="text-destructive mt-2 text-xs font-medium">{birthdayMsg}</p>}
-      <ul className="mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">
-        {/* v1.77.0 — skeleton until the first fetch lands: name left, date box + Save right. */}
-        {!loaded && Array.from({ length: 6 }, (_, i) => (
-          <li key={`skel-${i}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2" aria-hidden>
-            <Skel className="h-4 w-44 max-w-full" />
-            <span className="flex items-center gap-2">
-              <Skel className="h-7 w-32" />
-              <Skel className="h-7 w-12" />
-            </span>
-          </li>
-        ))}
-        {sorted.map((u) => (
-          <li key={u.id} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
-            <span className="text-sm font-medium">
-              {/* v1.4.261: the legal name, same rule as the register and
-                  payroll — /users always carried full_name; this panel's local
-                  type just never declared it, so the fallback was invisible. */}
-              {displayName(u)} <span className="text-muted-foreground font-normal">· {u.role.replace(/_/g, " ")}</span>
-            </span>
-            <span className="flex items-center gap-2">
-              <input
-                type="date"
-                className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
-                key={`bday:${u.birthday ?? ""}`}
-                defaultValue={u.birthday ?? ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [u.id]: e.target.value }))}
-              />
-              <button
-                type="button"
-                className="bg-primary text-primary-foreground rounded-lg px-2.5 py-1 text-xs font-medium"
-                onClick={() => void save(u.id)}
-              >
-                {L("Save", "Simpan")}
-              </button>
-              {saved === u.id && <span className="text-xs font-medium text-success">✓</span>}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+/* ================= Birthdays — RETIRED v1.148.0 ================= */
+/* BirthdaysPanel lived here: a whole dedicated birthday manager, ~90 lines,
+   exported and rendered by NOTHING. v1.93.0 folded birthdays into the staff
+   directory at the CEO's request (see birthdayInfo() in staff-directory.tsx,
+   and the note in tests/clickable-data.mjs), and the panel was left behind.
+   It was still compiled into this module and shipped in the chunk every one
+   of HR, Inventory, Claims and Expenses pulls down. Deleted, along with its
+   orphaned TAB_ICON["Birthdays"] entry - no tab has had that name since. */
 
 /* ================= Attendance corrections (CEO + admin) ================= */
 

@@ -150,4 +150,14 @@ ok("every string in the panel is bilingual",
    "a half-translated tab is worse than an honest English one");
 
 console.log(`${failed ? "✗" : "✓"} cards-tab: ${passed} passed, ${failed} failed`);
-process.exit(failed ? 1 : 0);
+/* v1.148.1 - exitCode, NOT process.exit(). This guard `await import()`s a
+   .ts module under --experimental-strip-types, and calling process.exit()
+   while that loader is still tearing down aborts Node on Windows:
+     Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\\win\\async.c:76
+   cards-tab lost that race on the 09-09 deploy and failed the whole run one
+   line after printing "35 passed, 0 failed", so nothing was published.
+   Setting exitCode lets Node drain and exit on its own with the same status,
+   and flushes stdout, which process.exit() on Windows does not reliably do.
+   Early process.exit() calls in catch blocks above are left alone: those run
+   only when an import already failed and MUST stop the script. */
+process.exitCode = failed ? 1 : 0;

@@ -83,8 +83,12 @@ ok("the PATCH, the movements read and the modal were all found",
 
 /* ---- 1. per unit AND line total ---- */
 {
+  /* v1.148.0 - was pinned to the exact expression `rmBare(o.unit_sale_cents)`
+     and broke when v1.148.0 made the chip non-null-asserted. The PROPERTY is
+     that both the per-unit figure and the line total are printed; how the
+     value is spelled is not this guard's business. */
   ok("the sale chip prints the unit price and the line total",
-     /rmBare\(o\.unit_sale_cents\)\}\{L\("\/unit"[\s\S]{0,40}?rmBare\(o\.unit_sale_cents \* o\.qty\)/.test(panel),
+     /rmBare\(o\.unit_sale_cents!?\)\}\{L\("\/unit"[\s\S]{0,60}?rmBare\(o\.unit_sale_cents!? \* o\.qty\)/.test(panel),
      "a 4-piece row at RM 25 read as if RM 25 left the building");
   ok("the cost chip does the same",
      /rmBare\(o\.item_cost_cents\)\}\{L\("\/unit"[\s\S]{0,40}?rmBare\(o\.item_cost_cents \* o\.qty\)/.test(panel));
@@ -150,9 +154,20 @@ ok("the PATCH, the movements read and the modal were all found",
 
 /* ---- 5. sales and reverted rows are out of the without-a-sale total ---- */
 {
-  ok("the total counts only live, un-sold movements",
-     /manualOuts\.filter\(\(o\) => !o\.reverted && o\.unit_sale_cents == null\)/.test(panel),
-     "a sale is revenue counted elsewhere; a reverted row came back on the shelf");
+  /* v1.148.0 - this named the filter expression, which v1.148.0 correctly
+     replaced (a movement is a sale by its REASON now, and a marketing loan
+     is neither a sale nor a loss). The property is the set of EXCLUSIONS. */
+  const lossFilter = (() => {
+    const i = panel.indexOf("const live = shown.filter(");
+    return i >= 0 ? panel.slice(i, i + 700) : "";
+  })();
+  ok("the loss total excludes reverted rows", /o\.reverted/.test(lossFilter),
+     "a reverted row came back on the shelf");
+  ok("the loss total excludes anything that was a sale", /unit_sale_cents/.test(lossFilter),
+     "a sale is revenue and is counted elsewhere");
+  ok("the loss total is computed once and read by both the band and the list",
+     /const live = shown\.filter/.test(panel) && (panel.match(/const live = /g) ?? []).length === 1,
+     "two filters written separately are two filters that drift");
   ok("stock that went back IN is separated from stock that went out",
      /live\.filter\(\(o\) => o\.direction !== "in"\)/.test(panel) && /live\.filter\(\(o\) => o\.direction === "in"\)/.test(panel),
      "netting them would hide a loss behind an unrelated receipt");
@@ -161,10 +176,16 @@ ok("the PATCH, the movements read and the modal were all found",
 
 /* ---- 6. the cost is said where the decision is made ---- */
 {
+  /* v1.148.0 - was pinned to "the price box is empty", which was the v1.147.0
+     way of saying "not a sale". v1.148.0 asks the REASON instead, which is
+     strictly better: a marketing loan WITH a value typed in now gets the
+     hint too, and that row is exactly the one that used to be missed. */
   ok("the modal shows the cost while the movement is being recorded",
-     /outModal\.dir === "out" && outModal\.price\.trim\(\) === ""/.test(modal) &&
-     /it\.unit_cost_cents != null/.test(modal),
+     /outModal\.dir === "out" &&/.test(modal) && /it\.unit_cost_cents != null/.test(modal),
      "the list afterwards is not the moment somebody decides whether to take the piece");
+  ok("and it is shown on a movement that is NOT a sale",
+     /outModal\.price\.trim\(\) === ""/.test(modal) || /!== SALE_PURPOSE/.test(modal),
+     "showing what a piece costs beside a real sale would be noise");
   ok("it shows per unit and the line total there too",
      /rmBare\(it\.unit_cost_cents\)[\s\S]{0,200}?rmBare\(it\.unit_cost_cents \* n\)/.test(modal));
   ok("no cost on the item is said as such, not as free",
@@ -188,7 +209,14 @@ ok("the PATCH, the movements read and the modal were all found",
 
 /* ---- 8. the migration is registered the house way (the triple bump) ---- */
 {
-  ok("LATEST_MIGRATION names it", /const LATEST_MIGRATION = "0123_inventory_unit_cost"/.test(index));
+  /* v1.148.0 - LATEST_MIGRATION is the one line of the triple bump that MOVES:
+     the next migration takes it, by design. 0124 landing made this guard fail
+     on correct code, exactly as it did to event-attendees. What has to hold is
+     that 0123 is REGISTERED and that the pointer never rewound past it. */
+  const latest = index.match(/const LATEST_MIGRATION = "(\d{4})_/);
+  ok("LATEST_MIGRATION is set and is 0123 or newer",
+     !!latest && Number(latest[1]) >= 123,
+     latest ? `LATEST_MIGRATION is ${latest[1]}` : "LATEST_MIGRATION not found");
   ok("EXPECTED_MIGRATIONS lists it", /"0123_inventory_unit_cost",/.test(index));
   ok("a health probe can name it", /unit_cost_cents FROM inventory_items LIMIT 1/.test(index));
 }

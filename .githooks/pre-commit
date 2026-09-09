@@ -1,0 +1,57 @@
+#!/bin/sh
+# v1.148.0 - THE LAST GATE BEFORE ANYTHING LEAVES THIS MACHINE.
+#
+# The 09-09 audit found that .gitignore's signature rule promised something
+# git cannot do. It reads:
+#
+#     public/signatures/*
+#     !public/signatures/README.txt
+#     !public/signatures/*-sign.png
+#
+# with a comment saying a real PNG "must not reach GitHub even for the
+# minutes before that guard runs". It cannot keep that promise. An ignore
+# rule matches NAMES, never sizes - so a real handwritten scan saved over
+# ceo-sign.png (the five 70-byte placeholders are tracked under exactly those
+# names) is committed and pushed by the next `git add -A`, which is what
+# PUSH.bat runs. That is the v1.38.0 leak, by the same path, a second time.
+#
+# tests/no-public-signatures.mjs does check the size, and PUSH.bat runs it
+# before its commit step - so the one-click path was covered. A commit typed
+# by hand was not. This hook covers both, because it runs inside git itself.
+#
+# Install: git config core.hooksPath .githooks   (PUSH.bat does it every run)
+# Bypass, if you ever truly must: git commit --no-verify
+
+fail=0
+
+# ---- 1. no real image under public/signatures ---------------------------
+# The transparent placeholder is 70 bytes. A scan is tens of KB. 1KB is the
+# line, the same number the guard uses - one rule, two places it is enforced.
+for f in $(git diff --cached --name-only --diff-filter=ACM | grep '^public/signatures/.*\.png$'); do
+  size=$(git cat-file -s "$(git rev-parse ":$f")" 2>/dev/null || echo 0)
+  if [ "$size" -gt 1024 ]; then
+    echo "BLOCKED  $f is $size bytes - that is a real signature, not the placeholder."
+    echo "         Real signatures go to the private R2 vault through /admin -> Staff ->"
+    echo "         Signatures. They must never be committed. (v1.38.0 leak)"
+    fail=1
+  fi
+done
+
+# ---- 2. no local secret files ------------------------------------------
+# .gitignore already lists these, but an ignore rule does nothing once a file
+# has been force-added or was tracked before the rule existed.
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  case "$f" in
+    *.dev.vars|*/.dev.vars|.dev.vars|*.key|*.p12|*id_rsa*)
+      echo "BLOCKED  $f looks like a credential file."
+      fail=1
+      ;;
+  esac
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Nothing was committed. Remove the file above from the commit and try again."
+  exit 1
+fi
+exit 0

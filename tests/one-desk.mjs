@@ -146,5 +146,15 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("the desk decides nothing", !/INSERT|UPDATE|DELETE/.test(deskSrc.replace(/\/\*[\s\S]*?\*\//g, "")), "a read over other modules' tables");
 }
 
-if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }
-console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);
+/* v1.148.1 - exitCode, NOT process.exit(). This guard `await import()`s a
+   .ts module under --experimental-strip-types, and calling process.exit()
+   while that loader is still tearing down aborts Node on Windows:
+     Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\\win\\async.c:76
+   cards-tab lost that race on the 09-09 deploy and failed the whole run one
+   line after printing "35 passed, 0 failed", so nothing was published.
+   Setting exitCode lets Node drain and exit on its own with the same status,
+   and flushes stdout, which process.exit() on Windows does not reliably do.
+   Early process.exit() calls in catch blocks above are left alone: those run
+   only when an import already failed and MUST stop the script. */
+if (failed) { console.log(`\n${failed} check(s) failed.`); process.exitCode = 1; }
+else console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);

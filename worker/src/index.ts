@@ -278,7 +278,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0123_inventory_unit_cost";
+const LATEST_MIGRATION = "0124_movement_purpose";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4553,9 +4553,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0118 (the signature vault, per entity and per version)", `SELECT issuer_code, role, version, r2_key FROM signature_assets LIMIT 1`],
       ["0119 (working-hour categories, amendable overtime)", `SELECT category FROM shift_patterns LIMIT 1`],
       ["0120 (inventory category)", `SELECT category FROM inventory_items LIMIT 1`],
-      ["0121 (one record per TikTok order)", `SELECT 1 FROM postage_records WHERE order_ref = 'x' LIMIT 1`],
+      /* v1.148.0 - this probe used to read `SELECT 1 FROM postage_records
+         WHERE order_ref = 'x'`, which proves nothing: order_ref has been a
+         column since 0007, so that query succeeded whether or not 0121 had
+         ever run. 0121 creates a UNIQUE INDEX, so the INDEX is what has to be
+         named - INDEXED BY throws when it is missing, the way 0110's probe
+         already does it. A green health banner over a database with no
+         idx_postage_order_ref meant the TikTok double-count race 0121 exists
+         to close was wide open and nothing said so. */
+      ["0121 (one record per TikTok order)", `SELECT 1 FROM postage_records INDEXED BY idx_postage_order_ref WHERE order_ref = 'x' LIMIT 1`],
       ["0122 (who an event is for)", `SELECT user_id FROM event_attendees LIMIT 1`],
       ["0123 (what a piece cost)", `SELECT unit_cost_cents FROM inventory_items LIMIT 1`],
+      ["0124 (why the stock moved)", `SELECT purpose FROM manual_stockouts LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4698,6 +4707,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0121_postage_order_ref_unique",
       "0122_event_attendees",
       "0123_inventory_unit_cost",
+      "0124_movement_purpose",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

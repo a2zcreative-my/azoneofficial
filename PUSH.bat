@@ -152,6 +152,16 @@ echo   [3/7] Installing what the build needs...
 call pnpm install
 if errorlevel 1 goto :failed
 
+REM  v1.148.2 - same as the store's [1b/6] below: the repository is made to
+REM  match its own .gitignore before anything is checked or published.
+echo   [3b/7] Untracking anything .gitignore says should not be here...
+for /f "delims=" %%F in ('git ls-files --cached --ignored --exclude-standard 2^>nul') do (
+  git rm --cached --quiet "%%F" >nul 2>&1
+)
+for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "package-1.json" "package-2.json" "public\sw-1.js" "public\sw-2.js") do (
+  if exist %%F del /f /q %%F
+)
+
 REM  v1.90.1 - the engine is COMPILED before it is published (the 19-08
 REM  outage: wrangler bundles without checking types, so a line naming
 REM  something that does not exist goes live and every request 500s).
@@ -168,7 +178,22 @@ REM  afterwards. run-guards installs the API's type definitions itself if
 REM  they are missing, so this needs nothing else.
 echo   [5/8] Checking every rule that protects live data...
 call node scripts\run-guards.mjs
-if errorlevel 1 goto :guardsfailed
+if errorlevel 1 set PORTALGUARDS=1
+
+REM  v1.148.0 - A PORTAL GUARD FAILURE NO LONGER SILENTLY BLOCKS THE STORE.
+REM  This used to `goto :guardsfailed`, which ends the script - and the STORE
+REM  section is below this line. So every failed portal guard run this month
+REM  deployed nothing to ELFIA at all, and the store's catalogue fix sat
+REM  undeployed for days while the screen said only that a portal rule was
+REM  broken. The portal is still not published on a failure (its own data is
+REM  what those rules protect); the store, which they say nothing about, is.
+if defined PORTALGUARDS (
+  echo.
+  echo   [!] A PORTAL rule failed - the portal will NOT be published.
+  echo       The store is independent of these rules and continues below.
+  echo.
+  goto :storesection
+)
 
 echo   [6/8] Database columns...
 set CI=true
@@ -195,6 +220,7 @@ if errorlevel 1 set SITEREFUSED=1
 REM ============================================================
 REM  STORE
 REM ============================================================
+:storesection
 echo.
 echo   ========== STORE (elfiaofficialstore.my) ==========
 cd /d "%STORE%"
@@ -203,9 +229,44 @@ echo   [1/6] Installing what the build needs...
 call npm install --no-audit --no-fund
 if errorlevel 1 goto :failed
 
+REM  v1.148.2 - MAKE THE REPOSITORY MATCH ITS OWN .gitignore, EVERY RUN.
+REM  The 09-09 store deploy failed three times on CHANGELOG-1.md - 895 KB of
+REM  the portal's changelog, agency identity and bank account inside the
+REM  shop's repository. It was named in .gitignore the whole time and tracked
+REM  anyway, because it was committed BEFORE the rule was written, and an
+REM  ignore rule does nothing to a file git already tracks. A separate
+REM  CLEAN-STRAYS.bat existed for this; a fix that lives in a file nobody
+REM  runs is not a fix. So this does it here: anything git tracks that
+REM  .gitignore says it should not is untracked, the known Windows copy
+REM  collisions are deleted, and the commit step at the end records it.
+REM  Idempotent - on a clean repository this touches nothing.
+echo   [1b/6] Untracking anything .gitignore says should not be here...
+for /f "delims=" %%F in ('git ls-files --cached --ignored --exclude-standard 2^>nul') do (
+  git rm --cached --quiet "%%F" >nul 2>&1
+)
+for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "package-1.json" "package-2.json" "worker\src\index-1.ts" "worker\src\index-2.ts" "deploy-log.txt" "go-live-log.txt" "push-log.txt") do (
+  if exist %%F del /f /q %%F
+)
+REM  out\ is rebuilt by next build two steps below.
+if exist "out" rmdir /s /q "out"
+
 echo   [2/6] Checking the ENGINE code compiles...
 call node tests\worker-compile-gate.mjs
 if errorlevel 1 goto :failed
+
+REM  v1.148.0 - AND THE OTHER SIX. The 09-09 audit found this half ran
+REM  exactly one of the store's seven guards, so the two that matter most -
+REM  no-secrets (a committed credential) and payment-integrity (the money
+REM  path) - were skipped by the one-click deploy everybody actually uses.
+REM  The store has no scripts\run-guards.mjs of its own, so they are named
+REM  here. A new guard file must be added to this list.
+echo         ...and every other rule that protects live data
+for %%G in (no-secrets payment-integrity brand-isolation migration-safety bank-line in-app-browser) do (
+  if exist "tests\%%G.mjs" (
+    call node tests\%%G.mjs
+    if errorlevel 1 goto :storeguardsfailed
+  )
+)
 
 echo   [3/6] Database columns...
 set CI=true
@@ -237,9 +298,17 @@ echo.
 echo   Saving both folders to GitHub (history only - the deploys
 echo   above are already live)...
 cd /d "%PORTAL%"
-git add -A >nul 2>&1
-git commit -m "portal deploy" >nul 2>&1
-git push >nul 2>&1
+REM  v1.148.0 - point git at the tracked pre-commit gate before committing.
+REM  Idempotent, and it survives a fresh clone (see .githooks/pre-commit for
+REM  what .gitignore cannot do about a real signature scan).
+if exist ".githooks\pre-commit" git config core.hooksPath .githooks >nul 2>&1
+if defined PORTALGUARDS (
+  echo   Portal code NOT saved to GitHub - a rule is broken; fix it first.
+) else (
+  git add -A >nul 2>&1
+  git commit -m "portal deploy" >nul 2>&1
+  git push >nul 2>&1
+)
 cd /d "%STORE%"
 git add -A >nul 2>&1
 git commit -m "store deploy" >nul 2>&1
@@ -379,6 +448,18 @@ echo      - Settings - Build - Disconnect
 echo    then run this file again.
 echo.
 echo    Copy this window and send it over.
+echo.
+pause
+exit /b 1
+
+:storeguardsfailed
+cd /d "%STORE%"
+echo.
+echo   ============================================
+echo    [X] A STORE RULE THAT PROTECTS LIVE DATA IS BROKEN.
+echo   ============================================
+echo    The store was NOT published. The failing guard is named above.
+echo    Anything the portal published before this is already live.
 echo.
 pause
 exit /b 1

@@ -256,6 +256,33 @@ export function payrollMonthStaffSql(month: string, alias = ""): string {
      OR (${alias}rejoined_on IS NOT NULL AND substr(${alias}rejoined_on, 1, 7) <= '${month}'))`;
 }
 
+/* v1.148.0 - WHY A MANUAL MOVEMENT HAPPENED, as a fixed set of keys (0124).
+ *
+ * The CEO, 09-09-2026: *"the manual stock out price sales should not
+ * recorded as a sales ... which is internal use for marketing and need to
+ * revert back when the marketing use completed."*
+ *
+ * Three groups, and every rule about a movement is derived from which group
+ * its purpose is in - never from whether a price happens to be filled in,
+ * which is the mistake that booked a marketing shoot as RM 1,025 of revenue.
+ */
+export const SALE_PURPOSES = ["sold_offline"];
+/** Stock that LEFT expecting to come back. This is the money he is holding. */
+export const LOAN_PURPOSES = ["marketing_loan", "internal_use"];
+export const MOVE_PURPOSES = [
+  /* out */ "variance_missing", "damaged", "sample", "internal_use", "marketing_loan", "sold_offline", "correction", "other",
+  /* in  */ "variance_found", "restock", "customer_return", "sample_return", "loan_return",
+];
+/** SQL: the rows that went out on loan and have not come back. Takes a table
+    ALIAS PREFIX ("m." or ""), the same shape as unpaidLeaveSql and
+    currentStaffSql - a fragment that has to be string-surgeried at the call
+    site to fit its query is one wrong regex away from silently matching the
+    wrong rows. */
+export const onLoanSql = (a = "") => `COALESCE(${a}direction, 'out') = 'out'
+  AND COALESCE(${a}reverted, 0) = 0
+  AND ${a}returned_at IS NULL
+  AND ${a}purpose IN (${LOAN_PURPOSES.map((p) => `'${p}'`).join(", ")})`;
+
 export const STAFF_ORDER_SQL = `
   (CASE u.role
      WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30
@@ -849,14 +876,21 @@ export async function deriveOtForDay(
     register and the payroll figure while the SAVED payslip - the one the
     staff member has already read - kept its own number, with nothing on it
     to say so. The CEO can still do it, but he has to mean it. */
-async function releasedMonthBlock(env: Env, day: string, force: unknown): Promise<Response | null> {
+/* v1.148.0 - WHAT is being changed is now said by the caller. This guard was
+   written for overtime and its message named overtime, which is why it was
+   never called from anywhere else: the four routes that actually set net pay
+   - recording or undoing an unpaid day, saving a payroll row, and recomputing
+   a month - could all rewrite a month whose payslips were already in people's
+   hands, silently and with no ceremony at all. They call it now, and the
+   refusal names the thing being changed. */
+async function releasedMonthBlock(env: Env, day: string, force: unknown, what = "Changing overtime"): Promise<Response | null> {
   if (force === true) return null;
   const month = day.slice(0, 7);
   const rel = await env.DB.prepare(`SELECT released_at FROM payslip_releases WHERE month = ?1`)
     .bind(month).first<{ released_at: string }>().catch(() => null);
   if (!rel) return null;
   return err("month_released",
-    `Payslips for ${month} were released on ${String(rel.released_at).slice(0, 10)}. Changing overtime now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
+    `Payslips for ${month} were released on ${String(rel.released_at).slice(0, 10)}. ${what} now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
     409);
 }
 
@@ -8422,6 +8456,12 @@ export async function handleStaff(
     if (!Number.isFinite(dayMs) || Math.abs(dayMs - Date.now()) > 400 * 86400 * 1000) {
       return err("invalid_input", "That date is more than a year away - check the year", 400);
     }
+    /* v1.148.0 - and NOT into a month whose payslips are already out. This
+       takes a day of pay off somebody; doing it after they have read their
+       payslip changes the figure without changing the document they were
+       given. Overridable, exactly like an overtime edit, and audited. */
+    const relU = await releasedMonthBlock(env, dateU, body?.force_released, "Recording an unpaid day");
+    if (relU) return relU;
     const targetU = await env.DB.prepare(
       `SELECT id, name, role, is_active FROM users WHERE id = ?1`,
     ).bind(body.user_id).first<{ id: number; name: string; role: string; is_active: number }>();
@@ -8544,6 +8584,11 @@ export async function handleStaff(
        WHERE id = ?1 AND type = 'unpaid' AND recorded_direct = 1`,
     ).bind(idD2).first<{ user_id: number; start_date: string }>().catch(() => null);
     if (!rowD2) return err("not_found", "No management-recorded unpaid day with that id", 404);
+    /* v1.148.0 - undoing an unpaid day GIVES pay back, and after a release
+       that is just as much a change to a payslip already read as taking it
+       away. Same guard, same override. */
+    const relD2 = await releasedMonthBlock(env, rowD2.start_date, body?.force_released, "Undoing an unpaid day");
+    if (relD2) return relD2;
     await env.DB.prepare(`DELETE FROM leave_requests WHERE id = ?1 AND recorded_direct = 1`)
       .bind(idD2).run();
     await notify(env, rowD2.user_id, "leave",
@@ -9173,14 +9218,32 @@ export async function handleStaff(
       const accrued = leaveAccrual(t, entitled, year, monthNum, row.adjust ?? 0);
       return Math.max(0, accrued - ((used?.used ?? 0) + (row.used_adjust ?? 0)));
     };
-    // v1.4.79: unpaid leave now appears as an EXPLICIT payslip deduction —
-    // basic stays full and the slip shows why the pay is lower (fairness).
-    // Rate follows the Employment Act 1955 s.60I ordinary rate of pay:
-    // monthly wages ÷ 26 per day. Emergency leave is PAID (own 3-day
-    // entitlement, common Malaysian practice) — shown in OTHERS, never
-    // deducted.
-    const unpaidDays = await leaveDays("unpaid");
-    const emergencyDays = await leaveDays("emergency");
+    /* v1.4.79: unpaid leave appears as an EXPLICIT payslip deduction - basic
+       stays full and the slip shows why the pay is lower (fairness). Rate
+       follows the Employment Act 1955 s.60I ordinary rate of pay: monthly
+       wages / 26 per day.
+       v1.148.0 - THE DISPLAY NOW COMES FROM THE SAME DEFINITION AS THE
+       DEDUCTION. v1.146.0 made emergency leave unpaid from 2026-09-01 and
+       changed only the arithmetic: the deduction was right, but the slip
+       still printed "EMERGENCY LEAVE (PAID)" beside it and counted the
+       UNPAID LEAVE line from type = 'unpaid' alone. Two emergency days in
+       September therefore printed "UNPAID LEAVE (0 DAYS)" against a real
+       ringgit figure - a slip nobody could reconcile, and an invitation to
+       key the deduction in again by hand and charge the person twice.
+       Emergency days are now split at the same cutoff the money uses:
+       before it they are genuinely paid, on or after it they are part of
+       what was deducted and are named as such. */
+    const emergencyPaidDays = (await env.DB.prepare(
+      `SELECT COALESCE(SUM(days), 0) AS n FROM leave_requests
+       WHERE user_id = ?1 AND type = 'emergency' AND status = 'approved'
+       AND start_date LIKE ?2 || '%' AND start_date < '${UNPAID_FROM}'`,
+    ).bind(uid, month).first<{ n: number }>())?.n ?? 0;
+    const emergencyUnpaidDays = (await env.DB.prepare(
+      `SELECT COALESCE(SUM(days), 0) AS n FROM leave_requests
+       WHERE user_id = ?1 AND type = 'emergency' AND status = 'approved'
+       AND start_date LIKE ?2 || '%' AND start_date >= '${UNPAID_FROM}'`,
+    ).bind(uid, month).first<{ n: number }>())?.n ?? 0;
+    const unpaidTypeDays = await leaveDays("unpaid");
     let orpBase = (await env.DB.prepare(
       `SELECT base_salary_cents FROM users WHERE id = ?1`,
     ).bind(uid).first<{ base_salary_cents: number }>())?.base_salary_cents ?? 0;
@@ -9241,8 +9304,15 @@ export async function handleStaff(
       clocked_beyond_employment: (wd?.n ?? 0) > mine.length,
       annual_leave: await leaveDays("annual"),
       medical_leave: await leaveDays("medical"),
-      emergency_leave: emergencyDays,
-      unpaid_leave: unpaidDays,
+      /* v1.148.0 - emergency_leave is now ONLY the days that really were
+         paid. The days that were charged for ride in unpaid_leave, which is
+         ub.days: the resolver's own count, the very number the deduction
+         beside it was computed from. A day can no longer appear on the slip
+         as paid and be deducted at the same time. */
+      emergency_leave: emergencyPaidDays,
+      emergency_unpaid: emergencyUnpaidDays,
+      unpaid_type_leave: unpaidTypeDays,
+      unpaid_leave: ub.days,
       unpaid_deduction_cents: unpaidDeduction,
       annual_bal: await bal("annual"),
       sick_bal: await bal("medical"),
@@ -10032,6 +10102,13 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const monthR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!monthR) return err("invalid_input", "month (YYYY-MM) required", 400);
+    /* v1.148.0 - this route rewrites net_cents for EVERY row in the month.
+       Run on a released month it changes what people were paid, in bulk,
+       from whatever leave and overtime happen to be recorded today. It is
+       the single most powerful button on the payroll screen and it was the
+       only one with no release check at all. */
+    const relR = await releasedMonthBlock(env, `${monthR}-01`, body?.force_released, "Recomputing this month");
+    if (relR) return relR;
     // Mon–Fri count minus weekday holidays on the calendar.
     const yR = Number(monthR.slice(0, 4)), moR = Number(monthR.slice(5, 7));
     const lastD = new Date(Date.UTC(yR, moR, 0)).getUTCDate();
@@ -10141,6 +10218,11 @@ export async function handleStaff(
     if (!body || typeof body.user_id !== "number" || !month) {
       return err("invalid_input", "user_id and month (YYYY-MM) are required", 400);
     }
+    /* v1.148.0 - saving a payroll row after the payslips went out changes the
+       figure without changing the document the person was handed. Same guard,
+       same audited override as an overtime edit. */
+    const relP = await releasedMonthBlock(env, `${month}-01`, body?.force_released, "Saving a payroll row");
+    if (relP) return relP;
     const cents = (v: unknown) => (typeof v === "number" && v >= 0 ? Math.round(v) : 0);
     // v1.4.82: worked_days + month_working_days persist the incomplete-month
     // basis (null = full month, no adjustment). Basic itself stays FULL.
@@ -10431,16 +10513,64 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return m?.id ?? null;
     } catch { return null; }
   };
-  const moMatch = path.match(/^\/inventory\/manual-outs\/(\d+)\/(edit|revert|delete)$/);
+  /* v1.148.0 - "returned" joins the lifecycle. It moves the same stock as
+   revert, but it is not the same event: revert says the record was
+   wrong, a return says a loan closed exactly as planned. Recording
+   both as "reverted" would leave no way to tell a marketing shoot that
+   came back from a keying mistake somebody undid. */
+  const moMatch = path.match(/^\/inventory\/manual-outs\/(\d+)\/(edit|revert|delete|returned)$/);
   if (moMatch && method === "POST") {
     if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
-    let row: { id: number; item_id: number; qty: number; unit_sale_cents: number | null; remark: string; created_at: string; sale_id?: number | null; reverted?: number | null; out_date?: string | null } | null = null;
+    let row: { id: number; item_id: number; qty: number; unit_sale_cents: number | null; remark: string; created_at: string; sale_id?: number | null; reverted?: number | null; out_date?: string | null; purpose?: string | null; returned_at?: string | null; sku?: string | null; item_name?: string | null } | null = null;
     try {
       row = await env.DB.prepare(`SELECT * FROM manual_stockouts WHERE id = ?1`).bind(moMatch[1]).first();
     } catch { /* pre-0049 */ }
     if (!row) return err("not_found", "Stock-out record not found", 404);
     const action = moMatch[2];
     const isReverted = (row.reverted ?? 0) === 1;
+    /* ---- v1.148.0: marketing brought the stock back ---------------------
+       The CEO: *"internal use for marketing and need to revert back when the
+       marketing use completed."* The pieces go on the shelf exactly as a
+       revert would put them there - the difference is what the trail says
+       afterwards, and that the row leaves the on-loan register instead of
+       being marked as a mistake. Only a loan can be returned; a damaged
+       piece is not coming back and saying it did would put stock on the
+       shelf that is not there. */
+    if (action === "returned") {
+      if (isReverted) return err("invalid_state", "That movement was reverted - the stock is already back", 400);
+      if (row.returned_at) return err("invalid_state", "Already marked returned", 400);
+      const rowDirR = (row as { direction?: string | null }).direction === "in" ? "in" : "out";
+      if (rowDirR !== "out" || !LOAN_PURPOSES.includes(row.purpose ?? "")) {
+        return err("invalid_state",
+          "Only stock that went out for internal use or a marketing shoot can be marked returned - anything else is a revert", 409);
+      }
+      /* Atomic, like the TikTok path: read-then-write here would let a sync
+         landing in the gap be overwritten by an absolute figure (v1.139.0). */
+      const upd = await env.DB.prepare(
+        `UPDATE inventory_items SET stock = stock + ?1, updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+      ).bind(row.qty, user.id, row.item_id).run();
+      if (!upd.meta.changes) return err("not_found", "The inventory item behind this record no longer exists", 409);
+      /* status follows whatever the count ENDED as, computed in SQL from the
+         same row rather than from a number this request read earlier. */
+      await env.DB.prepare(
+        `UPDATE inventory_items
+            SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END
+          WHERE id = ?1`,
+      ).bind(row.item_id).run();
+      try {
+        await env.DB.prepare(
+          `UPDATE manual_stockouts SET returned_at = datetime('now') WHERE id = ?1`,
+        ).bind(row.id).run();
+      } catch {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0124_movement_purpose)", 500);
+      }
+      const backR = (await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`)
+        .bind(row.item_id).first<{ stock: number }>())?.stock ?? null;
+      await checkLowStock(row.item_id);
+      await audit(env, user.id, "inventory.manual_out_returned", "manual_stockouts", String(row.id),
+        { qty: row.qty, purpose: row.purpose, item_id: row.item_id });
+      return json({ ok: true, stock: backR });
+    }
     if (action === "revert") {
       if (isReverted) return err("invalid_state", "Already reverted — the stock is back on the shelf", 400);
       const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
@@ -10582,7 +10712,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
            FROM manual_stockouts m
            LEFT JOIN users u ON u.id = m.created_by
            LEFT JOIN inventory_items i ON i.id = m.item_id
-         ORDER BY m.created_at DESC LIMIT 100`,
+         ORDER BY m.created_at DESC LIMIT 200`,
       ).all();
       return json({ outs: results });
     } catch {
@@ -10603,6 +10733,98 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       } catch {
         return json({ outs: [] });
       }
+    }
+  }
+  /* ---- v1.148.0: the rows that are counted as revenue but were not sales --
+     The CEO: *"the manual stock out price sales should not recorded as a
+     sales."* 0124 reclassifies the movements but deliberately touches no
+     money - so this route names exactly what is affected, and the one below
+     removes it, on his word and under his name. Nothing is decided for him. */
+  if (path === "/inventory/mis-sold" && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT m.id, m.sku, m.item_name, m.qty, m.unit_sale_cents, m.purpose, m.out_date, m.created_at,
+                m.sale_id, u.name AS created_by_name
+           FROM manual_stockouts m
+           LEFT JOIN users u ON u.id = m.created_by
+          WHERE COALESCE(m.direction, 'out') = 'out'
+            AND COALESCE(m.reverted, 0) = 0
+            AND m.unit_sale_cents IS NOT NULL
+            AND m.purpose IS NOT NULL
+            AND m.purpose NOT IN (${SALE_PURPOSES.map((p) => `'${p}'`).join(", ")})
+          ORDER BY m.created_at DESC LIMIT 200`,
+      ).all<{ id: number; qty: number; unit_sale_cents: number }>();
+      const cents = results.reduce((n, r) => n + r.qty * r.unit_sale_cents, 0);
+      return json({ rows: results, total_cents: cents });
+    } catch {
+      /* pre-0124: no purpose column, so nothing can be classified yet. */
+      return json({ rows: [], total_cents: 0 });
+    }
+  }
+  if (path === "/inventory/mis-sold" && method === "POST") {
+    /* Removing revenue is a CEO/COO decision, like deleting a movement. */
+    if (!["super_admin", "ceo", "coo"].includes(user.role)) {
+      return err("forbidden", "Only the CEO or COO can remove revenue that was recorded in error", 403);
+    }
+    let rows: { id: number; sale_id: number | null; item_id: number; qty: number; unit_sale_cents: number | null; created_at: string }[] = [];
+    try {
+      rows = (await env.DB.prepare(
+        `SELECT id, sale_id, item_id, qty, unit_sale_cents, created_at FROM manual_stockouts
+          WHERE COALESCE(direction, 'out') = 'out' AND COALESCE(reverted, 0) = 0
+            AND unit_sale_cents IS NOT NULL AND purpose IS NOT NULL
+            AND purpose NOT IN (${SALE_PURPOSES.map((p) => `'${p}'`).join(", ")})`,
+      ).all<{ id: number; sale_id: number | null; item_id: number; qty: number; unit_sale_cents: number | null; created_at: string }>()).results ?? [];
+    } catch {
+      return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0124_movement_purpose)", 500);
+    }
+    if (rows.length === 0) return json({ ok: true, removed: 0, cents: 0 });
+    let removed = 0, cents = 0;
+    for (const r of rows) {
+      const sid = await findManualSaleId(r);
+      if (!sid) continue;
+      await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      /* The movement keeps its price - it is what the pieces are WORTH, and
+         he asked to be able to review that. It simply stops being revenue,
+         so sale_id is cleared and nothing can find its way back to a total. */
+      await env.DB.prepare(`UPDATE manual_stockouts SET sale_id = NULL WHERE id = ?1`).bind(r.id).run().catch(() => {});
+      removed += 1;
+      cents += r.qty * (r.unit_sale_cents ?? 0);
+    }
+    await audit(env, user.id, "inventory.mis_sold_cleared", "manual_stockouts", "bulk",
+      { rows: removed, cents, ids: rows.map((r) => r.id).slice(0, 50) });
+    return json({ ok: true, removed, cents });
+  }
+  /* ---- v1.148.0: what marketing is holding ------------------------------ */
+  if (path === "/inventory/on-loan" && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
+      return err("forbidden", "Inventory access required", 403);
+    }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT m.id, m.sku, m.item_name, m.qty, m.unit_sale_cents, m.purpose, m.remark,
+                m.out_date, m.created_at, u.name AS created_by_name,
+                i.unit_cost_cents AS item_cost_cents
+           FROM manual_stockouts m
+           LEFT JOIN users u ON u.id = m.created_by
+           LEFT JOIN inventory_items i ON i.id = m.item_id
+          WHERE ${onLoanSql("m.")}
+          ORDER BY m.out_date ASC, m.created_at ASC LIMIT 200`,
+      ).all<{ qty: number; unit_sale_cents: number | null; item_cost_cents: number | null }>();
+      /* Two totals, because they answer two different questions: what the
+         pieces COST the company (the exposure if they never come back) and
+         what they would have SOLD for (the shelf value walking around). A
+         piece with no cost set is counted in the retail figure and named
+         under the cost one, never silently valued at zero. */
+      const costCents = results.reduce((n, r) => n + (r.item_cost_cents != null ? r.item_cost_cents * r.qty : 0), 0);
+      const retailCents = results.reduce((n, r) => n + (r.unit_sale_cents != null ? r.unit_sale_cents * r.qty : 0), 0);
+      const noCost = results.filter((r) => r.item_cost_cents == null).length;
+      const pieces = results.reduce((n, r) => n + r.qty, 0);
+      return json({ rows: results, cost_cents: costCents, retail_cents: retailCents, no_cost: noCost, pieces });
+    } catch {
+      return json({ rows: [], cost_cents: 0, retail_cents: 0, no_cost: 0, pieces: 0 });
     }
   }
   if (path === "/inventory/tiktok-out" && method === "GET") {
@@ -12627,12 +12849,32 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!delta) return err("invalid_input", "delta (non-zero integer) is required", 400);
     /* v1.4.169 (CEO: "if there is any manual out without any rebate how do I
        know the total sales?"): an optional sold price on a manual OUT makes
-       it a SALE — recorded in manual_sales and counted in the revenue
-       totals. Without a price it stays a plain correction (damage/samples)
-       and is deliberately excluded so corrections never inflate sales. */
+       it a SALE - recorded in manual_sales and counted in the revenue totals.
+       Without a price it stays a plain correction and is excluded.
+
+       v1.148.0 - THAT RULE WAS ONLY HALF OF ONE. The CEO, 09-09-2026, on a
+       day showing RM 1,025.00 of sales and zero TikTok orders: *"the manual
+       stock out price sales should not recorded as a sales which is I need to
+       review that the total of price that I hold under my stock manual which
+       is internal use for marketing."* Ten pieces went out for a marketing
+       shoot, were correctly recorded as Internal use, and had a price typed
+       in as well - and the price alone decided. The reason was written into
+       the remark as prose and read by nothing.
+
+       The REASON governs now. Only sold_offline is a sale; everything else
+       is stock leaving for a reason that earns nothing, whatever is in the
+       price box. A price on a non-sale is still KEPT on the movement row, as
+       what the piece would have fetched, because that is the number he wants
+       when he asks what marketing is holding - it is simply not revenue. */
+    const purposeRaw = str(body?.purpose, 40) ? String(body!.purpose) : null;
+    const purpose = purposeRaw && MOVE_PURPOSES.includes(purposeRaw) ? purposeRaw : null;
     const saleRaw = Number(body?.sale_price);
-    const saleC = delta < 0 && Number.isFinite(saleRaw) && saleRaw >= 0 && body?.sale_price !== undefined && body?.sale_price !== null && `${body?.sale_price}` !== ""
+    const priceC = delta < 0 && Number.isFinite(saleRaw) && saleRaw >= 0 && body?.sale_price !== undefined && body?.sale_price !== null && `${body?.sale_price}` !== ""
       ? Math.round(saleRaw * 100) : null;
+    /* A movement with no purpose at all is one sent by something older than
+       0124. It keeps the old behaviour rather than silently losing a sale. */
+    const isSale = priceC !== null && (purpose === null || purpose === "sold_offline");
+    const saleC = isSale ? priceC : null;
     /* v1.4.170 (CEO: "Remark of the reason why stock out to traceability
        purposes"): every manual OUT must say why — remark is MANDATORY and
        logged to manual_stockouts, so no stock leaves the shelf unexplained. */
@@ -12693,8 +12935,24 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     /* v1.4.170: the traceability trail — one row per manual movement, with
        WHY. v1.4.251: ins are logged here too, marked by `direction`. */
     {
-      const args = [Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), saleC, remark, outDate, saleRowId, user.id];
+      /* v1.148.0 - the movement keeps priceC, not saleC. On a sale the two
+         are the same number. On a marketing loan saleC is null (it earned
+         nothing) while priceC is what the pieces would have fetched, which
+         is exactly the figure he asked to be able to review. */
+      const args = [Number(invAdjust[1]), item.sku, item.name, Math.abs(delta), priceC, remark, outDate, saleRowId, user.id];
+      /* purpose first, and fall through to the pre-0124 shape if the column
+         is not there yet - the deploy lands before the migration runs. */
+      let logged = false;
       try {
+        await env.DB.prepare(
+          `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by, direction, purpose)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        ).bind(...args, delta > 0 ? "in" : "out", purpose).run();
+        logged = true;
+      } catch (e) {
+        if (!String(e).includes("no such column")) throw e;
+      }
+      if (!logged) try {
         await env.DB.prepare(
           `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, sale_id, created_by, direction)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,

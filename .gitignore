@@ -71,11 +71,21 @@ Claude outputs/
 deploy-log.txt
 *.log
 
-# Belt and braces on the v1.38.0 leak. The signature vault is private R2 and
-# tests/no-public-signatures.mjs fails the build if a real image is served
-# from here, but a real PNG dropped into this folder must not reach GitHub
-# even for the minutes before that guard runs. The 1x1 placeholders and the
-# README are kept, by name.
+# The v1.38.0 leak. The signature vault is private R2; nothing real is served
+# from here any more. The five 1x1 placeholders and the README stay tracked,
+# by name, so stale cached HTML gets a transparent pixel instead of a 404.
+#
+# WHAT THIS RULE CANNOT DO (09-09 audit): git ignores by NAME, never by size.
+# A real scan saved over ceo-sign.png matches the exception below and would be
+# committed by the next `git add -A`. The size check lives in two places that
+# CAN do it: tests/no-public-signatures.mjs (run by PUSH.bat before it
+# commits) and .githooks/pre-commit (run by git itself, so a hand-typed
+# commit is covered too). Do not read the exception below as protection.
 public/signatures/*
 !public/signatures/README.txt
 !public/signatures/*-sign.png
+
+# v1.148.0 - the pre-commit gate itself must be in the repo, or a fresh clone
+# has no gate at all. PUSH.bat points git at it (core.hooksPath) every run.
+!.githooks/
+!.githooks/pre-commit

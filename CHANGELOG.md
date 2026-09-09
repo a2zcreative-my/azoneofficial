@@ -2,6 +2,190 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.148.2] - 2026-09-09 - PUSH.bat makes each repository match its own .gitignore
+
+The store deploy failed three times on `CHANGELOG-1.md` - 895 KB of this
+portal's changelog, with the agency's identity and bank account, tracked inside
+the shop's repository. It was named in the store's `.gitignore` the whole time
+and tracked anyway: committed before the rule was written, and an ignore rule
+does nothing to a file git already tracks. A `CLEAN-STRAYS.bat` existed for it.
+Nobody ran it. Three deploys.
+
+`PUSH.bat` now does it itself, before anything is checked or published - step
+**[3b/7]** for this repository and **[1b/6]** for the store: untrack whatever
+git tracks that `.gitignore` says it should not, delete the known Windows copy
+collisions (`*-1.*`, `*-2.*`, `sw-1.js`, the logs), and let the commit step at
+the end record it. Idempotent; on a clean repository it touches nothing.
+
+`PUSH.bat`, `package.json`.
+
+## [1.148.1] - 2026-09-09 - a guard that passed, then killed the deploy
+
+    cards-tab                FAILED
+        ✓ cards-tab: 35 passed, 0 failed
+        Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76
+
+Thirty-five checks passed and the run was thrown away one line later. That is
+not a failing guard; it is Node aborting on Windows while shutting down.
+
+**The cause.** Eighteen guards `await import()` a `.ts` module so they can test
+the REAL rule rather than a copy of it — `cards-tab` imports `canSeeTab` and
+asks it about every role in the system. Under `--experimental-strip-types` that
+import leaves a loader still tearing down, and calling `process.exit()` into it
+trips a libuv assertion and aborts the process. It is a race, so it fires on a
+different guard each time, or on none.
+
+**The fix.** Those eighteen set `process.exitCode` and let Node drain and exit
+by itself. Same status, no forced teardown — and stdout is flushed, which
+`process.exit()` on Windows does not reliably do either.
+
+Two shapes needed different handling, and the second is why this was not a
+find-and-replace: eleven guards end `if (failed) { ...; process.exit(1); }`
+followed by a PASS line, where the exit is what *stops the PASS line printing*.
+Those became a real `else`. Verified by forcing the failure branch in all
+eleven: each still exits 1, still reports the failure, and still suppresses
+PASS. The early `process.exit()` calls inside `catch` blocks are untouched —
+they run only when an import already failed and must stop the script.
+
+**And the new risk this introduces, closed.** A script that no longer forces
+its own exit could in principle keep the event loop alive and hang the deploy
+with no output at all. `run-guards.mjs` now gives each guard 120 seconds and
+reports a timeout as its own outcome — *"did not finish within 120s (it was
+killed, not failed)"* — rather than as a mystery failure. Proven by hanging a
+guard deliberately.
+
+`tests/*.mjs` (18 guards), `scripts/run-guards.mjs`.
+
+## [1.148.0] - 2026-09-09 - the reason decides, not the price box
+
+Two things in one release: what the CEO found on his own dashboard, and the
+fixes from the audit he asked for the same morning.
+
+### A marketing shoot was being booked as revenue
+
+He was looking at **RM 1,025.00 of sales on a day with zero TikTok orders**:
+*"the manual stock out price sales should not recorded as a sales which is I
+need to review that the total of price that I hold under my stock manual
+which is internal use for marketing and need to revert back when the
+marketing use completed."*
+
+Ten pieces went out for a shoot. They were recorded correctly - reason
+**Internal use** - with a price typed in beside them. Since v1.4.169 the rule
+had been *a price is what makes an out a sale*, and the reason was pasted onto
+the front of the remark as prose that **nothing ever read back**. So ten loans
+became ten sales, and RM 1,025.00 of income nobody was ever paid went into the
+day, the month and the KPI bar.
+
+**The reason governs now.** Migration **0124** stores it as data (`purpose`)
+and backfills every existing movement from the reason it was written with.
+Only **Sold offline** is a sale. On any other reason the price box is relabelled
+`Value @ (RM/unit) - NOT a sale`: the figure is still recorded, because it is
+what the pieces are worth and he asked to be able to review that, but it never
+reaches `manual_sales`.
+
+**Out with marketing / internal use** is a new band above the records: what is
+still out, totalled **at cost and at retail**, item by item, with a **Returned**
+button per row. Marketing is its own reason now rather than being folded into
+Internal use, because a shoot is stock that is *coming back*.
+
+A **return is not a revert.** Both put stock on the shelf; revert says the
+record was wrong, a return says the loan closed as planned. Different chips,
+different audit action, and only a loan can be returned - marking a damaged
+piece returned would put stock on the shelf that does not exist. The return
+adds with `stock = stock + ?` rather than writing back a figure it read
+earlier, which is the v1.139.0 incident.
+
+**The existing bad rows are named, not silently deleted.** 0124 reclassifies
+movements and moves no money: what the company earned is not something to
+rewrite inside a schema change with nobody looking. A red band says *"RM
+1,025.00 counted as revenue, but recorded as not a sale"*, lists the rows, and
+removes them on his word - CEO/COO only, audited. The movements survive with
+their value on them; only the revenue goes.
+
+Loans are also excluded from *What left the shelf without a sale*. The same
+pieces must never read as lost and lent at the same time.
+
+### Search
+
+*"I want search box for me to search the item or SKU."* One box over both
+fields, every word matching in any order. The summary band **follows the
+search** and says so, so asking for LUMI 010 tells you what LUMI 010 cost you
+rather than what the whole shelf did - and a filtered figure can never be read
+as the company total.
+
+### From the 09-09 audit
+
+**A payslip could call the same day paid and deduct it.** v1.146.0 made
+emergency leave unpaid from 01-09-2026 and changed only the arithmetic. The
+slip went on printing `EMERGENCY LEAVE (PAID)` while counting its unpaid line
+from `type = 'unpaid'` alone - so two emergency days in September printed
+`UNPAID LEAVE (0 DAYS)` against a real ringgit figure. The payroll screen still
+told the processor emergency leave is *"never deducted"*, which is an
+instruction to key the same deduction in twice. All three fixed: the days
+printed are the days the deduction was computed from, paid and unpaid
+emergency days are split at the same cutoff the money uses, and the guidance
+now warns against re-entering it.
+
+**A released month is protected everywhere pay is set.** `releasedMonthBlock`
+guarded overtime only - because its message named overtime. Recording an unpaid
+day, undoing one, saving a payroll row and recomputing a whole month could all
+rewrite a month whose payslips were in people's hands. All four check it now,
+and the refusal is **answerable**: a real correction stays possible behind one
+deliberate confirmation, audited, asked once per batch rather than once per
+person. A guard with no way through would have been worse than the bug.
+
+**A health probe that could not fail.** The 0121 probe read `SELECT 1 FROM
+postage_records WHERE order_ref = 'x'`. `order_ref` has been a column since
+0007, so it passed whether or not 0121 ever ran - a green banner over a
+database in which the TikTok double-count race was wide open. It names the
+index now, the way 0110's probe already did.
+
+**One company order.** `payroll-panel.tsx` carried a second, hand-written role
+table that put `admin` after `hr_admin` - the opposite of the order given on
+04-09-2026. The main table hid it by re-sorting on screen; the **Base salaries**
+grid did not, so people were listed wrongly on the one screen where pay is set.
+And `/commission/rates` ordered alphabetically while the host picker six lines
+above it used the company order.
+
+**Dead code.** `BirthdaysPanel` - ~90 lines, rendered by nothing since v1.93.0,
+still compiled into the chunk every other panel in that file pulls down - and
+its orphaned nav icon are gone.
+
+**The commit gate is real now.** `.gitignore` claimed a real signature scan
+*"must not reach GitHub even for the minutes before that guard runs"*. Git
+ignores by **name**, never by size, and the five placeholders are tracked under
+exactly the names a real scan would be saved as - the v1.38.0 leak, by the same
+path. `.githooks/pre-commit` checks the size of the **staged blob** before a
+commit exists, and PUSH.bat points git at it every run. The ignore comment now
+says what it actually does.
+
+**PUSH.bat: the store could not deploy.** A portal guard failure ran
+`goto :guardsfailed`, which ends the script - and the STORE section is *below*
+that line. Every failed portal guard run this month deployed nothing to ELFIA,
+which is why the store's catalogue fix sat undeployed for days while the screen
+said only that a portal rule was broken. The portal is still held back on a
+failure; the store, which those rules say nothing about, now continues. The
+store half also ran **one of its seven guards** - `no-secrets` and
+`payment-integrity`, the two protecting credentials and the money path, were
+skipped by the one-click deploy. All seven run now.
+
+**Also:** duplicate migration prefixes are caught by `registry-parity` (0086 is
+grandfathered by name - renaming a migration makes D1 apply it again, which is
+worse); the portal worker's `compatibility_date` moves from `2024-03-20` to
+`2026-08-01`, matching the store. **That last one is the only line in this
+release that changes runtime behaviour rather than code - if the API behaves
+oddly right after this deploy, put the old date back first.**
+
+`worker/migrations/0124_movement_purpose.sql`, `worker/src/staff.ts`,
+`worker/src/index.ts`, `worker/src/erp.ts`, `worker/wrangler.toml`,
+`components/portal/role-panels.tsx`, `components/portal/payroll-panel.tsx`,
+`components/layout/nav-icons.tsx`, `.githooks/pre-commit`, `.gitignore`,
+`PUSH.bat`, `tests/movement-purpose.mjs` (guard #67, 45 checks, negative-tested
+nine ways), `tests/audit-0909.mjs` (guard #68, 29 checks, negative-tested twelve
+ways), `tests/registry-parity.mjs`, `tests/movement-cost.mjs` (re-pointed at
+properties - it had pinned implementations this release legitimately changed,
+the same mistake the codebase has now made three times).
+
 ## [1.147.0] - 2026-09-09 - what a piece cost, not only what it sells for
 
 The CEO, on the manual stock movement form: *"this one should RM per unit

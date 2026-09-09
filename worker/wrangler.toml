@@ -1,6 +1,13 @@
 name = "azoneofficial-api"
 main = "src/index.ts"
-compatibility_date = "2024-03-20"
+# v1.148.0 - was "2024-03-20", two and a half years stale, while the ELFIA
+# store worker has been on 2026-08-01 for weeks with no trouble. A stale
+# compatibility date pins this worker to old runtime behaviour and quietly
+# withholds fixes. THIS IS THE ONE LINE IN THE RELEASE THAT CHANGES HOW THE
+# RUNTIME BEHAVES rather than what the code says: if anything on the API
+# behaves oddly right after this deploy, put the old date back first and
+# report it - that is a one-line revert, not an investigation.
+compatibility_date = "2026-08-01"
 
 # Bind the API to the production domain. With these here, `wrangler deploy`
 # attaches the routes automatically — no manual dashboard step to forget.

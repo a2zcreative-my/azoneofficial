@@ -319,9 +319,13 @@ export async function handleErp(
 
     if (path === "/commission/rates" && method === "GET") {
       if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      /* v1.148.0 - the company order, not the alphabet. The host picker six
+         lines above this already used STAFF_ORDER_SQL, so one screen showed
+         the same people twice in two different orders - pick a name from the
+         top of one list and hunt for it in the middle of the other. */
       const rows = await env.DB.prepare(
         `SELECT r.*, u.name AS host_name FROM commission_rates r JOIN users u ON u.id = r.host_id
-          ORDER BY u.name, r.effective_from DESC`,
+          ORDER BY ${STAFF_ORDER_SQL}, r.effective_from DESC`,
       ).all();
       return json({ rates: rows.results ?? [] });
     }
