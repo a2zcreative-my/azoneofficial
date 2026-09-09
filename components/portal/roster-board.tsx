@@ -6,7 +6,7 @@
    and click-to-assign (reuses POST /staff/live-sessions). Managers see the
    whole floor; hosts see their own week read-only. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
@@ -33,6 +33,65 @@ interface RosterTaskBlock {
   title: string; priority: string; status: string; deadline: string | null;
   done_at?: string | null;
 }
+/**
+ * THE STICKY NOTE — v1.142.0.
+ *
+ * The CEO, 09-09-2026, on the week grid: *"for the sticky note, can make it
+ * nearby to the Task/Live Session. make it more live sticky note"*. He pressed
+ * a Wednesday session on Nur Nasuha's row and the card opened at the TOP of
+ * the board, three rows away, over other people's work. It was pinned to
+ * `left-1/2 top-14` - the middle of the grid - so it told you nothing about
+ * which chip it belonged to.
+ *
+ * A note now opens ON the chip that was pressed. The chip is measured against
+ * the board it sits in, so the note follows it through the horizontal scroll
+ * and through any row: below the chip normally, ABOVE it when the bottom of
+ * the board is too close, and clamped so it can never leave the board on
+ * either side. A tail points back at the chip, and the chip itself takes a
+ * gold ring, so the note and its work are one object rather than two.
+ *
+ * The width is the card's own (w-72); the height estimate below is used for
+ * ONE decision only - whether there is room underneath. When the note flips it
+ * is anchored by its BOTTOM to the chip's top, so the tail meets the chip
+ * exactly however tall the card turns out to be.
+ */
+interface NoteAt { left: number; top?: number; bottom?: number; arrow: number; flip: boolean }
+
+const NOTE_W = 288;          /* w-72 */
+const NOTE_H_GUESS = 190;    /* the tallest it gets: notes plus three actions */
+
+function noteFrom(el: HTMLElement, wrap: HTMLElement | null): NoteAt | null {
+  if (!wrap) return null;
+  const c = el.getBoundingClientRect();
+  const w = wrap.getBoundingClientRect();
+  if (w.width <= 0) return null;
+  const cx = c.left - w.left + c.width / 2;
+  const chipTop = c.top - w.top;
+  const chipBottom = c.bottom - w.top;
+  const left = Math.max(8, Math.min(cx - NOTE_W / 2, Math.max(8, w.width - NOTE_W - 8)));
+  const flip = chipBottom + NOTE_H_GUESS + 10 > w.height && chipTop - 10 > NOTE_H_GUESS / 2;
+  return {
+    left,
+    top: flip ? undefined : chipBottom + 10,
+    bottom: flip ? Math.max(4, w.height - chipTop + 10) : undefined,
+    arrow: Math.max(16, Math.min(cx - left, NOTE_W - 16)),
+    flip,
+  };
+}
+
+/** The shell: placed, tailed, and out of the way of nothing else. Module
+    scope, so React keeps one instance instead of rebuilding it every render. */
+function StickyNote({ at, children }: { at: NoteAt; children: ReactNode }) {
+  return (
+    <div className="bg-brand absolute z-30 w-72 rounded-xl p-3.5 text-white shadow-xl"
+      style={{ left: at.left, top: at.top, bottom: at.bottom }}>
+      <span aria-hidden="true" className="bg-brand absolute h-3 w-3 rotate-45"
+        style={at.flip ? { left: at.arrow - 6, bottom: -6 } : { left: at.arrow - 6, top: -6 }} />
+      {children}
+    </div>
+  );
+}
+
 interface UnscheduledTask {
   id: number; title: string; priority: string; deadline: string | null;
   assigned_to: number; assignee: string;
@@ -157,6 +216,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   const [data, setData] = useState<RosterData | null>(null);
   const [week, setWeek] = useState<string>("");           // "" = server default (this week)
   const [openSession, setOpenSession] = useState<number | null>(null);
+  /* v1.142.0 - where the sticky note sits, measured off the chip that opened
+     it. Null means nothing is open in the week grid; the mobile agenda and the
+     timeline keep their own placement. */
+  const [noteAt, setNoteAt] = useState<NoteAt | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [staff, setStaff] = useState<{ id: number; name: string; role?: string; position?: string | null; employment_status?: string | null }[]>([]);
   const [draft, setDraft] = useState({ session_date: "", start_time: "19:00", end_time: "21:00", platform: "tiktok", client_name: "", host_user_id: "", notes: "" });
@@ -389,6 +453,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
      one toggle away. Colours stay brand: navy tint = TikTok, gold tint =
      Shopee, neutral = other; green = completed, amber = conflict. */
   const [view, setView] = useState<"grid" | "timeline">("grid");
+  /* v1.142.0 - a note is a position, and a position is only true while the
+     chip it was measured from is still where it was. Every path that closes a
+     chip clears it here, so no stale note can survive a reload, a week change
+     or a switch to the timeline (which places its own popover). */
+  useEffect(() => {
+    if (openSession === null && openBlock === null) setNoteAt(null);
+  }, [openSession, openBlock]);
+  useEffect(() => { setNoteAt(null); }, [view, week]);
 
   type PlanEntry = typeof draft;
   const [repeat, setRepeat] = useState<"once" | "daily" | "days">("once");
@@ -944,7 +1016,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               columns, the CEO's reference layout in AZ ONE colours. */}
           {view === "grid" && (
             <div className="mt-2 hidden overflow-x-auto md:block">
-              <div className="border-border relative min-w-[760px] overflow-hidden rounded-lg border">
+              <div ref={gridRef} className="border-border relative min-w-[760px] overflow-hidden rounded-lg border">
                 {(() => {
                   const durOf = (s: RosterSession) => (s.end_time ? Math.max(30, spanMins(s.start_time, s.end_time)) : 60);
                   const hrs = (m: number) => `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)} ${L("hrs", "jam")}`;
@@ -1070,8 +1142,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                   {cs.map((s) => (
                                     <button key={s.id} type="button"
                                       title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${s.notes ? ` — ${s.notes}` : ""}`}
-                                      onClick={() => setOpenSession(openSession === s.id ? null : s.id)}
-                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${chipCls(s)}`}>
+                                      onClick={(e) => {
+                                        const same = openSession === s.id;
+                                        setOpenBlock(null);
+                                        setOpenSession(same ? null : s.id);
+                                        setNoteAt(same ? null : noteFrom(e.currentTarget, gridRef.current));
+                                      }}
+                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${chipCls(s)} ${openSession === s.id && noteAt ? "ring-gold ring-2" : ""}`}>
                                       <span className="block truncate text-[10px] leading-tight font-semibold">{s.client ?? "Live"}</span>
                                       <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
                                         {s.start_time}{s.end_time ? `–${s.end_time}` : ""} · {durOf(s)} min
@@ -1088,8 +1165,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                         + (b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : "")
                                         + (hardBlockIds.has(b.id) ? ` · ${L("CONFLICT", "PERTINDIHAN")}` : "")
                                         + (softBlockIds.has(b.id) ? ` · ${L("clashes with a live session — move the task", "bertindih dengan sesi LIVE — alihkan tugasan")}` : "")}
-                                      onClick={(e) => { e.stopPropagation(); setOpenBlock(openBlock === b.id ? null : b.id); }}
-                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${blkCls(b)}`}>
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const same = openBlock === b.id;
+                                        setOpenSession(null);
+                                        setOpenBlock(same ? null : b.id);
+                                        setNoteAt(same ? null : noteFrom(e.currentTarget, gridRef.current));
+                                      }}
+                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${blkCls(b)} ${openBlock === b.id && noteAt ? "ring-gold ring-2" : ""}`}>
                                       <span className={`block truncate text-[10px] leading-tight font-semibold ${b.done_at ? "line-through" : ""}`}>
                                         {b.done_at ? "✓ " : b.priority === "urgent" ? "❗ " : ""}{b.title}
                                       </span>
@@ -1104,14 +1187,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                           </div>
                         );
                       })}
-                      {/* centred detail card for a clicked chip */}
-                      {sel && (
-                        <div className="bg-brand absolute left-1/2 top-14 z-20 w-72 -translate-x-1/2 rounded-xl p-3.5 text-white shadow-xl">
+                      {/* v1.142.0 - the note opens on the chip that was
+                          pressed, not in the middle of the board. */}
+                      {sel && noteAt && (
+                        <StickyNote at={noteAt}>
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-sm font-semibold">{sel.client ?? L("Live session", "Sesi LIVE")}
                               <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{statusLabel(sel.status)}</span>
                             </p>
-                            <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
+                            <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenSession(null); setNoteAt(null); }} aria-label="Close">✕</button>
                           </div>
                           <p className="mt-1.5 text-xs text-white/85">{sel.host_name}</p>
                           <p className="mt-0.5 text-xs text-white/85 tabular-nums">{dmy(sel.session_date)} · {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
@@ -1138,8 +1222,59 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                               )}
                             </div>
                           )}
-                        </div>
+                        </StickyNote>
                       )}
+                      {(() => {
+                        /* v1.142.0 - a task gets the same note in the grid.
+                           The bar under the board stays for the mobile agenda,
+                           where there is no chip to point at. */
+                        const b = blocks.find((x) => x.id === openBlock);
+                        if (!b || !noteAt) return null;
+                        const hard = hardBlockIds.has(b.id);
+                        const soft = softBlockIds.has(b.id);
+                        return (
+                          <StickyNote at={noteAt}>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold">
+                                {b.done_at ? "✓ " : b.priority === "urgent" ? "❗ " : ""}{b.title}
+                                <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${b.done_at ? "bg-bull/30" : hard ? "bg-bear/30" : "bg-white/15"}`}>
+                                  {b.done_at ? L("done today", "selesai hari ini") : L("task", "tugasan")}
+                                </span>
+                              </p>
+                              <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenBlock(null); setNoteAt(null); }} aria-label="Close">✕</button>
+                            </div>
+                            <p className="mt-1.5 text-xs text-white/85">{b.user_name}</p>
+                            <p className="mt-0.5 text-xs text-white/85 tabular-nums">
+                              {dmy(b.block_date)} · {b.start_time}{b.end_time ? `–${b.end_time}` : ""}
+                              {b.deadline ? ` · ${L("due", "tarikh akhir")} ${dmy(b.deadline)}` : ""}
+                            </p>
+                            {hard && (
+                              <p className="mt-1 text-xs font-medium text-white/90">
+                                {b.deadline && b.block_date > b.deadline
+                                  ? L("Scheduled AFTER its own deadline.", "Dijadualkan SELEPAS tarikh akhirnya sendiri.")
+                                  : L("Clashes with approved leave or another task.", "Bertindih dengan cuti diluluskan atau tugasan lain.")}
+                              </p>
+                            )}
+                            {soft && (
+                              <p className="mt-1 text-xs font-medium text-white/90">
+                                {L("Overlaps a live session — the live is fixed, so move the task.", "Bertindih dengan sesi LIVE — LIVE tetap, jadi alihkan tugasan.")}
+                              </p>
+                            )}
+                            {canManage && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={() => void setBlockDone(b, !b.done_at)}>
+                                  {b.done_at ? L("↺ Not done after all", "↺ Belum selesai") : L("✓ Done today", "✓ Selesai hari ini")}
+                                </button>
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={() => openEditBlock(b)}>
+                                  {L("Edit details", "Sunting butiran")}
+                                </button>
+                              </div>
+                            )}
+                          </StickyNote>
+                        );
+                      })()}
                       {/* legend */}
                       <div className="border-border text-muted-foreground flex flex-wrap gap-3 border-t px-3 py-1.5 text-[10px]">
                         <span className="inline-flex items-center gap-1"><span className="border-brand/30 bg-brand/10 h-2.5 w-2.5 rounded-sm border" />TikTok</span>
@@ -1422,7 +1557,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               identically on the mobile agenda below. */}
           {(() => {
             const b = blocks.find((x) => x.id === openBlock);
-            if (!b) return null;
+            /* v1.142.0 - when the grid opened it, the note above IS the answer;
+               a second copy under the board is the thing the CEO was scrolling
+               to find in the first place. */
+            if (!b || noteAt) return null;
             const hard = hardBlockIds.has(b.id);
             const soft = softBlockIds.has(b.id);
             return (

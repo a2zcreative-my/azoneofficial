@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.142.0] - 2026-09-09 - the note opens on the thing you pressed
+
+The CEO, 09-09-2026, on the week grid: *"for the sticky note, can make it
+nearby to the Task/Live Session. make it more live sticky note"*. He pressed a
+Wednesday session on Nur Nasuha's row and the card opened at the TOP of the
+board, three rows above, over other people's work.
+
+It was pinned to `left-1/2 top-14` - the middle of the grid, always, whatever
+was pressed. So it told you nothing about which chip it belonged to, and on a
+full week it covered three other people to tell you about a fourth.
+
+**A note now opens on its chip.** The chip is measured against the board it
+sits in, so the note follows it through the horizontal scroll and through any
+row: below the chip normally, **above it** when the bottom of the board is too
+close, and clamped so it can never leave the board on either side. A tail
+points back at the chip and the chip takes a gold ring, so the note and the
+work it describes read as one object instead of two.
+
+When the note flips it is anchored by its BOTTOM to the chip's top, so the tail
+meets the chip exactly however tall the card turns out to be - the height
+estimate is used for one decision only, whether there is room underneath.
+
+**A task gets the same note.** Pressing a task block in the grid used to render
+a bar UNDER the whole board - the thing the CEO was scrolling to find when this
+was first fixed for sessions in v1.21.2. In the grid it is now a note on the
+block, carrying the same figures and the same two actions (Done today, Edit
+details). The bar stays for the mobile agenda, where there is no chip to point
+at, and it no longer double-renders: when the grid opened it, the note IS the
+answer.
+
+`StickyNote` and `noteFrom` are module scope, so React keeps one instance
+rather than rebuilding the note on every render, and a note is cleared by every
+path that closes a chip - a reload, a week change, a switch to the timeline
+(which places its own popover) - because a position is only true while the chip
+it was measured from is still where it was.
+
+Verified by lifting `noteFrom` out of the shipped file and placing notes on a
+mock board at all four corners: never leaves the board, flips at the bottom
+edge, and the tail lands on the chip every time.
+
+`components/portal/roster-board.tsx`. Guards 64 of 64, typecheck clean, build
+clean.
+
 ## [1.141.0] - 2026-09-09 - the four maps stand up
 
 v1.140.0 was the geometry, deliberately wired to nothing. This is the half you
