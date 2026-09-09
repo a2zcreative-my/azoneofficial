@@ -135,9 +135,19 @@ ok("...and the sheet says which view it is, so a partial count is never read as 
   const bodies = (body.match(/<td[ >\n]/g) ?? []).length;
   const footCells = (foot.match(/<td[ >\n]/g) ?? []).length
     + (foot.match(/colSpan=\{(\d+)\}/g) ?? []).reduce((n, m) => n + Number(m.match(/\d+/)[0]) - 1, 0);
-  ok("head, body and footer all carry eleven columns", heads === 11 && bodies === 11 && footCells === 11,
+  /* v1.147.0 - the PROPERTY is that the three agree, not that they agree on
+     eleven. Pinning the number meant that adding a Cost/unit column failed
+     this guard for the wrong reason - it reported "not eleven" when the real
+     fault was a footer left one cell behind. The count is now read off the
+     head, and the head is the thing the other two are held to. */
+  ok("the table has a head to measure", heads >= 8, `head ${heads}`);
+  ok("head, body and footer all carry the same number of columns",
+     heads === bodies && heads === footCells,
      `head ${heads}, body ${bodies}, foot ${footCells} - a footer one cell short puts every total under the wrong heading`);
-  ok("the skeleton is the shape of the table it stands in", /SkelTable rows=\{6\} cols=\{11\}/.test(rp));
+  const skel = rp.match(/SkelTable rows=\{6\} cols=\{(\d+)\}/);
+  ok("the skeleton is the shape of the table it stands in",
+     !!skel && Number(skel[1]) === heads,
+     skel ? `skeleton ${skel[1]}, table ${heads}` : "no SkelTable found");
 }
 
 /* ---- 5. the family also settles a TikTok line (v1.135.0's tie) -------- */

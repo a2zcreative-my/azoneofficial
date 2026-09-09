@@ -1,0 +1,21 @@
+-- 0123 - v1.147.0: what a piece COST, not only what it sells for.
+--
+-- The CEO, 09-09-2026, looking at the manual stock movements list: "I should
+-- visible to view what is the cost that I need to aware for the internal or
+-- correction." Stock leaves the shelf for reasons that are not sales - internal
+-- use, a sample, a damaged piece, a stock-count variance, a data-entry
+-- correction - and every one of those rows showed a plain grey "correction"
+-- chip with no money on it at all. The shelf was getting shorter and nothing
+-- said what that was worth.
+--
+-- The system knew what a piece SELLS for (unit_price_cents, 0037) and had no
+-- idea what it COST. Valuing a correction at the selling price would have
+-- overstated the loss by the whole margin, so this is the missing number.
+--
+-- NULLABLE ON PURPOSE, and no default. 0 would mean "this piece is free",
+-- which is a different statement from "nobody has told us yet" - and the
+-- difference matters on a total that a decision gets made on. An item with no
+-- cost is counted separately and named, so the figure can never quietly
+-- understate what left the building.
+
+ALTER TABLE inventory_items ADD COLUMN unit_cost_cents INTEGER;

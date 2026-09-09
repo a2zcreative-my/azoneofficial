@@ -154,7 +154,17 @@ ok("the three event routes were found", postEvents.length > 0 && patchEvents.len
 
 /* ---- 7. the migration is registered the house way (the triple bump) ---- */
 {
-  ok("LATEST_MIGRATION names it", /const LATEST_MIGRATION = "0122_event_attendees"/.test(index));
+  /* v1.147.0 - this used to read `LATEST_MIGRATION = "0122_event_attendees"`,
+     which is the one line in the triple bump that MOVES: the next migration
+     takes it, by design. 0123 landing made this guard fail on correct code
+     and say nothing true about 0122. What has to hold is that 0122 is
+     REGISTERED - listed and probeable - and that LATEST_MIGRATION names a
+     migration no older than it, which is what proves the bump was done when
+     0122 landed and never quietly rewound. */
+  const latest = index.match(/const LATEST_MIGRATION = "(\d{4})_/);
+  ok("LATEST_MIGRATION is set and is 0122 or newer",
+     !!latest && Number(latest[1]) >= 122,
+     latest ? `LATEST_MIGRATION is ${latest[1]}` : "LATEST_MIGRATION not found");
   ok("EXPECTED_MIGRATIONS lists it", /"0122_event_attendees",/.test(index));
   ok("a health probe can name it", /event_attendees LIMIT 1/.test(index));
 }

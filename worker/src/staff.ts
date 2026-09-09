@@ -1287,14 +1287,23 @@ const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, e
  * somebody the wrong salary and nothing throws. So none of them names a type;
  * they all ask this.
  *
- * FROM 01-10-2026, NOT BACKWARDS (the CEO's own call). Emergency days already
- * taken were taken under a rule that said they were paid, and re-deducting
- * them would reach into a month people have already been paid for. A request
- * is judged by its START date: a request that begins in September is a
- * September request, whichever side of the line it ends on. That errs toward
- * the staff member, which is the right way to round a benefit being reduced.
+ * FROM 01-09-2026, NOT BACKWARDS (the CEO's own call - he moved it back a
+ * month from 01-10 so the rule starts with the payroll month he is reviewing
+ * rather than the one after it). Emergency days taken BEFORE September were
+ * taken under a rule that said they were paid, and re-deducting them would
+ * reach into months people have already been paid for; September has not been
+ * released, so it is still his to decide.
+ *
+ * A request is judged by its START date: one that begins in August is an
+ * August request, whichever side of the line it ends on. That errs toward the
+ * staff member, which is the right way to round a benefit being reduced.
+ *
+ * SEPTEMBER FIGURES ALREADY SAVED DO NOT MOVE ON THEIR OWN. The payroll panel
+ * keeps saved entries until Re-fill days and Save all are pressed - the same
+ * rule as any calendar change - so the month recomputes when he says so and
+ * not while he is reading it.
  */
-const UNPAID_FROM = "2026-10-01";
+const UNPAID_FROM = "2026-09-01";
 const unpaidLeaveSql = (alias = "") =>
   `(${alias}type = 'unpaid'
      OR (${alias}type = 'emergency' AND ${alias}start_date >= '${UNPAID_FROM}'))`;
@@ -10561,14 +10570,39 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       return err("forbidden", "Inventory access required", 403);
     }
     try {
+      /* v1.147.0 (CEO: "I should visible to view what is the cost that I need
+         to aware for the internal or correction") - each row carries the
+         item's cost, so a movement with no sale price can still say what it
+         was worth. It is TODAY'S cost, joined live rather than snapshotted:
+         this shop's costs are stable, and one number that follows the item is
+         easier to trust than a stored one that silently disagrees with the
+         item it names. NULL means nobody has entered a cost - never zero. */
       const { results } = await env.DB.prepare(
-        `SELECT m.*, u.name AS created_by_name FROM manual_stockouts m
-         LEFT JOIN users u ON u.id = m.created_by
+        `SELECT m.*, u.name AS created_by_name, i.unit_cost_cents AS item_cost_cents
+           FROM manual_stockouts m
+           LEFT JOIN users u ON u.id = m.created_by
+           LEFT JOIN inventory_items i ON i.id = m.item_id
          ORDER BY m.created_at DESC LIMIT 100`,
       ).all();
       return json({ outs: results });
     } catch {
-      return json({ outs: [] });
+      /* v1.147.0 - between this code deploying and 0123 running there is no
+         unit_cost_cents column, and the query above throws on it. The list of
+         movements is an audit trail; it must not go blank for that window, so
+         fall back to the same read WITHOUT the cost. Every row then arrives
+         with item_cost_cents undefined, which the panel already renders as
+         "cost not set" - the honest answer while the column does not exist. */
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT m.*, u.name AS created_by_name
+             FROM manual_stockouts m
+             LEFT JOIN users u ON u.id = m.created_by
+           ORDER BY m.created_at DESC LIMIT 100`,
+        ).all();
+        return json({ outs: results });
+      } catch {
+        return json({ outs: [] });
+      }
     }
   }
   if (path === "/inventory/tiktok-out" && method === "GET") {
@@ -10697,12 +10731,23 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const priceU = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : null; // v1.4.101
     // v1.4.164: rebate given during TikTok Live — net live price = price − rebate.
     const rebateU = typeof body.live_rebate === "number" && body.live_rebate >= 0 ? Math.round(body.live_rebate * 100) : null;
+    /* v1.147.0 - WHAT THE PIECE COST. Sent as RM like the price, stored in sen.
+       Omitted leaves it alone; an explicit null clears it back to "nobody has
+       said yet", which is a different statement from zero and has to stay
+       sayable - a cleared cost must not read as a free piece on a total the
+       CEO is about to act on. */
+    const costU = typeof body.unit_cost === "number" && body.unit_cost >= 0 ? Math.round(body.unit_cost * 100) : null;
+    const clearsCost = body.unit_cost === null;
     try {
       /* The status is recomputed from whatever the count ENDS as, in SQL, so
          a price-only save cannot leave a stale "low" behind either. */
       const setStockSql = `stock = COALESCE(?1, stock),
              status = CASE WHEN COALESCE(?1, stock) = 0 THEN 'out_of_stock'
                            WHEN COALESCE(?1, stock) <= 5 THEN 'low' ELSE 'in_stock' END`;
+      /* v1.147.0 - the cost is its own statement, so it is written on its own
+         and only when the caller said something about it. Folding it into the
+         two branches above would have meant every price save also writing a
+         cost, which is how the stock count used to get clobbered (v1.139.0). */
       if (rebateU !== null) {
         await env.DB.prepare(
           `UPDATE inventory_items SET ${setStockSql},
@@ -10719,14 +10764,25 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
            WHERE id = ?5`,
         ).bind(stock, str(body.note, 500) ? body.note : null, priceU, user.id, invMatch[1]).run();
       }
+      if (costU !== null || clearsCost) {
+        await env.DB.prepare(
+          `UPDATE inventory_items SET unit_cost_cents = ?1, updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+        ).bind(clearsCost ? null : costU, user.id, invMatch[1]).run();
+      }
     } catch (e) {
       if (String(e).includes("no such column")) {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0046_live_rebate)", 500);
+        /* v1.147.0 - name the migration that is actually missing. Sending
+           somebody to 0046 because they tried to save a COST would have them
+           applying a migration that cannot fix it and reading the same error
+           twice. */
+        const which = String(e).includes("unit_cost_cents") ? "0123_inventory_unit_cost" : "0046_live_rebate";
+        return err("migration_missing", `Run: npx wrangler d1 migrations apply azoneofficial --remote (${which})`, 500);
       }
       throw e;
     }
     await audit(env, user.id, "inventory.update", "inventory_items", invMatch[1],
-      { ...(setsStock ? { stock } : {}), ...(priceU !== null ? { unit_price_cents: priceU } : {}) });
+      { ...(setsStock ? { stock } : {}), ...(priceU !== null ? { unit_price_cents: priceU } : {}),
+        ...(costU !== null || clearsCost ? { unit_cost_cents: clearsCost ? null : costU } : {}) });
       await checkLowStock(Number(invMatch[1]));
     return json({ ok: true });
   }

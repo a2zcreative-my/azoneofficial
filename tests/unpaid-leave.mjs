@@ -432,7 +432,7 @@ ok("the attendance panel is actually given the role",
 
   ok("it is forward-only, by the request's start date",
      /type = 'emergency' AND \$\{alias\}start_date >= '\$\{UNPAID_FROM\}'/.test(staff)
-     && /const UNPAID_FROM = "2026-10-01"/.test(staff),
+     && /const UNPAID_FROM = "2026-09-01"/.test(staff),
      "re-deducting days taken while the rule said they were paid reaches into a month people have been paid for");
 
   const unpaidPost2 = (() => {

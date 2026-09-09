@@ -2,6 +2,94 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.147.0] - 2026-09-09 - what a piece cost, not only what it sells for
+
+The CEO, on the manual stock movement form: *"this one should RM per unit
+instead, then I should visible to view what is the cost that I need to aware
+for the internal or correction."* Two complaints in one line, and both were
+about money that was on the screen but not readable.
+
+**The money now says per unit AND line total.** The figure stored against a
+movement has always been per unit, and the chip printed it bare - so a 4-piece
+row at RM 25 a unit read as if RM 25 had left the building when the sale was
+RM 100. It reads `Sold @ RM 25.00/unit - RM 100.00` now, and the box on the
+form says `Sold @ (RM/unit)` so nobody has to guess which one it wants.
+
+**A movement that is not a sale now says what it cost.** Internal use, a
+sample, a damaged piece, a stock-count variance, a data-entry correction:
+every one of those showed a grey "correction" chip with no money on it at all.
+The shelf got shorter and nothing said what that was worth.
+
+The system knew what a piece SELLS for and had no idea what it COST, so there
+was nothing honest to print. Migration **0123** adds `unit_cost_cents` to the
+stock list, and a **Cost/unit** column on the stock table (desk view, next to
+Price/unit) is where it gets entered - saved on change, on its own, carrying
+neither the stock count nor the price with it. Valuing a correction at the
+selling price was never an option: it would have overstated the loss by the
+whole margin.
+
+**Where it shows.**
+
+- The movement chip: `correction - cost RM 12.00/unit - RM 48.00`.
+- A band above the records: **What left the shelf without a sale**, totalling
+  every live non-sale OUT at its item's cost, with what went back IN stated
+  separately rather than netted off.
+- The form itself, while a movement is being recorded - because that is the
+  moment somebody decides whether to take the piece, not afterwards.
+- The stock CSV export gains the column.
+
+Sales are excluded from that total (they are revenue, counted elsewhere) and
+so are reverted rows (the stock came back).
+
+**"Nobody has said yet" is not "free".** The column is nullable with no
+default on purpose. Zero would mean the piece cost nothing, which is a
+different statement, and the difference matters on a figure a decision gets
+made on. An item with no cost is counted separately and named: *"3 of them
+cannot be valued yet - those items have no Cost/unit set, so the figure above
+is lower than the truth."* Emptying the box clears the cost back to unsaid
+rather than storing zero.
+
+The movements list also keeps working in the window between this code
+deploying and 0123 running - it falls back to the read without the cost, so
+the audit trail never goes blank, and a cost save in that window names 0123
+rather than sending him to an unrelated migration.
+
+`worker/migrations/0123_inventory_unit_cost.sql`, `worker/src/staff.ts`,
+`worker/src/index.ts` (the triple bump), `components/portal/role-panels.tsx`,
+`tests/movement-cost.mjs` (guard #66, 33 checks, negative-tested nine ways -
+including giving the column `DEFAULT 0` and folding the cost into the shared
+stock UPDATE, which is the v1.139.0 failure).
+
+## [1.146.1] - 2026-09-09 - the rule starts this month, not next
+
+The CEO on v1.146.0: *"I think should be effectively 01/09/2026 instead of
+01/10/2026."*
+
+Moved. `UNPAID_FROM` is **2026-09-01**, so emergency leave costs pay from the
+start of the payroll month he is reviewing rather than the one after it.
+
+Nothing else about the rule changes. It is still forward-only and still judged
+by a request's START date - an emergency day that began in August stays paid,
+whichever side of the line it ended on - and August and earlier are untouched,
+because those months have been paid.
+
+**What this actually moves:** September 2026 has not been released (staff see
+those payslips from 05-10-2026), so it is still his month to decide. Any
+approved emergency day dated 1 September or later now carries a deduction of
+1/26 of the monthly wage, and will show on the payroll panel the same way an
+unpaid day does.
+
+**It does not move on its own.** Saved September entries keep the figures they
+were saved with until **Re-fill days** and **Save all** are pressed - the same
+rule as any holiday-calendar change. The month recomputes when he says so, not
+while he is reading it.
+
+`worker/src/staff.ts`, `components/portal/leave.tsx`, `tests/unpaid-leave.mjs`
+(the guard pins the date, so moving it again cannot happen silently -
+negative-tested by moving it back).
+
+Guards 65 of 65, typecheck clean.
+
 ## [1.146.0] - 2026-09-09 - emergency leave costs pay, and nothing caps it
 
 The CEO, 09-09-2026, after checking: *"EL should not be as a paid leave. it is

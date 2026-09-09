@@ -128,6 +128,7 @@ const GUARDS = [
   ["users-ui", "the Users tab draws from the shared vocabulary, one filtered list feeds the desk and the phone, and a row action is a real tap target with a real name"],
   ["event-attendees", "an event can name who has to be there - only they are told, an empty list still means everyone, and the whole floor still sees the event"],
   ["map-extrusion", "a raised state is still Malaysia - every wall belongs to its own state, nothing raised leaves the frame, and a state with no figure draws no wall"],
+  ["movement-cost", "money on a stock movement says per unit AND line total, a correction is valued at cost, and an item with no cost is named rather than treated as free"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

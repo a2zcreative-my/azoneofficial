@@ -46,7 +46,7 @@ export const LEAVE_TYPES = [
    out of, which is why these two tiles say what they cost instead of how
    many are left. The worker holds the same rule and the money side of it. */
 export const UNPAID_LEAVE_TYPES: readonly string[] = ["unpaid", "emergency"];
-export const UNPAID_LEAVE_FROM = "01-10-2026";
+export const UNPAID_LEAVE_FROM = "01-09-2026";
 
 export const STAGE_LABEL: Record<string, string> = {
   applied: "Awaiting HR review",

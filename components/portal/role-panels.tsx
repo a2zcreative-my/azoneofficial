@@ -273,6 +273,9 @@ interface InvItem {
   stock: number;
   status: string;
   unit_price_cents?: number; // v1.4.101
+  /* v1.147.0 - what the piece COST. NULL means nobody has said yet, which is
+     not the same as zero and is never treated as it. */
+  unit_cost_cents?: number | null;
   live_rebate_cents?: number; // v1.4.164 — TikTok Live rebate
   category?: string | null; // v1.136.0 — the item's family: Bawal, Shawl, …
   bridge_enabled?: number | null; // v1.35.0 — published to the ELFIA web store
@@ -294,6 +297,9 @@ interface ManualOut { // v1.4.170 — traceability row for a manual stock out
   created_at: string; created_by_name?: string | null;
   out_date?: string | null; reverted?: number | null; // v1.4.172
   direction?: string | null; // v1.4.251 — 'in' | 'out' (absent = out)
+  /* v1.147.0 — the item's cost per unit, joined by the server. NULL means
+     nobody has entered a cost for that item; it is never read as zero. */
+  item_cost_cents?: number | null;
 }
 
 interface TtOut { // v1.4.165 — per-item stock OUT via TikTok orders
@@ -801,6 +807,32 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   </SubR>
                 ) : <span />}
               </div>
+              {/* v1.147.0 (CEO: "I should visible to view what is the cost that
+                  I need to aware for the internal or correction") — the cost is
+                  said HERE, while the movement is being recorded, and not only
+                  in the list afterwards: this is the moment somebody decides
+                  whether to take the piece. Only on an OUT with no sale price,
+                  because that is exactly the movement that costs the company
+                  money without earning any. No cost on the item is said as
+                  such, never as zero. */}
+              {outModal.dir === "out" && outModal.price.trim() === "" && (() => {
+                const it = items.find((x) => x.id === outModal.item_id);
+                const qtyN = Math.floor(Number(outModal.qty));
+                const n = Number.isFinite(qtyN) && qtyN > 0 ? qtyN : 0;
+                if (!it) return null;
+                return it.unit_cost_cents != null ? (
+                  <p className="border-warning/40 bg-warning-soft/40 rounded-lg border px-2.5 py-1.5 text-xs">
+                    {L("This is a correction, not a sale — it costs", "Ini pembetulan, bukan jualan — ia berkos")}{" "}
+                    <span className="font-semibold tabular-nums">RM {rmBare(it.unit_cost_cents)}{L("/unit", "/unit")}</span>
+                    {n > 0 && <> · <span className="font-bold tabular-nums">RM {rmBare(it.unit_cost_cents * n)}</span></>}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground border-border rounded-lg border border-dashed px-2.5 py-1.5 text-xs">
+                    {L("This is a correction, not a sale. No Cost/unit is set for this item, so what it costs the company cannot be shown — set it on the stock list.",
+                       "Ini pembetulan, bukan jualan. Tiada Kos/unit ditetapkan untuk barang ini, jadi kosnya kepada syarikat tidak dapat ditunjukkan — tetapkannya dalam senarai stok.")}
+                  </p>
+                );
+              })()}
               {/* v1.4.172 (CEO): the DATE the stock went out — backdatable;
                   sales totals follow this date. */}
               <SubR t={outModal.dir === "in" ? L("Date of stock in", "Tarikh stok masuk") : L("Date of stock out", "Tarikh stok keluar")}>
@@ -972,7 +1004,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 [`# ${DOCUMENT_ISSUER.name} — ${L("Inventory stock count sheet", "Helaian kiraan stok inventori")}`],
                 [`# ${L("Generated", "Dijana")} ${csvStampMyt()} ${L("— system stock as of this moment; count, write Counted qty, note variances", "— stok sistem pada saat ini; kira, tulis Kuantiti dikira, catat varians")}`],
                 [`# ${invCat === "" ? L("Every category", "Semua kategori") : invCat === "\u0000none" ? L("Uncategorised items only", "Barang tanpa kategori sahaja") : `${L("Category", "Kategori")}: ${invCat}`}${invFilter === "all" ? "" : ` · ${invFilter === "low" ? L("low stock only", "stok rendah sahaja") : L("out of stock only", "habis stok sahaja")}`}${needle ? ` · ${L("search", "carian")}: ${invQ.trim()}` : ""}`],
-                ["SKU", L("Item", "Barang"), L("Category", "Kategori"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")],
+                ["SKU", L("Item", "Barang"), L("Category", "Kategori"), L("Price/unit (RM)", "Harga/unit (RM)"), L("Cost/unit (RM)", "Kos/unit (RM)"), L("Live rebate (RM)", "Rebat live (RM)"), L("Net (RM)", "Bersih (RM)"), L("System stock", "Stok sistem"), "Status", L("Counted qty", "Kuantiti dikira"), L("Variance", "Varians"), L("Note", "Nota")],
               ];
               let units = 0;
               /* v1.136.0 - the sheet is the LIST ON SCREEN. Counting one
@@ -985,11 +1017,12 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 units += it.stock;
                 rows.push([
                   it.sku, it.name, (it.category ?? "").trim(), rmBare(price),
+                  it.unit_cost_cents != null ? rmBare(it.unit_cost_cents) : "",
                   rebate > 0 ? `-${rmBare(rebate)}` : "",
                   rmBare(net), it.stock, it.status ?? "", "", "", "",
                 ]);
               }
-              rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", "", units, "", "", "", ""]);
+              rows.push([L("TOTAL", "JUMLAH"), "", "", "", "", "", "", units, "", "", "", ""]);
               downloadCsv(`azoo-stock-count-${invCat && invCat !== "\u0000none" ? `${invCat.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-")}-` : ""}${now.slice(0, 10)}`, rows);
             }}>
             <><AppIcon name="download" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("CSV — stock count", "CSV — kiraan stok")}</>
@@ -1099,7 +1132,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         {!loaded && (
           <>
             <div className="mt-3 hidden overflow-x-auto pr-1 md:block">
-              <SkelTable rows={6} cols={11} className="min-w-[1000px]" />
+              <SkelTable rows={6} cols={12} className="min-w-[1000px]" />
             </div>
             <SkelRows rows={4} className="mt-3 md:hidden" />
           </>
@@ -1182,6 +1215,12 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 </th>
                 {/* v1.4.166: rebate is AUTO — list price − the actual sold
                     price from the latest TikTok firm order (never typed in) */}
+                {/* v1.147.0 (CEO: "I should visible to view what is the cost
+                    that I need to aware for the internal or correction") -
+                    the number the whole cost view stands on. */}
+                <th className={thR2} title={L("What one piece cost you. Blank means nobody has entered it — a correction of this item cannot be valued until it is.", "Kos satu unit. Kosong bermakna belum dimasukkan — pembetulan barang ini tidak boleh dinilai sehingga diisi.")}>
+                  {L("Cost/unit", "Kos/unit")}
+                </th>
                 <th className={thR2}>{L("Live rebate (auto)", "Rebat live (auto)")}</th>
                 <th className={`${thR2} cursor-pointer select-none whitespace-nowrap`}
                   title={L("Sort by net (live) price — click again to reverse", "Susun ikut harga bersih (live) — klik lagi untuk terbalik")}
@@ -1250,6 +1289,31 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                            which the route then wrote back - undoing every
                            TikTok deduction since. */
                         await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ unit_price: v }) });
+                        void load();
+                      }} />
+                  </td>
+                  {/* v1.147.0 - the cost, saved on blur like the price beside
+                      it and sent on its own: a cost save must never carry a
+                      stock count or a price with it (the v1.139.0 lesson).
+                      Emptying the box clears the cost back to "not said",
+                      which the totals then report rather than treat as free. */}
+                  <td className={tdR2}>
+                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
+                      title={L("What one piece cost you (RM) — saves on change. Leave empty if you do not know it yet.", "Kos satu unit (RM) — disimpan apabila diubah. Biarkan kosong jika belum tahu.")}
+                      placeholder={L("not set", "belum")}
+                      key={`unitcost:${it.unit_cost_cents ?? ""}`}
+                      defaultValue={it.unit_cost_cents != null ? rmBare(it.unit_cost_cents) : ""}
+                      onBlur={async (e) => {
+                        const raw = e.target.value.trim();
+                        if (raw === "") {
+                          if (it.unit_cost_cents == null) return;
+                          await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ unit_cost: null }) });
+                          void load();
+                          return;
+                        }
+                        const v = Number(raw);
+                        if (!Number.isFinite(v) || v < 0 || Math.round(v * 100) === (it.unit_cost_cents ?? -1)) return;
+                        await api(`/inventory/${it.id}`, { method: "PATCH", body: JSON.stringify({ unit_cost: v }) });
                         void load();
                       }} />
                   </td>
@@ -1401,9 +1465,15 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     a.units += it.stock;
                     a.value += it.stock * price;
                     a.net += it.stock * net;
+                    /* v1.147.0 - what the stock on hand COST, beside what it is
+                       worth. Only items that have a cost are added, and the
+                       ones that do not are counted so the figure is never read
+                       as complete when it is not. */
+                    if (it.unit_cost_cents != null) a.cost += it.stock * it.unit_cost_cents;
+                    else if (it.stock > 0) a.noCost += 1;
                     return a;
                   },
-                  { units: 0, value: 0, net: 0 },
+                  { units: 0, value: 0, net: 0, cost: 0, noCost: 0 },
                 );
                 return (
                   <tr className="border-border border-t-2 font-semibold">
@@ -1414,6 +1484,17 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     </td>
                     <td className={tdR2} title={L("Σ stock × price/unit — the value sitting in stock at list price", "Σ stok × harga/unit — nilai stok pada harga senarai")}>
                       RM {rmBare(tot.value)}
+                    </td>
+                    {/* v1.147.0 - the Cost/unit column's total: what the stock
+                        standing on the shelf cost the company. Without this
+                        cell every total below it sat under the wrong heading. */}
+                    <td className={tdR2}
+                      title={tot.noCost > 0
+                        ? L(`Σ stock × cost/unit — what the stock on hand cost. ${tot.noCost} item(s) with stock have no cost set and are NOT in this figure.`,
+                            `Σ stok × kos/unit — kos stok dalam tangan. ${tot.noCost} barang berstok tiada kos ditetapkan dan TIDAK termasuk dalam angka ini.`)
+                        : L("Σ stock × cost/unit — what the stock on hand cost the company", "Σ stok × kos/unit — kos stok dalam tangan kepada syarikat")}>
+                      {tot.cost > 0 || tot.noCost === 0 ? <>RM {rmBare(tot.cost)}</> : <span className="text-muted-foreground">—</span>}
+                      {tot.noCost > 0 && <span className="text-warning ml-0.5 font-bold">*</span>}
                     </td>
                     <td className={td}></td>
                     <td className={`${tdR2} text-success `}
@@ -1984,7 +2065,51 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         ) : manualOuts.length === 0 ? (
           <p className="text-muted-foreground mt-3 text-sm">{L("No manual stock outs yet — they appear here the moment one is recorded.", "Tiada stok keluar manual lagi — ia muncul di sini sebaik sahaja direkodkan.")}</p>
         ) : (
-          /* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */
+          <>
+          {/* v1.147.0 (CEO: "I should visible to view what is the cost that I
+              need to aware for the internal or correction") — the money that
+              left the shelf without being sold, said before the rows rather
+              than left to be added up by eye. Sales are excluded: those are
+              revenue, and they are counted elsewhere. Reverted rows are
+              excluded too - the stock came back.
+              Rows whose item has no cost are COUNTED AND NAMED rather than
+              treated as free, so the figure can never quietly understate. */}
+          {(() => {
+            const live = manualOuts.filter((o) => !o.reverted && o.unit_sale_cents == null);
+            const outs = live.filter((o) => o.direction !== "in");
+            const ins = live.filter((o) => o.direction === "in");
+            const cost = (rows: typeof live) =>
+              rows.reduce((n, o) => n + (o.item_cost_cents != null ? o.item_cost_cents * o.qty : 0), 0);
+            const unknown = outs.filter((o) => o.item_cost_cents == null).length;
+            const outCost = cost(outs), inCost = cost(ins);
+            if (outs.length === 0 && ins.length === 0) return null;
+            return (
+              <div className="border-warning/40 bg-warning-soft/40 mt-3 rounded-xl border p-3">
+                <p className="text-sm font-semibold">
+                  {L("What left the shelf without a sale", "Apa yang keluar dari rak tanpa jualan")}
+                </p>
+                <p className="mt-1 text-lg font-bold tabular-nums">
+                  RM {rmBare(outCost)}
+                  <span className="text-muted-foreground ml-2 text-xs font-normal">
+                    {L(`${outs.length} movement${outs.length === 1 ? "" : "s"}`,
+                       `${outs.length} pergerakan`)}
+                    {ins.length > 0 ? L(` · RM ${rmBare(inCost)} put back in`, ` · RM ${rmBare(inCost)} dikembalikan`) : ""}
+                  </span>
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {L("Corrections, internal use, samples, damage and stock-count variances — valued at each item's cost per unit, in the records below.",
+                     "Pembetulan, kegunaan dalaman, sampel, kerosakan dan varians kiraan stok — dinilai pada kos seunit setiap barang, dalam rekod di bawah.")}
+                </p>
+                {unknown > 0 && (
+                  <p className="text-warning mt-1 text-xs font-semibold">
+                    {L(`${unknown} of them cannot be valued yet — those items have no Cost/unit set on the stock list, so the figure above is lower than the truth.`,
+                       `${unknown} daripadanya belum boleh dinilai — barang tersebut tiada Kos/unit dalam senarai stok, jadi angka di atas lebih rendah daripada yang sebenar.`)}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+          {/* v1.4.196 (CEO): audit-trail rows hide behind one click — minimalist view */}
           <DetailsToggle label={`${L("Show records", "Tunjuk rekod")} (${manualOuts.length})`}>
           <div className="mt-1 max-h-72 space-y-0 overflow-y-auto pr-1">
             {manualOuts.map((o) => (
@@ -2006,8 +2131,23 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   {o.reverted ? (
                     <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
                   ) : o.unit_sale_cents != null
-                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">{L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents)}</span>
-                    : <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">{L("correction", "pembetulan")}</span>}
+                    /* v1.147.0 (CEO: "this one should RM per unit instead") —
+                       the stored figure has always been per unit, and the chip
+                       printed it bare: a −4 pcs row at RM 25 a unit read as if
+                       RM 25 left the building when the sale was RM 100. Both
+                       numbers now, in that order. */
+                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                        {L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents)}{L("/unit","/unit")} · RM {rmBare(o.unit_sale_cents * o.qty)}
+                      </span>
+                    /* And a movement that is NOT a sale still costs the
+                       company something. It used to say only "correction". */
+                    : o.item_cost_cents != null
+                      ? <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                          {L("correction", "pembetulan")} · {L("cost", "kos")} RM {rmBare(o.item_cost_cents)}{L("/unit","/unit")} · RM {rmBare(o.item_cost_cents * o.qty)}
+                        </span>
+                      : <span className="bg-secondary text-muted-foreground rounded-full px-2 py-0.5 text-[10px]">
+                          {L("correction", "pembetulan")} · {L("cost not set", "kos belum ditetapkan")}
+                        </span>}
                   {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
                       the audit trail) / Delete (wrong record: stock back +
@@ -2073,6 +2213,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             ))}
           </div>
           </DetailsToggle>
+          </>
         )}
         </div>
       </div>
