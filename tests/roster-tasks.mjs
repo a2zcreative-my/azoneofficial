@@ -223,8 +223,12 @@ ok("the PDF prints the WHOLE staff name, wrapped",
    "two words is a guess about who is meant, and two people can share them");
 ok("the PDF no longer cuts a name to two words",
    !/u\.name\.split\(" "\)\.slice\(0, 2\)/.test(pdf));
+/* v1.143.0 - the property is that the NAME is one of the things a row is
+   sized by, not the literal minimum it is sized against: the sheet now picks
+   its own scale, so the floor is a metric rather than the number 24, and
+   pinning the number failed a release that changed nothing about the rule. */
 ok("the PDF row grows to fit a wrapped name",
-   /Math\.max\(24, nameH,/.test(pdf),
+   /const h = Math\.max\([^)]*nameH/.test(pdf),
    "sizing on chips alone prints a three-line name over the row below it");
 ok("the line count is measured, not guessed",
    /function nameLineCount/.test(pdf) && /widthOf\(test, size, true\)/.test(pdf),

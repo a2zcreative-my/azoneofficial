@@ -2,6 +2,65 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.143.0] - 2026-09-09 - the shared roster sizes itself to the week
+
+The CEO, 09-09-2026: *"this pdf for the Schedule & Roster too small which is
+hard to read"*.
+
+He was right, and the page was not the problem. Every size on that sheet was
+chosen for the WORST week and then used for every week: chip titles printed at
+**6pt and their times at 5pt** - about 1.7mm - while a normal week left a third
+of the sheet blank underneath them.
+
+**The type is now set at a size a person can read across a desk, and the sheet
+shrinks only if a week actually needs it to.** `planAt(k)` measures the whole
+grid at a scale; the scale starts from what the week needs and is then checked
+and pulled back, because a bigger name wraps to more lines and a row can grow
+faster than the scale did.
+
+Two limits keep it honest:
+
+- **It never grows past the width of the column its text sits in.** Growing
+  further does not make the sheet more readable - it starts eating the times
+  with an ellipsis, and the time is the one thing on a chip nobody can guess.
+  So the cap is the longest SECOND LINE the week actually contains: the sheet
+  grows until that line just fits, and no further. A quiet week therefore
+  leaves some space at the bottom rather than clipping its own times.
+- **It never shrinks below 0.72.** Past that it would be no more readable than
+  what it replaced, and dropping a row with "+N more staff rows" is the more
+  honest answer.
+
+Base sizes, at scale 1: chip title 6 → **8pt**, chip time 5 → **6.5pt**, staff
+name 6.6 → **8.2pt**, weekly totals 5.5 → **7pt**, day header 7 → **9.5pt**,
+its total 6 → **7.5pt**, ON LEAVE 5.5 → **7.5pt**, legend 6 → **7.5pt**, the
+letterhead 12 → **14pt**. Chip height 15 → 22pt, header row 24 → 30pt.
+
+**The legend now has a reserved band.** It used to be drawn after the rows had
+taken whatever they wanted, so a full week pushed it into the footer. Its
+height comes off the row budget before a single row is measured.
+
+**"OK Operation" is gone.** A completed task printed its done-mark as an `OK `
+prefix on the title - the PDF font is WinAnsi and has no tick - which reads as
+a job called *OK Operation* rather than an Operation that is done, and it ate
+the width the title needed. Done now sits on the second line with the rest of
+the state: `10:00-18:00 · task · done`. The green fill already said it; the
+word confirms it where a reader is already looking.
+
+The two chip kinds are also drawn through one `chip()` helper now, so a title
+can never sit on a different baseline from its neighbour.
+
+`tests/roster-tasks.mjs` had pinned the literal `Math.max(24, nameH,` - the
+second implementation-pinned guard this week to fail a release that changed
+nothing about its rule. It now asserts the property (the name is one of the
+things a row is sized by) and was negative-tested by taking the name out of
+the row height.
+
+Verified by building the CEO's own week - his eight staff, twelve live
+sessions, twenty-three task blocks, two people on leave - through the real
+builder, before and after, and rendering both at 150dpi.
+
+Guards 64 of 64, typecheck clean, build clean, eslint clean.
+
 ## [1.142.0] - 2026-09-09 - the note opens on the thing you pressed
 
 The CEO, 09-09-2026, on the week grid: *"for the sticky note, can make it

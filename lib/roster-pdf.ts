@@ -134,11 +134,11 @@ export function drawRosterGrid(
   /* Letterhead — compact for landscape. */
   let y = FM;
   c.rect(FM, y, FW, 3.4, GOLD); y += 3.4 + 5;
-  c.text(DOCUMENT_ISSUER.name, FM + FW / 2, y + 10, 12, { bold: true, align: "c", spacing: 0.4 });
-  c.text("LIVE  -  CONNECT  -  GROW", FM + FW / 2, y + 18, 5.5, { bold: true, colour: GOLD, align: "c", spacing: 2.2 });
+  c.text(DOCUMENT_ISSUER.name, FM + FW / 2, y + 11, 14, { bold: true, align: "c", spacing: 0.4 });
+  c.text("LIVE  -  CONNECT  -  GROW", FM + FW / 2, y + 20, 6.5, { bold: true, colour: GOLD, align: "c", spacing: 2.2 });
   c.text(`Weekly Schedule & Roster  -  Week of ${dmy(days[0] ?? "")} - ${dmy(days[days.length - 1] ?? "")}`,
-    FM + FW / 2, y + 30, 8.5, { bold: true, colour: SLATE, align: "c" });
-  y += 38;
+    FM + FW / 2, y + 34, 10, { bold: true, colour: SLATE, align: "c" });
+  y += 42;
 
   /* Grid geometry.
      v1.69.2 (CEO: "I want the table get full name include the PDF"):
@@ -149,55 +149,129 @@ export function drawRosterGrid(
      150pt plus wrapping fits the real names. It costs each day column about
      five points, which the chips do not notice. */
   const STAFF_W = 150;
-  const NAME_SIZE = 6.6, NAME_LEAD = 7.4;
   const dayW = (FW - STAFF_W) / 7;
   const edgeX = (i: number) => FM + STAFF_W + i * dayW; // left edge of day column i
 
   /* Header row. */
-  const HEAD_H = 24;
+  const HEAD_H = 30;
   c.rect(FM, y, STAFF_W, HEAD_H, NAVY);
-  c.text("STAFF", FM + 5, y + 9, 6, { bold: true, colour: WHITE, spacing: 0.8 });
+  c.text("STAFF", FM + 5, y + 11, 7.5, { bold: true, colour: WHITE, spacing: 0.8 });
   /* Committed hours, both kinds. A total that counts only live sessions
      understates the week on paper exactly as it did on screen. */
   const totalMins = active.reduce((a, s) => a + durOf(s), 0) + work.reduce((a, b) => a + durOfB(b), 0);
   c.text(`${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""} · ${hrs(totalMins)}`,
-    FM + 5, y + 18, 6.5, { bold: true, colour: WHITE });
+    FM + 5, y + 22, 8, { bold: true, colour: WHITE });
   days.forEach((d, i) => {
     const x = edgeX(i);
     const dayS = active.filter((s) => s.session_date === d);
     const dayB = work.filter((b) => b.block_date === d);
     c.box(x, y, dayW, HEAD_H, NAVY, 0.5);
     c.rect(x + 0.5, y + 0.5, dayW - 1, HEAD_H - 1, d === todayIso ? TODAY_FILL : BAND_GREY);
-    c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 10, 7, { bold: true, align: "c" });
+    c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 12, 9.5, { bold: true, align: "c" });
     const dayMins = dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0);
     c.text(dayS.length + dayB.length === 0 ? "-" : `${dayS.length + dayB.length} · ${hrs(dayMins)}`,
-      x + dayW / 2, y + 19, 6, { colour: GREY, align: "c" });
+      x + dayW / 2, y + 23, 7.5, { colour: GREY, align: "c" });
   });
   y += HEAD_H;
 
-  /* Staff rows — height grows with the busiest cell of the row. */
-  const CHIP_H = 15, CELL_PAD = 3, LEAVE_H = 9;
+  /* v1.143.0 — THE SHEET SIZES ITSELF TO THE WEEK.
+     The CEO, 09-09-2026: *"this pdf for the Schedule & Roster too small which
+     is hard to read"*. He was right, and the reason was not the page — it was
+     that every size on it was chosen for the WORST week and then used for
+     every week. Chip titles printed at 6pt and their times at 5pt (about
+     1.7mm), while a normal week left a third of the sheet blank underneath.
+
+     So the type is set at a size a person can actually read across a desk,
+     and the sheet SHRINKS only if a particular week needs it to. `planAt(k)`
+     measures the whole grid at a scale; the scale starts at 1 and is pulled
+     down only as far as the week demands, never below 0.72 — below that it
+     would be no more readable than what it replaced, and dropping a row is
+     the more honest answer.
+
+     One consequence worth stating: a busy week prints smaller than a quiet
+     one. That is the trade, and it is the right way round — the sheet is
+     legible whenever it can be, instead of illegible always. */
   const footerY = LH - FM - 26;
+  const MIN_K = 0.72, MAX_K = 1.4;
+  /* The legend is not optional furniture - it is what tells a reader which
+     colour means completed and which means on leave - so its band is reserved
+     BEFORE the rows are sized, not squeezed out after them. */
+  const LEGEND_H = 26;
+  const AVAIL = (footerY - LEGEND_H) - y;
+  const BASE = {
+    nameSize: 8.2, nameLead: 9.4, totals: 7,
+    chipH: 22, chipTitle: 8, chipTime: 6.5, gap: 2,
+    leaveH: 13, leaveText: 7.5, minRow: 30, pad: 3.5,
+  };
+  type Metrics = typeof BASE;
+  const metricsAt = (k: number): Metrics => ({
+    nameSize: BASE.nameSize * k, nameLead: BASE.nameLead * k, totals: BASE.totals * k,
+    chipH: BASE.chipH * k, chipTitle: BASE.chipTitle * k, chipTime: BASE.chipTime * k,
+    gap: BASE.gap * k, leaveH: BASE.leaveH * k, leaveText: BASE.leaveText * k,
+    minRow: BASE.minRow * k, pad: BASE.pad * k,
+  });
+
+  interface Row { u: RosterPdfStaff; mine: RosterPdfSession[]; mineB: RosterPdfBlock[]; h: number }
+  const planAt = (k: number): { m: Metrics; rows: Row[]; total: number } => {
+    const m = metricsAt(k);
+    let total = 0;
+    const rows = staff.map((u) => {
+      const mine = active.filter((s) => s.host_user_id === u.id);
+      const mineB = work.filter((b) => b.user_id === u.id);
+      const maxChips = Math.max(1, ...days.map((d) =>
+        mine.filter((s) => s.session_date === d).length
+        + mineB.filter((b) => b.block_date === d).length
+        + (leaveOn(u.id, d) ? 1 : 0)));
+      /* The row is as tall as its busiest cell OR its longest name, whichever
+         needs more. Sizing on chips alone would print a three-line name over
+         the border of the row below it. */
+      const nameLines = nameLineCount(u.name.trim(), STAFF_W - 10, m.nameSize);
+      const nameH = m.nameLead + nameLines * m.nameLead + m.totals;
+      const h = Math.max(m.minRow, nameH, m.pad * 2 + maxChips * (m.chipH + m.gap) - m.gap);
+      total += h;
+      return { u, mine, mineB, h };
+    });
+    return { m, rows, total };
+  };
+
+  /* The scale is chosen from the week itself: fill the sheet if the week is
+     quiet, shrink if it is busy. Grown or shrunk, it is then checked and
+     pulled back until it fits, because a bigger name wraps to more lines and
+     a row can grow faster than the scale did. */
+  /* HOW BIG IS TOO BIG. Growing the type past the width of the column it sits
+     in does not make the sheet more readable - it starts eating the times with
+     an ellipsis, which is the one thing on the chip nobody can guess. So the
+     growth is capped by the LONGEST SECOND LINE the week actually contains:
+     the sheet may grow until that line just fits its column, and no further.
+     Shrinking is not capped this way - clip() already handles a line that was
+     never going to fit. */
+  const subLines = [
+    ...active.map((s2) => `${s2.start_time}${s2.end_time ? `-${s2.end_time}` : ""} · ${durOf(s2)} min`),
+    ...work.map((b) => `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task${b.done_at ? " · done" : ""}`),
+  ];
+  const widest = Math.max(0, ...subLines.map((t) => widthOf(t, BASE.chipTime, false)));
+  const fitK = widest > 0 ? Math.max(1, (dayW - 12) / widest) : MAX_K;
+  const growK = Math.min(MAX_K, fitK);
+
+  let plan = planAt(1);
+  let scale = plan.total > 0 ? Math.max(MIN_K, Math.min(growK, AVAIL / plan.total)) : 1;
+  plan = planAt(scale);
+  for (let pass = 0; pass < 4 && plan.total > AVAIL && scale > MIN_K; pass += 1) {
+    scale = Math.max(MIN_K, scale * (AVAIL / plan.total));
+    plan = planAt(scale);
+  }
+  const M = plan.m;
+
   let skippedStaff = 0;
 
-  for (const u of staff) {
-    const mine = active.filter((s) => s.host_user_id === u.id);
-    const mineB = work.filter((b) => b.user_id === u.id);
-    const maxChips = Math.max(1, ...days.map((d) =>
-      mine.filter((s) => s.session_date === d).length
-      + mineB.filter((b) => b.block_date === d).length
-      + (leaveOn(u.id, d) ? 1 : 0)));
-    /* The row is as tall as its busiest cell OR its longest name, whichever
-       needs more. Sizing on chips alone would print a three-line name over
-       the border of the row below it. */
-    const nameLines = nameLineCount(u.name.trim(), STAFF_W - 10, NAME_SIZE);
-    const nameH = 9 + nameLines * NAME_LEAD + 4;
-    const rowH = Math.max(24, nameH, CELL_PAD * 2 + maxChips * (CHIP_H + 2) - 2);
-    if (y + rowH > footerY - 14) { skippedStaff++; continue; }
+  for (const row of plan.rows) {
+    const { u, mine, mineB } = row;
+    const rowH = row.h;
+    if (y + rowH > footerY - LEGEND_H) { skippedStaff++; continue; }
 
     /* staff cell — the WHOLE name, wrapped, with the totals under it. */
     c.box(FM, y, STAFF_W, rowH, HAIR, 0.5);
-    const nameEnd = c.wrap(u.name.trim(), FM + 5, y + 9, STAFF_W - 10, NAME_SIZE, NAME_LEAD, { bold: true });
+    const nameEnd = c.wrap(u.name.trim(), FM + 5, y + M.nameLead, STAFF_W - 10, M.nameSize, M.nameLead, { bold: true });
     const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0);
     c.text(
       mine.length + mineB.length === 0
@@ -205,30 +279,37 @@ export function drawRosterGrid(
         : [mine.length > 0 ? `${mine.length} live` : "",
            mineB.length > 0 ? `${mineB.length} task${mineB.length === 1 ? "" : "s"}` : "",
            hrs(myMins)].filter(Boolean).join(" · "),
-      FM + 5, nameEnd + 4, 5.5, { colour: GREY });
+      FM + 5, nameEnd + M.totals * 0.6, M.totals, { colour: GREY });
 
     /* day cells */
     days.forEach((d, i) => {
       const x = edgeX(i);
       c.box(x, y, dayW, rowH, HAIR, 0.5);
       if (d === todayIso) c.rect(x + 0.5, y + 0.5, dayW - 1, rowH - 1, "0.995 0.989 0.973");
-      let cy = y + CELL_PAD;
+      let cy = y + M.pad;
       if (leaveOn(u.id, d)) {
-        c.rect(x + 2.5, cy, dayW - 5, LEAVE_H, LV_FILL);
-        c.text("ON LEAVE", x + dayW / 2, cy + 6.5, 5.5, { bold: true, colour: LV_TEXT, align: "c", spacing: 0.6 });
-        cy += LEAVE_H + 2;
+        c.rect(x + 2.5, cy, dayW - 5, M.leaveH, LV_FILL);
+        c.text("ON LEAVE", x + dayW / 2, cy + M.leaveH * 0.7, M.leaveText, { bold: true, colour: LV_TEXT, align: "c", spacing: 0.6 });
+        cy += M.leaveH + M.gap;
       }
+      /* Both kinds of chip are drawn the same way; only the colours and the
+         second line differ, so the geometry lives in one place and a title
+         can never sit on a different baseline from its neighbour. */
+      const chip = (fill: string, edge: string, title: string, sub: string) => {
+        c.box(x + 2.5, cy, dayW - 5, M.chipH, edge, 0.6);
+        c.rect(x + 3, cy + 0.5, dayW - 6, M.chipH - 1, fill);
+        c.text(clip(title, M.chipTitle, dayW - 12, true), x + 5.5, cy + M.chipH * 0.42, M.chipTitle, { bold: true });
+        c.text(clip(sub, M.chipTime, dayW - 12), x + 5.5, cy + M.chipH * 0.78, M.chipTime, { colour: SLATE });
+        cy += M.chipH + M.gap;
+      };
       for (const s of mine.filter((v) => v.session_date === d)) {
         const [fill, edge] = conflictSet.has(s.id) ? [CF_FILL, CF_EDGE]
           : s.status === "completed" ? [OK_FILL, OK_EDGE]
           : s.platform === "tiktok" ? [TT_FILL, TT_EDGE]
           : s.platform === "shopee" ? [SP_FILL, SP_EDGE]
           : [OT_FILL, OT_EDGE];
-        c.box(x + 2.5, cy, dayW - 5, CHIP_H, edge, 0.6);
-        c.rect(x + 3, cy + 0.5, dayW - 6, CHIP_H - 1, fill);
-        c.text(clip(s.client?.trim() || "Live session", 6, dayW - 12, true), x + 5.5, cy + 6.5, 6, { bold: true });
-        c.text(`${s.start_time}${s.end_time ? `-${s.end_time}` : ""} · ${durOf(s)} min`, x + 5.5, cy + 12.5, 5, { colour: SLATE });
-        cy += CHIP_H + 2;
+        chip(fill!, edge!, s.client?.trim() || "Live session",
+             `${s.start_time}${s.end_time ? `-${s.end_time}` : ""} · ${durOf(s)} min`);
       }
       /* Task work, under the live sessions — the same order the screen uses,
          so the printed sheet and the board read alike. */
@@ -236,12 +317,13 @@ export function drawRosterGrid(
         const [fill, edge] = b.done_at ? [OK_FILL, OK_EDGE]
           : blockSet.has(b.id) ? [CF_FILL, CF_EDGE]
           : [TK_FILL, TK_EDGE];
-        c.box(x + 2.5, cy, dayW - 5, CHIP_H, edge, 0.6);
-        c.rect(x + 3, cy + 0.5, dayW - 6, CHIP_H - 1, fill);
-        const mark = b.done_at ? "OK " : b.priority === "urgent" ? "! " : "";
-        c.text(clip(`${mark}${b.title.trim() || "Task"}`, 6, dayW - 12, true), x + 5.5, cy + 6.5, 6, { bold: true });
-        c.text(`${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task`, x + 5.5, cy + 12.5, 5, { colour: SLATE });
-        cy += CHIP_H + 2;
+        /* v1.143.0 - "done" moved off the title and onto the time line. The
+           old prefix printed as "OK Operation", which reads as a job called
+           OK Operation rather than as an Operation that is done - and it ate
+           the width the title needed. The green fill already says completed;
+           the word now confirms it where the rest of the state lives. */
+        chip(fill!, edge!, `${b.priority === "urgent" && !b.done_at ? "! " : ""}${b.title.trim() || "Task"}`,
+             `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task${b.done_at ? " · done" : ""}`);
       }
     });
     y += rowH;
@@ -249,7 +331,7 @@ export function drawRosterGrid(
 
   if (skippedStaff > 0) {
     y += 3;
-    c.text(`+${skippedStaff} more staff row${skippedStaff === 1 ? "" : "s"} - see the portal roster.`, FM, y + 7, 6.5, { bold: true, colour: SLATE });
+    c.text(`+${skippedStaff} more staff row${skippedStaff === 1 ? "" : "s"} - see the portal roster.`, FM, y + 8, 8, { bold: true, colour: SLATE });
     y += 11;
   }
 
@@ -262,10 +344,10 @@ export function drawRosterGrid(
     ["Completed", OK_FILL, OK_EDGE], ["Conflict", CF_FILL, CF_EDGE], ["On leave", LV_FILL, LV_TEXT],
   ];
   for (const [label, fill, edge] of legend) {
-    c.box(lx, y, 7, 7, edge, 0.6);
-    c.rect(lx + 0.5, y + 0.5, 6, 6, fill);
-    c.text(label, lx + 10, y + 5.5, 6, { colour: SLATE });
-    lx += 10 + widthOf(label, 6, false) + 14;
+    c.box(lx, y, 9, 9, edge, 0.6);
+    c.rect(lx + 0.5, y + 0.5, 8, 8, fill);
+    c.text(label, lx + 12.5, y + 7, 7.5, { colour: SLATE });
+    lx += 12.5 + widthOf(label, 7.5, false) + 16;
   }
 
   /* Footer. */
