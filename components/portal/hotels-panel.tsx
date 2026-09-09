@@ -67,7 +67,7 @@ import { getLang } from "@/lib/i18n";
    and the ELFIA Traffic map draw from. Its names are Title Case; the hotel
    list keeps the workbook's upper case, and `stateKey` is the one place the
    two meet. */
-import { STATES } from "@/lib/malaysia-map";
+import { STATES, liftsFor, wallPath } from "@/lib/malaysia-map";
 
 const api = makeApi("/staff/hotels");
 const staffApi = makeApi("/staff");
@@ -377,6 +377,14 @@ export function HotelsPanel() {
   const totalPublished = useMemo(() => Object.values(statePipe).reduce((a, b) => a + b.published, 0), [statePipe]);
   const maxPublished = useMemo(() => Math.max(1, ...Object.values(statePipe).map((m) => m.published)), [statePipe]);
   const byPublished = mapMode === "published";
+  /* v1.140.0 - how far each state stands off the page, on whichever figure the
+     map is showing, and the north-first order the walls need. */
+  const lifts = useMemo(
+    () => liftsFor((n) => (byPublished ? (statePipe[stateKey(n)]?.published ?? 0) : (byState[stateKey(n)] ?? 0)),
+                   byPublished ? maxPublished : maxState),
+    [byPublished, statePipe, byState, maxPublished, maxState],
+  );
+  const raised = useMemo(() => [...STATES].sort((a, b) => a.cy - b.cy), []);
   const today = todayMyt();
 
   const save = async () => {
@@ -492,9 +500,9 @@ export function HotelsPanel() {
             than shaded, because nothing is not a small something. */}
         <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
           {!loaded ? (
-            <Skel className="aspect-[860/380] w-full rounded-xl" />
+            <Skel className="aspect-[860/400] w-full rounded-xl" />
           ) : (
-            <svg viewBox="0 0 860 380" className="w-full"
+            <svg viewBox="0 -20 860 400" className="w-full"
               aria-label={L("Map of Malaysia — each state is a button showing how many hotels are in it",
                             "Peta Malaysia — setiap negeri ialah butang yang menunjukkan bilangan hotelnya")}>
               <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
@@ -504,8 +512,10 @@ export function HotelsPanel() {
                 SABAH &amp; SARAWAK
               </text>
               <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
-              {/* the selected state is drawn last so its stroke sits above its neighbours */}
-              {(state ? [...STATES.filter((x) => stateKey(x.name) !== state), ...STATES.filter((x) => stateKey(x.name) === state)] : STATES).map((sh) => {
+              {/* v1.140.0 - north first, so a southern state's wall covers its
+                  northern neighbour's; the selected state is still drawn last
+                  so its stroke sits above its neighbours. */}
+              {(state ? [...raised.filter((x) => stateKey(x.name) !== state), ...raised.filter((x) => stateKey(x.name) === state)] : raised).map((sh) => {
                 const key = stateKey(sh.name);
                 const n = byState[key] ?? 0;
                 const pub = statePipe[key]?.published ?? 0;
@@ -517,8 +527,17 @@ export function HotelsPanel() {
                 const label = byPublished
                   ? `${sh.name}: ${pub} ${L("published", "diterbitkan")} · ${n} ${L("hotels", "hotel")}`
                   : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
+                const h = lifts[sh.name] ?? 0;
+                const wall = wallPath(sh.name, h);
                 return (
-                  <path key={sh.name} d={sh.d}
+                  <g key={sh.name}>
+                  {wall && (
+                    <>
+                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * w} pointerEvents="none" aria-hidden="true" />
+                      <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
+                    </>
+                  )}
+                  <path d={sh.d} transform={h ? `translate(0 ${-h})` : undefined}
                     role="button" tabIndex={0} aria-pressed={isSel}
                     aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
@@ -531,6 +550,7 @@ export function HotelsPanel() {
                     strokeLinejoin="round">
                     <title>{label}</title>
                   </path>
+                  </g>
                 );
               })}
               {/* The bubbles are BUTTONS, not decoration: Kuala Lumpur holds
@@ -551,6 +571,7 @@ export function HotelsPanel() {
                   : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
                 return (
                   <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel}
+                    transform={lifts[sh.name] ? `translate(0 ${-(lifts[sh.name] ?? 0)})` : undefined}
                     aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}

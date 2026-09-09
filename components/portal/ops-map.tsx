@@ -19,7 +19,7 @@ import { getLang } from "@/lib/i18n";
 /* v1.43.0 — the geometry and the city→state mapper moved VERBATIM to
    lib/malaysia-map.ts when the ELFIA Traffic map became their second
    consumer. This card's behaviour is unchanged. */
-import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
+import { STATES, liftsFor, stateOf, titleCase, wallPath } from "@/lib/malaysia-map";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -79,7 +79,7 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
       <div className={card} aria-hidden>
         <SkelHead sub />
         <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
-          <Skel className="aspect-[860/380] w-full rounded-xl" />
+          <Skel className="aspect-[860/400] w-full rounded-xl" />
           <div className="space-y-3">
             <div className="border-border rounded-xl border p-3">
               <Skel className="h-4 w-36" />
@@ -107,8 +107,13 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
 
   const toggle = (name: string) => setSel((cur) => (cur === name ? null : name));
 
-  /* Selected state renders last so its highlight stroke sits above neighbours. */
-  const drawOrder = sel ? [...STATES.filter((s) => s.name !== sel), ...STATES.filter((s) => s.name === sel)] : STATES;
+  /* v1.140.0 - how far each state stands off the page. North first, because a
+     southern state is nearer the reader and its wall must cover its northern
+     neighbour's, not the other way round. Selected state renders last so its
+     highlight stroke sits above neighbours. */
+  const lifts = liftsFor((n) => byState.get(n)?.orders ?? 0, maxOrders);
+  const byCy = [...STATES].sort((a, b) => a.cy - b.cy);
+  const drawOrder = sel ? [...byCy.filter((s) => s.name !== sel), ...byCy.filter((s) => s.name === sel)] : byCy;
 
   return (
     <div className={card}>
@@ -117,7 +122,7 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
         {L("Where your TikTok orders ship (buyer city from the sync). Tap any state to see its orders and top buyer cities right here.", "Destinasi penghantaran pesanan TikTok anda (bandar pembeli daripada segerakan). Tekan mana-mana negeri untuk melihat pesanan dan bandar pembeli teratasnya di sini.")}
       </p>
       <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
-        <svg viewBox="0 0 860 380" className="w-full" aria-label={L("Map of Malaysia — each state is a button showing its orders", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan pesanannya")}>
+        <svg viewBox="0 -20 860 400" className="w-full" aria-label={L("Map of Malaysia — each state is a button showing its orders", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan pesanannya")}>
           <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">{L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}</text>
           <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">SABAH &amp; SARAWAK</text>
           <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
@@ -125,10 +130,19 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
             const v = byState.get(s.name);
             const ratio = v ? v.orders / maxOrders : 0;
             const isSel = sel === s.name;
+            const h = lifts[s.name] ?? 0;
+            const wall = wallPath(s.name, h);
             return (
+              <g key={s.name}>
+              {wall && (
+                <>
+                  <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * ratio} pointerEvents="none" aria-hidden="true" />
+                  <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
+                </>
+              )}
               <path
-                key={s.name}
                 d={s.d}
+                transform={h ? `translate(0 ${-h})` : undefined}
                 role="button"
                 tabIndex={0}
                 aria-label={`${s.name}: ${v ? L(`${v.orders} order${v.orders === 1 ? "" : "s"}, ${fmtRM(v.cents)}`, `${v.orders} pesanan, ${fmtRM(v.cents)}`) : L("no orders yet", "belum ada pesanan")}`}
@@ -144,6 +158,7 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
               >
                 <title>{`${s.name} · ${v ? L(`${v.orders} order${v.orders === 1 ? "" : "s"} · ${fmtRM(v.cents)}`, `${v.orders} pesanan · ${fmtRM(v.cents)}`) : L("no orders yet", "belum ada pesanan")}`}</title>
               </path>
+              </g>
             );
           })}
           {STATES.map((s) => {
@@ -151,7 +166,7 @@ export function OpsMapCard({ aside }: { aside?: ReactNode } = {}) {
             if (!v) return null;
             const r = 9 + Math.sqrt(v.orders / maxOrders) * 9;
             return (
-              <g key={`b-${s.name}`} className="pointer-events-none">
+              <g key={`b-${s.name}`} className="pointer-events-none" transform={lifts[s.name] ? `translate(0 ${-(lifts[s.name] ?? 0)})` : undefined}>
                 <circle cx={s.cx} cy={s.cy} r={r} fill="var(--brand-primary)" stroke="var(--gold-solid)" strokeWidth="1.5" opacity="0.92" />
                 <text x={s.cx} y={s.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>{v.orders}</text>
               </g>

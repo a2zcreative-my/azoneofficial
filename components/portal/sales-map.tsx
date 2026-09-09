@@ -27,7 +27,7 @@ import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { STATES } from "@/lib/malaysia-map";
+import { STATES, liftsFor, wallPath } from "@/lib/malaysia-map";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -66,6 +66,15 @@ export function SalesMap() {
   const unit = layer === "invoices" ? [L("invoices", "invois"), L("invoice", "invois")] : [L("orders", "pesanan"), L("order", "pesanan")];
   const noun = (n: number) => (n === 1 ? unit[1] : unit[0]);
   const sel = state ? states[state] : undefined;
+  /* v1.140.0 - how far each state stands off the page, and the order they are
+     painted in. North first: a southern state is nearer the reader, so its
+     wall must cover its northern neighbour's and not the other way round. The
+     selected state goes last for its ring, as it always has. */
+  const lifts = useMemo(() => liftsFor((n) => cents(states[stateKey(n)], layer), max), [states, layer, max]);
+  const raised = useMemo(() => {
+    const byCy = [...STATES].sort((a, b) => a.cy - b.cy);
+    return state ? [...byCy.filter((x) => stateKey(x.name) !== state), ...byCy.filter((x) => stateKey(x.name) === state)] : byCy;
+  }, [state]);
   const top = useMemo(() => Object.entries(states).map(([st, c]) => [st, cents(c, layer), count(c, layer)] as [string, number, number]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 6), [states, layer]);
 
   return (
@@ -106,30 +115,40 @@ export function SalesMap() {
 
       <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
         {view.loading ? (
-          <Skel className="aspect-[860/380] w-full rounded-xl" />
+          <Skel className="aspect-[860/400] w-full rounded-xl" />
         ) : (
-          <svg viewBox="0 0 860 380" className="w-full"
+          <svg viewBox="0 -20 860 400" className="w-full"
             aria-label={L("Map of Malaysia — each state is a button showing its sales", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan jualannya")}>
             <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
               {L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}
             </text>
             <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">SABAH &amp; SARAWAK</text>
             <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
-            {(state ? [...STATES.filter((x) => stateKey(x.name) !== state), ...STATES.filter((x) => stateKey(x.name) === state)] : STATES).map((sh) => {
+            {raised.map((sh) => {
               const key = stateKey(sh.name);
               const v = cents(states[key], layer);
               const n = count(states[key], layer);
               const isSel = state === key;
+              const h = lifts[sh.name] ?? 0;
+              const wall = wallPath(sh.name, h);
               const label = `${sh.name}: ${fmtRM(v)} · ${n} ${noun(n)}`;
               return (
-                <path key={sh.name} d={sh.d} role="button" tabIndex={0} aria-pressed={isSel} aria-label={label}
-                  onClick={() => setState(isSel ? "" : key)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                  className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
-                  fill={v > 0 ? "var(--gold-solid)" : "var(--secondary)"} fillOpacity={v > 0 ? 0.3 + 0.55 * (v / max) : 1}
-                  stroke={isSel ? "var(--primary)" : "var(--border)"} strokeWidth={isSel ? 2.5 : 1} strokeLinejoin="round">
-                  <title>{label}</title>
-                </path>
+                <g key={sh.name}>
+                  {wall && (
+                    <>
+                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * (v / max)} pointerEvents="none" aria-hidden="true" />
+                      <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
+                    </>
+                  )}
+                  <path d={sh.d} transform={h ? `translate(0 ${-h})` : undefined} role="button" tabIndex={0} aria-pressed={isSel} aria-label={label}
+                    onClick={() => setState(isSel ? "" : key)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
+                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    fill={v > 0 ? "var(--gold-solid)" : "var(--secondary)"} fillOpacity={v > 0 ? 0.3 + 0.55 * (v / max) : 1}
+                    stroke={isSel ? "var(--primary)" : "var(--border)"} strokeWidth={isSel ? 2.5 : 1} strokeLinejoin="round">
+                    <title>{label}</title>
+                  </path>
+                </g>
               );
             })}
             {STATES.map((sh) => {
@@ -139,9 +158,11 @@ export function SalesMap() {
               const n = count(states[key], layer);
               const r = 11 + Math.sqrt(v / max) * 9;
               const isSel = state === key;
+              const h = lifts[sh.name] ?? 0;
               const label = `${sh.name}: ${fmtRM(v)} · ${n} ${noun(n)}`;
               return (
                 <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel} aria-label={label}
+                  transform={h ? `translate(0 ${-h})` : undefined}
                   onClick={() => setState(isSel ? "" : key)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
                   className="cursor-pointer outline-none">

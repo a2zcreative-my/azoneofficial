@@ -122,6 +122,37 @@ export function liftFor(value: number, max: number): number {
 }
 
 /**
+ * AN ENCLAVE RISES WITH ITS HOST — v1.140.0.
+ *
+ * Selangor's outline carries Kuala Lumpur and Putrajaya as HOLES in itself,
+ * because that is what they are on the ground. Raise Selangor 16px and Kuala
+ * Lumpur 14.4px and the hole rises with Selangor while the territory inside it
+ * does not: a 1.6px sliver of the page shows through, and it reads as a crack
+ * across the map. Found in the first render of the extrusion, not in
+ * production.
+ *
+ * So an enclave takes its host's height exactly and the crack cannot open,
+ * whichever of the two carries the bigger figure. Its own figure is not lost -
+ * the bubble and the fill ramp carry it, exactly as they do today. Labuan is
+ * offshore, an island in its own right, and rises on its own figure.
+ */
+export const HOST_STATE: Record<string, string> = {
+  "Kuala Lumpur": "Selangor",
+  Putrajaya: "Selangor",
+};
+
+/** Every state's lift in one pass, enclaves settled. `valueOf` is whatever the
+    map is counting - ringgit, orders, visitors, hotels. */
+export function liftsFor(valueOf: (name: string) => number, max: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of STATES) out[s.name] = liftFor(valueOf(s.name), max);
+  for (const [enclave, host] of Object.entries(HOST_STATE)) {
+    if (out[host] !== undefined) out[enclave] = out[host];
+  }
+  return out;
+}
+
+/**
  * THE FACE UNDER A RAISED STATE.
  *
  * The state is drawn twice over: once where it sits, lifted by `h`, and once

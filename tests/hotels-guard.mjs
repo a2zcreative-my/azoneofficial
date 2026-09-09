@@ -79,8 +79,14 @@ const { MY_STATES, formatMyPhone, cleanEmail } = await import(pathToFileURL(out)
      difference in one place and this reads that place, so adding a Labuan
      sheet later is one edit, not a hunt.) */
   const geometry = [...read("lib/malaysia-map.ts").matchAll(/name: "([^"]+)"/g)].map((m) => m[1].toUpperCase());
+  /* v1.140.0 - the property is that STATES comes from the shared module, not
+     that it is the ONLY name imported from it. The extrusion added wallPath
+     and liftsFor to the same import and this failed a release over a comma,
+     which is the difference between a guard on a property and a guard on a
+     spelling. What must stay true: the shapes are the portal's, and the panel
+     defines none of its own. */
   ok("the panel draws the portal's own geometry, not a map of its own",
-     /import \{ STATES \} from "@\/lib\/malaysia-map"/.test(panel) && !/\bshort:/.test(panel),
+     /import \{[^}]*\bSTATES\b[^}]*\} from "@\/lib\/malaysia-map"/.test(panel) && !/\bshort:/.test(panel),
      "three maps of one country in one product is how the CEO noticed");
   ok("every state the worker accepts has a shape on that map",
      MY_STATES.every((s) => geometry.includes(s)),

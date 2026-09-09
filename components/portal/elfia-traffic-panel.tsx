@@ -17,7 +17,7 @@ import { makeApi } from "@/lib/api";
 import { card, btnSm } from "@/lib/ui-styles";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { STATES, stateOf, titleCase } from "@/lib/malaysia-map";
+import { STATES, liftsFor, stateOf, titleCase, wallPath } from "@/lib/malaysia-map";
 import { Skel, SkelCard, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import { AppIcon } from "@/components/ui/app-icon";
@@ -196,7 +196,7 @@ export function ElfiaTrafficPanel() {
                 ))}
               </div>
               <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]" aria-hidden>
-                <Skel className="aspect-[860/380] w-full" />
+                <Skel className="aspect-[860/400] w-full" />
                 <div className="border-border rounded-xl border p-3">
                   <Skel className="h-4 w-36" />
                   <Skel className="mt-3 h-2.5 w-20" />
@@ -225,7 +225,11 @@ export function ElfiaTrafficPanel() {
   const top = [...byState.values()].filter((s) => s.state !== "Outside Malaysia").slice(0, 5);
   const selData = sel ? byState.get(sel) : undefined;
   const toggle = (name: string) => setSel((cur) => (cur === name ? null : name));
-  const drawOrder = sel ? [...STATES.filter((s) => s.name !== sel), ...STATES.filter((s) => s.name === sel)] : STATES;
+  /* v1.140.0 - the lift, and north-first paint order so a southern state's
+     wall covers its northern neighbour's rather than the reverse. */
+  const lifts = liftsFor((n) => byState.get(n)?.visits ?? 0, maxVisits);
+  const byCy = [...STATES].sort((a, b) => a.cy - b.cy);
+  const drawOrder = sel ? [...byCy.filter((s) => s.name !== sel), ...byCy.filter((s) => s.name === sel)] : byCy;
   const consentPct = marketing && marketing.total_customers > 0
     ? Math.round((marketing.customers.length / marketing.total_customers) * 100) : null;
   const convLine = (st: string, visits: number) => {
@@ -269,7 +273,7 @@ export function ElfiaTrafficPanel() {
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
-            <svg viewBox="0 0 860 380" className="w-full" aria-label={L("Map of Malaysia — each state is a button showing its store visitors", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan pelawat kedainya")}>
+            <svg viewBox="0 -20 860 400" className="w-full" aria-label={L("Map of Malaysia — each state is a button showing its store visitors", "Peta Malaysia — setiap negeri ialah butang yang menunjukkan pelawat kedainya")}>
               <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">{L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}</text>
               <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">SABAH &amp; SARAWAK</text>
               <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
@@ -277,10 +281,19 @@ export function ElfiaTrafficPanel() {
                 const v = byState.get(s.name);
                 const ratio = v ? v.visits / maxVisits : 0;
                 const isSel = sel === s.name;
+                const h = lifts[s.name] ?? 0;
+                const wall = wallPath(s.name, h);
                 return (
+                  <g key={s.name}>
+                  {wall && (
+                    <>
+                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * ratio} pointerEvents="none" aria-hidden="true" />
+                      <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
+                    </>
+                  )}
                   <path
-                    key={s.name}
                     d={s.d}
+                    transform={h ? `translate(0 ${-h})` : undefined}
                     role="button"
                     tabIndex={0}
                     aria-label={`${s.name}: ${v ? L(`${v.visits} page view${v.visits === 1 ? "" : "s"}`, `${v.visits} paparan halaman`) : L("no visits yet", "belum ada lawatan")}`}
@@ -296,6 +309,7 @@ export function ElfiaTrafficPanel() {
                   >
                     <title>{`${s.name} · ${v ? L(`${v.visits} view${v.visits === 1 ? "" : "s"} · ${v.visitors} visitor${v.visitors === 1 ? "" : "s"}`, `${v.visits} paparan · ${v.visitors} pelawat`) : L("no visits yet", "belum ada lawatan")}`}</title>
                   </path>
+                  </g>
                 );
               })}
               {STATES.map((s) => {
@@ -303,7 +317,7 @@ export function ElfiaTrafficPanel() {
                 if (!v) return null;
                 const r = 9 + Math.sqrt(v.visits / maxVisits) * 9;
                 return (
-                  <g key={`b-${s.name}`} className="pointer-events-none">
+                  <g key={`b-${s.name}`} className="pointer-events-none" transform={lifts[s.name] ? `translate(0 ${-(lifts[s.name] ?? 0)})` : undefined}>
                     <circle cx={s.cx} cy={s.cy} r={r} fill="var(--brand-primary)" stroke="var(--gold-solid)" strokeWidth="1.5" opacity="0.92" />
                     <text x={s.cx} y={s.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>{v.visits}</text>
                   </g>

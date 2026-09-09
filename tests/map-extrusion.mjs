@@ -3,9 +3,9 @@
  *
  * The CEO, 08-09-2026, asked for 3D state maps and settled the contract with
  * me: SVG extrusion, no WebGL, no library, and not one of the sixteen state
- * buttons given up. Phase 1 is the geometry and the two pure helpers; the
- * panels come after the ELFIA catalogue fix is live. This guard is what makes
- * Phase 1 safe to sit in the repo unused.
+ * buttons given up. A state is not tilted, it is RAISED - its own figure says
+ * how far - and the face swept underneath it is the wall. All four maps draw
+ * it: Sales, Operations, ELFIA Traffic, Hotels.
  *
  * THE PROPERTIES, not the implementation:
  *   1. THE WALLS ARE THE COUNTRY. Every state has walls, no wall belongs to a
@@ -25,9 +25,18 @@
  *      biggest stands more than a quarter as tall, which is the whole reason
  *      the curve is not linear.
  *
+ *   6. AN ENCLAVE RISES WITH ITS HOST. Kuala Lumpur and Putrajaya are holes
+ *      in Selangor's own outline; if they lift less than the hole does, the
+ *      page shows through and reads as a crack across the map.
+ *   7. THE FOUR MAPS DRAW IT THE SAME WAY. The wall is decorative in every one
+ *      of them - never the button, never in the way of a finger - the RAISED
+ *      state is what a press lands on, and the frame is the one the ceiling
+ *      was measured against.
+ *
  * Negative-tested by: moving one wall point 30px east of its state (1); lifting
  * the ceiling to 40 (2); dropping the Z from the last subpath (3); returning a
- * sliver at h = 0 (4); and making liftFor linear (5).
+ * sliver at h = 0 (4); making liftFor linear (5); emptying HOST_STATE (6); and,
+ * in a panel, making a wall clickable and dropping the north-first order (7).
  */
 import { readFileSync, mkdtempSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -51,7 +60,7 @@ const dir = mkdtempSync(join(tmpdir(), "mapx-"));
 const out = join(dir, "map.mjs");
 execSync(`npx esbuild "${join(root, "lib/malaysia-map.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`,
   { cwd: root, stdio: "inherit" });
-const { STATES, STATE_WALLS, wallPath, liftFor } = await import(pathToFileURL(out).href);
+const { STATES, STATE_WALLS, wallPath, liftFor, liftsFor } = await import(pathToFileURL(out).href);
 
 /* the frame the panels draw in, and the ceiling liftFor may reach */
 const VIEW_TOP = -20;
@@ -183,7 +192,60 @@ function outline(d) {
      `${(quarter * 100).toFixed(0)}% of the range`);
 }
 
-/* ---- 6. the generator that made this data is kept, and is not shipped ---- */
+/* ---- 6. an enclave rises with its host ----
+   Selangor carries Kuala Lumpur and Putrajaya as holes in its own outline.
+   If the enclave lifts less than the hole does, the page shows through the
+   gap and reads as a crack across the map. So the enclave takes the host's
+   height exactly - whichever of the two carries the bigger figure. */
+{
+  const big = (n) => (n === "Selangor" ? 10 : n === "Kuala Lumpur" ? 100 : n === "Putrajaya" ? 1 : 0);
+  const l = liftsFor(big, 100);
+  ok("an enclave stands exactly as high as its host, even holding a bigger figure",
+     l["Kuala Lumpur"] === l.Selangor && l.Putrajaya === l.Selangor,
+     `Selangor ${l.Selangor?.toFixed(2)} · KL ${l["Kuala Lumpur"]?.toFixed(2)} · Putrajaya ${l.Putrajaya?.toFixed(2)}`);
+  const flat = liftsFor((n) => (n === "Selangor" ? 0 : 100), 100);
+  ok("a host with no figure keeps its enclaves on the page too",
+     flat.Selangor === 0 && flat["Kuala Lumpur"] === 0 && flat.Putrajaya === 0);
+  ok("an island is not an enclave - Labuan rises on its own figure",
+     liftsFor((n) => (n === "Labuan" ? 100 : 0), 100).Labuan === liftFor(100, 100));
+  ok("every state on the map gets a lift", STATES.every((s) => typeof l[s.name] === "number"));
+}
+
+/* ---- 7. the four maps draw it the same way ----
+   The portal has one geometry and four consumers, and the CEO's rule for them
+   is that they read as one product. The properties here are the ones that keep
+   the extrusion honest in every one of them: the wall is decorative, the
+   RAISED state is the button (so the hit area is what the eye sees), and the
+   frame is the one the 16px ceiling was measured against. */
+{
+  const PANELS = [
+    "components/portal/sales-map.tsx",
+    "components/portal/ops-map.tsx",
+    "components/portal/elfia-traffic-panel.tsx",
+    "components/portal/hotels-panel.tsx",
+  ];
+  for (const p of PANELS) {
+    const src = readFileSync(join(root, p), "utf8");
+    const name = p.split("/").pop();
+    ok(`${name} raises its states`, /wallPath\(/.test(src) && /liftsFor\(/.test(src));
+    ok(`${name} keeps the wall out of the way of a finger`,
+       (src.match(/d=\{wall\}/g) ?? []).length > 0
+       && !/d=\{wall\}[^>]*role="button"/s.test(src)
+       && (src.match(/d=\{wall\}[\s\S]{0,200}?pointerEvents="none"[\s\S]{0,60}?aria-hidden="true"/g) ?? []).length
+          === (src.match(/d=\{wall\}/g) ?? []).length,
+       "every wall path must be pointerEvents none and aria-hidden, and never the button");
+    ok(`${name} moves the button with the state it draws`,
+       /transform=\{h \? `translate\(0 \$\{-h\}\)` : undefined\}[\s\S]{0,120}?role="button"/.test(src),
+       "the raised path is the button - a flat button under a raised state is a lie about where to press");
+    ok(`${name} draws in the frame the ceiling was measured against`,
+       src.includes('viewBox="0 -20 860 400"') && src.includes("aspect-[860/400]"),
+       "viewBox and skeleton must both make room for the lift");
+    ok(`${name} paints north first`, /sort\(\(a, b\) => a\.cy - b\.cy\)/.test(src),
+       "a southern state is nearer the reader; its wall must cover its northern neighbour's");
+  }
+}
+
+/* ---- 8. the generator that made this data is kept, and is not shipped ---- */
 {
   const gen = join(root, "scratch/gen-state-walls.mjs");
   let has = true;

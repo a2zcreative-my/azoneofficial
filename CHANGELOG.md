@@ -2,6 +2,53 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.141.0] - 2026-09-09 - the four maps stand up
+
+v1.140.0 was the geometry, deliberately wired to nothing. This is the half you
+can see: **Sales, Operations, ELFIA Traffic and Hotels all raise their states
+by whatever figure they are showing.** No WebGL, no library, no new dependency
+- 16 extra path nodes and 5.3 KB of silhouette data across the whole portal.
+
+Each state is now its own `<g>`, painted **north first** so a southern state's
+wall covers its northern neighbour's rather than the other way round, with the
+selected state still last for its ring. Inside the group: the wall, then the
+state lifted by `translate(0 -h)`, and the bubbles as a layer on top of the
+whole map. The wall is `pointerEvents="none"` and `aria-hidden` - **the raised
+state is the button**, so the hit area is exactly what the eye sees, and every
+`role="button"`, `tabIndex`, `aria-pressed` and `<title>` is where it was. The
+frame opens to `viewBox="0 -20 860 400"` and the skeleton to `aspect-[860/400]`
+so a 16px lift has somewhere to go above Perlis.
+
+Depth is the only new encoding: the choropleth ramp and the bubble radii are
+untouched, so a state below the height floor still reads by its shade.
+
+**An enclave rises with its host.** Kuala Lumpur and Putrajaya are holes in
+Selangor's own outline. Raise Selangor 16px and Kuala Lumpur 14.4px and the
+hole rises while the territory inside it does not - a 1.6px sliver of the page
+shows through and reads as a crack across the map. `HOST_STATE` and
+`liftsFor()` settle it in one place: the enclave takes the host's height
+exactly, whichever of the two carries the bigger figure, and its own figure is
+carried by the bubble and the ramp as it always was. On the Hotels map that is
+Kuala Lumpur's 104 sitting flush inside Selangor's 50, with no crack.
+
+`tests/map-extrusion.mjs` grows to **41 checks**: the enclave rule, and for
+each of the four panels that the wall is never the button and never in a
+finger's way, that the raised path is what a press lands on, that the frame
+matches the ceiling, and that the paint order is north first. Negative-tested
+by emptying `HOST_STATE`, by making a wall clickable, and by dropping the
+north-first sort - all three caught.
+
+**One guard had to be re-pointed, exactly as flagged in the plan.**
+`hotels-guard` asserted the literal string `import { STATES } from
+"@/lib/malaysia-map"`. Adding `wallPath` and `liftsFor` to that same import
+failed the release over a comma. It now asserts the property - STATES comes
+from the shared module and the panel defines no shapes of its own - and was
+negative-tested by taking the geometry away from the panel.
+
+Guards **64 of 64**, typecheck clean, `next build` clean. Rendered from the
+shipped helpers against the CEO's own live figures - 104 hotels in KL, 76 page
+views in Johor, 43 TikTok orders in Johor - before delivery.
+
 ## [1.140.0] - 2026-09-09 - the states stand up (phase 1: geometry only)
 
 The CEO, 08-09-2026, asked for 3D state maps and we settled the contract
