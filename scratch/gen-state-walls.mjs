@@ -1,0 +1,127 @@
+/**
+ * GENERATE THE EXTRUSION SILHOUETTES — v1.140.0, offline, never shipped.
+ *
+ * The 3D state maps raise each state by its own figure. What makes that read
+ * as depth rather than as a shadow is the WALL: the face swept between the
+ * state where it was drawn and the state lifted by h. Only the edges that
+ * FACE THE VIEWER carry that face - an edge on the far side of a state is
+ * hidden behind the state itself, and drawing it would be ink nobody sees.
+ *
+ * This script reads lib/malaysia-map.ts, finds those edges, and prints the
+ * STATE_WALLS block to paste back into the same file - exactly how STATES
+ * itself was produced (from @highcharts/map-collection, offline, inlined so
+ * the app gains no dependency).
+ *
+ *   node scratch/gen-state-walls.mjs > /tmp/walls.txt
+ *
+ * WHICH EDGES FACE THE VIEWER
+ * SVG y grows downward, so "toward the viewer" is +y. For a ring whose signed
+ * area A is positive (clockwise on screen) the outward normal of an edge
+ * running (dx, dy) is (dy, -dx); its y component is -dx, so the edge faces the
+ * viewer when dx < 0. A ring wound the other way flips it. Both cases are the
+ * one test dx * A < 0. A vertical edge (dx = 0) sweeps no area and is skipped.
+ *
+ * WHY CHAINS AND NOT LOOSE EDGES
+ * Consecutive facing edges share their endpoints, so a run of n edges is n+1
+ * points rather than 2n, and each run becomes ONE subpath at runtime: forward
+ * along the top, back along the bottom, closed. A state is not one run - an
+ * island or a bay starts another - so the walls are a list of runs, and
+ * wallPath() emits a subpath for each. Every run is simplified with
+ * Douglas-Peucker at 0.6px, which at a 16px lift is invisible and roughly
+ * halves the data.
+ */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const src = readFileSync(path.join(root, "lib/malaysia-map.ts"), "utf8");
+
+/* ---- read STATES out of the module without importing TypeScript ---- */
+const states = [];
+for (const m of src.matchAll(/\{\s*name:\s*"([^"]+)",[\s\S]*?d:\s*"([^"]+)"\s*\}/g)) {
+  states.push({ name: m[1], d: m[2] });
+}
+if (states.length === 0) throw new Error("no states parsed - has the shape of lib/malaysia-map.ts changed?");
+
+/* ---- M / L / Z only, absolute: that is all her geometry uses ---- */
+function rings(d) {
+  const out = [];
+  let cur = null;
+  const re = /([MLZ])([-\d.,]*)/gi;
+  for (const m of d.matchAll(re)) {
+    const op = m[1].toUpperCase();
+    if (op === "Z") { if (cur && cur.length > 2) out.push(cur); cur = null; continue; }
+    const nums = m[2].split(/[,\s]+/).filter(Boolean).map(Number);
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      const p = [nums[i], nums[i + 1]];
+      if (op === "M" && i === 0) { if (cur && cur.length > 2) out.push(cur); cur = [p]; }
+      else cur.push(p);
+    }
+  }
+  if (cur && cur.length > 2) out.push(cur);
+  return out;
+}
+
+const area2 = (r) => {
+  let a = 0;
+  for (let i = 0; i < r.length; i += 1) {
+    const [x1, y1] = r[i], [x2, y2] = r[(i + 1) % r.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return a;
+};
+
+/* Douglas-Peucker on an open polyline. */
+function simplify(pts, tol) {
+  if (pts.length < 3) return pts;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  let far = 0, fi = 0;
+  const dx = bx - ax, dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    const [px, py] = pts[i];
+    const dist = len === 0
+      ? Math.hypot(px - ax, py - ay)
+      : Math.abs(dy * px - dx * py + bx * ay - by * ax) / len;
+    if (dist > far) { far = dist; fi = i; }
+  }
+  if (far <= tol) return [pts[0], pts[pts.length - 1]];
+  return [...simplify(pts.slice(0, fi + 1), tol).slice(0, -1), ...simplify(pts.slice(fi), tol)];
+}
+
+const r1 = (n) => Math.round(n * 10) / 10;
+
+let totalRuns = 0, totalPts = 0;
+const lines = [];
+for (const st of states) {
+  const runs = [];
+  for (const ring of rings(st.d)) {
+    const A = area2(ring);
+    if (Math.abs(A) < 1) continue;          // a degenerate sliver has no face
+    let run = [];
+    for (let i = 0; i < ring.length; i += 1) {
+      const p = ring[i], q = ring[(i + 1) % ring.length];
+      const dx = q[0] - p[0];
+      const faces = dx !== 0 && dx * A < 0;
+      if (faces) { if (run.length === 0) run.push(p); run.push(q); }
+      else if (run.length > 1) { runs.push(run); run = []; }
+      else run = [];
+    }
+    if (run.length > 1) runs.push(run);
+  }
+  const kept = runs.map((r) => simplify(r, 0.6)).filter((r) => r.length > 1);
+  totalRuns += kept.length;
+  for (const r of kept) totalPts += r.length;
+  const body = kept.map((r) => `[${r.map(([x, y]) => `[${r1(x)},${r1(y)}]`).join(",")}]`).join(", ");
+  lines.push(`  "${st.name}": [${body}],`);
+}
+
+console.log("/* ---- v1.140.0: the viewer-facing edges of each state, for the");
+console.log("   extrusion. Generated by scratch/gen-state-walls.mjs from STATES");
+console.log("   above - regenerate it if the geometry ever changes. Each state is a");
+console.log("   list of RUNS of touching edges; wallPath() sweeps each run. ---- */");
+console.log("export const STATE_WALLS: Record<string, [number, number][][]> = {");
+for (const l of lines) console.log(l);
+console.log("};");
+console.error(`states ${states.length} · runs ${totalRuns} · points ${totalPts}`);

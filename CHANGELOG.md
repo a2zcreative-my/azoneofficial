@@ -2,6 +2,64 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.140.0] - 2026-09-09 - the states stand up (phase 1: geometry only)
+
+The CEO, 08-09-2026, asked for 3D state maps and we settled the contract
+together: **SVG extrusion, no WebGL, no library, and not one of the sixteen
+state buttons given up.** A tilted plane was rejected because the RM figures
+skew and the Sabah inset foreshortens into a strip on a phone; three.js was
+rejected because a `<canvas>` has no `role="button"`, no `tabIndex` and no
+`<title>` - the maps would look better and stop being usable.
+
+So a state is not tilted, it is **raised**: its own figure decides how far it
+lifts off the page, and the face swept underneath it is the wall.
+
+**Nothing in this release is visible to anyone.** It is the geometry and the
+two pure helpers, sitting unused until the panels adopt them - which happens
+after the ELFIA catalogue fix is live, on the CEO's own sequencing.
+
+- `scratch/gen-state-walls.mjs` (offline, never shipped) reads `STATES` and
+  works out, for every state, which edges FACE THE VIEWER - the only ones that
+  carry a wall, since an edge on the far side is hidden behind the state
+  itself. SVG y grows downward, so the test is `dx * A < 0` where A is the
+  ring's signed area; a vertical edge sweeps no area and is skipped. Touching
+  edges are kept as RUNS so a run of n edges is n+1 points rather than 2n, and
+  each run is simplified at 0.6px, invisible at a 16px lift.
+- `lib/malaysia-map.ts` gains `STATE_WALLS` (**16 states, 88 runs, 334 points,
+  5.3 KB**), `wallPath(name, h)` which sweeps each run as one closed subpath -
+  forward along the top, back along the bottom - so a whole wall is a single
+  path node, and `liftFor(value, max)`, square-rooted like the bubbles have
+  been since v1.20.1, floored at 2px so a state with real money in it never
+  reads as empty and capped at 16px, which is what the viewBox has room for
+  above Perlis. The module still imports nothing.
+- `tests/map-extrusion.mjs` - **guard #64**, 17 checks, registered. It asserts
+  the properties, not the drawing: every wall point lies inside its own state's
+  bounding box (a wall cannot be built from a neighbour's coastline); a state
+  raised the full 16px still sits inside `viewBox "0 -20 860 400"`, with the
+  ceiling read from `liftFor` itself rather than trusted; every subpath is
+  opened once and closed once; nothing is drawn at zero lift; and the lift is
+  bounded, never decreasing, and square-rooted - a state at a quarter of the
+  biggest must stand more than a quarter as tall, which is the whole reason the
+  curve is not linear. **A state has a wall exactly when it encloses area**,
+  asserted as an equivalence: Putrajaya's geometry here is one point repeated,
+  smaller than a pixel at 860x380, and a point sweeps no face however far it is
+  raised - so if a future geometry gives it an outline it must also give it a
+  wall, and nobody has to remember why it was exempt.
+
+Negative-tested five ways: a wall point moved 30px east of its state, the
+ceiling raised to 40px, the first subpath left unclosed, a sliver drawn at zero
+lift, and `liftFor` made linear. All five were caught.
+
+Rendered in both themes at the real 860x400 to confirm the walls read as depth
+rather than as a shadow. **One thing that render found, for the CEO to decide
+in phase 2:** Selangor holds Kuala Lumpur and Putrajaya as holes in its own
+outline. Lift Selangor 16px and KL 14.4px and a 1.6px sliver of background
+shows through the hole. The fix is a rule - an enclave rises with its host, and
+its own figure is carried by the bubble and the fill ramp, as they are today -
+but it is a product decision, not a bug fix, so it is not made here.
+
+Guards: **64 of 64.** Typecheck clean, eslint clean.
+
 ## [1.139.3] - 2026-09-08 - the other half of the same specifier
 
 59 of 63 guards passed. The four that did not are the four that mark a stub
