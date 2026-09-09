@@ -2,6 +2,66 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.146.0] - 2026-09-09 - emergency leave costs pay, and nothing caps it
+
+The CEO, 09-09-2026, after checking: *"EL should not be as a paid leave. it is
+consider as unpaid but not restricted."*
+
+He was right to check. Malaysia's Employment Act 1955 does not mention
+emergency leave at all - it is not statutory, so whether it is paid was always
+a company decision. It had been paid here for no better reason than that the
+payroll had exactly **one** unpaid bucket and emergency was not it: the type
+inherited "paid" by construction when it was added beside annual, medical and
+replacement. Nobody ever decided it. Now somebody has.
+
+**Unpaid, and unrestricted.** An emergency day is deducted at 1/26 of the
+monthly wage like any unpaid day, and there is no entitlement to run out of -
+take what the emergency needs, and each day costs a day.
+
+**SIX queries decide what a month deducts** - the payslip aggregate, the unpaid
+list, the payroll panel feed, the week-and-rest-day rule, the recompute, and
+the clash check. A type counted by five of them and missed by the sixth pays
+somebody the wrong salary and nothing throws. So none of them names a type any
+more; they all ask `unpaidLeaveSql()`, and the guard fails if any of them goes
+back to naming one.
+
+**The trap that found itself while wiring it.** The clash check that stops one
+day being deducted twice keyed on `type = 'unpaid'`. The moment emergency costs
+pay, a day already taken as approved emergency leave could ALSO be marked
+unpaid from the payroll panel - **the same day deducted twice, in two places
+neither of which is wrong on its own.** It widened with the rest.
+
+**From 01-10-2026, not backwards** - the CEO's own call. Days already taken
+were taken under a rule that said they were paid, and re-deducting them would
+reach into months people have already been paid for. A request is judged by its
+START date: one that begins in September is a September request, whichever side
+of the line it ends on. That errs toward the staff member, which is the right
+way to round a benefit being reduced. September's payroll, which he is
+reviewing this week, is untouched.
+
+On screen:
+
+- **The cost is named where the leave is chosen** - the apply dropdown reads
+  *"emergency — unpaid"*. Finding out on a payslip is the worst place to find
+  out anything.
+- **An unrestricted type does not pretend to have a balance.** Its tile says
+  **Unpaid** and *"No limit · N taken this year"*. "0 eligible now" would have
+  read as "you may not take any", which is the opposite of the rule.
+- **Emergency has left the entitlement grid** and its default entitlement is 0.
+  There is nothing to be entitled to, and a box that still took a number would
+  be a promise the payroll does not keep.
+
+Guard #20 grows to **101 checks** and now owns this rule too. Negative-tested
+four ways: the clash check narrowed back to one type, the forward-only cutoff
+removed, emergency put back in the entitlement grid, and the cost no longer
+named at the point of choice. All four caught.
+
+`worker/src/staff.ts` (one definition, five queries), `components/portal/leave.tsx`,
+`tests/unpaid-leave.mjs`. **No migration** - the leave rows do not change, only
+what the payroll asks of them.
+
+Guards 65 of 65, typecheck clean, build clean, sql-schema-check clean.
+
 ## [1.145.0] - 2026-09-09 - payroll follows the leave decision
 
 Two things the CEO found in one message, 09-09-2026.

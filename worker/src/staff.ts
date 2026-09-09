@@ -1265,7 +1265,39 @@ async function recordBankMovement(
 }
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
-const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 3, replacement: 0, unpaid: 0 };
+/* v1.146.0 - emergency is no longer an entitlement. The CEO, 09-09-2026:
+   *"EL should not be as a paid leave. it is consider as unpaid but not
+   restricted."* A type that costs pay and has no ceiling has nothing to be
+   entitled TO, so the number that used to say 3 says nothing at all. */
+const DEFAULT_ENTITLEMENT: Record<string, number> = { annual: 14, medical: 14, emergency: 0, replacement: 0, unpaid: 0 };
+
+/**
+ * WHICH LEAVE COSTS PAY — v1.146.0, in ONE place.
+ *
+ * The CEO, 09-09-2026: *"EL should not be as a paid leave. it is consider as
+ * unpaid but not restricted."* Malaysia's Employment Act does not mention
+ * emergency leave at all, so whether it is paid was always a company decision;
+ * it had been paid here only because the payroll had exactly one unpaid bucket
+ * and emergency was not it. Now it is.
+ *
+ * SIX queries decide what a month deducts: the payslip aggregate, the unpaid
+ * list, the payroll panel feed, the week-and-rest-day rule, the recompute, and
+ * the clash check that stops one day being deducted twice. They have to agree
+ * to the letter - a type counted by five of them and missed by the sixth pays
+ * somebody the wrong salary and nothing throws. So none of them names a type;
+ * they all ask this.
+ *
+ * FROM 01-10-2026, NOT BACKWARDS (the CEO's own call). Emergency days already
+ * taken were taken under a rule that said they were paid, and re-deducting
+ * them would reach into a month people have already been paid for. A request
+ * is judged by its START date: a request that begins in September is a
+ * September request, whichever side of the line it ends on. That errs toward
+ * the staff member, which is the right way to round a benefit being reduced.
+ */
+const UNPAID_FROM = "2026-10-01";
+const unpaidLeaveSql = (alias = "") =>
+  `(${alias}type = 'unpaid'
+     OR (${alias}type = 'emergency' AND ${alias}start_date >= '${UNPAID_FROM}'))`;
 
 /* v1.62.0 — ONE definition of "how many days is this person eligible for".
  *
@@ -5340,7 +5372,7 @@ export async function handleStaff(
       ).bind(prevM, mStart, mEnd).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
       const { results: uls } = await env.DB.prepare(
         `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
-         WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
+         WHERE ${unpaidLeaveSql()} AND status = 'approved' AND start_date LIKE ?1 || '%' GROUP BY user_id`,
       ).bind(prevM).all<{ user_id: number; days: number }>();
       const ulMap = new Map(uls.map((r) => [r.user_id, r.days]));
       let sum = 0;
@@ -8352,7 +8384,7 @@ export async function handleStaff(
       `SELECT l.id, l.user_id, l.start_date AS d, l.end_date, l.days, l.reason, ${col} AS recorded_direct,
               u.name, u.full_name
        FROM leave_requests l JOIN users u ON u.id = l.user_id
-       WHERE l.type = 'unpaid' AND l.status = 'approved'
+       WHERE ${unpaidLeaveSql("l.")} AND l.status = 'approved'
          AND l.start_date LIKE ?1 || '%'
        ORDER BY l.start_date DESC, u.name`;
     let rowsU;
@@ -8390,8 +8422,11 @@ export async function handleStaff(
     /* Already unpaid - whether the staff member applied for it or it was
        recorded here. Two rows covering one day is two deductions. */
     const clashU = await env.DB.prepare(
+      /* v1.146.0 - ANY leave that costs pay, not just the type called
+         unpaid. A day already taken as emergency leave is already a
+         deduction; marking it here as well would deduct the same day twice. */
       `SELECT id FROM leave_requests
-       WHERE user_id = ?1 AND type = 'unpaid' AND status = 'approved'
+       WHERE user_id = ?1 AND ${unpaidLeaveSql()} AND status = 'approved'
          AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
     ).bind(body.user_id, dateU).first<{ id: number }>();
     if (clashU) return err("invalid_input", "That day is already unpaid leave", 400);
@@ -8898,7 +8933,7 @@ export async function handleStaff(
     try {
       rows = (await env.DB.prepare(
         `SELECT user_id, start_date, end_date, COALESCE(days, 1) AS days FROM leave_requests
-         WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%'`,
+         WHERE ${unpaidLeaveSql()} AND status = 'approved' AND start_date LIKE ?1 || '%'`,
       ).bind(month).all<{ user_id: number; start_date: string; end_date: string; days: number }>()).results ?? [];
     } catch { /* leave_requests has existed since 0003 */ }
 
@@ -9527,7 +9562,7 @@ export async function handleStaff(
     // processor knows the payslip will auto-deduct (and doesn't double-deduct).
     const { results: unpaid } = await env.DB.prepare(
       `SELECT user_id, COALESCE(SUM(days), 0) AS days FROM leave_requests
-       WHERE type = 'unpaid' AND status = 'approved' AND start_date LIKE ?1 || '%'
+       WHERE ${unpaidLeaveSql()} AND status = 'approved' AND start_date LIKE ?1 || '%'
        GROUP BY user_id`,
     ).bind(mA).all<{ user_id: number; days: number }>();
     // v1.4.84: the month's TRUE working-day count, computed — Mon–Fri minus

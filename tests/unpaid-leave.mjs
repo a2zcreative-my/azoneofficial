@@ -200,8 +200,13 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
    list used an overlap instead, a July leave would appear under August while
    August pay was untouched. */
 {
-  ok("payroll counts unpaid leave by start month",
-     (staff.match(/type = 'unpaid' AND status = 'approved'[\s\S]{0,120}?start_date LIKE/g) ?? []).length >= 2);
+  /* v1.146.0 - the property is the MONTH RULE, not the spelling of the type
+     test: which types cost pay now lives in unpaidLeaveSql(), and pinning the
+     old literal failed a release that changed nothing about start-month
+     attribution. */
+  ok("payroll counts leave that costs pay by start month",
+     (staff.match(/\$\{unpaidLeaveSql\((?:"l\.")?\)\} AND (?:l\.)?status = 'approved'[\s\S]{0,140}?start_date LIKE/g) ?? []).length >= 2,
+     "an overlap rule would put a July leave in August's list while August's pay was untouched");
   const g = staff.slice(staff.indexOf('if (path === "/attendance/unpaid" && method === "GET")'));
   ok("the attendance list uses the same month rule",
      /l\.start_date LIKE \?1 \|\| '%'/.test(g.slice(0, 2500)),
@@ -398,6 +403,63 @@ ok("the attendance panel is actually given the role",
   ok("the editor that remains is gated on those same two roles in the browser",
      /canSetEntitlement = \["ceo", "super_admin"\]/.test(read("components/portal/leave.tsx")),
      "a control that renders for somebody the API will refuse is a promise the system cannot keep");
+}
+
+/* ---- v1.146.0: EMERGENCY LEAVE COSTS PAY, AND NOTHING CAPS IT ------------
+ *
+ * The CEO, 09-09-2026: *"EL should not be as a paid leave. it is consider as
+ * unpaid but not restricted."* Malaysia's Employment Act does not mention
+ * emergency leave, so whether it is paid was always his decision; it had been
+ * paid here only because the payroll had one unpaid bucket and emergency was
+ * not it.
+ *
+ * SIX queries decide what a month deducts. A type counted by five of them and
+ * missed by the sixth pays somebody the wrong salary and nothing throws, so
+ * the property is that NONE of them names a type - they all ask one function.
+ */
+{
+  ok("there is one definition of what costs pay",
+     /const unpaidLeaveSql = \(alias = ""\) =>/.test(staff),
+     "six queries agreeing by coincidence is six chances to disagree");
+  ok("emergency is in it", /type = 'emergency'/.test(staff));
+  ok("no pay query names a leave type on its own",
+     !/type = 'unpaid' AND status = 'approved'/.test(staff)
+     && !/l\.type = 'unpaid' AND l\.status = 'approved'/.test(staff),
+     "that is the shape that pays somebody the wrong salary in silence");
+  ok("every pay query asks the one definition",
+     (staff.match(/unpaidLeaveSql\(/g) ?? []).length >= 5,
+     "the payslip aggregate, the unpaid list, the panel feed, the week rule and the clash check");
+
+  ok("it is forward-only, by the request's start date",
+     /type = 'emergency' AND \$\{alias\}start_date >= '\$\{UNPAID_FROM\}'/.test(staff)
+     && /const UNPAID_FROM = "2026-10-01"/.test(staff),
+     "re-deducting days taken while the rule said they were paid reaches into a month people have been paid for");
+
+  const unpaidPost2 = (() => {
+    const i = staff.indexOf('if (path === "/attendance/unpaid" && method === "POST")');
+    const j = staff.indexOf('if (path === "/attendance/unpaid" && method === "DELETE")', i);
+    return i >= 0 && j > i ? staff.slice(i, j) : "";
+  })();
+  ok("the clash check counts every kind of day that costs pay",
+     /WHERE user_id = \?1 AND \$\{unpaidLeaveSql\(\)\} AND status = 'approved'/.test(unpaidPost2),
+     "a day already taken as emergency leave, marked unpaid here as well, is the same day deducted twice");
+  ok("a day recorded directly is still stored as the unpaid type",
+     /VALUES \(\?1, 'unpaid', \?2, \?2, \?5, \?3, 'approved', 'approved', \?4, datetime\('now'\), 1\)/.test(staff),
+     "the CEO recording a day is recording an unpaid day, not an emergency somebody applied for");
+
+  const leaveTab = read("components/portal/leave.tsx");
+  ok("the browser holds the same list", /UNPAID_LEAVE_TYPES: readonly string\[\] = \["unpaid", "emergency"\]/.test(leaveTab));
+  ok("the cost is named where the leave is chosen",
+     /UNPAID_LEAVE_TYPES\.includes\(t\) \? L\(" — unpaid"/.test(leaveTab),
+     "finding out on the payslip is the worst place to find out");
+  ok("an unrestricted type does not pretend to have a balance",
+     /No limit · \$\{b\.used\} taken this year/.test(leaveTab),
+     "\"0 eligible now\" reads as \"you may not take any\", which is the opposite of the rule");
+  ok("emergency has left the entitlement grid",
+     /export const ENT_TYPES = \["annual"\] as const;/.test(leaveTab),
+     "a box that still accepted a number would be a promise the payroll does not keep");
+  ok("and its default entitlement is nothing",
+     /emergency: 0/.test(staff), "there is nothing to be entitled to");
 }
 
 console.log(

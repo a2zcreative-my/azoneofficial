@@ -39,6 +39,15 @@ export const LEAVE_TYPES = [
   "replacement",
 ] as const;
 
+/* v1.146.0 — the types that cost pay, said once for the browser too.
+   The CEO, 09-09-2026: *"EL should not be as a paid leave. it is consider as
+   unpaid but not restricted."* Unpaid means it is deducted at 1/26 of the
+   monthly wage per day; UNRESTRICTED means there is no entitlement to run
+   out of, which is why these two tiles say what they cost instead of how
+   many are left. The worker holds the same rule and the money side of it. */
+export const UNPAID_LEAVE_TYPES: readonly string[] = ["unpaid", "emergency"];
+export const UNPAID_LEAVE_FROM = "01-10-2026";
+
 export const STAGE_LABEL: Record<string, string> = {
   applied: "Awaiting HR review",
   hr_reviewed: "Awaiting pre-approval",
@@ -310,7 +319,10 @@ export function leaveNoOf(l: {
      - A raise does not hand over the days at once — annual leave accrues
        pro-rata across the year, so a rise lands as a higher monthly
        accrual. That is the "no abuse" part working. */
-export const ENT_TYPES = ["annual", "emergency"] as const;
+/* v1.146.0 — emergency left this grid with the entitlement itself. It is
+   unpaid and unrestricted now: there is no number to set, and a box that
+   still accepted one would be a promise the payroll does not keep. */
+export const ENT_TYPES = ["annual"] as const;
 export type EntType = (typeof ENT_TYPES)[number];
 export interface EntCell {
   days: number;          // entitlement for the year
@@ -339,7 +351,7 @@ export function LeaveEntitlement() {
      half-typed "1" does not become the number 1 and save itself. */
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [bulk, setBulk] = useState<Record<EntType, string>>({ annual: "", emergency: "" });
+  const [bulk, setBulk] = useState<Record<EntType, string>>({ annual: "" });
   /* Which person's eligible-days panel is open, and what is typed in it. */
   const [openRow, setOpenRow] = useState<number | null>(null);
   const [adj, setAdj] = useState<Record<string, string>>({});
@@ -971,24 +983,43 @@ export function Leave({ user }: { user: User }) {
           const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
           // Eligible now = what has accrued this year minus what's been used.
           const availableNow = Math.max(0, (b.accrued ?? b.entitled) - b.used);
+          /* v1.146.0 — a tile for a type with no ceiling cannot show what is
+             left of it. "0 eligible now" would read as "you may not take
+             any", which is the opposite of the rule: take what you need, and
+             each day costs a day's pay. So it says the cost and the count. */
+          const costsPay = UNPAID_LEAVE_TYPES.includes(t);
           return (
             <div key={t} className={card}>
               <p className="text-xs font-medium tracking-wide uppercase">
                 {leaveTypeL(t)}
               </p>
-              <p className="mt-1 text-lg font-semibold">
-                {availableNow}
-                <span className="text-muted-foreground text-xs font-normal">
-                  {" "}
-                  {L("eligible now", "layak sekarang")}
-                </span>
-              </p>
-              <p className="text-muted-foreground text-[11px]">
-                {L(
-                  `${b.entitled}/year · ${b.used} used`,
-                  `${b.entitled}/tahun · ${b.used} digunakan`
-                )}
-              </p>
+              {costsPay ? (
+                <>
+                  <p className="text-warning mt-1 text-lg font-semibold">
+                    {L("Unpaid", "Tanpa gaji")}
+                  </p>
+                  <p className="text-muted-foreground text-[11px]">
+                    {L(`No limit · ${b.used} taken this year`,
+                       `Tiada had · ${b.used} diambil tahun ini`)}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-lg font-semibold">
+                    {availableNow}
+                    <span className="text-muted-foreground text-xs font-normal">
+                      {" "}
+                      {L("eligible now", "layak sekarang")}
+                    </span>
+                  </p>
+                  <p className="text-muted-foreground text-[11px]">
+                    {L(
+                      `${b.entitled}/year · ${b.used} used`,
+                      `${b.entitled}/tahun · ${b.used} digunakan`
+                    )}
+                  </p>
+                </>
+              )}
             </div>
           );
         })}
@@ -1010,9 +1041,14 @@ export function Leave({ user }: { user: User }) {
                   setDraft((d) => ({ ...d, type: e.target.value }))
                 }
               >
+                {/* v1.146.0 — the cost is named where the choice is made.
+                    Somebody applying for emergency leave believing it is paid
+                    finds out on their payslip, which is the worst place to
+                    find out anything. */}
                 {LEAVE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {leaveTypeL(t)}
+                    {UNPAID_LEAVE_TYPES.includes(t) ? L(" — unpaid", " — tanpa gaji") : ""}
                   </option>
                 ))}
               </select>
