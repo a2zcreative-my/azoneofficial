@@ -126,6 +126,7 @@ const GUARDS = [
   ["tiktok-line-match", "a TikTok line finds its inventory item by its distinctive words, in any order; a tie is refused, never guessed"],
   ["inventory-category", "the stock list reads one family at a time - the same strip on the desk and the phone, and the totals follow the choice"],
   ["users-ui", "the Users tab draws from the shared vocabulary, one filtered list feeds the desk and the phone, and a row action is a real tap target with a real name"],
+  ["event-attendees", "an event can name who has to be there - only they are told, an empty list still means everyone, and the whole floor still sees the event"],
   ["map-extrusion", "a raised state is still Malaysia - every wall belongs to its own state, nothing raised leaves the frame, and a state with no figure draws no wall"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],

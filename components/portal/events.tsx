@@ -29,6 +29,9 @@ export interface CompanyEvent {
   location?: string | null;
   details?: string | null;
   created_by_name?: string | null;
+  /* v1.144.0 - who has to be there. EMPTY MEANS EVERYONE, which is what every
+     event meant before this field existed; it is not "nobody". */
+  attendees?: { id: number; name: string }[];
 }
 
 export const EVENTS_MANAGE_ROLES = [
@@ -64,7 +67,11 @@ export function UpcomingEventsCard({ role }: { role: string }) {
     end_time: "",
     location: "",
     details: "",
+    attendees: [] as number[],
   });
+  /* v1.144.0 - the people this event can be for, sent with the events by the
+     same request. Empty for anyone who cannot create an event. */
+  const [staffOptions, setStaffOptions] = useState<{ id: number; name: string }[]>([]);
   // v1.4.76: professional month-calendar view (default) with a list toggle.
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [calMonth, setCalMonth] = useState(
@@ -96,8 +103,11 @@ export function UpcomingEventsCard({ role }: { role: string }) {
   /* v1.77.0 — skeleton until the first fetch lands. */
   const [loaded, setLoaded] = useState(false);
   const loadEvents = useCallback(async () => {
-    const res = await api<{ events: CompanyEvent[] }>(`/staff/events`);
-    if (res.ok && res.data) setEvents(res.data.events);
+    const res = await api<{ events: CompanyEvent[]; staff?: { id: number; name: string }[] }>(`/staff/events`);
+    if (res.ok && res.data) {
+      setEvents(res.data.events);
+      setStaffOptions(res.data.staff ?? []);
+    }
     setLoaded(true);
   }, []);
   useEffect(() => {
@@ -153,6 +163,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
         end_time: draft.end_time || undefined,
         location: draft.location || undefined,
         details: draft.details || undefined,
+        attendees: draft.attendees,
       }),
     });
     if (!res.ok) {
@@ -170,6 +181,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
       end_time: "",
       location: "",
       details: "",
+      attendees: [],
     });
     setShowForm(false);
     showToast(
@@ -344,16 +356,55 @@ export function UpcomingEventsCard({ role }: { role: string }) {
               }
             />
           </Sub>
+          {/* v1.144.0 (CEO: "I want some selected staff which is require to
+              join the event only being notified"): who has to be there. Left
+              empty it means EVERYONE, which is what an event has always meant
+              - so an event created without touching this is announced exactly
+              as it was before. Everyone still SEES the event on the calendar;
+              only the bell is aimed. */}
+          {staffOptions.length > 0 && (
+            <Sub t={L("Who must attend (optional)", "Siapa perlu hadir (pilihan)")}>
+              <div className="border-border max-h-56 space-y-0.5 overflow-y-auto rounded-xl border p-1.5">
+                {staffOptions.map((p) => {
+                  const on = draft.attendees.includes(p.id);
+                  return (
+                    <label key={p.id}
+                      className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2 sm:min-h-9 ${on ? "bg-secondary" : ""}`}>
+                      <input type="checkbox" checked={on}
+                        onChange={() => setDraft((d) => ({
+                          ...d,
+                          attendees: on ? d.attendees.filter((x) => x !== p.id) : [...d.attendees, p.id],
+                        }))} />
+                      <span className="min-w-0 truncate text-sm">{properName(p.name)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-muted-foreground mt-1 text-[11px]">
+                {draft.attendees.length === 0
+                  ? L("Nobody picked — everyone is notified, as before.",
+                      "Tiada dipilih — semua kakitangan dimaklumkan, seperti biasa.")
+                  : L(`${draft.attendees.length} picked — only they are notified. Everyone still sees the event.`,
+                      `${draft.attendees.length} dipilih — hanya mereka dimaklumkan. Semua masih nampak acara ini.`)}
+                {draft.attendees.length > 0 && (
+                  <button type="button" className="ml-2 font-semibold underline"
+                    onClick={() => setDraft((d) => ({ ...d, attendees: [] }))}>
+                    {L("Clear", "Kosongkan")}
+                  </button>
+                )}
+              </p>
+            </Sub>
+          )}
           {msg && <p className="text-destructive text-xs font-medium">{msg}</p>}
           <button
             type="button"
             className={btnClass}
             onClick={() => void createEvent()}
           >
-            {L(
-              "Save event — notifies all staff",
-              "Simpan acara — memaklumkan semua kakitangan"
-            )}
+            {draft.attendees.length === 0
+              ? L("Save event — notifies all staff", "Simpan acara — memaklumkan semua kakitangan")
+              : L(`Save event — notifies ${draft.attendees.length} staff`,
+                  `Simpan acara — memaklumkan ${draft.attendees.length} kakitangan`)}
           </button>
         </div>
       )}
@@ -479,6 +530,15 @@ export function UpcomingEventsCard({ role }: { role: string }) {
                 {ev.details && (
                   <p className="text-muted-foreground mt-0.5 text-xs">
                     {ev.details}
+                  </p>
+                )}
+                {/* v1.144.0 - who is required. The CEO's own call: the floor
+                    sees the names, so a manager can tell at a glance who is
+                    out of the office that day. */}
+                {ev.attendees && ev.attendees.length > 0 && (
+                  <p className="text-muted-foreground mt-0.5 text-[11px]">
+                    <span className="font-semibold">{L("Required:", "Wajib hadir:")}</span>{" "}
+                    {ev.attendees.map((a) => properName(a.name)).join(", ")}
                   </p>
                 )}
                 {ev.created_by_name && (
@@ -837,6 +897,14 @@ export function EventsCalendar({
                   {ev.details && (
                     <p className="text-muted-foreground mt-0.5 text-xs">
                       {ev.details}
+                    </p>
+                  )}
+                  {/* v1.144.0 - the same "Required:" line as the list, so a day
+                      opened on the calendar says who has to be there too. */}
+                  {ev.attendees && ev.attendees.length > 0 && (
+                    <p className="text-muted-foreground mt-0.5 text-[11px]">
+                      <span className="font-semibold">{L("Required:", "Wajib hadir:")}</span>{" "}
+                      {ev.attendees.map((a) => properName(a.name)).join(", ")}
                     </p>
                   )}
                 </div>

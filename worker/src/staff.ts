@@ -4512,6 +4512,46 @@ export async function handleStaff(
     }
   }
 
+  /* ---- v1.144.0: who an event is FOR ----------------------------------
+     The CEO, 09-09-2026, on a class for four people: *"I want some selected
+     staff which is require to join the event only being notified."* Every
+     event used to ring every bell, so a class for four interrupted eleven and
+     the four who had to be there could not tell it from the other nine.
+
+     THE RULE, and it is the whole feature: an event with a list notifies THAT
+     LIST; an event with no list notifies everyone. Every event that existed
+     before 0122 has no list and was announced to the whole floor, so "no
+     list" has to keep meaning "everyone" or the change rewrites the past.
+
+     The event itself stays visible to all staff (the CEO's own call): the
+     calendar is how the floor plans around a class, and the card names who is
+     going so a manager can see who is out that day. Only the BELL is
+     targeted. */
+  const readAttendees = (raw: unknown): number[] | null => {
+    if (!Array.isArray(raw)) return null;
+    const ids = raw.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return [...new Set(ids)];
+  };
+  /* Only real, active staff can be put on the list - an id typed by hand, or
+     left behind by someone who has since left, would otherwise sit in the
+     table for ever and be counted on every card. */
+  const keepRealStaff = async (ids: number[]): Promise<number[]> => {
+    if (ids.length === 0) return [];
+    const marks = ids.map((_, i) => `?${i + 1}`).join(", ");
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM users WHERE id IN (${marks}) AND ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()}`,
+    ).bind(...ids).all<{ id: number }>();
+    return results.map((r) => r.id);
+  };
+  const setAttendees = async (eventId: number, ids: number[]): Promise<void> => {
+    await env.DB.prepare(`DELETE FROM event_attendees WHERE event_id = ?1`).bind(eventId).run();
+    for (const id of ids) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO event_attendees (event_id, user_id) VALUES (?1, ?2)`,
+      ).bind(eventId, id).run();
+    }
+  };
+
   if (path === "/events" && method === "GET") {
     // Every staff member sees events. v1.4.76: includes the previous month
     // onwards so the calendar view can show recent history; the list view
@@ -4522,7 +4562,50 @@ export async function handleStaff(
        WHERE e.event_date >= date('now', '+8 hours', 'start of month', '-1 month')
        ORDER BY e.event_date ASC, e.start_time ASC LIMIT 200`,
     ).all();
-    return json({ events: results });
+    /* v1.144.0 - the attendees of those events in ONE query, joined here
+       rather than per event: a hundred events would otherwise be a hundred
+       round trips to answer a question about a handful of them. Tolerant of
+       0122 not being applied yet, like every other read added since 0110. */
+    const byEvent = new Map<number, { id: number; name: string }[]>();
+    try {
+      const { results: att } = await env.DB.prepare(
+        /* v1.95.0 - the same company order as every other list of people, so
+           the "Required:" line on a card reads like the roster does and not
+           like a phone book. */
+        `SELECT a.event_id, a.user_id,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM event_attendees a
+           LEFT JOIN users u ON u.id = a.user_id
+          ORDER BY ${STAFF_ORDER_SQL}`,
+      ).all<{ event_id: number; user_id: number; name: string | null }>();
+      for (const r of att) {
+        const list = byEvent.get(r.event_id) ?? [];
+        list.push({ id: r.user_id, name: r.name ?? `#${r.user_id}` });
+        byEvent.set(r.event_id, list);
+      }
+    } catch { /* table not there yet: every event reads as "everyone", which
+                 is exactly what it was before this feature. */ }
+    const events = (results as { id: number }[]).map((e) => ({
+      ...e, attendees: byEvent.get(e.id) ?? [],
+    }));
+    /* v1.144.0 - the people an event CAN be for, handed to whoever is allowed
+       to create one. It rides on this response rather than sending the form
+       to GET /users, which is gated on hr_manage or exec_view: an events
+       manager who is neither would have had a picker with nobody in it. */
+    let staffOptions: { id: number; name: string }[] = [];
+    if (can(user.role, "events_manage")) {
+      /* v1.95.0 - ONE COMPANY ORDER, everywhere. Alphabetical would put the
+         CEO in the middle of the alphabet on the one screen where somebody is
+         choosing who has to attend. */
+      const { results: people } = await env.DB.prepare(
+        `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM users u
+          WHERE ${staffRolesSql("u.")} AND u.is_active = 1 AND ${currentStaffSql("u.")}
+          ORDER BY ${STAFF_ORDER_SQL}`,
+      ).all<{ id: number; name: string }>();
+      staffOptions = people;
+    }
+    return json({ events, staff: staffOptions });
   }
   if (path === "/events" && method === "POST") {
     if (!can(user.role, "events_manage")) return err("forbidden", "Management access required", 403);
@@ -4542,18 +4625,26 @@ export async function handleStaff(
       typeof body.details === "string" ? body.details.slice(0, 2000) : null,
       user.id,
     ).first<{ id: number }>();
-    // Ring the bell for every active staff member (same pattern as
-    // announcements) — awareness is the whole point of this feature.
+    /* v1.144.0 - the bell goes to the people the event is FOR. A list rings
+       that list; no list rings the whole floor, which is what every event did
+       before this and what every event without a list still does. */
+    const asked = readAttendees(body.attendees);
+    const invited = asked && asked.length > 0 ? await keepRealStaff(asked) : [];
+    if (invited.length > 0 && res?.id) await setAttendees(res.id, invited);
     const d = String(body.event_date);
     const dmy = `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
-    const { results: recipients } = await env.DB.prepare(
+    const { results: everyone } = await env.DB.prepare(
       `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()} AND id != ?1`,
-    ).bind(user.id).all();
-    for (const r of recipients as { id: number }[]) {
-      await notify(env, r.id, "event", `Upcoming ${category}: ${body.title as string} on ${dmy}`, `event:${res?.id}`);
+    ).bind(user.id).all<{ id: number }>();
+    /* The CEO creating a class he is himself on does not need a bell about
+       it, exactly as he never got one for an event he announced. */
+    const ring = invited.length > 0 ? invited.filter((id) => id !== user.id) : everyone.map((r) => r.id);
+    for (const id of ring) {
+      await notify(env, id, "event", `Upcoming ${category}: ${body.title as string} on ${dmy}`, `event:${res?.id}`);
     }
-    await audit(env, user.id, "event.create", "events", String(res?.id), { category, event_date: d });
-    return json({ id: res?.id }, 201);
+    await audit(env, user.id, "event.create", "events", String(res?.id),
+      { category, event_date: d, invited: invited.length, notified: ring.length });
+    return json({ id: res?.id, invited: invited.length }, 201);
   }
   const evMatch = path.match(/^\/events\/(\d+)$/);
   if (evMatch && method === "PATCH") {
@@ -4567,15 +4658,49 @@ export async function handleStaff(
     for (const f of ["start_time", "end_time", "location", "details"] as const) {
       if (typeof body[f] === "string") { sets.push(`${f} = ?${vals.length + 1}`); vals.push((body[f] as string).slice(0, 2000) || null); }
     }
-    if (sets.length === 0) return err("invalid_input", "No valid fields", 400);
-    await env.DB.prepare(`UPDATE events SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
-      .bind(...vals, evMatch[1]).run();
-    await audit(env, user.id, "event.update", "events", evMatch[1]);
+    /* v1.144.0 - the attendee list is a field like any other, and changing it
+       is allowed to be the ONLY change: "I picked the wrong four people" must
+       not need a pointless edit to the title to be saved. */
+    const asked = readAttendees(body.attendees);
+    if (sets.length === 0 && asked === null) return err("invalid_input", "No valid fields", 400);
+    if (sets.length > 0) {
+      await env.DB.prepare(`UPDATE events SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
+        .bind(...vals, evMatch[1]).run();
+    }
+    let added = 0;
+    if (asked !== null) {
+      const eventId = Number(evMatch[1]);
+      const invited = await keepRealStaff(asked);
+      const { results: before } = await env.DB.prepare(
+        `SELECT user_id FROM event_attendees WHERE event_id = ?1`,
+      ).bind(eventId).all<{ user_id: number }>();
+      const had = new Set(before.map((r) => r.user_id));
+      await setAttendees(eventId, invited);
+      /* Only the people who were NOT on the list before are told. Somebody
+         who was already going does not need a second bell because a fifth
+         person joined, and somebody taken off does not get told to come. */
+      const ev = await env.DB.prepare(
+        `SELECT title, category, event_date FROM events WHERE id = ?1`,
+      ).bind(eventId).first<{ title: string; category: string; event_date: string }>();
+      if (ev) {
+        const d2 = String(ev.event_date);
+        const dmy2 = `${d2.slice(8, 10)}-${d2.slice(5, 7)}-${d2.slice(0, 4)}`;
+        for (const id of invited.filter((x) => !had.has(x) && x !== user.id)) {
+          await notify(env, id, "event", `Upcoming ${ev.category}: ${ev.title} on ${dmy2}`, `event:${eventId}`);
+          added += 1;
+        }
+      }
+    }
+    await audit(env, user.id, "event.update", "events", evMatch[1], asked === null ? undefined : { invited: asked.length, notified: added });
     return json({ ok: true });
   }
   if (evMatch && method === "DELETE") {
     if (!can(user.role, "events_manage")) return err("forbidden", "Management access required", 403);
     await env.DB.prepare(`DELETE FROM events WHERE id = ?1`).bind(evMatch[1]).run();
+    /* v1.144.0 - the list goes with the event. There are no foreign keys by
+       policy, so nothing else would ever remove these rows, and an id reused
+       by a later event would inherit strangers. */
+    await env.DB.prepare(`DELETE FROM event_attendees WHERE event_id = ?1`).bind(evMatch[1]).run();
     await audit(env, user.id, "event.delete", "events", evMatch[1]);
     return json({ ok: true });
   }

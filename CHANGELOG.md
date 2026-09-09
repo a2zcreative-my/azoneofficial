@@ -2,6 +2,70 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.144.0] - 2026-09-09 - an event can name who has to be there
+
+The CEO, 09-09-2026, on a Brand2Market class for four people: *"I want some
+selected staff which is require to join the event only being notified."*
+
+Every event rang every bell. A class for four interrupted eleven, and the four
+who actually had to be there could not tell their event from the other nine.
+
+**Picking staff on an event now aims the bell at them.** The picker sits in the
+event form, in the company order the rest of the portal uses, and the save
+button says what it will do: *"Save event — notifies 4 staff"*, or *"notifies
+all staff"* when nobody is picked.
+
+**Everyone still SEES the event** - the CEO's own call. The calendar is how the
+floor plans around a class, so nothing disappears from anyone's view; the card
+and the calendar day both carry a **Required:** line naming who is going, so a
+manager can see at a glance who is out of the office that day. Only the
+notification is targeted.
+
+**An empty list still means everyone.** Every event that existed before this
+has no list and was announced to the whole floor - so "no list" has to keep
+meaning "everyone" or the release would silently un-announce the past. That
+rule is written into the migration itself, where the next reader will find it.
+
+The rest of the behaviour, decided once and guarded:
+
+- **Only real, current staff go on a list.** Ids are filtered through the staff
+  table before they are stored, so one typed by hand, or left behind by
+  somebody who has since left, cannot sit in the table being counted on every
+  card. The pair `(event_id, user_id)` is the primary key, so a double
+  invitation is impossible rather than merely unlikely.
+- **An edit tells the newly added, and only them.** Somebody already going does
+  not get a second bell because a fifth person joined, and somebody taken off
+  is not told to come. Changing ONLY the list is a valid edit - picking the
+  wrong four people must not need a pointless title change to fix.
+- **The list dies with the event.** No foreign keys here by policy, so the
+  DELETE is explicit; an id reused by a later event would otherwise inherit
+  strangers.
+- **The picker can never be empty for somebody allowed to use it.** The staff
+  options ride on the events response rather than `GET /users`, which is gated
+  on `hr_manage` / `exec_view` - an events manager may be neither.
+- **A database without 0122 still answers.** The attendee read is wrapped, so
+  the events card cannot go blank in the window between this code deploying and
+  the migration running.
+
+`worker/migrations/0122_event_attendees.sql` with the triple bump
+(LATEST_MIGRATION, EXPECTED_MIGRATIONS, the /system/health probe),
+`worker/src/staff.ts` (the three event routes plus one shared reader/writer),
+`worker/src/index.ts`, `components/portal/events.tsx`,
+`tests/event-attendees.mjs` (**guard #65**, 27 checks, registered).
+
+Negative-tested five ways: an empty list notifying nobody, the active-staff
+filter dropped, an edit re-ringing the whole list, the rows left behind on
+delete, and the picker fetching the HR directory instead. All five caught.
+
+`staff-order` caught something on the way through, and it was right to: the new
+picker was ordered alphabetically, which puts the CEO in the middle of the
+alphabet on the one screen where somebody is choosing who attends. Both new
+queries now read `STAFF_ORDER_SQL`, the same order as every other list of
+people in the portal.
+
+Guards 65 of 65, typecheck clean, build clean, migration-safety and
+sql-schema-check clean.
+
 ## [1.143.0] - 2026-09-09 - the shared roster sizes itself to the week
 
 The CEO, 09-09-2026: *"this pdf for the Schedule & Roster too small which is

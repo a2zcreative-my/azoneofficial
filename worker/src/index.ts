@@ -278,7 +278,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0121_postage_order_ref_unique";
+const LATEST_MIGRATION = "0122_event_attendees";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4554,6 +4554,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0119 (working-hour categories, amendable overtime)", `SELECT category FROM shift_patterns LIMIT 1`],
       ["0120 (inventory category)", `SELECT category FROM inventory_items LIMIT 1`],
       ["0121 (one record per TikTok order)", `SELECT 1 FROM postage_records WHERE order_ref = 'x' LIMIT 1`],
+      ["0122 (who an event is for)", `SELECT user_id FROM event_attendees LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4694,6 +4695,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0119_shift_categories_ot_amend",
       "0120_inventory_category",
       "0121_postage_order_ref_unique",
+      "0122_event_attendees",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
