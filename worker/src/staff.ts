@@ -4971,6 +4971,87 @@ export async function handleStaff(
     await audit(env, user.id, "claim.preapprove", "claims", claimPre[1]!);
     return json({ ok: true });
   }
+  /* ---- v1.150.0 - MILEAGE, and ONE parser for a claim's items ------------
+     The CEO, 10-09-2026: *"if travel they will claim for Mileage which is I
+     set 0.70cent / km which is they need to insert their KM based on Google
+     maps km to their destination and back to the HQ (office)."*
+
+     Three rules:
+       1. THE RATE IS A SETTING, NOT A NUMBER IN THE CODE. It lives in
+          system_meta (claim_mileage_rate), the CEO sets it, and it is read
+          here once per request. Default 70 sen/km when nobody has set it.
+       2. THE WORKER DOES THE ARITHMETIC. A travel item that carries km has
+          its amount COMPUTED here as round(km x rate) and the client's amount
+          is ignored. The km and the rate it was paid at are stored ON THE
+          ITEM, so a claim from June still reads 0.60/km after the rate moves
+          to 0.70 - a paid claim never re-prices itself.
+       3. A TRAVEL ITEM WITHOUT km IS STILL A TRAVEL ITEM. A Grab receipt is
+          travel too. km is optional; when present it is mileage.
+
+     Create and edit used to carry two copies of the item parser. Two copies
+     of a rule that decides money is two chances to disagree, so both call
+     this now. */
+  // v1.150.0: the same list the form offers - "client meeting" and
+  // "stationery" used to be silently rewritten to "other" on save.
+  const CLAIM_CATS = ["travel", "meal", "client meeting", "stationery", "accommodation", "equipment", "medical", "other"];
+  const MILEAGE_KEY = "claim_mileage_rate";
+  const MILEAGE_DEFAULT_CENTS = 70;
+  const mileageRate = async (): Promise<number> => {
+    try {
+      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`).bind(MILEAGE_KEY).first<{ value: string }>();
+      const v = row ? (JSON.parse(row.value) as { cents_per_km?: unknown }).cents_per_km : null;
+      return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 10000 ? v : MILEAGE_DEFAULT_CENTS;
+    } catch { return MILEAGE_DEFAULT_CENTS; }
+  };
+  type ClaimItemIn = { claim_date?: unknown; category?: unknown; description?: unknown; amount?: unknown; km?: unknown };
+  type ClaimItem = { claim_date: string | null; category: string; description: string; amount_cents: number; km?: number; rate_cents_per_km?: number };
+  const parseClaimItems = (raw: unknown, rate: number): { ok: true; items: ClaimItem[] } | { ok: false; msg: string } => {
+    if (!Array.isArray(raw) || raw.length === 0) return { ok: false, msg: "At least one item is required" };
+    if (raw.length > 10) return { ok: false, msg: "At most 10 items per claim" };
+    const items = (raw as ClaimItemIn[]).map((i): ClaimItem => {
+      const category = typeof i.category === "string" && CLAIM_CATS.includes(i.category) ? i.category : "other";
+      const base: ClaimItem = {
+        claim_date: typeof i.claim_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(i.claim_date) ? i.claim_date : null,
+        category,
+        description: typeof i.description === "string" ? i.description.slice(0, 300) : "",
+        amount_cents: Math.round(Number(i.amount) * 100),
+      };
+      const kmRaw = typeof i.km === "number" ? i.km : typeof i.km === "string" && i.km.trim() !== "" ? Number(i.km) : NaN;
+      if (category === "travel" && Number.isFinite(kmRaw) && kmRaw > 0) {
+        const km = Math.round(kmRaw * 10) / 10; // one decimal, as Google Maps shows it
+        return { ...base, km, rate_cents_per_km: rate, amount_cents: Math.round(km * rate) };
+      }
+      return base;
+    });
+    const badKm = items.find((i) => i.km !== undefined && (i.km <= 0 || i.km > 2000));
+    if (badKm) return { ok: false, msg: "Mileage must be between 0.1 and 2000 km - the round trip per Google Maps" };
+    if (items.some((i) => !i.claim_date || !Number.isFinite(i.amount_cents) || i.amount_cents <= 0 || i.amount_cents > 100000000)) {
+      return { ok: false, msg: "Every item needs a date and a positive amount (or, for mileage, the km)" };
+    }
+    return { ok: true, items };
+  };
+
+  /* the setting itself: anyone who can claim may READ it (the form computes
+     with it); only the claims decider (the CEO) may SET it. Audited. */
+  if (path === "/claims/mileage-rate" && method === "GET") {
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    return json({ cents_per_km: await mileageRate(), can_set: can(user.role, "claims_decide") });
+  }
+  if (path === "/claims/mileage-rate" && method === "POST") {
+    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO sets the mileage rate", 403);
+    const rm = typeof body?.rate_rm === "number" ? body.rate_rm : Number(body?.rate_rm);
+    const centsPerKm = Math.round(rm * 100);
+    if (!Number.isFinite(centsPerKm) || centsPerKm <= 0 || centsPerKm > 10000) {
+      return err("invalid_input", "The rate must be between RM 0.01 and RM 100.00 per km", 400);
+    }
+    const was = await mileageRate();
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`,
+    ).bind(MILEAGE_KEY, JSON.stringify({ cents_per_km: centsPerKm })).run();
+    await audit(env, user.id, "claim.mileage_rate_set", "system_meta", MILEAGE_KEY, { was_cents_per_km: was, cents_per_km: centsPerKm });
+    return json({ ok: true, cents_per_km: centsPerKm, was_cents_per_km: was });
+  }
+
   const claimEdit = path.match(/^\/claims\/(\d+)\/edit$/);
   if (claimEdit && method === "POST") {
     // v1.4.104: the claimant edits their own claim while it is PENDING, or
@@ -4983,20 +5064,10 @@ export async function handleStaff(
     if (!cur) return err("not_found", "Claim not found", 404);
     if (cur.user_id !== user.id) return err("forbidden", "Only the claimant edits their claim", 403);
     if (cur.status === "approved" || cur.paid_at) return err("invalid_state", "Approved claims are locked — submit a new claim instead", 400);
-    const catsE = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
-    if (!Array.isArray(body?.items) || body!.items.length === 0 || body!.items.length > 10) {
-      return err("invalid_input", "1–10 items are required", 400);
-    }
-    const parsedE = (body!.items as { claim_date?: unknown; category?: unknown; description?: unknown; amount?: unknown }[])
-      .map((i) => ({
-        claim_date: typeof i.claim_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(i.claim_date) ? i.claim_date : null,
-        category: typeof i.category === "string" && catsE.includes(i.category) ? i.category : "other",
-        description: typeof i.description === "string" ? i.description.slice(0, 300) : "",
-        amount_cents: Math.round(Number(i.amount) * 100),
-      }));
-    if (parsedE.some((i) => !i.claim_date || !Number.isFinite(i.amount_cents) || i.amount_cents <= 0 || i.amount_cents > 100000000)) {
-      return err("invalid_input", "Every item needs a date and a positive amount", 400);
-    }
+    /* v1.150.0 - the one parser (mileage-aware), shared with create. */
+    const pE = parseClaimItems(body?.items, await mileageRate());
+    if (!pE.ok) return err("invalid_input", pE.msg, 400);
+    const parsedE = pE.items;
     const centsE = parsedE.reduce((a, i) => a + i.amount_cents, 0);
     const purposeE = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000) : null;
     const wasRejected = cur.status === "rejected";
@@ -5090,7 +5161,7 @@ export async function handleStaff(
   }
   if (path === "/claims" && method === "POST") {
     if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
-    const cats = ["travel", "meal", "accommodation", "equipment", "medical", "other"];
+    const cats = CLAIM_CATS;
     // v1.4.95: multi-item claims — one form, several expense lines, exactly
     // like the paper AZOO-HR-CLM-001. Legacy single-line submissions still work.
     let itemsJson: string | null = null;
@@ -5098,17 +5169,10 @@ export async function handleStaff(
     let claimDate = "";
     let category = "other";
     if (Array.isArray(body?.items) && body!.items.length > 0) {
-      if (body!.items.length > 10) return err("invalid_input", "At most 10 items per claim", 400);
-      const parsed = (body!.items as { claim_date?: unknown; category?: unknown; description?: unknown; amount?: unknown }[])
-        .map((i) => ({
-          claim_date: typeof i.claim_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(i.claim_date) ? i.claim_date : null,
-          category: typeof i.category === "string" && cats.includes(i.category) ? i.category : "other",
-          description: typeof i.description === "string" ? i.description.slice(0, 300) : "",
-          amount_cents: Math.round(Number(i.amount) * 100),
-        }));
-      if (parsed.some((i) => !i.claim_date || !Number.isFinite(i.amount_cents) || i.amount_cents <= 0 || i.amount_cents > 100000000)) {
-        return err("invalid_input", "Every item needs a date and a positive amount", 400);
-      }
+      /* v1.150.0 - the one parser (mileage-aware), shared with edit. */
+      const pC = parseClaimItems(body!.items, await mileageRate());
+      if (!pC.ok) return err("invalid_input", pC.msg, 400);
+      const parsed = pC.items;
       cents = parsed.reduce((a, i) => a + i.amount_cents, 0);
       claimDate = parsed[0]!.claim_date as string;
       category = parsed[0]!.category;

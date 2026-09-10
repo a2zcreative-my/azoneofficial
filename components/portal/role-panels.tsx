@@ -3924,7 +3924,7 @@ interface Claim {
   pre_approved_at?: string | null;
   decision_note?: string | null;
   decided_at?: string | null;
-  items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]
+  items?: string | null; // v1.4.95: JSON [{claim_date, category, description, amount_cents}]; v1.150.0 travel lines may carry km + rate_cents_per_km
   paid_at?: string | null; // v1.4.101: CEO marked the claim as paid
   claimant_role?: string | null;        // v1.4.106 chain fields
   hr_reviewed_at?: string | null;
@@ -4087,10 +4087,12 @@ async function printClaimForm(c: Claim) {
     <thead><tr><th style="width:18%">Date</th><th style="width:20%">Category</th><th>Description</th><th style="width:18%">Amount (RM)</th></tr></thead>
     <tbody>
       ${(() => {
-        let its: { claim_date: string; category: string; description?: string; amount_cents: number }[] = [];
+        let its: { claim_date: string; category: string; description?: string; amount_cents: number; km?: number; rate_cents_per_km?: number }[] = [];
         try { its = c.items ? JSON.parse(c.items) : []; } catch { its = []; }
         if (its.length === 0) its = [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
-        const rows = its.map((it) => `<tr><td>${esc(dmy(it.claim_date))}</td><td style="text-transform:capitalize">${esc(it.category)}</td><td>${esc(it.description ?? "")}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
+        // v1.150.0: a mileage line prints its basis (km x rate) so the paper
+        // form is checkable against Google Maps without opening the system.
+        const rows = its.map((it) => `<tr><td>${esc(dmy(it.claim_date))}</td><td style="text-transform:capitalize">${esc(it.category)}</td><td>${esc(it.description ?? "")}${it.km != null ? ` <span style="color:${DOC.muted}">(${it.km} km x RM ${rmv(it.rate_cents_per_km ?? 0)}/km)</span>` : ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
         while (rows.length < 4) rows.push("<tr><td></td><td></td><td></td><td></td></tr>");
         return rows.join("");
       })()}
@@ -4142,9 +4144,23 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
   // v1.4.95: one claim form, several expense lines — like the paper form.
-  const emptyItem = { claim_date: "", category: "travel", description: "", amount: "" };
+  const emptyItem = { claim_date: "", category: "travel", description: "", amount: "", km: "" };
   const [purpose, setPurpose] = useState("");
   const [items, setItems] = useState([{ ...emptyItem }]);
+  /* v1.150.0 (CEO: "if travel they will claim for Mileage which is I set
+     0.70cent / km ... insert their KM based on Google maps km to their
+     destination and back to the HQ"): a travel line with km is MILEAGE -
+     the amount is km x the company rate, computed here for the eye and
+     AGAIN on the server (which ignores whatever amount the browser sends).
+     The rate is a setting the CEO changes from this form; the km and the
+     rate paid are stored on the line, so old claims never re-price. */
+  const [mileage, setMileage] = useState<{ cents_per_km: number; can_set: boolean } | null>(null);
+  const [rateDraft, setRateDraft] = useState<string | null>(null);
+  const rateCents = mileage?.cents_per_km ?? 70;
+  const mileageCents = (km: string) => { const k = Number(km); return Number.isFinite(k) && k > 0 ? Math.round(Math.round(k * 10) / 10 * rateCents) : 0; };
+  const lineCents = (it: { category: string; amount: string; km: string }) =>
+    it.category === "travel" && Number(it.km) > 0 ? mileageCents(it.km) : Math.round((Number(it.amount) || 0) * 100);
+  const isMileage = (it: { category: string; km: string }) => it.category === "travel" && Number(it.km) > 0;
   // v1.4.95: minimalist list — rows collapsed, Details ▾ per claim.
   const [expanded, setExpanded] = useState<number | null>(null);
   // v1.4.104: edit-before-approval / resubmit-after-rejection.
@@ -4172,6 +4188,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   }, []);
   useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]);
   useEffect(() => {
+    void api<{ cents_per_km: number; can_set: boolean }>(`/claims/mileage-rate`).then((r) => { if (r.ok && r.data) setMileage(r.data); });
+  }, []);
+  useEffect(() => {
     if (!canPayee) return;
     void api<{ users: { id: number; name: string; full_name?: string | null; role: string; is_active?: number }[] }>(`/users`).then((r) => {
       if (r.ok && r.data?.users) {
@@ -4184,13 +4203,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const rmc = (c: number) => `RM ${rmBare(c)}`;
 
   const submit = async () => {
-    const filled = items.filter((i) => i.claim_date || Number(i.amount) || i.description.trim());
-    if (filled.length === 0) { setMsg(L("Add at least one item (date + amount).", "Tambah sekurang-kurangnya satu item (tarikh + amaun).")); return; }
-    if (filled.some((i) => !i.claim_date || !Number(i.amount))) { setMsg(L("Every item needs a date and an amount.", "Setiap item perlukan tarikh dan amaun.")); return; }
+    const filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
+    if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
+    if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
     setMsg("");
     const payloadC = {
       purpose: purpose || undefined,
-      items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: Number(i.amount) })),
+      items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: lineCents(i) / 100, ...(isMileage(i) ? { km: Math.round(Number(i.km) * 10) / 10 } : {}) })),
       // v1.4.173: 0 on edit explicitly clears the remark; undefined on create = none
       ...(canPayee ? { payee_user_id: editingClaim ? payeeId : (payeeId > 0 ? payeeId : undefined) } : {}),
     };
@@ -4330,7 +4349,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const hrHistory = role === "hr_admin" ? claims.filter((c) => c.status === "approved") : [];
   const mainList = role === "hr_admin" ? claims.filter((c) => c.user_id === userId || c.status !== "approved") : claims;
 
-  const claimItems = (c: Claim): { claim_date: string; category: string; description?: string; amount_cents: number }[] => {
+  const claimItems = (c: Claim): { claim_date: string; category: string; description?: string; amount_cents: number; km?: number; rate_cents_per_km?: number }[] => {
     try {
       const its = c.items ? JSON.parse(c.items) : [];
       if (Array.isArray(its) && its.length > 0) return its;
@@ -4428,7 +4447,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
                   setPayeeId(c.payee_user_id ?? 0); // v1.4.173
                   setPurpose(c.description ?? "");
-                  setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString() })));
+                  setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
                   setReceipt(null);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}>
@@ -4493,7 +4512,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             {claimItems(c).map((it, i) => (
               <p key={i} className="text-muted-foreground text-xs">
                 {dmy(it.claim_date)} · <span className="capitalize">{catLabel(it.category)}</span>
-                {it.description ? ` · ${it.description}` : ""} · {rmc(it.amount_cents)}
+                {it.description ? ` · ${it.description}` : ""}{it.km != null ? ` · ${it.km} km × RM ${rmBare(it.rate_cents_per_km ?? 0)}/km` : ""} · {rmc(it.amount_cents)}
               </p>
             ))}
           </div>
@@ -4622,6 +4641,32 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </select>
           </label>
         )}
+        {/* v1.150.0: the company mileage rate — read by everyone who claims,
+            changed only by the claims decider (the CEO); every change is audited. */}
+        <p className="text-muted-foreground mt-2 text-xs">
+          {rateDraft === null ? (
+            <>
+              <AppIcon name="place" className="mr-1 -mt-0.5 inline h-3.5 w-3.5" />
+              {L("Mileage rate:", "Kadar perbatuan:")} <strong className="text-foreground">RM {rmBare(rateCents)}/km</strong> {L("(round trip, per Google Maps)", "(pergi balik, ikut Google Maps)")}
+              {mileage?.can_set && <button type="button" className="ml-2 underline" onClick={() => setRateDraft((rateCents / 100).toFixed(2))}>{L("Change", "Tukar")}</button>}
+            </>
+          ) : (
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <AppIcon name="place" className="h-3.5 w-3.5" />
+              <span>{L("New rate RM", "Kadar baharu RM")}</span>
+              <input type="number" min={0.01} max={100} step="0.01" inputMode="decimal" className="border-input bg-background h-8 w-20 rounded-lg border px-2 text-sm" value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} />
+              <span>/km</span>
+              <button type="button" className={rowBtnPrimary} onClick={async () => {
+                const r = await api<{ ok?: boolean; cents_per_km?: number; error?: { message?: string } }>(`/claims/mileage-rate`, { method: "POST", body: JSON.stringify({ rate_rm: Number(rateDraft) }) });
+                if (!r.ok || !r.data?.cents_per_km) { showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Could not save the rate", "Tidak dapat menyimpan kadar"), "notice"); return; }
+                setMileage((m) => ({ cents_per_km: r.data!.cents_per_km!, can_set: m?.can_set ?? true }));
+                setRateDraft(null);
+                showToast(L("Saved", "Disimpan"), `${L("Mileage rate is now RM", "Kadar perbatuan kini RM")} ${rmBare(r.data.cents_per_km)}/km ${L("— recorded in the audit log", "— direkodkan dalam log audit")}`);
+              }}>{L("Save", "Simpan")}</button>
+              <button type="button" className="underline" onClick={() => setRateDraft(null)}>{L("cancel", "batal")}</button>
+            </span>
+          )}
+        </p>
         <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
           <span>{L("Date", "Tarikh")}</span><span>{L("Category", "Kategori")}</span><span>{L("Description", "Keterangan")}</span><span>{L("Amount (RM)", "Amaun (RM)")}</span><span />
         </div>
@@ -4649,21 +4694,40 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </label>
             <input className="border-input bg-background hidden h-9 min-w-0 rounded-lg border px-2 text-sm sm:block" placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
               value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
-            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Amount (RM)", "Amaun (RM)")}
-              <input type="number" min={0} step="0.01" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm" placeholder="0.00"
-                value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
+            <label className="text-muted-foreground block text-[11px] sm:hidden">{isMileage(it) ? L("Amount (RM, from km)", "Amaun (RM, dari km)") : L("Amount (RM)", "Amaun (RM)")}
+              {isMileage(it)
+                ? <input readOnly className="border-input bg-secondary mt-0.5 h-9 w-full rounded-lg border px-2 text-sm tabular-nums" value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+                : <input type="number" min={0} step="0.01" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm" placeholder="0.00"
+                    value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             </label>
-            <input type="number" min={0} step="0.01" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block" placeholder="0.00"
-              value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />
+            {isMileage(it)
+              ? <input readOnly className="border-input bg-secondary hidden h-9 rounded-lg border px-2 text-sm tabular-nums sm:block" value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+              : <input type="number" min={0} step="0.01" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block" placeholder="0.00"
+                  value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             {items.length > 1
               ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>{L("✕ Remove", "✕ Buang")}</button>
               : <span className="hidden sm:block" />}
+            {/* v1.150.0: mileage — only a travel line has a km box. */}
+            {it.category === "travel" && (
+              <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-5 sm:pb-1">
+                <label className="text-muted-foreground inline-flex items-center gap-1.5 text-[11px]">
+                  <AppIcon name="place" className="h-3.5 w-3.5" />{L("Mileage (km, round trip)", "Perbatuan (km, pergi balik)")}
+                  <input type="number" min={0} step="0.1" inputMode="decimal" className="border-input bg-background h-8 w-24 rounded-lg border px-2 text-sm" placeholder="0.0"
+                    value={it.km} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, km: e.target.value } : x))} />
+                </label>
+                <span className="text-muted-foreground text-[11px]">
+                  {isMileage(it)
+                    ? `${Math.round(Number(it.km) * 10) / 10} km × RM ${rmBare(rateCents)}/km = RM ${rmBare(mileageCents(it.km))}`
+                    : L(`Mileage at RM ${rmBare(rateCents)}/km — the Google Maps distance to the destination and back to HQ. Leave empty for a receipt (Grab, toll, parking).`, `Perbatuan pada RM ${rmBare(rateCents)}/km — jarak Google Maps ke destinasi dan balik ke HQ. Biarkan kosong untuk resit (Grab, tol, parkir).`)}
+                </span>
+              </div>
+            )}
           </div>
         ))}
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>{L("+ Add item", "+ Tambah item")}</button>
           <p className="text-sm font-semibold">
-            {L("Total: RM", "Jumlah: RM")} {rmBare(Math.round(items.reduce((a, i) => a + (Number(i.amount) || 0), 0) * 100))}
+            {L("Total: RM", "Jumlah: RM")} {rmBare(items.reduce((a, i) => a + lineCents(i), 0))}
           </p>
         </div>
         <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">

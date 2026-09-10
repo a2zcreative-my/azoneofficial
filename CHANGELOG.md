@@ -2,6 +2,54 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.150.0] - 2026-09-10 - Mileage: the kilometre is the claim
+
+The CEO, 09-09-2026, on the Claims form: *"for claim, if travel they will
+claim for Mileage which is I set 0.70cent / km which is they need to insert
+their KM based on Google maps km to their destination and back to the HQ
+(office)"*.
+
+**What changed for the claimant.** A Travel line now has a km box. Type the
+Google Maps distance to the destination and back to HQ and the amount box
+fills itself — `46 km × RM 0.70/km = RM 32.20` — and stops being typeable.
+Leave the km empty and the line is a normal travel receipt (Grab, toll,
+parking) with a typed amount, exactly as before. The company rate is printed
+at the top of the form before the first line is typed, so nobody has to ask
+what it is.
+
+**What changed for the CEO.** The rate is a setting, not a number in the
+code: *Mileage rate: RM 0.70/km · Change* on the same form, visible only to
+whoever can decide claims. Every change is written to the audit log with the
+value it replaced (`claim.mileage_rate_set`). It lives in `system_meta` under
+`claim_mileage_rate`, so no migration was needed and 70 sen is the answer
+until the CEO says otherwise.
+
+**What the server refuses to trust.** For a km line the worker computes the
+amount itself and ignores whatever the browser sent — money the client gets to
+name is money the client gets to invent. The km and the rate it was paid at
+are stored ON the line, so a claim from June still reads at June's rate after
+the rate moves; a paid claim never re-prices itself. km is bounded (0.1–2000)
+and rounded to one decimal, as Google Maps shows it.
+
+**The paper form shows its working.** The printed AZOO-HR-CLM form and the
+Details line both carry the basis — *(46 km x RM 0.70/km)* — so the figure can
+be checked against Google Maps without opening the system.
+
+**One parser for two doors.** Create and edit used to carry two copies of the
+claim-item parser; both now go through `parseClaimItems`. While in there: the
+form has offered *client meeting* and *stationery* since v1.4.95, and the
+server had been silently saving both as *other*. It keeps them now.
+
+**Guard #70, `claim-mileage`** (37 checks, negative-tested ten ways): the rate
+is a setting with a default of 70; the worker prices the km and ignores the
+client amount; the line remembers its rate; one parser serves both doors; a
+travel receipt without km is still travel; only the claims decider may set
+the rate, and it is audited; the form and the printed form show the basis;
+the kilometre is bounded.
+
+No migration. `worker/src/staff.ts`, `components/portal/role-panels.tsx`,
+`tests/claim-mileage.mjs`, `scripts/run-guards.mjs`.
+
 ## [1.149.0] - 2026-09-10 - Criscikee: who is trying it, what they prefer, how much, and why
 
 The CEO, 10-09-2026: a new product line, the crispy chicken skin, and a tab
