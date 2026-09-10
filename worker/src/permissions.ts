@@ -99,6 +99,29 @@ export const PERMS: Record<string, readonly Role[]> = {
      Staff tab SEES the chart, because a chart nobody may look at organises
      nothing. Every change is audited with both names. */
   org_assign: ["ceo", "coo", "cco"],
+
+  /* === criscikee.ts (v1.149.0 - the Criscikee product line). CEO,
+     10-09-2026: a tab to learn WHO is trying the crispy chicken skin, WHAT
+     flavour they prefer, HOW MUCH they like it and WHY.
+
+     Three tiers, because the three things people do here are not the same
+     thing:
+       criscikee_view    - see the dashboard, the analytics and the reviews.
+                           The business tier, the same people who read
+                           Ecommerce and Inventory. TAB_ROLES.Criscikee in
+                           lib/portal-tabs.ts mirrors THIS list.
+       criscikee_review  - add and edit a review. The same tier as view, on
+                           purpose: feedback is collected at tastings and
+                           events by whoever is standing there with the
+                           tablet, and a reviewer who cannot enter what the
+                           customer just said is a reviewer with a notebook.
+       criscikee_manage  - delete a review, and add, rename or retire a
+                           flavour. Management: deleting is removing a
+                           customer from the record, and a flavour list is
+                           the product line. Same tier as threads_manage. */
+  criscikee_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
+  criscikee_review: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
+  criscikee_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

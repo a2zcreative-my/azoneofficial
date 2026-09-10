@@ -37,7 +37,7 @@
  */
 
 import {
-  BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ClipboardList,
+  BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ClipboardList, Drumstick, Star,
   Clapperboard, CreditCard, Database, DoorOpen, Download, Eye, FileText, Flame,
   Folder, Footprints, Gem, Hourglass, Lightbulb, Link2, Lock, MapPin, Paperclip,
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
@@ -96,6 +96,9 @@ export const APP_ICON = {
   date: CalendarDays,
   time: Timer,
   cake: Cake,
+  /* v1.149.0 - Criscikee: the panel heading, and the star a rating is made of. */
+  drumstick: Drumstick,
+  star: Star,
   holiday: Palmtree,
   lock: Lock,
   access: ShieldCheck,

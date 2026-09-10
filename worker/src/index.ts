@@ -278,7 +278,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0124_movement_purpose";
+const LATEST_MIGRATION = "0125_criscikee";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4565,6 +4565,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0122 (who an event is for)", `SELECT user_id FROM event_attendees LIMIT 1`],
       ["0123 (what a piece cost)", `SELECT unit_cost_cents FROM inventory_items LIMIT 1`],
       ["0124 (why the stock moved)", `SELECT purpose FROM manual_stockouts LIMIT 1`],
+      ["0125 (Criscikee flavours and reviews)", `SELECT sentiment_source FROM criscikee_reviews LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4708,6 +4709,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0122_event_attendees",
       "0123_inventory_unit_cost",
       "0124_movement_purpose",
+      "0125_criscikee",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

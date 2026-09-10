@@ -34,6 +34,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Hotels": { en: "Hotels", ms: "Hotel" },
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },
   "Cards": { en: "Cards", ms: "Kad" }, // v1.129.0 - the digital business cards
+  "Criscikee": { en: "Criscikee", ms: "Criscikee" }, // v1.149.0 - a brand name, the same in both languages
   "Profile": { en: "Profile", ms: "Profil" },
   "Users": { en: "Users", ms: "Pengguna" },
   // chrome

@@ -367,4 +367,20 @@ if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); pro
   else ok("importPath writes a path, stubUrl writes a file:// URL, wherever either is used");
 }
 
+/* ---- v1.149.0: no guard may pin LATEST_MIGRATION to one migration ------
+   Four times in two days a guard failed on CORRECT code because it asserted
+   `LATEST_MIGRATION = "0122_..."` and the next migration took the line, as
+   it is designed to. The property those guards meant was "my migration is
+   registered and the pointer never rewound past it", which is a >= on the
+   number. Any guard that spells the literal is failed here, with the fix in
+   the message. */
+{
+  const files = readdirSync("tests").filter((f) => f.endsWith(".mjs") && f !== "registry-parity.mjs");
+  /* comments stripped first - a guard is allowed to SAY what it used to do wrong */
+  const code = (f) => readFileSync(`tests/${f}`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const pinned = files.filter((f) => /LATEST_MIGRATION = "0\d{3}_[a-z0-9_]+"/.test(code(f)));
+  if (pinned.length) fail(`guard(s) pin LATEST_MIGRATION to a literal name and will fail on the next migration: ${pinned.join(", ")} - assert Number(m[1]) >= NNN instead`);
+  else ok("no guard pins LATEST_MIGRATION to a literal name (it moves by design)");
+}
+
 console.log("\nregistry-parity: all registries agree.");

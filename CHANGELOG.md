@@ -2,6 +2,91 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.149.0] - 2026-09-10 - Criscikee: who is trying it, what they prefer, how much, and why
+
+The CEO, 10-09-2026: a new product line, the crispy chicken skin, and a tab
+whose one job is to answer *"WHO is buying/testing Criscikee → WHAT flavor
+they prefer → HOW MUCH they like it → WHY they like/dislike it."*
+
+**A native tab, not a bolt-on.** `Criscikee` sits after the ELFIA block in
+the registry with its own side-nav heading — two product brands read as two
+brands — and is placed so no role's phone thumb row changes. It is lazy-loaded
+like every other panel, governed by the 🔐 card like every other tab, and
+draws entirely from the house component library: `StatTile`, `MiniBar`,
+`SectionTabs`, `ZoneLabel`, `DetailsToggle`, the shared table and chip
+classes, `useSaveToast`, `useConfirm`, `useCachedApi`. No new library of any
+kind; the project's rule is pure SVG/CSS and the grids are tone-token heat
+cells.
+
+**Two tables (migration 0125).** `criscikee_flavors` is configuration — the
+four launch flavours are seeded, a flavour is retired (never deleted) and
+reviews reference it by id. `criscikee_reviews` is the feedback: age,
+**age group derived by the worker and stored** (never accepted from the
+browser — the guard runs both `ageGroupOf` functions over every age from 3 to
+110), gender, rating 1–5, the comment **verbatim**, overall impression,
+sentiment with its **source** (auto/manual) and its **reasons**, the Malaysian
+calendar day, soft delete. No foreign keys, by policy.
+
+**Sentiment, ready for an AI that is not here yet.** The project has no AI
+infrastructure and the brief said not to bring a large one for this. It does
+have a precedent — the Threads study classifies a post as Malaysian from its
+own text and stores the reasons beside the verdict — so this follows it: a
+Bahasa Melayu + English lexicon, negation-aware (*tak sedap* is not *sedap*;
+*not bad* counts for half), the star rating as tie-breaker, and the matched
+words stored in `sentiment_reasons` so a person can check the verdict. A
+person can overrule it, and an edit to the wording does not undo a human
+verdict. Swapping in a model later changes one function and no columns.
+
+**Nothing is added up in the browser.** One `/analytics` route computes every
+figure in SQL: the KPI strip, per-flavour performance with the sentiment
+split, flavour × gender, flavour × age group, the full flavour × gender × age
+cube (so the segment picker answers without a second request), the most
+recent words per flavour, and the insights. The one arithmetic in the panel is
+the picker's weighted mean over cells SQL already aggregated. The guard counts
+`reduce()` calls to make sure it stays that way.
+
+**An insight needs a sample.** "Best", "most positive" and "most negative"
+are withheld below `MIN_SAMPLE = 5` reviews, in the worker and on the screen,
+and the two agree on the number because the API sends it. A thin cell in a
+grid is faded and says why. Flavours with too few reviews are listed as
+*shown but not ranked* rather than hidden.
+
+**Three screens.** *Dashboard* — KPIs, flavour cards, the two grids, the
+segment picker, Customer Voice (real comments grouped by flavour, filtered by
+flavour / sentiment / gender / age), Insights including highest-opportunity
+segments. *Customer reviews* — a form that takes as few taps as the data
+allows (five 44 px star buttons on a phone, the age group previewing itself),
+and the list with search, seven filters, three sorts, view / edit / delete,
+a table on the desk and a card list on the phone from one array. *Flavors* —
+add, rename, retire, activate; management only.
+
+**Permissions** follow the house `_view / _manage` convention with one more:
+`criscikee_view` (dashboard, analytics, reviews — the business tier that reads
+Ecommerce and Inventory), `criscikee_review` (add and edit — the same tier,
+because feedback is collected at tastings by whoever is holding the tablet),
+`criscikee_manage` (delete a review, change the flavour list — management).
+`TAB_ROLES.Criscikee` mirrors `criscikee_view`; the worker matrix is what is
+enforced. Every mutation is audited.
+
+**Demo data stays out of production.** The migration seeds flavours and not
+one review — it runs against the live database. `scratch/criscikee-demo.sql`
+holds 174 structured demo reviews for a **local** D1 only, every row marked
+`demo data` so one DELETE removes them.
+
+**Also:** `registry-parity` now refuses any guard that pins
+`LATEST_MIGRATION` to a literal name — the mistake that failed four correct
+deploys this week — so the class is closed, not just the instance.
+
+`worker/migrations/0125_criscikee.sql`, `worker/src/criscikee.ts`,
+`worker/src/staff.ts` (the door), `worker/src/index.ts` (triple bump),
+`worker/src/permissions.ts`, `lib/criscikee.ts`, `lib/portal-tabs.ts`,
+`lib/i18n.ts`, `components/portal/criscikee-panel.tsx`,
+`components/portal/lazy-panels.tsx`, `components/layout/nav-icons.tsx`,
+`components/layout/side-nav.tsx`, `components/ui/app-icon.tsx`,
+`app/portal/page.tsx`, `scratch/criscikee-demo.sql`, `tests/criscikee.mjs`
+(guard #69, 64 checks, negative-tested thirteen ways), `tests/registry-parity.mjs`,
+`tests/movement-purpose.mjs`, `scripts/run-guards.mjs`.
+
 ## [1.148.2] - 2026-09-09 - PUSH.bat makes each repository match its own .gitignore
 
 The store deploy failed three times on `CHANGELOG-1.md` - 895 KB of this

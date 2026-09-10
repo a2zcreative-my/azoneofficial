@@ -70,6 +70,7 @@ export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0
 export const EnquiriesPanel = lazy(() => import("@/components/portal/enquiries-panel").then((m) => m.EnquiriesPanel)); // v1.112.0
+export const CriscikeePanel = lazy(() => import("@/components/portal/criscikee-panel").then((m) => m.CriscikeePanel)); // v1.149.0 - the crispy chicken skin
 export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));

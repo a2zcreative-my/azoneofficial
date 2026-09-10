@@ -55,6 +55,14 @@ export const ALL_TABS = [
   "ELFIA Store",
   "Web Orders",
   "ELFIA Traffic",
+  /* v1.149.0 - Criscikee, the crispy chicken skin: the company's second
+     product line, so it sits right after the ELFIA block and before the
+     PEOPLE stack. Placed here rather than at the end because it is a product
+     the CEO reads daily, not an identity tab; placed AFTER the ELFIA three so
+     no role's first four tabs - the phone thumb row - change, since every
+     role that can see it already sees Ecommerce, Inventory and Sales ahead
+     of it. */
+  "Criscikee",
   "HR",
   "Attendance",
   "Tasks",
@@ -191,6 +199,12 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      worker/src/permissions.ts, which is the matrix actually enforced. */
   Hotels: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
+  /* v1.149.0 - Criscikee. Mirrors criscikee_view in worker/src/permissions.ts:
+     the business tier that reads Ecommerce and Inventory. Adding a review is
+     the same tier (feedback is taken at tastings by whoever is there);
+     deleting one and editing the flavour list is management, gated inside
+     the tab by can_manage from the API, not here. */
+  Criscikee: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   /* v1.129.0 (CEO, 06-09-2026: *"only ceo, coo, cco can share their business
      card to client and the other staff cant access this tabs"*). The three
      officers, and nobody else - deliberately NOT admin, who is on most other
@@ -275,6 +289,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Assets: { en: "equipment register", ms: "daftar peralatan" },
   Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
   Cards: { en: "share a director's card", ms: "kongsi kad pengarah" },
+  Criscikee: { en: "who likes which flavour, and why", ms: "siapa suka perisa mana, dan mengapa" },
 };
 
 /** The roles a tab is shown to out of the box. `null` = every staff role. */

@@ -204,7 +204,11 @@ ok("the adjust route, the return action and the un-sell route were all found",
 
 /* ---- 8. the triple bump ---- */
 {
-  ok("LATEST_MIGRATION names it", /const LATEST_MIGRATION = "0124_movement_purpose"/.test(index));
+  /* v1.149.0 - the moving line, asserted the way event-attendees and
+     movement-cost now do: registered, and never rewound past. */
+  const latest = index.match(/const LATEST_MIGRATION = "(\d{4})_/);
+  ok("LATEST_MIGRATION is set and is 0124 or newer", !!latest && Number(latest[1]) >= 124,
+     latest ? `LATEST_MIGRATION is ${latest[1]}` : "not found");
   ok("EXPECTED_MIGRATIONS lists it", /"0124_movement_purpose",/.test(index));
   ok("a health probe can name it", /SELECT purpose FROM manual_stockouts LIMIT 1/.test(index));
 }

@@ -7,6 +7,7 @@ import type { Env } from "./index";
 import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
+import { handleCriscikee } from "./criscikee"; // v1.149.0 - the Criscikee product line
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
@@ -1822,6 +1823,11 @@ export async function handleStaff(
      department: everything about the list lives in that module. */
   if (path === "/hotels" || path.startsWith("/hotels/")) {
     return handleHotels(env, path.slice("/hotels".length), method, body, user, new URL(request.url).searchParams);
+  }
+  /* ---- Criscikee (v1.149.0) - see criscikee.ts. The crispy chicken skin:
+     flavours, customer reviews, and every figure the tab shows, in SQL. */
+  if (path === "/criscikee" || path.startsWith("/criscikee/")) {
+    return handleCriscikee(env, path.slice("/criscikee".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- Threads workspace (v1.89.0) — see threads.ts. A door, not a
@@ -5909,7 +5915,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Criscikee", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

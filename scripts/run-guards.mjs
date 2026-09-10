@@ -131,6 +131,7 @@ const GUARDS = [
   ["movement-cost", "money on a stock movement says per unit AND line total, a correction is valued at cost, and an item with no cost is named rather than treated as free"],
   ["movement-purpose", "the REASON a movement happened decides whether it is a sale - a marketing loan is neither revenue nor a loss, and a return is not a revert"],
   ["audit-0909", "the findings of the 09-09 audit stay fixed - the payslip cannot call a day paid and deduct it, a released month is protected everywhere pay is set, and the commit gate is real"],
+  ["criscikee", "the crispy chicken skin - one vocabulary in three places, the age band derived by the worker and never accepted, sentiment with its reasons, nothing added up in the browser, and no verdict below the sample floor"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
