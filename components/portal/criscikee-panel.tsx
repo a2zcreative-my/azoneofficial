@@ -487,7 +487,7 @@ function CustomerVoice({ flavors }: { flavors: Flavor[] }) {
               <ul className="mt-1 space-y-2">
                 {g.list.map((r) => (
                   <li key={r.id} className="border-border border-l-2 pl-3">
-                    <p className="text-sm">“{r.comment}”</p>
+                    <p className="text-sm whitespace-pre-line">“{r.comment}”</p>
                     <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
                       <Stars value={r.rating} /> <SentimentChip s={r.sentiment} source={r.sentiment_source} />
                       <span>· {lbl(GENDERS, r.gender)}, {lbl(AGE_GROUPS, r.age_group)} · {dmy(r.reviewed_on)}</span>
@@ -677,9 +677,12 @@ function ReviewsView({ flavors, canReview, canManage, toast, confirm, onFlavorsC
               <div className="block md:col-span-2"><span className={fieldLabel}>{L("Flavour rating *", "Penilaian perisa *")}</span>
                 <RatingInput value={form.rating} onChange={(v) => setForm((f) => ({ ...f, rating: v }))} /></div>
               <label className="block md:col-span-2"><span className={fieldLabel}>{L("Customer's comment * — their words, exactly", "Komen pelanggan * — kata-kata mereka, tepat")}</span>
-                <textarea className={`${inputClass} min-h-24`} maxLength={COMMENT_MAX} value={form.comment} placeholder={L("e.g. BBQ memang sedap, rasa dia ngam dan crispy.", "cth. BBQ memang sedap, rasa dia ngam dan crispy.")}
+                <textarea className={`${inputClass} min-h-32 resize-y`} rows={5} maxLength={COMMENT_MAX} value={form.comment} placeholder={L("e.g. BBQ memang sedap, rasa dia ngam dan crispy.", "cth. BBQ memang sedap, rasa dia ngam dan crispy.")}
                   onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))} />
-                <span className="text-muted-foreground mt-0.5 block text-right text-[11px] tabular-nums">{form.comment.length}/{COMMENT_MAX}</span></label>
+                <span className="text-muted-foreground mt-0.5 flex justify-between gap-2 text-[11px]">
+                  <span>{L("Enter starts a new line — a, b, c on separate lines is kept that way.", "Enter memulakan baris baharu — a, b, c pada baris berasingan dikekalkan begitu.")}</span>
+                  <span className="tabular-nums">{form.comment.length}/{COMMENT_MAX}</span>
+                </span></label>
               <label className="block"><span className={fieldLabel}>{L("Overall impression *", "Kesan keseluruhan *")}</span>
                 <select className={inputClass} value={form.impression} onChange={(e) => setForm((f) => ({ ...f, impression: e.target.value }))}>
                   <option value="">{L("— pick —", "— pilih —")}</option>
@@ -760,7 +763,7 @@ function ReviewsView({ flavors, canReview, canManage, toast, confirm, onFlavorsC
                       <span className="text-sm font-semibold">{r.flavor_name ?? "?"}</span>
                       <Stars value={r.rating} />
                     </div>
-                    <p className="mt-1 text-sm">“{r.comment}”</p>
+                    <p className="mt-1 text-sm whitespace-pre-line">“{r.comment}”</p>
                     <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
                       <span>{dmy(r.reviewed_on)}</span><span>· {r.age}, {lbl(GENDERS, r.gender)} ({lbl(AGE_GROUPS, r.age_group)})</span>
                       <span className={IMP_CHIP[r.impression] ?? chipSmNeutral}>{lbl(IMPRESSIONS, r.impression)}</span>
@@ -800,7 +803,7 @@ function ReviewsView({ flavors, canReview, canManage, toast, confirm, onFlavorsC
                         <td className={`${td} font-medium`}>{r.flavor_name ?? "?"}</td>
                         <td className={td}><Stars value={r.rating} /></td>
                         <td className={`${td} max-w-md`}>
-                          <span className={openRow === r.id ? "" : "line-clamp-2"}>“{r.comment}”</span>
+                          <span className={openRow === r.id ? "block whitespace-pre-line" : "line-clamp-2"}>“{r.comment}”</span>
                           {openRow === r.id && <ReviewDetail r={r} />}
                         </td>
                         <td className={td}><span className={IMP_CHIP[r.impression] ?? chipSmNeutral}>{lbl(IMPRESSIONS, r.impression)}</span></td>

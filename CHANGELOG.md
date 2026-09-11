@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.152.1] - 2026-09-11 - Criscikee: a comment keeps its lines
+
+The CEO, 11-09-2026, on Customer Voice: *"the desc I unable to entry and the
+review seem like continuously instead of able to enter"*. A comment typed
+as *a. … b. … c. …* on separate lines was SAVED with its line breaks (the
+worker never touched them) and then drawn as one run-on sentence, because
+HTML folds a newline into a space. So the form looked as if Enter had done
+nothing.
+
+Fixed where it is read, not where it is written: the comment in Customer
+Voice, in the phone list, and in an opened review row now keeps the lines
+the customer wrote (`whitespace-pre-line`). The comment box is taller and
+can be dragged, and says under it that Enter starts a new line. No worker
+change, no migration. `components/portal/criscikee-panel.tsx`.
+
 ## [1.152.0] - 2026-09-11 - Dashboard: events and attendance as one card, and who is on leave
 
 The CEO, 11-09-2026: *"I want My attendance — September and Upcoming events
