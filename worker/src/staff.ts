@@ -2096,7 +2096,11 @@ export async function handleStaff(
       pending_ot: await n(`SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
       low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
       // v1.4.280: open quotations = QT docs not yet converted to an invoice
-      open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'QT' AND converted_from IS NULL`),
+      /* v1.154.0 - OPEN means not yet invoiced. converted_from lives on the
+         INVOICE, so "QT with converted_from IS NULL" was every quotation ever
+         written, invoiced or not. */
+      open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents q WHERE q.doc_type = 'QT'
+        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')`),
       // v1.7.0 company-pulse tiles for the dashboard
       clients: await n(`SELECT COUNT(*) AS c FROM customers WHERE COALESCE(company, '') != 'Walk-in Customer'`),
       active_stokis: await n(`SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
@@ -7036,7 +7040,13 @@ export async function handleStaff(
     // v1.5.0: bound parameter instead of string interpolation (defence in depth)
     const typed = t && ["QT", "DO", "INV"].includes(t) ? t : null;
     const stmt = env.DB.prepare(
-      `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name FROM sales_documents d
+      `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name,
+              /* v1.154.0 - a quotation that has already become an invoice says
+                 which one; the row offers no second click and the open count
+                 leaves it out. NULL on everything but a converted QT. */
+              (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' ORDER BY i.id DESC LIMIT 1) AS invoiced_as,
+              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id
+       FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${typed ? "WHERE d.doc_type = ?1" : ""}
        ORDER BY d.created_at DESC LIMIT 200`,
@@ -7382,6 +7392,14 @@ export async function handleStaff(
       `SELECT * FROM sales_documents WHERE id = ?1 AND doc_type = 'QT'`,
     ).bind(docConv[1]).first<Record<string, unknown>>();
     if (!qt) return err("not_found", "Quotation not found", 404);
+    /* v1.154.0 (CEO: "Quotation should not allowed twice Invoice generate!"):
+       one quotation, one invoice. A second click used to mint a second INV
+       for the same sale - and deduct the stock again. The undo on the first
+       invoice (below) is the way back if the first was a mistake. */
+    const already = await env.DB.prepare(
+      `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 1`,
+    ).bind(qt.id).first<{ doc_number: string }>();
+    if (already) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Undo that invoice first if it was a mistake.`, 409);
     const numberC = await docNumber(env, "INV");
     const resC = await env.DB.prepare(
       `INSERT INTO sales_documents

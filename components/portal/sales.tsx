@@ -52,6 +52,8 @@ export interface SalesDoc {
   delivery_status: string | null;
   created_at: string;
   converted_from?: number | null; // v1.4.233 — set when this INV came from a QT
+  invoiced_as?: string | null; // v1.154.0 — on a QT: the INV it already became
+  invoiced_as_id?: number | null;
   payment_ref?: string | null;
   paid_at?: string | null;
   salesperson_name?: string | null;
@@ -3148,7 +3150,17 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                         ↩ {L("Undo", "Batalkan")}
                       </button>
                     )}
-                  {d.doc_type === "QT" && canInvoice && (
+                  {/* v1.154.0 (CEO: "the QT which is already click Invoice
+                      should be updated as a sales! then Quotation should not
+                      allowed twice Invoice generate!"): a quotation that has
+                      become an invoice says so and offers no second click. */}
+                  {d.doc_type === "QT" && d.invoiced_as && (
+                    <span className="inline-flex h-7 items-center rounded-full bg-success-soft px-2.5 text-xs font-medium text-success"
+                      title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
+                      <AppIcon name="success" className="mr-1 h-3.5 w-3.5" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
+                    </span>
+                  )}
+                  {d.doc_type === "QT" && !d.invoiced_as && canInvoice && (
                     <button
                       type="button"
                       className="inline-flex h-7 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white"
@@ -3189,7 +3201,7 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
                       → {L("Invoice", "Invois")}
                     </button>
                   )}
-                  {d.doc_type === "QT" && !canInvoice && (
+                  {d.doc_type === "QT" && !d.invoiced_as && !canInvoice && (
                     <span className="text-muted-foreground inline-flex h-7 items-center text-xs">
                       {L("Quotation", "Sebut harga")}
                     </span>

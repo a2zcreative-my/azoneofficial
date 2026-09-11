@@ -2,6 +2,43 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.154.0] - 2026-09-11 - One quotation, one invoice; the desk lands where it is decided; OT asks first
+
+**A quotation is invoiced once** (CEO: *"the QT which is already click
+Invoice should be updated as a sales! then Quotation should not allowed
+twice Invoice generate!"*). The worker now refuses a second conversion with
+the number of the invoice that already exists (undo that invoice first if
+it was a mistake); the documents list carries which invoice a quotation
+became, so the row reads *Invoiced · INV-…* in green and offers no second
+click. *Quotations open* on the Dashboard - both the count and the list -
+leaves converted quotations out. The count had been asking for quotations
+whose `converted_from` was empty, and that column lives on the INVOICE, so
+every quotation ever written was "open"; it now asks whether an invoice
+came from the quotation.
+
+**A desk item lands on its card** (CEO: *"when I click on the OT, it doesnt
+go to OT section"*). Pressing an overtime, forgotten-punch or claim item on
+*Waiting on you* switches the tab AND scrolls to the card where it is
+decided, ringing it for a moment; the reveal waits for the lazily-loaded
+panel rather than assuming it is there. Other buckets land on the tab top,
+where their pending list already is.
+
+**Approving overtime asks first** (CEO: *"when I approve the OT, it doesnt
+appear the popup box which is supposed to implement globally"*). Rejecting
+already asked; approving did not, and it is a payroll figure. The dialog
+names the person, the date, the span, the hours and the assignment that
+covered it, and the success toast follows as it always did. The Dashboard's
+OT modal now says *Nothing pending - every overtime stretch has been
+decided* instead of an empty box after the last decision.
+
+**Guard #76, `qt-once`** (16 checks, negative-tested four ways).
+
+No migration. `worker/src/staff.ts`, `components/portal/sales.tsx`,
+`components/portal/dashboard.tsx`, `components/portal/one-desk.tsx`,
+`components/portal/page-shared.tsx`, `components/portal/live-cards.tsx`,
+`components/portal/role-panels.tsx`, `tests/qt-once.mjs`,
+`scripts/run-guards.mjs`.
+
 ## [1.153.1] - 2026-09-11 - Sales map: how many, not how much
 
 The CEO, on the Sales by state map: *"I dont want to mapping show the

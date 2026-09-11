@@ -14,7 +14,7 @@ import { dmy } from "@/lib/format";
 import { properName } from "@/lib/names";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
 import { useCallback, ReactNode, useEffect, useState } from "react";
-import { PanelTitle } from "@/components/ui/app-icon";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 /* v1.4.181 (CEO: customers must be able to reach staff for package/service
    enquiries): the business team works those enquiries HERE, not only in
@@ -72,6 +72,22 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
      record that no longer existed and answer "No pending OT punches". */
   useLiveRefresh(["attendance", "rest-day-ot"], load);
   const decide = async (p: Pend, decision: "approved" | "rejected") => {
+    /* v1.154.0 (CEO: "when I approve the OT, it doesnt appear the popup box
+       which is supposed to implement globally"): an approval is a payroll
+       figure, so it asks first - the same dialog every other decision in the
+       portal asks with - and the success toast follows as before. */
+    if (
+      decision === "approved" &&
+      !(await otConfirm({
+        title: L("Approve this overtime?", "Luluskan OT ini?"),
+        message: L(
+          `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}${dur(p)}${p.assigned ? ` · assigned: ${p.assigned}` : ""}.\nApproved overtime goes straight to the payroll. The staff member is notified.`,
+          `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}${dur(p)}${p.assigned ? ` · ditugaskan: ${p.assigned}` : ""}.\nOT yang diluluskan terus masuk ke gaji. Kakitangan akan dimaklumkan.`
+        ),
+        confirmLabel: L("Approve OT", "Luluskan OT"),
+      }))
+    )
+      return;
     if (
       decision === "rejected" &&
       !(await otConfirm({
@@ -127,7 +143,7 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     inModal ? (
       <div className="flex flex-col pb-4 sm:pb-0">{node}</div>
     ) : (
-      <div className={card}>
+      <div id="ot-approvals" className={`${card} scroll-mt-16`}>
         <PanelTitle icon="time">
           {L("Overtime approvals", "Kelulusan OT")}
         </PanelTitle>
@@ -151,7 +167,23 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
         {wrapCard(<SkelRows rows={2} className={inModal ? "px-4 sm:px-5" : ""} />)}
       </>
     );
-  if (pending.length === 0) return <>{otConfirmNode}{otToastNode}</>;
+  /* v1.154.0 - in the modal, the last decision used to leave an empty
+     box with a title; say that the queue is clear. In the Attendance stack
+     the card still hides itself, as it always has. */
+  if (pending.length === 0) {
+    return (
+      <>
+        {otConfirmNode}
+        {otToastNode}
+        {inModal && (
+          <p className="text-muted-foreground flex items-center gap-2 px-4 py-8 text-sm sm:px-5">
+            <AppIcon name="success" className="text-success h-4 w-4" />
+            {L("Nothing pending — every overtime stretch has been decided.", "Tiada yang menunggu — setiap OT telah diputuskan.")}
+          </p>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

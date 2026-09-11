@@ -2007,8 +2007,9 @@ export function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
     void api<{ docs: SalesDoc[] }>("/staff/docs").then((r) => {
       if (r.ok && r.data)
         setData(
+          /* v1.154.0 - an invoiced quotation is a sale, not an open quote */
           r.data.docs.filter(
-            (d) => d.doc_type === kind && d.payment_status !== "paid"
+            (d) => d.doc_type === kind && d.payment_status !== "paid" && !(kind === "QT" && d.invoiced_as)
           )
         );
       setLoaded(true);

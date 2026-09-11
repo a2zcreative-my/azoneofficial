@@ -138,6 +138,7 @@ const GUARDS = [
   ["kept-lines", "what was typed on several lines is shown on several lines - every multi-line box, wherever its text is drawn"],
   ["dialogs-visible", "a toast, confirm or prompt dialog is never rendered inside a hidden tab body - a dialog nobody can see is an action that silently does nothing"],
   ["asset-remove", "an asset typed by mistake can be removed - soft, audited with the whole record, the tag freed, hidden from the register, the search and the watcher - and a real asset is still marked lost or disposed, never removed"],
+  ["qt-once", "a quotation becomes an invoice once and then reads as a sale; a desk item lands on the card where it is decided; approving overtime asks first and says so after"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

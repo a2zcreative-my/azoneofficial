@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { card } from "@/lib/ui-styles";
+import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -33,6 +34,15 @@ export interface DeskItem {
 }
 interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
 
+/* v1.154.0 - where inside the tab the decision is made. The tab alone left
+   the CEO at the top of Attendance with five cards between him and the OT
+   he had pressed. Buckets without an anchor land on the tab top, which is
+   where their pending list already is. */
+const ANCHOR: Partial<Record<DeskItem["bucket"], string>> = {
+  ot: "ot-approvals",
+  punches: "pending-punches",
+  claims: "claims-pending",
+};
 const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   leave: ["Leave", "Cuti"],
   claims: ["Claims", "Tuntutan"],
@@ -106,7 +116,7 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
           {(Object.keys(BUCKET) as DeskItem["bucket"][]).filter((b) => counts[b]).map((b) => (
             <button key={b} type="button"
               className="bg-secondary text-foreground/80 hover:bg-secondary/70 rounded-full px-2.5 py-1 font-medium tabular-nums"
-              onClick={() => go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard")}
+              onClick={() => { go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard"); revealAnchor(ANCHOR[b]); }}
               title={L(`Open ${BUCKET[b][0]}`, `Buka ${BUCKET[b][1]}`)}>
               {L(BUCKET[b][0], BUCKET[b][1])} {counts[b]}
             </button>
@@ -117,7 +127,7 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
       <ul className="divide-border/70 mt-3 divide-y">
         {shown.map((i) => (
           <li key={i.id}>
-            <button type="button" onClick={() => go(i.tab)}
+            <button type="button" onClick={() => { go(i.tab); revealAnchor(ANCHOR[i.bucket]); }}
               className="hover:bg-secondary/50 flex w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors">
               <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${i.overdue ? "bg-warning" : "bg-gold-solid"}`} />
               <span className="min-w-0 flex-1">

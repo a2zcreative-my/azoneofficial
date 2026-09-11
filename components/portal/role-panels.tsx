@@ -3146,7 +3146,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           claimed. */}
       {canUnpaid && pending.length > 0 && (
         <>
-          <span className="text-warning mt-4 block text-[11px] font-semibold tracking-wide uppercase">
+          <span id="pending-punches" className="text-warning mt-4 block scroll-mt-16 text-[11px] font-semibold tracking-wide uppercase">
             {L(`Forgotten punches waiting for you (${pending.length})`, `Ketukan terlupa menunggu anda (${pending.length})`)}
           </span>
           <div className="border-warning/40 bg-warning-soft/40 mt-1 space-y-2 rounded-xl border p-3">
@@ -4767,7 +4767,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       </div>
 
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
-        <div className={card}>
+        <div id="claims-pending" className={`${card} scroll-mt-16`}>
           <p className="text-sm font-semibold">
             {L("Pending approvals", "Kelulusan menunggu")}
             {pending.length > 0 && (

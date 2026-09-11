@@ -42,6 +42,27 @@ export interface User {
    strings that feed logic, state keys or API payloads. */
 export const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
+/** v1.154.0 (CEO: "when I click on the OT, it doesnt go to OT section") -
+    after a tab switch, bring ONE card into view and ring it for a moment.
+    The tab's panel arrives lazily, so this waits for the element (up to
+    ~4 s) instead of assuming it is already there. Nothing happens for an
+    id that never appears - the tab itself was the fallback all along. */
+export function revealAnchor(id: string | undefined): void {
+  if (!id || typeof document === "undefined") return;
+  let tries = 0;
+  const tick = () => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "rounded-2xl");
+      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "rounded-2xl"), 2200);
+      return;
+    }
+    if (tries++ < 40) window.setTimeout(tick, 100);
+  };
+  window.setTimeout(tick, 50);
+}
+
 /* Display-only maps for API values shown raw (the value itself stays EN). */
 export const LEAVE_TYPE_MS: Record<string, string> = {
   annual: "tahunan",
