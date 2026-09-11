@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.152.0] - 2026-09-11 - Dashboard: events and attendance as one card, and who is on leave
+
+The CEO, 11-09-2026: *"I want My attendance — September and Upcoming events
+into minimalist interface which is tabs. but Upcoming events should be 1st
+tabs first. on Upcoming events need to add also staff that planned leave so
+easier for me to aware on the calendar after approval"*.
+
+**One card, two pills, events first.** The two reference cards that sat side
+by side on the desk (and stacked on the phone) are now one card with the
+portal's pill row: *Upcoming events* opens first; *My attendance — September*
+sits behind the second pill with the same day-by-day chart, its days and
+hours line, and a plain sentence when the month has no punches yet. The
+events body inside it has no frame and no title of its own — the pill is
+the title. Both bodies stay mounted on a switch (the SectionTabs rule), so a
+half-typed event survives a peek at the chart. The `#upcoming-events` anchor
+the mobile hero scrolls to lands on the new card.
+
+**Approved leave on the calendar.** A day inside somebody's approved leave
+shows their first name on the desk *(Nasuha +1)* and a navy mark on the
+phone; the legend says *On leave (approved)*; opening the day lists everyone
+away with their dates. It reads `/leave/calendar` — the route the roster's
+pickers have used since v1.131.0 — so it inherits that door's PDPA stance
+unchanged: names and dates only, never the leave type or the reason;
+managers see the floor, everybody else sees their own days. Nothing was
+added to the worker. Pending requests are not shown: the CEO's words were
+*after approval*, and a calendar that showed hopes as facts would be worse
+than one that showed nothing.
+
+**Guard #72, `desk-tabs`** (24 checks, negative-tested seven ways): events
+pill first and the card opens on it; the embedded body has no frame and no
+title; the anchor survives; the calendar reads the names-and-dates door for
+the month on screen and never the full leave list; the door itself still
+returns approved rows only, without the type; a leave day is drawn, named,
+in the legend, and on the day's agenda; and the mark is not a category
+colour, because leave is not a kind of event.
+
+No migration. `components/portal/dashboard.tsx`,
+`components/portal/events.tsx`, `tests/desk-tabs.mjs`,
+`scripts/run-guards.mjs`.
+
+**On hold at the CEO's request:** the Telegram bot plan (published for
+review, nothing built).
+
 ## [1.151.0] - 2026-09-11 - Shift reminders: thirty minutes before, thirty before the end, and at the end
 
 The CEO, 11-09-2026: *"the notification should popup 30 minutes before

@@ -8,7 +8,7 @@ import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { OneDesk } from "@/components/portal/one-desk";
-import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WatchersCard } from "@/components/portal/watchers-card";
@@ -142,6 +142,10 @@ export function Dashboard({
   const [monthRecs, setMonthRecs] = useState<
     { type: string; created_at: string }[]
   >(() => cacheRead<DashCache>(DASH_ATT)?.records ?? []);
+  /* v1.152.0 (CEO: "My attendance and Upcoming events into minimalist
+     interface which is tabs. but Upcoming events should be 1st"): one card,
+     one pill row, events first. Bodies stay mounted (SectionTabs' rule). */
+  const [deskTab, setDeskTab] = useState<"events" | "attendance">("events");
   /* v1.15.0: the same tasks response, kept un-filtered — the mobile Today
      checklist needs completed items too for its "2 of 4 done" count. */
   const [allTasks, setAllTasks] = useState<Task[]>(
@@ -1500,89 +1504,92 @@ export function Dashboard({
           )}
         </div>
       </div>
-      {/* v1.116.0 - two reference lists of similar weight, side by side on
-          the desk, stacked on the phone. */}
-      <div className={`grid grid-cols-1 gap-4 md:gap-6 ${monthRecs.length > 0 ? "lg:grid-cols-2" : ""}`}>
-      {/* v1.15.0 — desktop: my attendance, day by day. First-in → last-out
-          hours; today in navy; a gold half-bar marks a day still in progress
-          (in, no out yet) rather than pretending the hours are known. */}
-      {monthRecs.length > 0 && (
-        <div className={`${card} hidden md:block`}>
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">
-              {lang === "ms" ? "Kehadiran saya" : "My attendance"} —{" "}
-              {MONTH_NAMES[lang][Number(mytToday().slice(5, 7)) - 1]}
-            </p>
-            <p className="text-muted-foreground text-[11.5px]">
-              {daysPresent} {lang === "ms" ? "hari" : "days"} ·{" "}
-              {monthHours.toFixed(1)} h
-            </p>
-          </div>
-          <div className="flex h-28 items-end gap-[3px]">
-            {(() => {
-              const todayS = mytToday();
-              const [yy, mm] = [
-                Number(todayS.slice(0, 4)),
-                Number(todayS.slice(5, 7)),
-              ];
-              const daysIn = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-              return Array.from({ length: daysIn }, (_, i) => {
-                const d = `${todayS.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
-                const e = dayPairs.get(d);
-                const hrs = e?.hours ?? 0;
-                const open = e?.open ?? false;
-                const pct = Math.max(
-                  hrs > 0 ? 8 : 0,
-                  Math.round((hrs / 12) * 100)
-                );
-                return (
-                  <div
-                    key={d}
-                    className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1"
-                    role="img"
-                    aria-label={`${d}: ${open ? L("on shift, in progress", "sedang bertugas") : `${hrs.toFixed(1)} ${L("hours", "jam")}`}`}
-                  >
-                    <div
-                      className={`w-full rounded-t-[3px] ${d === todayS ? "bg-bar-high" : open ? "bg-gold-solid" : hrs > 0 ? "bg-bar-low group-hover:bg-bar-mid" : "bg-tint-navy"}`}
-                      style={{
-                        height: open && hrs === 0 ? "40%" : `${pct}%`,
-                        minHeight: "2px",
-                      }}
-                    />
-                    <span
-                      className={`text-[9px] tabular-nums ${d === todayS ? "text-foreground font-semibold" : "text-muted-foreground"} ${(i + 1) % 5 === 0 || i === 0 || d === todayS ? "" : "invisible"}`}
-                    >
-                      {i + 1}
-                    </span>
-                  </div>
-                );
-              });
-            })()}
-          </div>
-          <div className="text-muted-foreground mt-2 flex gap-4 text-[11px]">
-            <span>
-              <i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-              {L("Worked", "Bekerja")}
-            </span>
-            <span>
-              <i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-              {L("In progress", "Sedang berlangsung")}
-            </span>
-            <span>
-              <i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-              {L("Today", "Hari ini")}
-            </span>
-          </div>
+      {/* v1.152.0 (CEO, 11-09-2026: "My attendance — September and Upcoming
+          events into minimalist interface which is tabs. but Upcoming events
+          should be 1st tabs first"): the two reference cards become ONE card
+          with a pill row. Events lead; the personal month chart sits behind
+          the second pill. The id anchor stays — the mobile hero scrolls here. */}
+      <div id="upcoming-events" className={`${card} scroll-mt-16`}>
+        <SectionTabs value={deskTab} onChange={setDeskTab}
+          tabs={[
+            ["events", L("Upcoming events", "Acara akan datang")],
+            ["attendance", `${lang === "ms" ? "Kehadiran saya" : "My attendance"} — ${MONTH_NAMES[lang][Number(mytToday().slice(5, 7)) - 1]}`],
+          ] as const} />
+        <div hidden={deskTab !== "events"} className="mt-3">
+          <UpcomingEventsCard role={user.role} embedded />
         </div>
-      )}
-      {/* v1.4.277 (CEO): Sales revenue MOVED to the Ecommerce tab — the
-          hero band already carries today + month + overall up top, so the
-          detailed month card was the Dashboard's third telling of the same
-          story. Ecommerce is where the channel detail lives. */}
-      {/* v1.10.0: id anchor — the mobile hero card scrolls here on tap */}
-      <div id="upcoming-events" className="scroll-mt-16">
-        <UpcomingEventsCard role={user.role} />
-      </div>
+        <div hidden={deskTab !== "attendance"} className="mt-3">
+          {/* v1.15.0 — my attendance, day by day. First-in → last-out hours;
+              today in navy; a gold half-bar marks a day still in progress
+              (in, no out yet) rather than pretending the hours are known. */}
+          {monthRecs.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              {L("No attendance recorded this month yet.", "Tiada kehadiran direkodkan bulan ini lagi.")}
+            </p>
+          ) : (
+            <>
+              <p className="text-muted-foreground mb-3 text-[11.5px]">
+                {daysPresent} {lang === "ms" ? "hari" : "days"} ·{" "}
+                {monthHours.toFixed(1)} h
+              </p>
+              <div className="flex h-28 items-end gap-[3px]">
+                {(() => {
+                  const todayS = mytToday();
+                  const [yy, mm] = [
+                    Number(todayS.slice(0, 4)),
+                    Number(todayS.slice(5, 7)),
+                  ];
+                  const daysIn = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+                  return Array.from({ length: daysIn }, (_, i) => {
+                    const d = `${todayS.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
+                    const e = dayPairs.get(d);
+                    const hrs = e?.hours ?? 0;
+                    const open = e?.open ?? false;
+                    const pct = Math.max(
+                      hrs > 0 ? 8 : 0,
+                      Math.round((hrs / 12) * 100)
+                    );
+                    return (
+                      <div
+                        key={d}
+                        className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1"
+                        role="img"
+                        aria-label={`${d}: ${open ? L("on shift, in progress", "sedang bertugas") : `${hrs.toFixed(1)} ${L("hours", "jam")}`}`}
+                      >
+                        <div
+                          className={`w-full rounded-t-[3px] ${d === todayS ? "bg-bar-high" : open ? "bg-gold-solid" : hrs > 0 ? "bg-bar-low group-hover:bg-bar-mid" : "bg-tint-navy"}`}
+                          style={{
+                            height: open && hrs === 0 ? "40%" : `${pct}%`,
+                            minHeight: "2px",
+                          }}
+                        />
+                        <span
+                          className={`text-[9px] tabular-nums ${d === todayS ? "text-foreground font-semibold" : "text-muted-foreground"} ${(i + 1) % 5 === 0 || i === 0 || d === todayS ? "" : "invisible"}`}
+                        >
+                          {i + 1}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <div className="text-muted-foreground mt-2 flex gap-4 text-[11px]">
+                <span>
+                  <i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
+                  {L("Worked", "Bekerja")}
+                </span>
+                <span>
+                  <i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
+                  {L("In progress", "Sedang berlangsung")}
+                </span>
+                <span>
+                  <i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
+                  {L("Today", "Hari ini")}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
       </section>
     </div>

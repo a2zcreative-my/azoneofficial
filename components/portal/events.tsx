@@ -34,6 +34,9 @@ export interface CompanyEvent {
   attendees?: { id: number; name: string }[];
 }
 
+/** v1.152.0 - one approved leave span as /leave/calendar returns it. */
+export interface LeaveSpan { user_id: number; name: string; start_date: string; end_date: string }
+
 export const EVENTS_MANAGE_ROLES = [
   "super_admin",
   "admin",
@@ -55,7 +58,9 @@ export const EVENT_CATEGORIES = [
     bell-notified when one is created. */
 /* v1.5.0: TrendingMYCard + TREND_BUSINESS_KEYWORDS removed with the Social tab. */
 
-export function UpcomingEventsCard({ role }: { role: string }) {
+/** v1.152.0 - `embedded`: rendered inside the Dashboard's tabbed card, so
+    no card frame of its own and no title (the pill already says it). */
+export function UpcomingEventsCard({ role, embedded = false }: { role: string; embedded?: boolean }) {
   const [events, setEvents] = useState<CompanyEvent[]>([]);
   const [msg, setMsg] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -119,6 +124,18 @@ export function UpcomingEventsCard({ role }: { role: string }) {
     }>(`/staff/holidays?year=${calMonth.slice(0, 4)}`).then((r) => {
       if (r.ok && r.data) setHolidays(r.data.holidays);
     });
+  }, [calMonth]);
+  /* v1.152.0 (CEO: "need to add also staff that planned leave so easier for
+     me to aware on the calendar after approval"): APPROVED leave for the
+     month on screen, from the same door the roster's pickers use
+     (/leave/calendar, v1.131.0) - names and dates, never the type or the
+     reason; managers see the floor, everybody else their own days. */
+  const [leave, setLeave] = useState<LeaveSpan[]>([]);
+  useEffect(() => {
+    const y = Number(calMonth.slice(0, 4)), m = Number(calMonth.slice(5, 7));
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    void api<{ leave: LeaveSpan[] }>(`/staff/leave/calendar?from=${calMonth}-01&to=${calMonth}-${String(last).padStart(2, "0")}`)
+      .then((r) => { if (r.ok && r.data) setLeave(r.data.leave ?? []); });
   }, [calMonth]);
 
   const todayISO = new Date(Date.now() + 8 * 3600 * 1000)
@@ -210,18 +227,20 @@ export function UpcomingEventsCard({ role }: { role: string }) {
   };
 
   return (
-    <div className={card}>
+    <div className={embedded ? "" : card}>
       {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">
-            {L("Upcoming events", "Acara akan datang")}
-            {upcoming.length > 0 && (
-              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
-                {upcoming.length}
-              </span>
-            )}
-          </p>
+          {!embedded && (
+            <p className="text-sm font-semibold">
+              {L("Upcoming events", "Acara akan datang")}
+              {upcoming.length > 0 && (
+                <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                  {upcoming.length}
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "Trainings, classes and important company dates — everyone is notified when one is added.",
@@ -458,6 +477,7 @@ export function UpcomingEventsCard({ role }: { role: string }) {
       {loaded && view === "calendar" && (
         <EventsCalendar
           birthdays={bdays}
+          leave={leave}
           events={events}
           holidays={holidays}
           month={calMonth}
@@ -632,6 +652,7 @@ export function EventsCalendar({
   events,
   holidays,
   birthdays = [],
+  leave = [],
   month,
   onMonth,
   selected,
@@ -643,6 +664,8 @@ export function EventsCalendar({
   events: CompanyEvent[];
   holidays: { holiday_date: string; name: string; kind: string }[];
   birthdays?: { name: string; birthday: string }[];
+  /** v1.152.0 - approved leave spans; a day inside one shows who is away. */
+  leave?: LeaveSpan[];
   month: string;
   onMonth: (m: string) => void;
   selected: string | null;
@@ -667,6 +690,7 @@ export function EventsCalendar({
   const holidayOf = (d: string) => holidays.find((h) => h.holiday_date === d);
   const bdaysOf = (d: string) =>
     birthdays.filter((b) => b.birthday?.slice(5) === d.slice(5)); // month-day match, any year
+  const leaveOn = (d: string) => leave.filter((l) => l.start_date <= d && l.end_date >= d);
   const shift = (delta: number) => {
     onSelect(null);
     onMonth(new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7));
@@ -783,6 +807,21 @@ export function EventsCalendar({
                   </span>
                 </>
               )}
+              {/* v1.152.0 - who is on approved leave this day. */}
+              {leaveOn(dISO).length > 0 && (
+                <>
+                  <span className="mt-0.5 flex md:hidden">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  </span>
+                  <span
+                    className="mt-0.5 hidden truncate rounded bg-tint-navy px-1 py-0.5 text-[10px] leading-tight font-medium text-foreground md:block"
+                    title={`${L("On leave:", "Cuti:")} ${leaveOn(dISO).map((l) => properName(l.name)).join(", ")}`}
+                  >
+                    <AppIcon name="person" className="mr-0.5 -mt-0.5 h-3 w-3" />{firstName(leaveOn(dISO)[0]!.name)}
+                    {leaveOn(dISO).length > 1 ? ` +${leaveOn(dISO).length - 1}` : ""}
+                  </span>
+                </>
+              )}
               {/* Mobile: dots. Desktop: title snippets. */}
               {evs.length > 0 && (
                 <>
@@ -834,6 +873,10 @@ export function EventsCalendar({
           <span className="h-2 w-2 rounded-full bg-celebrate" />
           <AppIcon name="cake" className="mr-1 h-3.5 w-3.5" />{L("Birthday", "Hari lahir")}
         </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-primary" />
+          {L("On leave (approved)", "Cuti (diluluskan)")}
+        </span>
       </div>
       {selected && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -854,6 +897,13 @@ export function EventsCalendar({
                   `${properName(b.name)}'s birthday`,
                   `Hari lahir ${properName(b.name)}`
                 )}
+              </span>
+            ))}
+            {leaveOn(selected).map((l) => (
+              <span key={`lv${l.user_id}`} className="ml-2 rounded-full bg-tint-navy px-2 py-0.5 text-xs font-medium text-foreground"
+                title={`${dmy(l.start_date)} → ${dmy(l.end_date)}`}>
+                <AppIcon name="person" className="mr-1 -mt-0.5 h-3 w-3" />
+                {properName(l.name)} · {L("on leave", "cuti")}
               </span>
             ))}
           </p>
