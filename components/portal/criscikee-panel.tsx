@@ -107,6 +107,30 @@ function Star({ className = "" }: { className?: string }) {
   return <AppIcon name="star" className={`-mt-0.5 inline h-3 w-3 fill-current ${className}`} aria-hidden />;
 }
 
+/** v1.152.3 (CEO: "this one need improvement since quite confusing") - the
+    rating spread as five small bars, five stars at the top, longest bar =
+    most reviews, the count at the end of each. "5 star 1 · 4 star 5 · 3
+    star 4" in one line read as a sum; a bar per row reads as a shape. */
+function RatingSpread({ byRating }: { byRating: Record<string, number> }) {
+  const counts = [5, 4, 3, 2, 1].map((r) => ({ r, n: byRating[String(r)] ?? 0 }));
+  const max = Math.max(1, ...counts.map((c) => c.n));
+  return (
+    <span className="block space-y-1 text-[11px] font-medium tabular-nums" role="img"
+      aria-label={counts.map((c) => L(`${c.n} gave ${c.r} stars`, `${c.n} beri ${c.r} bintang`)).join(", ")}>
+      {counts.map((c) => (
+        <span key={c.r} className="flex items-center gap-1.5">
+          <span className="inline-flex w-7 items-center gap-0.5">{c.r}<Star className="h-2.5 w-2.5" /></span>
+          <span className="relative h-1.5 flex-1 overflow-hidden rounded-full">
+            <span className="absolute inset-0 bg-current opacity-20" />
+            <span className="absolute inset-y-0 left-0 rounded-full bg-current" style={{ width: `${Math.round((c.n / max) * 100)}%` }} />
+          </span>
+          <span className="w-5 text-right">{c.n}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Stars({ value, className = "" }: { value: number; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`} aria-label={L(`${value} of 5 stars`, `${value} daripada 5 bintang`)} title={`${value}/5`}>
@@ -285,7 +309,7 @@ function DashboardView({ flavors, onGoReviews }: { flavors: Flavor[]; onGoReview
               value={a.kpis.top_gender ? lbl(GENDERS, a.kpis.top_gender.gender) : "—"}
               hint={a.kpis.top_gender ? `${a.kpis.top_gender.n} ${L("reviews", "ulasan")}` : undefined} />
             <StatTile tone="muted" label={L("Rating spread", "Taburan penilaian")}
-              value={<span className="inline-flex flex-wrap items-center gap-x-1.5 text-sm font-semibold tabular-nums">{[5, 4, 3, 2, 1].map((r) => <span key={r} className="inline-flex items-center gap-0.5">{r}<Star />{a.by_rating[String(r)] ?? 0}</span>)}</span>} />
+              value={<RatingSpread byRating={a.by_rating} />} />
           </StatStrip>
         )}
       </section>

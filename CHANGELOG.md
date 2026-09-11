@@ -2,6 +2,15 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.152.3] - 2026-09-11 - Criscikee: the rating spread as bars
+
+The CEO, on the *Rating spread* tile: *"this one need improvement since
+quite confusing"*. "5 star 1 · 4 star 5 · 3 star 4 · 2 star 0 · 1 star 0"
+in one line read as a sum. It is now five small rows - five stars at the
+top, one star at the bottom - each with a bar scaled to the largest count
+and the count at the end, so the shape of the ratings is read at a glance
+and the numbers are still there. `components/portal/criscikee-panel.tsx`.
+
 ## [1.152.2] - 2026-09-11 - "Paid" that did nothing, and four more folded texts
 
 **The paid dropdown (CEO: *"when I pick paid, then why it doesnt update?!"*).**
