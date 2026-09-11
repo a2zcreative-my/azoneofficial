@@ -53,6 +53,27 @@ shipment is a postage record that names an invoice; shipped, in transit
 and delivered all require a tracking number - refused here AND on the
 existing postage routes - and the gap reads TRACKING UPDATE REQUIRED.
 
+**TikTok Shop sales count** (CEO: *"Sales Performance need to include with
+their sales TikTok"*). A person's sales are their invoices PLUS the TikTok
+Shop orders credited to them by the rule the leaderboard and commission
+already use (v1.25.6): a live host is credited every order that landed
+inside one of their live sessions; a sales_marketing person is credited
+every order that landed while they were clocked in, split equally when
+several were on shift. A shop order is a system record - nobody typed it -
+so it is verified activity by definition. The team's line counts each
+order once even when two people share the credit. The KPI tile, the
+per-staff table, the score card, the trend, the funnel and the daily
+closing all carry the TikTok figure beside the invoice figure, and the
+Customer orders section lists the shop orders with who was credited.
+
+**Built for the phone** (CEO: *"need to make sure that this suitable with
+mobile apps view"*). Every list on the page is drawn twice from the same
+rows: a card list on a phone (title, chips, a two-column grid of facts,
+thumb-sized actions two to a row) and a table on a desk - the Inventory
+tab's pattern. The per-staff table and the trend become cards too; the
+filters stack two to a row; every form opens as a bottom sheet that
+respects the home-indicator safe area; the KPI tiles sit two across.
+
 **The productivity score** is computed on the worker from the figures -
 Sales 40, Engagement 15, Social 15, Follow-up 10, Orders 10, Shipment 5,
 Promotion 5; 90-100 Excellent, 75-89 Good, 50-74 Needs improvement, 0-49
@@ -83,14 +104,16 @@ files on the deploying machine before anything is checked. Migration 0125
 stays as history and its two tables sit unused until a later migration
 drops them.
 
-**Guard #76, `sales-performance`** (87 checks, negative-tested eight
+**Guard #76, `sales-performance`** (97 checks, negative-tested twelve
 ways): the worker and browser rules are bundled and run over the same URLs
 and figures; the CEO's weights and bands; evidence required, mismatch
 refused, duplicate 409, old post, manual review, self-verification refused,
 verified records locked, reason required, revenue never from a body,
 conversion links an invoice, tracking required on both routes, closing
-explanation required, every write audited; the tab registered at every
-site; the migration triple-bumped; Criscikee gone.
+explanation required, every write audited; TikTok credited by the
+leaderboard's rules and counted once for the team; the tab registered at
+every site; every list drawn for phone and desk; the migration
+triple-bumped; Criscikee gone.
 
 **Migration 0127** `sp_social_accounts`, `sp_social_posts`,
 `sp_engagements`, `sp_promotions`, `sp_other_activities`,
@@ -101,6 +124,7 @@ Files: `worker/migrations/0127_sales_performance.sql`,
 `worker/src/sp-rules.ts` (new), `worker/src/sales-performance.ts` (new),
 `worker/src/staff.ts` (door, evidence body exclusion, tab access, postage
 tracking rule), `worker/src/index.ts` (triple bump, 09:00 re-check),
+`tests/sql-schema-check.mjs` (the new module joins the SQL check),
 `worker/src/permissions.ts`, `lib/sales-performance.ts` (new),
 `lib/portal-tabs.ts`, `lib/i18n.ts`, `components/layout/side-nav.tsx`,
 `components/layout/nav-icons.tsx`, `components/portal/lazy-panels.tsx`,

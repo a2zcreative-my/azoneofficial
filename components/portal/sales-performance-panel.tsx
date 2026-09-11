@@ -61,7 +61,7 @@ const TOPICS = ["sales-performance", "docs", "postage"];
 
 /* ---- what the API sends (worker/src/sales-performance.ts /overview) ---- */
 interface Figures {
-  sales_cents: number; paid_cents: number; orders: number; orders_completed: number; orders_pending: number;
+  sales_cents: number; invoice_cents: number; tiktok_cents: number; tiktok_orders: number; paid_cents: number; orders: number; orders_completed: number; orders_pending: number;
   interactions: number; unique_customers: number; inquiries: number; follow_ups_done: number; follow_ups_overdue: number; follow_ups_due: number;
   conversions: number; conversion_rate: number;
   posts_verified: number; posts_reported: number; posts_flagged: number; reach: number; social_engagement: number; leads: number;
@@ -77,7 +77,7 @@ interface PerStaff extends Person {
   figures: Figures; components: Record<SpComponent, number>; score: number; band: Band; busy: Busy;
   target_cents: number | null; no_target: boolean; no_verified_activity: boolean;
 }
-interface TrendRow { sales_cents: number; orders: number; engagement: number; leads: number; follow_ups: number; posts_verified: number; conversion_rate: number; score: number }
+interface TrendRow { sales_cents: number; tiktok_cents: number; orders: number; engagement: number; leads: number; follow_ups: number; posts_verified: number; conversion_rate: number; score: number }
 interface Post {
   id: number; user_id: number; platform: string; url: string; account_handle: string | null; account_match: number; product: string | null; description: string | null;
   evidence_key: string | null; posted_at: string; submitted_at: string; status: string; flags: string | null;
@@ -101,6 +101,7 @@ interface Order {
   id: number; doc_number: string; created_at: string; total_cents: number; payment_status: string; paid_at: string | null; kind: string | null; delivery_status: string | null; items: string | null;
   user_id: number; customer_id: number; customer: string; staff_name: string; ship_status: string | null; tracking_no: string | null; linked_engagements: number;
 }
+interface TikTokOrder { id: number; order_ref: string; created_at: string; cents: number; status: string; tracking_no: string | null; courier: string | null; items_label: string | null; user_ids: number[]; staff_names: string[] }
 interface Shipment { id: number; order_ref: string; courier: string | null; tracking_no: string | null; status: string; note: string | null; user_id: number; created_at: string; updated_at: string; staff_name: string; customer: string | null; order_doc_id: number | null }
 interface Closing { id: number; user_id: number; day: string; snapshot: string; main_achievement: string | null; blockers: string | null; follow_up_tomorrow: string | null; plan_tomorrow: string | null; remarks: string | null; no_activity_reason: string | null; submitted_at: string; staff_name: string }
 interface Account { id: number; platform: string; handle: string; label: string | null }
@@ -115,7 +116,7 @@ interface Overview {
   per_staff: PerStaff[];
   trend: { today: TrendRow; yesterday: TrendRow; avg7: TrendRow; avg30: TrendRow };
   funnel: { posts: number; reach: number; engagement: number; inquiries: number; follow_ups: number; orders: number; revenue_cents: number };
-  feed: Feed[]; posts: Post[]; engagements: Engagement[]; promotions: Promotion[]; others: Other[]; orders: Order[]; shipments: Shipment[]; closings: Closing[];
+  feed: Feed[]; posts: Post[]; engagements: Engagement[]; promotions: Promotion[]; others: Other[]; orders: Order[]; tiktok_orders: TikTokOrder[]; shipments: Shipment[]; closings: Closing[];
   accounts: Account[]; customers: Customer[]; invoices: Invoice[];
 }
 interface ClosingPreview { day: string; figures: Figures; score: number; band: Band; no_verified_activity: boolean }
@@ -218,7 +219,7 @@ function Drawer({ title, sub, onClose, wide = false, children }: { title: string
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-      <div className={`${modalCard} max-h-[92vh] overflow-y-auto overscroll-contain rounded-b-none sm:rounded-b-2xl ${wide ? "sm:max-w-2xl" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`${modalCard} max-h-[92vh] overflow-y-auto overscroll-contain rounded-b-none pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-b-2xl sm:pb-6 ${wide ? "sm:max-w-2xl" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-base font-semibold">{title}</p>
@@ -377,7 +378,7 @@ function PostForm({ ov, presetPlatform, edit, onDone, toast }: { ov: Overview; p
       </Field>
       <div className="md:col-span-2">
         <span className={fieldLabel}>{L("Engagement metrics (reported - management verifies against the screenshot)", "Metrik penglibatan (dilaporkan - pengurusan sahkan dengan tangkapan skrin)")}</span>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {(["views", "likes", "comments", "shares", "saves"] as const).map((k) => (
             <label key={k} className="block"><span className="text-muted-foreground block text-[10px] uppercase">{L(k, { views: "tontonan", likes: "suka", comments: "komen", shares: "kongsi", saves: "simpan" }[k])}</span>
               <input type="number" inputMode="numeric" min={0} className={inputClassSm + " w-full"} value={metrics[k]} onChange={(e) => setMetrics((m) => ({ ...m, [k]: e.target.value }))} /></label>
@@ -844,8 +845,8 @@ function ClosingCard({ ov, toast, onSaved }: { ov: Overview; toast: Toast; onSav
   };
   const fig = p?.figures;
   const auto: [string, string][] = fig ? [
-    [L("Sales (invoices raised)", "Jualan (invois dibuat)"), fmtRM(fig.sales_cents)],
-    [L("Orders", "Pesanan"), `${fig.orders} · ${fig.orders_completed} ${L("completed", "selesai")}`],
+    [L("Sales (invoices + TikTok)", "Jualan (invois + TikTok)"), `${fmtRM(fig.sales_cents)}${fig.tiktok_cents ? ` (${L("TikTok", "TikTok")} ${fmtRM(fig.tiktok_cents)})` : ""}`],
+    [L("Orders", "Pesanan"), `${fig.orders} ${L("invoices", "invois")} · ${fig.tiktok_orders} TikTok · ${fig.orders_completed} ${L("completed", "selesai")}`],
     [L("Customer interactions", "Interaksi pelanggan"), `${fig.interactions} · ${fig.unique_customers} ${L("unique", "unik")}`],
     [L("Leads / inquiries", "Petunjuk / pertanyaan"), String(fig.inquiries)],
     [L("Follow-ups done / overdue", "Susulan selesai / tertunggak"), `${fig.follow_ups_done} / ${fig.follow_ups_overdue}`],
@@ -902,12 +903,78 @@ function ClosingCard({ ov, toast, onSaved }: { ov: Overview; toast: Toast; onSav
   );
 }
 
+/* ================= PHONE ROWS + ROW ACTIONS ================= */
+
+/* v1.155.0 (CEO: "need to make sure that this suitable with mobile apps
+   view"). Every list on this page is drawn TWICE from the same rows and the
+   same handlers: a card list for the phone (md:hidden) and a table for the
+   desk (hidden md:block) - the Inventory tab's v1.119.0 pattern. The
+   actions are built ONCE per row (an Act[]) and rendered small in a table
+   cell or thumb-sized, two to a row, under a phone card. */
+type Act = { label: string; run: () => void; tone?: "primary" | "danger" | "plain" };
+const phoneBtn = "border-border inline-flex h-10 items-center justify-center rounded-xl border px-3 text-sm font-medium transition-colors hover:bg-secondary";
+function Acts({ acts, phone = false }: { acts: Act[]; phone?: boolean }) {
+  if (acts.length === 0) return null;
+  const cls = (t: Act["tone"]) => phone
+    ? `${phoneBtn} ${t === "primary" ? "bg-primary text-primary-foreground border-transparent" : t === "danger" ? "text-danger border-danger/30" : ""}`
+    : t === "primary" ? rowBtnPrimary : t === "danger" ? rowBtnDanger : rowBtn;
+  return (
+    <div className={phone ? "mt-2 grid grid-cols-2 gap-1.5" : rowActions}>
+      {acts.map((a) => <button key={a.label} type="button" className={cls(a.tone)} onClick={a.run}>{a.label}</button>)}
+    </div>
+  );
+}
+
+/** one phone card: a title line, a muted line, something on the right, a
+    row of chips, a two-column grid of labelled facts, then the actions */
+function PhoneRow({ title, sub, right, chips, facts, acts, children }: {
+  title: ReactNode; sub?: ReactNode; right?: ReactNode; chips?: ReactNode; facts?: [string, ReactNode][]; acts?: Act[]; children?: ReactNode;
+}) {
+  return (
+    <li className="py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{title}</p>
+          {sub && <p className="text-muted-foreground mt-0.5 text-[11px]">{sub}</p>}
+        </div>
+        {right && <div className="shrink-0 text-right">{right}</div>}
+      </div>
+      {chips && <div className="mt-1.5 flex flex-wrap gap-1">{chips}</div>}
+      {facts && facts.length > 0 && (
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+          {facts.map(([k, v]) => (
+            <div key={k} className="min-w-0"><dt className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{k}</dt><dd className="text-xs font-medium tabular-nums whitespace-pre-line">{v}</dd></div>
+          ))}
+        </dl>
+      )}
+      {children}
+      {acts && <Acts acts={acts} phone />}
+    </li>
+  );
+}
+const phoneList = "divide-border divide-y md:hidden";
+const deskTable = "hidden overflow-x-auto md:block";
+
 /* ================= SCORE + THE MANAGEMENT TABLE ================= */
 
 const COMPONENT_LABEL: Record<SpComponent, [string, string]> = {
   sales: ["Sales vs target", "Jualan vs sasaran"], engagement: ["Customer engagement", "Penglibatan pelanggan"], social: ["Verified social posts", "Pos sosial disahkan"],
   follow_up: ["Follow-up completion", "Penyelesaian susulan"], orders: ["Order completion", "Penyelesaian pesanan"], shipment: ["Shipment with tracking", "Penghantaran dengan penjejakan"], promotion: ["Promotion executed", "Promosi dilaksanakan"],
 };
+
+/** the flags a person's row carries, everywhere they are drawn */
+function StatusFlags({ r }: { r: PerStaff }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {r.no_verified_activity && <span className={chipSmDanger}>{L("NO VERIFIED SALES ACTIVITY", "TIADA AKTIVITI JUALAN DISAHKAN")}</span>}
+      {r.busy.verdict === "low_sales" && <span className={chipSmWarn}>{L("LOW SALES PERFORMANCE", "PRESTASI JUALAN RENDAH")}</span>}
+      {r.busy.verdict === "strong" && <span className={chipSmSuccess}>{L("Strong", "Kukuh")}</span>}
+      {!r.figures.present && <span className={chipSmNeutral}>{L("not clocked in", "tidak masuk kerja")}</span>}
+      {r.figures.follow_ups_overdue > 0 && <span className={chipSmWarn}>{r.figures.follow_ups_overdue} {L("follow-ups overdue", "susulan tertunggak")}</span>}
+      {r.figures.tracking_required > 0 && <span className={chipSmDanger}>{r.figures.tracking_required} {L("tracking required", "penjejakan diperlukan")}</span>}
+    </span>
+  );
+}
 
 /** one person's score, taken apart: seven weighted components and the four
     busy-vs-productive readings. Every number here arrived from the API. */
@@ -922,13 +989,12 @@ function ScoreCard({ row, title }: { row: PerStaff; title: string }) {
           <p className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-3xl font-semibold tabular-nums">{row.score}</span>
             <span className={BAND_CHIP[row.band.code]}>{bandLabel(row.band)}</span>
-            {row.no_verified_activity && <span className={chipSmDanger}>{L("NO VERIFIED SALES ACTIVITY", "TIADA AKTIVITI JUALAN DISAHKAN")}</span>}
-            {row.busy.verdict === "low_sales" && <span className={chipSmWarn}>{L("LOW SALES PERFORMANCE - busy, not productive", "PRESTASI JUALAN RENDAH - sibuk, tidak produktif")}</span>}
-            {!f.present && <span className={chipSmNeutral}>{L("not clocked in", "tidak masuk kerja")}</span>}
           </p>
+          <div className="mt-1"><StatusFlags r={row} /></div>
         </div>
-        <p className="text-muted-foreground text-right text-xs tabular-nums">
+        <p className="text-muted-foreground text-xs tabular-nums sm:text-right">
           {row.no_target ? L("No sales target set - Sales scores 0 until management sets one", "Tiada sasaran jualan - Jualan mendapat 0 sehingga pengurusan menetapkannya") : L(`Target ${fmtRM(row.target_cents ?? 0)} · achieved ${fmtRM(f.sales_cents)}`, `Sasaran ${fmtRM(row.target_cents ?? 0)} · dicapai ${fmtRM(f.sales_cents)}`)}
+          {f.tiktok_cents > 0 && <span className="block">{L(`incl. TikTok ${fmtRM(f.tiktok_cents)} (${f.tiktok_orders} orders)`, `termasuk TikTok ${fmtRM(f.tiktok_cents)} (${f.tiktok_orders} pesanan)`)}</span>}
         </p>
       </div>
       <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1.5 md:grid-cols-2">
@@ -947,45 +1013,64 @@ function ScoreCard({ row, title }: { row: PerStaff; title: string }) {
       <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {readings.map(([k, v]) => <div key={k} className="text-xs"><div className="flex justify-between"><span>{k}</span><span className="tabular-nums">{v}%</span></div><MiniBar pct={v} tone="navy" className="mt-1" /></div>)}
       </div>
-      <p className="text-muted-foreground mt-2 text-[11px]">{L("Only verified posts, real invoices, verified engagements and shipments with tracking move these numbers. Reported activity on its own does not.", "Hanya pos disahkan, invois sebenar, penglibatan disahkan dan penghantaran berpenjejakan menggerakkan angka ini. Aktiviti yang dilaporkan sahaja tidak.")}</p>
+      <p className="text-muted-foreground mt-2 text-[11px]">{L("Only verified posts, real invoices, TikTok Shop orders, verified engagements and shipments with tracking move these numbers. Reported activity on its own does not.", "Hanya pos disahkan, invois sebenar, pesanan TikTok Shop, penglibatan disahkan dan penghantaran berpenjejakan menggerakkan angka ini. Aktiviti yang dilaporkan sahaja tidak.")}</p>
     </div>
   );
 }
 
 function StaffTable({ rows, onPick }: { rows: PerStaff[]; onPick: (id: number) => void }) {
+  const salesCell = (r: PerStaff) => (
+    <>
+      {fmtRM(r.figures.sales_cents)}
+      <span className="text-muted-foreground block text-[11px]">
+        {r.target_cents ? `${Math.round((r.figures.sales_cents / r.target_cents) * 100)}% ${L("of target", "sasaran")}` : L("no target", "tiada sasaran")}
+        {r.figures.tiktok_cents > 0 ? ` · TikTok ${fmtRM(r.figures.tiktok_cents)}` : ""}
+      </span>
+    </>
+  );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[880px]">
-        <thead><tr className="border-border border-b">
-          <th className={th}>{L("Staff", "Staf")}</th><th className={thR2}>{L("Sales", "Jualan")}</th><th className={thR2}>{L("Orders", "Pesanan")}</th><th className={thR2}>{L("Verified activities", "Aktiviti disahkan")}</th>
-          <th className={thR2}>{L("Engagement", "Penglibatan")}</th><th className={thR2}>{L("Leads", "Petunjuk")}</th><th className={thR2}>{L("Conversion", "Penukaran")}</th><th className={thR2}>{L("Productivity", "Produktiviti")}</th><th className={th}>{L("Status", "Status")}</th>
-        </tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-border border-b last:border-0">
-              <td className={td}><button type="button" className="text-left font-medium underline-offset-2 hover:underline" title={L("Show only this person", "Tunjuk orang ini sahaja")} onClick={() => onPick(r.id)}>{r.name}</button><span className="text-muted-foreground block text-[11px]">{r.role.replace("_", " ")}</span></td>
-              <td className={tdR2}>{fmtRM(r.figures.sales_cents)}{r.target_cents ? <span className="text-muted-foreground block text-[11px]">{Math.round((r.figures.sales_cents / r.target_cents) * 100)}% {L("of target", "sasaran")}</span> : null}</td>
-              <td className={tdR2}>{r.figures.orders}<span className="text-muted-foreground block text-[11px]">{r.figures.orders_completed} {L("done", "selesai")}</span></td>
-              <td className={tdR2}>{r.figures.verified_activities}<span className="text-muted-foreground block text-[11px]">{L("of", "daripada")} {r.figures.activities_total}</span></td>
-              <td className={tdR2}>{r.figures.interactions}<span className="text-muted-foreground block text-[11px]">{r.figures.unique_customers} {L("unique", "unik")}</span></td>
-              <td className={tdR2}>{r.figures.inquiries}</td>
-              <td className={tdR2}>{r.figures.conversion_rate}%</td>
-              <td className={tdR2}><span className="font-semibold">{r.score}</span> <span className={BAND_CHIP[r.band.code]}>{bandLabel(r.band)}</span></td>
-              <td className={td}>
-                <span className="flex flex-wrap gap-1">
-                  {r.no_verified_activity && <span className={chipSmDanger}>{L("NO VERIFIED SALES ACTIVITY", "TIADA AKTIVITI JUALAN DISAHKAN")}</span>}
-                  {r.busy.verdict === "low_sales" && <span className={chipSmWarn}>{L("LOW SALES PERFORMANCE", "PRESTASI JUALAN RENDAH")}</span>}
-                  {r.busy.verdict === "strong" && <span className={chipSmSuccess}>{L("Strong", "Kukuh")}</span>}
-                  {!r.figures.present && <span className={chipSmNeutral}>{L("not clocked in", "tidak masuk kerja")}</span>}
-                  {r.figures.follow_ups_overdue > 0 && <span className={chipSmWarn}>{r.figures.follow_ups_overdue} {L("follow-ups overdue", "susulan tertunggak")}</span>}
-                  {r.figures.tracking_required > 0 && <span className={chipSmDanger}>{r.figures.tracking_required} {L("tracking required", "penjejakan diperlukan")}</span>}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <ul className={phoneList}>
+        {rows.map((r) => (
+          <PhoneRow key={`m-${r.id}`}
+            title={<button type="button" className="underline-offset-2 hover:underline" onClick={() => onPick(r.id)}>{r.name}</button>}
+            sub={r.role.replace("_", " ")}
+            right={<><p className="text-2xl font-bold tabular-nums">{r.score}</p><span className={BAND_CHIP[r.band.code]}>{bandLabel(r.band)}</span></>}
+            chips={<StatusFlags r={r} />}
+            facts={[
+              [L("Sales", "Jualan"), salesCell(r)],
+              [L("Orders", "Pesanan"), `${r.figures.orders + r.figures.tiktok_orders} · ${r.figures.orders_completed} ${L("done", "selesai")}`],
+              [L("Verified activities", "Aktiviti disahkan"), `${r.figures.verified_activities} ${L("of", "daripada")} ${r.figures.activities_total}`],
+              [L("Engagement", "Penglibatan"), `${r.figures.interactions} · ${r.figures.unique_customers} ${L("unique", "unik")}`],
+              [L("Leads", "Petunjuk"), String(r.figures.inquiries)],
+              [L("Conversion", "Penukaran"), `${r.figures.conversion_rate}%`],
+            ]} />
+        ))}
+      </ul>
+      <div className={deskTable}>
+        <table className="w-full min-w-[880px]">
+          <thead><tr className="border-border border-b">
+            <th className={th}>{L("Staff", "Staf")}</th><th className={thR2}>{L("Sales", "Jualan")}</th><th className={thR2}>{L("Orders", "Pesanan")}</th><th className={thR2}>{L("Verified activities", "Aktiviti disahkan")}</th>
+            <th className={thR2}>{L("Engagement", "Penglibatan")}</th><th className={thR2}>{L("Leads", "Petunjuk")}</th><th className={thR2}>{L("Conversion", "Penukaran")}</th><th className={thR2}>{L("Productivity", "Produktiviti")}</th><th className={th}>{L("Status", "Status")}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-border border-b last:border-0">
+                <td className={td}><button type="button" className="text-left font-medium underline-offset-2 hover:underline" title={L("Show only this person", "Tunjuk orang ini sahaja")} onClick={() => onPick(r.id)}>{r.name}</button><span className="text-muted-foreground block text-[11px]">{r.role.replace("_", " ")}</span></td>
+                <td className={tdR2}>{salesCell(r)}</td>
+                <td className={tdR2}>{r.figures.orders + r.figures.tiktok_orders}<span className="text-muted-foreground block text-[11px]">{r.figures.tiktok_orders ? `${r.figures.tiktok_orders} TikTok · ` : ""}{r.figures.orders_completed} {L("done", "selesai")}</span></td>
+                <td className={tdR2}>{r.figures.verified_activities}<span className="text-muted-foreground block text-[11px]">{L("of", "daripada")} {r.figures.activities_total}</span></td>
+                <td className={tdR2}>{r.figures.interactions}<span className="text-muted-foreground block text-[11px]">{r.figures.unique_customers} {L("unique", "unik")}</span></td>
+                <td className={tdR2}>{r.figures.inquiries}</td>
+                <td className={tdR2}>{r.figures.conversion_rate}%</td>
+                <td className={tdR2}><span className="font-semibold">{r.score}</span> <span className={BAND_CHIP[r.band.code]}>{bandLabel(r.band)}</span></td>
+                <td className={td}><StatusFlags r={r} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -1007,6 +1092,7 @@ type DrawerState =
 type SectionKey = "feed" | "posts" | "engagements" | "promotions" | "orders" | "shipments" | "funnel" | "trend" | "closing";
 
 const feedType = (t: string): string => {
+  if (t === "tiktok_order") return L("TikTok Shop order", "Pesanan TikTok Shop");
   if (t.endsWith("_post")) return `${lbl(SP_PLATFORMS, t.slice(0, -5))} ${L("post", "pos")}`;
   if (SP_ACTIVITY_TYPES.some(([k]) => k === t)) return lbl(SP_ACTIVITY_TYPES, t);
   if (SP_INTERACTIONS.some(([k]) => k === t)) return lbl(SP_INTERACTIONS, t);
@@ -1024,6 +1110,7 @@ const orderStatus = (o: Order): [string, string] => {
   if (o.payment_status === "paid") return [chipSmInfo, L("Paid - processing", "Dibayar - diproses")];
   return [chipSmWarn, L("Pending payment", "Menunggu bayaran")];
 };
+const payChip = (s: string) => (s === "paid" ? chipSmSuccess : s === "overdue" ? chipSmDanger : chipSmWarn);
 
 export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
   const [range, setRange] = useState<Range>("today");
@@ -1068,6 +1155,53 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
     toast(d?.reachable ? L("Post is reachable", "Pos boleh dicapai") : L("Post did not answer", "Pos tidak menjawab"), `HTTP ${d?.http ?? 0}${d?.status === "unavailable" ? ` · ${L("marked POST UNAVAILABLE", "ditanda POS TIDAK TERSEDIA")}` : ""}`, d?.reachable ? "success" : "notice");
     refresh();
   };
+  const history = (entity: string, id: number, title: string) => setDrawer({ kind: "audit", entity, id: String(id), title: `${L("History", "Sejarah")} · ${title}` });
+
+  /* ---- the actions each row offers, built once, drawn on desk and phone ---- */
+  const postActs = (p: Post): Act[] => {
+    const own = mine(p.user_id); const verified = p.status === "verified"; const acts: Act[] = [];
+    if (manager && !own) acts.push({ label: verified ? L("Re-decide", "Putuskan semula") : L("Verify", "Sahkan"), tone: verified ? "plain" : "primary", run: () => setDrawer({ kind: "verify", target: "posts", id: p.id, isPost: true, title: `${p.staff_name} · ${lbl(SP_PLATFORMS, p.platform)} · ${p.product ?? ""}`, wasVerified: verified }) });
+    if (manager) acts.push({ label: L("Check link", "Semak pautan"), run: () => void checkLink(p) });
+    if ((own && !verified) || manager) acts.push({ label: verified ? L("Correct", "Betulkan") : L("Edit", "Sunting"), run: () => setDrawer({ kind: "post", edit: p }) });
+    if ((own && !verified) || (manager && !verified)) acts.push({ label: L("Remove", "Buang"), tone: "danger", run: () => void remove("posts", p.id, L("post", "pos"), verified) });
+    if (manager) acts.push({ label: L("History", "Sejarah"), run: () => history("sp_social_posts", p.id, p.product ?? p.url) });
+    return acts;
+  };
+  const engActs = (e: Engagement): Act[] => {
+    const own = mine(e.user_id); const locked = e.status === "verified" || e.order_doc_id != null; const acts: Act[] = [];
+    if ((own || manager) && !e.order_doc_id) acts.push({ label: L("Outcome", "Hasil"), tone: "primary", run: () => setDrawer({ kind: "outcome", row: e }) });
+    if (manager && !own && e.status !== "verified" && !e.order_doc_id) acts.push({ label: L("Verify", "Sahkan"), tone: "primary", run: () => setDrawer({ kind: "verify", target: "engagements", id: e.id, isPost: false, title: `${e.staff_name} · ${e.customer_name}`, wasVerified: false }) });
+    if ((own && !locked) || manager) acts.push({ label: locked ? L("Correct", "Betulkan") : L("Edit", "Sunting"), run: () => setDrawer({ kind: "engagement", edit: e }) });
+    if ((own && !locked) || manager) acts.push({ label: L("Remove", "Buang"), tone: "danger", run: () => void remove("engagements", e.id, L("engagement", "penglibatan"), locked) });
+    if (manager) acts.push({ label: L("History", "Sejarah"), run: () => history("sp_engagements", e.id, e.customer_name) });
+    return acts;
+  };
+  const promoActs = (p: Promotion): Act[] => {
+    const own = mine(p.user_id); const verified = p.status === "verified"; const acts: Act[] = [];
+    if (manager && !own && !verified) acts.push({ label: L("Verify", "Sahkan"), tone: "primary", run: () => setDrawer({ kind: "verify", target: "promotions", id: p.id, isPost: false, title: p.name, wasVerified: false }) });
+    if ((own && !verified) || manager) acts.push({ label: verified ? L("Correct", "Betulkan") : L("Edit", "Sunting"), run: () => setDrawer({ kind: "promotion", edit: p }) });
+    if ((own && !verified) || manager) acts.push({ label: L("Remove", "Buang"), tone: "danger", run: () => void remove("promotions", p.id, L("promotion", "promosi"), verified) });
+    if (manager) acts.push({ label: L("History", "Sejarah"), run: () => history("sp_promotions", p.id, p.name) });
+    return acts;
+  };
+  const otherActs = (o: Other): Act[] => {
+    const acts: Act[] = [];
+    if (manager && !mine(o.user_id) && o.status !== "verified") acts.push({ label: L("Verify", "Sahkan"), tone: "primary", run: () => setDrawer({ kind: "verify", target: "other", id: o.id, isPost: false, title: o.action, wasVerified: false }) });
+    if ((mine(o.user_id) && o.status !== "verified") || manager) acts.push({ label: L("Remove", "Buang"), tone: "danger", run: () => void remove("other", o.id, L("activity", "aktiviti"), o.status === "verified") });
+    return acts;
+  };
+  const orderActs = (o: Order): Act[] => {
+    const acts: Act[] = [];
+    if ((o.kind ?? "product") !== "service" && !o.ship_status && (mine(o.user_id) || manager)) acts.push({ label: L("Add shipment", "Tambah penghantaran"), tone: "primary", run: () => setDrawer({ kind: "shipment", presetOrder: o.id }) });
+    acts.push({ label: L("Open in Sales", "Buka di Jualan"), run: () => go("Sales") });
+    return acts;
+  };
+  const shipActs = (s: Shipment): Act[] => {
+    const acts: Act[] = [];
+    if (mine(s.user_id) || manager) acts.push({ label: L("Update", "Kemas kini"), tone: "primary", run: () => setDrawer({ kind: "shipment", edit: s }) });
+    if (manager) acts.push({ label: L("History", "Sejarah"), run: () => history("postage_records", s.id, s.order_ref) });
+    return acts;
+  };
 
   const RANGES = [["today", L("Today", "Hari ini")], ["yesterday", L("Yesterday", "Semalam")], ["week", L("This week", "Minggu ini")], ["month", L("This month", "Bulan ini")], ["custom", L("Custom", "Tersuai")]] as const;
   const pendingMigration = view.failed && !ov;
@@ -1075,6 +1209,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
   const shown = ov ? (staff !== "0" ? ov.per_staff.filter((r) => String(r.id) === staff) : ov.per_staff) : [];
   const team = ov?.team;
   const t = team?.figures;
+  const rangeLabel = ov ? (ov.range.label === "today" ? L("today", "hari ini") : ov.range.label === "yesterday" ? L("yesterday", "semalam") : `${dmy(ov.range.from)} – ${dmy(ov.range.to)}`) : "";
 
   return (
     <div className="space-y-3 md:space-y-4">
@@ -1091,13 +1226,13 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
         <p className="text-muted-foreground mt-1 text-xs">
           {L("System-derived figures first, verified evidence second, what was reported last. Nothing unverified counts toward the score.", "Angka sistem dahulu, bukti disahkan kedua, apa yang dilaporkan terakhir. Tiada yang belum disahkan dikira dalam skor.")}
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <div role="tablist" className="flex flex-wrap gap-1.5">
-            {RANGES.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={range === k} className={range === k ? tabPillOn : tabPill} onClick={() => setRange(k)}>{label}</button>)}
-          </div>
+        <div role="tablist" className="mt-3 flex flex-wrap gap-1.5">
+          {RANGES.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={range === k} className={range === k ? tabPillOn : tabPill} onClick={() => setRange(k)}>{label}</button>)}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
           {range === "custom" && (<>
-            <input type="date" className={inputClassSm} value={from} max={to} aria-label={L("From", "Dari")} onChange={(e) => setFrom(e.target.value)} />
-            <input type="date" className={inputClassSm} value={to} min={from} max={mytToday()} aria-label={L("To", "Hingga")} onChange={(e) => setTo(e.target.value)} />
+            <input type="date" className={`${inputClassSm} h-9 w-full sm:w-auto`} value={from} max={to} aria-label={L("From", "Dari")} onChange={(e) => setFrom(e.target.value)} />
+            <input type="date" className={`${inputClassSm} h-9 w-full sm:w-auto`} value={to} min={from} max={mytToday()} aria-label={L("To", "Hingga")} onChange={(e) => setTo(e.target.value)} />
           </>)}
           {manager && ov && (
             <select className={selectClass} value={staff} aria-label={L("Staff", "Staf")} onChange={(e) => setStaff(e.target.value)}>
@@ -1122,7 +1257,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
             <option value="completed">{L("Completed", "Selesai")}</option>
             <option value="overdue">{L("Overdue", "Tertunggak")}</option>
           </select>
-          {(platform || verification || status || staff !== "0") && <button type="button" className="text-muted-foreground text-xs underline" onClick={() => { setPlatform(""); setVerification(""); setStatus(""); setStaff("0"); }}>{L("Clear", "Kosongkan")}</button>}
+          {(platform || verification || status || staff !== "0") && <button type="button" className="text-muted-foreground col-span-2 text-left text-xs underline sm:col-span-1" onClick={() => { setPlatform(""); setVerification(""); setStatus(""); setStaff("0"); }}>{L("Clear filters", "Kosongkan penapis")}</button>}
         </div>
         {pendingMigration && (
           <p className="text-warning mt-2 text-xs font-medium">{L("Sales Performance is not set up on the server yet - run PUSH.bat so database change 0127 applies.", "Prestasi Jualan belum disediakan di pelayan - jalankan PUSH.bat supaya perubahan pangkalan data 0127 dilaksanakan.")}</p>
@@ -1138,11 +1273,11 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
         <>
           {/* ---- 1. KPI summary ---- */}
           <section>
-            <ZoneLabel>{L(`KPI summary · ${ov.range.label === "today" ? "today" : ov.range.label === "yesterday" ? "yesterday" : `${dmy(ov.range.from)} – ${dmy(ov.range.to)}`}`, `Ringkasan KPI · ${ov.range.label === "today" ? "hari ini" : ov.range.label === "yesterday" ? "semalam" : `${dmy(ov.range.from)} – ${dmy(ov.range.to)}`}`)}</ZoneLabel>
+            <ZoneLabel>{L(`KPI summary · ${rangeLabel}`, `Ringkasan KPI · ${rangeLabel}`)}</ZoneLabel>
             <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
               <StatTile label={L("Sales", "Jualan")} value={fmtRM(t!.sales_cents)} tone={team!.achievement_pct == null ? "brand" : team!.achievement_pct >= 100 ? "success" : team!.achievement_pct >= 50 ? "gold" : "danger"} icon={<AppIcon name="money" />}
-                hint={team!.achievement_pct == null ? L("no target set", "tiada sasaran") : L(`${team!.achievement_pct}% of ${fmtRM((t!.target_cents ?? 0) * ov.days)}`, `${team!.achievement_pct}% daripada ${fmtRM((t!.target_cents ?? 0) * ov.days)}`)} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
-              <StatTile label={L("Orders", "Pesanan")} value={t!.orders} tone="info" icon={<AppIcon name="orders" />} hint={L(`${t!.orders_completed} completed · ${t!.orders_pending} pending`, `${t!.orders_completed} selesai · ${t!.orders_pending} menunggu`)} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
+                hint={`${team!.achievement_pct == null ? L("no target set", "tiada sasaran") : L(`${team!.achievement_pct}% of ${fmtRM((t!.target_cents ?? 0) * ov.days)}`, `${team!.achievement_pct}% daripada ${fmtRM((t!.target_cents ?? 0) * ov.days)}`)}${t!.tiktok_cents ? ` · TikTok ${fmtRM(t!.tiktok_cents)}` : ""}`} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
+              <StatTile label={L("Orders", "Pesanan")} value={t!.orders + t!.tiktok_orders} tone="info" icon={<AppIcon name="orders" />} hint={L(`${t!.orders} invoices · ${t!.tiktok_orders} TikTok · ${t!.orders_completed} completed`, `${t!.orders} invois · ${t!.tiktok_orders} TikTok · ${t!.orders_completed} selesai`)} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
               <StatTile label={L("Customer engagement", "Penglibatan pelanggan")} value={t!.interactions} tone="brand" icon={<AppIcon name="chat" />} hint={L(`${t!.unique_customers} unique · ${t!.inquiries} leads`, `${t!.unique_customers} unik · ${t!.inquiries} petunjuk`)} onClick={() => jump("engagements")} title={L("Open the engagements", "Buka penglibatan")} />
               <StatTile label={L("Social media", "Media sosial")} value={t!.posts_verified} tone={t!.posts_flagged > 0 ? "gold" : "brand"} icon={<AppIcon name="verify" />} hint={L(`verified · ${t!.posts_reported} pending · ${t!.posts_flagged} flagged`, `disahkan · ${t!.posts_reported} menunggu · ${t!.posts_flagged} ditanda`)} onClick={() => jump("posts")} title={L("Open the posts", "Buka pos")} />
               <StatTile label={L("Shipments", "Penghantaran")} value={t!.shipments} tone={t!.tracking_required > 0 ? "danger" : "muted"} icon={<AppIcon name="shipped" />} hint={t!.tracking_required > 0 ? L(`${t!.tracking_required} TRACKING REQUIRED`, `${t!.tracking_required} PENJEJAKAN DIPERLUKAN`) : L(`${t!.delivered} delivered`, `${t!.delivered} diterima`)} onClick={() => jump("shipments")} title={L("Open the shipments", "Buka penghantaran")} />
@@ -1154,7 +1289,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           {manager ? (
             <div className={card}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <PanelTitle icon="person">{L("Per staff", "Setiap staf")} <span className="text-muted-foreground font-normal">· {L("who worked, and can prove it", "siapa bekerja, dan boleh membuktikannya")}</span></PanelTitle>
+                <PanelTitle icon="person">{L("Per staff", "Setiap staf")} <span className="text-muted-foreground hidden font-normal sm:inline">· {L("who worked, and can prove it", "siapa bekerja, dan boleh membuktikannya")}</span></PanelTitle>
                 <span className="text-muted-foreground text-xs">{L("Press a name to see only that person.", "Tekan nama untuk melihat orang itu sahaja.")}</span>
               </div>
               <div className="mt-2">{shown.length === 0 ? <p className="text-muted-foreground text-sm">{L("No sales staff on the register.", "Tiada staf jualan dalam daftar.")}</p> : <StaffTable rows={shown} onPick={(id) => setStaff(String(id))} />}</div>
@@ -1165,9 +1300,16 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           {/* ---- 2. Today's sales activity ---- */}
           <Section id="sp-feed" icon="time" title={ov.range.label === "today" ? L("Today's sales activity", "Aktiviti jualan hari ini") : L("Sales activity", "Aktiviti jualan")} count={ov.feed.length}
             summary={L(`${t!.verified_activities} verified of ${t!.activities_total} recorded`, `${t!.verified_activities} disahkan daripada ${t!.activities_total} direkodkan`)} open={open.feed} onToggle={() => toggle("feed")}
-            action={<button type="button" className={btnSmPrimary} onClick={() => setDrawer({ kind: "add" })}>{L("+ Add activity", "+ Tambah aktiviti")}</button>}>
-            {ov.feed.length === 0 ? <p className="text-muted-foreground text-sm">{L("Nothing recorded for this range yet.", "Belum ada yang direkodkan untuk julat ini.")}</p> : (
-              <div className="overflow-x-auto">
+            action={<button type="button" className={btnSmPrimary} onClick={() => setDrawer({ kind: "add" })}>{L("+ Add", "+ Tambah")}</button>}>
+            {ov.feed.length === 0 ? <p className="text-muted-foreground text-sm">{L("Nothing recorded for this range yet.", "Belum ada yang direkodkan untuk julat ini.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.feed.map((f) => (
+                  <PhoneRow key={`m-${f.ref}-${f.id}`} title={feedType(f.type)} sub={`${mytDateTime(f.at)}${manager ? ` · ${f.staff_name}` : ""}`}
+                    right={<>{f.sales_cents != null && <p className="text-sm font-semibold tabular-nums">{fmtRM(f.sales_cents)}</p>}<StatusChip status={f.verification} /></>}
+                    facts={[[L("Customer / product", "Pelanggan / produk"), [f.customer, f.product].filter(Boolean).join(" · ") || "—"], [L("Result", "Hasil"), f.result || "—"], [L("Action", "Tindakan"), f.action || "—"], [L("Evidence", "Bukti"), f.evidence_key ? <Evidence evidenceKey={f.evidence_key} /> : "—"]]} />
+                ))}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[820px]">
                   <thead><tr className="border-border border-b"><th className={th}>{L("Time", "Masa")}</th>{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Type", "Jenis")}</th><th className={th}>{L("Customer / product", "Pelanggan / produk")}</th><th className={th}>{L("Action", "Tindakan")}</th><th className={th}>{L("Result", "Hasil")}</th><th className={thR2}>{L("Sales", "Jualan")}</th><th className={th}>{L("Evidence", "Bukti")}</th><th className={th}>{L("Verification", "Pengesahan")}</th></tr></thead>
                   <tbody>
@@ -1187,22 +1329,35 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
           </Section>
 
           {/* ---- 3. Social media activity ---- */}
           <Section id="sp-posts" icon="verify" title={L("Social media activity", "Aktiviti media sosial")} count={ov.posts.length}
             summary={L(`${t!.posts_verified} verified · ${t!.posts_reported} pending · ${t!.posts_flagged} flagged · reach ${n0(t!.reach)} (verified metrics only)`, `${t!.posts_verified} disahkan · ${t!.posts_reported} menunggu · ${t!.posts_flagged} ditanda · capaian ${n0(t!.reach)} (metrik disahkan sahaja)`)} open={open.posts} onToggle={() => toggle("posts")}
             action={<button type="button" className={btnSm} onClick={() => setDrawer({ kind: "post" })}>{L("+ Post", "+ Pos")}</button>}>
-            {ov.posts.length === 0 ? <p className="text-muted-foreground text-sm">{L("No posts submitted for this range.", "Tiada pos dihantar untuk julat ini.")}</p> : (
-              <div className="overflow-x-auto">
+            {ov.posts.length === 0 ? <p className="text-muted-foreground text-sm">{L("No posts submitted for this range.", "Tiada pos dihantar untuk julat ini.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.posts.map((p) => {
+                  const flags = flagsOf(p.flags);
+                  return (
+                    <PhoneRow key={`m-${p.id}`} title={<a href={p.url} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">{p.product ?? p.url}</a>}
+                      sub={`${lbl(SP_PLATFORMS, p.platform)}${p.account_handle ? ` · @${p.account_handle}` : ""}${manager ? ` · ${p.staff_name}` : ""}`}
+                      right={<Evidence evidenceKey={p.evidence_key} />}
+                      chips={<><StatusChip status={p.status} />{flags.map((fl) => <span key={fl} className={chipSmWarn}>{L(...(FLAG_LABEL[fl] ?? [fl, fl]))}</span>)}{p.promotion_name && <span className={chipSmInfo}>{p.promotion_name}</span>}</>}
+                      facts={[[L("Posted", "Dipos"), mytDateTime(p.posted_at)], [L("Submitted", "Dihantar"), mytDateTime(p.submitted_at)], [L("Metrics", "Metrik"), p.views == null && p.likes == null ? L("not reported", "tidak dilaporkan") : `${p.views != null ? `${n0(p.views)} ${L("views", "tontonan")} · ` : ""}${n0(p.likes)} / ${n0(p.comments)} / ${n0(p.shares)} · ${p.metrics_status === "verified" ? L("verified", "disahkan") : L("reported", "dilaporkan")}`], [L("Verified by", "Disahkan oleh"), p.verified_by_name ?? "—"]]}
+                      acts={postActs(p)}>
+                      {p.description && <p className="mt-1.5 text-xs whitespace-pre-line">{p.description}</p>}
+                    </PhoneRow>
+                  );
+                })}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[980px]">
                   <thead><tr className="border-border border-b">{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Platform", "Platform")}</th><th className={th}>{L("Post", "Pos")}</th><th className={th}>{L("Posted / submitted", "Dipos / dihantar")}</th><th className={thR2}>{L("Metrics", "Metrik")}</th><th className={th}>{L("Evidence", "Bukti")}</th><th className={th}>{L("Status", "Status")}</th><th className={th}></th></tr></thead>
                   <tbody>
                     {ov.posts.map((p) => {
                       const flags = flagsOf(p.flags);
-                      const own = mine(p.user_id);
-                      const verified = p.status === "verified";
                       return (
                         <tr key={p.id} className="border-border border-b last:border-0">
                           {manager && <td className={td}>{p.staff_name}</td>}
@@ -1212,20 +1367,14 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                           <td className={tdR2}>{p.views != null || p.likes != null ? <>{n0(p.views)} <span className="text-muted-foreground">{L("views", "tontonan")}</span><span className="block text-[11px]">{n0(p.likes)} / {n0(p.comments)} / {n0(p.shares)}</span></> : "—"}<span className={`${p.metrics_status === "verified" ? chipSmSuccess : chipSmNeutral} mt-0.5`}>{p.metrics_status === "verified" ? L("verified", "disahkan") : L("reported", "dilaporkan")}</span></td>
                           <td className={td}><Evidence evidenceKey={p.evidence_key} /></td>
                           <td className={td}><span className="flex flex-wrap gap-1"><StatusChip status={p.status} />{flags.map((fl) => <span key={fl} className={chipSmWarn}>{L(...(FLAG_LABEL[fl] ?? [fl, fl]))}</span>)}</span>{p.verified_by_name && <span className="text-muted-foreground block text-[11px]">{p.verified_by_name}{p.verify_note ? ` · ${p.verify_note}` : ""}</span>}{p.last_check_http != null && <span className="text-muted-foreground block text-[11px]">{L("link check", "semakan pautan")} HTTP {p.last_check_http}</span>}</td>
-                          <td className={td}><div className={rowActions}>
-                            {manager && !own && <button type="button" className={verified ? rowBtn : rowBtnPrimary} onClick={() => setDrawer({ kind: "verify", target: "posts", id: p.id, isPost: true, title: `${p.staff_name} · ${lbl(SP_PLATFORMS, p.platform)} · ${p.product ?? ""}`, wasVerified: verified })}>{verified ? L("Re-decide", "Putuskan semula") : L("Verify", "Sahkan")}</button>}
-                            {manager && <button type="button" className={rowBtn} onClick={() => void checkLink(p)}>{L("Check link", "Semak pautan")}</button>}
-                            {(own && !verified) || manager ? <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "post", edit: p })}>{verified ? L("Correct", "Betulkan") : L("Edit", "Sunting")}</button> : null}
-                            {(own && !verified) || (manager && !verified) ? <button type="button" className={rowBtnDanger} onClick={() => void remove("posts", p.id, L("post", "pos"), verified)}>{L("Remove", "Buang")}</button> : null}
-                            {manager && <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "audit", entity: "sp_social_posts", id: String(p.id), title: `${L("History", "Sejarah")} · ${p.product ?? p.url}` })}>{L("History", "Sejarah")}</button>}
-                          </div></td>
+                          <td className={td}><Acts acts={postActs(p)} /></td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
             <p className="text-muted-foreground mt-2 text-[11px]">{L("A post counts only when VERIFIED. Metrics count only when management has checked them against the screenshot. A verified post that later disappears is re-checked daily and marked POST UNAVAILABLE.", "Pos dikira hanya apabila DISAHKAN. Metrik dikira hanya selepas pengurusan menyemaknya dengan tangkapan skrin. Pos disahkan yang kemudian hilang disemak semula setiap hari dan ditanda POS TIDAK TERSEDIA.")}</p>
           </Section>
 
@@ -1233,14 +1382,27 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           <Section id="sp-engagements" icon="chat" title={L("Customer engagement", "Penglibatan pelanggan")} count={ov.engagements.length}
             summary={L(`${t!.interactions} interactions · ${t!.unique_customers} unique customers · ${t!.inquiries} leads · ${t!.conversions} converted (${t!.conversion_rate}%) · ${t!.follow_ups_overdue} follow-ups overdue`, `${t!.interactions} interaksi · ${t!.unique_customers} pelanggan unik · ${t!.inquiries} petunjuk · ${t!.conversions} ditukar (${t!.conversion_rate}%) · ${t!.follow_ups_overdue} susulan tertunggak`)} open={open.engagements} onToggle={() => toggle("engagements")}
             action={<button type="button" className={btnSm} onClick={() => setDrawer({ kind: "engagement" })}>{L("+ Engagement", "+ Penglibatan")}</button>}>
-            {ov.engagements.length === 0 ? <p className="text-muted-foreground text-sm">{L("No customer engagements for this range.", "Tiada penglibatan pelanggan untuk julat ini.")}</p> : (
-              <div className="overflow-x-auto">
+            {ov.engagements.length === 0 ? <p className="text-muted-foreground text-sm">{L("No customer engagements for this range.", "Tiada penglibatan pelanggan untuk julat ini.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.engagements.map((e) => {
+                  const overdue = !!e.follow_up_on && !e.outcome_at && e.follow_up_on < ov.today;
+                  return (
+                    <PhoneRow key={`m-${e.id}`} title={e.customer_name} sub={`${mytDateTime(e.happened_at)}${manager ? ` · ${e.staff_name}` : ""}${e.customer_phone ? ` · ${e.customer_phone}` : ""}`}
+                      right={<StatusChip status={e.order_doc_id ? "linked_order" : e.status} />}
+                      chips={<><span className={chipSmNeutral}>{lbl(SP_INTERACTIONS, e.interaction_type)}</span><span className={chipSmNeutral}>{lbl(SP_CHANNELS, e.channel)}</span>{overdue && <span className={chipSmDanger}>{L("OVERDUE", "TERTUNGGAK")}</span>}{e.outcome_at && e.follow_up_on && <span className={chipSmSuccess}>{L("follow-up done", "susulan selesai")}</span>}{e.promotion_name && <span className={chipSmInfo}>{e.promotion_name}</span>}</>}
+                      facts={[[L("Product", "Produk"), e.product ?? "—"], [L("Follow-up", "Susulan"), e.follow_up_on ? dmy(e.follow_up_on) : "—"], [L("Outcome", "Hasil"), e.outcome ?? "—"], [L("Order", "Pesanan"), e.order_number ? `${e.order_number} · ${fmtRM(e.order_cents ?? 0)} · ${e.order_payment}` : "—"]]}
+                      acts={engActs(e)}>
+                      {e.action_taken && <p className="mt-1.5 text-xs whitespace-pre-line"><span className="text-muted-foreground">{L("Action", "Tindakan")}:</span> {e.action_taken}</p>}
+                      {e.evidence_key && <div className="mt-1.5"><Evidence evidenceKey={e.evidence_key} /></div>}
+                    </PhoneRow>
+                  );
+                })}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[1000px]">
                   <thead><tr className="border-border border-b"><th className={th}>{L("When", "Bila")}</th>{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Customer", "Pelanggan")}</th><th className={th}>{L("Type · channel", "Jenis · saluran")}</th><th className={th}>{L("Action", "Tindakan")}</th><th className={th}>{L("Follow-up", "Susulan")}</th><th className={th}>{L("Outcome / order", "Hasil / pesanan")}</th><th className={th}>{L("Status", "Status")}</th><th className={th}></th></tr></thead>
                   <tbody>
                     {ov.engagements.map((e) => {
-                      const own = mine(e.user_id);
-                      const locked = e.status === "verified" || e.order_doc_id != null;
                       const overdue = !!e.follow_up_on && !e.outcome_at && e.follow_up_on < ov.today;
                       return (
                         <tr key={e.id} className="border-border border-b last:border-0">
@@ -1252,20 +1414,14 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                           <td className={`${td} whitespace-nowrap`}>{e.follow_up_on ? <>{dmy(e.follow_up_on)}{overdue && <span className={`${chipSmDanger} ml-1`}>{L("OVERDUE", "TERTUNGGAK")}</span>}{e.outcome_at && <span className={`${chipSmSuccess} ml-1`}>{L("done", "selesai")}</span>}</> : <span className="text-muted-foreground">—</span>}</td>
                           <td className={`${td} max-w-[220px]`}><span className="block truncate" title={e.outcome ?? ""}>{e.outcome ?? <span className="text-muted-foreground">—</span>}</span>{e.order_number && <span className="text-[11px] font-medium tabular-nums">{e.order_number} · {fmtRM(e.order_cents ?? 0)} · {e.order_payment}</span>}</td>
                           <td className={td}><StatusChip status={e.order_doc_id ? "linked_order" : e.status} /></td>
-                          <td className={td}><div className={rowActions}>
-                            {(own || manager) && !e.order_doc_id && <button type="button" className={rowBtnPrimary} onClick={() => setDrawer({ kind: "outcome", row: e })}>{L("Outcome", "Hasil")}</button>}
-                            {manager && !own && e.status !== "verified" && !e.order_doc_id && <button type="button" className={rowBtnPrimary} onClick={() => setDrawer({ kind: "verify", target: "engagements", id: e.id, isPost: false, title: `${e.staff_name} · ${e.customer_name}`, wasVerified: false })}>{L("Verify", "Sahkan")}</button>}
-                            {(own && !locked) || manager ? <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "engagement", edit: e })}>{locked ? L("Correct", "Betulkan") : L("Edit", "Sunting")}</button> : null}
-                            {(own && !locked) || manager ? <button type="button" className={rowBtnDanger} onClick={() => void remove("engagements", e.id, L("engagement", "penglibatan"), locked)}>{L("Remove", "Buang")}</button> : null}
-                            {manager && <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "audit", entity: "sp_engagements", id: String(e.id), title: `${L("History", "Sejarah")} · ${e.customer_name}` })}>{L("History", "Sejarah")}</button>}
-                          </div></td>
+                          <td className={td}><Acts acts={engActs(e)} /></td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
             <p className="text-muted-foreground mt-2 text-[11px]">{L("A conversion is an engagement linked to a real invoice - the invoice's total is the revenue. Typing \"converted\" converts nothing.", "Penukaran ialah penglibatan yang dipautkan ke invois sebenar - jumlah invois ialah hasilnya. Menaip \"ditukar\" tidak menukar apa-apa.")}</p>
           </Section>
 
@@ -1273,13 +1429,27 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           <Section id="sp-promotions" icon="boost" title={L("Promotion & campaign", "Promosi & kempen")} count={ov.promotions.length}
             summary={L(`${t!.promotions_active} active · ${t!.promotions_executed} executed (a verified post or an order linked)`, `${t!.promotions_active} aktif · ${t!.promotions_executed} dilaksanakan (pos disahkan atau pesanan dipautkan)`)} open={open.promotions} onToggle={() => toggle("promotions")}
             action={<button type="button" className={btnSm} onClick={() => setDrawer({ kind: "promotion" })}>{L("+ Promotion", "+ Promosi")}</button>}>
-            {ov.promotions.length === 0 ? <p className="text-muted-foreground text-sm">{L("No promotions running in this range.", "Tiada promosi berjalan dalam julat ini.")}</p> : (
-              <div className="overflow-x-auto">
+            {ov.promotions.length === 0 ? <p className="text-muted-foreground text-sm">{L("No promotions running in this range.", "Tiada promosi berjalan dalam julat ini.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.promotions.map((p) => {
+                  const executed = p.posts_verified > 0 || p.orders > 0;
+                  return (
+                    <PhoneRow key={`m-${p.id}`} title={p.name} sub={`${dmy(p.start_on)}${p.end_on ? ` – ${dmy(p.end_on)}` : ""}${manager ? ` · ${p.staff_name}` : ""}`}
+                      right={<p className="text-sm font-semibold tabular-nums">{fmtRM(p.revenue_cents)}</p>}
+                      chips={<><span className={executed ? chipSmSuccess : chipSmNeutral}>{executed ? L("Executed", "Dilaksanakan") : L("Planned", "Dirancang")}</span><StatusChip status={p.status} />{p.platform && <span className={chipSmNeutral}>{lbl(SP_PLATFORMS, p.platform)}</span>}{p.promo_type && <span className={chipSmNeutral}>{lbl(SP_PROMO_TYPES, p.promo_type)}</span>}</>}
+                      facts={[[L("Product", "Produk"), p.product ?? "—"], [L("Reached (reported)", "Dicapai (dilaporkan)"), n0(p.customers_reached)], [L("Posts verified", "Pos disahkan"), `${p.posts_verified} / ${p.posts_total}`], [L("Inquiries → orders", "Pertanyaan → pesanan"), `${p.inquiries} → ${p.orders}`]]}
+                      acts={promoActs(p)}>
+                      {p.result && <p className="mt-1.5 text-xs">{p.result}</p>}
+                    </PhoneRow>
+                  );
+                })}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[900px]">
                   <thead><tr className="border-border border-b"><th className={th}>{L("Promotion", "Promosi")}</th>{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Dates", "Tarikh")}</th><th className={thR2}>{L("Reached", "Dicapai")}</th><th className={thR2}>{L("Posts", "Pos")}</th><th className={thR2}>{L("Inquiries", "Pertanyaan")}</th><th className={thR2}>{L("Orders", "Pesanan")}</th><th className={thR2}>{L("Revenue", "Hasil")}</th><th className={th}>{L("Status", "Status")}</th><th className={th}></th></tr></thead>
                   <tbody>
                     {ov.promotions.map((p) => {
-                      const own = mine(p.user_id); const verified = p.status === "verified"; const executed = p.posts_verified > 0 || p.orders > 0;
+                      const executed = p.posts_verified > 0 || p.orders > 0;
                       return (
                         <tr key={p.id} className="border-border border-b last:border-0">
                           <td className={td}><span className="font-medium">{p.name}</span><span className="text-muted-foreground block text-[11px]">{[p.product, p.platform ? lbl(SP_PLATFORMS, p.platform) : null, p.promo_type ? lbl(SP_PROMO_TYPES, p.promo_type) : null].filter(Boolean).join(" · ")}</span>{p.result && <span className="block text-[11px]">{p.result}</span>}</td>
@@ -1291,19 +1461,14 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                           <td className={tdR2}>{p.orders}</td>
                           <td className={tdR2}>{fmtRM(p.revenue_cents)}</td>
                           <td className={td}><span className="flex flex-wrap gap-1"><span className={executed ? chipSmSuccess : chipSmNeutral}>{executed ? L("Executed", "Dilaksanakan") : L("Planned", "Dirancang")}</span><StatusChip status={p.status} />{p.evidence_key && <Evidence evidenceKey={p.evidence_key} />}</span></td>
-                          <td className={td}><div className={rowActions}>
-                            {manager && !own && !verified && <button type="button" className={rowBtnPrimary} onClick={() => setDrawer({ kind: "verify", target: "promotions", id: p.id, isPost: false, title: p.name, wasVerified: false })}>{L("Verify", "Sahkan")}</button>}
-                            {(own && !verified) || manager ? <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "promotion", edit: p })}>{verified ? L("Correct", "Betulkan") : L("Edit", "Sunting")}</button> : null}
-                            {(own && !verified) || manager ? <button type="button" className={rowBtnDanger} onClick={() => void remove("promotions", p.id, L("promotion", "promosi"), verified)}>{L("Remove", "Buang")}</button> : null}
-                            {manager && <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "audit", entity: "sp_promotions", id: String(p.id), title: `${L("History", "Sejarah")} · ${p.name}` })}>{L("History", "Sejarah")}</button>}
-                          </div></td>
+                          <td className={td}><Acts acts={promoActs(p)} /></td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
             {ov.others.length > 0 && (
               <div className="mt-3">
                 <p className="text-xs font-semibold">{L("Other sales activity", "Aktiviti jualan lain")} <span className="text-muted-foreground font-normal">· {ov.others.length}</span></p>
@@ -1311,10 +1476,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                   {ov.others.map((o) => (
                     <li key={o.id} className={listRow}>
                       <span className="min-w-0 text-sm"><span className="text-muted-foreground mr-2 text-xs tabular-nums">{mytDateTime(o.happened_at)}</span>{manager && <span className="mr-2 font-medium">{o.staff_name}</span>}<span className="whitespace-pre-line">{o.action}</span>{(o.customer_name || o.product) && <span className="text-muted-foreground"> · {[o.customer_name, o.product].filter(Boolean).join(" · ")}</span>}{o.result && <span className="text-muted-foreground"> → {o.result}</span>}</span>
-                      <span className="flex items-center gap-1.5"><Evidence evidenceKey={o.evidence_key} /><StatusChip status={o.status} />
-                        {manager && !mine(o.user_id) && o.status !== "verified" && <button type="button" className={rowBtnPrimary} onClick={() => setDrawer({ kind: "verify", target: "other", id: o.id, isPost: false, title: o.action, wasVerified: false })}>{L("Verify", "Sahkan")}</button>}
-                        {(mine(o.user_id) && o.status !== "verified") || manager ? <button type="button" className={rowBtnDanger} onClick={() => void remove("other", o.id, L("activity", "aktiviti"), o.status === "verified")}>{L("Remove", "Buang")}</button> : null}
-                      </span>
+                      <span className="flex flex-wrap items-center gap-1.5"><Evidence evidenceKey={o.evidence_key} /><StatusChip status={o.status} /><Acts acts={otherActs(o)} /></span>
                     </li>
                   ))}
                 </ul>
@@ -1322,12 +1484,24 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
             )}
           </Section>
 
-          {/* ---- 6. Customer orders (invoices - the Sales tab's records, read here) ---- */}
-          <Section id="sp-orders" icon="orders" title={L("Customer orders", "Pesanan pelanggan")} count={ov.orders.length}
-            summary={L(`${t!.orders} invoices · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} paid · ${t!.orders_completed} completed`, `${t!.orders} invois · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} dibayar · ${t!.orders_completed} selesai`)} open={open.orders} onToggle={() => toggle("orders")}
-            action={<button type="button" className={btnSm} onClick={() => go("Sales")}>{L("Raise an invoice in Sales", "Buat invois di Jualan")}</button>}>
-            {ov.orders.length === 0 ? <p className="text-muted-foreground text-sm">{L("No invoices raised in this range. An order is an invoice - there is no other way to record one.", "Tiada invois dibuat dalam julat ini. Pesanan ialah invois - tiada cara lain untuk merekodkannya.")}</p> : (
-              <div className="overflow-x-auto">
+          {/* ---- 6. Customer orders (invoices - the Sales tab's records - and TikTok Shop orders) ---- */}
+          <Section id="sp-orders" icon="orders" title={L("Customer orders", "Pesanan pelanggan")} count={ov.orders.length + ov.tiktok_orders.length}
+            summary={L(`${t!.orders} invoices · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} paid on invoices · ${t!.orders_completed} completed`, `${t!.orders} invois · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} dibayar atas invois · ${t!.orders_completed} selesai`)} open={open.orders} onToggle={() => toggle("orders")}
+            action={<button type="button" className={btnSm} onClick={() => go("Sales")}>{L("Raise an invoice", "Buat invois")}</button>}>
+            {ov.orders.length === 0 ? <p className="text-muted-foreground text-sm">{L("No invoices raised in this range. An order is an invoice - there is no other way to record one.", "Tiada invois dibuat dalam julat ini. Pesanan ialah invois - tiada cara lain untuk merekodkannya.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.orders.map((o) => {
+                  const [cls, label] = orderStatus(o);
+                  return (
+                    <PhoneRow key={`m-${o.id}`} title={o.doc_number} sub={`${mytDateTime(o.created_at)}${manager ? ` · ${o.staff_name}` : ""}`}
+                      right={<><p className="text-sm font-semibold tabular-nums">{fmtRM(o.total_cents)}</p><span className={payChip(o.payment_status)}>{o.payment_status}</span></>}
+                      chips={<><span className={cls}>{label}</span>{(o.kind ?? "product") === "service" ? <span className={chipSmNeutral}>{L("service", "perkhidmatan")}</span> : (!o.ship_status || (SP_TRACKING_REQUIRED.includes(o.ship_status) && !o.tracking_no)) ? <ShipChip status={o.ship_status} tracking={o.tracking_no} /> : null}{o.linked_engagements > 0 && <span className={chipSmSuccess}>{o.linked_engagements} {L("engagement linked", "penglibatan dipautkan")}</span>}</>}
+                      facts={[[L("Customer", "Pelanggan"), o.customer], [L("Items", "Item"), itemsOf(o.items) || "—"]]}
+                      acts={orderActs(o)} />
+                  );
+                })}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[900px]">
                   <thead><tr className="border-border border-b"><th className={th}>{L("Order", "Pesanan")}</th>{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Customer", "Pelanggan")}</th><th className={th}>{L("Items", "Item")}</th><th className={thR2}>{L("Amount", "Jumlah")}</th><th className={th}>{L("Payment", "Bayaran")}</th><th className={th}>{L("Shipment", "Penghantaran")}</th><th className={th}>{L("Status", "Status")}</th><th className={th}></th></tr></thead>
                   <tbody>
@@ -1340,28 +1514,69 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                           <td className={td}>{o.customer}</td>
                           <td className={`${td} max-w-[260px] truncate`} title={itemsOf(o.items)}>{itemsOf(o.items) || <span className="text-muted-foreground">{(o.kind ?? "product") === "service" ? L("service", "perkhidmatan") : "—"}</span>}</td>
                           <td className={tdR2}>{fmtRM(o.total_cents)}</td>
-                          <td className={td}><span className={o.payment_status === "paid" ? chipSmSuccess : o.payment_status === "overdue" ? chipSmDanger : chipSmWarn}>{o.payment_status}</span></td>
+                          <td className={td}><span className={payChip(o.payment_status)}>{o.payment_status}</span></td>
                           <td className={td}>{(o.kind ?? "product") === "service" ? <span className="text-muted-foreground text-[11px]">{L("service - nothing ships", "perkhidmatan - tiada penghantaran")}</span> : <ShipChip status={o.ship_status} tracking={o.tracking_no} />}</td>
                           <td className={td}><span className={cls}>{label}</span></td>
-                          <td className={td}><div className={rowActions}>
-                            {(o.kind ?? "product") !== "service" && !o.ship_status && (mine(o.user_id) || manager) && <button type="button" className={rowBtnPrimary} onClick={() => setDrawer({ kind: "shipment", presetOrder: o.id })}>{L("Add shipment", "Tambah penghantaran")}</button>}
-                            <button type="button" className={rowBtn} onClick={() => go("Sales")}>{L("Open in Sales", "Buka di Jualan")}</button>
-                          </div></td>
+                          <td className={td}><Acts acts={orderActs(o)} /></td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
+            {/* v1.155.0 (CEO: "Sales Performance need to include with their
+                sales TikTok") - the shop's own orders, credited the way the
+                leaderboard credits them: to the live host whose session they
+                landed in, and to the sales_marketing staff clocked in at the
+                time. System records - nobody typed them. */}
+            <div className="mt-3">
+              <p className="text-xs font-semibold">{L("TikTok Shop orders", "Pesanan TikTok Shop")} <span className="text-muted-foreground font-normal">· {ov.tiktok_orders.length} · {fmtRM(t!.tiktok_cents)}</span></p>
+              {ov.tiktok_orders.length === 0 ? <p className="text-muted-foreground mt-1 text-xs">{L("No TikTok Shop orders landed during a live session or a sales shift in this range.", "Tiada pesanan TikTok Shop mendarat semasa sesi live atau syif jualan dalam julat ini.")}</p> : (<>
+                <ul className={phoneList}>
+                  {ov.tiktok_orders.map((o) => (
+                    <PhoneRow key={`m-tt-${o.id}`} title={o.order_ref} sub={`${mytDateTime(o.created_at)} · ${o.staff_names.join(" + ")}`}
+                      right={<><p className="text-sm font-semibold tabular-nums">{fmtRM(o.cents)}</p><StatusChip status="system" /></>}
+                      chips={<ShipChip status={o.status} tracking={o.tracking_no} />}
+                      facts={[[L("Items", "Item"), o.items_label ?? "—"], [L("Courier", "Kurier"), o.courier ?? "—"]]} />
+                  ))}
+                </ul>
+                <div className={deskTable}>
+                  <table className="w-full min-w-[720px]">
+                    <thead><tr className="border-border border-b"><th className={th}>{L("Order", "Pesanan")}</th><th className={th}>{L("Credited to", "Dikreditkan kepada")}</th><th className={th}>{L("Items", "Item")}</th><th className={thR2}>{L("Amount", "Jumlah")}</th><th className={th}>{L("Shipment", "Penghantaran")}</th><th className={th}>{L("Verification", "Pengesahan")}</th></tr></thead>
+                    <tbody>
+                      {ov.tiktok_orders.map((o) => (
+                        <tr key={`tt-${o.id}`} className="border-border border-b last:border-0">
+                          <td className={`${td} whitespace-nowrap`}><span className="font-medium tabular-nums">{o.order_ref}</span><span className="text-muted-foreground block text-[11px] tabular-nums">{mytDateTime(o.created_at)}</span></td>
+                          <td className={td}>{o.staff_names.join(" + ")}</td>
+                          <td className={`${td} max-w-[280px] truncate`} title={o.items_label ?? ""}>{o.items_label ?? <span className="text-muted-foreground">—</span>}</td>
+                          <td className={tdR2}>{fmtRM(o.cents)}</td>
+                          <td className={td}><ShipChip status={o.status} tracking={o.tracking_no} />{o.courier && <span className="text-muted-foreground block text-[11px]">{o.courier}</span>}</td>
+                          <td className={td}><StatusChip status="system" /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>)}
+              <p className="text-muted-foreground mt-1 text-[11px]">{L("Credited to the live host whose session the order landed in, and to the sales staff clocked in at the time (split equally) - the same rule as the sales leaderboard. The team's total counts each order once.", "Dikreditkan kepada hos live yang sesinya menerima pesanan itu, dan kepada staf jualan yang masuk kerja pada masa itu (dibahagi sama rata) - peraturan yang sama seperti papan pendahulu jualan. Jumlah pasukan mengira setiap pesanan sekali.")}</p>
+            </div>
           </Section>
 
           {/* ---- 7. Shipment & tracking ---- */}
           <Section id="sp-shipments" icon="shipped" title={L("Shipment & tracking", "Penghantaran & penjejakan")} count={ov.shipments.length}
             summary={L(`${t!.shipped} shipped · ${t!.delivered} delivered · ${t!.shipments_pending} preparing${t!.tracking_required ? ` · ${t!.tracking_required} TRACKING UPDATE REQUIRED` : ""}`, `${t!.shipped} dihantar · ${t!.delivered} diterima · ${t!.shipments_pending} disediakan${t!.tracking_required ? ` · ${t!.tracking_required} KEMAS KINI PENJEJAKAN DIPERLUKAN` : ""}`)} open={open.shipments} onToggle={() => toggle("shipments")}
             action={<button type="button" className={btnSm} onClick={() => setDrawer({ kind: "shipment" })}>{L("+ Shipment", "+ Penghantaran")}</button>}>
-            {ov.shipments.length === 0 ? <p className="text-muted-foreground text-sm">{L("No shipments updated in this range.", "Tiada penghantaran dikemas kini dalam julat ini.")}</p> : (
-              <div className="overflow-x-auto">
+            {ov.shipments.length === 0 ? <p className="text-muted-foreground text-sm">{L("No shipments updated in this range.", "Tiada penghantaran dikemas kini dalam julat ini.")}</p> : (<>
+              <ul className={phoneList}>
+                {ov.shipments.map((s) => (
+                  <PhoneRow key={`m-${s.id}`} title={s.order_ref} sub={`${mytDateTime(s.updated_at)}${manager ? ` · ${s.staff_name}` : ""}`}
+                    right={<ShipChip status={s.status} tracking={s.tracking_no} />}
+                    facts={[[L("Customer", "Pelanggan"), s.customer ?? "—"], [L("Courier", "Kurier"), s.courier ?? "—"], [L("Tracking", "Penjejakan"), s.tracking_no ?? <span className="text-danger">{L("missing", "tiada")}</span>]]}
+                    acts={shipActs(s)} />
+                ))}
+              </ul>
+              <div className={deskTable}>
                 <table className="w-full min-w-[820px]">
                   <thead><tr className="border-border border-b"><th className={th}>{L("Order", "Pesanan")}</th>{manager && <th className={th}>{L("Staff", "Staf")}</th>}<th className={th}>{L("Customer", "Pelanggan")}</th><th className={th}>{L("Courier", "Kurier")}</th><th className={th}>{L("Tracking", "Penjejakan")}</th><th className={th}>{L("Status", "Status")}</th><th className={th}>{L("Updated", "Dikemas kini")}</th><th className={th}></th></tr></thead>
                   <tbody>
@@ -1374,13 +1589,13 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                         <td className={`${td} tabular-nums`}>{s.tracking_no ?? <span className="text-danger text-[11px] font-medium">{L("missing", "tiada")}</span>}</td>
                         <td className={td}><ShipChip status={s.status} tracking={s.tracking_no} /></td>
                         <td className={`${td} whitespace-nowrap tabular-nums`}>{mytDateTime(s.updated_at)}</td>
-                        <td className={td}><div className={rowActions}>{(mine(s.user_id) || manager) && <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "shipment", edit: s })}>{L("Update", "Kemas kini")}</button>}{manager && <button type="button" className={rowBtn} onClick={() => setDrawer({ kind: "audit", entity: "postage_records", id: String(s.id), title: `${L("History", "Sejarah")} · ${s.order_ref}` })}>{L("History", "Sejarah")}</button>}</div></td>
+                        <td className={td}><Acts acts={shipActs(s)} /></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
+            </>)}
             <p className="text-muted-foreground mt-2 text-[11px]">{L("Shipped, in transit and delivered all require a tracking number - the server refuses the status without one. A shipment is complete when it is delivered, not when it is marked shipped.", "Dihantar, dalam perjalanan dan diterima semuanya memerlukan nombor penjejakan - pelayan menolak status tanpanya. Penghantaran selesai apabila diterima, bukan apabila ditanda dihantar.")}</p>
           </Section>
 
@@ -1391,23 +1606,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
 
           {/* ---- 9. Performance trend ---- */}
           <Section id="sp-trend" icon="up" title={L("Performance trend", "Trend prestasi")} summary={L(`Score today ${ov.trend.today.score} · yesterday ${ov.trend.yesterday.score} · 7-day ${ov.trend.avg7.score} · 30-day ${ov.trend.avg30.score}`, `Skor hari ini ${ov.trend.today.score} · semalam ${ov.trend.yesterday.score} · 7 hari ${ov.trend.avg7.score} · 30 hari ${ov.trend.avg30.score}`)} open={open.trend} onToggle={() => toggle("trend")}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px]">
-                <thead><tr className="border-border border-b"><th className={th}></th><th className={thR2}>{L("Sales", "Jualan")}</th><th className={thR2}>{L("Orders", "Pesanan")}</th><th className={thR2}>{L("Engagement", "Penglibatan")}</th><th className={thR2}>{L("Leads", "Petunjuk")}</th><th className={thR2}>{L("Follow-ups", "Susulan")}</th><th className={thR2}>{L("Verified posts", "Pos disahkan")}</th><th className={thR2}>{L("Conversion", "Penukaran")}</th><th className={thR2}>{L("Score", "Skor")}</th></tr></thead>
-                <tbody>
-                  {([["today", L("Today", "Hari ini")], ["yesterday", L("Yesterday", "Semalam")], ["avg7", L("7-day average", "Purata 7 hari")], ["avg30", L("30-day average", "Purata 30 hari")]] as const).map(([k, label]) => {
-                    const r = ov.trend[k];
-                    return (
-                      <tr key={k} className="border-border border-b last:border-0">
-                        <td className={`${td} font-medium`}>{label}</td><td className={tdR2}>{fmtRM(r.sales_cents)}</td><td className={tdR2}>{r.orders}</td><td className={tdR2}>{r.engagement}</td><td className={tdR2}>{r.leads}</td><td className={tdR2}>{r.follow_ups}</td><td className={tdR2}>{r.posts_verified}</td><td className={tdR2}>{r.conversion_rate}%</td>
-                        <td className={tdR2}><span className="font-semibold">{r.score}</span></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-muted-foreground mt-2 text-[11px]">{L(`Averages are per day, for ${manager && staff === "0" ? "the whole team" : "this person"}. The score is the average of each day's score.`, `Purata adalah sehari, untuk ${manager && staff === "0" ? "seluruh pasukan" : "orang ini"}. Skor ialah purata skor setiap hari.`)}</p>
+            <Trend trend={ov.trend} who={manager && staff === "0" ? L("the whole team", "seluruh pasukan") : L("this person", "orang ini")} />
           </Section>
 
           {/* ---- 10. Daily closing ---- */}
@@ -1423,7 +1622,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
         <Drawer title={L("Add activity", "Tambah aktiviti")} sub={L("What did you do? Pick the kind - the right form opens.", "Apa yang anda lakukan? Pilih jenis - borang yang betul dibuka.")} onClose={closeDrawer}>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {SP_ACTIVITY_TYPES.map(([k]) => (
-              <button key={k} type="button" className={`${insetCard} text-left text-sm font-medium hover:bg-secondary`} onClick={() => {
+              <button key={k} type="button" className={`${insetCard} min-h-14 text-left text-sm font-medium hover:bg-secondary`} onClick={() => {
                 if (k === "social_post") setDrawer({ kind: "post" });
                 else if (k === "tiktok_activity") setDrawer({ kind: "post", platform: "tiktok" });
                 else if (k === "facebook_activity") setDrawer({ kind: "post", platform: "facebook" });
@@ -1457,12 +1656,49 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
   );
 }
 
+/** the trend: four rows on the desk, four cards on the phone */
+function Trend({ trend, who }: { trend: Overview["trend"]; who: string }) {
+  const rows = [["today", L("Today", "Hari ini")], ["yesterday", L("Yesterday", "Semalam")], ["avg7", L("7-day average", "Purata 7 hari")], ["avg30", L("30-day average", "Purata 30 hari")]] as const;
+  return (
+    <>
+      <ul className={phoneList}>
+        {rows.map(([k, label]) => {
+          const r = trend[k];
+          return (
+            <PhoneRow key={`m-${k}`} title={label} right={<p className="text-xl font-bold tabular-nums">{r.score}</p>}
+              facts={[[L("Sales", "Jualan"), `${fmtRM(r.sales_cents)}${r.tiktok_cents ? ` (TikTok ${fmtRM(r.tiktok_cents)})` : ""}`], [L("Orders", "Pesanan"), String(r.orders)], [L("Engagement", "Penglibatan"), String(r.engagement)], [L("Leads", "Petunjuk"), String(r.leads)], [L("Follow-ups", "Susulan"), String(r.follow_ups)], [L("Verified posts", "Pos disahkan"), String(r.posts_verified)], [L("Conversion", "Penukaran"), `${r.conversion_rate}%`]]} />
+          );
+        })}
+      </ul>
+      <div className={deskTable}>
+        <table className="w-full min-w-[720px]">
+          <thead><tr className="border-border border-b"><th className={th}></th><th className={thR2}>{L("Sales", "Jualan")}</th><th className={thR2}>{L("Orders", "Pesanan")}</th><th className={thR2}>{L("Engagement", "Penglibatan")}</th><th className={thR2}>{L("Leads", "Petunjuk")}</th><th className={thR2}>{L("Follow-ups", "Susulan")}</th><th className={thR2}>{L("Verified posts", "Pos disahkan")}</th><th className={thR2}>{L("Conversion", "Penukaran")}</th><th className={thR2}>{L("Score", "Skor")}</th></tr></thead>
+          <tbody>
+            {rows.map(([k, label]) => {
+              const r = trend[k];
+              return (
+                <tr key={k} className="border-border border-b last:border-0">
+                  <td className={`${td} font-medium`}>{label}</td>
+                  <td className={tdR2}>{fmtRM(r.sales_cents)}{r.tiktok_cents ? <span className="text-muted-foreground block text-[11px]">TikTok {fmtRM(r.tiktok_cents)}</span> : null}</td>
+                  <td className={tdR2}>{r.orders}</td><td className={tdR2}>{r.engagement}</td><td className={tdR2}>{r.leads}</td><td className={tdR2}>{r.follow_ups}</td><td className={tdR2}>{r.posts_verified}</td><td className={tdR2}>{r.conversion_rate}%</td>
+                  <td className={tdR2}><span className="font-semibold">{r.score}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-muted-foreground mt-2 text-[11px]">{L(`Averages are per day, for ${who}. Sales include invoices and TikTok Shop orders. The score is the average of each day's score.`, `Purata adalah sehari, untuk ${who}. Jualan termasuk invois dan pesanan TikTok Shop. Skor ialah purata skor setiap hari.`)}</p>
+    </>
+  );
+}
+
 /** the funnel: six counts as bars against the widest, and the revenue they
     ended in. Everything is the team's (or the one person's) verified figures. */
 function Funnel({ f }: { f: Overview["funnel"] }) {
   const stages: [string, number][] = [
     [L("Verified posts", "Pos disahkan"), f.posts], [L("Reach (verified metrics)", "Capaian (metrik disahkan)"), f.reach], [L("Engagement (likes, comments, shares, saves)", "Penglibatan (suka, komen, kongsi, simpan)"), f.engagement],
-    [L("Customer inquiries", "Pertanyaan pelanggan"), f.inquiries], [L("Follow-ups done", "Susulan selesai"), f.follow_ups], [L("Orders (invoices)", "Pesanan (invois)"), f.orders],
+    [L("Customer inquiries", "Pertanyaan pelanggan"), f.inquiries], [L("Follow-ups done", "Susulan selesai"), f.follow_ups], [L("Orders (invoices + TikTok)", "Pesanan (invois + TikTok)"), f.orders],
   ];
   const max = Math.max(1, ...stages.map(([, v]) => v));
   return (
@@ -1470,12 +1706,13 @@ function Funnel({ f }: { f: Overview["funnel"] }) {
       {stages.map(([k, v]) => (
         <div key={k} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 text-xs sm:grid-cols-[220px_minmax(0,1fr)_64px]">
           <span className="truncate">{k}</span>
+          <span className="text-right font-medium tabular-nums sm:hidden">{n0(v)}</span>
           <span className="bg-secondary col-span-2 block h-3 overflow-hidden rounded-full sm:col-span-1"><span className="bg-brand block h-full rounded-full" style={{ width: `${v > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0}%` }} /></span>
           <span className="hidden text-right font-medium tabular-nums sm:block">{n0(v)}</span>
         </div>
       ))}
-      <p className="flex items-center justify-between border-t border-border pt-2 text-sm"><span className="font-semibold">{L("Revenue (invoices raised)", "Hasil (invois dibuat)")}</span><span className="font-semibold tabular-nums">{fmtRM(f.revenue_cents)}</span></p>
-      <p className="text-muted-foreground text-[11px]">{L("Reach and engagement count only posts whose metrics management verified; inquiries are new / product / price inquiries; orders are invoices raised in the range.", "Capaian dan penglibatan mengira hanya pos yang metriknya disahkan pengurusan; pertanyaan ialah pertanyaan baharu / produk / harga; pesanan ialah invois dibuat dalam julat.")}</p>
+      <p className="flex items-center justify-between border-t border-border pt-2 text-sm"><span className="font-semibold">{L("Revenue (invoices + TikTok)", "Hasil (invois + TikTok)")}</span><span className="font-semibold tabular-nums">{fmtRM(f.revenue_cents)}</span></p>
+      <p className="text-muted-foreground text-[11px]">{L("Reach and engagement count only posts whose metrics management verified; inquiries are new / product / price inquiries; orders are invoices raised plus TikTok Shop orders credited in the range.", "Capaian dan penglibatan mengira hanya pos yang metriknya disahkan pengurusan; pertanyaan ialah pertanyaan baharu / produk / harga; pesanan ialah invois dibuat serta pesanan TikTok Shop yang dikreditkan dalam julat.")}</p>
     </div>
   );
 }

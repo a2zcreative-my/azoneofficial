@@ -41,6 +41,7 @@ import type { StaffUser } from "./staff";
 import { STAFF_ORDER_SQL, currentStaffSql } from "./staff";
 import { json, err, audit, str } from "./shared";
 import { can } from "./permissions";
+import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales"; // v1.155.0 - the CEO's TikTok attribution rules, reused
 import {
   readSocialUrl, normalizeHandle, customerKey, spScore, spBand, ratio, spBusyVsProductive,
   SP_PLATFORMS, SP_CHANNELS, SP_INTERACTIONS, SP_INQUIRY_TYPES, SP_PROMO_TYPES, SP_TRACKING_REQUIRED, SP_POST_STATUSES,
@@ -106,7 +107,8 @@ async function salesStaff(env: Env): Promise<Person[]> {
 
 /* ── the figures, per person, for a range ─────────────────────────────── */
 export interface Figures {
-  sales_cents: number; paid_cents: number; orders: number; orders_completed: number; orders_pending: number;
+  /** sales_cents = invoice_cents + tiktok_cents: everything this person sold in the range */
+  sales_cents: number; invoice_cents: number; tiktok_cents: number; tiktok_orders: number; paid_cents: number; orders: number; orders_completed: number; orders_pending: number;
   interactions: number; unique_customers: number; inquiries: number; follow_ups_done: number; follow_ups_overdue: number; follow_ups_due: number;
   conversions: number; conversion_rate: number;
   posts_verified: number; posts_reported: number; posts_flagged: number; reach: number; social_engagement: number; leads: number;
@@ -117,7 +119,7 @@ export interface Figures {
   target_cents: number | null;
 }
 const zero = (): Figures => ({
-  sales_cents: 0, paid_cents: 0, orders: 0, orders_completed: 0, orders_pending: 0,
+  sales_cents: 0, invoice_cents: 0, tiktok_cents: 0, tiktok_orders: 0, paid_cents: 0, orders: 0, orders_completed: 0, orders_pending: 0,
   interactions: 0, unique_customers: 0, inquiries: 0, follow_ups_done: 0, follow_ups_overdue: 0, follow_ups_due: 0,
   conversions: 0, conversion_rate: 0,
   posts_verified: 0, posts_reported: 0, posts_flagged: 0, reach: 0, social_engagement: 0, leads: 0,
@@ -129,11 +131,19 @@ const zero = (): Figures => ({
 
 const MYT = (col: string) => `date(${col}, '+8 hours')`;
 
+/** What figuresFor hands back: each person's figures, and the range's TikTok
+    sales counted ONCE across the people in scope - a host and a
+    sales_marketing person on shift both keep the credit for the same order
+    (the CEO's rule, v1.25.6), so the team's line cannot be the sum of theirs. */
+export interface FiguresOut { by: Map<number, Figures>; team_tiktok: { cents: number; orders: number }; /** TT- postage id -> the people credited with it */ tiktok_credits: Map<number, number[]> }
+
 /** Every person's figures in one pass of grouped queries - never per row. */
-async function figuresFor(env: Env, ids: number[], from: string, to: string, settings: SpSettings): Promise<Map<number, Figures>> {
+async function figuresFor(env: Env, ids: number[], from: string, to: string, settings: SpSettings): Promise<FiguresOut> {
   const out = new Map<number, Figures>();
+  const team_tiktok = { cents: 0, orders: 0 };
+  const tiktok_credits = new Map<number, number[]>();
   for (const id of ids) { const f = zero(); f.target_cents = targetFor(settings, id); out.set(id, f); }
-  if (ids.length === 0) return out;
+  if (ids.length === 0) return { by: out, team_tiktok, tiktok_credits };
   const inIds = ids.join(",");
   const g = (id: number) => out.get(id)!;
   const q = async <T>(sql: string, ...binds: unknown[]) => {
@@ -151,7 +161,54 @@ async function figuresFor(env: Env, ids: number[], from: string, to: string, set
       WHERE d.doc_type = 'INV' AND d.salesperson_id IN (${inIds}) AND ${MYT("d.created_at")} BETWEEN ?1 AND ?2
       GROUP BY d.salesperson_id`, from, to)) {
     const f = g(r.uid); if (!f) continue;
-    f.sales_cents = r.cents; f.paid_cents = r.paid; f.orders = r.n; f.orders_completed = r.done; f.orders_pending = r.n - r.done;
+    f.invoice_cents = r.cents; f.paid_cents = r.paid; f.orders = r.n; f.orders_completed = r.done; f.orders_pending = r.n - r.done;
+  }
+  /* TIKTOK SALES (the CEO, 11-09-2026: "Sales Performance need to include
+     with their sales TikTok"). The attribution is the one the leaderboard
+     and commission already use (staff.ts attributedSalesByUser, v1.25.6):
+       - a live host is credited every TT- order that landed inside one of
+         their live_sessions windows (returned orders excluded);
+       - a sales_marketing person is credited every TT- order that landed
+         while they were clocked in, split equally when several were on
+         shift at once, a forgotten clock-out capped at the day's end
+         (shift-sales.ts, the same pure function).
+     A TikTok order is a SYSTEM record - it arrives from the shop, nobody
+     types it - so it is verified activity by definition. */
+  const ttOrders = await q<{ id: number; created_at: string; cents: number }>(
+    `SELECT id, created_at, order_amount_cents AS cents FROM postage_records
+      WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND order_amount_cents IS NOT NULL
+        AND ${MYT("created_at")} BETWEEN ?1 AND ?2`, from, to);
+  if (ttOrders.length > 0) {
+    const credit = (orderId: number, uid: number) => { const list = tiktok_credits.get(orderId) ?? []; if (!list.includes(uid)) list.push(uid); tiktok_credits.set(orderId, list); };
+    /* live hosts: orders inside their session windows */
+    for (const r of await q<{ uid: number; order_id: number; cents: number }>(
+      `SELECT DISTINCT s.host_user_id AS uid, p.id AS order_id, p.order_amount_cents AS cents
+         FROM postage_records p
+         JOIN live_sessions s
+           ON s.status != 'cancelled' AND s.end_time IS NOT NULL
+          AND s.session_date = date(p.created_at, '+8 hours')
+          AND strftime('%H:%M', p.created_at, '+8 hours') >= s.start_time
+          AND strftime('%H:%M', p.created_at, '+8 hours') <= s.end_time
+        WHERE p.order_ref LIKE 'TT-%' AND p.status != 'returned' AND p.order_amount_cents IS NOT NULL
+          AND s.host_user_id IN (${inIds}) AND ${MYT("p.created_at")} BETWEEN ?1 AND ?2`, from, to)) {
+      const f = g(r.uid); if (!f) continue;
+      f.tiktok_cents += r.cents; f.tiktok_orders += 1; credit(r.order_id, r.uid);
+    }
+    /* sales_marketing: orders during their clocked-in shifts, split equally */
+    const sm = (await q<{ id: number }>(`SELECT id FROM users WHERE is_active = 1 AND role = 'sales_marketing' AND id IN (${inIds})`)).map((u) => u.id);
+    if (sm.length > 0) {
+      const punches = await q<ShiftPunch>(
+        `SELECT user_id, type, created_at FROM attendance_records
+          WHERE type IN ('clock_in', 'clock_out') AND user_id IN (${sm.join(",")})
+            AND ${MYT("created_at")} >= date(?1, '-1 day') AND ${MYT("created_at")} <= date(?2, '+1 day')
+          ORDER BY user_id, created_at`, from, to);
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      for (const o of ttOrders) {
+        const split = shiftSalesSplit(punches, [{ created_at: o.created_at, cents: o.cents } as ShiftOrder], nowUtc);
+        for (const [uid, cents] of split) { const f = g(uid); if (!f) continue; f.tiktok_cents += cents; f.tiktok_orders += 1; credit(o.id, uid); }
+      }
+    }
+    for (const o of ttOrders) if (tiktok_credits.has(o.id)) { team_tiktok.cents += o.cents; team_tiktok.orders += 1; }
   }
   /* engagements */
   for (const r of await q<{ uid: number; n: number; uniq: number; inq: number; conv: number; verified: number }>(
@@ -227,10 +284,11 @@ async function figuresFor(env: Env, ids: number[], from: string, to: string, set
     const f = g(r.uid); if (f) f.present = true;
   }
   for (const f of out.values()) {
-    f.activities_total = f.interactions + f.posts_verified + f.posts_reported + f.posts_flagged + f.other_activities + f.orders + f.shipments + f.promotions_active;
-    f.verified_activities += f.orders; // an invoice is a system record
+    f.sales_cents = f.invoice_cents + f.tiktok_cents;
+    f.activities_total = f.interactions + f.posts_verified + f.posts_reported + f.posts_flagged + f.other_activities + f.orders + f.tiktok_orders + f.shipments + f.promotions_active;
+    f.verified_activities += f.orders + f.tiktok_orders; // an invoice and a shop order are system records
   }
-  return out;
+  return { by: out, team_tiktok, tiktok_credits };
 }
 
 /** the seven components and the score, from the figures - nothing else */
@@ -312,7 +370,7 @@ export async function handleSalesPerformance(
       const range = rangeOf(params);
       const today = mytToday();
       const days = Math.max(1, Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86400000) + 1);
-      const figs = await figuresFor(env, ids, range.from, range.to, settings);
+      const { by: figs, team_tiktok, tiktok_credits } = await figuresFor(env, ids, range.from, range.to, settings);
       const per_staff = people.map((p) => {
         const f = figs.get(p.id) ?? zero();
         const s = scoreOf(f, settings, days);
@@ -325,18 +383,24 @@ export async function handleSalesPerformance(
         const acc = team as unknown as Record<string, number>;
         acc[k] = (acc[k] ?? 0) + (r.figures[k] as number);
       }
+      /* the team's TikTok line is each order once - see FiguresOut; the
+         activity counts give back the orders two people were credited with */
+      const overTT = per_staff.reduce((a, r) => a + r.figures.tiktok_orders, 0) - team_tiktok.orders;
+      team.tiktok_cents = team_tiktok.cents; team.tiktok_orders = team_tiktok.orders; team.sales_cents = team.invoice_cents + team.tiktok_cents;
+      team.activities_total -= overTT; team.verified_activities -= overTT;
       team.conversion_rate = team.inquiries > 0 ? Math.round((team.conversions / team.inquiries) * 1000) / 10 : 0;
       team.target_cents = per_staff.reduce((a, r) => a + (r.target_cents ?? 0), 0) || null;
       const avg_score = per_staff.length ? Math.round(per_staff.reduce((a, r) => a + r.score, 0) / per_staff.length) : 0;
 
       /* trend - today, yesterday, 7-day and 30-day averages, for the same people */
       const trendFor = async (from: string, to: string, div: number) => {
-        const m = await figuresFor(env, ids, from, to, settings);
+        const { by: m, team_tiktok: tt } = await figuresFor(env, ids, from, to, settings);
         const t = zero(); let score = 0;
         const n = Math.max(1, Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1);
-        for (const id of ids) { const f = m.get(id) ?? zero(); const acc = t as unknown as Record<string, number>; for (const k of ["sales_cents", "orders", "interactions", "leads", "follow_ups_done", "posts_verified", "inquiries", "conversions"] as (keyof Figures)[]) acc[k] = (acc[k] ?? 0) + (f[k] as number); score += scoreOf(f, settings, n).score; }
+        for (const id of ids) { const f = m.get(id) ?? zero(); const acc = t as unknown as Record<string, number>; for (const k of ["invoice_cents", "orders", "interactions", "leads", "follow_ups_done", "posts_verified", "inquiries", "conversions"] as (keyof Figures)[]) acc[k] = (acc[k] ?? 0) + (f[k] as number); score += scoreOf(f, settings, n).score; }
+        t.sales_cents = t.invoice_cents + tt.cents;
         const d = (v: number) => Math.round((v / div) * 10) / 10;
-        return { sales_cents: Math.round(t.sales_cents / div), orders: d(t.orders), engagement: d(t.interactions), leads: d(t.leads), follow_ups: d(t.follow_ups_done), posts_verified: d(t.posts_verified),
+        return { sales_cents: Math.round(t.sales_cents / div), tiktok_cents: Math.round(tt.cents / div), orders: d(t.orders + tt.orders), engagement: d(t.interactions), leads: d(t.leads), follow_ups: d(t.follow_ups_done), posts_verified: d(t.posts_verified),
           conversion_rate: t.inquiries > 0 ? Math.round((t.conversions / t.inquiries) * 1000) / 10 : 0, score: ids.length ? Math.round(score / ids.length) : 0 };
       };
       const yesterday = addDays(today, -1);
@@ -401,6 +465,17 @@ export async function handleSalesPerformance(
            FROM postage_records p WHERE p.updated_by IN (${inIds}) AND ${MYT("p.updated_at")} BETWEEN ?1 AND ?2
           ORDER BY p.updated_at DESC LIMIT 300`, range.from, range.to);
 
+      /* TikTok Shop orders credited to the people in scope - system records */
+      const ttIds = [...tiktok_credits.keys()];
+      type TtRow = { id: number; order_ref: string; created_at: string; cents: number; status: string; tracking_no: string | null; courier: string | null; items_label: string | null };
+      const tiktok_orders = ttIds.length === 0 ? [] : (await q<TtRow>(
+        `SELECT p.id, p.order_ref, p.created_at, p.order_amount_cents AS cents, p.status, p.tracking_no, p.courier,
+                (SELECT group_concat(pi.qty || 'x ' || ii.name, ', ') FROM postage_items pi JOIN inventory_items ii ON ii.id = pi.inventory_item_id WHERE pi.postage_id = p.id) AS items_label
+           FROM postage_records p WHERE p.id IN (${ttIds.join(",")}) ORDER BY p.created_at DESC LIMIT 300`)).map((o) => {
+        const uids = tiktok_credits.get(Number(o.id)) ?? [];
+        return { ...o, user_ids: uids, staff_names: uids.map((u) => people.find((p) => p.id === u)?.name ?? `#${u}`) } as TtRow & { user_ids: number[]; staff_names: string[] };
+      });
+
       /* the activity feed - one row per record, newest first */
       type Feed = { at: string; user_id: number; staff_name: string; type: string; customer: string; product: string; action: string; result: string; sales_cents: number | null; evidence_key: string | null; verification: string; ref: string; id: number };
       const feed: Feed[] = [];
@@ -410,6 +485,7 @@ export async function handleSalesPerformance(
       for (const o of others) feed.push({ at: String(o.happened_at), user_id: Number(o.user_id), staff_name: String(o.staff_name ?? ""), type: "other", customer: String(o.customer_name ?? ""), product: String(o.product ?? ""), action: String(o.action), result: String(o.result ?? ""), sales_cents: null, evidence_key: (o.evidence_key as string) ?? null, verification: String(o.status), ref: "other", id: Number(o.id) });
       for (const o of orders) feed.push({ at: String(o.created_at), user_id: Number(o.user_id), staff_name: String(o.staff_name ?? ""), type: "new_order", customer: String(o.customer ?? ""), product: "", action: String(o.doc_number), result: String(o.payment_status ?? "unpaid"), sales_cents: Number(o.total_cents), evidence_key: null, verification: "system", ref: "order", id: Number(o.id) });
       for (const s of shipments) feed.push({ at: String(s.updated_at), user_id: Number(s.user_id), staff_name: String(s.staff_name ?? ""), type: s.tracking_no ? "tracking_update" : "shipment", customer: String(s.customer ?? ""), product: "", action: `${s.order_ref} · ${s.courier ?? ""}`.trim(), result: String(s.status), sales_cents: null, evidence_key: null, verification: "system", ref: "shipment", id: Number(s.id) });
+      for (const o of tiktok_orders) feed.push({ at: String(o.created_at), user_id: Number(o.user_ids[0] ?? 0), staff_name: o.staff_names.join(" + "), type: "tiktok_order", customer: "TikTok Shop", product: String(o.items_label ?? ""), action: String(o.order_ref), result: String(o.status), sales_cents: Number(o.cents), evidence_key: null, verification: "system", ref: "tiktok_order", id: Number(o.id) });
       feed.sort((a, b) => b.at.localeCompare(a.at));
 
       /* my closing for today (or the range's single day), and the team's */
@@ -430,9 +506,9 @@ export async function handleSalesPerformance(
         staff: manager ? await salesStaff(env) : people,
         team: { figures: team, avg_score: avg_score, band: spBand(avg_score), achievement_pct: team.target_cents ? Math.round((team.sales_cents / (team.target_cents * days)) * 100) : null },
         per_staff, trend,
-        funnel: { posts: team.posts_verified, reach: team.reach, engagement: team.social_engagement, inquiries: team.inquiries, follow_ups: team.follow_ups_done, orders: team.orders, revenue_cents: team.sales_cents },
+        funnel: { posts: team.posts_verified, reach: team.reach, engagement: team.social_engagement, inquiries: team.inquiries, follow_ups: team.follow_ups_done, orders: team.orders + team.tiktok_orders, revenue_cents: team.sales_cents },
         feed: feed.slice(0, 400),
-        posts, engagements, promotions, others, orders, shipments, closings,
+        posts, engagements, promotions, others, orders, tiktok_orders, shipments, closings,
         accounts, customers, invoices,
         vocab: { platforms: SP_PLATFORMS, channels: SP_CHANNELS, interactions: SP_INTERACTIONS, promo_types: SP_PROMO_TYPES, post_statuses: SP_POST_STATUSES },
       });
@@ -881,8 +957,7 @@ export async function handleSalesPerformance(
       const day = validDay(body?.day) ? (body!.day as string) : mytToday();
       if (day > mytToday()) return err("invalid_input", "You cannot close a day that has not happened", 400);
       const settings = await readSettings(env);
-      const figs = await figuresFor(env, [me], day, day, settings);
-      const f = figs.get(me) ?? zero();
+      const f = (await figuresFor(env, [me], day, day, settings)).by.get(me) ?? zero();
       const s = scoreOf(f, settings, 1);
       const noActivity = f.present && f.verified_activities === 0;
       const reason = str(body?.no_activity_reason, 1000) ? (body!.no_activity_reason as string).trim() : "";
@@ -904,7 +979,7 @@ export async function handleSalesPerformance(
     try {
       const day = validDay(params.get("day")) ? (params.get("day") as string) : mytToday();
       const settings = await readSettings(env);
-      const f = (await figuresFor(env, [me], day, day, settings)).get(me) ?? zero();
+      const f = (await figuresFor(env, [me], day, day, settings)).by.get(me) ?? zero();
       const s = scoreOf(f, settings, 1);
       return json({ day, figures: f, score: s.score, band: s.band, no_verified_activity: f.present && f.verified_activities === 0 });
     } catch (e) { const p = pending(e); if (p) return p; throw e; }
