@@ -171,12 +171,15 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
       toHit: (r) => ({ kind: "stock", id: Number(r.id), title: String(r.name), sub: `${r.sku} · ${r.stock} in stock`, tab: "Inventory" }),
     });
   }
+  /* v1.153.0 - a removed typo (its tag carries #DEL<id>) is not a hit; the
+     tag test rather than deleted_at so the batch survives pre-0126. */
   if (allowed.has("asset")) {
     stmts.push({
       kind: "asset",
       stmt: env.DB.prepare(
         `SELECT id, asset_tag, name, brand_model, serial_no, location FROM assets
-          WHERE asset_tag LIKE ?1 ESCAPE '\\' OR name LIKE ?1 ESCAPE '\\' OR brand_model LIKE ?1 ESCAPE '\\' OR serial_no LIKE ?1 ESCAPE '\\'
+          WHERE (asset_tag LIKE ?1 ESCAPE '\\' OR name LIKE ?1 ESCAPE '\\' OR brand_model LIKE ?1 ESCAPE '\\' OR serial_no LIKE ?1 ESCAPE '\\')
+            AND asset_tag NOT LIKE '%#DEL%'
           ORDER BY name LIMIT ${PER_SOURCE}`,
       ).bind(like),
       toHit: (r) => ({ kind: "asset", id: Number(r.id), title: `${r.asset_tag} — ${r.name}`, sub: [r.brand_model, r.location].filter(Boolean).join(" · "), tab: "Assets" }),

@@ -2,6 +2,44 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.153.0] - 2026-09-11 - Assets: an entry typed by mistake can be removed
+
+The CEO, 11-09-2026, on the register: *"need to have an option to delete if
+there is a typo error there or amendment require to fill new one"*.
+
+Since v1.4.213 the register had no delete at all: a real asset is marked
+*lost* or *disposed* so its history stays. That rule was right and it
+stands. What it left no way out for was the row that never described a real
+thing - a tag typed twice, a locker entered as a laptop, a price with the
+decimal in the wrong place.
+
+**Remove**, beside Edit, for the tier that keeps the register (HR and
+above). It asks first, in red, and the dialog says what it is and is not:
+*"For a typo or an entry made by mistake. It leaves the register and the
+tag is freed for the corrected entry; the audit log keeps the full record.
+A real asset that is gone should be marked lost or disposed instead."* Both
+outcomes toast.
+
+**Soft, like every other removal in the portal.** The row keeps its id;
+`deleted_at` and `deleted_by` are set (migration 0126); the audit row
+(`asset.remove`) carries the tag, the reason and the whole record as it was,
+so a removed typo can be read back. Because `asset_tag` is unique and the
+whole point is to re-enter the corrected asset, the removed row's tag is
+suffixed `#DEL<id>` and the corrected entry can take the original. Removed
+rows leave the register, the global search and the warranty watcher; all
+three still answer on a database that has not applied 0126 yet.
+
+**Guard #75, `asset-remove`** (24 checks, negative-tested six ways): soft
+never hard; audited with the snapshot; the tag freed; hidden from the
+register, search and watcher with the pre-0126 fallback; hr_manage only,
+asked first, both outcomes said; the dialog and the card text keep lost and
+disposed as the way a real asset goes; the triple bump.
+
+Migration `0126_assets_soft_delete.sql` (two ADD COLUMNs, one logical
+change). `worker/src/staff.ts`, `worker/src/index.ts`, `worker/src/watchers.ts`,
+`worker/src/search.ts`, `components/portal/assets-panel.tsx`,
+`tests/asset-remove.mjs`, `scripts/run-guards.mjs`.
+
 ## [1.152.3] - 2026-09-11 - Criscikee: the rating spread as bars
 
 The CEO, on the *Rating spread* tile: *"this one need improvement since

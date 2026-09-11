@@ -113,10 +113,15 @@ export const WATCHERS: readonly Watcher[] = [
     key: "asset_warranty", label: "Asset warranty ending", audience: ["ceo", "hr_admin"],
     thresholdLabel: "days ahead", defaultThreshold: 30, tab: "Assets",
     async check(env, t) {
-      const { results } = await env.DB.prepare(
+      /* v1.153.0 - a removed typo (0126) has no warranty to watch; the
+         unfiltered read is the deploy-before-migrate fallback. */
+      const sqlW = (filtered: boolean) =>
         `SELECT id, asset_tag, name, warranty_until FROM assets
-          WHERE warranty_until IS NOT NULL AND warranty_until != '' AND COALESCE(status, '') NOT IN ('disposed', 'retired')`,
-      ).all<{ id: number; asset_tag: string; name: string; warranty_until: string }>();
+          WHERE warranty_until IS NOT NULL AND warranty_until != '' AND COALESCE(status, '') NOT IN ('disposed', 'retired')
+          ${filtered ? "AND deleted_at IS NULL" : ""}`;
+      let results: { id: number; asset_tag: string; name: string; warranty_until: string }[] = [];
+      try { results = (await env.DB.prepare(sqlW(true)).all<{ id: number; asset_tag: string; name: string; warranty_until: string }>()).results ?? []; }
+      catch { results = (await env.DB.prepare(sqlW(false)).all<{ id: number; asset_tag: string; name: string; warranty_until: string }>()).results ?? []; }
       const out: Finding[] = [];
       for (const a of results) {
         const iso = isoDate(a.warranty_until);

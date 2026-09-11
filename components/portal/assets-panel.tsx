@@ -4,13 +4,16 @@
    NEW file — nothing existing imported or altered; tokens copied from the
    approved design. Form is SECTIONED the way the CEO asked ("subhead and
    text placement box"): 🏷 Identification → 🧾 Purchase → 📍 Assignment &
-   status. Assets are never deleted; status moves to lost/disposed. */
+   status. Assets are never deleted; status moves to lost/disposed.
+   v1.153.0: EXCEPT a row that never described a real thing - a typo, an
+   entry made twice - which can be removed (soft, audited, tag freed). */
 
 import { useCallback, useMemo, useState } from "react";
 import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
-import { rowBtn } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
+import { useConfirm } from "@/components/ui/confirm-dialog"; // v1.153.0 - the removal asks first
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
@@ -57,12 +60,14 @@ export function AssetsPanel() {
   const [editId, setEditId] = useState<number | null>(null);
   const [openForm, setOpenForm] = useState(false);
   const { show: showToast, node: toastNode } = useSaveToast(); // v1.4.221 standard save popup
+  const { confirm, node: confirmNode } = useConfirm();
   /* v1.104.0 (roadmap phase 02) - remembered, then refreshed: the register
      you saw last time paints from the device before the request lands. A
      write on any asset bumps the "assets" topic and the view refetches.
      v1.77.0 (kept): until the first EVER response the count chips and the
      table are skeletons, never "No assets yet". */
-  const register = useCachedApi<{ assets: Asset[] }>("/staff/assets", true, ["assets"]);
+  const register = useCachedApi<{ assets: Asset[]; can_remove?: boolean }>("/staff/assets", true, ["assets"]);
+  const canRemove = register.data?.can_remove === true;
   /* v1.21.0: assignment picker reads /staff-list — the one picker source
      (active staff only, full names) instead of the raw account list. */
   const people = useCachedApi<{ staff: StaffLite[] }>("/staff/staff-list", true, ["users"]);
@@ -106,6 +111,31 @@ export function AssetsPanel() {
     }
   };
 
+  /* v1.153.0 (CEO: "need to have an option to delete if there is a typo
+     error there or amendment require to fill new one"). The dialog says what
+     removal is and is not: the row leaves the register and frees its tag,
+     the audit log keeps the whole record. A thing that existed and is gone
+     is still "lost" or "disposed", not removed. Both outcomes toast. */
+  const remove = async (a: Asset) => {
+    const okC = await confirm({
+      title: L(`Remove ${a.asset_tag}?`, `Buang ${a.asset_tag}?`),
+      message: L(
+        `${a.name}${a.brand_model ? ` · ${a.brand_model}` : ""}\nFor a typo or an entry made by mistake. It leaves the register and the tag ${a.asset_tag} is freed for the corrected entry; the audit log keeps the full record.\nA real asset that is gone should be marked lost or disposed instead.`,
+        `${a.name}${a.brand_model ? ` · ${a.brand_model}` : ""}\nUntuk kesilapan taip atau entri yang tersilap. Ia keluar dari daftar dan tag ${a.asset_tag} dibebaskan untuk entri yang betul; log audit menyimpan rekod penuh.\nAset sebenar yang sudah tiada patut ditanda hilang atau dilupuskan.`),
+      confirmLabel: L("Remove entry", "Buang entri"),
+      variant: "danger",
+    });
+    if (!okC) return;
+    const res = await api<{ ok?: boolean; error?: { message?: string } }>(`/staff/assets/${a.id}`, { method: "DELETE", body: JSON.stringify({ reason: "typo" }) });
+    if (res.ok) {
+      showToast(L("Entry removed", "Entri dibuang"), L(`${a.asset_tag} is off the register — recorded in the audit log`, `${a.asset_tag} dikeluarkan dari daftar — direkodkan dalam log audit`));
+      if (editId === a.id) { setForm({ ...EMPTY }); setEditId(null); setOpenForm(false); }
+      load();
+    } else {
+      showToast(L("Not removed", "Tidak dibuang"), res.data?.error?.message ?? L("Please try again", "Sila cuba lagi"), "notice");
+    }
+  };
+
   /* v1.88.0 (CEO: "ensure that all the tabs have a function of clickable data
      without me need to open another new tabs") — these chips were spans while
      the identical chip row in content-panel.tsx has filtered its table since
@@ -124,7 +154,7 @@ export function AssetsPanel() {
       <div className={card}>
         <p className="text-sm font-semibold">{L("Company assets", "Aset syarikat")}</p>
         <p className="text-muted-foreground mt-1 text-xs">
-          {L("Every piece of equipment the company owns — who holds it, where it lives, what it's worth. Assets are never deleted: mark them lost or disposed so the history stays.", "Setiap peralatan milik syarikat — siapa yang memegangnya, di mana ia berada, berapa nilainya. Aset tidak pernah dipadam: tandakan sebagai hilang atau dilupuskan supaya sejarahnya kekal.")}
+          {L("Every piece of equipment the company owns — who holds it, where it lives, what it's worth. A real asset is never deleted: mark it lost or disposed so the history stays. An entry typed by mistake can be removed — it leaves the register, the audit log keeps it.", "Setiap peralatan milik syarikat — siapa yang memegangnya, di mana ia berada, berapa nilainya. Aset sebenar tidak pernah dipadam: tandakan sebagai hilang atau dilupuskan supaya sejarahnya kekal. Entri yang tersilap taip boleh dibuang — ia keluar dari daftar, log audit menyimpannya.")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {/* v1.77.0 — skeleton until the first fetch lands: three count
@@ -195,6 +225,7 @@ export function AssetsPanel() {
         {unavailable && <p className="text-warning mt-2 text-xs font-medium">{L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")}</p>}
         <StaleHint show={register.stale} className="mt-2" />
         {toastNode}
+        {confirmNode}
       </div>
 
       <div className={card}>
@@ -276,7 +307,15 @@ export function AssetsPanel() {
                     <td className={td}>{a.location ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className={td}><span className={STATUS_CHIP[a.status] ?? STATUS_CHIP.spare}>{(() => { const st = STATUSES.find(([v]) => v === a.status); return st ? L(st[1], st[2]) : a.status; })()}</span></td>
                     <td className={tdR2}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
-                    <td className={td}><button type="button" className={rowBtn} onClick={() => startEdit(a)}>{L("Edit", "Sunting")}</button></td>
+                    <td className={td}>
+                      <span className={rowActions}>
+                        <button type="button" className={rowBtn} onClick={() => startEdit(a)}>{L("Edit", "Sunting")}</button>
+                        {canRemove && (
+                          <button type="button" className={rowBtnDanger} title={L("Remove a typo or a mistaken entry — a real asset is marked lost or disposed instead", "Buang kesilapan taip atau entri tersilap — aset sebenar ditanda hilang atau dilupuskan")}
+                            onClick={() => void remove(a)}>{L("Remove", "Buang")}</button>
+                        )}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

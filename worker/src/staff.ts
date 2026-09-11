@@ -5856,12 +5856,17 @@ export async function handleStaff(
 
   if (path === "/assets" && method === "GET") {
     if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) return err("forbidden", "HR access required", 403);
-    const { results } = await env.DB.prepare(
+    /* v1.153.0 - a removed row (a typo, 0126) leaves the register. The
+       unfiltered read is the deploy-before-migrate fallback. */
+    const sqlA = (filtered: boolean) =>
       `SELECT a.*, u.name AS assigned_name FROM assets a
        LEFT JOIN users u ON u.id = a.assigned_to
-       ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`,
-    ).all();
-    return json({ assets: results ?? [] });
+       ${filtered ? "WHERE a.deleted_at IS NULL" : ""}
+       ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`;
+    let results: Record<string, unknown>[] = [];
+    try { results = (await env.DB.prepare(sqlA(true)).all<Record<string, unknown>>()).results ?? []; }
+    catch { results = (await env.DB.prepare(sqlA(false)).all<Record<string, unknown>>()).results ?? []; }
+    return json({ assets: results, can_remove: can(user.role, "hr_manage") });
   }
 
   if (path === "/assets" && method === "POST") {
@@ -5874,7 +5879,7 @@ export async function handleStaff(
     if (!tag) {
       // auto tag AZOA-001, 002 … from the highest existing number
       const maxRow = await env.DB.prepare(
-        `SELECT asset_tag FROM assets WHERE asset_tag LIKE 'AZOA-%' ORDER BY LENGTH(asset_tag) DESC, asset_tag DESC LIMIT 1`,
+        `SELECT asset_tag FROM assets WHERE asset_tag LIKE 'AZOA-%' AND asset_tag NOT LIKE '%#DEL%' ORDER BY LENGTH(asset_tag) DESC, asset_tag DESC LIMIT 1`,
       ).first<{ asset_tag: string }>();
       const n = maxRow ? parseInt(maxRow.asset_tag.slice(5), 10) + 1 : 1;
       tag = `AZOA-${String(Number.isFinite(n) ? n : 1).padStart(3, "0")}`;
@@ -6085,6 +6090,33 @@ export async function handleStaff(
     await env.DB.prepare(`UPDATE assets SET ${sets.join(", ")} WHERE id = ?${vals.length}`).bind(...vals).run();
     await audit(env, user.id, "asset.update", "assets", idA, body as Record<string, unknown>);
     return json({ ok: true });
+  }
+  /* v1.153.0 (CEO: "need to have an option to delete if there is a typo
+     error there or amendment require to fill new one"). SOFT: the row keeps
+     its id, deleted_at/deleted_by are set, the register hides it, and the
+     audit row carries the whole record as it was - so a removed typo can
+     still be read back. The tag is suffixed (#DEL<id>) so the corrected
+     entry can reuse it; the original tag is in the audit snapshot. "Lost"
+     and "disposed" stay what they are - the row for a thing that existed. */
+  if (assetPatch && method === "DELETE") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const idD = assetPatch[1]!;
+    const row = await env.DB.prepare(`SELECT * FROM assets WHERE id = ?1`).bind(idD).first<Record<string, unknown>>();
+    if (!row) return err("not_found", "Asset not found", 404);
+    if (row.deleted_at) return err("invalid_input", "This asset was already removed", 400);
+    const tagD = String(row.asset_tag ?? "");
+    const reasonD = str(body?.reason, 200) ? (body!.reason as string).trim() : null;
+    try {
+      await env.DB.prepare(
+        `UPDATE assets SET deleted_at = datetime('now'), deleted_by = ?1, asset_tag = asset_tag || '#DEL' || id,
+                           updated_at = datetime('now') WHERE id = ?2`,
+      ).bind(user.id, idD).run();
+    } catch (e) {
+      if (String(e).includes("no such column")) return err("pending_migration", "Removing an asset needs database change 0126 - run PUSH.bat", 503);
+      throw e;
+    }
+    await audit(env, user.id, "asset.remove", "assets", idD, { tag: tagD, reason: reasonD, snapshot: row });
+    return json({ ok: true, tag: tagD });
   }
   if (path === "/revenue/target" && method === "POST") {
     // v1.4.90 / v1.6.1: monthly sales KPI target — set on the Dashboard by
