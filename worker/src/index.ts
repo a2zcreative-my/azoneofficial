@@ -6,6 +6,7 @@ import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 - 30 minutes before a shift, 30 before its end, and at the end
+import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
@@ -279,7 +280,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0126_assets_soft_delete";
+const LATEST_MIGRATION = "0127_sales_performance";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1995,6 +1996,13 @@ export default {
       return;
     }
     if (event.cron === "0 1 * * *") {
+      /* v1.155.0 - 09:00 MYT: a handful of VERIFIED social posts are probed
+         again. A post that has gone (404/410) since it was verified is marked
+         POST UNAVAILABLE and kept - the evidence stays, the credit does not
+         quietly survive a deletion. Fifteen a day, oldest check first. */
+      try { await spRecheckPosts(env); }
+      catch (e) { await logError(env, "sp_recheck", e instanceof Error ? e.message : String(e)); }
+
       // v1.4.101: 09:00 MYT — birthday announcements so the team can prepare
       // the celebration. Notifies every active staff member.
       try {
@@ -4579,8 +4587,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0122 (who an event is for)", `SELECT user_id FROM event_attendees LIMIT 1`],
       ["0123 (what a piece cost)", `SELECT unit_cost_cents FROM inventory_items LIMIT 1`],
       ["0124 (why the stock moved)", `SELECT purpose FROM manual_stockouts LIMIT 1`],
-      ["0125 (Criscikee flavours and reviews)", `SELECT sentiment_source FROM criscikee_reviews LIMIT 1`],
+      ["0125 (Criscikee - retired in v1.155.0; the tables stay until a later migration drops them)", `SELECT sentiment_source FROM criscikee_reviews LIMIT 1`],
       ["0126 (an asset typed by mistake can be removed)", `SELECT deleted_at FROM assets LIMIT 1`],
+      ["0127 (Sales Performance register)", `SELECT url_key FROM sp_social_posts LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4726,6 +4735,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0124_movement_purpose",
       "0125_criscikee",
       "0126_assets_soft_delete",
+      "0127_sales_performance",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -7,7 +7,8 @@ import type { Env } from "./index";
 import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
-import { handleCriscikee } from "./criscikee"; // v1.149.0 - the Criscikee product line
+import { handleSalesPerformance } from "./sales-performance"; // v1.155.0 - the Sales Performance register
+import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
@@ -1780,8 +1781,10 @@ export async function handleStaff(
      The map (/elfia/catalog/map) stays JSON and is NOT excluded.
      v1.61.0: the /catalog hover backdrop image joins them. */
   const isCatalogUpload = path === "/elfia/catalog" || path === "/elfia/catalog/cover" || path === "/elfia/backdrop";
+  /* v1.155.0: the Sales Performance evidence screenshot is a raw image body. */
+  const isSpEvidence = path === "/sales-performance/evidence";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -1824,10 +1827,11 @@ export async function handleStaff(
   if (path === "/hotels" || path.startsWith("/hotels/")) {
     return handleHotels(env, path.slice("/hotels".length), method, body, user, new URL(request.url).searchParams);
   }
-  /* ---- Criscikee (v1.149.0) - see criscikee.ts. The crispy chicken skin:
-     flavours, customer reviews, and every figure the tab shows, in SQL. */
-  if (path === "/criscikee" || path.startsWith("/criscikee/")) {
-    return handleCriscikee(env, path.slice("/criscikee".length), method, body, user, new URL(request.url).searchParams);
+  /* ---- Sales Performance (v1.155.0) - see sales-performance.ts. The
+     accountability register: evidence in, verified figures out. Orders,
+     shipments and customers are READ from this file's tables, never copied. */
+  if (path === "/sales-performance" || path.startsWith("/sales-performance/")) {
+    return handleSalesPerformance(env, request, path.slice("/sales-performance".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- Threads workspace (v1.89.0) — see threads.ts. A door, not a
@@ -5988,7 +5992,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "Criscikee", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
@@ -12852,6 +12856,12 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
     if (merged.size > 20) return err("invalid_input", "Maximum 20 item lines per order", 400);
     const lines = [...merged.entries()].map(([id, qty]) => ({ id, qty }));
+    /* v1.155.0 (Sales Performance): "Shipped without tracking number" is not
+       a shipment, it is a claim. A record may be born preparing without one;
+       it may not be born shipped, in transit or delivered without one. */
+    if (SP_TRACKING_REQUIRED.includes(body.status as string) && !str(body.tracking_no, 120)) {
+      return err("tracking_required", "TRACKING UPDATE REQUIRED - a shipment marked shipped, in transit or delivered must carry a tracking number", 400);
+    }
 
     // Validate every line before touching anything.
     const shortages: string[] = [];
@@ -12920,6 +12930,15 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!can(user.role, "inventory")) return err("forbidden", "Access required", 403);
     if (!body || !POSTAGE_STATUSES.includes(body.status as string)) {
       return err("invalid_input", `status must be one of: ${POSTAGE_STATUSES.join(", ")}`, 400);
+    }
+    /* v1.155.0 (Sales Performance): moving to shipped / in_transit / delivered
+       needs a tracking number - the one already on the record or the one in
+       this request. The Sales Performance page flags the gap as TRACKING
+       UPDATE REQUIRED; the worker refuses to create the gap in the first place. */
+    if (SP_TRACKING_REQUIRED.includes(body.status as string) && !str(body.tracking_no, 120)) {
+      const have = await env.DB.prepare(`SELECT tracking_no FROM postage_records WHERE id = ?1`).bind(postMatch[1]).first<{ tracking_no: string | null }>();
+      if (!have) return err("not_found", "Shipment not found", 404);
+      if (!str(have.tracking_no, 120)) return err("tracking_required", "TRACKING UPDATE REQUIRED - add the tracking number before marking this shipment shipped, in transit or delivered", 400);
     }
     // A shipment marked 'returned' puts its quantity back into stock — once
     // (the restocked flag prevents double-counting on repeated saves).

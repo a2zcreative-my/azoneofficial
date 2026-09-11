@@ -22,11 +22,11 @@
  */
 
 import {
-  AtSign, Banknote, CalendarClock, Clapperboard, ClipboardList, Contact, Drumstick, FileText,
+  AtSign, Banknote, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
-  ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
+  ShoppingCart, SquarePen, Square, Store, Target, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -46,6 +46,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Payroll: Wallet,
   Expenses: TrendingDown,
   Sales: FileText,
+  "Sales Performance": Target, // v1.155.0 - the accountability register: did they sell, and can they prove it
   "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule); ShoppingBag would have duplicated Purchasing on the SAME rail.
   "ELFIA Traffic": Map, // v1.43.0: the visitor map tab — Map is unused on every rail, and the tab IS a map.
   "ELFIA Store": Shirt, // v1.45.0: the store's catalogue — what ELFIA sells is wear, and Shirt is unused on every rail (ShoppingBag is Purchasing's, on this same rail; Store is Stokis's).
@@ -56,7 +57,6 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Threads: AtSign, // v1.89.0: the Threads workspace — a handle is what an account is; unused on every rail.
   Hotels: Hotel, // v1.100.0: the hotel directory. Map is already the ELFIA Traffic tab on this same rail.
   Cards: Contact, // v1.129.0 - the digital business cards. Unused on every rail; a contact card IS the tab.
-  Criscikee: Drumstick, // v1.149.0 - the crispy chicken skin. Unused on every rail; the product IS the tab.
   Profile: UserRound,
   Users: ShieldCheck,
   // ---- admin (names not shared with the portal) ----

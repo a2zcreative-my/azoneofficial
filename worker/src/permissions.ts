@@ -100,28 +100,28 @@ export const PERMS: Record<string, readonly Role[]> = {
      nothing. Every change is audited with both names. */
   org_assign: ["ceo", "coo", "cco"],
 
-  /* === criscikee.ts (v1.149.0 - the Criscikee product line). CEO,
-     10-09-2026: a tab to learn WHO is trying the crispy chicken skin, WHAT
-     flavour they prefer, HOW MUCH they like it and WHY.
+  /* === sales-performance.ts (v1.155.0 - the Sales Performance register).
+     CEO, 11-09-2026: one page that answers whether a staff member actually
+     worked on sales today - "no evidence means no automatic KPI credit".
 
-     Three tiers, because the three things people do here are not the same
-     thing:
-       criscikee_view    - see the dashboard, the analytics and the reviews.
-                           The business tier, the same people who read
-                           Ecommerce and Inventory. TAB_ROLES.Criscikee in
-                           lib/portal-tabs.ts mirrors THIS list.
-       criscikee_review  - add and edit a review. The same tier as view, on
-                           purpose: feedback is collected at tastings and
-                           events by whoever is standing there with the
-                           tablet, and a reviewer who cannot enter what the
-                           customer just said is a reviewer with a notebook.
-       criscikee_manage  - delete a review, and add, rename or retire a
-                           flavour. Management: deleting is removing a
-                           customer from the record, and a flavour list is
-                           the product line. Same tier as threads_manage. */
-  criscikee_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  criscikee_review: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  criscikee_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
+       sales_perf_view    - open the page, submit OWN evidence (posts,
+                            engagements, promotions, other activities,
+                            shipments, the daily closing) and read own
+                            figures. Everyone who sells or posts for the
+                            company: the sales tier plus marketing,
+                            live_host and editor, who run the social
+                            accounts. TAB_ROLES["Sales Performance"] in
+                            lib/portal-tabs.ts mirrors THIS list. A person
+                            with only this permission sees ONLY their own
+                            rows; the handler filters by user id server-side.
+       sales_perf_manage  - verify or reject evidence, correct a verified
+                            record (reason required, diff audited), keep the
+                            approved-accounts list, set targets, and read
+                            every staff member. Management only - and even
+                            a manager may NOT verify their own submission;
+                            the handler refuses that regardless of role. */
+  sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host", "editor"],
+  sales_perf_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

@@ -2,6 +2,122 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.155.0] - 2026-09-11 - Sales Performance: evidence, not claims; Criscikee retired
+
+**ONE new sidebar tab, ONE page: Sales Performance.** The CEO, 11-09-2026:
+*"I need a system where I can confidently answer: 'Did this staff member
+actually work on sales today?' without relying only on what they claim."*
+The page is built on the hierarchy he set - system-derived data first,
+verified evidence second, staff-reported data last - and nothing
+unverified counts toward the score.
+
+**What the page shows, in his order.** A KPI summary (sales against target,
+orders, customer engagement, social media, shipments, productivity); for
+management a per-staff table (sales, orders, verified activities,
+engagement, leads, conversion, productivity, status - with NO VERIFIED
+SALES ACTIVITY and LOW SALES PERFORMANCE flagged in red and amber) and for
+a staff member their own score taken apart; then collapsible sections -
+today's sales activity feed with *+ Add activity*, social media activity,
+customer engagement, promotion & campaign, customer orders, shipment &
+tracking, the sales funnel, the performance trend (today / yesterday /
+7-day / 30-day) and the daily closing. Every form opens as a drawer over
+the page; there are no sub-tabs and no sub-pages. Filters: today /
+yesterday / this week / this month / custom, staff (management), platform,
+verification, follow-up status.
+
+**Social media evidence.** A post needs the platform, an https URL the
+worker recognises and matches to that platform (*Platform mismatch. Please
+submit the correct social media post URL.*), a screenshot (uploaded first,
+held in R2, mandatory), the product, a description and the post's own date.
+The URL is normalised to the post's identity - tracking parameters, case,
+www/m., trailing slashes and short hosts stripped - and the same post
+submitted twice in two spellings is refused: *Duplicate Post - This post has
+already been submitted.* A post published before yesterday is flagged OLD
+POST; an account not on the approved-accounts list (management keeps it
+under *Accounts & targets*) is MANUAL VERIFICATION REQUIRED. Views, likes,
+comments, shares and saves are REPORTED until management ticks that they
+match the screenshot; only VERIFIED posts count, only VERIFIED metrics reach
+the funnel. A verified post that has since gone (404/410) is re-checked
+daily at 09:00 MYT and marked POST UNAVAILABLE - kept, not deleted.
+
+**Customer engagement, conversion, follow-up.** Interaction type, channel,
+customer (an existing customer or a name and phone - the same phone is the
+same customer however the name is typed), action taken, follow-up date,
+outcome. A conversion is an engagement linked to a real invoice; the
+invoice's total is the revenue. Nothing typed becomes revenue. A follow-up
+past its date with no outcome is OVERDUE.
+
+**Orders and shipments reuse what exists.** An order is an invoice
+(Sales); the page reads them and sends you to Sales to raise one. A
+shipment is a postage record that names an invoice; shipped, in transit
+and delivered all require a tracking number - refused here AND on the
+existing postage routes - and the gap reads TRACKING UPDATE REQUIRED.
+
+**The productivity score** is computed on the worker from the figures -
+Sales 40, Engagement 15, Social 15, Follow-up 10, Orders 10, Shipment 5,
+Promotion 5; 90-100 Excellent, 75-89 Good, 50-74 Needs improvement, 0-49
+Poor - and never accepted from a form. Four readings say whether a person
+was busy or productive; lots of activity with little revenue reads LOW
+SALES PERFORMANCE.
+
+**Daily closing.** The system fills the day's figures (sales, orders,
+interactions, leads, follow-ups, verified posts, shipments, score); the
+person writes the achievement, blockers, tomorrow's follow-ups and plan.
+Someone who clocked in and has zero verified activity sees NO VERIFIED
+SALES ACTIVITY and cannot close the day without explaining why.
+
+**Permissions and immutability.** `sales_perf_view` (the sales tier plus
+marketing, live host and editor) submits and sees ONLY their own rows;
+`sales_perf_manage` (super admin, admin, CEO, COO, CCO) sees everyone,
+verifies, corrects, sets targets and approved accounts and reads the audit
+history. Nobody - manager included - verifies their own record. A verified
+record cannot be changed or removed by its author; management corrects it
+with a reason and the audit row keeps the previous and new value of every
+field that moved. Every write is audited. Every validation is server-side;
+the browser's URL pre-check is a courtesy that runs the worker's own rules.
+
+**Criscikee is retired** (CEO, same day: *"completely drop Criscikee since
+this project not going further"*). The tab, panel, worker module, browser
+vocabulary, permissions and guard are removed; PUSH.bat deletes the four
+files on the deploying machine before anything is checked. Migration 0125
+stays as history and its two tables sit unused until a later migration
+drops them.
+
+**Guard #76, `sales-performance`** (87 checks, negative-tested eight
+ways): the worker and browser rules are bundled and run over the same URLs
+and figures; the CEO's weights and bands; evidence required, mismatch
+refused, duplicate 409, old post, manual review, self-verification refused,
+verified records locked, reason required, revenue never from a body,
+conversion links an invoice, tracking required on both routes, closing
+explanation required, every write audited; the tab registered at every
+site; the migration triple-bumped; Criscikee gone.
+
+**Migration 0127** `sp_social_accounts`, `sp_social_posts`,
+`sp_engagements`, `sp_promotions`, `sp_other_activities`,
+`sp_daily_closings` - soft-deleted, indexed, no FOREIGN KEY, one closing
+per person per day. Run `PUSH.bat`.
+
+Files: `worker/migrations/0127_sales_performance.sql`,
+`worker/src/sp-rules.ts` (new), `worker/src/sales-performance.ts` (new),
+`worker/src/staff.ts` (door, evidence body exclusion, tab access, postage
+tracking rule), `worker/src/index.ts` (triple bump, 09:00 re-check),
+`worker/src/permissions.ts`, `lib/sales-performance.ts` (new),
+`lib/portal-tabs.ts`, `lib/i18n.ts`, `components/layout/side-nav.tsx`,
+`components/layout/nav-icons.tsx`, `components/portal/lazy-panels.tsx`,
+`app/portal/page.tsx`, `components/portal/sales-performance-panel.tsx`
+(new), `components/ui/app-icon.tsx`, `components/portal/tasks.tsx`,
+`tests/sales-performance.mjs` (new), `tests/kept-lines.mjs`,
+`scripts/run-guards.mjs`, `PUSH.bat`. Removed:
+`components/portal/criscikee-panel.tsx`, `lib/criscikee.ts`,
+`worker/src/criscikee.ts`, `tests/criscikee.mjs`.
+
+Assumptions: the sales target is RM per person per day, set by management
+(no target = the Sales component scores 0 and the page says so); the
+daily benchmarks default to 10 unique customers, 3 verified posts and 12
+activities and are editable; "present" means clocked in that day; the
+approved-accounts list starts empty, so every post is manual review until
+management adds the company accounts.
+
 ## [1.154.0] - 2026-09-11 - One quotation, one invoice; the desk lands where it is decided; OT asks first
 
 **A quotation is invoiced once** (CEO: *"the QT which is already click

@@ -22,6 +22,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Payroll": { en: "Payroll", ms: "Gaji" },
   "Expenses": { en: "Expenses", ms: "Perbelanjaan" },
   "Sales": { en: "Sales", ms: "Jualan" },
+  "Sales Performance": { en: "Sales Performance", ms: "Prestasi Jualan" }, // v1.155.0
   "Enquiries": { en: "Enquiries", ms: "Pertanyaan" },
   "Inventory": { en: "Inventory", ms: "Inventori" },
   "Stokis": { en: "Stokis", ms: "Stokis" },
@@ -34,7 +35,6 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Hotels": { en: "Hotels", ms: "Hotel" },
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },
   "Cards": { en: "Cards", ms: "Kad" }, // v1.129.0 - the digital business cards
-  "Criscikee": { en: "Criscikee", ms: "Criscikee" }, // v1.149.0 - a brand name, the same in both languages
   "Profile": { en: "Profile", ms: "Profil" },
   "Users": { en: "Users", ms: "Pengguna" },
   // chrome

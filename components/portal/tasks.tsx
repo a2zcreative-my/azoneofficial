@@ -413,7 +413,7 @@ export function Tasks({ user }: { user: User }) {
                   )}
                 </span>
               </div>
-              {/* v1.152.2 (CEO's sweep after Criscikee): the description was
+              {/* v1.152.2 (the CEO's kept-lines sweep): the description was
                   typed, saved, and shown NOWHERE - the row listed everything
                   about a task except what it said. Its lines are kept. */}
               {t.description && (

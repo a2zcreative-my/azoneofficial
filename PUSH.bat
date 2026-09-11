@@ -162,6 +162,19 @@ for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "package-1.json" "package-2.json" 
   if exist %%F del /f /q %%F
 )
 
+REM  v1.155.0 - RETIRED FEATURES. The CEO, 11-09-2026: "completely drop
+REM  Criscikee since this project not going further". A file that is no
+REM  longer referenced still compiles, still ships to git, and a guard file
+REM  that is no longer registered FAILS registry-parity - so the files of a
+REM  retired feature are removed here, on this machine, before anything is
+REM  checked. Idempotent: once they are gone this loop touches nothing.
+REM  Migration 0125 stays: a migration that has run is history, and the two
+REM  tables it made sit unused until a later migration drops them.
+echo   [3c/7] Removing the files of retired features...
+for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql") do (
+  if exist %%F del /f /q %%F
+)
+
 REM  v1.90.1 - the engine is COMPILED before it is published (the 19-08
 REM  outage: wrangler bundles without checking types, so a line naming
 REM  something that does not exist goes live and every request 500s).

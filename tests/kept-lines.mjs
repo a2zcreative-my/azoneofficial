@@ -2,7 +2,7 @@
  * WHAT WAS TYPED ON SEVERAL LINES IS SHOWN ON SEVERAL LINES — guard #73,
  * v1.152.2.
  *
- * The CEO, 11-09-2026, on a Criscikee comment typed as "a. … b. … c. …":
+ * The CEO, 11-09-2026, on a customer comment typed as "a. … b. … c. …":
  * *"the desc I unable to entry and the review seem like continuously
  * instead of able to enter"*. The lines were saved. HTML folded them into
  * spaces on display, so the form looked broken. Asked whether other tabs had
@@ -27,8 +27,8 @@
  *      cannot slip past the sweep: the task description is shown; the HR
  *      report opens to its full text; DetailGrid keeps lines for every value
  *      (leave reason, content script and caption ride on it); event details
- *      keep lines in both places; the Criscikee comment keeps lines in all
- *      three.
+ *      keep lines in both places. (The Criscikee comment was the sixth until
+ *      that tab was retired in v1.155.0.)
  *
  * Negative-tested by: dropping whitespace-pre-line from the task description
  * (1, 2); from the DetailGrid dd (2); from one of the two event details
@@ -101,8 +101,9 @@ const ok = (label, cond, why = "") => {
   ok("content script and caption ride on DetailGrid", /label: L\("Script", "Skrip"\), wide: true, value: c\.script/.test(content) && /label: L\("Caption", "Kapsyen"\), wide: true, value: c\.caption/.test(content));
   const events = read("components/portal/events.tsx");
   ok("event details keep lines in the list and in the day agenda", (events.match(/whitespace-pre-line">\s*\{ev\.details\}/g) ?? []).length === 2);
-  const ck = read("components/portal/criscikee-panel.tsx");
-  ok("the Criscikee comment keeps lines in Customer Voice, the phone list and the opened row", (ck.match(/whitespace-pre-line[^>]*>“\{r\.comment\}”/g) ?? []).length >= 3);
+  /* v1.155.0 - the Criscikee tab that prompted this guard was retired (the
+     CEO: "completely drop Criscikee since this project not going further");
+     the rule it taught stays, and every other textarea above still obeys it. */
 }
 
 console.log(failed === 0
