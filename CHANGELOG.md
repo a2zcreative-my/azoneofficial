@@ -2,6 +2,63 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.152.2] - 2026-09-11 - "Paid" that did nothing, and four more folded texts
+
+**The paid dropdown (CEO: *"when I pick paid, then why it doesnt update?!"*).**
+Picking *paid* on an invoice opens the "Payment received" dialog for the
+bank reference and the date the money landed, then saves. v1.120.0 put the
+three Sales work views behind pills - and left the toast, the confirm dialog
+and the prompt dialog rendered INSIDE the "Create document" body, which is
+`display:none` on the Documents view. The dialog was drawn into a hidden box,
+the code waited forever for an answer, and the dropdown snapped back. The
+same hidden box muted *Delete* (a confirm) and every toast on the Documents,
+Receipts and Clients views - including the "Not saved" toast, so the failure
+could not even announce itself. The three nodes now render at the top of the
+Sales panel, outside every tab. The worker was never at fault; nothing
+changed there.
+
+**The sweep the CEO asked for** (*"any of the other tabs having similar
+issue like this?"*) after the Criscikee comment: every multi-line box in the
+portal was checked against where its text is drawn. Four fold their lines
+the same way, one is worse:
+
+- **Tasks - Description** was typed, saved, and shown nowhere. It now
+  appears under the task row, lines kept.
+- **HR - Task reports** were cut at two lines with no way to open them. Tap
+  a report to read all of it.
+- **Events - Details**, **Leave - Reason**, **Content - Script / Caption**
+  keep their lines. The last two ride on the shared `DetailGrid`, which now
+  keeps lines for every value it shows, so anything else drawn through it
+  is covered too.
+- The Criscikee dashboard's "latest comment" line, missed in 1.152.1.
+
+Announcements (own memo formatter), Enquiries, Hotel notes, Roster task
+lines, Sales addresses, the stock-out remark and ELFIA descriptions were
+already right and are untouched.
+
+**Stars are drawn, not typed (CEO: *"star rate should use svg!"*).** The
+Criscikee KPI tiles, the Insights rows and the segment strip printed a
+font's ★ beside the average - a different picture on every phone, and the
+one place the module did not use the same SVG star as the rating rows. All
+of them draw the `star` icon now; the two places that cannot hold an SVG
+(a confirm message, a dropdown option) say *4/5* and *5 stars* in words.
+The public site's testimonial stars were the same glyph and use the same
+icon now. `StatTile` accepts a node as its hint so a tile can carry the
+icon. The `app-icons` guard, which had listed ★ among the typographic marks
+it leaves alone, now refuses it in rendered UI.
+
+**Two guards.** #73 `kept-lines` sweeps every `<textarea>` in the portal
+and refuses a plain render of its field, then names the five fixes so a
+moved render cannot slip past the sweep. #74 `dialogs-visible` matches every
+hidden tab body to its closing tag and refuses a toast, confirm or prompt
+node rendered inside one by the same component. Both negative-tested.
+
+No migration. `components/portal/sales.tsx`, `tasks.tsx`, `events.tsx`,
+`leave.tsx`, `role-panels.tsx`, `criscikee-panel.tsx`,
+`components/ui/record-row.tsx`, `components/ui/stat-tile.tsx`,
+`components/live/live-content.tsx`, `tests/kept-lines.mjs`,
+`tests/dialogs-visible.mjs`, `tests/app-icons.mjs`, `scripts/run-guards.mjs`.
+
 ## [1.152.1] - 2026-09-11 - Criscikee: a comment keeps its lines
 
 The CEO, 11-09-2026, on Customer Voice: *"the desc I unable to entry and the

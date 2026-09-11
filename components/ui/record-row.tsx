@@ -64,7 +64,10 @@ export function DetailGrid({ items }: { items: DetailItem[] }) {
       {shown.map((i) => (
         <div key={i.label} className={`flex justify-between gap-3 sm:justify-start ${i.wide ? "sm:col-span-2" : ""}`}>
           <dt className="text-muted-foreground sm:w-28 sm:shrink-0">{i.label}</dt>
-          <dd className="min-w-0 font-medium">{i.value}</dd>
+          {/* v1.152.2 - a value typed on several lines (a leave reason, a
+              content script) is shown on those lines; a one-line value is
+              unaffected. */}
+          <dd className="min-w-0 font-medium whitespace-pre-line">{i.value}</dd>
         </div>
       ))}
     </dl>

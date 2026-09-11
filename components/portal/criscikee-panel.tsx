@@ -100,6 +100,13 @@ interface Analytics {
 /* ---- small shared pieces (module scope - render-stability guard) ---- */
 
 /** Five stars, the filled ones in gold. Read-only. */
+/** v1.152.2 (CEO: "star rate should use svg!") - the one star that sits
+    inside running text: "4.00 [star] · 5 reviews". Same SVG as the row of
+    five; never the ★ glyph, which is a font's idea of a star. */
+function Star({ className = "" }: { className?: string }) {
+  return <AppIcon name="star" className={`-mt-0.5 inline h-3 w-3 fill-current ${className}`} aria-hidden />;
+}
+
 function Stars({ value, className = "" }: { value: number; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`} aria-label={L(`${value} of 5 stars`, `${value} daripada 5 bintang`)} title={`${value}/5`}>
@@ -263,7 +270,7 @@ function DashboardView({ flavors, onGoReviews }: { flavors: Flavor[]; onGoReview
               hint={a.kpis.total_reviews ? L(`across ${a.kpis.total_reviews} reviews`, `merentas ${a.kpis.total_reviews} ulasan`) : L("no reviews yet", "belum ada ulasan")} />
             <StatTile tone="success" label={L("Most loved flavour", "Perisa paling disukai")}
               value={a.kpis.most_loved?.flavor ?? "—"}
-              hint={a.kpis.most_loved ? `${a.kpis.most_loved.avg_rating.toFixed(2)} ★ · ${a.kpis.most_loved.n} ${L("reviews", "ulasan")}`
+              hint={a.kpis.most_loved ? <>{a.kpis.most_loved.avg_rating.toFixed(2)} <Star /> · {a.kpis.most_loved.n} {L("reviews", "ulasan")}</>
                 : L(`needs ${minSample}+ reviews on a flavour`, `perlukan ${minSample}+ ulasan pada satu perisa`)} />
             <StatTile tone="info" label={L("Most reviewed", "Paling banyak diulas")}
               value={a.kpis.most_reviewed?.flavor ?? "—"}
@@ -278,7 +285,7 @@ function DashboardView({ flavors, onGoReviews }: { flavors: Flavor[]; onGoReview
               value={a.kpis.top_gender ? lbl(GENDERS, a.kpis.top_gender.gender) : "—"}
               hint={a.kpis.top_gender ? `${a.kpis.top_gender.n} ${L("reviews", "ulasan")}` : undefined} />
             <StatTile tone="muted" label={L("Rating spread", "Taburan penilaian")}
-              value={<span className="text-sm font-semibold">{[5, 4, 3, 2, 1].map((r) => `${r}★ ${a.by_rating[String(r)] ?? 0}`).join(" · ")}</span>} />
+              value={<span className="inline-flex flex-wrap items-center gap-x-1.5 text-sm font-semibold tabular-nums">{[5, 4, 3, 2, 1].map((r) => <span key={r} className="inline-flex items-center gap-0.5">{r}<Star />{a.by_rating[String(r)] ?? 0}</span>)}</span>} />
           </StatStrip>
         )}
       </section>
@@ -325,7 +332,7 @@ function DashboardView({ flavors, onGoReviews }: { flavors: Flavor[]; onGoReview
                       </div>
                     </DetailsToggle>
                   )}
-                  {latest && <p className="text-muted-foreground mt-2 line-clamp-2 text-[11px] italic">“{latest.comment}”</p>}
+                  {latest && <p className="text-muted-foreground mt-2 line-clamp-2 text-[11px] italic whitespace-pre-line">“{latest.comment}”</p>}
                 </div>
               );
             })}
@@ -517,12 +524,12 @@ function InsightsCard({ a, minSample }: { a: Analytics; minSample: number }) {
            `Sesuatu perisa atau segmen hanya digelar terbaik, paling positif atau paling negatif apabila ada sekurang-kurangnya ${minSample} ulasan. Di bawah itu angka ditunjuk dan keputusan ditahan.`)}
       </p>
       <ul className="mt-2">
-        {row(L("Best performing flavour", "Perisa prestasi terbaik"), i.best_rated ? <>{i.best_rated.flavor} <span className="text-muted-foreground font-normal">{i.best_rated.avg_rating.toFixed(2)} ★ · {i.best_rated.n}</span></> : none)}
+        {row(L("Best performing flavour", "Perisa prestasi terbaik"), i.best_rated ? <>{i.best_rated.flavor} <span className="text-muted-foreground font-normal">{i.best_rated.avg_rating.toFixed(2)} <Star /> · {i.best_rated.n}</span></> : none)}
         {row(L("Most popular flavour", "Perisa paling popular"), i.most_popular ? <>{i.most_popular.flavor} <span className="text-muted-foreground font-normal">{i.most_popular.n} {L("reviews", "ulasan")}</span></> : none)}
         {row(L("Most positive flavour", "Perisa paling positif"), i.most_positive ? <>{i.most_positive.flavor} <span className="text-success font-normal">{i.most_positive.positive_pct}%</span></> : none)}
         {row(L("Most negative flavour", "Perisa paling negatif"), i.most_negative ? <>{i.most_negative.flavor} <span className="text-danger font-normal">{i.most_negative.negative_pct}%</span></> : <span className="text-muted-foreground font-normal">{L("none with enough reviews", "tiada yang cukup ulasan")}</span>)}
-        {GENDERS.map(([g]) => row(L(`Best flavour — ${lbl(GENDERS, g)}`, `Perisa terbaik — ${lbl(GENDERS, g)}`), i.best_by_gender[g] ? <>{i.best_by_gender[g]!.flavor} <span className="text-muted-foreground font-normal">{i.best_by_gender[g]!.avg_rating.toFixed(2)} ★ · {i.best_by_gender[g]!.n}</span></> : none))}
-        {AGE_GROUPS.map(([ag]) => row(L(`Best flavour — ${lbl(AGE_GROUPS, ag)}`, `Perisa terbaik — ${lbl(AGE_GROUPS, ag)}`), i.best_by_age_group[ag] ? <>{i.best_by_age_group[ag]!.flavor} <span className="text-muted-foreground font-normal">{i.best_by_age_group[ag]!.avg_rating.toFixed(2)} ★ · {i.best_by_age_group[ag]!.n}</span></> : none))}
+        {GENDERS.map(([g]) => row(L(`Best flavour — ${lbl(GENDERS, g)}`, `Perisa terbaik — ${lbl(GENDERS, g)}`), i.best_by_gender[g] ? <>{i.best_by_gender[g]!.flavor} <span className="text-muted-foreground font-normal">{i.best_by_gender[g]!.avg_rating.toFixed(2)} <Star /> · {i.best_by_gender[g]!.n}</span></> : none))}
+        {AGE_GROUPS.map(([ag]) => row(L(`Best flavour — ${lbl(AGE_GROUPS, ag)}`, `Perisa terbaik — ${lbl(AGE_GROUPS, ag)}`), i.best_by_age_group[ag] ? <>{i.best_by_age_group[ag]!.flavor} <span className="text-muted-foreground font-normal">{i.best_by_age_group[ag]!.avg_rating.toFixed(2)} <Star /> · {i.best_by_age_group[ag]!.n}</span></> : none))}
       </ul>
       <p className="mt-3 text-sm font-semibold">{L("Highest-opportunity segments", "Segmen peluang tertinggi")}</p>
       <p className="text-muted-foreground text-xs">{L(`Rated 4 or above with ${minSample}+ reviews — strong, and believed.`, `Dinilai 4 ke atas dengan ${minSample}+ ulasan — kukuh, dan dipercayai.`)}</p>
@@ -533,7 +540,7 @@ function InsightsCard({ a, minSample }: { a: Analytics; minSample: number }) {
           {i.opportunity.map((o) => (
             <li key={`${o.flavor_id}-${o.gender}-${o.age_group}`} className={listRow}>
               <span className="text-sm">{lbl(GENDERS, o.gender)} / {lbl(AGE_GROUPS, o.age_group)} / <span className="font-semibold">{o.flavor}</span></span>
-              <span className="text-xs tabular-nums"><span className="font-semibold">{o.avg_rating.toFixed(2)} ★</span> · {o.n} {L("reviews", "ulasan")} · <span className="text-success">{o.positive_pct}% {L("positive", "positif")}</span></span>
+              <span className="text-xs tabular-nums"><span className="font-semibold">{o.avg_rating.toFixed(2)} <Star /></span> · {o.n} {L("reviews", "ulasan")} · <span className="text-success">{o.positive_pct}% {L("positive", "positif")}</span></span>
             </li>
           ))}
         </ul>
@@ -623,8 +630,8 @@ function ReviewsView({ flavors, canReview, canManage, toast, confirm, onFlavorsC
   const remove = async (r: Review) => {
     const ok = await confirm({
       title: L("Remove this review?", "Buang ulasan ini?"),
-      message: L(`${r.flavor_name ?? ""} · ${r.rating}★ · “${r.comment.slice(0, 80)}${r.comment.length > 80 ? "…" : ""}”. It leaves every figure on the dashboard. The record is kept and the removal is written against your name.`,
-                 `${r.flavor_name ?? ""} · ${r.rating}★ · “${r.comment.slice(0, 80)}${r.comment.length > 80 ? "…" : ""}”. Ia dikeluarkan daripada setiap angka. Rekod disimpan dan pembuangan dicatat atas nama anda.`),
+      message: L(`${r.flavor_name ?? ""} · ${r.rating}/5 · “${r.comment.slice(0, 80)}${r.comment.length > 80 ? "…" : ""}”. It leaves every figure on the dashboard. The record is kept and the removal is written against your name.`,
+                 `${r.flavor_name ?? ""} · ${r.rating}/5 · “${r.comment.slice(0, 80)}${r.comment.length > 80 ? "…" : ""}”. Ia dikeluarkan daripada setiap angka. Rekod disimpan dan pembuangan dicatat atas nama anda.`),
       confirmLabel: L("Remove", "Buang"), variant: "danger",
     });
     if (!ok) return;
@@ -725,7 +732,7 @@ function ReviewsView({ flavors, canReview, canManage, toast, confirm, onFlavorsC
               <option value="">{L("Age: all", "Umur: semua")}</option>{AGE_GROUPS.map(([k]) => <option key={k} value={k}>{lbl(AGE_GROUPS, k)}</option>)}
             </select>
             <select className={selectClass} value={fRating} onChange={(e) => setFRating(Number(e.target.value))} aria-label={L("Rating", "Penilaian")}>
-              <option value={0}>{L("Rating: all", "Penilaian: semua")}</option>{[5, 4, 3, 2, 1].map((r) => <option key={r} value={r}>{r} ★</option>)}
+              <option value={0}>{L("Rating: all", "Penilaian: semua")}</option>{[5, 4, 3, 2, 1].map((r) => <option key={r} value={r}>{L(`${r} stars`, `${r} bintang`)}</option>)}
             </select>
             <select className={selectClass} value={fSent} onChange={(e) => setFSent(e.target.value)} aria-label={L("Sentiment", "Sentimen")}>
               <option value="">{L("Sentiment: all", "Sentimen: semua")}</option>{SENTIMENTS.map(([k]) => <option key={k} value={k}>{lbl(SENTIMENTS, k)}</option>)}

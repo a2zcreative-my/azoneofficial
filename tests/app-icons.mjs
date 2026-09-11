@@ -27,8 +27,9 @@
  * reading a toast can actually match against the screen.
  *
  * Typographic marks are NOT emoji and are deliberately untouched: → ✓ ✕ ▲ ▼ ↩
- * ★ ≡ ◷ ☑ ☐. They are punctuation doing a job, they are monochrome, and they
- * inherit colour already.
+ * ≡ ◷ ☑ ☐. They are punctuation doing a job, they are monochrome, and they
+ * inherit colour already. The rating star (\u2605) left this set in v1.152.2 -
+ * see the check below.
  *
  * ALLOWLIST — the pictographs that stay, each with its reason:
  *   home/showcase.tsx, live-showcase.tsx   the public marketing pages. Those
@@ -103,6 +104,22 @@ for (const f of files) {
 ok("rendered UI carries no emoji — it carries icons",
    offenders.length === 0,
    offenders.slice(0, 6).join(" | ") + (offenders.length > 6 ? ` … +${offenders.length - 6}` : ""));
+
+/* v1.152.2 (CEO, 11-09-2026: "star rate should use svg!"). A RATING STAR is
+   a drawing after all: it is a picture of how much somebody liked a thing,
+   and a font's \u2605 is a different picture on every phone. It leaves the
+   typographic set above and becomes the `star` icon everywhere it is
+   rendered. A dialog message or an <option> - places that cannot hold an
+   SVG - say it in words ("4/5", "5 stars") instead. */
+const stars = [];
+for (const f of files) {
+  stripComments(read(f)).split("\n").forEach((line, i) => {
+    if (/[\u2605\u2606]/.test(line)) stars.push(`${f}:${i + 1} ${line.trim().slice(0, 70)}`);
+  });
+}
+ok("a rating star is the SVG star, never the \u2605 glyph",
+   stars.length === 0,
+   stars.slice(0, 6).join(" | ") + (stars.length > 6 ? ` … +${stars.length - 6}` : ""));
 
 /* ---- the dead map that misled the audit is gone --------------------- */
 const sidebar = read("components/layout/sidebar-nav.tsx");

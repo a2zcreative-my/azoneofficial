@@ -548,7 +548,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
                   {ev.location ? ` · ${ev.location}` : ""}
                 </p>
                 {ev.details && (
-                  <p className="text-muted-foreground mt-0.5 text-xs">
+                  <p className="text-muted-foreground mt-0.5 text-xs whitespace-pre-line">
                     {ev.details}
                   </p>
                 )}
@@ -945,7 +945,7 @@ export function EventsCalendar({
                       : ""}
                   </p>
                   {ev.details && (
-                    <p className="text-muted-foreground mt-0.5 text-xs">
+                    <p className="text-muted-foreground mt-0.5 text-xs whitespace-pre-line">
                       {ev.details}
                     </p>
                   )}

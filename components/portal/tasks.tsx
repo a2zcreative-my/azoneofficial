@@ -413,6 +413,12 @@ export function Tasks({ user }: { user: User }) {
                   )}
                 </span>
               </div>
+              {/* v1.152.2 (CEO's sweep after Criscikee): the description was
+                  typed, saved, and shown NOWHERE - the row listed everything
+                  about a task except what it said. Its lines are kept. */}
+              {t.description && (
+                <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{t.description}</p>
+              )}
               {openTask === t.id && (
                 <div className="border-border mt-2 rounded-lg border p-2">
                   {/* v1.77.0 — skeleton until the first fetch lands: two

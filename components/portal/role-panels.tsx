@@ -188,6 +188,8 @@ export function HrPanel() {
     content: "",
   });
   const [birthdays, setBirthdays] = useState<{ name: string; birthday: string }[]>([]);
+  /* v1.152.2 - a report longer than two lines could not be read at all. */
+  const [openReport, setOpenReport] = useState<number | null>(null);
   /* v1.77.0 — skeleton until the first fetch lands (lists start [] so an
      empty month cannot be told from one still loading). */
   const [loaded, setLoaded] = useState(false);
@@ -269,9 +271,13 @@ export function HrPanel() {
             ))}
             {reports.slice(0, 5).map((r) => (
               <li key={r.id} className="border-border rounded-lg border px-3 py-2 text-sm">
-                <span className="font-medium capitalize">{r.period === "daily" ? L("daily", "harian") : r.period === "weekly" ? L("weekly", "mingguan") : r.period === "monthly" ? L("monthly", "bulanan") : r.period}</span>{" "}
-                <span className="text-muted-foreground">· {dmy(r.report_date)} · {r.author}</span>
-                <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">{r.content}</p>
+                <button type="button" className="w-full text-left" aria-expanded={openReport === r.id}
+                  title={openReport === r.id ? L("Collapse", "Kecilkan") : L("Read the whole report", "Baca seluruh laporan")}
+                  onClick={() => setOpenReport((o) => (o === r.id ? null : r.id))}>
+                  <span className="font-medium capitalize">{r.period === "daily" ? L("daily", "harian") : r.period === "weekly" ? L("weekly", "mingguan") : r.period === "monthly" ? L("monthly", "bulanan") : r.period}</span>{" "}
+                  <span className="text-muted-foreground">· {dmy(r.report_date)} · {r.author}</span>
+                  <p className={`text-muted-foreground mt-1 text-xs whitespace-pre-line ${openReport === r.id ? "" : "line-clamp-2"}`}>{r.content}</p>
+                </button>
               </li>
             ))}
           </ul>

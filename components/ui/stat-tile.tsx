@@ -52,7 +52,8 @@ export function StatTile({
   /** Watermark glyph, right-aligned and dimmed. Decorative only. */
   icon?: ReactNode;
   /** Optional small line under the label. */
-  hint?: string;
+  /** v1.152.2 - a node too, so a hint can carry an icon (a star) instead of a glyph. */
+  hint?: ReactNode;
   /** v1.88.0 — what this figure opens. Omit and the tile stays a plain div. */
   onClick?: () => void;
   /** Why it is worth pressing — the figure alone rarely says. */

@@ -1444,7 +1444,7 @@ export function Leave({ user }: { user: User }) {
                           )}
                         </div>
                         {l.reason && editLeave?.id !== l.id && openAll !== l.id && (
-                          <p className="text-muted-foreground mt-0.5 text-[11px]">{l.reason}</p>
+                          <p className="text-muted-foreground mt-0.5 text-[11px] whitespace-pre-line">{l.reason}</p>
                         )}
                         {openAll === l.id && editLeave?.id !== l.id && <LeaveDetail l={l} meName={user.name} />}
                         {/* v1.83.0 — the amendment form, on the row it amends.

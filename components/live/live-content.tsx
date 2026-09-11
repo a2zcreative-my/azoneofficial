@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { Skel } from "@/components/ui/skeleton";
+import { AppIcon } from "@/components/ui/app-icon";
 
 const API = "/api/v1";
 
@@ -121,10 +122,13 @@ export function LiveTestimonials() {
       <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((t) => (
           <figure key={t.id} className="h-full rounded-xl border border-border p-6">
+            {/* v1.152.2 - SVG stars, the same shape as the portal's, not a
+                font glyph that every device draws differently. */}
             {typeof t.rating === "number" && t.rating > 0 && (
-              <p className="text-gold-deep text-sm" aria-label={`${t.rating} out of 5 stars`}>
-                {"★".repeat(Math.min(5, t.rating))}
-                <span className="text-border">{"★".repeat(Math.max(0, 5 - t.rating))}</span>
+              <p className="text-gold-deep inline-flex items-center gap-0.5 text-sm" aria-label={`${t.rating} out of 5 stars`}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <AppIcon key={i} name="star" className={`h-4 w-4 fill-current ${i <= Math.min(5, t.rating ?? 0) ? "" : "text-border"}`} aria-hidden />
+                ))}
               </p>
             )}
             <blockquote className="mt-2 text-sm leading-relaxed">

@@ -1692,6 +1692,18 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
 
   return (
     <div className="space-y-4 md:space-y-6">
+      {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
+          the toast, the confirm dialog and the prompt dialog used to be
+          rendered INSIDE the "Create document" tab body. v1.120.0 put the
+          three work views behind pills with the other two bodies display:
+          none - so on the Documents tab the "Payment received" dialog was
+          drawn inside a hidden box, `await askText()` never resolved, and
+          picking "paid" did nothing at all. Delete (confirm) and every toast
+          on the Documents, Receipts and Clients views were mute the same
+          way. Dialogs belong to the panel, not to one of its tabs. */}
+      {toastNode}
+      {confirmNode}
+      {promptNode}
       {/* v1.120.0 — the Sales tab in zones (CEO, 06-09-2026). THE WORK: the
           document-shaped form with its live preview, full width, then the
           aging and the Documents list, then receipts / credit notes /
@@ -2080,9 +2092,6 @@ export function Sales({ user, workExtra, customersExtra }: { user: User; workExt
             ["receipts", L("Receipts, credit notes & outstanding", "Resit, nota kredit & tertunggak")],
           ] as const} />
           <div className={workTab === "create" ? "mt-3" : "hidden"}>
-          {toastNode}
-          {confirmNode}
-          {promptNode}
           <p className="text-sm font-semibold">
             {editingDoc ? (
               <>
