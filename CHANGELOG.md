@@ -2,6 +2,21 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.153.1] - 2026-09-11 - Sales map: how many, not how much
+
+The CEO, on the Sales by state map: *"I dont want to mapping show the
+amount of the sales, it should show the Quantity of states value"*.
+
+The map now measures HOW MANY. The shade of a state, how far it stands off
+the page, the size of its bubble and the number inside it are all the count
+of invoices (or, on the Web orders layer, paid orders) placed in that state.
+The ringgit moves to the side panel: press a state and the card leads with
+*3 invoices*, then *Invoiced RM 1,350.00 · RM 900.00 paid · RM 450.00
+unpaid* beneath it. The *Most* list is ordered by count, amount beside it.
+The card's own sentence now says so: *"The shade and the number are how
+many invoices; press a state for the amount, paid and unpaid."*
+`components/portal/sales-map.tsx`; the worker already sent both figures.
+
 ## [1.153.0] - 2026-09-11 - Assets: an entry typed by mistake can be removed
 
 The CEO, 11-09-2026, on the register: *"need to have an option to delete if

@@ -44,14 +44,13 @@ const RANGES: { key: RangeKey; en: string; ms: string }[] = [
 const stateKey = (geometryName: string): string => geometryName.toUpperCase();
 const cents = (c: Cell | undefined, layer: Layer): number => (c ? (layer === "invoices" ? c.invoiced_cents : c.order_cents) : 0);
 const count = (c: Cell | undefined, layer: Layer): number => (c ? (layer === "invoices" ? c.invoices : c.orders) : 0);
-/** Sen -> "12.5k" for a bubble that has room for five characters. */
-function rmShort(c: number): string {
-  const rmv = c / 100;
-  if (rmv >= 1_000_000) return `${(rmv / 1_000_000).toFixed(1)}M`;
-  if (rmv >= 10_000) return `${Math.round(rmv / 1000)}k`;
-  if (rmv >= 1000) return `${(rmv / 1000).toFixed(1)}k`;
-  return String(Math.round(rmv));
-}
+/* v1.153.1 (CEO: "I dont want to mapping show the amount of the sales, it
+   should show the Quantity of states value"): the MAP measures HOW MANY -
+   invoices, or web orders - per state. The shade, the height a state stands
+   off the page, the bubble and the number in it are all the count. The
+   ringgit lives in the side panel, where a pressed state shows its amount,
+   paid and unpaid. A count is what a map of customers is for; a total is
+   what an invoice list is for. */
 
 export function SalesMap() {
   const [layer, setLayer] = useState<Layer>("invoices");
@@ -62,7 +61,7 @@ export function SalesMap() {
   const states = useMemo(() => data?.states ?? {}, [data]);
   const totals = data?.totals;
   const unplaced = data?.unplaced;
-  const max = useMemo(() => Math.max(1, ...Object.values(states).map((c) => cents(c, layer))), [states, layer]);
+  const max = useMemo(() => Math.max(1, ...Object.values(states).map((c) => count(c, layer))), [states, layer]);
   const unit = layer === "invoices" ? [L("invoices", "invois"), L("invoice", "invois")] : [L("orders", "pesanan"), L("order", "pesanan")];
   const noun = (n: number) => (n === 1 ? unit[1] : unit[0]);
   const sel = state ? states[state] : undefined;
@@ -70,12 +69,13 @@ export function SalesMap() {
      painted in. North first: a southern state is nearer the reader, so its
      wall must cover its northern neighbour's and not the other way round. The
      selected state goes last for its ring, as it always has. */
-  const lifts = useMemo(() => liftsFor((n) => cents(states[stateKey(n)], layer), max), [states, layer, max]);
+  const lifts = useMemo(() => liftsFor((n) => count(states[stateKey(n)], layer), max), [states, layer, max]);
   const raised = useMemo(() => {
     const byCy = [...STATES].sort((a, b) => a.cy - b.cy);
     return state ? [...byCy.filter((x) => stateKey(x.name) !== state), ...byCy.filter((x) => stateKey(x.name) === state)] : byCy;
   }, [state]);
-  const top = useMemo(() => Object.entries(states).map(([st, c]) => [st, cents(c, layer), count(c, layer)] as [string, number, number]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 6), [states, layer]);
+  /* most = the most invoices / orders, the ringgit beside it */
+  const top = useMemo(() => Object.entries(states).map(([st, c]) => [st, cents(c, layer), count(c, layer)] as [string, number, number]).filter(([, , n]) => n > 0).sort((a, b) => b[2] - a[2] || b[1] - a[1]).slice(0, 6), [states, layer]);
 
   return (
     <div className={card}>
@@ -87,10 +87,10 @@ export function SalesMap() {
           </p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {layer === "invoices"
-              ? L("Where A2Z's invoices go, by the customer's address. The shade is the amount invoiced; press a state for paid and unpaid.",
-                  "Ke mana invois A2Z pergi, mengikut alamat pelanggan. Warna ialah jumlah diinvois; tekan negeri untuk dibayar dan belum.")
-              : L("Where ELFIA's paid web orders ship to. The shade is the amount paid; press a state for its count.",
-                  "Ke mana pesanan web ELFIA yang dibayar dihantar. Warna ialah jumlah dibayar; tekan negeri untuk bilangannya.")}
+              ? L("Where A2Z's invoices go, by the customer's address. The shade and the number are how many invoices; press a state for the amount, paid and unpaid.",
+                  "Ke mana invois A2Z pergi, mengikut alamat pelanggan. Warna dan nombor ialah bilangan invois; tekan negeri untuk jumlah, dibayar dan belum.")
+              : L("Where ELFIA's paid web orders ship to. The shade and the number are how many orders; press a state for the amount.",
+                  "Ke mana pesanan web ELFIA yang dibayar dihantar. Warna dan nombor ialah bilangan pesanan; tekan negeri untuk jumlahnya.")}
           </p>
         </div>
         <span className="flex flex-wrap items-center gap-1.5">
@@ -131,12 +131,12 @@ export function SalesMap() {
               const isSel = state === key;
               const h = lifts[sh.name] ?? 0;
               const wall = wallPath(sh.name, h);
-              const label = `${sh.name}: ${fmtRM(v)} · ${n} ${noun(n)}`;
+              const label = `${sh.name}: ${n} ${noun(n)} · ${fmtRM(v)}`;
               return (
                 <g key={sh.name}>
                   {wall && (
                     <>
-                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * (v / max)} pointerEvents="none" aria-hidden="true" />
+                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * (n / max)} pointerEvents="none" aria-hidden="true" />
                       <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
                     </>
                   )}
@@ -144,7 +144,7 @@ export function SalesMap() {
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
                     className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
-                    fill={v > 0 ? "var(--gold-solid)" : "var(--secondary)"} fillOpacity={v > 0 ? 0.3 + 0.55 * (v / max) : 1}
+                    fill={n > 0 ? "var(--gold-solid)" : "var(--secondary)"} fillOpacity={n > 0 ? 0.3 + 0.55 * (n / max) : 1}
                     stroke={isSel ? "var(--primary)" : "var(--border)"} strokeWidth={isSel ? 2.5 : 1} strokeLinejoin="round">
                     <title>{label}</title>
                   </path>
@@ -153,13 +153,13 @@ export function SalesMap() {
             })}
             {STATES.map((sh) => {
               const key = stateKey(sh.name);
-              const v = cents(states[key], layer);
-              if (!v) return null;
               const n = count(states[key], layer);
-              const r = 11 + Math.sqrt(v / max) * 9;
+              if (!n) return null;
+              const v = cents(states[key], layer);
+              const r = 11 + Math.sqrt(n / max) * 9;
               const isSel = state === key;
               const h = lifts[sh.name] ?? 0;
-              const label = `${sh.name}: ${fmtRM(v)} · ${n} ${noun(n)}`;
+              const label = `${sh.name}: ${n} ${noun(n)} · ${fmtRM(v)}`;
               return (
                 <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel} aria-label={label}
                   transform={h ? `translate(0 ${-h})` : undefined}
@@ -167,7 +167,7 @@ export function SalesMap() {
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
                   className="cursor-pointer outline-none">
                   <circle cx={sh.cx} cy={sh.cy} r={r} fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"} strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
-                  <text x={sh.cx} y={sh.cy + 3} textAnchor="middle" style={{ font: "700 8.5px sans-serif", fill: "#fff" }}>{rmShort(v)}</text>
+                  <text x={sh.cx} y={sh.cy + 3} textAnchor="middle" style={{ font: "700 9px sans-serif", fill: "#fff" }}>{n}</text>
                   <title>{label}</title>
                 </g>
               );
@@ -189,11 +189,11 @@ export function SalesMap() {
               </div>
               <div className="bg-secondary mt-2.5 rounded-lg px-2.5 py-2">
                 <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-                  {layer === "invoices" ? L("Invoiced", "Diinvois") : L("Paid", "Dibayar")}
+                  {layer === "invoices" ? L("Invoices", "Invois") : L("Orders", "Pesanan")}
                 </p>
-                <p className="text-lg font-bold tabular-nums">{fmtRM(cents(state ? sel : totals, layer))}</p>
+                <p className="text-lg font-bold tabular-nums">{count(state ? sel : totals, layer)} <span className="text-muted-foreground text-sm font-medium">{noun(count(state ? sel : totals, layer))}</span></p>
                 <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
-                  {count(state ? sel : totals, layer)} {noun(count(state ? sel : totals, layer))}
+                  {layer === "invoices" ? L("Invoiced", "Diinvois") : L("Paid", "Dibayar")} {fmtRM(cents(state ? sel : totals, layer))}
                   {layer === "invoices" && (state ? sel : totals) ? ` · ${fmtRM((state ? sel : totals)!.paid_cents)} ${L("paid", "dibayar")} · ${fmtRM((state ? sel : totals)!.invoiced_cents - (state ? sel : totals)!.paid_cents)} ${L("unpaid", "belum dibayar")}` : ""}
                 </p>
               </div>
@@ -204,7 +204,7 @@ export function SalesMap() {
                   <li key={st}>
                     <button type="button" onClick={() => setState(state === st ? "" : st)} className={`flex w-full items-center justify-between gap-2 text-xs ${state === st ? "font-semibold" : ""}`}>
                       <span className="truncate">{st}</span>
-                      <span className="tabular-nums">{fmtRM(v)} <span className="text-muted-foreground">· {n}</span></span>
+                      <span className="tabular-nums">{n} <span className="text-muted-foreground">· {fmtRM(v)}</span></span>
                     </button>
                   </li>
                 ))}
