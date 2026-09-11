@@ -5,6 +5,7 @@ import { handleStaff, notify, type StaffUser } from "./staff";
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
+import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 - 30 minutes before a shift, 30 before its end, and at the end
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
@@ -1965,6 +1966,19 @@ export default {
         } catch (e) {
           await logError(env, "watchers", e instanceof Error ? e.message : String(e));
         }
+      }
+      /* v1.151.0 - SHIFT REMINDERS ride every five-minute tick: 30 minutes
+         before a shift starts, 30 minutes before it ends, and at the end
+         while still clocked in - per person, from the same shift list the
+         clock-in button accepts a punch for (shift-reminders-cron.ts).
+         Five minutes is the resolution the CEO's "30 minutes before" gets;
+         the 30-minute chain below would land it anywhere up to 29 minutes
+         off. Last on the tick and never fatal: orders and traffic are money
+         and are already done by here. */
+      try {
+        await runShiftReminders(env);
+      } catch (e) {
+        if (!String(e).includes("no such")) await logError(env, "shift_reminders", e instanceof Error ? e.message : String(e));
       }
       return;
     }

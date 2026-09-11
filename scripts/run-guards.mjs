@@ -133,6 +133,7 @@ const GUARDS = [
   ["audit-0909", "the findings of the 09-09 audit stay fixed - the payslip cannot call a day paid and deduct it, a released month is protected everywhere pay is set, and the commit gate is real"],
   ["criscikee", "the crispy chicken skin - one vocabulary in three places, the age band derived by the worker and never accepted, sentiment with its reasons, nothing added up in the browser, and no verdict below the sample floor"],
   ["claim-mileage", "a travel line with km is priced by the worker at the company rate - a setting the CEO changes, audited - and the line remembers the rate it was paid at"],
+  ["shift-reminders", "thirty minutes before a shift, thirty before its end, and at the end - per person, from the same shift list the clock accepts, once each, never on leave"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

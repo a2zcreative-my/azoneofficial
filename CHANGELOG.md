@@ -2,6 +2,61 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.151.0] - 2026-09-11 - Shift reminders: thirty minutes before, thirty before the end, and at the end
+
+The CEO, 11-09-2026: *"the notification should popup 30 minutes before
+their start shift based on their shift assigned and also clock in / out
+reminder before 30 minutes and during their end shift timing. this is the
+supposed flow"*.
+
+**What the flow was.** Three things, none of them shaped like a shift: the
+09:00 "Today:" bell listed roster *task blocks* only (a plain 10-18 office
+day heard nothing); a "still clocked in" nudge at 18:30 for everyone; and a
+firmer one at 22:00. A live host on 11:00-17:00 + 20:30-22:30 was nagged at
+18:30 from his sofa and heard nothing at 22:30 when his shift ended. Nobody
+was ever told a shift was about to start.
+
+**What it is now.** Per person, per shift, three reminders, each once:
+
+- **30 minutes before the shift starts** - *"Your shift 10:00-18:00 starts in
+  30 min - tap Clock in when you arrive."* Skipped if they already clocked in
+  for it.
+- **30 minutes before it ends** - *"Your shift ends at 18:00 - remember to
+  tap Clock out."* Only while they are actually clocked in.
+- **At the end** - *"Your shift has ended - tap Clock out now so today's hours
+  are recorded."* Only while still clocked in, for an hour; after that the
+  18:30 / 22:00 nudges take over as the escalation, unchanged.
+
+**The shift is the one the clock accepts.** Reminders are computed from
+`daySlots` - pattern blocks, roster assignments and live sessions merged
+where they touch - the exact list the Clock in button checks a punch
+against (v1.133.2). A split day is two shifts and gets two sets; an
+assignment is named in the message *("20:00-22:00 (Sara Beauty)")*; a live
+booked 23:00-01:00 still gets its end reminders after midnight.
+
+**Who is left alone.** Rest days, approved leave, public holidays (unless a
+live or task was explicitly booked on the holiday), and the admin accounts.
+
+**How it lands.** Every reminder goes through `notify` - bell, web push, and
+the WhatsApp/email relay when configured - and rides the five-minute tick,
+after the ELFIA orders pull and never fatal, so "30 minutes before" lands
+within five minutes rather than up to 29 minutes off on the half-hour
+chain. The windows are ranges with a dedupe ref, so a skipped tick delays a
+reminder by five minutes instead of dropping it, and no tick can send one
+twice. The lock-screen popup reaches phones that have enabled notifications
+in the portal once; the in-portal bell always gets it.
+
+**Guard #71, `shift-reminders`** (39 checks, negative-tested ten ways) runs
+the pure half - `worker/src/shift-reminders.ts`, which imports only
+clock-day.ts - through an office day, a split day, an overnight live, an
+early clock-in, an absentee, a clock-out already made, a rest day, and the
+edges of every window; and checks the cron half for the shared shift list,
+the sent-ref read, leave, holiday, yesterday, and the tick order.
+
+No migration. New: `worker/src/shift-reminders.ts`,
+`worker/src/shift-reminders-cron.ts`, `tests/shift-reminders.mjs`. Changed:
+`worker/src/index.ts`, `scripts/run-guards.mjs`.
+
 ## [1.150.0] - 2026-09-10 - Mileage: the kilometre is the claim
 
 The CEO, 09-09-2026, on the Claims form: *"for claim, if travel they will
