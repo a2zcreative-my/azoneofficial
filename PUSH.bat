@@ -161,6 +161,21 @@ for /f "delims=" %%F in ('git ls-files --cached --ignored --exclude-standard 2^>
 for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "package-1.json" "package-2.json" "public\sw-1.js" "public\sw-2.js") do (
   if exist %%F del /f /q %%F
 )
+REM  v1.156.0 - THE SAME COLLISION, ANYWHERE A SOURCE FILE LANDS. The CEO's
+REM  push of 12-09-2026 was refused by registry-parity: "guard file(s) on
+REM  disk but never run: sales-performance-1". A file delivered to this
+REM  folder while the link dropped mid-write had been saved beside the real
+REM  one as "sales-performance-1.mjs" (and the panel as
+REM  "sales-performance-panel-1.tsx"), and a guard file nobody registered
+REM  fails the build on purpose. The list above named the collisions one by
+REM  one; this sweeps every "-1" / "-2" twin under the folders code is
+REM  delivered to. No real file in this repository ends in -1 or -2 - the
+REM  migrations are "NNNN_name.sql" - so nothing legitimate matches.
+for %%D in (tests components\portal components\layout components\ui components\live lib app\login app\portal app\admin app\account scripts worker\src worker\migrations) do (
+  for %%F in ("%%D\*-1.ts" "%%D\*-1.tsx" "%%D\*-1.mjs" "%%D\*-1.sql" "%%D\*-2.ts" "%%D\*-2.tsx" "%%D\*-2.mjs" "%%D\*-2.sql") do (
+    if exist "%%~F" del /f /q "%%~F"
+  )
+)
 
 REM  v1.155.0 - RETIRED FEATURES. The CEO, 11-09-2026: "completely drop
 REM  Criscikee since this project not going further". A file that is no

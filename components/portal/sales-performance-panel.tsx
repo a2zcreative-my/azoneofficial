@@ -55,6 +55,19 @@ import {
 
 const api = makeApi("/staff/sales-performance");
 const EVIDENCE_URL = "/api/v1/staff/sales-performance/evidence";
+/* v1.155.1 - THE SHAPE OF THE REMEMBERED READ. useCachedApi draws the last
+   answer it saved for a path BEFORE it refetches (lib/cached-api.ts, 24 h
+   TTL). The CEO's screenshot, 12-09-2026, "Cannot read properties of
+   undefined (reading 'length')": the page had been opened on the first cut
+   of 1.155.0, that answer was remembered, and the second cut - which added
+   the tiktok_orders list - read `.length` off a field the remembered answer
+   never had. The error boundary then re-mounted the same remembered answer
+   on "Try again", so it could not heal itself until the TTL ran out.
+   Two defences, both required: the read is keyed with this SHAPE number, so
+   a new page never draws an old cut's answer; and normalizeOverview() fills
+   every list and figure a remembered answer might lack, so a missing field
+   is an empty list, never a crash. The worker ignores `v`. */
+const SHAPE = 2;
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const lbl = (list: readonly (readonly [string, string, string])[], code: string | null | undefined) => spLabel(list, String(code ?? ""), getLang());
 const TOPICS = ["sales-performance", "docs", "postage"];
@@ -120,6 +133,43 @@ interface Overview {
   accounts: Account[]; customers: Customer[]; invoices: Invoice[];
 }
 interface ClosingPreview { day: string; figures: Figures; score: number; band: Band; no_verified_activity: boolean }
+/** set by normalizeOverview when the answer is missing fields this page reads */
+interface Overview { stale_shape?: boolean }
+
+const ZERO_FIGURES: Figures = {
+  sales_cents: 0, invoice_cents: 0, tiktok_cents: 0, tiktok_orders: 0, paid_cents: 0, orders: 0, orders_completed: 0, orders_pending: 0,
+  interactions: 0, unique_customers: 0, inquiries: 0, follow_ups_done: 0, follow_ups_overdue: 0, follow_ups_due: 0, conversions: 0, conversion_rate: 0,
+  posts_verified: 0, posts_reported: 0, posts_flagged: 0, reach: 0, social_engagement: 0, leads: 0,
+  shipments: 0, shipped: 0, tracking_updated: 0, delivered: 0, shipments_pending: 0, tracking_required: 0, promotions_active: 0, promotions_executed: 0,
+  other_activities: 0, activities_total: 0, verified_activities: 0, present: false, target_cents: null,
+};
+const ZERO_TREND: TrendRow = { sales_cents: 0, tiktok_cents: 0, orders: 0, engagement: 0, leads: 0, follow_ups: 0, posts_verified: 0, conversion_rate: 0, score: 0 };
+const ZERO_BAND: Band = { code: "poor", en: "Poor", ms: "Lemah" };
+const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+const figs = (v: unknown): Figures => ({ ...ZERO_FIGURES, ...(v && typeof v === "object" ? (v as Partial<Figures>) : {}) });
+/** a remembered answer from an older cut, or a fresh one - either way every
+    field the page reads is present; nothing on this page reads `.length`
+    off the API without passing through here */
+function normalizeOverview(raw: Overview | null): Overview | null {
+  if (!raw) return null;
+  const tr = raw.trend ?? ({} as Overview["trend"]);
+  return {
+    ...raw,
+    /* the answer predates the TikTok figures: the page still draws, and says
+       so, rather than showing RM 0.00 of TikTok sales as though it were true */
+    stale_shape: raw.tiktok_orders === undefined,
+    settings: { ...{ default_target_cents: null, targets: {}, engagement_target: 10, posts_target: 3, activity_target: 12 } as Settings, ...(raw.settings ?? {}) },
+    staff: arr<Person>(raw.staff),
+    team: { figures: figs(raw.team?.figures), avg_score: raw.team?.avg_score ?? 0, band: raw.team?.band ?? ZERO_BAND, achievement_pct: raw.team?.achievement_pct ?? null },
+    per_staff: arr<PerStaff>(raw.per_staff).map((r) => ({ ...r, figures: figs(r.figures), components: r.components ?? { sales: 0, engagement: 0, social: 0, follow_up: 0, orders: 0, shipment: 0, promotion: 0 }, band: r.band ?? ZERO_BAND, busy: r.busy ?? { activity: 0, engagement: 0, conversion: 0, revenue: 0, verdict: "balanced" } })),
+    trend: { today: { ...ZERO_TREND, ...tr.today }, yesterday: { ...ZERO_TREND, ...tr.yesterday }, avg7: { ...ZERO_TREND, ...tr.avg7 }, avg30: { ...ZERO_TREND, ...tr.avg30 } },
+    funnel: { ...{ posts: 0, reach: 0, engagement: 0, inquiries: 0, follow_ups: 0, orders: 0, revenue_cents: 0 } as Overview["funnel"], ...(raw.funnel ?? {}) },
+    feed: arr<Feed>(raw.feed), posts: arr<Post>(raw.posts), engagements: arr<Engagement>(raw.engagements), promotions: arr<Promotion>(raw.promotions), others: arr<Other>(raw.others),
+    orders: arr<Order>(raw.orders), tiktok_orders: arr<TikTokOrder>(raw.tiktok_orders).map((o) => ({ ...o, user_ids: arr<number>(o.user_ids), staff_names: arr<string>(o.staff_names) })),
+    shipments: arr<Shipment>(raw.shipments), closings: arr<Closing>(raw.closings), accounts: arr<Account>(raw.accounts), customers: arr<Customer>(raw.customers), invoices: arr<Invoice>(raw.invoices),
+    range: raw.range ?? { from: raw.today ?? "", to: raw.today ?? "", label: "today" },
+  };
+}
 type Err = { ok?: boolean; error?: { code?: string; message?: string } };
 
 /* ---- small shared pieces (module scope - render-stability guard) ---- */
@@ -1121,8 +1171,8 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
   const [verification, setVerification] = useState("");
   const [status, setStatus] = useState("");
   const qs = [`range=${range}`, range === "custom" ? `from=${from}&to=${to}` : "", staff !== "0" ? `staff=${staff}` : "", platform ? `platform=${platform}` : "", verification ? `verification=${verification}` : "", status ? `status=${status}` : ""].filter(Boolean).join("&");
-  const view = useCachedApi<Overview>(`/staff/sales-performance/overview?${qs}`, true, TOPICS);
-  const ov = view.data;
+  const view = useCachedApi<Overview>(`/staff/sales-performance/overview?v=${SHAPE}&${qs}`, true, TOPICS);
+  const ov = useMemo(() => normalizeOverview(view.data), [view.data]);
   const refresh = view.refresh;
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
@@ -1259,6 +1309,12 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           </select>
           {(platform || verification || status || staff !== "0") && <button type="button" className="text-muted-foreground col-span-2 text-left text-xs underline sm:col-span-1" onClick={() => { setPlatform(""); setVerification(""); setStatus(""); setStaff("0"); }}>{L("Clear filters", "Kosongkan penapis")}</button>}
         </div>
+        {ov?.stale_shape && (
+          <p className="text-warning mt-2 text-xs font-medium">
+            {L("Some figures are missing because the server is a version behind this page (TikTok Shop sales are not in this answer). Run PUSH.bat to bring the server up to date.",
+               "Sebahagian angka tiada kerana pelayan satu versi di belakang halaman ini (jualan TikTok Shop tiada dalam jawapan ini). Jalankan PUSH.bat untuk mengemas kini pelayan.")}
+          </p>
+        )}
         {pendingMigration && (
           <p className="text-warning mt-2 text-xs font-medium">{L("Sales Performance is not set up on the server yet - run PUSH.bat so database change 0127 applies.", "Prestasi Jualan belum disediakan di pelayan - jalankan PUSH.bat supaya perubahan pangkalan data 0127 dilaksanakan.")}</p>
         )}

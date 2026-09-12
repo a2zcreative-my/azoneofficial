@@ -2,6 +2,96 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.156.0] - 2026-09-12 - Sign in: a door, not a form on a white page
+
+The CEO, 12-09-2026: *"provide me implementation for the better UI/UX on the
+login page webview and mobile apps view"*.
+
+**On a desk it is two halves.** A 384px column used to float in the middle
+of an empty 1440px page - no brand, no anchor, nothing to read. From `lg` up
+the left half is the navy brand panel (the white mark, one sentence, and the
+four things the portal is actually for) and the right half holds the form,
+centred in its own column. The panel is decorative by construction: a phone
+never draws it, so nothing needed to sign in can hide there.
+
+**On a phone nothing splits.** It stays the single centred column measured
+in svh with the safe-area inset - the v1.29.2 fix, kept exactly - so the
+whole form still lands on one screen with the URL bar showing and the button
+stays clear of the home indicator.
+
+**Every field is named.** The boxes were placeholder-only, and a placeholder
+is not a label: it disappears the moment you type, so a half-filled form
+stopped saying what its boxes were. Each input now has a visible `<label>`
+tied to it, and the fields are the 16px public-page input - which is also
+what stops iOS zooming the page in when a field is tapped on an iPhone.
+
+**It is a real form.** Enter worked in the password box only, through a
+hand-rolled key listener, and password managers had no form to fill. Enter
+now submits from any field and the managers behave.
+
+**The button is never born dead.** It was disabled until both boxes had
+text, so the first thing anyone saw was a grey slab. It is live from the
+first frame and says what is missing when pressed. Errors are announced to
+screen readers (`role="alert"`) instead of sitting there as a red line, and
+Caps Lock is reported instead of a silent wrong password.
+
+**EN / BM at the door.** The language came from the device and the switch
+lived inside the portal, so a BM-speaking staff member met English at the
+one screen she cannot skip. It is on this page now, writing the same
+`azone-lang` key the rest of the app reads.
+
+**A forgotten password is answered honestly.** There is no self-service
+reset in this system, so the page says what actually happens: an
+administrator sets a new password on the Users tab and you are signed out
+everywhere.
+
+**The code screen belongs to the phone.** `one-time-code` autofill from the
+authenticator or SMS, a pasted code stripped to six digits, and sign-in the
+moment the sixth digit lands - instead of typing and then hunting for the
+button.
+
+**Guard #77, `login-ux`** (37 checks, negative-tested seven ways): the two
+shapes and the svh/safe-area column, a real form with a submit, every input
+labelled and 16px, the submit disabled only while in flight, alert errors
+with aria-describedby, EN/BM through setLang, one-time-code with the
+six-digit auto-submit, the honest reset guidance, and every string still
+bilingual with the language read in an effect (static-export safe).
+
+Checked on a 1440 desk, a 1024 tablet and a 390 phone, in light and dark,
+in sign-in, create-account and two-factor.
+
+No migration. `app/login/page.tsx`, `tests/login-ux.mjs` (new),
+`scripts/run-guards.mjs`. Run `PUSH.bat`.
+
+## [1.155.1] - 2026-09-12 - Sales Performance: a remembered answer can no longer crash the page
+
+The CEO's screenshot, 12-09-2026: *Something went wrong on this screen -
+Cannot read properties of undefined (reading 'length')*.
+
+**What happened.** The page read `.length` off TEN top-level lists of the
+/overview answer - confirmed by reading the deployed chunk itself, which
+reads `.tiktok_orders.length`, `.feed.length`, `.posts.length` and seven
+more. If the answer is missing ANY of them the whole portal route throws
+and app/portal/error.tsx replaces the page. Two ways that happens, and
+both were live possibilities: an answer REMEMBERED from the earlier cut of
+1.155.0 (lib/cached-api.ts draws the last answer before refetching, 24 h)
+had no `tiktok_orders`; and a WORKER one version behind the page returns a
+fresh 200 that has no `tiktok_orders` either. *Try again* re-mounted the
+same answer, so the page could not heal itself.
+
+**The fix, three layers.** The read is keyed with a SHAPE number
+(`/overview?v=2&…`), so a new page never draws an older cut's answer;
+`normalizeOverview()` fills every list and figure the page reads, so a
+missing field is an empty list and never a crash; and when the answer
+predates the TikTok figures the page says so in one line - *the server is
+a version behind this page, run PUSH.bat* - instead of showing RM 0.00 of
+TikTok sales as though it were true. Both causes reproduced against the
+deployed build (page replaced by the error card) and against this build
+(page drawn, no error, notice shown). Guard #76 asserts all of it.
+
+`components/portal/sales-performance-panel.tsx`, `tests/sales-performance.mjs`.
+Run `PUSH.bat`.
+
 ## [1.155.0] - 2026-09-11 - Sales Performance: evidence, not claims; Criscikee retired
 
 **ONE new sidebar tab, ONE page: Sales Performance.** The CEO, 11-09-2026:
