@@ -178,6 +178,15 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   const manage = list(perms, "sales_perf_manage"), view = list(perms, "sales_perf_view");
   ok("...literally: every manager can view", manage.every((r) => view.includes(r)));
   ok("hr_admin is not a sales role and is not on the tab", !view.includes("hr_admin"));
+  /* the CEO, 12-09-2026: "Sales Performance should only listed for staff:
+     sales and marketing, sales, live host, live host part time, content.
+     Admin, Editor, ceo, coo, cco doest not relate to this sales performance" */
+  ok("editor is off the tab", !view.includes("editor") && !manage.includes("editor"));
+  const measured = [...(sp.match(/export const MEASURED_ROLES: readonly string\[\] = \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+  ok("the register measures the selling roles only - Sales & Marketing, Marketing, Live Host", JSON.stringify(measured) === JSON.stringify(["live_host", "marketing", "sales_marketing"]), measured.join(","));
+  ok("...and salesStaff() reads exactly that list", /u\.role IN \(\$\{MEASURED_ROLES\.map\(\(r\) => `'\$\{r\}'`\)\.join\(","\)\}\)/.test(sp));
+  ok("management opens the page to verify but is not measured", ["ceo", "coo", "cco", "admin", "super_admin"].every((r) => manage.includes(r) && !measured.includes(r)));
+  ok("a part-time host is a host: nothing filters on employment_status", !/employment_status/.test(sp));
 
   ok("staff.ts: the door hands /sales-performance/* to the module", /if \(path === "\/sales-performance" \|\| path\.startsWith\("\/sales-performance\/"\)\) \{\s*return handleSalesPerformance\(env, request, path\.slice\("\/sales-performance"\.length\), method, body, user, new URL\(request\.url\)\.searchParams\);/.test(staff));
   ok("staff.ts: the evidence upload is a raw body, excluded from JSON parsing by name", /const isSpEvidence = path === "\/sales-performance\/evidence";/.test(staff) && /&& !isSpEvidence &&/.test(staff));

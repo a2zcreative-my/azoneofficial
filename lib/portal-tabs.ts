@@ -178,13 +178,15 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      Written out as an ordinary entry, it disappears. */
   Sales: SALES_ROLES,
   /* v1.155.0 - Sales Performance. Mirrors sales_perf_view in
-     worker/src/permissions.ts: the sales tier plus marketing, live_host and
-     editor, who run the social accounts and submit post evidence. A person
-     here sees ONLY their own rows unless the API says can_manage; verifying,
-     correcting, targets and the approved-accounts list are sales_perf_manage,
-     gated inside the tab by can_manage from the API, not here. hr_admin is
-     deliberately absent - it is not a sales role and is not measured. */
-  "Sales Performance": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host", "editor"],
+     worker/src/permissions.ts: the selling roles (sales_marketing, marketing,
+     live_host - full or part time) who submit evidence and are measured, and
+     the management tier who open it to verify. A person here sees ONLY their
+     own rows unless the API says can_manage; verifying, correcting, targets
+     and the approved-accounts list are sales_perf_manage, gated inside the
+     tab by can_manage from the API, not here. v1.156.0 (CEO: "Admin, Editor,
+     ceo, coo, cco doest not relate to this sales performance"): editor is
+     off the tab; hr_admin was never on it. */
+  "Sales Performance": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host"],
   /* v1.112.0 - the CEO, 05-09-2026: customer enquiries are staff work that
      must be answered, so they get their own tab instead of a card at the
      top of Sales. Mirrors enquiry_manage in worker/src/permissions.ts. */

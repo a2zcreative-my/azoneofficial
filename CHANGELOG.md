@@ -60,8 +60,28 @@ bilingual with the language read in an effect (static-export safe).
 Checked on a 1440 desk, a 1024 tablet and a 390 phone, in light and dark,
 in sign-in, create-account and two-factor.
 
+**Sales Performance measures the selling roles only** (CEO, 12-09-2026:
+*"Sales Performance should only listed for staff: sales and marketing,
+sales, live host, live host part time, content. Admin, Editor, ceo, coo,
+cco doest not relate to this sales performance"*). The register - the
+per-staff table, the scores, the targets, the trend - now lists Sales &
+Marketing, Marketing and Live Host (full or part time) and nobody else.
+CEO, COO, CCO and admin still open the page to verify and correct, but
+have no row and no score; Editor is off the tab entirely. `MEASURED_ROLES`
+in `worker/src/sales-performance.ts` is the one list; guard #76 asserts it.
+"Content" is not a role in this system - a content person on the Marketing
+role is measured; one on the Editor role is not.
+
+**PUSH.bat sweeps Windows "-1" twins** before the guards run. The push of
+12-09-2026 was refused by registry-parity because a file delivered while
+the link dropped mid-write had been saved beside the real one as
+`tests\sales-performance-1.mjs`; every `-1` / `-2` twin under the delivery
+folders is now removed at step [3b/7], the way `CHANGELOG-1.md` always was.
+
 No migration. `app/login/page.tsx`, `tests/login-ux.mjs` (new),
-`scripts/run-guards.mjs`. Run `PUSH.bat`.
+`scripts/run-guards.mjs`, `worker/src/sales-performance.ts`,
+`worker/src/permissions.ts`, `lib/portal-tabs.ts`,
+`tests/sales-performance.mjs`, `PUSH.bat`. Run `PUSH.bat`.
 
 ## [1.155.1] - 2026-09-12 - Sales Performance: a remembered answer can no longer crash the page
 

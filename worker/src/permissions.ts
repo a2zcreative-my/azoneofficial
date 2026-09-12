@@ -107,20 +107,25 @@ export const PERMS: Record<string, readonly Role[]> = {
        sales_perf_view    - open the page, submit OWN evidence (posts,
                             engagements, promotions, other activities,
                             shipments, the daily closing) and read own
-                            figures. Everyone who sells or posts for the
-                            company: the sales tier plus marketing,
-                            live_host and editor, who run the social
-                            accounts. TAB_ROLES["Sales Performance"] in
+                            figures. The selling roles - sales_marketing,
+                            marketing, live_host (full or part time) - plus
+                            the management tier below, who open it to
+                            verify. TAB_ROLES["Sales Performance"] in
                             lib/portal-tabs.ts mirrors THIS list. A person
                             with only this permission sees ONLY their own
                             rows; the handler filters by user id server-side.
+                            The CEO, 12-09-2026: "Admin, Editor, ceo, coo,
+                            cco doest not relate to this sales performance"
+                            - editor is OFF the tab, and ceo/coo/cco/admin
+                            open it without being measured (worker
+                            MEASURED_ROLES is the register).
        sales_perf_manage  - verify or reject evidence, correct a verified
                             record (reason required, diff audited), keep the
                             approved-accounts list, set targets, and read
                             every staff member. Management only - and even
                             a manager may NOT verify their own submission;
                             the handler refuses that regardless of role. */
-  sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host", "editor"],
+  sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host"],
   sales_perf_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
 };
 
