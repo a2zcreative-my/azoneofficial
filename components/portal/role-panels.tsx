@@ -4036,13 +4036,15 @@ async function printClaimForm(c: Claim) {
       : "PENDING SYSTEM APPROVAL";
   w.document.open();
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=794">
   <title>${esc(claimNo)} — Employee Claim Form</title>
   <style>
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
+    /* v1.158.1 - the viewport is the paper (794px), so a phone prints the same one page as a desk; see lib/doc-template.ts */
+    html { min-width: 210mm; }
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11.5px; margin: 0; padding: 10px; max-width: 210mm; margin-inline: auto;
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11.5px; margin: 0; padding: 10px; width: 210mm; max-width: 210mm; margin-inline: auto;
            display: flex; flex-direction: column; min-height: 274mm; /* A4 297mm − 2×9mm page margin − rounding safety */ }
     h1 { text-align: center; margin: 2px 0 0; font-size: 18px; letter-spacing: .04em; }
     h1 small { display: block; font-size: 8px; letter-spacing: .32em; color: ${DOC.gold}; font-weight: 700; margin-top: 2px; }
@@ -4076,7 +4078,7 @@ async function printClaimForm(c: Claim) {
     .receiptbox .bt { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .18em; color: ${DOC.muted}; font-weight: 700; text-align: left; }
     .receiptbox img { max-width: 72mm; max-height: 58mm; object-fit: contain; display: block; margin: 0 auto; }
     .foot { margin-top: auto; padding-top: 6px; font-size: 8px; color: ${DOC.muted}; text-align: center; page-break-inside: avoid; break-inside: avoid; }
-    @media print { body { padding: 9mm; min-height: 296mm; } } /* v1.4.239 */
+    @media print { html, body { width: 210mm; } body { padding: 9mm; min-height: calc(100vh - 2mm); } } /* v1.4.239; v1.158.1 min-height follows the printable page, not a fixed 296mm */
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
   <h1>${issuer.name}<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>

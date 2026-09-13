@@ -86,6 +86,22 @@ const pkg = JSON.parse(read("package.json"));
   ok("a sales person sees their own; a manager sees everyone", /WHERE s\.user_id = \?3 AND s\.shift_date BETWEEN \?1 AND \?2/.test(staff));
   ok("the board types it and lists it separately", /interface SalesShift \{/.test(board) && /sales_shifts\?: SalesShift\[\];/.test(board) && /const shifts: SalesShift\[\] = data\.sales_shifts \?\? \[\];/.test(board));
   ok("it is the third item on New assignment", /\{L\("Sales duty", "Tugas jualan"\)\}/.test(board) && /setSalesOpen\(true\)/.test(board));
+  /* v1.158.1 (CEO: "card is not standard as it is!" / "sales task doesnt
+     appear as Live card which is can pick One-off, Daily or Pick days"):
+     the same card as the live one - same title, same two-column grid, same
+     field size, and the Repeat box always in view, never hidden behind a
+     typed date. */
+  {
+    const dlg = board.slice(board.indexOf("{salesOpen && ("), board.indexOf("{/* assignment modal (click-to-assign) */}"));
+    const live = board.slice(board.indexOf("{assignOpen && ("), board.indexOf("{assignOpen && (") + 4000);
+    ok("the sales-duty card carries the live card's title", /<p className="text-base font-semibold">\{L\("New assignment", "Tugasan baharu"\)\}/.test(dlg));
+    ok("...the live card's two-column grid", /<div className="mt-3 grid grid-cols-2 gap-2">/.test(dlg) && /<div className="mt-3 grid grid-cols-2 gap-2">/.test(live));
+    ok("...the live card's field size, no small variant", /className=\{inputClass\}/.test(dlg) && !/inputClassSm/.test(dlg));
+    ok("...and the Repeat box always in view: One-off, Daily, Pick days", /<div className="border-border mt-3 rounded-lg border p-2\.5">\s*<div className="flex flex-wrap items-center gap-1\.5">\s*<span className=\{`\$\{fieldLabel\} mb-0 mr-1`\}>\{L\("Repeat", "Ulang"\)\}/.test(dlg)
+      && /\["daily", L\("Daily", "Setiap hari"\)\]/.test(dlg) && !/sDraft\.shift_date && \(\s*<div className="border-border rounded-lg border p-2\.5">/.test(dlg));
+    ok("...with the live card's dates preview", /→ Creates \$\{dts\.length\} sales day/.test(dlg));
+    ok("...and the live card's button row", /<div className="mt-4 flex flex-wrap items-center gap-3">/.test(dlg) && /L\("Schedule", "Jadualkan"\)/.test(dlg));
+  }
   ok("a manager can take it off the plan", /`\/sales-shifts\/\$\{sh\.id\}`, \{ method: "DELETE" \}/.test(board) && /salesShiftMatch && method === "DELETE"/.test(staff));
 }
 

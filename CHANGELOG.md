@@ -2,6 +2,50 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.158.1] - 2026-09-13 - One card shape; one page from a phone
+
+**The sales-duty card is the live card.** The CEO, on seeing it: *"card is
+not standard as it is!"* and *"sales task doesnt appear as Live card which
+is can pick One-off, Daily or Pick days"*. It had its own layout - a
+three-column row, small time fields beside a tall date field, and the
+Repeat box hidden until a date was typed. It is now the same card as the
+live-session one: the same title, the same two-column grid (Sales person;
+Date and Target; Start and End; Focus), the same field size, today as the
+default date, and the Repeat box - One-off, Daily, Pick days, until - always
+in view under the fields with the live card's "→ Creates N sales days: Wed
+16-09, Thu 17-09 …" preview. Same button row: Schedule, Cancel. One card
+shape for every kind of assignment. Guard #79 now holds the two cards
+against each other.
+
+**An invoice from a phone is one page.** The CEO: *"when I create invoice
+in Mobile apps view, the pdf generate 2 page instead of the 1 pages format
+which is being used in Web view! this is unacceptable!"* Two causes, both
+fixed, and a third door closed:
+
+- The print window carried a device-width viewport, so a phone laid the
+  page out at 390px - every flex row crushed, every description wrapped
+  three times - and Save as PDF paginated that. The viewport is now the
+  paper (794px, A4 at 96dpi) and the html/body are 210mm wide on screen and
+  in print, so a phone lays the page out exactly as a desk does.
+- The print min-height was a fixed 296mm. A phone browser keeps its own
+  print margins whatever `@page` says, so 296mm did not fit its printable
+  height and the footer alone became page two. The min-height now follows
+  the page the browser is actually printing on (`100vh` in print).
+- On a phone the PDF button no longer goes through the browser's print
+  dialog at all: it opens the real one-page A4 file the Share button has
+  always built (`lib/doc-pdf.ts`) in the tab, where the phone's viewer shows
+  it and can save or share it. A desk keeps the print dialog.
+
+The same two layout rules are applied to every A4 print window the portal
+writes - the sales document, the statement of account and the claim form -
+and **guard #80, `paper-one-page`** (24 checks, negative-tested three ways)
+keeps them there.
+
+Files: `components/portal/roster-board.tsx`, `lib/doc-template.ts`,
+`components/portal/sales.tsx`, `components/portal/role-panels.tsx`,
+`tests/paper-one-page.mjs`, `tests/roster-week.mjs`,
+`scripts/run-guards.mjs`, `package.json`.
+
 ## [1.158.0] - 2026-09-13 - The week, whole: public holidays and sales duty on the roster
 
 Two things the CEO asked for on the Schedule & Roster, 13-09-2026, with the

@@ -296,16 +296,29 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   ladder += `<tr class="grand"><td>TOTAL (RM)</td><td>${rm(doc.total_cents)}</td></tr>`;
 
   return `<!doctype html><html><head><meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=794">
   <title>${doc.doc_number}</title>
   <style>
+    /* v1.158.1 (CEO: "when I create invoice in Mobile apps view, the pdf
+       generate 2 page instead of the 1 pages format which is being used in
+       Web view! this is unacceptable!"): the page is designed for A4's
+       794px and measured for ONE page at that width. With a device-width
+       viewport a phone laid it out at 390px - every flex row crushed, every
+       description wrapped three times - and Save as PDF paginated THAT into
+       two pages. The viewport is now the paper: 794px on every device, and
+       the body is 210mm wide on screen and in print alike. And the print
+       min-height is no longer a fixed 296mm: a phone browser keeps its own
+       print margins whatever @page says, so 296mm of body did not fit its
+       printable height and the footer alone became page two. 100vh in print
+       is the page the browser is actually going to print on. */
     /* v1.4.239 print pipeline: margin lives on the body inside @media print so
        Chrome prints no header strip; print-color-adjust keeps the navy + gold. */
     @page { size: A4; margin: 0; }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 11px; margin: 0;
-           padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
-    @media print { body { padding: 14mm; min-height: 296mm; } }
+           padding: 12px; width: 210mm; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
+    html { min-width: 210mm; }
+    @media print { html, body { width: 210mm; } body { padding: 14mm; min-height: calc(100vh - 2mm); } }
     .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; }
     .hd { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 0 9px; border-bottom: 2.5px solid ${DOC.navy}; }
     .brand { font-size: 19px; font-weight: 800; letter-spacing: .02em; }

@@ -107,11 +107,13 @@ export function printSOA(company: string, docs: SalesDoc[]) {
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
   w.document
-    .write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    .write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=794">
   <title>SOA — ${esc(company)}</title>
   <style>
+    /* v1.158.1 - the viewport is the paper (794px), so a phone prints the same one page as a desk; see lib/doc-template.ts */
+    html { min-width: 210mm; }
     @page { size: A4; margin: 0; } * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* v1.4.239 */
-    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 12px; margin: 0; padding: 12px; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: ${DOC.navy}; font-size: 12px; margin: 0; padding: 12px; width: 210mm; max-width: 210mm; margin-inline: auto; display: flex; flex-direction: column; min-height: 268mm; }
     .goldbar { height: 5px; background: linear-gradient(90deg, ${DOC.gold}, ${DOC.goldLight}, ${DOC.gold}); border-radius: 3px; }
     .hd { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 10px; border-bottom: 2.5px solid ${DOC.navy}; flex-wrap: wrap; }
     .brand { font-size: 19px; font-weight: 800; }
@@ -131,7 +133,7 @@ export function printSOA(company: string, docs: SalesDoc[]) {
     .tot tr.grand td { background: ${DOC.navy}; color: #fff; font-weight: 800; padding: 8px 10px; }
     .pay { margin-top: auto; padding-top: 20px; font-size: 11px; }
     .foot { margin-top: 14px; font-size: 8.5px; color: ${DOC.muted}; border-top: 1px solid ${DOC.line}; padding-top: 8px; text-align: center; }
-    @media print { body { padding: 14mm; min-height: 296mm; } } /* v1.4.239 */
+    @media print { html, body { width: 210mm; } body { padding: 14mm; min-height: calc(100vh - 2mm); } } /* v1.4.239; v1.158.1 min-height follows the printable page, not a fixed 296mm */
   </style></head><body onload="window.print()">
   <div class="goldbar"></div>
   <div class="hd">
@@ -178,6 +180,23 @@ export async function printDoc(id: number) {
   if (!doc) return;
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
+  /* v1.158.1 (CEO: "when I create invoice in Mobile apps view, the pdf
+     generate 2 page instead of the 1 pages format which is being used in
+     Web view! this is unacceptable!"). On a phone the PDF button used to
+     hand the browser's OWN print dialog a page laid out at phone width, and
+     Save as PDF paginated that into two. A phone now gets the real file
+     instead - the same one-page A4 the Share button has always built
+     (lib/doc-pdf.ts) - opened in the tab, where the phone's viewer shows it
+     and can share or save it. A desk keeps the print dialog, which prints
+     the same one page. lib/doc-template.ts is fixed for the phone too, for
+     the customer's shared link. */
+  if (window.matchMedia("(max-width: 767px)").matches) {
+    try {
+      const blob = await buildDocPdf(doc);
+      w.location.href = URL.createObjectURL(blob);
+      return;
+    } catch { /* fall through to the print window */ }
+  }
   w.document.write(buildDocHtml(doc));
   w.document.close();
 }

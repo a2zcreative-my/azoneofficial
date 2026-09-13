@@ -454,7 +454,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
      what was done on the day is read from the Sales Performance register,
      not ticked off here. */
   const [salesOpen, setSalesOpen] = useState(false);
-  const [sDraft, setSDraft] = useState({ user_id: "", shift_date: "", start_time: "10:00", end_time: "18:00", target: "", focus: "" });
+  const [sDraft, setSDraft] = useState({ user_id: "", shift_date: todayS, start_time: "10:00", end_time: "18:00", target: "", focus: "" });
   const [sRepeat, setSRepeat] = useState<"once" | "daily" | "days">("once");
   const [sUntil, setSUntil] = useState("");
   const [sDays, setSDays] = useState<number[]>([]);
@@ -2437,167 +2437,182 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
 
       {/* v1.158.0 - SALES DUTY. CEO, 13-09-2026: "beside of Assigned Live, I
           need to assigned them to perform Sales for the Sales person which
-          is need to perform based on the day/date that I pick and assigned". */}
+          is need to perform based on the day/date that I pick and assigned".
+          v1.158.1 (CEO: "card is not standard as it is!" and "sales task
+          doesnt appear as Live card which is can pick One-off, Daily or Pick
+          days"): the SAME card as the live-session one above - the same
+          title, the same two-column field grid, the same field sizes, and the
+          Repeat box always in view under the fields, not hidden until a date
+          is typed. One card shape for every kind of assignment. */}
       {salesOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
           onClick={() => setSalesOpen(false)}>
           <div className={`${modalCard} max-h-[90vh] overflow-y-auto`}
             onClick={(e) => e.stopPropagation()}>
-            <p className="text-base font-semibold">{L("Assign sales duty", "Tugaskan tugas jualan")}</p>
+            <p className="text-base font-semibold">{L("New assignment", "Tugasan baharu")} <span className="text-muted-foreground font-normal">· {L("Sales duty", "Tugas jualan")}</span></p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {L("A sales person, the days you pick, the hours, and a target if you want one. What they actually did that day is read from the Sales Performance register.",
                  "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu. Apa yang benar-benar dibuat pada hari itu dibaca daripada daftar Prestasi Jualan.")}
             </p>
-
-            <div className="mt-3 space-y-3">
-              <div>
-                <label className={fieldLabel} htmlFor="sd-who">{L("Who", "Siapa")}</label>
-                <select id="sd-who" className={inputClass} value={sDraft.user_id}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="col-span-2 block">
+                <span className={fieldLabel}>{L("Sales person *", "Orang jualan *")}</span>
+                <select className={inputClass} value={sDraft.user_id}
                   onChange={(e) => setSDraft({ ...sDraft, user_id: e.target.value })}>
-                  <option value="">{L("Choose a sales person…", "Pilih orang jualan…")}</option>
+                  <option value="">{L("— pick —", "— pilih —")}</option>
                   {salesStaff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
-                <p className="text-muted-foreground mt-1 text-[11px]">
-                  {L("Sales & Marketing and Live Host staff — the people the Sales Performance register measures.",
-                     "Kakitangan Jualan & Pemasaran dan Hos Siaran Langsung — orang yang diukur oleh daftar Prestasi Jualan.")}
-                </p>
-              </div>
+              </label>
+              <label className="block">
+                <span className={fieldLabel}>{L("Date *", "Tarikh *")}</span>
+                <input type="date" className={inputClass} value={sDraft.shift_date}
+                  onChange={(e) => setSDraft({ ...sDraft, shift_date: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className={fieldLabel}>{L("Target (RM)", "Sasaran (RM)")}</span>
+                <input type="number" inputMode="decimal" min={0} step="1" className={inputClass} value={sDraft.target}
+                  placeholder={L("optional", "pilihan")} onChange={(e) => setSDraft({ ...sDraft, target: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className={fieldLabel}>{L("Start *", "Mula *")}</span>
+                <input type="time" className={inputClass} value={sDraft.start_time}
+                  onChange={(e) => setSDraft({ ...sDraft, start_time: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className={fieldLabel}>{L("End *", "Tamat *")}</span>
+                <input type="time" className={inputClass} value={sDraft.end_time}
+                  onChange={(e) => setSDraft({ ...sDraft, end_time: e.target.value })} />
+              </label>
+              <label className="col-span-2 block">
+                <span className={fieldLabel}>{L("Focus", "Fokus")}</span>
+                <input className={inputClass} value={sDraft.focus} maxLength={200}
+                  placeholder={L("e.g. follow up the hotel leads", "cth. susuli prospek hotel")}
+                  onChange={(e) => setSDraft({ ...sDraft, focus: e.target.value })} />
+              </label>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className={fieldLabel} htmlFor="sd-day">{L("On", "Pada")}</label>
-                  <input id="sd-day" type="date" className={inputClass} value={sDraft.shift_date}
-                    onChange={(e) => setSDraft({ ...sDraft, shift_date: e.target.value })} />
-                </div>
-                <div>
-                  <label className={fieldLabel} htmlFor="sd-st">{L("From", "Dari")}</label>
-                  <input id="sd-st" type="time" className={inputClassSm} value={sDraft.start_time}
-                    onChange={(e) => setSDraft({ ...sDraft, start_time: e.target.value })} />
-                </div>
-                <div>
-                  <label className={fieldLabel} htmlFor="sd-et">{L("To", "Hingga")}</label>
-                  <input id="sd-et" type="time" className={inputClassSm} value={sDraft.end_time}
-                    onChange={(e) => setSDraft({ ...sDraft, end_time: e.target.value })} />
-                </div>
-              </div>
-
-              {sDraft.shift_date && (
-                <div className="border-border rounded-lg border p-2.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
-                    {([["once", L("One-off", "Sekali")], ["daily", L("Every day", "Setiap hari")], ["days", L("Pick days", "Pilih hari")]] as const).map(([v, l]) => (
-                      <button key={v} type="button"
-                        className={sRepeat === v
-                          ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-                          : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
-                        onClick={() => {
-                          setSRepeat(v);
-                          if (v !== "once" && !sUntil && sDraft.shift_date) {
-                            setSUntil(new Date(new Date(`${sDraft.shift_date}T00:00:00Z`).getTime() + 6 * 86400000).toISOString().slice(0, 10));
-                          }
-                        }}>{l}</button>
-                    ))}
-                    {sRepeat !== "once" && (
-                      <label className="ml-auto flex items-center gap-1.5 text-[11px]">
-                        <span className="text-muted-foreground">{L("until", "sehingga")}</span>
-                        <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={sUntil}
-                          min={sDraft.shift_date} onChange={(e) => setSUntil(e.target.value)} />
-                      </label>
-                    )}
-                  </div>
-                  {sRepeat === "days" && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {([[L("Mon", "Isn"), 1], [L("Tue", "Sel"), 2], [L("Wed", "Rab"), 3], [L("Thu", "Kha"), 4], [L("Fri", "Jum"), 5], [L("Sat", "Sab"), 6], [L("Sun", "Ahd"), 0]] as const).map(([l, n]) => {
-                        const on = sDays.includes(n);
-                        return (
-                          <button key={n} type="button"
-                            className={on
-                              ? "bg-gold-solid rounded-md px-2 py-0.5 text-[11px] font-semibold text-white"
-                              : "border-border text-muted-foreground rounded-md border px-2 py-0.5 text-[11px]"}
-                            onClick={() => setSDays((ds) => (on ? ds.filter((x) => x !== n) : [...ds, n]))}>{l}</button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {sRepeat !== "once" && (() => {
-                    const ds = sDates();
-                    if (ds.length === 0) {
-                      return <p className="text-muted-foreground mt-1.5 text-[11px]">
-                        {sRepeat === "days" && sDays.length === 0
-                          ? L("Pick at least one weekday.", "Pilih sekurang-kurangnya satu hari.")
-                          : L("Choose an until date after the start.", "Pilih tarikh sehingga selepas tarikh mula.")}
-                      </p>;
-                    }
-                    return <p className="text-muted-foreground mt-1.5 text-[11px]">
-                      {L(`${ds.length} day${ds.length === 1 ? "" : "s"}: `, `${ds.length} hari: `)}
-                      <span className="tabular-nums">{ds.slice(0, 4).map((x) => dmy(x)).join(", ")}</span>
-                      {ds.length > 4 ? L(` … to ${dmy(ds[ds.length - 1]!)}`, ` … hingga ${dmy(ds[ds.length - 1]!)}`) : ""}
-                    </p>;
-                  })()}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={fieldLabel} htmlFor="sd-target">{L("Target for the day (RM, optional)", "Sasaran hari itu (RM, pilihan)")}</label>
-                  <input id="sd-target" type="number" inputMode="decimal" min={0} step="1" className={inputClass} value={sDraft.target}
-                    placeholder="e.g. 2000" onChange={(e) => setSDraft({ ...sDraft, target: e.target.value })} />
-                </div>
-                <div>
-                  <label className={fieldLabel} htmlFor="sd-focus">{L("Focus (optional)", "Fokus (pilihan)")}</label>
-                  <input id="sd-focus" className={inputClass} value={sDraft.focus} maxLength={200}
-                    placeholder={L("e.g. follow up the hotel leads", "cth. susuli prospek hotel")}
-                    onChange={(e) => setSDraft({ ...sDraft, focus: e.target.value })} />
-                </div>
-              </div>
-
-              {/* public holidays in the run - named, not refused: a sales day
-                  on a holiday is the CEO's call, and s.60D pays it. */}
-              {(() => {
-                const hol = sDates().filter((d) => holidayAt(d));
-                if (hol.length === 0) return null;
-                return (
-                  <p className="border-danger/40 bg-danger-soft/50 text-danger rounded-lg border px-2.5 py-1.5 text-xs">
-                    <span className="font-semibold">{L("Public holiday in this run: ", "Cuti umum dalam ulangan ini: ")}</span>
-                    <span className="tabular-nums">{hol.map((d) => `${dmy(d)} ${holidayAt(d)!.name}`).join(", ")}</span>
-                    <span className="block font-medium">{L("It stays in the plan if you assign it — a holiday worked is paid at the holiday rate.", "Ia kekal dalam rancangan jika anda tugaskan — cuti umum yang dikerjakan dibayar pada kadar cuti.")}</span>
-                  </p>
-                );
-              })()}
-
+              {/* approved leave, named before the press - the live card's box */}
               {(() => {
                 if (!sDraft.user_id) return null;
                 const away = sDates().filter((d) => onLeaveAt(sDraft.user_id, d));
                 if (away.length === 0) return null;
                 const who = staff.find((u) => String(u.id) === sDraft.user_id)?.name.split(" ").slice(0, 2).join(" ") ?? "";
                 return (
-                  <p className="border-danger bg-danger-soft text-danger rounded-lg border px-2.5 py-1.5 text-xs">
-                    <span className="font-semibold">{L(`${who} is on approved leave: `, `${who} bercuti (diluluskan): `)}</span>
-                    <span className="tabular-nums">
-                      {away.slice(0, 4).map((d) => dmy(d)).join(", ")}
-                      {away.length > 4 ? L(` +${away.length - 4} more`, ` +${away.length - 4} lagi`) : ""}
-                    </span>
-                    <span className="block font-medium">
+                  <div className="border-danger bg-danger-soft col-span-2 rounded-lg border px-2.5 py-2">
+                    <p className="text-danger flex items-center gap-1.5 text-[11px] font-semibold">
+                      <AppIcon name="holiday" className="h-3.5 w-3.5" />
+                      {L("On approved leave — not available", "Bercuti diluluskan — tidak tersedia")}
+                    </p>
+                    <ul className="text-danger mt-1 space-y-0.5 text-[11px]">
+                      {away.slice(0, 6).map((d) => (
+                        <li key={d}><span className="font-medium">{who}</span>{" · "}<span className="tabular-nums">{dmy(d)}</span></li>
+                      ))}
+                      {away.length > 6 && <li className="opacity-80">{L(`+ ${away.length - 6} more`, `+ ${away.length - 6} lagi`)}</li>}
+                    </ul>
+                    <p className="text-muted-foreground mt-1.5 text-[11px] leading-snug">
                       {away.length >= sDates().length
-                        ? L("There is no day left to assign — pick another day, or another person.", "Tiada hari tinggal untuk ditugaskan — pilih hari lain, atau orang lain.")
-                        : L("Those days are skipped; the rest of the run still goes ahead.", "Hari tersebut dilangkau; selebihnya ulangan tetap diteruskan.")}
-                    </span>
-                  </p>
+                        ? L("There is nothing left to schedule — pick another day, or another person.", "Tiada apa-apa tinggal untuk dijadualkan — pilih hari lain, atau orang lain.")
+                        : L("These are skipped — the rest of the run still goes ahead.", "Ini dilangkau — selebihnya ulangan tetap diteruskan.")}
+                    </p>
+                  </div>
                 );
               })()}
             </div>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="text-muted-foreground text-sm underline"
-                onClick={() => setSalesOpen(false)}>{L("Cancel", "Batal")}</button>
+            {/* the repeat rule - the live card's box, always in view */}
+            <div className="border-border mt-3 rounded-lg border p-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
+                {([["once", L("One-off", "Sekali")], ["daily", L("Daily", "Setiap hari")], ["days", L("Pick days", "Pilih hari")]] as const).map(([v, l]) => (
+                  <button key={v} type="button"
+                    className={sRepeat === v
+                      ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                      : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
+                    onClick={() => {
+                      setSRepeat(v);
+                      if (v !== "once" && !sUntil && sDraft.shift_date) {
+                        setSUntil(new Date(new Date(`${sDraft.shift_date}T00:00:00Z`).getTime() + 6 * 86400000).toISOString().slice(0, 10));
+                      }
+                    }}>{l}</button>
+                ))}
+                {sRepeat !== "once" && (
+                  <label className="ml-auto flex items-center gap-1.5 text-[11px]">
+                    <span className="text-muted-foreground">{L("until", "sehingga")}</span>
+                    <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={sUntil} min={sDraft.shift_date}
+                      onChange={(e) => setSUntil(e.target.value)} />
+                  </label>
+                )}
+              </div>
+              {sRepeat === "days" && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {([[L("Mon", "Isn"), 1], [L("Tue", "Sel"), 2], [L("Wed", "Rab"), 3], [L("Thu", "Kha"), 4], [L("Fri", "Jum"), 5], [L("Sat", "Sab"), 6], [L("Sun", "Ahd"), 0]] as const).map(([l, n]) => {
+                    const on = sDays.includes(n);
+                    return (
+                      <button key={n} type="button"
+                        className={on
+                          ? "bg-gold-solid rounded-md px-2 py-0.5 text-[11px] font-semibold text-white"
+                          : "border-border text-muted-foreground rounded-md border px-2 py-0.5 text-[11px]"}
+                        onClick={() => setSDays((ds) => (on ? ds.filter((x) => x !== n) : [...ds, n]))}>{l}</button>
+                    );
+                  })}
+                </div>
+              )}
+              {sRepeat !== "once" && (() => {
+                const dts = sDates();
+                const wd = (iso: string) => (lang === "ms"
+                  ? ["Ahd", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab"]
+                  : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])[new Date(`${iso}T00:00:00Z`).getUTCDay()];
+                const dtList = dts.length <= 7
+                  ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
+                  : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`;
+                const skipped = sDraft.user_id ? dts.filter((d) => onLeaveAt(sDraft.user_id, d)).length : 0;
+                return (
+                  <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
+                    {dts.length > 0 && skipped > 0 && (
+                      <span className="text-danger mr-1">{L(`${skipped} skipped for approved leave.`, `${skipped} dilangkau kerana cuti diluluskan.`)}</span>
+                    )}
+                    {dts.length > 0
+                      ? L(`→ Creates ${dts.length} sales day${dts.length === 1 ? "" : "s"}: ${dtList} — nothing outside these dates`,
+                          `→ Membuat ${dts.length} hari jualan: ${dtList} — tiada di luar tarikh ini`)
+                      : !sDraft.shift_date
+                        ? L("Pick the first date above.", "Pilih tarikh pertama di atas.")
+                        : sRepeat === "days" && sDays.length === 0
+                          ? L("Toggle at least one weekday above.", "Togol sekurang-kurangnya satu hari di atas.")
+                          : L("Set the until date — the run needs an end.", "Tetapkan tarikh sehingga — ulangan perlukan penghujung.")}
+                  </p>
+                );
+              })()}
+              {/* a public holiday in the run - named, not refused: a sales day
+                  on a holiday is the CEO's call, and s.60D pays it */}
+              {(() => {
+                const hol = sDates().filter((d) => holidayAt(d));
+                if (hol.length === 0) return null;
+                return (
+                  <p className="text-danger mt-1.5 text-[11px]">
+                    <span className="font-semibold">{L("Public holiday in this run: ", "Cuti umum dalam ulangan ini: ")}</span>
+                    <span className="tabular-nums">{hol.map((d) => `${dmy(d)} ${holidayAt(d)!.name}`).join(", ")}</span>
+                    {" — "}{L("it stays in the plan if you schedule it; a holiday worked is paid at the holiday rate.", "ia kekal dalam rancangan jika anda jadualkan; cuti umum yang dikerjakan dibayar pada kadar cuti.")}
+                  </p>
+                );
+              })()}
+              <p className="text-muted-foreground mt-1.5 text-[11px]">
+                {L("Flow: pick the person, the date and the hours (and a repeat if you want a run) → press Schedule. Each day lands on their row as a SALES chip; once the day has passed it shows what they logged on the Sales Performance register.",
+                   "Aliran: pilih orang, tarikh dan waktu (dan ulangan jika mahu satu siri) → tekan Jadualkan. Setiap hari muncul pada baris mereka sebagai cip JUALAN; selepas hari itu berlalu ia menunjukkan apa yang direkod dalam daftar Prestasi Jualan.")}
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <button type="button" className={btnClass}
-                disabled={savingSales || !sDraft.user_id || !/^\d{4}-\d{2}-\d{2}$/.test(sDraft.shift_date) || sDraft.end_time <= sDraft.start_time}
+                disabled={savingSales || (!!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d)))}
                 onClick={async () => {
+                  if (!sDraft.user_id) { showToast(L("Pick a sales person", "Pilih orang jualan"), L("The sales person is missing.", "Orang jualan belum dipilih."), "notice"); return; }
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(sDraft.shift_date)) { showToast(L("Pick a date", "Pilih tarikh"), L("The date is missing.", "Tarikh belum dipilih."), "notice"); return; }
+                  if (!sDraft.end_time || sDraft.end_time <= sDraft.start_time) { showToast(L("Check the hours", "Semak waktu"), L("The end must be after the start.", "Tamat mesti selepas mula."), "notice"); return; }
                   const days = sDates().filter((d) => !onLeaveAt(sDraft.user_id, d));
                   if (days.length === 0) {
-                    showToast(L("Not available", "Tidak tersedia"),
-                      L("Every day in this run is approved leave for that person. Pick another day, or another person.",
-                        "Setiap hari dalam ulangan ini ialah cuti diluluskan bagi orang itu. Pilih hari lain, atau orang lain."),
+                    showToast(L("Nothing to schedule", "Tiada apa untuk dijadualkan"),
+                      sRepeat !== "once" && sDates().length === 0
+                        ? L("Set the until date, or pick at least one weekday.", "Tetapkan tarikh sehingga, atau pilih sekurang-kurangnya satu hari.")
+                        : L("Every day in this run is approved leave for that person. Pick another day, or another person.", "Setiap hari dalam ulangan ini ialah cuti diluluskan bagi orang itu. Pilih hari lain, atau orang lain."),
                       "notice");
                     return;
                   }
@@ -2613,24 +2628,29 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   });
                   setSavingSales(false);
                   if (!r.ok) {
-                    showToast(L("Not assigned", "Tidak ditugaskan"),
+                    showToast(L("Not scheduled", "Tidak dijadualkan"),
                       r.data?.error?.message ?? L("The server refused the assignment", "Pelayan menolak tugasan"), "notice");
                     return;
                   }
                   const who = staff.find((u) => u.id === Number(sDraft.user_id))?.name.split(" ").slice(0, 2).join(" ") ?? "";
                   const made = r.data?.days ?? 0, skipped = r.data?.skipped ?? 0;
-                  showToast(L("Sales duty assigned", "Tugas jualan ditugaskan"),
+                  showToast(L("Sales duty scheduled", "Tugas jualan dijadualkan"),
                     (made > 1
                       ? L(`${who} — ${made} days from ${dmy(days[0]!)}, ${sDraft.start_time}–${sDraft.end_time}.`, `${who} — ${made} hari dari ${dmy(days[0]!)}, ${sDraft.start_time}–${sDraft.end_time}.`)
                       : `${who} — ${dmy(days[0]!)} ${sDraft.start_time}–${sDraft.end_time}`)
                     + (skipped > 0 ? L(` ${skipped} already on the plan.`, ` ${skipped} sudah dalam rancangan.`) : ""));
                   setSalesOpen(false);
-                  setSDraft({ user_id: "", shift_date: "", start_time: "10:00", end_time: "18:00", target: "", focus: "" });
+                  setSDraft({ user_id: "", shift_date: todayS, start_time: "10:00", end_time: "18:00", target: "", focus: "" });
                   setSRepeat("once"); setSUntil(""); setSDays([]);
                   void load(week);
                 }}>
-                {savingSales ? L("Assigning…", "Menugaskan…") : L("Assign", "Tugaskan")}
+                {savingSales ? L("Scheduling…", "Menjadualkan…")
+                  : !!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d))
+                    ? L("On leave — not available", "Bercuti — tidak tersedia")
+                    : L("Schedule", "Jadualkan")}
               </button>
+              <button type="button" className="text-muted-foreground text-sm underline"
+                onClick={() => setSalesOpen(false)}>{L("Cancel", "Batal")}</button>
             </div>
           </div>
         </div>
