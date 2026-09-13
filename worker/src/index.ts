@@ -280,7 +280,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0127_sales_performance";
+const LATEST_MIGRATION = "0128_sales_shifts";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4590,6 +4590,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0125 (Criscikee - retired in v1.155.0; the tables stay until a later migration drops them)", `SELECT sentiment_source FROM criscikee_reviews LIMIT 1`],
       ["0126 (an asset typed by mistake can be removed)", `SELECT deleted_at FROM assets LIMIT 1`],
       ["0127 (Sales Performance register)", `SELECT url_key FROM sp_social_posts LIMIT 1`],
+      ["0128 (sales duty on the roster)", `SELECT focus FROM sales_shifts LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4736,6 +4737,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0125_criscikee",
       "0126_assets_soft_delete",
       "0127_sales_performance",
+      "0128_sales_shifts",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

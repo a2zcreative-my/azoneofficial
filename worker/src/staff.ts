@@ -7,7 +7,7 @@ import type { Env } from "./index";
 import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
-import { handleSalesPerformance } from "./sales-performance"; // v1.155.0 - the Sales Performance register
+import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
@@ -3095,6 +3095,84 @@ export async function handleStaff(
      (overlapping sessions per host, or a session whose host is on leave),
      unassigned requests (new client enquiries), and who is free today.
      Managers see everyone; other staff see their own sessions only. */
+  /* v1.158.0 - SALES DUTY. CEO, 13-09-2026: "beside of Assigned Live, I need
+     to assigned them to perform Sales for the Sales person which is need to
+     perform based on the day/date that I pick and assigned".
+
+     POST /sales-shifts  { user_id, dates[] | shift_date, start_time,
+                           end_time, target_cents?, focus?, leave_override? }
+       - team_manage only: putting sales hours on somebody's day is a
+         management act, exactly as naming another person on a task is.
+       - the person must be an active member of a SELLING role - the same
+         list the Sales Performance register measures (MEASURED_ROLES in
+         sales-performance.ts: sales_marketing and live_host). "For the Sales
+         person": a marketing or editor account cannot be given sales hours,
+         because the register would never credit them (v1.156.0).
+       - a run of dates is validated and written as a whole (the 62-day cap
+         and the leave rule of task-blocks, unchanged); a day that already
+         has a shift for that person is the same duty and is skipped, and
+         the reply says how many landed.
+     DELETE /sales-shifts/:id - team_manage only, audited. */
+  if (path === "/sales-shifts" && method === "POST") {
+    if (!can(user.role, "team_manage")) return err("forbidden", "Only management can assign sales duty", 403);
+    const who = Number(body?.user_id);
+    const st = typeof body?.start_time === "string" ? body.start_time : "";
+    const et = typeof body?.end_time === "string" ? body.end_time : "";
+    const rawDates: unknown[] = Array.isArray(body?.dates)
+      ? (body.dates as unknown[])
+      : [typeof body?.shift_date === "string" ? body.shift_date : ""];
+    const dates = [...new Set(rawDates.filter((x): x is string =>
+      typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort();
+    if (!who || dates.length === 0 || !/^\d{2}:\d{2}$/.test(st) || !/^\d{2}:\d{2}$/.test(et)) {
+      return err("invalid_input", "user_id, a date, start_time and end_time are required", 400);
+    }
+    if (et <= st) return err("invalid_input", "The end time must be after the start time", 400);
+    if (dates.length > 62) return err("invalid_input", "That repeat rule covers more than 62 days", 400);
+    const target = body?.target_cents == null || body.target_cents === "" ? null : Math.round(Number(body.target_cents));
+    if (target != null && (!Number.isFinite(target) || target < 0 || target > 100_000_000)) {
+      return err("invalid_input", "The target must be an amount in ringgit", 400);
+    }
+    const focus = typeof body?.focus === "string" ? body.focus.trim().slice(0, 200) : "";
+    const u = await env.DB.prepare(`SELECT is_active, role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`)
+      .bind(who).first<{ is_active: number; role: string; name: string }>();
+    if (!u || !u.is_active) return err("invalid_input", "That must be an active staff member", 400);
+    if (!MEASURED_ROLES.includes(u.role)) {
+      return err("invalid_input", `${u.name} is not in a selling role - sales duty is for Sales & Marketing and Live Host staff, the people the Sales Performance register measures`, 400);
+    }
+    {
+      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true);
+      if (no) return no;
+    }
+    let made = 0;
+    try {
+      for (const day of dates) {
+        const r = await env.DB.prepare(
+          `INSERT OR IGNORE INTO sales_shifts (user_id, shift_date, start_time, end_time, target_cents, focus, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        ).bind(who, day, st, et, target, focus || null, user.id).run();
+        made += r.meta.changes ?? 0;
+      }
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0128 (sales duty) first", 409);
+      throw e;
+    }
+    await audit(env, user.id, "roster.sales_shift", "users", String(who), {
+      dates, made, start_time: st, end_time: et, target_cents: target, focus: focus || null,
+    });
+    return json({ ok: true, days: made, skipped: dates.length - made }, 201);
+  }
+  const salesShiftMatch = path.match(/^\/sales-shifts\/(\d+)$/);
+  if (salesShiftMatch && method === "DELETE") {
+    if (!can(user.role, "team_manage")) return err("forbidden", "Only management can remove sales duty", 403);
+    const id = Number(salesShiftMatch[1]);
+    const row = await env.DB.prepare(`SELECT user_id, shift_date FROM sales_shifts WHERE id = ?1`)
+      .bind(id).first<{ user_id: number; shift_date: string }>();
+    if (!row) return err("not_found", "That sales duty is no longer on the board", 404);
+    await env.DB.prepare(`DELETE FROM sales_shifts WHERE id = ?1`).bind(id).run();
+    await audit(env, user.id, "roster.sales_shift_remove", "users", String(row.user_id), { id, date: row.shift_date });
+    return json({ ok: true });
+  }
+
   if (path === "/roster" && method === "GET") {
     const mgrR = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
     const wk = new URL(request.url).searchParams.get("week");
@@ -3307,11 +3385,45 @@ export async function handleStaff(
         available = results;
       }
 
+      /* v1.158.0 - SALES DUTY, the third thing a week is made of. CEO,
+         13-09-2026: "beside of Assigned Live, I need to assigned them to
+         perform Sales for the Sales person which is need to perform based on
+         the day/date that I pick and assigned". A manager sees every shift;
+         a sales person sees their own. Beside each shift on a day that has
+         passed (or is today) rides `evidence` - how many rows that person
+         put on the Sales Performance register THAT day - so the plan and
+         what happened sit on the same chip. A shift is a plan, never a
+         claim: it earns no KPI credit by itself (v1.155.0). */
+      let salesShifts: unknown[] = [];
+      try {
+        const q = await env.DB.prepare(
+          mgrR
+            ? `SELECT s.id, s.user_id, s.shift_date, s.start_time, s.end_time, s.target_cents, s.focus,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name,
+                      (SELECT COUNT(*) FROM sp_social_posts p WHERE p.user_id = s.user_id AND substr(p.posted_at, 1, 10) = s.shift_date AND p.deleted_at IS NULL)
+                    + (SELECT COUNT(*) FROM sp_engagements e WHERE e.user_id = s.user_id AND substr(e.happened_at, 1, 10) = s.shift_date AND e.deleted_at IS NULL)
+                    + (SELECT COUNT(*) FROM sp_other_activities o WHERE o.user_id = s.user_id AND substr(o.happened_at, 1, 10) = s.shift_date AND o.deleted_at IS NULL) AS evidence
+               FROM sales_shifts s JOIN users u ON u.id = s.user_id
+               WHERE s.shift_date BETWEEN ?1 AND ?2
+               ORDER BY s.shift_date, s.start_time LIMIT 400`
+            : `SELECT s.id, s.user_id, s.shift_date, s.start_time, s.end_time, s.target_cents, s.focus,
+                      COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name,
+                      (SELECT COUNT(*) FROM sp_social_posts p WHERE p.user_id = s.user_id AND substr(p.posted_at, 1, 10) = s.shift_date AND p.deleted_at IS NULL)
+                    + (SELECT COUNT(*) FROM sp_engagements e WHERE e.user_id = s.user_id AND substr(e.happened_at, 1, 10) = s.shift_date AND e.deleted_at IS NULL)
+                    + (SELECT COUNT(*) FROM sp_other_activities o WHERE o.user_id = s.user_id AND substr(o.happened_at, 1, 10) = s.shift_date AND o.deleted_at IS NULL) AS evidence
+               FROM sales_shifts s JOIN users u ON u.id = s.user_id
+               WHERE s.user_id = ?3 AND s.shift_date BETWEEN ?1 AND ?2
+               ORDER BY s.shift_date, s.start_time LIMIT 100`,
+        ).bind(...(mgrR ? [start, end] : [start, end, user.id])).all();
+        salesShifts = q.results;
+      } catch { /* pre-0128 - the board is exactly what it was yesterday */ }
+
       return json({
         week_start: start, days, manager: mgrR,
         sessions, on_leave: onLeave, conflicts, requests, available_today: available,
         /* Beside the sessions, never merged into them. */
         task_blocks: taskBlocks, unscheduled,
+        sales_shifts: salesShifts,
       });
     } catch (e) {
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0056 (live sessions) first", 409);

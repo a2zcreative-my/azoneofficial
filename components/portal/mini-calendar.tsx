@@ -9,9 +9,13 @@ import { btnSm } from "@/lib/ui-styles";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DOW = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 
-export function MiniCalendar({ selected, marked, onPick }: {
+export function MiniCalendar({ selected, marked, holidays, onPick }: {
   selected: string;              // YYYY-MM-DD (the roster's week start)
   marked: Set<string>;           // days that have sessions
+  /* v1.157.0 - public holidays, named on hover and red like the Events
+     calendar (CEO: "Public Holiday should appear at here also since it is
+     no working day"). */
+  holidays?: Record<string, { name: string }>;
   onPick: (dayISO: string) => void;
 }) {
   const [month, setMonth] = useState(() => selected.slice(0, 7)); // YYYY-MM
@@ -45,11 +49,13 @@ export function MiniCalendar({ selected, marked, onPick }: {
           const iso = `${month}-${String(i + 1).padStart(2, "0")}`;
           const t = Date.parse(iso + "T00:00:00Z");
           const inWeek = t >= weekStart && t <= weekEnd;
+          const hol = holidays?.[iso];
           return (
-            <button key={iso} type="button" onClick={() => onPick(iso)}
+            <button key={iso} type="button" onClick={() => onPick(iso)} title={hol?.name}
               className={`relative rounded-md py-1 text-[11px] tabular-nums transition-colors ${
                 iso === todayS ? "bg-brand font-bold text-white"
-                : inWeek ? "bg-gold-soft/60 font-medium"
+                : inWeek ? `bg-gold-soft/60 font-medium${hol ? " text-danger" : ""}`
+                : hol ? "text-danger font-bold hover:bg-secondary"
                 : "hover:bg-secondary"
               }`}>
               {i + 1}

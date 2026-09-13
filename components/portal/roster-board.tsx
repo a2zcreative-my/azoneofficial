@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
-import { dmy } from "@/lib/format";
+import { dmy, fmtRM } from "@/lib/format";
 import { bySeniority } from "@/lib/staff-order";
 import { getLang } from "@/lib/i18n";
 import { shareRosterPdf } from "@/lib/roster-pdf";
@@ -146,6 +146,18 @@ function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }:
     predicate can read both without caring which list a row came from. */
 interface LeaveSpan { user_id: number; name: string; start_date: string; end_date: string }
 
+/** v1.158.0 - a day of sales duty. A plan, never a claim: `evidence` is how
+    many rows the person put on the Sales Performance register that day, read
+    by the server, so the chip can say whether the planned day was worked. */
+interface SalesShift {
+  id: number; user_id: number; user_name: string; shift_date: string;
+  start_time: string; end_time: string; target_cents: number | null; focus: string | null;
+  evidence: number;
+}
+/* The roles that may hold sales duty - the same two the Sales Performance
+   register measures (worker MEASURED_ROLES; tests/roster-week.mjs compares). */
+const SALES_DUTY_ROLES: readonly string[] = ["sales_marketing", "live_host"];
+
 interface RosterData {
   week_start: string; days: string[]; manager: boolean;
   sessions: RosterSession[];
@@ -156,6 +168,7 @@ interface RosterData {
      WHEN THE WORK HAPPENS; the task still owns what it is and who it is for. */
   task_blocks?: RosterTaskBlock[];
   unscheduled?: UnscheduledTask[];
+  sales_shifts?: SalesShift[];
   requests: { id: number; name: string; company: string | null; category: string | null; created_at: string }[];
   available_today: { id: number; name: string; role: string; photo_key: string | null }[];
 }
@@ -296,6 +309,37 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
 
   const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
+  /* v1.157.0 - PUBLIC HOLIDAYS ON THE BOARD. CEO, 13-09-2026, with Hari
+     Malaysia (Wed 16-09) drawn as an ordinary working day: "Public Holiday
+     should appear at here also since it is no working day". The holidays
+     table has been the company calendar since v1.4.81 (the Events tab paints
+     it, payroll counts it); the roster simply never asked. The week's year -
+     and the next one when the week straddles New Year - is fetched once and
+     kept, so paging through weeks costs nothing. A holiday is NOT a refusal:
+     a host may be booked on one (s.60D pays it at two days' wages), so the
+     column is named and tinted, never locked. */
+  const [holidays, setHolidays] = useState<Record<string, { name: string; kind: string }>>({});
+  const holidayYears = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!data) return;
+    const years = new Set(data.days.map((d) => d.slice(0, 4)));
+    for (const y of years) {
+      if (holidayYears.current.has(y)) continue;
+      holidayYears.current.add(y);
+      void api<{ holidays: { holiday_date: string; name: string; kind: string }[] }>(`/holidays?year=${y}`).then((r) => {
+        if (!r.ok || !r.data) { holidayYears.current.delete(y); return; }
+        setHolidays((h) => {
+          const next = { ...h };
+          for (const x of r.data!.holidays) next[x.holiday_date] = { name: x.name, kind: x.kind };
+          return next;
+        });
+      });
+    }
+  }, [data]);
+  const holidayAt = (d: string) => holidays[d];
+  const holidayLabel = (h: { name: string; kind: string }) =>
+    h.kind === "replacement" ? L(`${h.name} (replacement holiday)`, `${h.name} (cuti ganti)`) : L(`${h.name} · public holiday`, `${h.name} · cuti umum`);
+
   /* v1.66.0 — placing a task on the grid.
      Not HTML5 drag-and-drop: this board is used on a phone as much as a
      laptop, and dragging on a touch screen fights the page scroll. Pick the
@@ -402,6 +446,45 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     void load(week);
   }, [load, week, showToast]);
   const [savingTask, setSavingTask] = useState(false);
+
+  /* v1.158.0 - SALES DUTY. The same shape as the task dialog - one person,
+     a day, a repeat rule, hours - because the CEO plans the two the same way
+     ("based on the day/date that I pick and assigned"). Two things of its
+     own: a target in ringgit, and a focus line. No priority, no deliverables:
+     what was done on the day is read from the Sales Performance register,
+     not ticked off here. */
+  const [salesOpen, setSalesOpen] = useState(false);
+  const [sDraft, setSDraft] = useState({ user_id: "", shift_date: "", start_time: "10:00", end_time: "18:00", target: "", focus: "" });
+  const [sRepeat, setSRepeat] = useState<"once" | "daily" | "days">("once");
+  const [sUntil, setSUntil] = useState("");
+  const [sDays, setSDays] = useState<number[]>([]);
+  const [savingSales, setSavingSales] = useState(false);
+  const [openShift, setOpenShift] = useState<number | null>(null);
+  const sDates = (): string[] => {
+    if (!sDraft.shift_date) return [];
+    if (sRepeat === "once") return [sDraft.shift_date];
+    if (!sUntil || sUntil < sDraft.shift_date) return [];
+    if (sRepeat === "days" && sDays.length === 0) return [];
+    const out: string[] = [];
+    const end = new Date(`${sUntil}T00:00:00Z`).getTime();
+    for (let t = new Date(`${sDraft.shift_date}T00:00:00Z`).getTime(); t <= end && out.length < 62; t += 86400000) {
+      const dt = new Date(t);
+      if (sRepeat === "daily" || sDays.includes(dt.getUTCDay())) out.push(dt.toISOString().slice(0, 10));
+    }
+    return out;
+  };
+  const salesStaff = staff.filter((u) => SALES_DUTY_ROLES.includes(u.role ?? ""));
+  const removeShift = useCallback(async (sh: SalesShift) => {
+    const r = await api<{ error?: { message?: string } }>(`/sales-shifts/${sh.id}`, { method: "DELETE" });
+    if (!r.ok) {
+      showToast(L("Not removed", "Tidak dibuang"), r.data?.error?.message ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+      return;
+    }
+    setOpenShift(null); setNoteAt(null);
+    showToast(L("Sales duty removed", "Tugas jualan dibuang"), `${sh.user_name.split(" ").slice(0, 2).join(" ")} · ${dmy(sh.shift_date)}`);
+    void load(week);
+  }, [load, week, showToast]);
+
   const [placing, setPlacing] = useState(false);
   const placeTask = useCallback(async (t: UnscheduledTask, date: string, userId: number) => {
     setPlacing(true);
@@ -845,6 +928,20 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
      amber says "this will have to move", red says "this cannot happen". */
   const blocks: RosterTaskBlock[] = data.task_blocks ?? [];
   const unsched: UnscheduledTask[] = data.unscheduled ?? [];
+  /* v1.158.0 - sales duty, the third thing on the board. */
+  const shifts: SalesShift[] = data.sales_shifts ?? [];
+  const shiftMins = (sh: SalesShift) => spanMins(sh.start_time, sh.end_time);
+  /* the chip is 90px wide: "RM 2,000.00" does not fit beside SALES, "RM2,000" does */
+  const rmShort = (cents: number) => `RM${Math.round(cents / 100).toLocaleString("en-MY")}`;
+  const shiftCls = (sh: SalesShift) =>
+    sh.shift_date < todayS && sh.evidence === 0
+      ? "border-warning bg-warning-soft"
+      : "border-info bg-info-soft";
+  const shiftTitle = (sh: SalesShift) =>
+    `${L("Sales duty", "Tugas jualan")} · ${sh.start_time}–${sh.end_time} · ${sh.user_name}`
+    + (sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : "")
+    + (sh.focus ? ` — ${sh.focus}` : "")
+    + (sh.shift_date <= todayS ? ` · ${sh.evidence === 0 ? L("no evidence logged", "tiada bukti direkod") : L(`${sh.evidence} on the register`, `${sh.evidence} dalam daftar`)}` : "");
   const hardBlockIds = new Set(
     data.conflicts.filter((c) => !c.soft).flatMap((c) => c.task_block_ids ?? []));
   const softBlockIds = new Set(
@@ -912,6 +1009,17 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     {L("Assigned and scheduled in one step", "Ditugaskan dan dijadualkan sekali gus")}
                   </span>
                 </button>
+                {/* v1.158.0 (CEO: "beside of Assigned Live, I need to assigned
+                    them to perform Sales for the Sales person ... based on the
+                    day/date that I pick and assigned") */}
+                <button type="button" role="menuitem"
+                  className="hover:bg-secondary border-border block w-full border-t px-3 py-2 text-left text-sm"
+                  onClick={() => { setNewMenu(false); setSalesOpen(true); }}>
+                  <span className="font-medium">{L("Sales duty", "Tugas jualan")}</span>
+                  <span className="text-muted-foreground block text-[11px]">
+                    {L("A sales person, the days you pick, a target", "Orang jualan, hari yang anda pilih, sasaran")}
+                  </span>
+                </button>
               </div>
             )}
           </div>
@@ -923,7 +1031,16 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
         {chip(L("live", "LIVE"), active.length, "bg-secondary")}
         {chip(L("tasks", "tugasan"), blocks.length,
               "border border-plan bg-plan-soft")}
+        {shifts.length > 0 && chip(L("sales duty", "tugas jualan"), shifts.length, "border border-info bg-info-soft")}
         {data.manager && chip(L("available today", "tersedia hari ini"), data.available_today.length, chipSuccess)}
+        {/* v1.157.0 - the week's public holidays, named, so the plan is read
+            with the non-working day in view before anything is booked on it. */}
+        {data.days.filter((d) => holidayAt(d)).map((d) => (
+          <span key={d} className="bg-danger-soft text-danger inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium" title={L("Public holiday — not a working day", "Cuti umum — bukan hari bekerja")}>
+            <AppIcon name="holiday" className="h-3.5 w-3.5" />
+            <span className="font-semibold">{DAYS[data.days.indexOf(d)]} {d.slice(8)}</span> · {holidayLabel(holidayAt(d)!)}
+          </span>
+        ))}
         {/* v1.21.0: the on-leave pill is a button — it opens WHO is away and
             the applied dates, so assignments are planned around real absences
             without leaving this board. */}
@@ -958,6 +1075,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
           <MiniCalendar
             selected={data.week_start}
             marked={new Set(active.map((s) => s.session_date))}
+            holidays={holidays}
             onPick={(d) => setWeek(mondayOf(d))}
           />
           <div className="border-border mt-3 rounded-lg border p-3">
@@ -1075,14 +1193,18 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         {data.days.map((d, i) => {
                           const dayS = active.filter((s) => s.session_date === d);
                           const dayB = blocks.filter((b) => b.block_date === d);
+                          const daySh = shifts.filter((x) => x.shift_date === d);
                           const isToday = d === todayS;
+                          const hol = holidayAt(d);
                           return (
-                            <div key={d} className={`border-border min-w-0 border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : "bg-secondary/50"}`}>
-                              <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : ""}`}>{DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
+                            <div key={d} className={`border-border min-w-0 border-l px-2 py-2 text-center ${isToday ? "bg-gold-soft/40" : hol ? "bg-danger-soft/50" : "bg-secondary/50"}`}
+                              title={hol ? holidayLabel(hol) : undefined}>
+                              <p className={`text-[11px] font-semibold ${isToday ? "text-gold-deep" : hol ? "text-danger" : ""}`}>{DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span></p>
+                              {hol && <p className="text-danger truncate text-[10px] font-medium">{hol.name}</p>}
                               <p className="text-muted-foreground text-[10px] tabular-nums">
-                                {dayS.length + dayB.length === 0
-                                  ? "—"
-                                  : `${dayS.length + dayB.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0))}`}
+                                {dayS.length + dayB.length + daySh.length === 0
+                                  ? (hol ? L("holiday", "cuti umum") : "—")
+                                  : `${dayS.length + dayB.length + daySh.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0) + daySh.reduce((a, x) => a + shiftMins(x), 0))}`}
                               </p>
                             </div>
                           );
@@ -1092,6 +1214,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       {rows.map((u) => {
                         const mine = active.filter((s) => s.host_user_id === u.id);
                         const mineB = blocks.filter((b) => b.user_id === u.id);
+                        const mineS = shifts.filter((x) => x.user_id === u.id);
                         return (
                           <div key={u.id} className="border-border grid border-b last:border-b-0" style={gridCols}>
                             <div className="border-border flex min-w-0 flex-col justify-center border-r px-3 py-1.5">
@@ -1102,12 +1225,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                   floor can share their first two. */}
                               <p className="text-xs leading-tight font-semibold break-words" title={u.name}>{u.name}</p>
                               <p className="text-muted-foreground text-[10px] tabular-nums">
-                                {mine.length + mineB.length === 0
+                                {mine.length + mineB.length + mineS.length === 0
                                   ? L("nothing booked", "tiada tempahan")
                                   : [
                                       mine.length > 0 ? `${mine.length} ${L("live", "LIVE")}` : "",
                                       mineB.length > 0 ? `${mineB.length} ${L("tasks", "tugasan")}` : "",
-                                      hrs(mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0)),
+                                      mineS.length > 0 ? `${mineS.length} ${L("sales", "jualan")}` : "",
+                                      hrs(mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0) + mineS.reduce((a, x) => a + shiftMins(x), 0)),
                                     ].filter(Boolean).join(" · ")}
                               </p>
                             </div>
@@ -1134,7 +1258,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                     ? L(`${u.name.split(" ").slice(0, 2).join(" ")} is on approved leave this day`,
                                         `${u.name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada hari ini`)
                                     : undefined}
-                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
+                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
                                   onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
@@ -1178,6 +1302,28 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                       </span>
                                       <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
                                         {b.start_time}{b.end_time ? `–${b.end_time}` : ""} · {L("task", "tugasan")}
+                                      </span>
+                                    </button>
+                                  ))}
+                                  {/* v1.158.0 - sales duty. Amber once the day
+                                      has passed with nothing on the register:
+                                      a planned sales day that left no trace is
+                                      exactly what the CEO asked to see. */}
+                                  {shifts.filter((sh) => sh.user_id === u.id && sh.shift_date === d).map((sh) => (
+                                    <button key={`s${sh.id}`} type="button" title={shiftTitle(sh)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const same = openShift === sh.id;
+                                        setOpenSession(null); setOpenBlock(null);
+                                        setOpenShift(same ? null : sh.id);
+                                        setNoteAt(same ? null : noteFrom(e.currentTarget, gridRef.current));
+                                      }}
+                                      className={`block w-full rounded-md border px-1.5 py-1 text-left ${shiftCls(sh)} ${openShift === sh.id && noteAt ? "ring-gold ring-2" : ""}`}>
+                                      <span className="block truncate text-[10px] leading-tight font-semibold">
+                                        {sh.shift_date < todayS && sh.evidence === 0 ? <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" /> : null}{L("SALES", "JUALAN")}{sh.target_cents != null ? ` · ${rmShort(sh.target_cents)}` : ""}
+                                      </span>
+                                      <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
+                                        {sh.start_time}–{sh.end_time}{sh.shift_date <= todayS ? ` · ${sh.evidence} ${L("logged", "direkod")}` : ""}
                                       </span>
                                     </button>
                                   ))}
@@ -1275,6 +1421,47 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                           </StickyNote>
                         );
                       })()}
+                      {(() => {
+                        /* v1.158.0 - the sales-duty note: the plan, and what
+                           the register says happened. */
+                        const sh = shifts.find((x) => x.id === openShift);
+                        if (!sh || !noteAt) return null;
+                        const past = sh.shift_date <= todayS;
+                        return (
+                          <StickyNote at={noteAt}>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold">
+                                {L("Sales duty", "Tugas jualan")}
+                                <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${past && sh.evidence === 0 ? "bg-bear/30" : past ? "bg-bull/30" : "bg-white/15"}`}>
+                                  {!past ? L("planned", "dirancang") : sh.evidence === 0 ? L("no evidence", "tiada bukti") : L(`${sh.evidence} on the register`, `${sh.evidence} dalam daftar`)}
+                                </span>
+                              </p>
+                              <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenShift(null); setNoteAt(null); }} aria-label="Close">✕</button>
+                            </div>
+                            <p className="mt-1.5 text-xs text-white/85">{sh.user_name}</p>
+                            <p className="mt-0.5 text-xs text-white/85 tabular-nums">
+                              {dmy(sh.shift_date)} · {sh.start_time}–{sh.end_time} · {hrs(shiftMins(sh))}
+                              {sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : ""}
+                            </p>
+                            {sh.focus && <p className="mt-1 text-xs text-white/70">{sh.focus}</p>}
+                            <p className="mt-1 text-[11px] text-white/70">
+                              {past
+                                ? L("What was done that day is read from the Sales Performance register — a planned day earns nothing by itself.",
+                                    "Apa yang dibuat pada hari itu dibaca daripada daftar Prestasi Jualan — hari yang dirancang tidak mendapat kredit dengan sendirinya.")
+                                : L("They log posts, engagements and outcomes on the Sales Performance tab as the day happens.",
+                                    "Mereka merekod hantaran, interaksi dan hasil di tab Prestasi Jualan sepanjang hari.")}
+                            </p>
+                            {canManage && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={() => void removeShift(sh)}>
+                                  {L("✕ Remove from the plan", "✕ Buang dari rancangan")}
+                                </button>
+                              </div>
+                            )}
+                          </StickyNote>
+                        );
+                      })()}
                       {/* legend */}
                       <div className="border-border text-muted-foreground flex flex-wrap gap-3 border-t px-3 py-1.5 text-[10px]">
                         <span className="inline-flex items-center gap-1"><span className="border-brand/30 bg-brand/10 h-2.5 w-2.5 rounded-sm border" />TikTok</span>
@@ -1283,7 +1470,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         <span className="inline-flex items-center gap-1"><span className="border-success bg-success-soft h-2.5 w-2.5 rounded-sm border" />{L("Completed", "Selesai")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />{L("Conflict", "Pertindihan")}</span>
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />{L("On leave", "Bercuti")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="bg-danger-soft/40 border-danger/40 h-2.5 w-2.5 rounded-sm border" />{L("Public holiday", "Cuti umum")}</span>
                         <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-plan bg-plan-soft" />{L("Task", "Tugasan")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-info bg-info-soft h-2.5 w-2.5 rounded-sm border" />{L("Sales duty", "Tugas jualan")}</span>
                       </div>
                     </>
                   );
@@ -1302,8 +1491,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               <div className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
                 <span />
                 {data.days.map((d, i) => (
-                  <span key={d} className={`px-1 pb-1 text-center text-[11px] font-semibold ${d === todayS ? "text-gold-deep" : "text-muted-foreground"}`}>
+                  <span key={d} className={`px-1 pb-1 text-center text-[11px] font-semibold ${d === todayS ? "text-gold-deep" : holidayAt(d) ? "text-danger" : "text-muted-foreground"}`}
+                    title={holidayAt(d) ? holidayLabel(holidayAt(d)!) : undefined}>
                     {DAYS[i]} <span className="tabular-nums">{d.slice(8)}</span>
+                    {holidayAt(d) && <span className="text-danger block truncate text-[9px] font-medium">{holidayAt(d)!.name}</span>}
                   </span>
                 ))}
               </div>
@@ -1320,7 +1511,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 ))}
                 {/* day columns */}
                 {data.days.map((d, di) => (
-                  <div key={d} className={`relative border-l border-border/60 ${d === todayS ? "bg-gold-soft/20" : ""} ${drag ? "outline-dashed outline-1 outline-gold/60" : ""}`}
+                  <div key={d} className={`relative border-l border-border/60 ${d === todayS ? "bg-gold-soft/20" : holidayAt(d) ? "bg-danger-soft/20" : ""} ${drag ? "outline-dashed outline-1 outline-gold/60" : ""}`}
                     style={{ gridColumn: di + 2, gridRow: 1 }}
                     onDragOver={(e) => { if (drag) { e.preventDefault(); } }}
                     onDrop={(e) => {
@@ -1458,23 +1649,26 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 .filter((b) => b.block_date === d)
                 .sort((a, b) => a.start_time.localeCompare(b.start_time));
               const isToday = d === todayS;
+              const hol = holidayAt(d);
               return (
-                <div key={d} className={`border-border border-b px-3 py-2 last:border-b-0 ${isToday ? "bg-gold-soft/25" : ""}`}>
+                <div key={d} className={`border-border border-b px-3 py-2 last:border-b-0 ${isToday ? "bg-gold-soft/25" : hol ? "bg-danger-soft/20" : ""}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <p className={`text-[11px] font-semibold tracking-wide ${isToday ? "text-gold-deep" : "text-muted-foreground"}`}>
+                    <p className={`text-[11px] font-semibold tracking-wide ${isToday ? "text-gold-deep" : hol ? "text-danger" : "text-muted-foreground"}`}>
                       {DAYS[i]} <span className="tabular-nums">{dmy(d)}</span>
                       {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">{L("TODAY", "HARI INI")}</span>}
+                      {hol && <span className="bg-danger-soft text-danger ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold">{hol.name}</span>}
                     </p>
-                    {dayS.length + dayB.length > 0 && (
+                    {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length > 0 && (
                       <span className="text-muted-foreground text-[10px] tabular-nums">
                         {[
                           dayS.length > 0 ? (lang === "ms" ? `${dayS.length} sesi` : `${dayS.length} live`) : "",
                           dayB.length > 0 ? `${dayB.length} ${L("tasks", "tugasan")}` : "",
+                          shifts.filter((x) => x.shift_date === d).length > 0 ? `${shifts.filter((x) => x.shift_date === d).length} ${L("sales", "jualan")}` : "",
                         ].filter(Boolean).join(" · ")}
                       </span>
                     )}
                   </div>
-                  {dayS.length + dayB.length === 0 ? (
+                  {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length === 0 ? (
                     <p className="text-muted-foreground/60 mt-0.5 text-[11px]">—</p>
                   ) : dayS.map((s) => {
                     const isOpen = openSession === s.id;
@@ -1546,10 +1740,60 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       </span>
                     </button>
                   ))}
+                  {/* v1.158.0 - the day's sales duty, under its tasks. */}
+                  {shifts.filter((x) => x.shift_date === d).map((sh) => (
+                    <button key={`ms${sh.id}`} type="button"
+                      onClick={() => { setOpenBlock(null); setOpenShift(openShift === sh.id ? null : sh.id); }}
+                      className={`mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${shiftCls(sh)}`}>
+                      <span className="w-20 shrink-0 text-[11px] font-semibold tabular-nums">{sh.start_time}–{sh.end_time}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          {sh.shift_date < todayS && sh.evidence === 0 ? <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" /> : null}{L("Sales duty", "Tugas jualan")}{sh.target_cents != null ? ` · ${fmtRM(sh.target_cents)}` : ""}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-[10px]">
+                          {sh.user_name.split(" ").slice(0, 2).join(" ")}{sh.shift_date <= todayS ? ` · ${sh.evidence} ${L("logged", "direkod")}` : ""}{sh.focus ? ` · ${sh.focus}` : ""}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
               );
             })}
           </div>
+
+          {/* v1.158.0 - a tapped sales duty on the phone agenda (the grid has
+              its own note above; this bar is for where there is no chip). */}
+          {(() => {
+            const sh = shifts.find((x) => x.id === openShift);
+            if (!sh || noteAt) return null;
+            const past = sh.shift_date <= todayS;
+            return (
+              <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${shiftCls(sh)}`}>
+                <span className="min-w-0">
+                  <span className="font-semibold">{L("Sales duty", "Tugas jualan")}</span>
+                  <span className="text-muted-foreground">
+                    {" · "}{sh.user_name}
+                    {" · "}<span className="tabular-nums">{dmy(sh.shift_date)} {sh.start_time}–{sh.end_time}</span>
+                    {sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : ""}
+                    {sh.focus ? ` · ${sh.focus}` : ""}
+                  </span>
+                  {past && (
+                    <span className={`block text-xs font-medium ${sh.evidence === 0 ? "text-warning" : "text-success"}`}>
+                      {sh.evidence === 0
+                        ? L("Nothing was logged on the Sales Performance register that day.", "Tiada apa direkod dalam daftar Prestasi Jualan pada hari itu.")
+                        : L(`${sh.evidence} activities on the Sales Performance register that day.`, `${sh.evidence} aktiviti dalam daftar Prestasi Jualan pada hari itu.`)}
+                    </span>
+                  )}
+                </span>
+                {canManage && (
+                  <span className="flex shrink-0 flex-wrap items-center gap-2">
+                    <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>
+                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setOpenShift(null)}>{L("Close", "Tutup")}</button>
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {/* v1.66.0 — a tapped task block. A bar, not a popover: the block
               carries less to say than a live session (the task's own page is
@@ -2185,6 +2429,207 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   void load(week);
                 }}>
                 {savingTask ? L("Assigning…", "Menugaskan…") : L("Assign", "Tugaskan")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v1.158.0 - SALES DUTY. CEO, 13-09-2026: "beside of Assigned Live, I
+          need to assigned them to perform Sales for the Sales person which
+          is need to perform based on the day/date that I pick and assigned". */}
+      {salesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
+          onClick={() => setSalesOpen(false)}>
+          <div className={`${modalCard} max-h-[90vh] overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-semibold">{L("Assign sales duty", "Tugaskan tugas jualan")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("A sales person, the days you pick, the hours, and a target if you want one. What they actually did that day is read from the Sales Performance register.",
+                 "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu. Apa yang benar-benar dibuat pada hari itu dibaca daripada daftar Prestasi Jualan.")}
+            </p>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className={fieldLabel} htmlFor="sd-who">{L("Who", "Siapa")}</label>
+                <select id="sd-who" className={inputClass} value={sDraft.user_id}
+                  onChange={(e) => setSDraft({ ...sDraft, user_id: e.target.value })}>
+                  <option value="">{L("Choose a sales person…", "Pilih orang jualan…")}</option>
+                  {salesStaff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <p className="text-muted-foreground mt-1 text-[11px]">
+                  {L("Sales & Marketing and Live Host staff — the people the Sales Performance register measures.",
+                     "Kakitangan Jualan & Pemasaran dan Hos Siaran Langsung — orang yang diukur oleh daftar Prestasi Jualan.")}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="sd-day">{L("On", "Pada")}</label>
+                  <input id="sd-day" type="date" className={inputClass} value={sDraft.shift_date}
+                    onChange={(e) => setSDraft({ ...sDraft, shift_date: e.target.value })} />
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="sd-st">{L("From", "Dari")}</label>
+                  <input id="sd-st" type="time" className={inputClassSm} value={sDraft.start_time}
+                    onChange={(e) => setSDraft({ ...sDraft, start_time: e.target.value })} />
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="sd-et">{L("To", "Hingga")}</label>
+                  <input id="sd-et" type="time" className={inputClassSm} value={sDraft.end_time}
+                    onChange={(e) => setSDraft({ ...sDraft, end_time: e.target.value })} />
+                </div>
+              </div>
+
+              {sDraft.shift_date && (
+                <div className="border-border rounded-lg border p-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
+                    {([["once", L("One-off", "Sekali")], ["daily", L("Every day", "Setiap hari")], ["days", L("Pick days", "Pilih hari")]] as const).map(([v, l]) => (
+                      <button key={v} type="button"
+                        className={sRepeat === v
+                          ? "bg-primary text-primary-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                          : "border-border text-muted-foreground rounded-full border px-2.5 py-0.5 text-[11px]"}
+                        onClick={() => {
+                          setSRepeat(v);
+                          if (v !== "once" && !sUntil && sDraft.shift_date) {
+                            setSUntil(new Date(new Date(`${sDraft.shift_date}T00:00:00Z`).getTime() + 6 * 86400000).toISOString().slice(0, 10));
+                          }
+                        }}>{l}</button>
+                    ))}
+                    {sRepeat !== "once" && (
+                      <label className="ml-auto flex items-center gap-1.5 text-[11px]">
+                        <span className="text-muted-foreground">{L("until", "sehingga")}</span>
+                        <input type="date" className={`${inputClass} h-7 w-36 text-xs`} value={sUntil}
+                          min={sDraft.shift_date} onChange={(e) => setSUntil(e.target.value)} />
+                      </label>
+                    )}
+                  </div>
+                  {sRepeat === "days" && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {([[L("Mon", "Isn"), 1], [L("Tue", "Sel"), 2], [L("Wed", "Rab"), 3], [L("Thu", "Kha"), 4], [L("Fri", "Jum"), 5], [L("Sat", "Sab"), 6], [L("Sun", "Ahd"), 0]] as const).map(([l, n]) => {
+                        const on = sDays.includes(n);
+                        return (
+                          <button key={n} type="button"
+                            className={on
+                              ? "bg-gold-solid rounded-md px-2 py-0.5 text-[11px] font-semibold text-white"
+                              : "border-border text-muted-foreground rounded-md border px-2 py-0.5 text-[11px]"}
+                            onClick={() => setSDays((ds) => (on ? ds.filter((x) => x !== n) : [...ds, n]))}>{l}</button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {sRepeat !== "once" && (() => {
+                    const ds = sDates();
+                    if (ds.length === 0) {
+                      return <p className="text-muted-foreground mt-1.5 text-[11px]">
+                        {sRepeat === "days" && sDays.length === 0
+                          ? L("Pick at least one weekday.", "Pilih sekurang-kurangnya satu hari.")
+                          : L("Choose an until date after the start.", "Pilih tarikh sehingga selepas tarikh mula.")}
+                      </p>;
+                    }
+                    return <p className="text-muted-foreground mt-1.5 text-[11px]">
+                      {L(`${ds.length} day${ds.length === 1 ? "" : "s"}: `, `${ds.length} hari: `)}
+                      <span className="tabular-nums">{ds.slice(0, 4).map((x) => dmy(x)).join(", ")}</span>
+                      {ds.length > 4 ? L(` … to ${dmy(ds[ds.length - 1]!)}`, ` … hingga ${dmy(ds[ds.length - 1]!)}`) : ""}
+                    </p>;
+                  })()}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabel} htmlFor="sd-target">{L("Target for the day (RM, optional)", "Sasaran hari itu (RM, pilihan)")}</label>
+                  <input id="sd-target" type="number" inputMode="decimal" min={0} step="1" className={inputClass} value={sDraft.target}
+                    placeholder="e.g. 2000" onChange={(e) => setSDraft({ ...sDraft, target: e.target.value })} />
+                </div>
+                <div>
+                  <label className={fieldLabel} htmlFor="sd-focus">{L("Focus (optional)", "Fokus (pilihan)")}</label>
+                  <input id="sd-focus" className={inputClass} value={sDraft.focus} maxLength={200}
+                    placeholder={L("e.g. follow up the hotel leads", "cth. susuli prospek hotel")}
+                    onChange={(e) => setSDraft({ ...sDraft, focus: e.target.value })} />
+                </div>
+              </div>
+
+              {/* public holidays in the run - named, not refused: a sales day
+                  on a holiday is the CEO's call, and s.60D pays it. */}
+              {(() => {
+                const hol = sDates().filter((d) => holidayAt(d));
+                if (hol.length === 0) return null;
+                return (
+                  <p className="border-danger/40 bg-danger-soft/50 text-danger rounded-lg border px-2.5 py-1.5 text-xs">
+                    <span className="font-semibold">{L("Public holiday in this run: ", "Cuti umum dalam ulangan ini: ")}</span>
+                    <span className="tabular-nums">{hol.map((d) => `${dmy(d)} ${holidayAt(d)!.name}`).join(", ")}</span>
+                    <span className="block font-medium">{L("It stays in the plan if you assign it — a holiday worked is paid at the holiday rate.", "Ia kekal dalam rancangan jika anda tugaskan — cuti umum yang dikerjakan dibayar pada kadar cuti.")}</span>
+                  </p>
+                );
+              })()}
+
+              {(() => {
+                if (!sDraft.user_id) return null;
+                const away = sDates().filter((d) => onLeaveAt(sDraft.user_id, d));
+                if (away.length === 0) return null;
+                const who = staff.find((u) => String(u.id) === sDraft.user_id)?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                return (
+                  <p className="border-danger bg-danger-soft text-danger rounded-lg border px-2.5 py-1.5 text-xs">
+                    <span className="font-semibold">{L(`${who} is on approved leave: `, `${who} bercuti (diluluskan): `)}</span>
+                    <span className="tabular-nums">
+                      {away.slice(0, 4).map((d) => dmy(d)).join(", ")}
+                      {away.length > 4 ? L(` +${away.length - 4} more`, ` +${away.length - 4} lagi`) : ""}
+                    </span>
+                    <span className="block font-medium">
+                      {away.length >= sDates().length
+                        ? L("There is no day left to assign — pick another day, or another person.", "Tiada hari tinggal untuk ditugaskan — pilih hari lain, atau orang lain.")
+                        : L("Those days are skipped; the rest of the run still goes ahead.", "Hari tersebut dilangkau; selebihnya ulangan tetap diteruskan.")}
+                    </span>
+                  </p>
+                );
+              })()}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="text-muted-foreground text-sm underline"
+                onClick={() => setSalesOpen(false)}>{L("Cancel", "Batal")}</button>
+              <button type="button" className={btnClass}
+                disabled={savingSales || !sDraft.user_id || !/^\d{4}-\d{2}-\d{2}$/.test(sDraft.shift_date) || sDraft.end_time <= sDraft.start_time}
+                onClick={async () => {
+                  const days = sDates().filter((d) => !onLeaveAt(sDraft.user_id, d));
+                  if (days.length === 0) {
+                    showToast(L("Not available", "Tidak tersedia"),
+                      L("Every day in this run is approved leave for that person. Pick another day, or another person.",
+                        "Setiap hari dalam ulangan ini ialah cuti diluluskan bagi orang itu. Pilih hari lain, atau orang lain."),
+                      "notice");
+                    return;
+                  }
+                  setSavingSales(true);
+                  const target = sDraft.target.trim() === "" ? null : Math.round(Number(sDraft.target) * 100);
+                  const r = await api<{ days?: number; skipped?: number; error?: { message?: string } }>(`/sales-shifts`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      user_id: Number(sDraft.user_id), dates: days,
+                      start_time: sDraft.start_time, end_time: sDraft.end_time,
+                      target_cents: target, focus: sDraft.focus.trim(),
+                    }),
+                  });
+                  setSavingSales(false);
+                  if (!r.ok) {
+                    showToast(L("Not assigned", "Tidak ditugaskan"),
+                      r.data?.error?.message ?? L("The server refused the assignment", "Pelayan menolak tugasan"), "notice");
+                    return;
+                  }
+                  const who = staff.find((u) => u.id === Number(sDraft.user_id))?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                  const made = r.data?.days ?? 0, skipped = r.data?.skipped ?? 0;
+                  showToast(L("Sales duty assigned", "Tugas jualan ditugaskan"),
+                    (made > 1
+                      ? L(`${who} — ${made} days from ${dmy(days[0]!)}, ${sDraft.start_time}–${sDraft.end_time}.`, `${who} — ${made} hari dari ${dmy(days[0]!)}, ${sDraft.start_time}–${sDraft.end_time}.`)
+                      : `${who} — ${dmy(days[0]!)} ${sDraft.start_time}–${sDraft.end_time}`)
+                    + (skipped > 0 ? L(` ${skipped} already on the plan.`, ` ${skipped} sudah dalam rancangan.`) : ""));
+                  setSalesOpen(false);
+                  setSDraft({ user_id: "", shift_date: "", start_time: "10:00", end_time: "18:00", target: "", focus: "" });
+                  setSRepeat("once"); setSUntil(""); setSDays([]);
+                  void load(week);
+                }}>
+                {savingSales ? L("Assigning…", "Menugaskan…") : L("Assign", "Tugaskan")}
               </button>
             </div>
           </div>

@@ -2,6 +2,60 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.158.0] - 2026-09-13 - The week, whole: public holidays and sales duty on the roster
+
+Two things the CEO asked for on the Schedule & Roster, 13-09-2026, with the
+week of Hari Malaysia on screen.
+
+**Public holidays are on the board.** *"Public Holiday should appear at here
+also since it is no working day."* Wednesday 16-09 was drawn as an ordinary
+day with a live session on it. The holidays table has been the company
+calendar since v1.4.81 - the Events tab paints it, payroll counts it - the
+roster simply never asked. Now it does: the week's holidays sit as red chips
+above the board ("WED 16 · Hari Malaysia · public holiday"), the day header
+names the holiday and the column is tinted on the staff grid, the timeline
+and the phone agenda, the mini calendar shows the date in red, and the legend
+says what the tint means. A replacement holiday is labelled as one. The year
+is fetched once, so paging through weeks costs nothing. It is shown, never
+locked: a host booked on a holiday is paid at the holiday rate (s.60D), so a
+holiday in a run is named in the dialog, not refused.
+
+**Sales duty is the third thing a week is made of.** *"beside of Assigned
+Live, I need to assigned them to perform Sales for the Sales person which is
+need to perform based on the day/date that I pick and assigned."* "+ New
+assignment" now offers Live session, Task and **Sales duty**: a sales person,
+the day or a repeat rule (one-off, every day, pick days, until - the same
+words the task dialog uses), the hours, a target in ringgit if wanted, and a
+focus line. It lands on the person's row as a blue SALES chip with the hours
+and target, counts in the day header and the row summary, shows on the phone
+agenda, and a manager can take it off the plan from its note.
+
+**A plan, never a claim.** A sales duty writes nothing to the Sales
+Performance register and earns no KPI credit by itself (v1.155.0: "no
+evidence means no automatic KPI credit"). Instead the board reads the
+register: beside every shift on a day that has passed rides the number of
+activities that person logged that day - posts, engagements, other work,
+counted server-side with deleted rows excluded - and a planned day that left
+no trace turns amber with a warning mark. The note says so in words: "What
+was done that day is read from the Sales Performance register."
+
+**For the sales person.** The engine refuses anyone outside the roles the
+register measures (Sales & Marketing and Live Host - the CEO's v1.156.0
+rule), and the dialog offers exactly that list, so it never offers what the
+door refuses. Management only; a run of dates is validated and written as a
+whole (62-day cap); approved leave refuses it with the same override door a
+task has; a second assignment on the same day is the same duty and is
+skipped, with the reply saying how many landed; audited in and out.
+
+**Guard #79, `roster-week`** (35 checks; negative-tested five ways).
+Migration `0128_sales_shifts` (one row per person per day, no FOREIGN KEY);
+`LATEST_MIGRATION`, the health probe and `EXPECTED_MIGRATIONS` all read 0128.
+
+Files: `worker/migrations/0128_sales_shifts.sql`, `worker/src/index.ts`,
+`worker/src/staff.ts`, `components/portal/roster-board.tsx`,
+`components/portal/mini-calendar.tsx`, `tests/roster-week.mjs`,
+`scripts/run-guards.mjs`, `package.json`.
+
 ## [1.157.0] - 2026-09-13 - The role, set from the staff record
 
 The CEO, 13-09-2026, with Nurul's record open: *"I want to have a roles
