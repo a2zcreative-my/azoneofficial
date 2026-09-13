@@ -47,6 +47,16 @@ const LV_FILL = "0.988 0.925 0.925";   // on leave
 const LV_TEXT = "0.753 0.161 0.161";
 const TK_FILL = "0.925 0.902 0.965";   // task work (violet), the print twin
 const TK_EDGE = "0.647 0.573 0.847";   // of the on-screen violet chip
+/* v1.158.3 (CEO: "on PDF I cant see there is a Public Holiday!") - the two
+   things the board gained in v1.158.0 that the sheet had not: the holiday
+   column and the sales-duty chip. Print twins of the on-screen colours. */
+const HD_FILL = "0.988 0.925 0.925";   // public holiday column (the leave red, lighter on the cell)
+const HD_CELL = "0.996 0.975 0.975";
+const HD_TEXT = LV_TEXT;
+const SD_FILL = "0.906 0.945 0.988";   // sales duty (the on-screen info blue)
+const SD_EDGE = "0.267 0.529 0.816";
+const SD_WARN_FILL = CF_FILL;          // a planned day that passed with nothing logged
+const SD_WARN_EDGE = CF_EDGE;
 const TODAY_FILL = "0.984 0.969 0.929";
 const BAND_GREY = "0.949 0.957 0.973";
 
@@ -91,6 +101,18 @@ export interface RosterPdfBlock {
   title: string; priority?: string; done_at?: string | null;
 }
 export interface RosterPdfLeave { user_id: number; start_date: string; end_date: string }
+/* v1.158.3 - a day of sales duty, and a public holiday. Optional and last in
+   the call, so a caller on the old build prints yesterday's sheet. */
+export interface RosterPdfShift {
+  id: number; user_id: number; shift_date: string; start_time: string; end_time: string;
+  target_cents?: number | null; focus?: string | null; evidence?: number;
+}
+export interface RosterPdfExtras {
+  holidays?: { date: string; name: string }[];
+  shifts?: RosterPdfShift[];
+  /* v1.158.4 - each person's own rest days, from their working-hours pattern */
+  restDays?: { user_id: number; date: string }[];
+}
 export interface RosterPdfStaff { id: number; name: string }
 
 const minsOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -119,8 +141,16 @@ export function drawRosterGrid(
      still on the old build prints exactly the sheet it printed yesterday
      rather than failing. */
   blocks: RosterPdfBlock[] = [], blockConflictIds: number[] = [],
+  extras: RosterPdfExtras = {},
 ): string {
   const c = new Canvas(LH);
+  const holidayOf = (d: string) => (extras.holidays ?? []).find((h) => h.date === d);
+  const shifts = [...(extras.shifts ?? [])].filter((v) => days.includes(v.shift_date)).sort((a, b) => `${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
+  const durOfS = (x: RosterPdfShift) => { let d = minsOf(x.end_time) - minsOf(x.start_time); if (d <= 0) d += 24 * 60; return Math.max(30, d); };
+  const rmShort = (cents: number) => `RM${Math.round(cents / 100).toLocaleString("en-MY")}`;
+  const offOn = (uid: number, d: string) => (extras.restDays ?? []).some((r) => r.user_id === uid && r.date === d);
+  const OFF_FILL = BAND_GREY;
+  const OFF_TEXT = GREY;
   const active = sessions
     .filter((s) => s.status !== "cancelled")
     .sort((a, b) => `${a.session_date}${a.start_time}`.localeCompare(`${b.session_date}${b.start_time}`));
@@ -158,19 +188,25 @@ export function drawRosterGrid(
   c.text("STAFF", FM + 5, y + 11, 7.5, { bold: true, colour: WHITE, spacing: 0.8 });
   /* Committed hours, both kinds. A total that counts only live sessions
      understates the week on paper exactly as it did on screen. */
-  const totalMins = active.reduce((a, s) => a + durOf(s), 0) + work.reduce((a, b) => a + durOfB(b), 0);
-  c.text(`${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""} · ${hrs(totalMins)}`,
+  const totalMins = active.reduce((a, s) => a + durOf(s), 0) + work.reduce((a, b) => a + durOfB(b), 0) + shifts.reduce((a, x) => a + durOfS(x), 0);
+  c.text(`${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""}${shifts.length > 0 ? ` · ${shifts.length} sales` : ""} · ${hrs(totalMins)}`,
     FM + 5, y + 22, 8, { bold: true, colour: WHITE });
   days.forEach((d, i) => {
     const x = edgeX(i);
     const dayS = active.filter((s) => s.session_date === d);
     const dayB = work.filter((b) => b.block_date === d);
+    const daySh = shifts.filter((v) => v.shift_date === d);
+    const hol = holidayOf(d);
     c.box(x, y, dayW, HEAD_H, NAVY, 0.5);
-    c.rect(x + 0.5, y + 0.5, dayW - 1, HEAD_H - 1, d === todayIso ? TODAY_FILL : BAND_GREY);
-    c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 12, 9.5, { bold: true, align: "c" });
-    const dayMins = dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0);
-    c.text(dayS.length + dayB.length === 0 ? "-" : `${dayS.length + dayB.length} · ${hrs(dayMins)}`,
-      x + dayW / 2, y + 23, 7.5, { colour: GREY, align: "c" });
+    c.rect(x + 0.5, y + 0.5, dayW - 1, HEAD_H - 1, d === todayIso ? TODAY_FILL : hol ? HD_FILL : BAND_GREY);
+    c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 12, 9.5, { bold: true, align: "c", ...(hol ? { colour: HD_TEXT } : {}) });
+    const dayMins = dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0) + daySh.reduce((a, v) => a + durOfS(v), 0);
+    const n = dayS.length + dayB.length + daySh.length;
+    /* the holiday is NAMED in the header - "-" under a red day says nothing;
+       its count, if any, goes after the name only when the column has room */
+    const holLine = hol ? clip(`${hol.name.toUpperCase()}${n > 0 && widthOf(`${hol.name.toUpperCase()} · ${n} · ${hrs(dayMins)}`, 6.5, true) <= dayW - 6 ? ` · ${n} · ${hrs(dayMins)}` : ""}`, 6.5, dayW - 6, true) : "";
+    c.text(hol ? holLine : n === 0 ? "-" : `${n} · ${hrs(dayMins)}`,
+      x + dayW / 2, y + 23, hol ? 6.5 : 7.5, { colour: hol ? HD_TEXT : GREY, align: "c", ...(hol ? { bold: true } : {}) });
   });
   y += HEAD_H;
 
@@ -211,17 +247,19 @@ export function drawRosterGrid(
     minRow: BASE.minRow * k, pad: BASE.pad * k,
   });
 
-  interface Row { u: RosterPdfStaff; mine: RosterPdfSession[]; mineB: RosterPdfBlock[]; h: number }
+  interface Row { u: RosterPdfStaff; mine: RosterPdfSession[]; mineB: RosterPdfBlock[]; mineS: RosterPdfShift[]; h: number }
   const planAt = (k: number): { m: Metrics; rows: Row[]; total: number } => {
     const m = metricsAt(k);
     let total = 0;
     const rows = staff.map((u) => {
       const mine = active.filter((s) => s.host_user_id === u.id);
       const mineB = work.filter((b) => b.user_id === u.id);
+      const mineS = shifts.filter((v) => v.user_id === u.id);
       const maxChips = Math.max(1, ...days.map((d) =>
         mine.filter((s) => s.session_date === d).length
         + mineB.filter((b) => b.block_date === d).length
-        + (leaveOn(u.id, d) ? 1 : 0)));
+        + mineS.filter((v) => v.shift_date === d).length
+        + (leaveOn(u.id, d) || offOn(u.id, d) ? 1 : 0)));
       /* The row is as tall as its busiest cell OR its longest name, whichever
          needs more. Sizing on chips alone would print a three-line name over
          the border of the row below it. */
@@ -229,7 +267,7 @@ export function drawRosterGrid(
       const nameH = m.nameLead + nameLines * m.nameLead + m.totals;
       const h = Math.max(m.minRow, nameH, m.pad * 2 + maxChips * (m.chipH + m.gap) - m.gap);
       total += h;
-      return { u, mine, mineB, h };
+      return { u, mine, mineB, mineS, h };
     });
     return { m, rows, total };
   };
@@ -248,6 +286,7 @@ export function drawRosterGrid(
   const subLines = [
     ...active.map((s2) => `${s2.start_time}${s2.end_time ? `-${s2.end_time}` : ""} · ${durOf(s2)} min`),
     ...work.map((b) => `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task${b.done_at ? " · done" : ""}`),
+    ...shifts.map((v) => `${v.start_time}-${v.end_time} · ${v.shift_date <= todayIso ? `${v.evidence ?? 0} logged` : "sales"}`),
   ];
   const widest = Math.max(0, ...subLines.map((t) => widthOf(t, BASE.chipTime, false)));
   const fitK = widest > 0 ? Math.max(1, (dayW - 12) / widest) : MAX_K;
@@ -265,19 +304,20 @@ export function drawRosterGrid(
   let skippedStaff = 0;
 
   for (const row of plan.rows) {
-    const { u, mine, mineB } = row;
+    const { u, mine, mineB, mineS } = row;
     const rowH = row.h;
     if (y + rowH > footerY - LEGEND_H) { skippedStaff++; continue; }
 
     /* staff cell — the WHOLE name, wrapped, with the totals under it. */
     c.box(FM, y, STAFF_W, rowH, HAIR, 0.5);
     const nameEnd = c.wrap(u.name.trim(), FM + 5, y + M.nameLead, STAFF_W - 10, M.nameSize, M.nameLead, { bold: true });
-    const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0);
+    const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0) + mineS.reduce((a, v) => a + durOfS(v), 0);
     c.text(
-      mine.length + mineB.length === 0
+      mine.length + mineB.length + mineS.length === 0
         ? "nothing booked"
         : [mine.length > 0 ? `${mine.length} live` : "",
            mineB.length > 0 ? `${mineB.length} task${mineB.length === 1 ? "" : "s"}` : "",
+           mineS.length > 0 ? `${mineS.length} sales` : "",
            hrs(myMins)].filter(Boolean).join(" · "),
       FM + 5, nameEnd + M.totals * 0.6, M.totals, { colour: GREY });
 
@@ -286,10 +326,16 @@ export function drawRosterGrid(
       const x = edgeX(i);
       c.box(x, y, dayW, rowH, HAIR, 0.5);
       if (d === todayIso) c.rect(x + 0.5, y + 0.5, dayW - 1, rowH - 1, "0.995 0.989 0.973");
+      else if (holidayOf(d)) c.rect(x + 0.5, y + 0.5, dayW - 1, rowH - 1, HD_CELL);
       let cy = y + M.pad;
       if (leaveOn(u.id, d)) {
         c.rect(x + 2.5, cy, dayW - 5, M.leaveH, LV_FILL);
         c.text("ON LEAVE", x + dayW / 2, cy + M.leaveH * 0.7, M.leaveText, { bold: true, colour: LV_TEXT, align: "c", spacing: 0.6 });
+        cy += M.leaveH + M.gap;
+      } else if (offOn(u.id, d)) {
+        /* v1.158.4 - the person's own rest day, from their pattern */
+        c.rect(x + 2.5, cy, dayW - 5, M.leaveH, OFF_FILL);
+        c.text("OFF DAY", x + dayW / 2, cy + M.leaveH * 0.7, M.leaveText, { bold: true, colour: OFF_TEXT, align: "c", spacing: 0.6 });
         cy += M.leaveH + M.gap;
       }
       /* Both kinds of chip are drawn the same way; only the colours and the
@@ -325,6 +371,16 @@ export function drawRosterGrid(
         chip(fill!, edge!, `${b.priority === "urgent" && !b.done_at ? "! " : ""}${b.title.trim() || "Task"}`,
              `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task${b.done_at ? " · done" : ""}`);
       }
+      /* v1.158.3 - sales duty, under the tasks, as the screen orders it. A
+         plan, never a claim: a passed day with nothing on the register prints
+         amber and says so, exactly as the board does. */
+      for (const v of mineS.filter((w) => w.shift_date === d)) {
+        const past = v.shift_date <= todayIso;
+        const idle = v.shift_date < todayIso && (v.evidence ?? 0) === 0;
+        chip(idle ? SD_WARN_FILL : SD_FILL, idle ? SD_WARN_EDGE : SD_EDGE,
+             `${idle ? "! " : ""}SALES${v.target_cents != null ? ` · ${rmShort(v.target_cents)}` : ""}`,
+             `${v.start_time}-${v.end_time} · ${past ? `${v.evidence ?? 0} logged` : "sales"}`);
+      }
     });
     y += rowH;
   }
@@ -341,7 +397,9 @@ export function drawRosterGrid(
   const legend: [string, string, string][] = [
     ["TikTok", TT_FILL, TT_EDGE], ["Shopee", SP_FILL, SP_EDGE], ["Other", OT_FILL, OT_EDGE],
     ["Task", TK_FILL, TK_EDGE],
+    ["Sales duty", SD_FILL, SD_EDGE],
     ["Completed", OK_FILL, OK_EDGE], ["Conflict", CF_FILL, CF_EDGE], ["On leave", LV_FILL, LV_TEXT],
+    ["Public holiday", HD_FILL, HD_TEXT], ["Off day", OFF_FILL, OFF_TEXT],
   ];
   for (const [label, fill, edge] of legend) {
     c.box(lx, y, 9, 9, edge, 0.6);
@@ -366,10 +424,11 @@ export async function shareRosterPdf(
   days: string[], sessions: RosterPdfSession[], staff: RosterPdfStaff[],
   onLeave: RosterPdfLeave[], conflictIds: number[], generatedBy: string,
   blocks: RosterPdfBlock[] = [], blockConflictIds: number[] = [],
+  extras: RosterPdfExtras = {},
 ): Promise<"shared" | "downloaded"> {
   const weekTag = days[0] ? days[0]!.slice(0, 10) : "week";
   const blob = new Blob(
-    [assemblePdf(drawRosterGrid(days, sessions, staff, onLeave, conflictIds, generatedBy, blocks, blockConflictIds),
+    [assemblePdf(drawRosterGrid(days, sessions, staff, onLeave, conflictIds, generatedBy, blocks, blockConflictIds, extras),
                  [], `A2Z Roster ${weekTag}`, true) as BlobPart],
     { type: "application/pdf" },
   );

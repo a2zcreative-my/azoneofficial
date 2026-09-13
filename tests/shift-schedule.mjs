@@ -21,7 +21,7 @@
  *
  *   node tests/shift-schedule.mjs
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
@@ -156,7 +156,7 @@ const ok = (label, cond, extra = "") => {
    effective_from against today: in force blocks, planned does not. */
 {
   ok("only an assignment already IN FORCE blocks removing a pattern",
-     /WHERE s\.pattern_id = \?1 AND s\.effective_from <= \?2 ORDER BY name/.test(staff),
+     /WHERE s\.pattern_id = \?1 AND s\.effective_from <= \?2\s*AND s\.effective_from = \(SELECT MAX/.test(staff),
      "a plan dated next week has measured nothing and paid nothing");
   ok("planned assignments go with the pattern they point at",
      /DELETE FROM staff_shifts WHERE pattern_id = \?1 AND effective_from > \?2/.test(staff));
@@ -588,6 +588,25 @@ for (const [name, probe] of [
 ]) {
   ok(`${name} is in EXPECTED_MIGRATIONS`, index.includes(`"${name}",`));
   ok(`${name} has a health probe`, new RegExp(probe).test(index));
+}
+
+/* ---- v1.158.4 (CEO: "I have no option to remove the Working Hours
+   pattern!") - a pattern that has history is RETIRED, not deleted; only the
+   people whose CURRENT assignment is the pattern block it. ---- */
+{
+  const del = staff.slice(staff.indexOf("const patDel = path.match("), staff.indexOf('if (path === "/staff-shifts" && method === "POST")'));
+  ok("0129 adds retired_at", existsSync(path.join(root, "worker/migrations/0129_shift_pattern_retire.sql"))
+     && /ALTER TABLE shift_patterns ADD COLUMN retired_at TEXT;/.test(read("worker/migrations/0129_shift_pattern_retire.sql")));
+  ok("0129_shift_pattern_retire is in EXPECTED_MIGRATIONS with a health probe", index.includes('"0129_shift_pattern_retire",') && /SELECT retired_at FROM shift_patterns LIMIT 1/.test(index));
+  ok("only a person whose CURRENT assignment is the pattern blocks its removal",
+     /s\.effective_from = \(SELECT MAX\(s2\.effective_from\) FROM staff_shifts s2\s*WHERE s2\.user_id = s\.user_id AND s2\.effective_from <= \?2\)/.test(del),
+     "a person moved to another pattern from today is history, not a holder");
+  ok("a pattern with history is retired, never deleted", /UPDATE shift_patterns SET retired_at = datetime\('now'\) WHERE id = \?1/.test(del) && /const retired = \(history\?\.n \?\? 0\) > 0;/.test(del));
+  ok("...and one never assigned goes for good", /if \(retired\) \{[\s\S]*?\} else \{\s*await env\.DB\.prepare\(`DELETE FROM shift_patterns WHERE id = \?1`\)/.test(del));
+  ok("the past assignments are kept and counted in the audit", /past_assignments_kept: history\?\.n \?\? 0/.test(del) && !/DELETE FROM staff_shifts WHERE pattern_id = \?1`\)/.test(del));
+  ok("a retired pattern leaves the chip row and the pickers", /SELECT \* FROM shift_patterns WHERE retired_at IS NULL ORDER BY is_default DESC, name/.test(staff));
+  ok("...cannot be assigned again", /SELECT 1 AS x FROM shift_patterns WHERE id = \?1 AND retired_at IS NULL`\)\s*\.bind\(pidS\)/.test(staff));
+  ok("...but shiftOn still reads it, so measured days keep their hours", /SELECT \* FROM shift_patterns`\)\.all<Pat>\(\)/.test(staff));
 }
 
 console.log(

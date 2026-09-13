@@ -94,7 +94,7 @@ const pkg = JSON.parse(read("package.json"));
   {
     const dlg = board.slice(board.indexOf("{salesOpen && ("), board.indexOf("{/* assignment modal (click-to-assign) */}"));
     const live = board.slice(board.indexOf("{assignOpen && ("), board.indexOf("{assignOpen && (") + 4000);
-    ok("the sales-duty card carries the live card's title", /<p className="text-base font-semibold">\{L\("New assignment", "Tugasan baharu"\)\}/.test(dlg));
+    ok("the sales-duty card carries the live card's title", /<p className="text-base font-semibold">\{editingShift != null \? L\("Edit sales duty", "Sunting tugas jualan"\) : L\("New assignment", "Tugasan baharu"\)\}/.test(dlg));
     ok("...the live card's two-column grid", /<div className="mt-3 grid grid-cols-2 gap-2">/.test(dlg) && /<div className="mt-3 grid grid-cols-2 gap-2">/.test(live));
     ok("...the live card's field size, no small variant", /className=\{inputClass\}/.test(dlg) && !/inputClassSm/.test(dlg));
     ok("...and the Repeat box always in view: One-off, Daily, Pick days", /<div className="border-border mt-3 rounded-lg border p-2\.5">\s*<div className="flex flex-wrap items-center gap-1\.5">\s*<span className=\{`\$\{fieldLabel\} mb-0 mr-1`\}>\{L\("Repeat", "Ulang"\)\}/.test(dlg)
@@ -103,6 +103,40 @@ const pkg = JSON.parse(read("package.json"));
     ok("...and the live card's button row", /<div className="mt-4 flex flex-wrap items-center gap-3">/.test(dlg) && /L\("Schedule", "Jadualkan"\)/.test(dlg));
   }
   ok("a manager can take it off the plan", /`\/sales-shifts\/\$\{sh\.id\}`, \{ method: "DELETE" \}/.test(board) && /salesShiftMatch && method === "DELETE"/.test(staff));
+  /* v1.158.2 (CEO, on the note: "I should have a option to edit!") */
+  {
+    const patch = staff.slice(staff.indexOf('salesShiftMatch && method === "PATCH"'), staff.indexOf('path === "/roster" && method === "GET"'));
+    ok("a manager can edit one day of sales duty", /salesShiftMatch && method === "PATCH"/.test(staff) && /can\(user\.role, "team_manage"\)/.test(patch));
+    ok("...under the POST's rules: selling role, approved leave, no second duty that day", /MEASURED_ROLES\.includes\(u\.role\)/.test(patch) && /refuseIfOnLeave\(env, user, who, \[day\]/.test(patch) && /AND shift_date = \?2 AND id != \?3/.test(patch));
+    ok("...audited with what changed", /"roster\.sales_shift_edit"/.test(patch) && /changed\[k\] = \{ from, to \}/.test(patch));
+    ok("the note and the phone bar offer Edit, and it opens the same card prefilled", (board.match(/onClick=\{\(\) => openEditShift\(sh\)\}/g) ?? []).length === 2 && /const openEditShift = \(sh: SalesShift\) => \{/.test(board) && /setEditingShift\(sh\.id\);/.test(board));
+    ok("...in edit mode the Repeat box is hidden and the button says Save changes", /\{editingShift == null && \(\s*<div className="border-border mt-3 rounded-lg border p-2\.5">/.test(board) && /editingShift != null \? L\("Save changes", "Simpan perubahan"\) : L\("Schedule", "Jadualkan"\)/.test(board));
+    ok("...and saves by PATCH, not by delete-and-create", /`\/sales-shifts\/\$\{editingShift\}`, \{\s*method: "PATCH"/.test(board));
+  }
+}
+
+/* ---- 2b. the sheet prints what the board shows (v1.158.3, CEO: "on PDF I
+   cant see there is a Public Holiday!") ---- */
+{
+  const pdf = read("lib/roster-pdf.ts");
+  ok("the board hands the sheet the week's holidays and the sales duty", /shareRosterPdf\([\s\S]{0,400}\{ holidays: data\.days\.filter\(\(d\) => holidayAt\(d\)\)\.map\(\(d\) => \(\{ date: d, name: holidayAt\(d\)!\.name \}\)\), shifts[,} ]/.test(board));
+  ok("...as an optional last argument, so an older caller still prints", /extras: RosterPdfExtras = \{\},\n\): string/.test(pdf) && /extras: RosterPdfExtras = \{\},\n\): Promise/.test(pdf));
+  ok("the holiday is named in the day header and tints the column", /hol\.name\.toUpperCase\(\)/.test(pdf) && /holidayOf\(d\)\) c\.rect\(x \+ 0\.5, y \+ 0\.5, dayW - 1, rowH - 1, HD_CELL\)/.test(pdf));
+  ok("sales duty prints as its own chip, under the tasks, counted in every total", /for \(const v of mineS\.filter\(\(w\) => w\.shift_date === d\)\)/.test(pdf) && /mineS\.length > 0 \? `\$\{mineS\.length\} sales`/.test(pdf) && /shifts\.length > 0 \? ` · \$\{shifts\.length\} sales`/.test(pdf));
+  ok("...amber when a passed day left nothing on the register", /const idle = v\.shift_date < todayIso && \(v\.evidence \?\? 0\) === 0;/.test(pdf));
+  ok("...and both are in the legend", /\["Sales duty", SD_FILL, SD_EDGE\]/.test(pdf) && /\["Public holiday", HD_FILL, HD_TEXT\]/.test(pdf));
+}
+
+/* ---- 2c. each person's OWN off days (v1.158.4, CEO: "should appear of
+   their off-day which is need to add into the Attendance based on their
+   working day and hours pattern") ---- */
+{
+  const roster = staff.slice(staff.indexOf('if (path === "/roster" && method === "GET")'), staff.indexOf("rest_days: restDays,"));
+  ok("/roster reads rest days from the same resolver payroll and the late-flag scan use", /const shiftAtW = await shiftResolver\(env\);/.test(roster) && /if \(sh\.kind === "rest_day"\) restDays\.push/.test(roster));
+  ok("...a manager sees everyone's, a person their own", /: \{ results: \[\{ id: user\.id \}\] \};/.test(roster));
+  ok("the board tags the cell, and never locks it", /const offAt = \(uid: number, d: string\)/.test(board) && /\{!leave && offAt\(u\.id, d\) && \(/.test(board) && /const canDrop = armed != null && !placing && !leave\s*&& \(canManage/.test(board));
+  ok("...names the off people on the phone agenda", /<span className="font-semibold">\{L\("Off day", "Hari cuti"\)\}:<\/span> \{names\.join\(", "\)\}/.test(board));
+  ok("...it is in the legend and on the PDF", /\{L\("Off day", "Hari cuti"\)\}<\/span>/.test(board) && /restDays: data\.rest_days \?\? \[\]/.test(board) && /c\.text\("OFF DAY"/.test(read("lib/roster-pdf.ts")) && /\["Off day", OFF_FILL, OFF_TEXT\]/.test(read("lib/roster-pdf.ts")));
 }
 
 /* ---- 3. for the sales person ---- */
@@ -128,7 +162,7 @@ const pkg = JSON.parse(read("package.json"));
 /* ---- 5. the same rules as a task ---- */
 {
   const route = staff.slice(staff.indexOf('path === "/sales-shifts" && method === "POST"'), staff.indexOf('path === "/roster" && method === "GET"'));
-  ok("management only, both ways", (route.match(/can\(user\.role, "team_manage"\)/g) ?? []).length === 2);
+  ok("management only, all three ways: create, edit, remove", (route.match(/can\(user\.role, "team_manage"\)/g) ?? []).length === 3);
   ok("a run is validated as a whole, capped at 62 days", /dates\.length > 62/.test(route) && /Array\.isArray\(body\?\.dates\)/.test(route));
   ok("approved leave refuses it, with the same override door", /refuseIfOnLeave\(env, user, who, dates, body\?\.leave_override === true\)/.test(route));
   ok("the end must follow the start", /if \(et <= st\) return err/.test(route));
@@ -141,7 +175,7 @@ const pkg = JSON.parse(read("package.json"));
 /* ---- 6. triple-bumped ---- */
 {
   ok("package.json is 1.158.0 or later", /^1\.(158|159|1[6-9]\d|[2-9]\d\d)\./.test(pkg.version), pkg.version);
-  ok("LATEST_MIGRATION is 0128", /const LATEST_MIGRATION = "0128_sales_shifts";/.test(index));
+  ok("LATEST_MIGRATION is 0128 or later", /const LATEST_MIGRATION = "01(2[89]|[3-9]\d)_/.test(index));
   ok("the probe reads the new table", /\["0128 \(sales duty on the roster\)", `SELECT focus FROM sales_shifts LIMIT 1`\]/.test(index));
 }
 

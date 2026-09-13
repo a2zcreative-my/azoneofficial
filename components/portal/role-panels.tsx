@@ -3524,20 +3524,27 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     answer to a refusal is actionable rather than mysterious. */}
                 {editP.id && (
                   <button type="button" className={`${rowBtnDanger} ml-auto`}
-                    title={L("Remove this pattern. Refused if it is the default, or if anybody is still assigned to it.", "Buang corak ini. Ditolak jika ia lalai, atau jika ada sesiapa masih ditetapkan padanya.")}
+                    title={L("Remove this pattern. Refused if it is the default, or if anybody is on it today. Days already measured against it are kept.", "Buang corak ini. Ditolak jika ia lalai, atau jika ada sesiapa berada padanya hari ini. Hari yang telah diukur terhadapnya dikekalkan.")}
                     onClick={async () => {
+                      /* v1.158.4 (CEO: "I have no option to remove the Working
+                         Hours pattern!") - the server now counts only the
+                         people whose CURRENT assignment is this pattern, and
+                         RETIRES a pattern that has history instead of
+                         refusing: it leaves this row and every picker, and
+                         the days already measured against it keep their
+                         hours. The message says which of the two happened. */
                       const yes = await askPat({
                         title: L("Remove this pattern?", "Buang corak ini?"),
                         message: L(
-                          `"${editP.name || L("Untitled", "Tanpa nama")}" will be removed. Anybody still assigned to it must be moved to another pattern first — the system will say so and change nothing if they are.`,
-                          `"${editP.name || "Tanpa nama"}" akan dibuang. Sesiapa yang masih ditetapkan padanya perlu dipindahkan ke corak lain dahulu — sistem akan memberitahu dan tidak mengubah apa-apa jika ada.`,
+                          `"${editP.name || L("Untitled", "Tanpa nama")}" will leave this list and every picker. Anybody on it today must be moved to another pattern first — the system will say who and change nothing if so. Days already measured against it keep their hours.`,
+                          `"${editP.name || "Tanpa nama"}" akan hilang dari senarai ini dan setiap pemilih. Sesiapa yang berada padanya hari ini perlu dipindahkan ke corak lain dahulu — sistem akan memberitahu siapa dan tidak mengubah apa-apa jika ada. Hari yang telah diukur terhadapnya mengekalkan waktunya.`,
                         ),
                         confirmLabel: L("Remove", "Buang"),
                         variant: "danger",
                       });
                       if (!yes) return;
                       await act(`/shift-patterns/${editP.id}`, { method: "DELETE" },
-                        L("Pattern removed.", "Corak dibuang."));
+                        L("Pattern removed — the days already measured against it keep their hours.", "Corak dibuang — hari yang telah diukur terhadapnya mengekalkan waktunya."));
                       setEditP(null);
                     }}>
                     {L("Remove pattern", "Buang corak")}

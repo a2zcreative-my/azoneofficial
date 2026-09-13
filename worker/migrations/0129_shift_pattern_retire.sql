@@ -1,0 +1,14 @@
+-- 0129 - A WORKING-HOURS PATTERN CAN BE RETIRED (v1.158.4).
+-- The CEO, 13-09-2026, on the Working hours card - I have no option to
+-- remove the Working Hours pattern!
+--
+-- He had done exactly what the refusal asked (moved the person to another
+-- pattern from today) and it still refused, because the guard counted every
+-- assignment ever made to the pattern, not the one in force. The days
+-- between 01-09 and 12-09 WERE measured against that pattern, so the row
+-- cannot vanish - shiftOn joins on it and would fall through to the default,
+-- re-flagging a fortnight already paid. But it can leave the chip row and the
+-- pickers. That is what retired_at is - the pattern is gone from every place
+-- a person chooses one, and still there for every day that was measured
+-- against it. NULL means in use.
+ALTER TABLE shift_patterns ADD COLUMN retired_at TEXT;

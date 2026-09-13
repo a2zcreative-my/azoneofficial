@@ -2,6 +2,75 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.158.4] - 2026-09-13 - A working-hours pattern can be retired
+
+The CEO, on the Working hours card: *"I have no option to remove the
+Working Hours pattern!"* He had done exactly what the refusal asked - moved
+Nasuha to another pattern from today - and it still refused, saying she was
+"on this pattern today". She was not: the guard counted every assignment
+ever made to the pattern, not the one in force.
+
+Two changes. Only the people whose CURRENT assignment (the latest dated on or
+before today) is the pattern block its removal, and the message names them.
+And a pattern that has history is now **retired** rather than deleted
+(migration `0129` adds `retired_at`): it leaves the chip row and every picker
+and can never be assigned again, but the row stays, so the days that were
+flagged and paid against it keep their hours - the 01-09 to 12-09 fortnight
+does not get re-measured against the default. A pattern that was never
+assigned - one made by mistake - still goes for good. The confirmation and
+the toast say which of the two happened, and the audit line counts the past
+assignments kept. Guard `shift-schedule` gains nine checks.
+
+**And the roster shows each person's own off days.** The CEO, on the same
+board: *"should appear of their off-day which is need to add into the
+Attendance based on their working day and hours pattern"*. `/roster` now
+reads every person's rest days for the week from the working-hours pattern
+in force on each date - the same resolver payroll and the late-flag scan use
+- so the board shows a weekend where THAT person has one, not where the
+calendar does. A dashed "Off day" tag sits in the cell (leave still wins
+when both apply), the phone agenda names who is off each day, the legend and
+the shared PDF carry it ("OFF DAY"). Shown, never locked: a live booked on a
+rest day is rest-day work, and the roster is where that is decided. Guard
+#79 gains five checks.
+
+Files: `worker/migrations/0129_shift_pattern_retire.sql`, `worker/src/index.ts`,
+`worker/src/staff.ts`, `components/portal/role-panels.tsx`,
+`components/portal/roster-board.tsx`, `lib/roster-pdf.ts`,
+`tests/shift-schedule.mjs`, `tests/roster-week.mjs`, `package.json`.
+
+## [1.158.3] - 2026-09-13 - The roster PDF prints what the board shows
+
+The CEO, holding the shared sheet: *"on PDF I cant see there is a Public
+Holiday!"* The sheet had not been told about either of the two things the
+board gained in v1.158.0. Now the day header of a public holiday is red and
+carries the holiday's name (HARI MALAYSIA), the column is tinted down the
+sheet, and sales duty prints as its own blue SALES chip under the tasks - with
+the target, the hours, and once the day has passed the count of what the
+person logged on the Sales Performance register, amber if nothing. Both are
+counted in the STAFF total, the day totals and each person's line, and both
+are in the legend. The two travel as an optional last argument, so a portal
+still on an older build prints the sheet it printed yesterday rather than
+failing. Guard #79 gains six checks.
+
+Files: `lib/roster-pdf.ts`, `components/portal/roster-board.tsx`,
+`tests/roster-week.mjs`, `package.json`.
+
+## [1.158.2] - 2026-09-13 - Sales duty can be edited
+
+The CEO, on the sales-duty note: *"I should have a option to edit!"* The
+note (and the phone's detail bar) now has **Edit details** beside Remove.
+It opens the same card, prefilled - the person, the date, the hours, the
+target and the focus - with the Repeat box hidden because an amendment
+touches exactly one day, and Save changes instead of Schedule. The engine
+amends the one row in place (`PATCH /sales-shifts/:id`) under the same
+rules as creating one: management only, a selling role only, not onto
+approved leave (same override door), and never a second duty on a day that
+person already has one. The audit line records each field that changed,
+old and new. Guard #79 gains six checks.
+
+Files: `worker/src/staff.ts`, `components/portal/roster-board.tsx`,
+`tests/roster-week.mjs`, `package.json`.
+
 ## [1.158.1] - 2026-09-13 - One card shape; one page from a phone
 
 **The sales-duty card is the live card.** The CEO, on seeing it: *"card is

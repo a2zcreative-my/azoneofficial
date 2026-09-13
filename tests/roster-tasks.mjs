@@ -214,7 +214,9 @@ ok("the block arguments are OPTIONAL and last",
    /generatedBy: string,[\s\S]{0,400}?blocks: RosterPdfBlock\[\] = \[\], blockConflictIds: number\[\] = \[\],/.test(pdf),
    "an older caller must still print yesterday's sheet rather than failing");
 ok("the board hands its blocks to the PDF",
-   /shareRosterPdf\([\s\S]{0,400}?blocks, \[\.\.\.hardBlockIds, \.\.\.softBlockIds\]\)/.test(board),
+   /* v1.158.3: the holidays and sales duty follow the blocks as one more
+      optional argument, so the blocks may be followed by "," as well as ")" */
+   /shareRosterPdf\([\s\S]{0,400}?blocks, \[\.\.\.hardBlockIds, \.\.\.softBlockIds\][,)]/.test(board),
    "the builder can accept them and still be sent nothing");
 
 /* ---- 12. v1.69.2: whole names, on screen and in print ---- */

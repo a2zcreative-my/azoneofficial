@@ -3172,6 +3172,60 @@ export async function handleStaff(
     await audit(env, user.id, "roster.sales_shift_remove", "users", String(row.user_id), { id, date: row.shift_date });
     return json({ ok: true });
   }
+  /* v1.158.2 (CEO, on the sales-duty note: "I should have a option to
+     edit!"). PATCH /sales-shifts/:id amends ONE day - the person, the date,
+     the hours, the target, the focus - under the same rules the POST
+     applies: management only, a selling role only, not onto approved leave
+     (same override door), and never a second duty on a day that person
+     already has one. Audited with what changed, old and new. */
+  if (salesShiftMatch && method === "PATCH") {
+    if (!can(user.role, "team_manage")) return err("forbidden", "Only management can change sales duty", 403);
+    const id = Number(salesShiftMatch[1]);
+    const row = await env.DB.prepare(`SELECT id, user_id, shift_date, start_time, end_time, target_cents, focus FROM sales_shifts WHERE id = ?1`)
+      .bind(id).first<{ id: number; user_id: number; shift_date: string; start_time: string; end_time: string; target_cents: number | null; focus: string | null }>();
+    if (!row) return err("not_found", "That sales duty is no longer on the board", 404);
+    const who = body?.user_id == null ? row.user_id : Number(body.user_id);
+    const day = typeof body?.shift_date === "string" ? body.shift_date : row.shift_date;
+    const st = typeof body?.start_time === "string" ? body.start_time : row.start_time;
+    const et = typeof body?.end_time === "string" ? body.end_time : row.end_time;
+    if (!who || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(st) || !/^\d{2}:\d{2}$/.test(et)) {
+      return err("invalid_input", "user_id, shift_date, start_time and end_time must be well-formed", 400);
+    }
+    if (et <= st) return err("invalid_input", "The end time must be after the start time", 400);
+    const target = body?.target_cents === undefined ? row.target_cents
+      : body.target_cents == null || body.target_cents === "" ? null : Math.round(Number(body.target_cents));
+    if (target != null && (!Number.isFinite(target) || target < 0 || target > 100_000_000)) {
+      return err("invalid_input", "The target must be an amount in ringgit", 400);
+    }
+    const focus = body?.focus === undefined ? (row.focus ?? "") : typeof body.focus === "string" ? body.focus.trim().slice(0, 200) : "";
+    if (who !== row.user_id) {
+      const u = await env.DB.prepare(`SELECT is_active, role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`)
+        .bind(who).first<{ is_active: number; role: string; name: string }>();
+      if (!u || !u.is_active) return err("invalid_input", "That must be an active staff member", 400);
+      if (!MEASURED_ROLES.includes(u.role)) {
+        return err("invalid_input", `${u.name} is not in a selling role - sales duty is for Sales & Marketing and Live Host staff, the people the Sales Performance register measures`, 400);
+      }
+    }
+    if (who !== row.user_id || day !== row.shift_date) {
+      const no = await refuseIfOnLeave(env, user, who, [day], body?.leave_override === true);
+      if (no) return no;
+      const clash = await env.DB.prepare(`SELECT id FROM sales_shifts WHERE user_id = ?1 AND shift_date = ?2 AND id != ?3`)
+        .bind(who, day, id).first();
+      if (clash) return err("conflict", "That person already has sales duty on that day - edit that one, or pick another day", 409);
+    }
+    await env.DB.prepare(
+      `UPDATE sales_shifts SET user_id = ?1, shift_date = ?2, start_time = ?3, end_time = ?4, target_cents = ?5, focus = ?6 WHERE id = ?7`,
+    ).bind(who, day, st, et, target, focus || null, id).run();
+    const changed: Record<string, { from: unknown; to: unknown }> = {};
+    for (const [k, from, to] of [
+      ["user_id", row.user_id, who], ["shift_date", row.shift_date, day], ["start_time", row.start_time, st],
+      ["end_time", row.end_time, et], ["target_cents", row.target_cents, target], ["focus", row.focus ?? "", focus],
+    ] as const) {
+      if (from !== to) changed[k] = { from, to };
+    }
+    await audit(env, user.id, "roster.sales_shift_edit", "users", String(who), { id, changed });
+    return json({ ok: true, changed: Object.keys(changed) });
+  }
 
   if (path === "/roster" && method === "GET") {
     const mgrR = ["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role);
@@ -3418,12 +3472,37 @@ export async function handleStaff(
         salesShifts = q.results;
       } catch { /* pre-0128 - the board is exactly what it was yesterday */ }
 
+      /* v1.158.4 (CEO: "should appear of their off-day which is need to add
+         into the Attendance based on their working day and hours pattern").
+         Each person's OWN rest days, read from the working-hours pattern in
+         force on that date (the same resolver payroll and the late-flag scan
+         use), so the board shows a weekend where THAT person has one - not
+         where the calendar does. A manager sees everyone's; a person sees
+         their own. Shown, never locked: a live on a rest day is paid as
+         rest-day work, and the roster is where that is decided. */
+      const restDays: { user_id: number; date: string; pattern: string }[] = [];
+      try {
+        const shiftAtW = await shiftResolver(env);
+        const { results: people } = mgrR
+          ? await env.DB.prepare(
+              `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+            ).all<{ id: number }>()
+          : { results: [{ id: user.id }] };
+        for (const p of people ?? []) {
+          for (const d of days) {
+            const sh = shiftAtW(p.id, d);
+            if (sh.kind === "rest_day") restDays.push({ user_id: p.id, date: d, pattern: sh.pattern });
+          }
+        }
+      } catch { /* pre-0099 - no patterns, no rest days to show */ }
+
       return json({
         week_start: start, days, manager: mgrR,
         sessions, on_leave: onLeave, conflicts, requests, available_today: available,
         /* Beside the sessions, never merged into them. */
         task_blocks: taskBlocks, unscheduled,
         sales_shifts: salesShifts,
+        rest_days: restDays,
       });
     } catch (e) {
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0056 (live sessions) first", 409);
@@ -8365,9 +8444,11 @@ export async function handleStaff(
   if (path === "/shift-patterns" && method === "GET") {
     if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
     try {
+      /* v1.158.4 - a retired pattern (0129) leaves the chip row and the
+         pickers; its assignments below stay, because they are history. */
       const { results } = await env.DB.prepare(
-        `SELECT * FROM shift_patterns ORDER BY is_default DESC, name`,
-      ).all();
+        `SELECT * FROM shift_patterns WHERE retired_at IS NULL ORDER BY is_default DESC, name`,
+      ).all().catch(() => env.DB.prepare(`SELECT * FROM shift_patterns ORDER BY is_default DESC, name`).all());
       const { results: asg } = await env.DB.prepare(
         `SELECT s.id, s.user_id, s.pattern_id, s.effective_from, p.name AS pattern_name,
                 COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
@@ -8449,7 +8530,7 @@ export async function handleStaff(
            deleted in another tab did the same. */
         const idS = Number(body?.id);
         if (!Number.isInteger(idS) || idS <= 0) return err("invalid_input", "id is required", 400);
-        const havePat = await env.DB.prepare(`SELECT 1 AS x FROM shift_patterns WHERE id = ?1`)
+        const havePat = await env.DB.prepare(`SELECT 1 AS x FROM shift_patterns WHERE id = ?1 AND retired_at IS NULL`)
           .bind(idS).first<{ x: number }>();
         if (!havePat) return err("not_found", "That working-hours pattern no longer exists - reload the page", 404);
         await env.DB.prepare(
@@ -8527,10 +8608,22 @@ export async function handleStaff(
          before today - has days behind it that would be re-flagged, and
          that is the one the message is about. */
       const todayD = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      /* v1.158.4 (CEO: "I have no option to remove the Working Hours
+         pattern!") - he had moved the person to another pattern from today,
+         as the message asked, and it still refused: this counted every
+         assignment ever made to the pattern, not the one IN FORCE. Only the
+         people whose CURRENT assignment (the latest dated on or before today)
+         is this pattern are on it today. Anyone who was on it and has since
+         been moved is history - and history is kept by RETIRING the pattern
+         (0129) rather than deleting it, so shiftOn still finds the hours
+         those days were measured against. */
       const { results: users } = await env.DB.prepare(
         `SELECT DISTINCT COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
            FROM staff_shifts s JOIN users u ON u.id = s.user_id
-          WHERE s.pattern_id = ?1 AND s.effective_from <= ?2 ORDER BY name`,
+          WHERE s.pattern_id = ?1 AND s.effective_from <= ?2
+            AND s.effective_from = (SELECT MAX(s2.effective_from) FROM staff_shifts s2
+                                     WHERE s2.user_id = s.user_id AND s2.effective_from <= ?2)
+          ORDER BY name`,
       ).bind(idD, todayD).all<{ name: string }>();
       if ((users ?? []).length > 0) {
         const who = (users ?? []).map((u) => u.name).slice(0, 6).join(", ");
@@ -8543,10 +8636,21 @@ export async function handleStaff(
       }
       const dropped = await env.DB.prepare(`DELETE FROM staff_shifts WHERE pattern_id = ?1 AND effective_from > ?2`)
         .bind(idD, todayD).run();
-      await env.DB.prepare(`DELETE FROM shift_patterns WHERE id = ?1`).bind(idD).run();
-      await audit(env, user.id, "shift_pattern.delete", "shift_patterns", String(idD),
-                  { name: row.name, future_assignments_removed: dropped.meta?.changes ?? 0 });
-      return json({ ok: true, future_assignments_removed: dropped.meta?.changes ?? 0 });
+      /* Was anybody EVER measured against it? Then it is retired, not
+         deleted: gone from the chip row and every picker, kept for the days
+         that were flagged and paid against it. Never assigned - a pattern
+         made by mistake - it goes for good. */
+      const history = await env.DB.prepare(`SELECT COUNT(*) AS n FROM staff_shifts WHERE pattern_id = ?1`)
+        .bind(idD).first<{ n: number }>();
+      const retired = (history?.n ?? 0) > 0;
+      if (retired) {
+        await env.DB.prepare(`UPDATE shift_patterns SET retired_at = datetime('now') WHERE id = ?1`).bind(idD).run();
+      } else {
+        await env.DB.prepare(`DELETE FROM shift_patterns WHERE id = ?1`).bind(idD).run();
+      }
+      await audit(env, user.id, retired ? "shift_pattern.retire" : "shift_pattern.delete", "shift_patterns", String(idD),
+                  { name: row.name, future_assignments_removed: dropped.meta?.changes ?? 0, past_assignments_kept: history?.n ?? 0 });
+      return json({ ok: true, retired, future_assignments_removed: dropped.meta?.changes ?? 0, past_assignments_kept: history?.n ?? 0 });
     } catch (eD) {
       if (!String(eD).includes("no such table")) throw eD;
       return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
@@ -8562,6 +8666,12 @@ export async function handleStaff(
       return err("invalid_input", "user_id, pattern_id and effective_from (YYYY-MM-DD) are required", 400);
     }
     try {
+      /* v1.158.4 - a retired pattern (0129) can never be assigned again; it
+         exists only for the days already measured against it. */
+      const live = await env.DB.prepare(`SELECT 1 AS x FROM shift_patterns WHERE id = ?1 AND retired_at IS NULL`)
+        .bind(pidS).first<{ x: number }>()
+        .catch(() => env.DB.prepare(`SELECT 1 AS x FROM shift_patterns WHERE id = ?1`).bind(pidS).first<{ x: number }>());
+      if (!live) return err("not_found", "That working-hours pattern is no longer available - pick another", 404);
       await env.DB.prepare(
         `INSERT INTO staff_shifts (user_id, pattern_id, effective_from, created_by)
          VALUES (?1, ?2, ?3, ?4)`,

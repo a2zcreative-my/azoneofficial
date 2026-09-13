@@ -169,6 +169,8 @@ interface RosterData {
   task_blocks?: RosterTaskBlock[];
   unscheduled?: UnscheduledTask[];
   sales_shifts?: SalesShift[];
+  /* v1.158.4 - each person's own rest days, from their working-hours pattern. */
+  rest_days?: { user_id: number; date: string; pattern: string }[];
   requests: { id: number; name: string; company: string | null; category: string | null; created_at: string }[];
   available_today: { id: number; name: string; role: string; photo_key: string | null }[];
 }
@@ -474,6 +476,21 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
     return out;
   };
   const salesStaff = staff.filter((u) => SALES_DUTY_ROLES.includes(u.role ?? ""));
+  /* v1.158.2 (CEO, on the note: "I should have a option to edit!") - the
+     same card, in EDIT mode: prefilled, the Repeat box hidden because an
+     amendment touches exactly one day (as the live card does), Save changes
+     instead of Schedule. */
+  const [editingShift, setEditingShift] = useState<number | null>(null);
+  const openEditShift = (sh: SalesShift) => {
+    setSDraft({
+      user_id: String(sh.user_id), shift_date: sh.shift_date, start_time: sh.start_time, end_time: sh.end_time,
+      target: sh.target_cents == null ? "" : String(Math.round(sh.target_cents / 100)), focus: sh.focus ?? "",
+    });
+    setSRepeat("once"); setSUntil(""); setSDays([]);
+    setEditingShift(sh.id);
+    setOpenShift(null); setNoteAt(null);
+    setSalesOpen(true);
+  };
   const removeShift = useCallback(async (sh: SalesShift) => {
     const r = await api<{ error?: { message?: string } }>(`/sales-shifts/${sh.id}`, { method: "DELETE" });
     if (!r.ok) {
@@ -947,6 +964,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   const softBlockIds = new Set(
     data.conflicts.filter((c) => c.soft).flatMap((c) => c.task_block_ids ?? []));
   const onLeaveCount = new Set(data.on_leave.map((l) => l.user_id)).size;
+  /* v1.158.4 (CEO: "should appear of their off-day which is need to add into
+     the Attendance based on their working day and hours pattern") */
+  const offAt = (uid: number, d: string) => (data.rest_days ?? []).find((r) => r.user_id === uid && r.date === d);
   const gridHeight = (DAY_END - DAY_START) * HOUR_PX;
   const sel = data.sessions.find((s) => s.id === openSession) ?? null;
   /* v1.21.2 (CEO: "should appear the data when I click on the schedule …
@@ -1014,7 +1034,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     day/date that I pick and assigned") */}
                 <button type="button" role="menuitem"
                   className="hover:bg-secondary border-border block w-full border-t px-3 py-2 text-left text-sm"
-                  onClick={() => { setNewMenu(false); setSalesOpen(true); }}>
+                  onClick={() => { setNewMenu(false); setEditingShift(null); setSDraft({ user_id: "", shift_date: todayS, start_time: "10:00", end_time: "18:00", target: "", focus: "" }); setSalesOpen(true); }}>
                   <span className="font-medium">{L("Sales duty", "Tugas jualan")}</span>
                   <span className="text-muted-foreground block text-[11px]">
                     {L("A sales person, the days you pick, a target", "Orang jualan, hari yang anda pilih, sasaran")}
@@ -1109,10 +1129,14 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   /* v1.69.1: the task blocks go with them. A shared plan
                      that shows half the week is worse than no shared plan —
                      it tells the marketing team they are free. */
+                  /* v1.158.3 (CEO: "on PDF I cant see there is a Public
+                     Holiday!"): the holidays and the sales duty go with them
+                     - the sheet prints what the board shows, all of it. */
                   const how = await shareRosterPdf(
                     data.days, data.sessions, staff, data.on_leave,
                     data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal",
-                    blocks, [...hardBlockIds, ...softBlockIds]);
+                    blocks, [...hardBlockIds, ...softBlockIds],
+                    { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })), shifts, restDays: data.rest_days ?? [] });
                   showToast(how === "shared" ? L("Ready to share", "Sedia untuk dikongsi") : L("Downloaded", "Dimuat turun"),
                     `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`
                     + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : ""));
@@ -1258,10 +1282,17 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                     ? L(`${u.name.split(" ").slice(0, 2).join(" ")} is on approved leave this day`,
                                         `${u.name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada hari ini`)
                                     : undefined}
-                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
+                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : offAt(u.id, d) ? "bg-secondary/60" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
                                   onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
+                                  )}
+                                  {/* v1.158.4 - the person's own rest day, from
+                                      their working-hours pattern. Shown, never
+                                      locked: work booked on it is rest-day work. */}
+                                  {!leave && offAt(u.id, d) && (
+                                    <div className="text-muted-foreground rounded-md border border-dashed border-border px-1.5 py-1 text-center text-[10px] font-semibold"
+                                      title={L(`Rest day on ${offAt(u.id, d)!.pattern}`, `Hari rehat pada ${offAt(u.id, d)!.pattern}`)}>{L("Off day", "Hari cuti")}</div>
                                   )}
                                   {cs.map((s) => (
                                     <button key={s.id} type="button"
@@ -1454,6 +1485,10 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                             {canManage && (
                               <div className="mt-2 flex flex-wrap gap-2">
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  onClick={() => openEditShift(sh)}>
+                                  {L("Edit details", "Sunting butiran")}
+                                </button>
+                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={() => void removeShift(sh)}>
                                   {L("✕ Remove from the plan", "✕ Buang dari rancangan")}
                                 </button>
@@ -1471,6 +1506,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                         <span className="inline-flex items-center gap-1"><span className="border-warning bg-warning-soft h-2.5 w-2.5 rounded-sm border" />{L("Conflict", "Pertindihan")}</span>
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft h-2.5 w-2.5 rounded-sm" />{L("On leave", "Bercuti")}</span>
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft/40 border-danger/40 h-2.5 w-2.5 rounded-sm border" />{L("Public holiday", "Cuti umum")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-border bg-secondary/60 h-2.5 w-2.5 rounded-sm border border-dashed" />{L("Off day", "Hari cuti")}</span>
                         <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-plan bg-plan-soft" />{L("Task", "Tugasan")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-info bg-info-soft h-2.5 w-2.5 rounded-sm border" />{L("Sales duty", "Tugas jualan")}</span>
                       </div>
@@ -1740,6 +1776,19 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                       </span>
                     </button>
                   ))}
+                  {/* v1.158.4 - who has a rest day, in one line, so a phone
+                      reader sees the off days without a grid. */}
+                  {(() => {
+                    const off = (data.rest_days ?? []).filter((r) => r.date === d && !onLeaveAt(r.user_id, d));
+                    if (off.length === 0) return null;
+                    const names = off.map((r) => (staff.find((u) => u.id === r.user_id)?.name ?? "").split(" ").slice(0, 2).join(" ")).filter(Boolean);
+                    if (names.length === 0) return null;
+                    return (
+                      <p className="text-muted-foreground mt-1 text-[10px]">
+                        <span className="font-semibold">{L("Off day", "Hari cuti")}:</span> {names.join(", ")}
+                      </p>
+                    );
+                  })()}
                   {/* v1.158.0 - the day's sales duty, under its tasks. */}
                   {shifts.filter((x) => x.shift_date === d).map((sh) => (
                     <button key={`ms${sh.id}`} type="button"
@@ -1787,6 +1836,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                 </span>
                 {canManage && (
                   <span className="flex shrink-0 flex-wrap items-center gap-2">
+                    <button type="button" className={btnSm} onClick={() => openEditShift(sh)}>{L("Edit", "Sunting")}</button>
                     <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setOpenShift(null)}>{L("Close", "Tutup")}</button>
                   </span>
@@ -2446,13 +2496,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
           is typed. One card shape for every kind of assignment. */}
       {salesOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
-          onClick={() => setSalesOpen(false)}>
+          onClick={() => { setSalesOpen(false); setEditingShift(null); }}>
           <div className={`${modalCard} max-h-[90vh] overflow-y-auto`}
             onClick={(e) => e.stopPropagation()}>
-            <p className="text-base font-semibold">{L("New assignment", "Tugasan baharu")} <span className="text-muted-foreground font-normal">· {L("Sales duty", "Tugas jualan")}</span></p>
+            <p className="text-base font-semibold">{editingShift != null ? L("Edit sales duty", "Sunting tugas jualan") : L("New assignment", "Tugasan baharu")} <span className="text-muted-foreground font-normal">· {L("Sales duty", "Tugas jualan")}</span></p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("A sales person, the days you pick, the hours, and a target if you want one. What they actually did that day is read from the Sales Performance register.",
-                 "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu. Apa yang benar-benar dibuat pada hari itu dibaca daripada daftar Prestasi Jualan.")}
+              {editingShift != null
+                ? L("Amend any detail of this one day — the person, the date, the hours, the target or the focus.", "Pinda mana-mana butiran hari ini — orang, tarikh, waktu, sasaran atau fokus.")
+                : L("A sales person, the days you pick, the hours, and a target if you want one. What they actually did that day is read from the Sales Performance register.",
+                    "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu. Apa yang benar-benar dibuat pada hari itu dibaca daripada daftar Prestasi Jualan.")}
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
@@ -2518,7 +2570,9 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
               })()}
             </div>
 
-            {/* the repeat rule - the live card's box, always in view */}
+            {/* the repeat rule - the live card's box, always in view.
+                Hidden in EDIT mode: an amendment touches exactly one day. */}
+            {editingShift == null && (
             <div className="border-border mt-3 rounded-lg border p-2.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className={`${fieldLabel} mb-0 mr-1`}>{L("Repeat", "Ulang")}</span>
@@ -2599,6 +2653,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                    "Aliran: pilih orang, tarikh dan waktu (dan ulangan jika mahu satu siri) → tekan Jadualkan. Setiap hari muncul pada baris mereka sebagai cip JUALAN; selepas hari itu berlalu ia menunjukkan apa yang direkod dalam daftar Prestasi Jualan.")}
               </p>
             </div>
+            )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button type="button" className={btnClass}
@@ -2618,6 +2673,28 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   }
                   setSavingSales(true);
                   const target = sDraft.target.trim() === "" ? null : Math.round(Number(sDraft.target) * 100);
+                  if (editingShift != null) {
+                    const re = await api<{ changed?: string[]; error?: { message?: string } }>(`/sales-shifts/${editingShift}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({
+                        user_id: Number(sDraft.user_id), shift_date: sDraft.shift_date,
+                        start_time: sDraft.start_time, end_time: sDraft.end_time,
+                        target_cents: target, focus: sDraft.focus.trim(),
+                      }),
+                    });
+                    setSavingSales(false);
+                    if (!re.ok) {
+                      showToast(L("Not saved", "Tidak disimpan"), re.data?.error?.message ?? L("The server refused the change", "Pelayan menolak perubahan"), "notice");
+                      return;
+                    }
+                    const whoE = staff.find((u) => u.id === Number(sDraft.user_id))?.name.split(" ").slice(0, 2).join(" ") ?? "";
+                    showToast((re.data?.changed?.length ?? 0) > 0 ? L("Sales duty updated", "Tugas jualan dikemas kini") : L("No changes", "Tiada perubahan"),
+                      `${whoE} — ${dmy(sDraft.shift_date)} ${sDraft.start_time}–${sDraft.end_time}`);
+                    setSalesOpen(false); setEditingShift(null);
+                    setSDraft({ user_id: "", shift_date: todayS, start_time: "10:00", end_time: "18:00", target: "", focus: "" });
+                    void load(week);
+                    return;
+                  }
                   const r = await api<{ days?: number; skipped?: number; error?: { message?: string } }>(`/sales-shifts`, {
                     method: "POST",
                     body: JSON.stringify({
@@ -2644,13 +2721,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   setSRepeat("once"); setSUntil(""); setSDays([]);
                   void load(week);
                 }}>
-                {savingSales ? L("Scheduling…", "Menjadualkan…")
+                {savingSales ? (editingShift != null ? L("Saving…", "Menyimpan…") : L("Scheduling…", "Menjadualkan…"))
                   : !!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d))
                     ? L("On leave — not available", "Bercuti — tidak tersedia")
-                    : L("Schedule", "Jadualkan")}
+                    : editingShift != null ? L("Save changes", "Simpan perubahan") : L("Schedule", "Jadualkan")}
               </button>
               <button type="button" className="text-muted-foreground text-sm underline"
-                onClick={() => setSalesOpen(false)}>{L("Cancel", "Batal")}</button>
+                onClick={() => { setSalesOpen(false); setEditingShift(null); }}>{L("Cancel", "Batal")}</button>
             </div>
           </div>
         </div>
