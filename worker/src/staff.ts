@@ -606,7 +606,15 @@ export type ShiftLookup = (userId: number, iso: string) => DayShift;
        vouches for a block outside the pattern's hours).
    The pattern's half-day threshold and unpaid break carry over, so a
    seven-hour live still earns its break. */
-export function withAssigned(sh: DayShift, list: AssignedAt[]): DayShift {
+/* v1.159.7 - WHOSE DAY A LIVE DEFINES. The CEO, on Nasuha's Overtime card
+   filling with "10:00-18:00 · 7h (2 stretches) · assigned: ELFIA": "more
+   headache on this?!". Nasuha is a sales executive with office hours who was
+   also put on a two-hour ELFIA slot; "a live defines the day" turned her
+   whole office day into time outside the schedule. A live defines the day
+   for a LIVE HOST, whose week is her lives. For everyone else an assignment
+   is ADDED to the pattern - the office hours stand, the slot joins them.
+   `hostDay` says which; the resolver decides it from the person's role. */
+export function withAssigned(sh: DayShift, list: AssignedAt[], hostDay = false): DayShift {
   if (list.length === 0) return sh;
   const merge = (ws: ShiftWindow[]): ShiftWindow[] => {
     const sorted = [...ws].filter((w) => w.end > w.start).sort((a, b) => a.start - b.start);
@@ -620,15 +628,18 @@ export function withAssigned(sh: DayShift, list: AssignedAt[]): DayShift {
   };
   const lives = list.filter((a) => a.kind === "live");
   const label = (a: AssignedAt) => `assigned: ${a.what}`;
-  if (lives.length > 0) {
+  if (hostDay && lives.length > 0) {
     const windows = merge(lives.map((a) => ({ start: a.start, end: a.end })));
     if (windows.length === 0) return sh;
     return { ...sh, kind: "workday", pattern: label(lives[0]!), windows, start: windows[0]!.start, end: windows[windows.length - 1]!.end };
   }
-  if (sh.kind !== "rest_day") return sh;
-  const windows = merge(list.map((a) => ({ start: a.start, end: a.end })));
+  /* everyone else, and a host with only tasks: the assignments JOIN the
+     pattern - a rest day becomes a working day of exactly those hours, a
+     working day keeps its hours and gains the slot */
+  const windows = merge([...sh.windows, ...list.map((a) => ({ start: a.start, end: a.end }))]);
   if (windows.length === 0) return sh;
-  return { ...sh, kind: "workday", pattern: label(list[0]!), windows, start: windows[0]!.start, end: windows[windows.length - 1]!.end };
+  const pattern = sh.kind === "rest_day" ? label(list[0]!) : sh.pattern;
+  return { ...sh, kind: "workday", pattern, windows, start: windows[0]!.start, end: windows[windows.length - 1]!.end };
 }
 
 export async function shiftResolver(env: Env, assigned?: AssignedLookup): Promise<ShiftLookup> {
@@ -638,6 +649,13 @@ export async function shiftResolver(env: Env, assigned?: AssignedLookup): Promis
   }
   let pats: Pat[] = [];
   let assigns: { id: number; user_id: number; pattern_id: number; effective_from: string }[] = [];
+  /* v1.159.7 - who is a live host (a live defines their day); read once */
+  const hosts = new Set<number>();
+  if (assigned) {
+    try {
+      for (const r of (await env.DB.prepare(`SELECT id FROM users WHERE role = 'live_host'`).all<{ id: number }>()).results ?? []) hosts.add(r.id);
+    } catch { /* no hosts, no host days */ }
+  }
   try {
     pats = (await env.DB.prepare(`SELECT * FROM shift_patterns`).all<Pat>()).results ?? [];
     /* Newest first, so the first assignment at or before a date wins - the
@@ -686,7 +704,7 @@ export async function shiftResolver(env: Env, assigned?: AssignedLookup): Promis
     });
   };
   /* v1.159.0 - with the roster in hand, the roster is the day where it speaks */
-  return assigned ? (userId, iso) => withAssigned(base(userId, iso), assigned.list(userId, iso)) : base;
+  return assigned ? (userId, iso) => withAssigned(base(userId, iso), assigned.list(userId, iso), hosts.has(userId)) : base;
 }
 
 /** What somebody was ASSIGNED to be doing at a moment, when their schedule
@@ -806,6 +824,109 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
     by.get(`${userId}|${iso}`)?.find((a) => minutes >= a.start && minutes <= a.end) ?? null) as AssignedLookup;
   lookup.list = (userId, iso) => by.get(`${userId}|${iso}`) ?? [];
   return lookup;
+}
+
+/** v1.159.6 - RE-DERIVE A WHOLE MONTH'S OVERTIME, IN ONE PASS.
+ *
+ * The CEO, 13-09-2026: *"still why 7:00pm to 8:00pm was not appear as OT
+ * for 12th Sep??? you seem still having this bug"*. It was not the rule -
+ * the rule was right since v1.159.4 - it was WHEN the rule ran: only at the
+ * moment a punch was saved. A day whose schedule changed afterwards (the
+ * roster now defining the day, a pattern moved to a new date) kept the
+ * overtime it had derived under the old schedule, or none, until somebody
+ * re-saved a punch on it. Nobody should have to.
+ *
+ * So the Overtime card reconciles the month it shows, every time it opens:
+ * every closed session of every salaried staff member is measured against
+ * the day's schedule AS IT IS NOW, and the PENDING derived rows are made to
+ * match - missing stretches added, stale ones removed. A row the CEO has
+ * already decided is never touched, and a stretch that overlaps a decided
+ * one is not re-offered. Everything is read once (the schedule, the roster,
+ * the holidays, the sessions), so a month costs a handful of queries plus
+ * one insert per new stretch, not eight queries per person-day.
+ */
+export async function reconcileDerivedOt(env: Env, month: string): Promise<{ added: number; removed: number }> {
+  const assigned = await assignedResolver(env, `${month}-01`, `${month}-31`);
+  const shiftAt = await shiftResolver(env, assigned);
+  const hols = new Set((await holidayRows(env, `${month}-01`, `${month}-31`))
+    .filter((h) => ["public", "replacement"].includes(h.kind ?? "public")).map((h) => h.holiday_date));
+  const { results: people } = await env.DB.prepare(
+    `SELECT id, role, employment_status FROM users
+      WHERE is_active = 1 AND role NOT IN ('customer','super_admin','admin','ceo','coo','cco')`,
+  ).all<{ id: number; role: string; employment_status: string | null }>();
+  const salaried = new Set((people ?? [])
+    .filter((p) => p.employment_status !== "part_time" && !isHourlyUser(p.role, p.employment_status))
+    .map((p) => p.id));
+  const sessions = await clockedSessions(env, { month });
+  /* what is already there, decided or pending, keyed by person and day */
+  const { results: existing } = await env.DB.prepare(
+    `SELECT id, user_id, type, created_at, COALESCE(status, 'pending') AS status, COALESCE(user_agent, '') AS ua,
+            date(created_at, '+8 hours') AS d
+       FROM ot_records WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`,
+  ).bind(month).all<{ id: number; user_id: number; type: string; created_at: string; status: string; ua: string; d: string }>();
+  const have = new Map<string, { id: number; type: string; created_at: string; status: string; ua: string }[]>();
+  for (const r of existing ?? []) {
+    const k = `${r.user_id}|${r.d}`;
+    const list = have.get(k) ?? [];
+    list.push(r);
+    have.set(k, list);
+  }
+  const stamp = (day: string, m: number) => new Date(Date.parse(`${day}T00:00:00Z`) + (m - 8 * 60) * 60000)
+    .toISOString().slice(0, 19).replace("T", " ");
+  let added = 0, removed = 0;
+  for (const [k, sess] of sessions) {
+    const [uidS, day] = k.split("|") as [string, string];
+    const uid = Number(uidS);
+    if (!salaried.has(uid) || !day.startsWith(month)) continue;
+    const rows = have.get(k) ?? [];
+    const sh = shiftAt(uid, day);
+    const wanted: { inAt: string; outAt: string }[] = [];
+    if (sh.kind !== "rest_day" && !hols.has(day)) {
+      for (const se of sess) {
+        if (!se.out) continue;
+        const from = mytMinutes(se.in);
+        for (const seg of overtimeSegments(sh.windows, from, from + se.minutes)) {
+          wanted.push({ inAt: stamp(day, seg.from), outAt: stamp(day, Math.min(seg.to, 24 * 60 - 1)) });
+        }
+      }
+    }
+    /* decided rows stand; a wanted stretch that starts inside a decided one is already answered */
+    const decided = rows.filter((r) => r.status !== "pending");
+    const decidedIns = new Set(decided.filter((r) => r.type === "ot_in").map((r) => r.created_at));
+    const pendingDerived = rows.filter((r) => r.status === "pending" && r.ua === "clock:derived");
+    const pendingIns = new Map(pendingDerived.filter((r) => r.type === "ot_in").map((r) => [r.created_at, r.id]));
+    const wantIns = new Set(wanted.map((w) => w.inAt));
+    /* stale pending: a derived stretch the schedule no longer produces */
+    for (const r of pendingDerived) {
+      const anchor = r.type === "ot_in" ? r.created_at : null;
+      if (anchor && !wantIns.has(anchor)) {
+        /* drop the pair - the ot_out that follows it is the next derived out after it */
+        const out = pendingDerived.find((x) => x.type === "ot_out" && x.created_at > r.created_at
+          && !pendingDerived.some((y) => y.type === "ot_in" && y.created_at > r.created_at && y.created_at < x.created_at));
+        await env.DB.prepare(`DELETE FROM ot_records WHERE id IN (?1, ?2)`).bind(r.id, out?.id ?? r.id).run();
+        removed += 1;
+      }
+    }
+    for (const w of wanted) {
+      if (decidedIns.has(w.inAt) || pendingIns.has(w.inAt)) continue;
+      await env.DB.prepare(
+        `INSERT INTO ot_records (user_id, type, user_agent, created_at)
+         VALUES (?1, 'ot_in', 'clock:derived', ?2), (?1, 'ot_out', 'clock:derived', ?3)`,
+      ).bind(uid, w.inAt, w.outAt).run();
+      added += 1;
+    }
+  }
+  /* a person-day with derived pending rows and no sessions at all (punches removed) */
+  for (const [k, rows] of have) {
+    if (sessions.has(k)) continue;
+    const uidS = k.split("|")[0]!;
+    if (!salaried.has(Number(uidS))) continue;
+    const ids = rows.filter((r) => r.status === "pending" && r.ua === "clock:derived").map((r) => r.id);
+    if (ids.length === 0) continue;
+    await env.DB.prepare(`DELETE FROM ot_records WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).run();
+    removed += 1;
+  }
+  return { added, removed };
 }
 
 /** Every person's shift for one date, in one pass - for the register, the
@@ -930,7 +1051,7 @@ export async function deriveOtForDay(
   /* v1.159.4 - measured against the day's ASSIGNED schedule (withAssigned):
      a host booked 11:00-19:00 who clocks 10:00-20:00 has one hour of
      overtime, 19:00-20:00, whatever her weekly pattern says. */
-  const sh = withAssigned(await shiftOn(env, userId, day), (await assignedResolver(env, day, day)).list(userId, day));
+  const sh = withAssigned(await shiftOn(env, userId, day), (await assignedResolver(env, day, day)).list(userId, day), role === "live_host");
   if (sh.kind === "rest_day") return 0;
   const holiday = await env.DB.prepare(
     `SELECT 1 AS x FROM holidays WHERE holiday_date = ?1 AND COALESCE(kind, 'public') IN ('public','replacement') LIMIT 1`,
@@ -2560,7 +2681,7 @@ export async function handleStaff(
        for — the work goes on the roster first, then the clock. */
     const assignedToday = (await assignedResolver(env, todayMYT, todayMYT)).list(user.id, todayMYT);
     /* v1.159.0 - the roster is the day where it speaks (withAssigned) */
-    const shEarly = withAssigned(await shiftOn(env, user.id, todayMYT), assignedToday);
+    const shEarly = withAssigned(await shiftOn(env, user.id, todayMYT), assignedToday, user.role === "live_host");
     const slotsToday = daySlots(shEarly.windows, assignedToday.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     if (body.type === "clock_in" && !openNow) {
       const mytNowP = new Date(punchAt.getTime() + 8 * 3600 * 1000);
@@ -2929,6 +3050,14 @@ export async function handleStaff(
       return err("forbidden", "OT approvals are for the CEO/COO", 403);
     }
     try {
+      /* v1.159.6 - the card shows the month AS THE SCHEDULE IS NOW: the
+         present month and the one before are reconciled on every open, so a
+         schedule that changed after the punches were saved is reflected
+         without anybody re-saving a punch. */
+      const nowOt = new Date(Date.now() + 8 * 3600 * 1000);
+      const thisM = nowOt.toISOString().slice(0, 7);
+      const prevM = new Date(Date.UTC(nowOt.getUTCFullYear(), nowOt.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+      try { await reconcileDerivedOt(env, prevM); await reconcileDerivedOt(env, thisM); } catch { /* the list below still answers */ }
       /* v1.133.0 — a day may now hold MORE THAN ONE overtime stretch (an
          early start and a late finish, each read off its own session), so
          the day's minutes are the sum of its pairs, not last-out minus
@@ -3750,7 +3879,7 @@ export async function handleStaff(
       return err("shift_open", "You are still clocked in on a shift. Clock out first - overtime starts after your working schedule.", 409);
     }
     const asgO = (await assignedResolver(env, todayO, todayO)).list(user.id, todayO);
-    const shO = withAssigned(await shiftOn(env, user.id, todayO), asgO);
+    const shO = withAssigned(await shiftOn(env, user.id, todayO), asgO, user.role === "live_host");
     const slotsO = daySlots(shO.windows, asgO.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     const verdictO = canClockIn(slotsO, sessO, minsO);
     /* v1.139.0 - a rest day is ONE decision, and the route has to hold that
@@ -4065,7 +4194,9 @@ export async function handleStaff(
          roster and live-board assignments, and which are already clocked
          in for, so the phone can disable Clock in when nothing is left. */
       const asgT = (await assignedResolver(env, tdy, tdy)).list(forUser, tdy);
-      const shT = withAssigned(await shiftOn(env, forUser, tdy), asgT);
+      const roleT = forUser === user.id ? user.role
+        : (await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(forUser).first<{ role: string }>())?.role ?? "";
+      const shT = withAssigned(await shiftOn(env, forUser, tdy), asgT, roleT === "live_host");
       const slotsT = daySlots(shT.windows, asgT.map((a) => ({ start: a.start, end: a.end, what: a.what })));
       const sessT = pairSessions((results as { type: string; created_at: string }[])
         .filter((r) => new Date(new Date(r.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10) === tdy)

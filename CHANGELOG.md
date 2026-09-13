@@ -2,6 +2,49 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.7] - 2026-09-13 - A live defines the day for a host; for everyone else it joins the pattern
+
+The CEO, on Nasuha's Overtime card filling with "02-09 · 10:00-18:00 · 7h
+(2 stretches) · assigned: ELFIA": *"more headache on this?!"*
+
+Nasuha is a sales executive with office hours who was also put on a
+two-hour ELFIA slot. v1.159.0's "a live defines the day" turned her whole
+office day into time outside the schedule, and the new reconcile (v1.159.6)
+dutifully offered it all as overtime. A live defines the day for a LIVE
+HOST, whose week is her lives. For everyone else an assignment now JOINS
+the pattern: the office hours stand and the slot is added to them; a rest
+day with an assignment becomes a working day of exactly those hours. The
+resolver reads who the hosts are once. The Overtime card's next open
+removes the stale stretches and offers only what lies after the schedule -
+for Nasuha's 02-09 to 08-09 that is the hour past her 17:00 finish where
+she clocked out at 18:00, and nothing else. Guards `shift-schedule` and
+`clock-sessions` updated.
+
+Files: `worker/src/staff.ts`, `tests/shift-schedule.mjs`,
+`tests/clock-sessions.mjs`, `package.json`.
+
+## [1.159.6] - 2026-09-13 - The Overtime card reconciles the month on every open
+
+The CEO, on Nurul's 12-09 (11:00-20:00 for an 11:00-19:00 live) still
+showing no overtime: *"still why 7:00pm to 8:00pm was not appear as OT for
+12th Sep??? you seem still having this bug"*.
+
+It was not the rule - v1.159.4 got the rule right - it was WHEN the rule
+ran: only at the moment a punch was saved. A day whose schedule changed
+afterwards (the roster now defining the day, a pattern moved to a new date)
+kept the overtime it had derived under the old schedule, or none, until
+somebody re-saved a punch on it. Nobody should have to. The Overtime card
+now reconciles the present month and the one before every time it opens:
+every closed session of every salaried staff member is measured against the
+day's schedule as it is now, missing stretches are added as pending and
+stale ones removed. A row the CEO has already approved or rejected is never
+touched. Everything is read once - the schedule, the roster, the holidays,
+the sessions - so a month costs a handful of queries. Nurul's 12-09 and
+13-09 therefore each offer 19:00-20:00 the next time the card opens. Guard
+`clock-sessions` gains three checks.
+
+Files: `worker/src/staff.ts`, `tests/clock-sessions.mjs`, `package.json`.
+
 ## [1.159.5] - 2026-09-13 - The effective date is a date box
 
 The CEO, refused a second time on the Working hours card: *"that is why I

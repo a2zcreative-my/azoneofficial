@@ -103,7 +103,7 @@ const ok = (label, cond, extra = "") => {
      reuses it. The property is that the classifier's `sh` IS that person's
      shift for today. */
   ok("the punch classifier resolves the person's shift",
-     /const shEarly = withAssigned\(await shiftOn\(env, user\.id, todayMYT\), assignedToday\);/.test(staff) && /const sh = shEarly;/.test(staff));
+     /const shEarly = withAssigned\(await shiftOn\(env, user\.id, todayMYT\), assignedToday, user\.role === "live_host"\);/.test(staff) && /const sh = shEarly;/.test(staff));
   ok("a rest-day punch is flagged as one, not as an early-out",
      /if \(sh\.kind === "rest_day"\) \{\s*flag = "rest_day";/.test(staff),
      "measuring a Saturday against hours that do not apply produced a false early_out");
@@ -629,13 +629,16 @@ for (const [name, probe] of [
    "attendance should capture this staff working hours/days") - the roster is
    the schedule on the days it speaks. ---- */
 {
-  ok("withAssigned exists and a live session defines the day", /export function withAssigned\(sh: DayShift, list: AssignedAt\[\]\): DayShift/.test(staff)
-     && /const lives = list\.filter\(\(a\) => a\.kind === "live"\);/.test(staff)
+  ok("withAssigned exists and a live session defines the day - for a LIVE HOST (v1.159.7)", /export function withAssigned\(sh: DayShift, list: AssignedAt\[\], hostDay = false\): DayShift/.test(staff)
+     && /if \(hostDay && lives\.length > 0\) \{/.test(staff)
      && /return \{ \.\.\.sh, kind: "workday", pattern: label\(lives\[0\]!\), windows, start: windows\[0\]!\.start/.test(staff));
-  ok("...a task or sales duty turns a rest day into a working day, and leaves a working day alone", /if \(sh\.kind !== "rest_day"\) return sh;/.test(staff));
+  ok("...for everyone else an assignment JOINS the pattern: a rest day becomes those hours, a working day keeps its hours and gains the slot",
+     /const windows = merge\(\[\.\.\.sh\.windows, \.\.\.list\.map\(\(a\) => \(\{ start: a\.start, end: a\.end \}\)\)\]\);/.test(staff)
+     && /const pattern = sh\.kind === "rest_day" \? label\(list\[0\]!\) : sh\.pattern;/.test(staff));
+  ok("...and the resolver knows who the hosts are, read once", /SELECT id FROM users WHERE role = 'live_host'/.test(staff) && /hosts\.has\(userId\)\) : base;/.test(staff));
   ok("...the break and half-day threshold carry over from the pattern", /return \{ \.\.\.sh, kind: "workday"/.test(staff));
   ok("the resolver applies it when handed the roster", /export async function shiftResolver\(env: Env, assigned\?: AssignedLookup\)/.test(staff)
-     && /return assigned \? \(userId, iso\) => withAssigned\(base\(userId, iso\), assigned\.list\(userId, iso\)\) : base;/.test(staff));
+     && /return assigned \? \(userId, iso\) => withAssigned\(base\(userId, iso\), assigned\.list\(userId, iso\), hosts\.has\(userId\)\) : base;/.test(staff));
   ok("the punch, today's shift, the verification, the register, the export and the absence scan all hand it the roster",
      /const shEarly = withAssigned\(/.test(staff) && /const shO = withAssigned\(/.test(staff) && /const shT = withAssigned\(/.test(staff)
      && /shiftResolver\(env, assignedAtV\)/.test(staff) && /shiftResolver\(env, assignedAtR\)/.test(staff) && /shiftResolver\(env, assignedAtE\)/.test(staff) && /shiftResolver\(env, assignedAtA\)/.test(staff));

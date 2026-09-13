@@ -114,8 +114,21 @@ const D = "2026-09-07";
      7pm") - arriving early is not overtime; the late finish is. */
   ok("an early start is not overtime; the late finish is the one stretch",
      JSON.stringify(cd.overtimeSegments(day, H(9), H(19))) === JSON.stringify([{ from: H(17), to: H(19), minutes: 120 }]));
+  /* v1.159.6 (CEO: "still why 7:00pm to 8:00pm was not appear as OT for
+     12th Sep???") - the rule was right; it only ran when a punch was saved.
+     The Overtime card now reconciles the month against the schedule as it
+     is NOW, every time it opens. */
+  ok("the Overtime card reconciles the present and previous month on every open",
+     /export async function reconcileDerivedOt\(env: Env, month: string\)/.test(read("worker/src/staff.ts"))
+     && /await reconcileDerivedOt\(env, prevM\); await reconcileDerivedOt\(env, thisM\);/.test(read("worker/src/staff.ts")));
+  ok("...reading the schedule with the roster, once for the month",
+     /const shiftAt = await shiftResolver\(env, assigned\);[\s\S]{0,4000}?const sessions = await clockedSessions\(env, \{ month \}\);/.test(read("worker/src/staff.ts")));
+  ok("...never touching a decided row - only pending derived stretches are added or removed",
+     /const decided = rows\.filter\(\(r\) => r\.status !== "pending"\);/.test(read("worker/src/staff.ts"))
+     && /r\.status === "pending" && r\.ua === "clock:derived"/.test(read("worker/src/staff.ts"))
+     && /if \(decidedIns\.has\(w\.inAt\) \|\| pendingIns\.has\(w\.inAt\)\) continue;/.test(read("worker/src/staff.ts")));
   ok("...and the derivation measures against the day's assigned schedule",
-     /const sh = withAssigned\(await shiftOn\(env, userId, day\), \(await assignedResolver\(env, day, day\)\)\.list\(userId, day\)\);/.test(read("worker/src/staff.ts")));
+     /const sh = withAssigned\(await shiftOn\(env, userId, day\), \(await assignedResolver\(env, day, day\)\)\.list\(userId, day\), role === "live_host"\);/.test(read("worker/src/staff.ts")));
   ok("a rest day: every minute clocked is outside",
      JSON.stringify(cd.overtimeSegments([], H(11), H(15))) === JSON.stringify([{ from: H(11), to: H(15), minutes: 240 }]));
   ok("packing up is not a shift: 17:00-17:20 is nothing", cd.overtimeSegments(day, H(11), H(17, 20)).length === 0,
