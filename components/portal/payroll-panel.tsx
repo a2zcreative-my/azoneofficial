@@ -1241,6 +1241,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               let n = 0;
               const carried: string[] = [];
               const held: string[] = [];
+              /* v1.159.3 (CEO: "previous month should not update the base, it
+                 is only the present month which is to avoid that they
+                 manipulate the payslip which is incorrect!") - a base change
+                 is carried into the PRESENT month only. A month that has
+                 passed is a payslip that was paid; it keeps its figures
+                 whatever the base becomes now. */
+              const presentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+              const pastMonth = month < presentMonth;
               for (const u of staff) {
                 const oldBase = base[u.id] ?? 0;
                 const newBase = baseDraft[u.id] ?? 0;
@@ -1249,7 +1257,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 if (!res.ok) continue;
                 n++;
                 if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
-                if (release?.released) { held.push(u.name); continue; }
+                if (pastMonth || release?.released) { held.push(u.name); continue; }
                 const cur = entry(u.id);
                 /* v1.159.2 (CEO: "Once I click on Save Base Salaries button,
                    it should update automatically Basic!") - the base IS the
@@ -1280,7 +1288,10 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               } else {
                 const parts = [L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`)];
                 if (carried.length) parts.push(L(`${month} Basic re-filled and saved: ${carried.join(", ")}.`, `Gaji pokok ${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
-                if (held.length) parts.push(release?.released
+                if (held.length) parts.push(pastMonth
+                  ? L(`${month} has passed, so its Basic was left as paid for ${held.join(", ")} - the new base applies from ${presentMonth}.`,
+                      `${month} sudah berlalu, jadi Gaji pokoknya dikekalkan seperti yang dibayar untuk ${held.join(", ")} - asas baharu terpakai dari ${presentMonth}.`)
+                  : release?.released
                   ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
                       `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
                   : L(`Basic for ${held.join(", ")} could not be saved - press Save on the row.`,

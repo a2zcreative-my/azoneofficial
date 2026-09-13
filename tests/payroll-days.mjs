@@ -490,14 +490,15 @@ const AUG = (() => {
 {
   const panel = read("components/portal/payroll-panel.tsx");
   const i = panel.indexOf('api(`/payroll/base`, { method: "POST"');
-  const win = i < 0 ? "" : panel.slice(i, i + 3000);
+  const win = i < 0 ? "" : panel.slice(i - 1200, i + 3000);
   ok("saving a base carries it into EVERY row of the open month and saves them (v1.159.2: the base IS the Basic)",
      /if \(cur\.basic_cents === newBase\) continue;\s*const next: Entry = \{ \.\.\.cur, basic_cents: newBase \};/.test(win) && /await api\(`\/payroll`, \{/.test(win)
      && !/const following = /.test(win),
      "a table that disagrees with the panel above it is a bug however the manual explains it");
-  ok("a month already released to staff is left as saved",
-     /if \(release\?\.released\) \{ held\.push\(u\.name\); continue; \}/.test(win),
-     "a payslip somebody has read does not change under them");
+  ok("a month already released to staff, or a month that has passed, is left as saved (v1.159.3: the present month only)",
+     /if \(pastMonth \|\| release\?\.released\) \{ held\.push\(u\.name\); continue; \}/.test(win)
+     && /const pastMonth = month < presentMonth;/.test(win),
+     "a payslip somebody has read - or been paid - does not change under them");
   ok("the re-filled row is priced with THE formula, on the row about to be written",
      /net_cents: netFor\(u\.id, next\)/.test(win) && /const netFor = \(id: number, override\?: Entry\)/.test(panel),
      "netFor(u.id) would price the OLD basic still in React state");

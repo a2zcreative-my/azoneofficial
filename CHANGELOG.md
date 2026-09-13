@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.3] - 2026-09-13 - A base change reaches the present month only
+
+The CEO, straight after v1.159.2: *"previous month should not update the
+base, it is only the present month which is to avoid that they manipulate
+the payslip which is incorrect!"* A month that has passed is a payslip that
+was paid. Save base salaries now carries the new base into the present
+month only; with an earlier month on screen the base is still saved for the
+future, every row of that month keeps the figure it was paid, and the toast
+says the new base applies from the present month. A released month is
+still held as before.
+
+Files: `components/portal/payroll-panel.tsx`, `tests/payroll-days.mjs`,
+`package.json`.
+
 ## [1.159.2] - 2026-09-13 - The base is the Basic; approved overtime is the OT box
 
 The CEO, on the Payroll tab: *"Once I click on Save Base Salaries button, it
