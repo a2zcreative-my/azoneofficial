@@ -611,10 +611,18 @@ for (const [name, probe] of [
      person! there is a duplication of working days and hours!") */
   const un = staff.slice(staff.indexOf("const asgDel = path.match("), staff.indexOf('"staff_shift.unassign"'));
   ok("a SUPERSEDED assignment may be removed - one still in force may not", /const superseded = rowX\.effective_from <= todayX && Boolean\(/.test(un) && /if \(rowX\.effective_from <= todayX && !superseded\)/.test(un));
-  ok("...only with the re-measure confirmed", /if \(superseded && body\?\.confirm_remeasure !== true\)/.test(un) && /"confirm_required"/.test(un));
+  ok("...only with the re-measure confirmed", /if \(superseded && !confirmed\)/.test(un) && /"confirm_required"/.test(un));
   const panel = panels;
   ok("the chip row shows what is in force and what is planned; superseded ones sit behind a toggle", /kindOf\(a\) !== "past"/.test(panel) && /Show history \(\$\{past\.length\} superseded\)/.test(panel));
-  ok("...and a superseded chip is removable with the consequence spelled out", /Remove and re-measure/.test(panel) && /confirm_remeasure: true/.test(panel));
+  ok("...and a superseded chip is removable with the consequence spelled out", /Remove and re-measure/.test(panel) && /\?confirm_remeasure=1`, \{ method: "DELETE" \}/.test(panel));
+  /* v1.159.5 (CEO: "I can change the effective date which is easier for me
+     to update the effective date!") */
+  const mv = staff.slice(staff.indexOf("const asgMove = path.match("), staff.indexOf("const asgDel = path.match("));
+  ok("an assignment's effective date can be moved, by HR, never onto a date the person already has one", /asgMove && method === "PATCH"/.test(mv) && /can\(user\.role, "hr_manage"\)/.test(mv)
+     && /WHERE user_id = \?1 AND effective_from = \?2 AND id != \?3 LIMIT 1/.test(mv) && /UPDATE staff_shifts SET effective_from = \?1 WHERE id = \?2/.test(mv));
+  ok("...audited with both dates, and the person told when it touches today or later", /"staff_shift\.move"/.test(mv) && /from: rowM\.effective_from, to: toM/.test(mv) && /if \(toM >= todayM \|\| rowM\.effective_from >= todayM\)/.test(mv));
+  ok("...the confirmation of a re-measure arrives on the query string - a DELETE carries no parsed body", /searchParams\.get\("confirm_remeasure"\) === "1"/.test(staff));
+  ok("the date on every chip is a date box", /setAsgEdit\(\{ id: a\.id, date: a\.effective_from \}\)/.test(panel) && /method: "PATCH", body: JSON\.stringify\(\{ effective_from: d \}\)/.test(panel));
 }
 
 /* ---- v1.159.0 (CEO, on a live host's Saturday flagged "rest day":

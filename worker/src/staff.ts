@@ -927,7 +927,10 @@ export async function deriveOtForDay(
     .bind(userId).first<{ employment_status: string | null }>();
   if (me?.employment_status === "part_time") return 0;
   if (await isHourlyUserId(env, userId)) return 0;
-  const sh = await shiftOn(env, userId, day);
+  /* v1.159.4 - measured against the day's ASSIGNED schedule (withAssigned):
+     a host booked 11:00-19:00 who clocks 10:00-20:00 has one hour of
+     overtime, 19:00-20:00, whatever her weekly pattern says. */
+  const sh = withAssigned(await shiftOn(env, userId, day), (await assignedResolver(env, day, day)).list(userId, day));
   if (sh.kind === "rest_day") return 0;
   const holiday = await env.DB.prepare(
     `SELECT 1 AS x FROM holidays WHERE holiday_date = ?1 AND COALESCE(kind, 'public') IN ('public','replacement') LIMIT 1`,
@@ -8809,6 +8812,43 @@ export async function handleStaff(
     return json({ ok: true }, 201);
   }
 
+  /* v1.159.5 - MOVE AN ASSIGNMENT'S EFFECTIVE DATE. The CEO, 13-09-2026:
+     "that is why I asked you that I can change the effective date which is
+     easier for me to update the effective date! this is too much which is
+     unnecessary flow that cause me so much works to monitor!" One date box
+     on the chip, then: any assignment - planned, in force or superseded -
+     can be moved to another date. The days between the old and the new date
+     are re-measured against whatever pattern is in force for them after the
+     move; that is the point of moving it. Never onto a date the person
+     already has an assignment on. Audited with both dates; the person is
+     told when the move touches today or the future. */
+  const asgMove = path.match(/^\/staff-shifts\/(\d+)$/);
+  if (asgMove && method === "PATCH") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    const idM = Number(asgMove[1]);
+    const toM = typeof body?.effective_from === "string" ? body.effective_from : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(toM)) return err("invalid_input", "effective_from (YYYY-MM-DD) is required", 400);
+    const rowM = await env.DB.prepare(
+      `SELECT s.user_id, s.pattern_id, s.effective_from, p.name AS pattern_name
+         FROM staff_shifts s JOIN shift_patterns p ON p.id = s.pattern_id WHERE s.id = ?1`,
+    ).bind(idM).first<{ user_id: number; pattern_id: number; effective_from: string; pattern_name: string }>().catch(() => null);
+    if (!rowM) return err("not_found", "That assignment no longer exists", 404);
+    if (rowM.effective_from === toM) return json({ ok: true, unchanged: true });
+    const clashM = await env.DB.prepare(
+      `SELECT id FROM staff_shifts WHERE user_id = ?1 AND effective_from = ?2 AND id != ?3 LIMIT 1`,
+    ).bind(rowM.user_id, toM, idM).first();
+    if (clashM) return err("conflict", `They already have an assignment starting ${toM} - move or remove that one first`, 409);
+    await env.DB.prepare(`UPDATE staff_shifts SET effective_from = ?1 WHERE id = ?2`).bind(toM, idM).run();
+    await audit(env, user.id, "staff_shift.move", "users", String(rowM.user_id),
+                { pattern_id: rowM.pattern_id, from: rowM.effective_from, to: toM });
+    const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    if (toM >= todayM || rowM.effective_from >= todayM) {
+      await notify(env, rowM.user_id, "attendance",
+        `Your working hours (${rowM.pattern_name}) now apply from ${toM} instead of ${rowM.effective_from}.`, `shift:${rowM.user_id}:${toM}:mv`);
+    }
+    return json({ ok: true, from: rowM.effective_from, to: toM });
+  }
+
   /* v1.134.1 - REMOVE AN ASSIGNMENT. There was no way to: the chips were
      read-only, so a wrong pattern given to the wrong person from the wrong
      date could only be papered over with another assignment on top. The
@@ -8841,7 +8881,10 @@ export async function handleStaff(
       return err("invalid_input",
         `This assignment has been in force since ${rowX.effective_from}; the days since then were measured against it. To change the hours, assign another pattern from a new date - that supersedes it without touching what was already measured.`, 400);
     }
-    if (superseded && body?.confirm_remeasure !== true) {
+    /* the client sends the confirmation on the query string - a DELETE
+       carries no parsed body here (see the body rule at the top) */
+    const confirmed = body?.confirm_remeasure === true || new URL(request.url).searchParams.get("confirm_remeasure") === "1";
+    if (superseded && !confirmed) {
       return err("confirm_required",
         `${rowX.pattern_name} was superseded by a later assignment. Removing it re-measures the days from ${rowX.effective_from} until the later one started against the hours before it. Confirm to go ahead.`, 409);
     }

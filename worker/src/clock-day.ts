@@ -149,9 +149,20 @@ export function outsideBlocks(blocks: Block[], from: number, to: number): Segmen
  * working schedule." For one closed session, the segments outside the
  * person's blocks that are long enough to be a shift rather than a
  * lingering. On a rest day every minute is outside.
+ *
+ * v1.159.4 - AFTER the schedule, not before it. The CEO, 13-09-2026, on a
+ * host clocked 10:00-20:00 for an 11:00-19:00 live: *"her OT is 7pm to 8pm.
+ * her working schedule is 11am to 7pm"*. Arriving early is not overtime -
+ * nobody asked for the hour before the shift - so the stretch before the
+ * first block is dropped. Time after the last block, and time worked
+ * through a gap between two blocks, still counts. On a rest day, with no
+ * blocks at all, the whole session still counts.
  */
 export function overtimeSegments(blocks: Block[], from: number, to: number): Segment[] {
-  return outsideBlocks(blocks, from, to).filter((s) => s.minutes >= OT_MIN_MINUTES);
+  const firstStart = blocks.length > 0 ? Math.min(...blocks.map((b) => b.start)) : null;
+  return outsideBlocks(blocks, from, to)
+    .filter((s) => firstStart === null || s.from >= firstStart)
+    .filter((s) => s.minutes >= OT_MIN_MINUTES);
 }
 
 /**

@@ -110,8 +110,12 @@ const D = "2026-09-07";
      "the CEO chose 'outside their scheduled blocks' over 'anything after 18:00'");
   ok("...and 20:00-23:00 on that pattern is one hour of overtime, 22:00-23:00",
      JSON.stringify(cd.overtimeSegments(split, H(20), H(23))) === JSON.stringify([{ from: H(22), to: H(23), minutes: 60 }]));
-  ok("an early start and a late finish are two stretches",
-     cd.overtimeSegments(day, H(9), H(19)).length === 2);
+  /* v1.159.4 (CEO: "her OT is 7pm to 8pm. her working schedule is 11am to
+     7pm") - arriving early is not overtime; the late finish is. */
+  ok("an early start is not overtime; the late finish is the one stretch",
+     JSON.stringify(cd.overtimeSegments(day, H(9), H(19))) === JSON.stringify([{ from: H(17), to: H(19), minutes: 120 }]));
+  ok("...and the derivation measures against the day's assigned schedule",
+     /const sh = withAssigned\(await shiftOn\(env, userId, day\), \(await assignedResolver\(env, day, day\)\)\.list\(userId, day\)\);/.test(read("worker/src/staff.ts")));
   ok("a rest day: every minute clocked is outside",
      JSON.stringify(cd.overtimeSegments([], H(11), H(15))) === JSON.stringify([{ from: H(11), to: H(15), minutes: 240 }]));
   ok("packing up is not a shift: 17:00-17:20 is nothing", cd.overtimeSegments(day, H(11), H(17, 20)).length === 0,

@@ -42,7 +42,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -2846,6 +2846,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      new pattern read as two people. Only what is IN FORCE and what is
      PLANNED show by default; superseded assignments sit behind a toggle. */
   const [showAsgHistory, setShowAsgHistory] = useState(false);
+  /* v1.159.5 (CEO: "I can change the effective date which is easier for me
+     to update the effective date!") - the date on a chip is a date box. */
+  const [asgEdit, setAsgEdit] = useState<{ id: number; date: string } | null>(null);
   const clickSort = (k: "name" | "type" | "time" | "mark") => {
     if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
     else { setSortKey(k); setSortDir(1); }
@@ -3629,7 +3632,34 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                                     : superseded ? L("Superseded - a later assignment is in force. The days it covered were measured against it.", "Digantikan - penetapan kemudian berkuat kuasa. Hari yang diliputinya diukur terhadapnya.")
                                     : L("In force. To change the hours, assign another pattern from a new date.", "Berkuat kuasa. Untuk menukar waktu, tetapkan corak lain dari tarikh baharu.")}>
                       <span className="font-medium">{properName(a.name)}</span>
-                      <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}{future ? ` · ${L("planned", "dirancang")}` : superseded ? ` · ${L("superseded", "digantikan")}` : ""}</span>
+                      <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} </span>
+                      {canHours && asgEdit?.id === a.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <input type="date" className={`${inputClass} h-6 w-36 px-1.5 py-0 text-xs`} value={asgEdit.date}
+                            aria-label={L("Effective from", "Berkuat kuasa dari")}
+                            onChange={(e) => setAsgEdit({ id: a.id, date: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Escape") setAsgEdit(null); }} />
+                          <button type="button" className={btnSm}
+                            disabled={!/^\d{4}-\d{2}-\d{2}$/.test(asgEdit.date) || asgEdit.date === a.effective_from}
+                            onClick={async () => {
+                              const d = asgEdit.date;
+                              setAsgEdit(null);
+                              await act(`/staff-shifts/${a.id}`, { method: "PATCH", body: JSON.stringify({ effective_from: d }) },
+                                L(`${properName(a.name)} - ${a.pattern_name} now applies from ${d}.`, `${properName(a.name)} - ${a.pattern_name} kini terpakai dari ${d}.`));
+                            }}>
+                            {L("Save", "Simpan")}
+                          </button>
+                          <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setAsgEdit(null)}>{L("Cancel", "Batal")}</button>
+                        </span>
+                      ) : (
+                        <button type="button"
+                          className={`tabular-nums underline decoration-dotted underline-offset-2 ${canHours ? "hover:text-primary" : "cursor-default no-underline"}`}
+                          title={canHours ? L("Change the effective date", "Tukar tarikh berkuat kuasa") : undefined}
+                          onClick={() => { if (canHours) setAsgEdit({ id: a.id, date: a.effective_from }); }}>
+                          {a.effective_from}
+                        </button>
+                      )}
+                      <span className="text-muted-foreground">{future ? ` · ${L("planned", "dirancang")}` : superseded ? ` · ${L("superseded", "digantikan")}` : ""}</span>
                       {canHours && future && (
                         <button type="button" className="text-muted-foreground hover:text-danger ml-1"
                           aria-label={L(`Withdraw ${a.pattern_name} for ${properName(a.name)} from ${a.effective_from}`, `Tarik balik ${a.pattern_name} untuk ${properName(a.name)} dari ${a.effective_from}`)}
@@ -3652,7 +3682,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                               variant: "danger",
                             });
                             if (!yes) return;
-                            void act(`/staff-shifts/${a.id}`, { method: "DELETE", body: JSON.stringify({ confirm_remeasure: true }) },
+                            void act(`/staff-shifts/${a.id}?confirm_remeasure=1`, { method: "DELETE" },
                               L(`Removed - ${properName(a.name)}'s days from ${a.effective_from} are measured against their earlier hours.`, `Dibuang - hari ${properName(a.name)} dari ${a.effective_from} diukur terhadap waktu terdahulu mereka.`));
                           }}>
                           ✕

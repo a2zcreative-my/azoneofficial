@@ -2,6 +2,47 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.5] - 2026-09-13 - The effective date is a date box
+
+The CEO, refused a second time on the Working hours card: *"that is why I
+asked you that I can change the effective date which is easier for me to
+update the effective date! this is too much which is unnecessary flow that
+cause me so much works to monitor!"*
+
+He is right. The date on every assignment chip is now a date box: press it,
+pick the new date, Save. Any assignment - planned, in force or superseded -
+can be moved; the days between the old and the new date are re-measured
+against whatever pattern is in force for them after the move, which is the
+point of moving it; never onto a date the person already has an assignment
+on. Audited with both dates, and the person is told when the move touches
+today or later. Removing a superseded assignment also works now: the
+confirmation was sent in a body a DELETE does not carry, so the engine
+answered "confirm to go ahead" to a confirmation it never saw - it travels
+on the query string now. Guard `shift-schedule` gains four checks.
+
+Files: `worker/src/staff.ts`, `components/portal/role-panels.tsx`,
+`tests/shift-schedule.mjs`, `package.json`.
+
+## [1.159.4] - 2026-09-13 - Overtime is after the assigned schedule
+
+The CEO, on Nurul's 13-09 - clocked 10:00 to 20:00 for an 11:00-19:00 live,
+with the Overtime card offering "10:00-11:00 · 1h": *"something wrong
+overhere, her clock out is 8pm which is her OT is 7pm to 8pm. her working
+schedule is 11am to 7pm"*.
+
+Two things. The overtime derived at clock-out was measured against the
+weekly pattern, not the day's assigned live; it now reads the day the way
+everything else has since v1.159.0 - the roster is the schedule where it
+speaks - so the 11:00-19:00 live is the day's hours. And arriving early is
+no longer overtime: the stretch before the first scheduled block is dropped
+(nobody asked for the hour before the shift), while time after the last
+block, or worked through a gap between two blocks, still counts, and a rest
+day with nothing scheduled still counts in full. Nurul's 13-09 therefore
+offers one hour, 19:00-20:00. Guard `clock-sessions` updated.
+
+Files: `worker/src/clock-day.ts`, `worker/src/staff.ts`,
+`tests/clock-sessions.mjs`, `package.json`.
+
 ## [1.159.3] - 2026-09-13 - A base change reaches the present month only
 
 The CEO, straight after v1.159.2: *"previous month should not update the
