@@ -1924,9 +1924,8 @@ export async function handleStaff(
        - admin-tier accounts (super_admin/admin) can never be touched here,
          and those roles can never be assigned here
        - you cannot change your own role
-       - DOMAIN POLICY nuance: personal-email (Google) accounts may hold
-         staff roles ONLY as part_time — permanent staff still require an
-         @COMPANY_DOMAIN account created through staff onboarding
+       - (until v1.157.0) personal-email accounts were forced to part_time;
+         the CEO lifted that on 13-09-2026 - see below
      Takes effect immediately: getSessionUser reads the role per request.
 
      v1.157.0 (CEO, 13-09-2026, on a staff record: "I want to have a roles
@@ -1974,15 +1973,12 @@ export async function handleStaff(
     if (target.role === newRole && (!newStatus || newStatus === target.employment_status)) {
       return json({ ok: true, role: newRole, employment_status: target.employment_status, unchanged: true });
     }
-    const isCompanyEmail = target.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
-    let status = newStatus;
-    if (newRole !== "customer" && !isCompanyEmail) {
-      // Personal-email promotion → part-time only.
-      if (status && status !== "part_time") {
-        return err("domain_policy", `Personal-email accounts can only hold part-time roles — permanent staff need an @${env.COMPANY_DOMAIN} account`, 400);
-      }
-      status = "part_time";
-    }
+    /* v1.157.0 - a personal email no longer forces part time (CEO, 13-09-2026:
+       "it is supposed to Live Host instead of Live Host Part Time!" - the
+       super admin's choice wins, and here the status given is the choice;
+       none given keeps the record's status). The admin tier still needs a
+       company email, and that door is not on this route at all. */
+    const status = newStatus;
     await env.DB.prepare(
       `UPDATE users SET role = ?1, employment_status = COALESCE(?2, employment_status) WHERE id = ?3`,
     ).bind(newRole, status, id).run();

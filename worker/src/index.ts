@@ -5248,14 +5248,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("forbidden", `Only a super admin can create a ${roleWantedC} account`, 403);
     }
     const email = (body.email as string).toLowerCase().trim();
-    // v1.4.180: domain policy aligned with the portal (v1.4.156–157) —
-    // personal emails CAN hold staff roles but only as part_time; permanent
-    // staff and admin-tier roles require a company email.
+    // v1.4.180: domain policy aligned with the portal (v1.4.156–157).
+    // v1.157.0: the super admin's choice wins - a personal email no longer
+    // forces part_time; only the live_host_part_time alias does. Admin-tier
+    // roles still require a company email.
     const companyMailC = email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
     if (["super_admin", "admin"].includes(roleWantedC) && !companyMailC) {
       return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
     }
-    const forcePartTimeC = isPartTimeAliasC || (roleWantedC !== "customer" && !companyMailC);
+    const forcePartTimeC = isPartTimeAliasC;
     // Check the email conflict explicitly, so a constraint failure elsewhere
     // (e.g. a role the database does not yet allow) is never mislabelled as
     // "email already exists".
@@ -5296,9 +5297,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     // Escalation guards: an admin manages everyone below super admin, but can
     // never modify a super admin, mint one, or change their own role.
-    const target = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+    const target = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
       .bind(id)
-      .first<{ role: string }>();
+      .first<{ role: string; employment_status: string | null }>();
     if (!target) return errorResponse("not_found", "User not found", 404);
     /* v1.5.0: admin-tier targets require SUPER admin. ceo and admin share a
        rank, so a CEO (no content_manage permission) could previously reset an
@@ -5327,9 +5328,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        now follows the SAME policy as the portal route (v1.4.156–157):
        — role changes are SUPER ADMIN only (CEO's security directive);
        — "live_host_part_time" is an accepted alias = live_host + part_time;
-       — STAFF roles on personal emails are ALLOWED but employment_status is
-         FORCED to part_time (permanent needs @company email);
-       — admin-tier roles still hard-require a company email. */
+       — admin-tier roles still hard-require a company email.
+
+       v1.157.0 - THE SUPER ADMIN'S CHOICE WINS. Until now a staff role on a
+       personal email was FORCED to part_time whatever was picked, so the CEO
+       chose "live_host" for a Gmail account, the page said "Saved - role
+       changed to live host", and the row still read live_host_part_time.
+       The CEO, 13-09-2026: "why roles was not change? it is supposed to Live
+       Host instead of Live Host Part Time!" - and, asked, chose that the
+       super admin's explicit choice decides. So: the alias still means
+       part time; a PLAIN staff role means full staff - if the account was
+       part time it becomes permanent (the exact status - contract,
+       probation - is set on the Staff tab), otherwise its status is kept.
+       The email no longer forces anything except the admin tier. */
     if (typeof body.role === "string") {
       const isPartTimeAlias = body.role === "live_host_part_time";
       const roleWanted = isPartTimeAlias ? "live_host" : body.role;
@@ -5337,19 +5348,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         if (!atLeast(user, "super_admin")) {
           return errorResponse("forbidden", "Role changes are reserved for the super admin (CEO security directive)", 403);
         }
-        let forcePartTime = isPartTimeAlias;
-        if (roleWanted !== "customer") {
+        if (["super_admin", "admin"].includes(roleWanted)) {
           const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
             .bind(id).first<{ email: string }>();
           const companyMail = !!acct && acct.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
-          if (["super_admin", "admin"].includes(roleWanted) && !companyMail) {
+          if (!companyMail) {
             return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
           }
-          if (!companyMail) forcePartTime = true; // personal email → part-time staff
         }
-        if (forcePartTime) {
+        if (isPartTimeAlias) {
           await env.DB.prepare(`UPDATE users SET role = ?1, employment_status = 'part_time' WHERE id = ?2`).bind(roleWanted, id).run();
           changed.push("role", "employment_status=part_time");
+        } else if (roleWanted !== "customer" && target.employment_status === "part_time") {
+          await env.DB.prepare(`UPDATE users SET role = ?1, employment_status = 'permanent' WHERE id = ?2`).bind(roleWanted, id).run();
+          changed.push("role", "employment_status=permanent");
         } else {
           await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(roleWanted, id).run();
           changed.push("role");

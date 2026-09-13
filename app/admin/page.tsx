@@ -685,9 +685,13 @@ interface AdminUser {
 // customer is the cleanup path the domain policy (v1.4.42) depends on.
 /* v1.4.180 (CEO): live_host_part_time is a real option — role live_host with
    employment_status part_time, assignable to ANY email (Google accounts
-   included). Other staff roles on personal emails are auto-forced part-time
-   by the server per the v1.4.156–157 policy. */
-const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
+   included).
+   v1.157.0 (CEO: "it is supposed to Live Host instead of Live Host Part
+   Time!"): the super admin's choice wins. A personal email no longer forces
+   part time - the alias means part time, a plain role means full staff, and
+   a part-time account given a plain role becomes permanent (refine on the
+   Staff tab). The confirmation below says so before it happens. */
+const ROLES =["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
 
 function UsersPanel({ me }: { me: User }) {
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -844,9 +848,16 @@ function UsersPanel({ me }: { me: User }) {
                     disabled={u.id === me.id || locked}
                     onChange={(e) => {
                       const newRole = e.target.value;
+                      const wasPartTime = u.employment_status === "part_time";
+                      const toPartTime = newRole === "live_host_part_time";
+                      const statusNote = toPartTime && !wasPartTime
+                        ? L(" Their employment status becomes part time.", " Status pekerjaan mereka menjadi separuh masa.")
+                        : !toPartTime && wasPartTime && newRole !== "customer"
+                          ? L(" They stop being part time: status becomes permanent (set contract or probation on the Staff tab if that is wrong).", " Mereka tidak lagi separuh masa: status menjadi tetap (tetapkan kontrak atau percubaan di tab Kakitangan jika itu salah).")
+                          : "";
                       void userConfirm({
                         title: L("Confirm Role Change", "Sahkan Pertukaran Peranan"),
-                        message: L(`Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?`, `Adakah anda pasti mahu menukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}?`),
+                        message: L(`Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?${statusNote}`, `Adakah anda pasti mahu menukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}?${statusNote}`),
                         confirmLabel: L("Change Role", "Tukar Peranan"),
                       }).then((ok) => {
                         if (ok) void patch(u.id, { role: newRole }, L(`Role changed to ${newRole.replace(/_/g, " ")}`, `Peranan ditukar kepada ${newRole.replace(/_/g, " ")}`));

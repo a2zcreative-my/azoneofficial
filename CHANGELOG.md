@@ -30,7 +30,21 @@ staff; the most it can do is move a staff member between working roles, and
 that is written to the audit log with the old role, the new role, who did it
 and why.
 
-**Guard #78, `role-assign`** (17 checks): `PERMS.role_assign` is exactly
+**And the super admin's choice wins on the Users page.** The CEO, later the
+same day, after picking "live_host" for a Gmail account and watching the row
+stay `live_host_part_time`: *"why roles was not change? it is supposed to
+Live Host instead of Live Host Part Time!"* The role HAD changed; the
+v1.4.157 domain rule had then forced the status back to part time because the
+email was personal, and the page showed role and status as one label. Asked
+how to resolve it, the CEO chose that his explicit choice decides. So on all
+three doors - the Users page, Add user, and the staff record's new field - a
+personal email no longer forces anything (the admin tier still needs a
+company email). `live_host_part_time` still means live host, part time. A
+plain role means full staff: an account that was part time becomes
+permanent, and the confirmation says so before it happens; contract or
+probation can then be set on the Staff tab.
+
+**Guard #78, `role-assign`** (24 checks): `PERMS.role_assign` is exactly
 `ceo` and `coo` and the client's `ROLE_ASSIGN_ROLES` is the same list; the
 route's `WORKING_ROLES` are the five and the client offers the same five; an
 executive may assign only those and may not touch an executive, customer or
@@ -38,11 +52,11 @@ admin account; the self-change refusal stands; the audit line carries from,
 to, `by_role` and the bounded reason; the control renders only behind
 `canSetRole` and is not a field of Save. Negative-tested by widening
 `role_assign`, adding `ceo` to the working list, and dropping the
-`canSetRole` condition.
+`canSetRole` condition; section 7 holds the three doors to the lifted rule.
 
-Files: `worker/src/permissions.ts`, `worker/src/staff.ts`, `lib/org-tree.ts`,
-`components/staff/staff-directory.tsx`, `tests/role-assign.mjs`,
-`scripts/run-guards.mjs`, `package.json`.
+Files: `worker/src/permissions.ts`, `worker/src/staff.ts`, `worker/src/index.ts`,
+`lib/org-tree.ts`, `components/staff/staff-directory.tsx`, `app/admin/page.tsx`,
+`tests/role-assign.mjs`, `scripts/run-guards.mjs`, `package.json`.
 
 ## [1.156.0] - 2026-09-12 - Sign in: a door, not a form on a white page
 

@@ -88,6 +88,24 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
   ok("and asks for an optional reason", /Reason \(optional\)/.test(dir) && /reason: r\.value/.test(dir));
 }
 
+/* ---- 7. the super admin's choice wins (CEO, 13-09-2026: "it is supposed to
+   Live Host instead of Live Host Part Time!") - a personal email no longer
+   forces part time on any of the three doors; the alias still does; a plain
+   role lifts a part-time account to permanent on the Users page; the admin
+   tier still needs a company email. ---- */
+{
+  const index = read("worker/src/index.ts");
+  const admin = read("app/admin/page.tsx");
+  const patch = index.slice(index.indexOf("v1.157.0 - THE SUPER ADMIN'S CHOICE WINS"), index.indexOf("revoke-sessions"));
+  ok("PATCH /users/:id no longer forces part time by email", !/if \(!companyMail\) forcePartTime = true/.test(patch) && !/forcePartTime\b/.test(patch));
+  ok("...the alias still means part time", /if \(isPartTimeAlias\) \{\s*await env\.DB\.prepare\(`UPDATE users SET role = \?1, employment_status = 'part_time'/.test(patch));
+  ok("...a plain role lifts a part-time account to permanent", /target\.employment_status === "part_time"\) \{\s*await env\.DB\.prepare\(`UPDATE users SET role = \?1, employment_status = 'permanent'/.test(patch));
+  ok("...and the admin tier still needs a company email", /Admin-tier roles require an @\$\{env\.COMPANY_DOMAIN\} email/.test(patch));
+  ok("POST /users forces part time only for the alias", /const forcePartTimeC = isPartTimeAliasC;/.test(index));
+  ok("the staff route honours the status given and forces nothing by email", /const status = newStatus;/.test(route) && !/Personal-email promotion/.test(route) && !/status = "part_time"/.test(route));
+  ok("the Users page says what happens to the status before it happens", /status becomes permanent/.test(admin) && /status becomes part time/.test(admin) && /\$\{statusNote\}/.test(admin));
+}
+
 console.log(failed === 0
   ? `role-assign: ${passed} checks passed.`
   : `\n${failed} role-assign check(s) failed.`);
