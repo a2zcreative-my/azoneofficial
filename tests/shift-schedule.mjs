@@ -162,7 +162,7 @@ const ok = (label, cond, extra = "") => {
      /DELETE FROM staff_shifts WHERE pattern_id = \?1 AND effective_from > \?2/.test(staff));
   ok("an assignment can be withdrawn on its own", /path\.match\(\/\^\\\/staff-shifts\\\/\(\\d\+\)\$\/\)/.test(staff) && /"staff_shift\.unassign"/.test(staff));
   ok("...but not one already in force",
-     /if \(rowX\.effective_from <= todayX\) \{[\s\S]{0,300}?the days since then were measured against it/.test(staff),
+     /if \(rowX\.effective_from <= todayX && !superseded\) \{[\s\S]{0,300}?the days since then were measured against it/.test(staff),
      "the days behind it were measured against it; it is superseded from a new date instead");
   ok("the chip offers the × only on a planned assignment", /\{canHours && future && \(/.test(panels));
 }
@@ -607,6 +607,14 @@ for (const [name, probe] of [
   ok("a retired pattern leaves the chip row and the pickers", /SELECT \* FROM shift_patterns WHERE retired_at IS NULL ORDER BY is_default DESC, name/.test(staff));
   ok("...cannot be assigned again", /SELECT 1 AS x FROM shift_patterns WHERE id = \?1 AND retired_at IS NULL`\)\s*\.bind\(pidS\)/.test(staff));
   ok("...but shiftOn still reads it, so measured days keep their hours", /SELECT \* FROM shift_patterns`\)\.all<Pat>\(\)/.test(staff));
+  /* v1.158.5 (CEO: "why working hour unable to remove by this specific
+     person! there is a duplication of working days and hours!") */
+  const un = staff.slice(staff.indexOf("const asgDel = path.match("), staff.indexOf('"staff_shift.unassign"'));
+  ok("a SUPERSEDED assignment may be removed - one still in force may not", /const superseded = rowX\.effective_from <= todayX && Boolean\(/.test(un) && /if \(rowX\.effective_from <= todayX && !superseded\)/.test(un));
+  ok("...only with the re-measure confirmed", /if \(superseded && body\?\.confirm_remeasure !== true\)/.test(un) && /"confirm_required"/.test(un));
+  const panel = panels;
+  ok("the chip row shows what is in force and what is planned; superseded ones sit behind a toggle", /kindOf\(a\) !== "past"/.test(panel) && /Show history \(\$\{past\.length\} superseded\)/.test(panel));
+  ok("...and a superseded chip is removable with the consequence spelled out", /Remove and re-measure/.test(panel) && /confirm_remeasure: true/.test(panel));
 }
 
 console.log(

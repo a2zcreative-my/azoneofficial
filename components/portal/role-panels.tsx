@@ -2841,6 +2841,11 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   /* v1.80.1 — removing a pattern is not undoable, so it asks first. */
   const { confirm: askPat, node: askPatNode } = useConfirm();
+  /* v1.158.5 (CEO: "there is a duplication of working days and hours!") -
+     the chip row showed every assignment ever made, so a person moved to a
+     new pattern read as two people. Only what is IN FORCE and what is
+     PLANNED show by default; superseded assignments sit behind a toggle. */
+  const [showAsgHistory, setShowAsgHistory] = useState(false);
   const clickSort = (k: "name" | "type" | "time" | "mark") => {
     if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
     else { setSortKey(k); setSortDir(1); }
@@ -3593,33 +3598,80 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
               </button>
             </div>
           </div>
-          {assignments.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {assignments.map((a) => {
-                /* v1.134.1 - a planned assignment (dated ahead) can be
-                   withdrawn here; one already in force cannot, because the
-                   days behind it were measured against it - it is
-                   superseded by assigning from a new date instead. */
-                const future = a.effective_from > new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-                return (
-                  <span key={a.id} className={`${chipNeutral} ${future ? "border-gold border border-dashed" : ""}`}
-                    title={future ? L("Planned - starts on this date. Press × to withdraw it.", "Dirancang - bermula pada tarikh ini. Tekan × untuk menariknya balik.")
-                                  : L("In force. To change the hours, assign another pattern from a new date.", "Berkuat kuasa. Untuk menukar waktu, tetapkan corak lain dari tarikh baharu.")}>
-                    <span className="font-medium">{properName(a.name)}</span>
-                    <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}{future ? ` · ${L("planned", "dirancang")}` : ""}</span>
-                    {canHours && future && (
-                      <button type="button" className="text-muted-foreground hover:text-danger ml-1"
-                        aria-label={L(`Withdraw ${a.pattern_name} for ${properName(a.name)} from ${a.effective_from}`, `Tarik balik ${a.pattern_name} untuk ${properName(a.name)} dari ${a.effective_from}`)}
-                        onClick={() => void act(`/staff-shifts/${a.id}`, { method: "DELETE" },
-                          L(`Withdrawn - ${properName(a.name)} stays on their current hours.`, `Ditarik balik - ${properName(a.name)} kekal pada waktu semasa.`))}>
-                        ✕
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {assignments.length > 0 && (() => {
+            /* v1.134.1 - a planned assignment (dated ahead) can be withdrawn
+               here; one in force cannot, because the days behind it were
+               measured against it - it is superseded by assigning from a new
+               date instead.
+               v1.158.5 - and a SUPERSEDED one (a later assignment for the
+               same person is already in force) is history: hidden unless
+               asked for, and removable with the consequence spelled out. */
+            const todayA = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+            const currentOf = new Map<number, string>();
+            for (const a of assignments) {
+              if (a.effective_from > todayA) continue;
+              const cur = currentOf.get(a.user_id);
+              if (!cur || a.effective_from > cur) currentOf.set(a.user_id, a.effective_from);
+            }
+            const kindOf = (a: typeof assignments[number]): "future" | "current" | "past" =>
+              a.effective_from > todayA ? "future" : currentOf.get(a.user_id) === a.effective_from ? "current" : "past";
+            const past = assignments.filter((a) => kindOf(a) === "past");
+            const shown = assignments.filter((a) => showAsgHistory || kindOf(a) !== "past");
+            return (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {shown.map((a) => {
+                  const kind = kindOf(a);
+                  const future = kind === "future";
+                  const superseded = kind === "past";
+                  return (
+                    <span key={a.id} className={`${chipNeutral} ${future ? "border-gold border border-dashed" : superseded ? "opacity-60" : ""}`}
+                      title={future ? L("Planned - starts on this date. Press × to withdraw it.", "Dirancang - bermula pada tarikh ini. Tekan × untuk menariknya balik.")
+                                    : superseded ? L("Superseded - a later assignment is in force. The days it covered were measured against it.", "Digantikan - penetapan kemudian berkuat kuasa. Hari yang diliputinya diukur terhadapnya.")
+                                    : L("In force. To change the hours, assign another pattern from a new date.", "Berkuat kuasa. Untuk menukar waktu, tetapkan corak lain dari tarikh baharu.")}>
+                      <span className="font-medium">{properName(a.name)}</span>
+                      <span className="text-muted-foreground"> · {a.pattern_name} · {L("from", "dari")} {a.effective_from}{future ? ` · ${L("planned", "dirancang")}` : superseded ? ` · ${L("superseded", "digantikan")}` : ""}</span>
+                      {canHours && future && (
+                        <button type="button" className="text-muted-foreground hover:text-danger ml-1"
+                          aria-label={L(`Withdraw ${a.pattern_name} for ${properName(a.name)} from ${a.effective_from}`, `Tarik balik ${a.pattern_name} untuk ${properName(a.name)} dari ${a.effective_from}`)}
+                          onClick={() => void act(`/staff-shifts/${a.id}`, { method: "DELETE" },
+                            L(`Withdrawn - ${properName(a.name)} stays on their current hours.`, `Ditarik balik - ${properName(a.name)} kekal pada waktu semasa.`))}>
+                          ✕
+                        </button>
+                      )}
+                      {canHours && superseded && (
+                        <button type="button" className="text-muted-foreground hover:text-danger ml-1"
+                          aria-label={L(`Remove ${a.pattern_name} for ${properName(a.name)} from ${a.effective_from}`, `Buang ${a.pattern_name} untuk ${properName(a.name)} dari ${a.effective_from}`)}
+                          onClick={async () => {
+                            const yes = await askPat({
+                              title: L("Remove this superseded assignment?", "Buang penetapan yang digantikan ini?"),
+                              message: L(
+                                `${properName(a.name)} was on "${a.pattern_name}" from ${a.effective_from} until a later assignment took over. Removing it re-measures those days against the hours they had BEFORE it — any late or short-day flag in that stretch can change. Nothing after the later assignment is touched.`,
+                                `${properName(a.name)} berada pada "${a.pattern_name}" dari ${a.effective_from} sehingga penetapan kemudian mengambil alih. Membuangnya mengukur semula hari-hari itu terhadap waktu SEBELUMNYA — mana-mana tanda lewat atau hari pendek dalam tempoh itu boleh berubah. Tiada apa selepas penetapan kemudian disentuh.`,
+                              ),
+                              confirmLabel: L("Remove and re-measure", "Buang dan ukur semula"),
+                              variant: "danger",
+                            });
+                            if (!yes) return;
+                            void act(`/staff-shifts/${a.id}`, { method: "DELETE", body: JSON.stringify({ confirm_remeasure: true }) },
+                              L(`Removed - ${properName(a.name)}'s days from ${a.effective_from} are measured against their earlier hours.`, `Dibuang - hari ${properName(a.name)} dari ${a.effective_from} diukur terhadap waktu terdahulu mereka.`));
+                          }}>
+                          ✕
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+                {past.length > 0 && (
+                  <button type="button" className="text-muted-foreground text-[11px] underline"
+                    onClick={() => setShowAsgHistory((v) => !v)}>
+                    {showAsgHistory
+                      ? L("Hide history", "Sembunyikan sejarah")
+                      : L(`Show history (${past.length} superseded)`, `Tunjukkan sejarah (${past.length} digantikan)`)}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 

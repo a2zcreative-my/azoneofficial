@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.158.5] - 2026-09-13 - An off day yields to booked work
+
+The CEO, seeing "Off day" sitting above Nurul's Saturday and Sunday lives:
+*"something not right at here"*. The tag is for a day with nothing on it.
+When a live, a task or sales duty is booked on a person's rest day, that
+booking is the plan, so the board no longer draws the Off day tag or the grey
+tint over it - on the grid, on the phone agenda's "Off day:" line, or on the
+shared PDF. The rest day is not forgotten: the chip's tooltip says "booked
+on their rest day", and payroll still treats the day as rest-day work. Guard
+#79 gains two checks.
+
+**And a superseded assignment can be removed.** The CEO, on the Working
+hours card: *"why working hour unable to remove by this specific person!
+there is a duplication of working days and hours!"* The chip row listed
+every assignment ever made, so Nasuha - moved to the Office pattern from
+today - read as two people. The row now shows what is in force and what is
+planned; superseded assignments sit behind "Show history (n superseded)",
+greyed. And a superseded one - a later assignment for the same person is
+already in force - can now be removed: the confirmation says that the days
+it covered are re-measured against the hours before it, and the engine
+requires that confirmation before it acts (an assignment still in force
+stays, as before). Audited with the fact it was superseded. Guard
+`shift-schedule` gains four checks.
+
+Files: `components/portal/roster-board.tsx`, `components/portal/role-panels.tsx`,
+`worker/src/staff.ts`, `tests/roster-week.mjs`, `tests/shift-schedule.mjs`,
+`package.json`.
+
 ## [1.158.4] - 2026-09-13 - A working-hours pattern can be retired
 
 The CEO, on the Working hours card: *"I have no option to remove the

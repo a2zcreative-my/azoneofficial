@@ -8707,16 +8707,33 @@ export async function handleStaff(
     ).bind(idX).first<{ user_id: number; pattern_id: number; effective_from: string; pattern_name: string }>().catch(() => null);
     if (!rowX) return err("not_found", "That assignment no longer exists", 404);
     const todayX = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    if (rowX.effective_from <= todayX) {
+    /* v1.158.5 (CEO: "why working hour unable to remove by this specific
+       person! there is a duplication of working days and hours!") - an
+       assignment that has been SUPERSEDED (a later one for the same person
+       is already in force) is no longer what anybody is measured against
+       today. It may go, with the CEO's eyes open: the days between its start
+       and the day it was superseded are re-measured against whatever came
+       before it, so the client asks first and sends confirm_remeasure. One
+       still IN FORCE stays, as before. */
+    const superseded = rowX.effective_from <= todayX && Boolean(await env.DB.prepare(
+      `SELECT 1 AS x FROM staff_shifts WHERE user_id = ?1 AND id != ?2 AND effective_from > ?3 AND effective_from <= ?4 LIMIT 1`,
+    ).bind(rowX.user_id, idX, rowX.effective_from, todayX).first());
+    if (rowX.effective_from <= todayX && !superseded) {
       return err("invalid_input",
         `This assignment has been in force since ${rowX.effective_from}; the days since then were measured against it. To change the hours, assign another pattern from a new date - that supersedes it without touching what was already measured.`, 400);
     }
+    if (superseded && body?.confirm_remeasure !== true) {
+      return err("confirm_required",
+        `${rowX.pattern_name} was superseded by a later assignment. Removing it re-measures the days from ${rowX.effective_from} until the later one started against the hours before it. Confirm to go ahead.`, 409);
+    }
     await env.DB.prepare(`DELETE FROM staff_shifts WHERE id = ?1`).bind(idX).run();
     await audit(env, user.id, "staff_shift.unassign", "users", String(rowX.user_id),
-                { pattern_id: rowX.pattern_id, from: rowX.effective_from });
-    await notify(env, rowX.user_id, "attendance",
-      `The working hours planned for you from ${rowX.effective_from} (${rowX.pattern_name}) were withdrawn - your current hours continue.`, `shift:${rowX.user_id}:${rowX.effective_from}:x`);
-    return json({ ok: true });
+                { pattern_id: rowX.pattern_id, from: rowX.effective_from, superseded, remeasured: superseded });
+    if (!superseded) {
+      await notify(env, rowX.user_id, "attendance",
+        `The working hours planned for you from ${rowX.effective_from} (${rowX.pattern_name}) were withdrawn - your current hours continue.`, `shift:${rowX.user_id}:${rowX.effective_from}:x`);
+    }
+    return json({ ok: true, superseded });
   }
 
   const attMatch = path.match(/^\/attendance\/(\d+)$/);

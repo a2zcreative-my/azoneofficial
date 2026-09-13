@@ -134,9 +134,17 @@ const pkg = JSON.parse(read("package.json"));
   const roster = staff.slice(staff.indexOf('if (path === "/roster" && method === "GET")'), staff.indexOf("rest_days: restDays,"));
   ok("/roster reads rest days from the same resolver payroll and the late-flag scan use", /const shiftAtW = await shiftResolver\(env\);/.test(roster) && /if \(sh\.kind === "rest_day"\) restDays\.push/.test(roster));
   ok("...a manager sees everyone's, a person their own", /: \{ results: \[\{ id: user\.id \}\] \};/.test(roster));
-  ok("the board tags the cell, and never locks it", /const offAt = \(uid: number, d: string\)/.test(board) && /\{!leave && offAt\(u\.id, d\) && \(/.test(board) && /const canDrop = armed != null && !placing && !leave\s*&& \(canManage/.test(board));
+  ok("the board tags the cell, and never locks it", /const offAt = \(uid: number, d: string\)/.test(board) && /\{!leave && offOnly\(u\.id, d\) && \(/.test(board) && /const canDrop = armed != null && !placing && !leave\s*&& \(canManage/.test(board));
+  /* v1.158.5 (CEO: "something not right at here" - an Off day tag beside a
+     booked live): the tag is for a day with nothing on it. */
+  ok("...and the tag yields to booked work - a live, a task or sales duty on that day hides it, everywhere",
+    /const offOnly = \(uid: number, d: string\) => offAt\(uid, d\) && !bookedAt\(uid, d\)/.test(board)
+    && /active\.some\(\(s\) => s\.host_user_id === uid && s\.session_date === d\)\s*\|\| blocks\.some\(\(b\) => b\.user_id === uid && b\.block_date === d\)\s*\|\| shifts\.some/.test(board)
+    && /r\.date === d && !onLeaveAt\(r\.user_id, d\) && !bookedAt\(r\.user_id, d\)/.test(board)
+    && /restDays: \(data\.rest_days \?\? \[\]\)\.filter\(\(r\) => !bookedAt\(r\.user_id, r\.date\)\)/.test(board));
+  ok("...and the booked chip still says it is their rest day", /booked on their rest day/.test(board));
   ok("...names the off people on the phone agenda", /<span className="font-semibold">\{L\("Off day", "Hari cuti"\)\}:<\/span> \{names\.join\(", "\)\}/.test(board));
-  ok("...it is in the legend and on the PDF", /\{L\("Off day", "Hari cuti"\)\}<\/span>/.test(board) && /restDays: data\.rest_days \?\? \[\]/.test(board) && /c\.text\("OFF DAY"/.test(read("lib/roster-pdf.ts")) && /\["Off day", OFF_FILL, OFF_TEXT\]/.test(read("lib/roster-pdf.ts")));
+  ok("...it is in the legend and on the PDF", /\{L\("Off day", "Hari cuti"\)\}<\/span>/.test(board) && /restDays: \(data\.rest_days \?\? \[\]\)/.test(board) && /c\.text\("OFF DAY"/.test(read("lib/roster-pdf.ts")) && /\["Off day", OFF_FILL, OFF_TEXT\]/.test(read("lib/roster-pdf.ts")));
 }
 
 /* ---- 3. for the sales person ---- */

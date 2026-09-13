@@ -967,6 +967,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
   /* v1.158.4 (CEO: "should appear of their off-day which is need to add into
      the Attendance based on their working day and hours pattern") */
   const offAt = (uid: number, d: string) => (data.rest_days ?? []).find((r) => r.user_id === uid && r.date === d);
+  /* v1.158.5 (CEO, on seeing "Off day" beside a booked live: "something not
+     right at here") - the tag is for a day with NOTHING on it. Work booked on
+     a rest day is the plan the CEO made; the pattern's rest day yields to it
+     on the board, and shows only as a hint on the chip. */
+  const bookedAt = (uid: number, d: string) =>
+    active.some((s) => s.host_user_id === uid && s.session_date === d)
+    || blocks.some((b) => b.user_id === uid && b.block_date === d)
+    || shifts.some((x) => x.user_id === uid && x.shift_date === d);
+  const offOnly = (uid: number, d: string) => offAt(uid, d) && !bookedAt(uid, d) ? offAt(uid, d) : undefined;
   const gridHeight = (DAY_END - DAY_START) * HOUR_PX;
   const sel = data.sessions.find((s) => s.id === openSession) ?? null;
   /* v1.21.2 (CEO: "should appear the data when I click on the schedule …
@@ -1136,7 +1145,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     data.days, data.sessions, staff, data.on_leave,
                     data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal",
                     blocks, [...hardBlockIds, ...softBlockIds],
-                    { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })), shifts, restDays: data.rest_days ?? [] });
+                    { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })), shifts, restDays: (data.rest_days ?? []).filter((r) => !bookedAt(r.user_id, r.date)) });
                   showToast(how === "shared" ? L("Ready to share", "Sedia untuk dikongsi") : L("Downloaded", "Dimuat turun"),
                     `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`
                     + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : ""));
@@ -1282,7 +1291,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                     ? L(`${u.name.split(" ").slice(0, 2).join(" ")} is on approved leave this day`,
                                         `${u.name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada hari ini`)
                                     : undefined}
-                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : offAt(u.id, d) ? "bg-secondary/60" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
+                                  className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : offOnly(u.id, d) ? "bg-secondary/60" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
                                   onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
                                     <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
@@ -1290,13 +1299,13 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                   {/* v1.158.4 - the person's own rest day, from
                                       their working-hours pattern. Shown, never
                                       locked: work booked on it is rest-day work. */}
-                                  {!leave && offAt(u.id, d) && (
+                                  {!leave && offOnly(u.id, d) && (
                                     <div className="text-muted-foreground rounded-md border border-dashed border-border px-1.5 py-1 text-center text-[10px] font-semibold"
                                       title={L(`Rest day on ${offAt(u.id, d)!.pattern}`, `Hari rehat pada ${offAt(u.id, d)!.pattern}`)}>{L("Off day", "Hari cuti")}</div>
                                   )}
                                   {cs.map((s) => (
                                     <button key={s.id} type="button"
-                                      title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${s.notes ? ` — ${s.notes}` : ""}`}
+                                      title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${s.notes ? ` — ${s.notes}` : ""}${offAt(u.id, d) ? ` · ${L("booked on their rest day", "ditempah pada hari rehat mereka")}` : ""}`}
                                       onClick={(e) => {
                                         const same = openSession === s.id;
                                         setOpenBlock(null);
@@ -1779,7 +1788,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                   {/* v1.158.4 - who has a rest day, in one line, so a phone
                       reader sees the off days without a grid. */}
                   {(() => {
-                    const off = (data.rest_days ?? []).filter((r) => r.date === d && !onLeaveAt(r.user_id, d));
+                    const off = (data.rest_days ?? []).filter((r) => r.date === d && !onLeaveAt(r.user_id, d) && !bookedAt(r.user_id, d));
                     if (off.length === 0) return null;
                     const names = off.map((r) => (staff.find((u) => u.id === r.user_id)?.name ?? "").split(" ").slice(0, 2).join(" ")).filter(Boolean);
                     if (names.length === 0) return null;
