@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.8] - 2026-09-13 - A released month is closed to overtime
+
+The CEO, on the Overtime card filling with August: *"more weird as the OT
+which is payroll already completed not supposed to appear there!!"*
+
+The reconcile (v1.159.6) reads the present month and the one before, and
+August's punches, measured afresh, produced stretches nobody had decided -
+for a month whose payslips are already out. A month whose payslips are
+released is now closed: the reconcile offers nothing for it and clears any
+pending derived stretch still sitting on it (there is no payslip left for a
+decision to reach), and the card does not list a pending row from a
+released month whoever wrote it. Decided rows are history and stay. The
+previous month still reconciles until its payslips are released, so
+overtime on the 30th is offered in the first days of the next month as
+before. Guard `clock-sessions` gains a check.
+
+Files: `worker/src/staff.ts`, `tests/clock-sessions.mjs`, `package.json`.
+
 ## [1.159.7] - 2026-09-13 - A live defines the day for a host; for everyone else it joins the pattern
 
 The CEO, on Nasuha's Overtime card filling with "02-09 · 10:00-18:00 · 7h

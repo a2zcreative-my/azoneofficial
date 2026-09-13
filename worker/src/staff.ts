@@ -846,6 +846,20 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
  * one insert per new stretch, not eight queries per person-day.
  */
 export async function reconcileDerivedOt(env: Env, month: string): Promise<{ added: number; removed: number }> {
+  /* v1.159.8 (CEO: "the OT which is payroll already completed not supposed
+     to appear there!!") - a month whose payslips are RELEASED is closed:
+     nothing is offered for it, and any pending derived stretch still sitting
+     on it is cleared, because there is no payslip left for a decision to
+     reach. A decided row is history and stays. */
+  const rel = await env.DB.prepare(`SELECT released_at FROM payslip_releases WHERE month = ?1`)
+    .bind(month).first<{ released_at: string }>().catch(() => null);
+  if (rel) {
+    const r = await env.DB.prepare(
+      `DELETE FROM ot_records WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1
+         AND COALESCE(status, 'pending') = 'pending' AND COALESCE(user_agent, '') = 'clock:derived'`,
+    ).bind(month).run();
+    return { added: 0, removed: r.meta?.changes ?? 0 };
+  }
   const assigned = await assignedResolver(env, `${month}-01`, `${month}-31`);
   const shiftAt = await shiftResolver(env, assigned);
   const hols = new Set((await holidayRows(env, `${month}-01`, `${month}-31`))
@@ -3064,13 +3078,22 @@ export async function handleStaff(
          first-in. And each stretch is checked against the live board and the
          roster, so the CEO sees "assigned: Sara Beauty" beside it — the
          evidence that decides most approvals in one glance. */
+      /* v1.159.8 - a released month has no decision left to make: its
+         pending rows, whoever wrote them, are not offered. */
       const { results: rows } = await env.DB.prepare(
         `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
                 date(o.created_at, '+8 hours') AS d, o.type, o.created_at
            FROM ot_records o JOIN users u ON u.id = o.user_id
           WHERE o.status = 'pending'
+            AND NOT EXISTS (SELECT 1 FROM payslip_releases pr WHERE pr.month = strftime('%Y-%m', o.created_at, '+8 hours'))
           ORDER BY o.created_at`,
-      ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>();
+      ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>()
+        .catch(() => env.DB.prepare(
+          `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
+                  date(o.created_at, '+8 hours') AS d, o.type, o.created_at
+             FROM ot_records o JOIN users u ON u.id = o.user_id
+            WHERE o.status = 'pending' ORDER BY o.created_at`,
+        ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>());
       const byDay = new Map<string, { user_id: number; name: string; d: string; punches: Punch[] }>();
       for (const r of rows ?? []) {
         const k = `${r.user_id}|${r.d}`;

@@ -123,6 +123,9 @@ const D = "2026-09-07";
      && /await reconcileDerivedOt\(env, prevM\); await reconcileDerivedOt\(env, thisM\);/.test(read("worker/src/staff.ts")));
   ok("...reading the schedule with the roster, once for the month",
      /const shiftAt = await shiftResolver\(env, assigned\);[\s\S]{0,4000}?const sessions = await clockedSessions\(env, \{ month \}\);/.test(read("worker/src/staff.ts")));
+  ok("...a released month is closed: nothing offered, its pending derived rows cleared, decided rows kept (v1.159.8)",
+     /SELECT released_at FROM payslip_releases WHERE month = \?1`\)\s*\.bind\(month\)[\s\S]{0,400}?AND COALESCE\(status, 'pending'\) = 'pending' AND COALESCE\(user_agent, ''\) = 'clock:derived'`/.test(read("worker/src/staff.ts"))
+     && /NOT EXISTS \(SELECT 1 FROM payslip_releases pr WHERE pr\.month = strftime\('%Y-%m', o\.created_at, '\+8 hours'\)\)/.test(read("worker/src/staff.ts")));
   ok("...never touching a decided row - only pending derived stretches are added or removed",
      /const decided = rows\.filter\(\(r\) => r\.status !== "pending"\);/.test(read("worker/src/staff.ts"))
      && /r\.status === "pending" && r\.ua === "clock:derived"/.test(read("worker/src/staff.ts"))
