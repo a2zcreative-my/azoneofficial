@@ -1,0 +1,13 @@
+-- 0130 - A REPLACEMENT HOLIDAY REMEMBERS WHAT IT REPLACES (v1.159.1).
+-- The CEO, 13-09-2026 - a staff member who joins on the day of a replacement
+-- holiday is not entitled to it, because they were not yet employed on the
+-- day being replaced.
+--
+-- A replacement holiday is a public holiday moved off a rest day. The
+-- entitlement belongs to whoever was employed on the ORIGINAL day - until now
+-- the row did not say which day that was, so payroll credited the
+-- replacement to anyone employed on the replacement date itself - including
+-- a person whose first day it was. replaces_date is the original holiday.
+-- NULL on rows made before this migration - the code then takes the nearest
+-- public holiday in the seven days before as the original.
+ALTER TABLE holidays ADD COLUMN replaces_date TEXT;

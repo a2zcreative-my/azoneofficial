@@ -280,7 +280,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0129_shift_pattern_retire";
+const LATEST_MIGRATION = "0130_holiday_replaces";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4592,6 +4592,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0127 (Sales Performance register)", `SELECT url_key FROM sp_social_posts LIMIT 1`],
       ["0128 (sales duty on the roster)", `SELECT focus FROM sales_shifts LIMIT 1`],
       ["0129 (a working-hours pattern can be retired)", `SELECT retired_at FROM shift_patterns LIMIT 1`],
+      ["0130 (a replacement holiday remembers what it replaces)", `SELECT replaces_date FROM holidays LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4740,6 +4741,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0127_sales_performance",
       "0128_sales_shifts",
       "0129_shift_pattern_retire",
+      "0130_holiday_replaces",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

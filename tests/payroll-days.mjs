@@ -21,7 +21,7 @@
  */
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -280,7 +280,7 @@ const AUG = (() => {
   ok("and the second hourly rate for part-timers",
      /\? Math\.round\(\(minutes \* PART_TIME_LH_RATE_CENTS\) \/ 60\)/.test(staff));
   ok("only gazetted holidays and their replacements carry the premium",
-     /AND kind IN \('public', 'replacement'\)/.test(staff),
+     /\["public", "replacement"\]\.includes\(h\.kind \?\? "public"\)/.test(staff),
      "a company day off is the company's gift, not a statutory holiday");
   ok("a pending punch does not earn a holiday premium",
      /for \(const \[k, sessions\] of await clockedSessions\(env, \{ month \}\)\)/.test(staff)
@@ -491,8 +491,9 @@ const AUG = (() => {
   const panel = read("components/portal/payroll-panel.tsx");
   const i = panel.indexOf('api(`/payroll/base`, { method: "POST"');
   const win = i < 0 ? "" : panel.slice(i, i + 3000);
-  ok("saving a base carries it into the open month's row and saves that row",
-     /const following = !entries\[u\.id\] \|\| cur\.basic_cents === oldBase;/.test(win) && /await api\(`\/payroll`, \{/.test(win),
+  ok("saving a base carries it into EVERY row of the open month and saves them (v1.159.2: the base IS the Basic)",
+     /if \(cur\.basic_cents === newBase\) continue;\s*const next: Entry = \{ \.\.\.cur, basic_cents: newBase \};/.test(win) && /await api\(`\/payroll`, \{/.test(win)
+     && !/const following = /.test(win),
      "a table that disagrees with the panel above it is a bug however the manual explains it");
   ok("a month already released to staff is left as saved",
      /if \(release\?\.released\) \{ held\.push\(u\.name\); continue; \}/.test(win),
@@ -500,8 +501,8 @@ const AUG = (() => {
   ok("the re-filled row is priced with THE formula, on the row about to be written",
      /net_cents: netFor\(u\.id, next\)/.test(win) && /const netFor = \(id: number, override\?: Entry\)/.test(panel),
      "netFor(u.id) would price the OLD basic still in React state");
-  ok("a hand-set Basic is flagged in the row with both figures, not silently replaced",
-     /\{L\("≠ base", "≠ asas"\)\} \{fmtRM\(base\[u\.id\] \?\? 0\)\}/.test(panel) && /held\.push\(u\.name\); continue; \}\s*const next: Entry/.test(win));
+  ok("a Basic that still differs from the base (a released month) is flagged in the row with both figures",
+     /\{L\("≠ base", "≠ asas"\)\} \{fmtRM\(base\[u\.id\] \?\? 0\)\}/.test(panel));
 }
 
 /* ---- v1.139.0 - AN AUTO-FILLED OT FIGURE IS A CHANGE, NOT A SAVED ONE ----
@@ -519,6 +520,26 @@ const AUG = (() => {
      copyAt > 0 && copyAt < fillAt && fillAt < snapAt
      && /const e = loadedEntries\[u\.id\] \?\?/.test(pay),
      "a filled OT box that counts as already-saved never reaches the payslip");
+}
+
+/* ---- v1.159.1 (CEO: "if the staff join the day of replacement holiday,
+   they are not entitle of Replacement Public Holiday since they are yet to
+   join the replacement day eligible") ---- */
+{
+  const w = read("worker/src/staff.ts");
+  const idx = read("worker/src/index.ts");
+  ok("0130 adds replaces_date and is registered with a probe",
+     existsSync(path.join(root, "worker/migrations/0130_holiday_replaces.sql"))
+     && /ALTER TABLE holidays ADD COLUMN replaces_date TEXT;/.test(read("worker/migrations/0130_holiday_replaces.sql"))
+     && idx.includes('"0130_holiday_replaces",') && /SELECT replaces_date FROM holidays LIMIT 1/.test(idx));
+  ok("a replacement holiday belongs to whoever was employed on the ORIGINAL day",
+     /export function holidayEntitles\(h: HolidayRow, all: HolidayRow\[\], joined\?: string \| null\): boolean \{\s*if \(!joined\) return true;\s*return joined\.slice\(0, 10\) <= holidayOriginal\(h, all\);/.test(w));
+  ok("...an older row without replaces_date takes the nearest public holiday in the week before", /const weekBefore = /.test(w) && /\(x\.kind \?\? "public"\) === "public" && x\.holiday_date < h\.holiday_date && x\.holiday_date >= weekBefore/.test(w));
+  ok("...and the month before is read too, so a replacement on the 1st finds its original", /export async function holidaysAround\(env: Env, month: string\)/.test(w));
+  ok("the auto-replacement records what it replaces", /INSERT OR IGNORE INTO holidays \(holiday_date, name, kind, created_by, replaces_date\)/.test(w));
+  ok("the proration credits a joiner only the holidays they are entitled to", /holidayEntitles\(h, all, joined\),\s*\)\.length;/.test(w));
+  ok("two days' ORP is not paid for a replacement the person was not employed for", /if \(row && !holidayEntitles\(row, phAll, opts\.joined\)\) return false;/.test(w));
+  ok("the monthly verification counts it as a working day for them, not a holiday", /if \(holForV\(d, u\.joined_on\)\) \{ publicHols\+\+; continue; \}/.test(w));
 }
 
 console.log(

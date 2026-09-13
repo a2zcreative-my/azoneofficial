@@ -776,15 +776,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
        These are the entries AS LOADED; the fill below replaces objects
        rather than mutating them, so this copy keeps the saved truth. */
     const loadedEntries: Record<number, Entry | undefined> = { ...map };
-    /* v1.134.0 - approved overtime lands in the OT hours box by itself. A
-       saved figure wins (the CEO may have corrected it); an entry with none
-       takes the approved total, rounded to the half hour the box accepts. */
+    /* v1.134.0 - approved overtime lands in the OT hours box by itself.
+       v1.159.2 (CEO: "OT approved should automatically fill based on
+       approved hours!!") - the APPROVED total wins, always: the CEO approves
+       every overtime himself on the Overtime card, so the box follows what
+       he approved, including an approval made after the row was saved. A
+       row whose saved figure differs is simply dirty, and Save all writes
+       the approved hours. Rounded to the half hour the box accepts. */
     for (const [uid, o] of Object.entries(omap)) {
       const id = Number(uid);
       const h = otHoursFrom(o.minutes);
       if (h <= 0) continue;
       const cur = map[id];
-      if (cur && cur.ot_hours) continue;
+      if (cur && cur.ot_hours === h) continue;
       /* An entry that does not exist yet still pre-fills Basic from the base
          salary, exactly as entry() would have. */
       map[id] = { ...(cur ?? { user_id: id, basic_cents: bmap[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 }), ot_hours: h };
@@ -1247,8 +1251,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
                 if (release?.released) { held.push(u.name); continue; }
                 const cur = entry(u.id);
-                const following = !entries[u.id] || cur.basic_cents === oldBase;
-                if (!following) { held.push(u.name); continue; }
+                /* v1.159.2 (CEO: "Once I click on Save Base Salaries button,
+                   it should update automatically Basic!") - the base IS the
+                   Basic. Every row of an unreleased month takes the new base,
+                   including one that was typed by hand: the base salary is
+                   where a person's pay is decided, and a Basic that disagrees
+                   with it is the thing he keeps finding. A released month is
+                   the one exception, as before. */
+                if (cur.basic_cents === newBase) continue;
                 const next: Entry = { ...cur, basic_cents: newBase };
                 const d = workedDays[u.id];
                 const hasDays = typeof d === "number" && !Number.isNaN(d);
@@ -1273,8 +1283,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 if (held.length) parts.push(release?.released
                   ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
                       `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
-                  : L(`Basic for ${held.join(", ")} was set by hand, so it was left alone - the row shows the difference with a "Use base" button.`,
-                      `Gaji pokok ${held.join(", ")} ditetapkan secara manual, jadi dibiarkan - baris menunjukkan perbezaan dengan butang "Guna asas".`));
+                  : L(`Basic for ${held.join(", ")} could not be saved - press Save on the row.`,
+                      `Gaji pokok ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
                 showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
               }
               void load();

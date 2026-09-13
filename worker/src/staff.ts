@@ -329,6 +329,50 @@ export interface DayShift {
    hourly.ts (v1.109.0) so tests/hourly-by-the-clock.mjs can run them without
    bundling this file. */
 
+/* v1.159.1 - WHO A REPLACEMENT HOLIDAY BELONGS TO.
+   The CEO, 13-09-2026: *"if the staff join the day of replacement holiday,
+   they are not entitle of Replacement Public Holiday since they are yet to
+   join the replacement day eligible"*. A replacement holiday is a public
+   holiday moved off a rest day; the entitlement belongs to whoever was
+   employed on the ORIGINAL day. Somebody whose first day is the replacement
+   day was not, so for them it is an ordinary working day: no holiday in the
+   proration, no two days' ORP for working it, and a missing punch on it is
+   a missing punch. 0130 records the original date; an older row without it
+   takes the nearest public holiday in the seven days before as the original. */
+export interface HolidayRow { holiday_date: string; kind: string | null; replaces_date?: string | null }
+export async function holidayRows(env: Env, fromIso: string, toIso: string): Promise<HolidayRow[]> {
+  try {
+    return (await env.DB.prepare(
+      `SELECT holiday_date, kind, replaces_date FROM holidays WHERE holiday_date BETWEEN ?1 AND ?2 ORDER BY holiday_date`,
+    ).bind(fromIso, toIso).all<HolidayRow>()).results ?? [];
+  } catch {
+    try {
+      return (await env.DB.prepare(
+        `SELECT holiday_date, kind FROM holidays WHERE holiday_date BETWEEN ?1 AND ?2 ORDER BY holiday_date`,
+      ).bind(fromIso, toIso).all<HolidayRow>()).results ?? []; // pre-0130
+    } catch { return []; }
+  }
+}
+export function holidayOriginal(h: HolidayRow, all: HolidayRow[]): string {
+  if ((h.kind ?? "public") !== "replacement") return h.holiday_date;
+  if (h.replaces_date) return h.replaces_date;
+  const weekBefore = new Date(new Date(`${h.holiday_date}T00:00:00Z`).getTime() - 7 * 86400_000).toISOString().slice(0, 10);
+  const before = all.filter((x) => (x.kind ?? "public") === "public" && x.holiday_date < h.holiday_date && x.holiday_date >= weekBefore)
+    .sort((a, b) => b.holiday_date.localeCompare(a.holiday_date));
+  return before[0]?.holiday_date ?? h.holiday_date;
+}
+/** Employed on the original day - joined on or before it. */
+export function holidayEntitles(h: HolidayRow, all: HolidayRow[], joined?: string | null): boolean {
+  if (!joined) return true;
+  return joined.slice(0, 10) <= holidayOriginal(h, all);
+}
+/** The month's holidays with the month before, so a replacement on the 1st
+    can find the original it stands in for on the 31st. */
+export async function holidaysAround(env: Env, month: string): Promise<HolidayRow[]> {
+  const prev = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+  return holidayRows(env, `${prev}-01`, `${month}-31`);
+}
+
 /** The break this day actually earns. ONCE, and only if a block runs past
     five hours: a six-hour afternoon earns it, and the two-hour evening block
     beside it does not earn a second one. A short day earns none - there is
@@ -543,7 +587,51 @@ export type ShiftLookup = (userId: number, iso: string) => DayShift;
  * `shiftOn` stays for the single-punch classifier, where two queries is two
  * queries. Guard #24 fails the build if a loop reaches for it again.
  */
-export async function shiftResolver(env: Env): Promise<ShiftLookup> {
+/* v1.159.0 - THE ROSTER IS THE SCHEDULE, on the days it speaks.
+   The CEO, 13-09-2026, on Nurul's register (a live host whose Saturday live
+   was flagged "rest day"): *"attendance should capture this staff working
+   hours/days"*. A pattern is a normal week; the roster is what this person
+   was actually told to do on this date. Until now the roster only VOUCHED
+   for a punch that fell inside an assigned window (v1.80.0) - the day itself
+   stayed a rest day, its scheduled minutes stayed zero, and a punch a minute
+   before the live started was "outside working hours".
+
+   So, where the roster speaks, it IS the day:
+     - a LIVE SESSION defines the day: its hours are the hours, whatever the
+       pattern said, and the day is a working day. A host's week is the lives
+       she is booked for.
+     - a TASK BLOCK or SALES DUTY on a REST DAY makes it a working day with
+       those hours. On a working day it changes nothing - the pattern already
+       covers the office day and the block is a piece of it (v1.80.0 still
+       vouches for a block outside the pattern's hours).
+   The pattern's half-day threshold and unpaid break carry over, so a
+   seven-hour live still earns its break. */
+export function withAssigned(sh: DayShift, list: AssignedAt[]): DayShift {
+  if (list.length === 0) return sh;
+  const merge = (ws: ShiftWindow[]): ShiftWindow[] => {
+    const sorted = [...ws].filter((w) => w.end > w.start).sort((a, b) => a.start - b.start);
+    const out: ShiftWindow[] = [];
+    for (const w of sorted) {
+      const last = out[out.length - 1];
+      if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
+      else out.push({ start: w.start, end: w.end });
+    }
+    return out;
+  };
+  const lives = list.filter((a) => a.kind === "live");
+  const label = (a: AssignedAt) => `assigned: ${a.what}`;
+  if (lives.length > 0) {
+    const windows = merge(lives.map((a) => ({ start: a.start, end: a.end })));
+    if (windows.length === 0) return sh;
+    return { ...sh, kind: "workday", pattern: label(lives[0]!), windows, start: windows[0]!.start, end: windows[windows.length - 1]!.end };
+  }
+  if (sh.kind !== "rest_day") return sh;
+  const windows = merge(list.map((a) => ({ start: a.start, end: a.end })));
+  if (windows.length === 0) return sh;
+  return { ...sh, kind: "workday", pattern: label(list[0]!), windows, start: windows[0]!.start, end: windows[windows.length - 1]!.end };
+}
+
+export async function shiftResolver(env: Env, assigned?: AssignedLookup): Promise<ShiftLookup> {
   interface Pat {
     id: number; name: string; half_day_minutes: number | null; is_default: number;
     [col: string]: number | string | null;
@@ -578,7 +666,7 @@ export async function shiftResolver(env: Env): Promise<ShiftLookup> {
     if (list) list.push(a);
     else mine.set(a.user_id, [a]);
   }
-  return (userId, iso) => {
+  const base: ShiftLookup = (userId, iso) => {
     const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
     const col = DOW_COL[dow]!;
     const a = mine.get(userId)?.find((x) => x.effective_from <= iso);
@@ -597,6 +685,8 @@ export async function shiftResolver(env: Env): Promise<ShiftLookup> {
       brk: (p.break_minutes as number | null) ?? null,
     });
   };
+  /* v1.159.0 - with the roster in hand, the roster is the day where it speaks */
+  return assigned ? (userId, iso) => withAssigned(base(userId, iso), assigned.list(userId, iso)) : base;
 }
 
 /** What somebody was ASSIGNED to be doing at a moment, when their schedule
@@ -700,6 +790,18 @@ export async function assignedResolver(env: Env, fromIso: string, toIso: string)
       add(r.uid, r.d, { kind: "task", what: r.what, start: st, end: endAfter(st, hm(r.en)) });
     }
   } catch { /* pre-0095 */ }
+  /* v1.159.0 - sales duty (0128) is assigned work too */
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT user_id AS uid, shift_date AS d, start_time AS st, end_time AS en FROM sales_shifts
+        WHERE shift_date BETWEEN ?1 AND ?2`,
+    ).bind(fromIso, toIso).all<{ uid: number; d: string; st: string; en: string | null }>();
+    for (const r of results ?? []) {
+      const st = hm(r.st);
+      if (st === null) continue;
+      add(r.uid, r.d, { kind: "task", what: "Sales duty", start: st, end: endAfter(st, hm(r.en)) });
+    }
+  } catch { /* pre-0128 */ }
   const lookup = ((userId: number, iso: string, minutes: number) =>
     by.get(`${userId}|${iso}`)?.find((a) => minutes >= a.start && minutes <= a.end) ?? null) as AssignedLookup;
   lookup.list = (userId, iso) => by.get(`${userId}|${iso}`) ?? [];
@@ -2453,8 +2555,9 @@ export async function handleStaff(
        daySlots). Each is one shift; one shift is clocked in for once. A day
        with nothing scheduled and nothing assigned has nothing to clock in
        for — the work goes on the roster first, then the clock. */
-    const shEarly = await shiftOn(env, user.id, todayMYT);
     const assignedToday = (await assignedResolver(env, todayMYT, todayMYT)).list(user.id, todayMYT);
+    /* v1.159.0 - the roster is the day where it speaks (withAssigned) */
+    const shEarly = withAssigned(await shiftOn(env, user.id, todayMYT), assignedToday);
     const slotsToday = daySlots(shEarly.windows, assignedToday.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     if (body.type === "clock_in" && !openNow) {
       const mytNowP = new Date(punchAt.getTime() + 8 * 3600 * 1000);
@@ -3643,8 +3746,8 @@ export async function handleStaff(
     if (isOpen(sessO)) {
       return err("shift_open", "You are still clocked in on a shift. Clock out first - overtime starts after your working schedule.", 409);
     }
-    const shO = await shiftOn(env, user.id, todayO);
     const asgO = (await assignedResolver(env, todayO, todayO)).list(user.id, todayO);
+    const shO = withAssigned(await shiftOn(env, user.id, todayO), asgO);
     const slotsO = daySlots(shO.windows, asgO.map((a) => ({ start: a.start, end: a.end, what: a.what })));
     const verdictO = canClockIn(slotsO, sessO, minsO);
     /* v1.139.0 - a rest day is ONE decision, and the route has to hold that
@@ -3767,7 +3870,9 @@ export async function handleStaff(
     }
     const relRO = await releasedMonthBlock(env, dateO, body?.force_released);
     if (relRO) return relRO;
-    const shRO = (await shiftResolver(env))(uidO, dateO);
+    /* v1.159.1 (CEO: "should check based on their working schedule assigned")
+       - a day with an assigned live is a working day, not a rest day worked */
+    const shRO = (await shiftResolver(env, await assignedResolver(env, dateO, dateO)))(uidO, dateO);
     if (shRO.kind !== "rest_day") return err("invalid_input", `${dateO} is a working day on ${shRO.pattern}, not a rest day`, 400);
     const sessRO = (await clockedSessions(env, { day: dateO, userId: uidO })).get(`${uidO}|${dateO}`) ?? [];
     const closedRO = sessRO.filter((x) => x.out && x.minutes > 0);
@@ -3953,11 +4058,11 @@ export async function handleStaff(
     } | null = null;
     try {
       const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-      const shT = await shiftOn(env, forUser, tdy);
       /* v1.133.2 — the SHIFTS, not only the pattern: blocks plus today's
          roster and live-board assignments, and which are already clocked
          in for, so the phone can disable Clock in when nothing is left. */
       const asgT = (await assignedResolver(env, tdy, tdy)).list(forUser, tdy);
+      const shT = withAssigned(await shiftOn(env, forUser, tdy), asgT);
       const slotsT = daySlots(shT.windows, asgT.map((a) => ({ start: a.start, end: a.end, what: a.what })));
       const sessT = pairSessions((results as { type: string; created_at: string }[])
         .filter((r) => new Date(new Date(r.created_at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10) === tdy)
@@ -4078,8 +4183,8 @@ export async function handleStaff(
       joined_on: string | null; left_on: string | null; rejoined_on: string | null;
     }>();
 
-    const shiftAtV = await shiftResolver(env);
     const assignedAtV = await assignedResolver(env, `${monthV}-01`, `${monthV}-${lastV}`);
+    const shiftAtV = await shiftResolver(env, assignedAtV); // v1.159.0 - the roster is the day where it speaks
     const notPendingV = await notPendingSql(env);
 
     /* v1.133.0 — every session of every day, paired once (clock-day.ts).
@@ -4097,13 +4202,13 @@ export async function handleStaff(
       ).bind(`${monthV}-${lastV}`, `${monthV}-01`).all<{ user_id: number; type: string; start_date: string; end_date: string; days: number | null }>()).results) ?? [];
     } catch { /* pre-leave_requests */ }
 
-    let holsV: string[] = [];
-    try {
-      holsV = ((await env.DB.prepare(
-        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
-      ).bind(monthV).all<{ holiday_date: string }>()).results ?? []).map((h) => h.holiday_date);
-    } catch { /* pre-holidays */ }
-    const holSet = new Set(holsV);
+    /* v1.159.1 - per person: a replacement holiday counts only for those
+       employed on the original day (holidayEntitles). */
+    const holsAllV = await holidaysAround(env, monthV);
+    const holForV = (d: string, joined?: string | null) => {
+      const h = holsAllV.find((x) => x.holiday_date === d);
+      return Boolean(h && holidayEntitles(h, holsAllV, joined));
+    };
 
     const out: Record<string, unknown>[] = [];
     for (const u of staffV ?? []) {
@@ -4126,7 +4231,7 @@ export async function handleStaff(
         const sh = shiftAtV(u.id, d);
         const lv = leaveRows.find((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
         if (sh.kind === "rest_day") { restDays++; continue; }
-        if (holSet.has(d)) { publicHols++; continue; }
+        if (holForV(d, u.joined_on)) { publicHols++; continue; }
         scheduled++;
         schedMins += workMinutes(sh);
         if (lv) {
@@ -4243,10 +4348,10 @@ export async function handleStaff(
        v1.77.0 — the whole schedule is read ONCE before the loop. This used to
        cache per (person, date), which still meant a pair of database queries
        for every new day in the month. */
-    const shiftAtR = await shiftResolver(env);
     /* v1.80.0 — the month's rosters and live sessions, read ONCE for the same
        reason the schedule is: this loop runs over every punch in the month. */
     const assignedAtR = await assignedResolver(env, `${month}-01`, `${month}-31`);
+    const shiftAtR = await shiftResolver(env, assignedAtR); // v1.159.0 - the roster is the day where it speaks
     const annotated: Record<string, unknown>[] = [];
     for (const r of results as { user_id: number; role: string; employment_status: string | null; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
@@ -7878,10 +7983,20 @@ export async function handleStaff(
     }
     const kinds = ["public", "company", "replacement"];
     const kind = kinds.includes(body.kind as string) ? (body.kind as string) : "public";
+    /* v1.159.1 - a replacement typed by hand may name the day it replaces
+       (0130); without it the nearest public holiday before is assumed. */
+    const replaces = kind === "replacement" && str(body.replaces_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body.replaces_date as string)
+      ? (body.replaces_date as string) : null;
     try {
-      await env.DB.prepare(
-        `INSERT INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, ?3, ?4)`,
-      ).bind(body.holiday_date, body.name, kind, user.id).run();
+      if (replaces) {
+        await env.DB.prepare(
+          `INSERT INTO holidays (holiday_date, name, kind, created_by, replaces_date) VALUES (?1, ?2, ?3, ?4, ?5)`,
+        ).bind(body.holiday_date, body.name, kind, user.id, replaces).run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, ?3, ?4)`,
+        ).bind(body.holiday_date, body.name, kind, user.id).run();
+      }
     } catch {
       return err("conflict", "A holiday already exists on that date", 409);
     }
@@ -7906,9 +8021,13 @@ export async function handleStaff(
         d.setUTCDate(d.getUTCDate() + 1);
       }
       if (replacement) {
+        /* v1.159.1 - the row remembers the day it replaces (0130) */
         await env.DB.prepare(
-          `INSERT OR IGNORE INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, 'replacement', ?3)`,
-        ).bind(replacement, `${body.name as string} (Replacement)`, user.id).run();
+          `INSERT OR IGNORE INTO holidays (holiday_date, name, kind, created_by, replaces_date) VALUES (?1, ?2, 'replacement', ?3, ?4)`,
+        ).bind(replacement, `${body.name as string} (Replacement)`, user.id, body.holiday_date).run()
+          .catch(() => env.DB.prepare(
+            `INSERT OR IGNORE INTO holidays (holiday_date, name, kind, created_by) VALUES (?1, ?2, 'replacement', ?3)`,
+          ).bind(replacement, `${body.name as string} (Replacement)`, user.id).run());
         await audit(env, user.id, "holiday.create", "holidays", replacement, { auto_replacement_for: body.holiday_date });
       }
     }
@@ -9061,7 +9180,11 @@ export async function handleStaff(
       for (const o of otD ?? []) done.add(`${o.user_id}|${o.d}`);
     } catch { /* pre-0044 */ }
 
-    const shiftAtW = await shiftResolver(env);
+    /* v1.159.1 (CEO: "should check based on their working schedule assigned")
+       - the roster is the day where it speaks: a live host's Saturday live
+       is her working day, not a rest day worked. */
+    const assignedAtRW = await assignedResolver(env, `${mR}-01`, `${mR}-31`);
+    const shiftAtW = await shiftResolver(env, assignedAtRW);
     const out: {
       user_id: number; name: string; position: string | null; date: string;
       in_myt: string | null; out_myt: string | null; minutes: number | null;
@@ -9130,7 +9253,7 @@ export async function handleStaff(
     }
     /* It has to actually BE a rest day for them. Without this the route is a
        way to grant leave for any date at all, which is not what it is. */
-    const shC = (await shiftResolver(env))(uidC, dateC);
+    const shC = (await shiftResolver(env, await assignedResolver(env, dateC, dateC)))(uidC, dateC);
     if (shC.kind !== "rest_day") {
       return err("invalid_input", `${dateC} is a working day on ${shC.pattern}, not a rest day`, 400);
     }
@@ -9287,12 +9410,15 @@ export async function handleStaff(
       started, not the whole month's. */
   const holidaysInSpan = async (month: string, joined?: string | null, left?: string | null): Promise<number> => {
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT holiday_date FROM holidays WHERE holiday_date LIKE ?1 || '%'`,
-      ).bind(month).all<{ holiday_date: string }>();
-      return results.filter((h) =>
+      /* v1.159.1 - a replacement holiday belongs to whoever was employed on
+         the ORIGINAL day (holidayEntitles); a joiner whose first day is the
+         replacement day is not credited it. */
+      const all = await holidaysAround(env, month);
+      return all.filter((h) =>
+        h.holiday_date.startsWith(month) &&
         (!joined || h.holiday_date >= joined.slice(0, 10)) &&
-        (!left || h.holiday_date <= left.slice(0, 10)),
+        (!left || h.holiday_date <= left.slice(0, 10)) &&
+        holidayEntitles(h, all, joined),
       ).length;
     } catch { return 0; }
   };
@@ -9493,12 +9619,10 @@ export async function handleStaff(
   const phWorkResolver = async (month: string) => {
     const notPendingP = await notPendingSql(env);
     let phDates = new Set<string>();
+    let phAll: HolidayRow[] = [];
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT holiday_date FROM holidays
-         WHERE holiday_date LIKE ?1 || '%' AND kind IN ('public', 'replacement')`,
-      ).bind(month).all<{ holiday_date: string }>();
-      phDates = new Set(results.map((h) => h.holiday_date));
+      phAll = await holidaysAround(env, month);
+      phDates = new Set(phAll.filter((h) => h.holiday_date.startsWith(month) && ["public", "replacement"].includes(h.kind ?? "public")).map((h) => h.holiday_date));
     } catch { /* holidays has existed since 0011 */ }
     /* One row per person per holiday date they punched on, with the paired
        minutes. Empty when the month has no holidays or nobody worked one. */
@@ -9523,6 +9647,11 @@ export async function handleStaff(
     ): PhWork => {
       const mine = (byUser.get(userId) ?? []).filter((x) => {
         if (opts.joined && x.d < opts.joined.slice(0, 10)) return false;
+        /* v1.159.1 - a replacement holiday the person was not yet employed
+           for (the original day was before they joined) is an ordinary
+           working day for them: no two days' ORP. */
+        const row = phAll.find((h) => h.holiday_date === x.d);
+        if (row && !holidayEntitles(row, phAll, opts.joined)) return false;
         if (opts.left && x.d > opts.left.slice(0, 10)) {
           return Boolean(opts.rejoined && x.d >= opts.rejoined.slice(0, 10));
         }
@@ -10207,7 +10336,11 @@ export async function handleStaff(
        below. Resolving it per (person, day) inside them was two database
        round trips per iteration, which is what made the Payroll tab sit at
        "0 staff" for the better part of a minute. */
-    const shiftAtA = await shiftResolver(env);
+    /* v1.159.0 - the roster is the day where it speaks: a host's Saturday
+       live is a scheduled day (a missing punch on it is a missing punch),
+       and her pattern's rest day with nothing booked stays a rest day. */
+    const assignedAtA = await assignedResolver(env, `${mA2}-01`, `${mA2}-31`);
+    const shiftAtA = await shiftResolver(env, assignedAtA);
     const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[];
                  pending: { d: string; type: string }[] }[] = [];
     for (const u of staffA) {
@@ -10696,8 +10829,8 @@ export async function handleStaff(
        PUNCH: a month of attendance for nine people is several hundred rows,
        so the export spent its entire time asking the same handful of
        patterns over and over. */
-    const shiftAtE = await shiftResolver(env);
     const assignedAtE = await assignedResolver(env, `${month}-01`, `${month}-31`);
+    const shiftAtE = await shiftResolver(env, assignedAtE); // v1.159.0 - the roster is the day where it speaks
     const rows: (string | number)[][] = [];
     for (const r of results as { user_id: number; name: string; email: string; employee_id: string | null; type: string; created_at: string }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);

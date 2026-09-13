@@ -103,7 +103,7 @@ const ok = (label, cond, extra = "") => {
      reuses it. The property is that the classifier's `sh` IS that person's
      shift for today. */
   ok("the punch classifier resolves the person's shift",
-     /const shEarly = await shiftOn\(env, user\.id, todayMYT\);/.test(staff) && /const sh = shEarly;/.test(staff));
+     /const shEarly = withAssigned\(await shiftOn\(env, user\.id, todayMYT\), assignedToday\);/.test(staff) && /const sh = shEarly;/.test(staff));
   ok("a rest-day punch is flagged as one, not as an early-out",
      /if \(sh\.kind === "rest_day"\) \{\s*flag = "rest_day";/.test(staff),
      "measuring a Saturday against hours that do not apply produced a false early_out");
@@ -212,7 +212,7 @@ const ok = (label, cond, extra = "") => {
      /SELECT \* FROM shift_patterns/.test(staff) &&
      /SELECT id, user_id, pattern_id, effective_from FROM staff_shifts/.test(staff));
   ok("the three loops that used to query per iteration all use it",
-     ["shiftAtR", "shiftAtA", "shiftAtE"].every((n) => new RegExp(`const ${n} = await shiftResolver\\(env\\)`).test(staff)),
+     ["shiftAtR", "shiftAtA", "shiftAtE"].every((n) => new RegExp(`const ${n} = await shiftResolver\\(env(, assignedAt[RAE])?\\)`).test(staff)),
      "the register, the absence scan and the attendance export");
   ok("both paths read a pattern row the same way",
      /function dayShiftFrom\(/.test(staff) &&
@@ -506,7 +506,7 @@ const ok = (label, cond, extra = "") => {
      "the whole point of the request - a week of medical leave must not read as a week of absence");
   ok("a rest day or a public holiday is not a scheduled day",
      /if \(sh\.kind === "rest_day"\) \{ restDays\+\+; continue; \}/.test(staff) &&
-     /if \(holSet\.has\(d\)\) \{ publicHols\+\+; continue; \}/.test(staff),
+     /if \(holForV\(d, u\.joined_on\)\) \{ publicHols\+\+; continue; \}/.test(staff),
      "nobody is absent from a day they were never due to work");
   ok("tomorrow is not an absence",
      /if \(d <= todayV\) \{ absent\+\+; absentDates\.push\(d\); \}/.test(staff),
@@ -615,6 +615,27 @@ for (const [name, probe] of [
   const panel = panels;
   ok("the chip row shows what is in force and what is planned; superseded ones sit behind a toggle", /kindOf\(a\) !== "past"/.test(panel) && /Show history \(\$\{past\.length\} superseded\)/.test(panel));
   ok("...and a superseded chip is removable with the consequence spelled out", /Remove and re-measure/.test(panel) && /confirm_remeasure: true/.test(panel));
+}
+
+/* ---- v1.159.0 (CEO, on a live host's Saturday flagged "rest day":
+   "attendance should capture this staff working hours/days") - the roster is
+   the schedule on the days it speaks. ---- */
+{
+  ok("withAssigned exists and a live session defines the day", /export function withAssigned\(sh: DayShift, list: AssignedAt\[\]\): DayShift/.test(staff)
+     && /const lives = list\.filter\(\(a\) => a\.kind === "live"\);/.test(staff)
+     && /return \{ \.\.\.sh, kind: "workday", pattern: label\(lives\[0\]!\), windows, start: windows\[0\]!\.start/.test(staff));
+  ok("...a task or sales duty turns a rest day into a working day, and leaves a working day alone", /if \(sh\.kind !== "rest_day"\) return sh;/.test(staff));
+  ok("...the break and half-day threshold carry over from the pattern", /return \{ \.\.\.sh, kind: "workday"/.test(staff));
+  ok("the resolver applies it when handed the roster", /export async function shiftResolver\(env: Env, assigned\?: AssignedLookup\)/.test(staff)
+     && /return assigned \? \(userId, iso\) => withAssigned\(base\(userId, iso\), assigned\.list\(userId, iso\)\) : base;/.test(staff));
+  ok("the punch, today's shift, the verification, the register, the export and the absence scan all hand it the roster",
+     /const shEarly = withAssigned\(/.test(staff) && /const shO = withAssigned\(/.test(staff) && /const shT = withAssigned\(/.test(staff)
+     && /shiftResolver\(env, assignedAtV\)/.test(staff) && /shiftResolver\(env, assignedAtR\)/.test(staff) && /shiftResolver\(env, assignedAtE\)/.test(staff) && /shiftResolver\(env, assignedAtA\)/.test(staff));
+  ok("sales duty is assigned work", /FROM sales_shifts\s*WHERE shift_date BETWEEN \?1 AND \?2/.test(staff) && /what: "Sales duty"/.test(staff));
+  ok("the rest-day routes read the roster too - a day with an assigned live is a working day, not a rest day worked (CEO: \"should check based on their working schedule assigned\")",
+     /const shRO = \(await shiftResolver\(env, await assignedResolver\(env, dateO, dateO\)\)\)\(uidO, dateO\);/.test(staff)
+     && /const shC = \(await shiftResolver\(env, await assignedResolver\(env, dateC, dateC\)\)\)\(uidC, dateC\);/.test(staff)
+     && /const shiftAtW = await shiftResolver\(env, assignedAtRW\);/.test(staff));
 }
 
 console.log(

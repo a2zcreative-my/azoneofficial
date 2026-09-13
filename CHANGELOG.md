@@ -2,6 +2,90 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.2] - 2026-09-13 - The base is the Basic; approved overtime is the OT box
+
+The CEO, on the Payroll tab: *"Once I click on Save Base Salaries button, it
+should update automatically Basic! then OT approved should automatically
+fill based on approved hours!!"*
+
+**Save base salaries updates every row.** Since v1.97.1 a base change was
+carried into the open month only for rows that were "following" the base; a
+Basic that had been typed by hand was held back and flagged with a "Use
+base" chip - which is exactly the row the CEO kept finding wrong. Now every
+row of an unreleased month takes the new base and is saved with its net
+recomputed the moment the button is pressed. The one exception stays: a
+month already released to staff keeps its figures (a payslip somebody has
+read does not change under them), and the row says so with the chip.
+
+**The approved total is what the OT box shows.** The box used to fill from
+approved overtime only when the row had no figure saved, so an approval made
+after the month was first saved never reached it and the chip sat amber.
+The CEO approves every overtime himself on the Overtime card, so the box now
+follows the approved total whenever it differs; the row reads as changed
+and Save all writes it. Guards `payroll-days` and `clock-sessions` updated.
+
+Files: `components/portal/payroll-panel.tsx`, `tests/payroll-days.mjs`,
+`tests/clock-sessions.mjs`, `package.json`.
+
+## [1.159.1] - 2026-09-13 - A replacement holiday belongs to whoever was there on the original day
+
+The CEO, on Nurul's September payslip showing "1 public holiday worked
+(01/09)" for a person who joined on 01-09: *"if the staff join the day of
+replacement holiday, they are not entitle of Replacement Public Holiday
+since they are yet to join the replacement day eligible"*.
+
+A replacement holiday is a public holiday moved off a rest day, and the
+entitlement belongs to whoever was employed on the ORIGINAL day. Until now
+the row did not say which day that was, so payroll credited the replacement
+to anyone employed on the replacement date itself - including a person
+whose first day it was. Migration `0130` adds `replaces_date`; the automatic
+replacement records it, a hand-typed one may name it, and an older row
+without it takes the nearest public holiday in the seven days before (the
+month before is read too, so a replacement on the 1st finds its original on
+the 31st). For a joiner who was not employed on the original day the
+replacement is an ordinary working day: it is not credited in the
+incomplete-month proration, working it earns no two days' ORP, and the
+monthly verification counts it as a scheduled day rather than a holiday.
+Guard `payroll-days` gains eight checks.
+
+Files: `worker/migrations/0130_holiday_replaces.sql`, `worker/src/index.ts`,
+`worker/src/staff.ts`, `tests/payroll-days.mjs`, `package.json`.
+
+## [1.159.0] - 2026-09-13 - The roster is the schedule, on the days it speaks
+
+The CEO, on Nurul's register - a live host whose Saturday live was flagged
+"rest day": *"attendance should capture this staff working hours/days"*.
+
+A working-hours pattern is a normal week; the roster is what this person was
+actually told to do on this date. Until now the roster only vouched for a
+punch that fell inside an assigned window (v1.80.0) - the day itself stayed
+a rest day, its scheduled minutes stayed zero, and a punch a minute before
+the live started was "outside working hours".
+
+**Where the roster speaks, it is the day.** A live session defines the day:
+its hours are the hours, whatever the pattern said, and the day is a working
+day - a host's week is the lives she is booked for. A task block or sales
+duty on a rest day makes it a working day with those hours; on a working day
+it changes nothing (the pattern already covers the office day). The
+pattern's half-day threshold and unpaid break carry over. This applies
+everywhere the register is read with the roster in hand: the punch
+classifier (a live host clocking in for her 11:00 live is "ok", not "rest
+day"), today's shift on the phone, the monthly verification (an assigned
+Saturday is a scheduled day, not a rest day), the corrections register, the
+attendance export and the absence scan. Sales duty (v1.158.0) now counts as
+assigned work alongside lives and task blocks.
+
+**And the rest-day decisions follow it.** The CEO, on the "Rest days worked"
+card listing Nurul's Saturday live: *"should check based on their working
+schedule assigned"*. The card, the rest-day overtime payment and the
+replacement-leave credit now read the roster too: a day with an assigned
+live is that person's working day, so it is not offered as a rest day
+worked and cannot be paid or credited as one. A rest day with nothing
+assigned is still a rest day worked. Guard `shift-schedule` gains seven
+checks.
+
+Files: `worker/src/staff.ts`, `tests/shift-schedule.mjs`, `package.json`.
+
 ## [1.158.5] - 2026-09-13 - An off day yields to booked work
 
 The CEO, seeing "Off day" sitting above Nurul's Saturday and Sunday lives:

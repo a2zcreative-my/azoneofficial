@@ -338,8 +338,8 @@ ok("an OT row with no minutes yet still shows its hours from the two punches, or
    /o\.open \? L\("open", "terbuka"\)/.test(rp));
 ok("approved overtime reaches the payroll by itself",
    /WHERE status = 'approved' AND strftime\('%Y-%m', created_at, '\+8 hours'\) = \?1/.test(staff) && /ot_approved: otApproved/.test(staff)
-   && /if \(cur && cur\.ot_hours\) continue;/.test(read("components/portal/payroll-panel.tsx")),
-   "pending and rejected count for nothing - that is the point of the decision; a saved figure wins");
+   && /if \(cur && cur\.ot_hours === h\) continue;/.test(read("components/portal/payroll-panel.tsx")),
+   "pending and rejected count for nothing - that is the point of the decision; the approved total is what the box shows (v1.159.2)");
 ok("overtime is on the attendance register", /overtime: otRows/.test(staff) && /section === "ot"/.test(read("components/portal/role-panels.tsx")));
 ok("only the CEO can amend it",
    /path === "\/attendance\/ot\/amend"[\s\S]{0,200}?if \(!\["ceo", "super_admin"\]\.includes\(user\.role\)\)/.test(staff)
