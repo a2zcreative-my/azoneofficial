@@ -100,6 +100,20 @@ export const PERMS: Record<string, readonly Role[]> = {
      nothing. Every change is audited with both names. */
   org_assign: ["ceo", "coo", "cco"],
 
+  /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
+     record: "I want to have a roles assigned for me to assigned her role.
+     this is only visible for CEO and COO to update the roles."
+
+     The v1.4.157 rule ("ONLY the super_admin may change roles") stands for
+     every tier it was written to protect: ceo, coo, cco, customer and the
+     admin tier can still only be set - or touched - by the super_admin. What
+     the CEO and COO get is the WORKING roles: editor, marketing, live_host,
+     hr_admin and sales_marketing - the ones that decide which tabs a person
+     sees and whether the Sales Performance register measures them. Staff
+     accounts only, never their own, and every change is audited with the
+     old role, the new role and who made it. Not the CCO: the CEO named two. */
+  role_assign: ["ceo", "coo"],
+
   /* === sales-performance.ts (v1.155.0 - the Sales Performance register).
      CEO, 11-09-2026: one page that answers whether a staff member actually
      worked on sales today - "no evidence means no automatic KPI credit".
@@ -107,25 +121,25 @@ export const PERMS: Record<string, readonly Role[]> = {
        sales_perf_view    - open the page, submit OWN evidence (posts,
                             engagements, promotions, other activities,
                             shipments, the daily closing) and read own
-                            figures. The selling roles - sales_marketing,
-                            marketing, live_host (full or part time) - plus
-                            the management tier below, who open it to
-                            verify. TAB_ROLES["Sales Performance"] in
+                            figures. The selling roles - sales_marketing
+                            and live_host (full or part time) - plus the
+                            management tier below, who open it to verify. TAB_ROLES["Sales Performance"] in
                             lib/portal-tabs.ts mirrors THIS list. A person
                             with only this permission sees ONLY their own
                             rows; the handler filters by user id server-side.
                             The CEO, 12-09-2026: "Admin, Editor, ceo, coo,
                             cco doest not relate to this sales performance"
-                            - editor is OFF the tab, and ceo/coo/cco/admin
-                            open it without being measured (worker
-                            MEASURED_ROLES is the register).
+                            and "marketing should not perform any sales" -
+                            editor and marketing are OFF the tab, and
+                            ceo/coo/cco/admin open it without being measured
+                            (worker MEASURED_ROLES is the register).
        sales_perf_manage  - verify or reject evidence, correct a verified
                             record (reason required, diff audited), keep the
                             approved-accounts list, set targets, and read
                             every staff member. Management only - and even
                             a manager may NOT verify their own submission;
                             the handler refuses that regardless of role. */
-  sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "live_host"],
+  sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
   sales_perf_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
 };
 

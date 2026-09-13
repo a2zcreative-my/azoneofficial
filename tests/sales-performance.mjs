@@ -182,8 +182,12 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
      sales and marketing, sales, live host, live host part time, content.
      Admin, Editor, ceo, coo, cco doest not relate to this sales performance" */
   ok("editor is off the tab", !view.includes("editor") && !manage.includes("editor"));
+  /* and, the same day: "marketing should not perform any sales except sales
+     and marketing, live host and live host part time" - the leaderboard's
+     v1.25.6 rule ("Marketing doesnt make any sales on TikTok!") */
   const measured = [...(sp.match(/export const MEASURED_ROLES: readonly string\[\] = \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-  ok("the register measures the selling roles only - Sales & Marketing, Marketing, Live Host", JSON.stringify(measured) === JSON.stringify(["live_host", "marketing", "sales_marketing"]), measured.join(","));
+  ok("marketing is off the tab and out of the register", !view.includes("marketing") && !measured.includes("marketing"));
+  ok("the register measures the selling roles only - Sales & Marketing and Live Host", JSON.stringify(measured) === JSON.stringify(["live_host", "sales_marketing"]), measured.join(","));
   ok("...and salesStaff() reads exactly that list", /u\.role IN \(\$\{MEASURED_ROLES\.map\(\(r\) => `'\$\{r\}'`\)\.join\(","\)\}\)/.test(sp));
   ok("management opens the page to verify but is not measured", ["ceo", "coo", "cco", "admin", "super_admin"].every((r) => manage.includes(r) && !measured.includes(r)));
   ok("a part-time host is a host: nothing filters on employment_status", !/employment_status/.test(sp));

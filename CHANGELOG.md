@@ -2,6 +2,48 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.157.0] - 2026-09-13 - The role, set from the staff record
+
+The CEO, 13-09-2026, with Nurul's record open: *"I want to have a roles
+assigned for me to assigned her role. this is only visible for CEO and COO
+to update the roles"*.
+
+**A Role field in the Employment section, for two people.** The CEO and the
+COO now see "Role (portal access)" beside Employment status on every open
+staff record, with the five working roles to choose from: sales & marketing,
+live host, marketing, editor and HR admin. Picking one opens a confirmation
+that names both roles ("live host → sales & marketing") and says what it
+changes - which tabs the person sees and whether the Sales Performance
+register measures them - with an optional reason. Nobody else sees the
+control; the COO sees it even though the rest of the record is read-only to
+him, because a role is not a record field, it is the door list, and it is
+saved by its own audited route rather than the Save button.
+
+**What did not change.** The v1.4.157 rule - *only the super admin changes
+roles* - still holds for everything it was written to protect. The executive
+roles (CEO, COO, CCO), customer and the admin tier can neither be handed out
+nor touched from here: an executive account shows the field locked with
+"Executive roles are set by the system administrator". Nobody can change
+their own role. So a compromised CEO or COO sign-in still cannot promote
+itself, demote the other executive, or turn a stranger's Google sign-up into
+staff; the most it can do is move a staff member between working roles, and
+that is written to the audit log with the old role, the new role, who did it
+and why.
+
+**Guard #78, `role-assign`** (17 checks): `PERMS.role_assign` is exactly
+`ceo` and `coo` and the client's `ROLE_ASSIGN_ROLES` is the same list; the
+route's `WORKING_ROLES` are the five and the client offers the same five; an
+executive may assign only those and may not touch an executive, customer or
+admin account; the self-change refusal stands; the audit line carries from,
+to, `by_role` and the bounded reason; the control renders only behind
+`canSetRole` and is not a field of Save. Negative-tested by widening
+`role_assign`, adding `ceo` to the working list, and dropping the
+`canSetRole` condition.
+
+Files: `worker/src/permissions.ts`, `worker/src/staff.ts`, `lib/org-tree.ts`,
+`components/staff/staff-directory.tsx`, `tests/role-assign.mjs`,
+`scripts/run-guards.mjs`, `package.json`.
+
 ## [1.156.0] - 2026-09-12 - Sign in: a door, not a form on a white page
 
 The CEO, 12-09-2026: *"provide me implementation for the better UI/UX on the
@@ -63,14 +105,15 @@ in sign-in, create-account and two-factor.
 **Sales Performance measures the selling roles only** (CEO, 12-09-2026:
 *"Sales Performance should only listed for staff: sales and marketing,
 sales, live host, live host part time, content. Admin, Editor, ceo, coo,
-cco doest not relate to this sales performance"*). The register - the
-per-staff table, the scores, the targets, the trend - now lists Sales &
-Marketing, Marketing and Live Host (full or part time) and nobody else.
-CEO, COO, CCO and admin still open the page to verify and correct, but
-have no row and no score; Editor is off the tab entirely. `MEASURED_ROLES`
-in `worker/src/sales-performance.ts` is the one list; guard #76 asserts it.
-"Content" is not a role in this system - a content person on the Marketing
-role is measured; one on the Editor role is not.
+cco doest not relate to this sales performance"* and *"marketing should not
+perform any sales except sales and marketing, live host and live host part
+time"*). The register - the per-staff table, the scores, the targets, the
+trend - now lists Sales & Marketing and Live Host (full or part time) and
+nobody else, the rule the leaderboard has held since v1.25.6. CEO, COO,
+CCO and admin still open the page to verify and correct, but have no row
+and no score; Marketing and Editor are off the tab entirely.
+`MEASURED_ROLES` in `worker/src/sales-performance.ts` is the one list;
+guard #76 asserts it.
 
 **PUSH.bat sweeps Windows "-1" twins** before the guards run. The push of
 12-09-2026 was refused by registry-parity because a file delivered while

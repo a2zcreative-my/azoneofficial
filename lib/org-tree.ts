@@ -41,6 +41,15 @@ export const DIVISION_ROLES = ["ceo", "coo", "cco"] as const;
     hides it. The server is the authority either way. */
 export const ORG_ASSIGN_ROLES: readonly string[] = ["ceo", "coo", "cco"];
 
+/** v1.157.0 - who may set a person's ROLE from the staff record. CEO,
+    13-09-2026: "this is only visible for CEO and COO to update the roles".
+    Must stay equal to PERMS.role_assign in the worker (tests/role-assign.mjs
+    compares them). The five roles they may hand out are the WORKING roles;
+    ceo/coo/cco, customer and the admin tier stay with the super_admin, as
+    they have since v1.4.157. */
+export const ROLE_ASSIGN_ROLES: readonly string[] = ["ceo", "coo"];
+export const WORKING_ROLES: readonly string[] = ["sales_marketing", "live_host", "marketing", "editor", "hr_admin"];
+
 /**
  * The tree, from a flat list.
  *

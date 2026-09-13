@@ -1927,16 +1927,33 @@ export async function handleStaff(
        - DOMAIN POLICY nuance: personal-email (Google) accounts may hold
          staff roles ONLY as part_time — permanent staff still require an
          @COMPANY_DOMAIN account created through staff onboarding
-     Takes effect immediately: getSessionUser reads the role per request. */
+     Takes effect immediately: getSessionUser reads the role per request.
+
+     v1.157.0 (CEO, 13-09-2026, on a staff record: "I want to have a roles
+     assigned for me to assigned her role. this is only visible for CEO and
+     COO to update the roles"). The CEO and COO (PERMS.role_assign) may now
+     set the WORKING roles - editor, marketing, live_host, hr_admin,
+     sales_marketing - on a staff account that already holds one of them.
+     Everything v1.4.157 was written to protect is unchanged: the executive
+     roles (ceo/coo/cco), customer, and the admin tier can neither be
+     assigned nor touched by anyone but the super_admin, so a compromised
+     executive sign-in still cannot promote itself, demote another executive,
+     or turn a stranger's Google sign-up into staff. An optional reason goes
+     into the audit line. */
   const roleMatch = path.match(/^\/users\/(\d+)\/role$/);
   if (roleMatch && method === "POST") {
-    if (user.role !== "super_admin") {
-      return err("forbidden", "Only the system super admin can change account roles — this keeps sign-ups from ever escalating themselves", 403);
+    const WORKING_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
+    const executive = user.role !== "super_admin" && can(user.role, "role_assign");
+    if (user.role !== "super_admin" && !executive) {
+      return err("forbidden", "Only the CEO, the COO or the system super admin can change a staff role — this keeps sign-ups from ever escalating themselves", 403);
     }
-    const ASSIGNABLE = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+    const ASSIGNABLE = executive
+      ? WORKING_ROLES
+      : [...WORKING_ROLES, "ceo", "coo", "cco", "customer"];
     const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
     const newRole = typeof body?.role === "string" ? body.role : "";
     const newStatus = typeof body?.employment_status === "string" && body.employment_status !== "" ? body.employment_status : null;
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
     if (!ASSIGNABLE.includes(newRole)) {
       return err("invalid_input", `role must be one of: ${ASSIGNABLE.join(", ")}`, 400);
     }
@@ -1950,6 +1967,12 @@ export async function handleStaff(
     if (!target) return err("not_found", "User not found", 404);
     if (["super_admin", "admin"].includes(target.role)) {
       return err("forbidden", "Admin-tier accounts are managed in /admin only", 403);
+    }
+    if (executive && !WORKING_ROLES.includes(target.role)) {
+      return err("forbidden", "Executive and customer accounts can only be re-assigned by the system super admin", 403);
+    }
+    if (target.role === newRole && (!newStatus || newStatus === target.employment_status)) {
+      return json({ ok: true, role: newRole, employment_status: target.employment_status, unchanged: true });
     }
     const isCompanyEmail = target.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
     let status = newStatus;
@@ -1966,6 +1989,8 @@ export async function handleStaff(
     await audit(env, user.id, "staff.role_change", "users", String(id), {
       from: target.role, to: newRole,
       employment_status: status ?? target.employment_status ?? "unchanged",
+      by_role: user.role,
+      ...(reason ? { reason } : {}),
     });
     return json({ ok: true, role: newRole, employment_status: status ?? target.employment_status });
   }

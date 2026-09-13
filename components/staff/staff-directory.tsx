@@ -53,6 +53,11 @@ import { getLang } from "@/lib/i18n";
    own - one fetch, one set of permissions, and pressing a box opens the same
    record card that is already below. */
 import { OrgChart, ORG_ASSIGN_ROLES } from "@/components/staff/org-chart";
+/* v1.157.0 - the ROLE on the record. CEO, 13-09-2026: "I want to have a
+   roles assigned for me to assigned her role. this is only visible for CEO
+   and COO to update the roles". The two lists are held against the worker's
+   PERMS.role_assign and the route's WORKING_ROLES by tests/role-assign.mjs. */
+import { ROLE_ASSIGN_ROLES, WORKING_ROLES } from "@/lib/org-tree";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -756,6 +761,39 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
   const isLocked = (u: Staff, key: keyof Staff) =>
     readOnly || (!canAmend && Boolean(((u[key] as string) ?? "").trim()));
 
+  /* v1.157.0 - THE ROLE, SET FROM THE RECORD. Only the CEO and COO see the
+     control (ROLE_ASSIGN_ROLES); it is deliberately NOT part of Save, because
+     the COO is read-only on the record's fields and a role is not a field -
+     it is the door list. Its own audited route, a confirmation that names
+     both roles, an optional reason. Executive accounts show the control
+     locked: those roles are the super_admin's to change (v1.4.157). */
+  const canSetRole = ROLE_ASSIGN_ROLES.includes(role);
+  const roleLabel = (r: string) => L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "));
+  const changeRole = async (u: Staff, next: string) => {
+    if (!next || next === u.role) return;
+    const r = await prompt({
+      title: L(`Change ${displayName(u)}'s role?`, `Tukar peranan ${displayName(u)}?`),
+      message: L(
+        `${roleLabel(u.role)} → ${roleLabel(next)}. This changes which tabs they see the next time the app refreshes, and whether the Sales Performance register measures them. The change is recorded with your name.`,
+        `${roleLabel(u.role)} → ${roleLabel(next)}. Ini menukar tab yang mereka lihat pada muat semula seterusnya, dan sama ada daftar Prestasi Jualan mengukur mereka. Perubahan direkodkan dengan nama anda.`,
+      ),
+      label: L("Reason (optional)", "Sebab (pilihan)"),
+      placeholder: L("e.g. moved to the live team from 15-09", "cth. berpindah ke pasukan siaran langsung dari 15-09"),
+      confirmLabel: L("Change role", "Tukar peranan"),
+    });
+    if (!r) return;
+    setRowMsg((m) => ({ ...m, [u.id]: "" }));
+    const res = await api<ErrShape & { role?: string }>(`/users/${u.id}/role`, {
+      method: "POST", body: JSON.stringify({ role: next, reason: r.value }),
+    });
+    if (res.ok) {
+      showToast(L("Role changed", "Peranan ditukar"), `${displayName(u)} — ${roleLabel(next)}`);
+      void load();
+    } else {
+      setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? L("Role change failed", "Penukaran peranan gagal") }));
+    }
+  };
+
   return (
     <div className="space-y-3">
       {toastNode}{promptNode}
@@ -1443,6 +1481,27 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
                   )}
                 </label>
               ))}
+              {sec.title === "Employment" && canSetRole && (
+                <label className="block">
+                  <span className="text-muted-foreground mb-0.5 block text-[11px]">
+                    {L("Role (portal access)", "Peranan (akses portal)")}
+                    {!WORKING_ROLES.includes(u.role) && <span className="ml-1">🔒</span>}
+                  </span>
+                  <select
+                    className={input}
+                    value={u.role}
+                    disabled={!WORKING_ROLES.includes(u.role)}
+                    title={WORKING_ROLES.includes(u.role)
+                      ? L("Which tabs they see and which register measures them — recorded with your name", "Tab yang mereka lihat dan daftar yang mengukur mereka — direkodkan dengan nama anda")
+                      : L("Executive roles are set by the system administrator", "Peranan eksekutif ditetapkan oleh pentadbir sistem")}
+                    onChange={(e) => void changeRole(u, e.target.value)}
+                  >
+                    {WORKING_ROLES.includes(u.role)
+                      ? WORKING_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)
+                      : <option value={u.role}>{roleLabel(u.role)}</option>}
+                  </select>
+                </label>
+              )}
             </div>
             </div>
             ))}

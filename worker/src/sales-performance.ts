@@ -97,12 +97,15 @@ interface Person { id: number; name: string; role: string }
 /** THE PEOPLE WHO ARE MEASURED. The CEO, 12-09-2026: "Sales Performance
     should only listed for staff: sales and marketing, sales, live host, live
     host part time, content. Admin, Editor, ceo, coo, cco doest not relate."
-    So the register is the selling roles only - Sales & Marketing, Marketing
-    and Live Host (whatever their employment status: a part-time host is a
-    host). Management (ceo/coo/cco) and the operators (super_admin/admin)
-    still OPEN the page and verify - permissions.ts sales_perf_manage - but
-    they have no row, no score and no target here. Editor is neither. */
-export const MEASURED_ROLES: readonly string[] = ["sales_marketing", "marketing", "live_host"];
+    And, the same day: "marketing should not perform any sales except sales
+    and marketing, live host and live host part time" - which is the rule
+    the leaderboard has held since v1.25.6 ("Marketing doesnt make any sales
+    on TikTok!"). So the register is TWO roles: Sales & Marketing, and Live
+    Host (whatever their employment status: a part-time host is a host).
+    Management (ceo/coo/cco) and the operators (super_admin/admin) still
+    OPEN the page and verify - permissions.ts sales_perf_manage - but have
+    no row, no score and no target here. Marketing and Editor are neither. */
+export const MEASURED_ROLES: readonly string[] = ["sales_marketing", "live_host"];
 async function salesStaff(env: Env): Promise<Person[]> {
   const { results } = await env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u

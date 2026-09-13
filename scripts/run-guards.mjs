@@ -140,6 +140,7 @@ const GUARDS = [
   ["qt-once", "a quotation becomes an invoice once and then reads as a sale; a desk item lands on the card where it is decided; approving overtime asks first and says so after"],
   ["sales-performance", "evidence, not claims - one set of URL and score rules run on both sides, the worker refuses unproven posts, self-verification, silent corrections, typed revenue and untracked shipments, the tab is registered everywhere as ONE page, the migration is triple-bumped, and Criscikee is gone"],
   ["login-ux", "the one screen everybody meets: a branded half beside the form on a desk and a centred svh column on a phone, a real form with named 16px fields, a button that is never born dead, errors that announce themselves, EN/BM at the door, and a code screen that autofills and signs in on the sixth digit"],
+  ["role-assign", "the role on the staff record: the CEO and COO hand out the five working roles, never their own, never an executive's; the executive, customer and admin tiers stay with the super admin; every change audited with a reason"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
