@@ -141,6 +141,16 @@ export const PERMS: Record<string, readonly Role[]> = {
                             the handler refuses that regardless of role. */
   sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
   sales_perf_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
+  /* v1.160.0 - the Advisors desks (worker/src/advisors.ts).
+       advisors_view    - open the tab: the proposals, the desks, the usage
+                          meter; press "Ask the desk" (ten a day a person).
+       advisors_decide  - approve, ask for changes, reject; the switches, the
+                          caps, the model, the company brief.
+     The CEO's decision D2, 14-09-2026: *"CEO only approves."* So decide is
+     the CEO and nobody else - not super_admin, not admin. The management
+     tier sees and can ask, and that is all. */
+  advisors_view: ["super_admin", "admin", "ceo", "coo", "cco"],
+  advisors_decide: ["ceo"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

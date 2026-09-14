@@ -88,13 +88,18 @@ export async function audit(env, userId, action, table, id, meta) { audits.push(
 export async function bumpVersion(env, topic) { bumps.push(topic); }
 `);
 writeFileSync(join(dir, "staff.js"), `export const notified = []; export async function notify(env, userId, kind, message, ref) { notified.push({ userId, kind, message, ref }); }`);
+/* v1.160.0 - the Advisors desk's two doors into this module are stubbed the
+   same way: the list attaches approved drafts, a reply marks one implemented.
+   The real module is guarded by tests/advisors.mjs. */
+writeFileSync(join(dir, "advisors.js"), `export const implemented = []; export async function approvedDrafts() { return {}; } export async function markEnquiryReplied(env, id) { implemented.push(id); }`);
 const rewritten = src
   .replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`)
   .replace('from "./staff"', `from "${stubUrl(join(dir, "staff.js"))}"`)
+  .replace('from "./advisors"', `from "${stubUrl(join(dir, "advisors.js"))}"`)
   .replace('from "./permissions"', `from "${importPath(join(root, "worker/src/permissions.ts"))}"`);
 writeFileSync(join(dir, "enquiries.ts"), rewritten);
 const out = join(dir, "enquiries.mjs");
-execSync(`npx esbuild "${join(dir, "enquiries.ts")}" --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/staff.js --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
+execSync(`npx esbuild "${join(dir, "enquiries.ts")}" --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/staff.js --external:*/advisors.js --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 const E = await import(pathToFileURL(out).href);
 const { audits, bumps } = await import(pathToFileURL(join(dir, "shared.js")).href);
 const { notified } = await import(pathToFileURL(join(dir, "staff.js")).href);
@@ -197,7 +202,9 @@ const { notified } = await import(pathToFileURL(join(dir, "staff.js")).href);
   ok("the desk has an enquiries bucket, behind enquiry_manage", /if \(can\(user\.role, "enquiry_manage"\)\) \{\s*await guard\("enquiries"/.test(desk));
   ok("...a taken enquiry sits only on its taker's desk", /if \(e\.status === "new" && e\.assigned_to && e\.assigned_to !== user\.id\) continue;/.test(desk));
   ok("...using the module's overdue rule", /isEnquiryOverdue\(e\)/.test(desk) && /import \{ isOverdue as isEnquiryOverdue \} from "\.\/enquiries"/.test(desk));
-  ok("the desk card knows the bucket and its topic", /enquiries: \["Enquiries", "Pertanyaan"\]/.test(deskCard) && /"users", "enquiries"\]\)/.test(deskCard) && /\| "enquiries";/.test(deskCard));
+  /* v1.160.0 - the advisors bucket joined the list after enquiries; the
+     regexes look for the enquiries entries wherever they sit */
+  ok("the desk card knows the bucket and its topic", /enquiries: \["Enquiries", "Pertanyaan"\]/.test(deskCard) && /"users", "enquiries"(?:, "[a-z]+")*\]\)/.test(deskCard) && /\| "enquiries"(?: \| "[a-z]+")*;/.test(deskCard));
   ok("the panel is lazy and mounted on its tab", /EnquiriesPanel = lazy\(/.test(lazy) && /activeTab === "Enquiries" && <EnquiriesPanel userId=\{user\.id\} \/>/.test(page));
   ok("the old Sales card is gone", !/CustomerEnquiriesCard/.test(page));
   ok("a bell item for an enquiry opens the tab", /n\.kind === "enquiry" \? "Enquiries"/.test(page));

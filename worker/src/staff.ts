@@ -8,6 +8,7 @@ import { handleErp } from "./erp";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
+import { handleAdvisors } from "./advisors"; // v1.160.0 - five AI desks that advise and never decide
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
@@ -1397,6 +1398,7 @@ const PUSH_TAB: Record<string, string> = {
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
   enquiry: "Enquiries", // v1.112.0 - a customer waiting for an answer
+  advisors: "Advisors", // v1.160.0 - proposals waiting for the CEO
 };
 
 export async function notify(
@@ -2072,6 +2074,12 @@ export async function handleStaff(
      shipments and customers are READ from this file's tables, never copied. */
   if (path === "/sales-performance" || path.startsWith("/sales-performance/")) {
     return handleSalesPerformance(env, request, path.slice("/sales-performance".length), method, body, user, new URL(request.url).searchParams);
+  }
+  /* ---- Advisors (v1.160.0) - see advisors.ts. Five AI desks that advise
+     and never decide: proposals in, the CEO's decision out. A door, not a
+     route: everything under /advisors/ lives in that module. */
+  if (path === "/advisors" || path.startsWith("/advisors/")) {
+    return handleAdvisors(env, path.slice("/advisors".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- Threads workspace (v1.89.0) — see threads.ts. A door, not a
@@ -6466,7 +6474,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Advisors", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

@@ -56,6 +56,10 @@ export const ALL_TABS = [
      is not a sub-tab of Sales and not a page of sub-tabs. Sixth, so no
      role's phone thumb row (the first four) moves. */
   "Sales Performance",
+  /* v1.160.0 - Advisors: five AI desks that advise and never decide, in ONE
+     tab (the CEO's decision D1, 14-09-2026). Seventh, behind the Sales
+     trio, so no role's phone thumb row (the first four) moves. */
+  "Advisors",
   "Assets",
   "Hotels",
   "Threads",
@@ -188,6 +192,11 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      should not perform any sales"): editor and marketing are off the tab;
      hr_admin was never on it. */
   "Sales Performance": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
+  /* v1.160.0 - Advisors. Mirrors advisors_view in worker/src/permissions.ts:
+     the management tier reads the proposals and may ask a desk; deciding is
+     advisors_decide, the CEO alone (D2), gated inside the tab by can_decide
+     from the API, not here. */
+  Advisors: ["super_admin", "admin", "ceo", "coo", "cco"],
   /* v1.112.0 - the CEO, 05-09-2026: customer enquiries are staff work that
      must be answered, so they get their own tab instead of a card at the
      top of Sales. Mirrors enquiry_manage in worker/src/permissions.ts. */
@@ -276,6 +285,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
   Sales: { en: "documents + map", ms: "dokumen + peta" },
   "Sales Performance": { en: "evidence, not claims", ms: "bukti, bukan dakwaan" },
+  Advisors: { en: "five AI desks, your decision", ms: "lima meja AI, keputusan anda" },
   Enquiries: { en: "customers waiting for an answer", ms: "pelanggan menunggu jawapan" },
   Announcements: { en: "feed + publish", ms: "suapan + terbit" },
   HR: { en: "docs, leave admin", ms: "dokumen, pentadbiran cuti" },

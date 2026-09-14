@@ -41,7 +41,9 @@ interface Enq {
   assigned_to: number | null; assigned_name: string | null; created_at: string; overdue: boolean; hours_waiting: number;
 }
 interface Person { id: number; name: string; role: string }
-interface Data { enquiries: Enq[]; counts: Record<string, number>; people: Person[]; overdue_hours: number }
+/* v1.160.0 - a reply the Customer Service desk (Advisors) drafted and the CEO approved, by enquiry id */
+interface Suggested { id: number; en: string; ms: string }
+interface Data { enquiries: Enq[]; counts: Record<string, number>; people: Person[]; overdue_hours: number; suggested?: Record<string, Suggested> }
 
 const STATUS_LABEL: Record<string, [string, string]> = {
   new: ["Waiting", "Menunggu"],
@@ -225,6 +227,23 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
                       </div>
                     )}
 
+                    {/* v1.160.0 - the Advisors desk's draft, approved by the CEO. A
+                        suggestion in the box, never a message sent: the person
+                        reads it, presses Use, edits, and sends it themselves. */}
+                    {e.status !== "closed" && view.data?.suggested?.[String(e.id)] && (() => {
+                      const sg = view.data.suggested[String(e.id)]!;
+                      return (
+                        <div className="bg-info-soft mt-2 rounded-lg px-2.5 py-2">
+                          <p className="text-info text-[10px] font-semibold tracking-wider uppercase">{L("Suggested reply · approved by the CEO", "Balasan dicadang · diluluskan CEO")}</p>
+                          <p className="mt-1 whitespace-pre-wrap">{sg.en}</p>
+                          <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{sg.ms}</p>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, [e.id]: sg.en }))}>{L("Use EN", "Guna EN")}</button>
+                            <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, [e.id]: sg.ms }))}>{L("Use BM", "Guna BM")}</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {e.status !== "closed" && (
                       <div className="mt-2">
                         <textarea className={`${inputClassSm} w-full`} rows={3} maxLength={2000} value={draft[e.id] ?? ""}

@@ -228,6 +228,14 @@ set CI=true
 cd worker
 call npx wrangler d1 migrations apply azoneofficial --remote
 if errorlevel 1 goto :failedpop
+REM  v1.160.1 - the Advisors' FIRST run, once (CEO, 14-09-2026: "I want
+REM  PUSH.bat to perform it once"). This line writes one flag through
+REM  wrangler's own authenticated line; the live check below then opens the
+REM  first-run door, which runs the desks only while that flag says wanted.
+REM  INSERT OR IGNORE: the row exists forever after the first time, so every
+REM  later deploy passes through here and changes nothing. Never fatal.
+call npx wrangler d1 execute azoneofficial --remote --command "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('first_run', 'wanted')"
+if errorlevel 1 echo   [!] Could not ask for the Advisors' first run - press Ask the desk once in the portal instead.
 cd ..
 set CI=
 
@@ -350,6 +358,14 @@ echo   Checking both live systems...
 echo.
 echo     --- https://a2zcreative.my/api/v1/health
 curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
+echo.
+echo.
+REM  v1.160.1 - the Advisors' first run, performed here ONCE. The door does
+REM  nothing unless the flag written at step 6 says wanted, so on every later
+REM  deploy this prints {"ran":false} and moves on. It waits for the desks
+REM  (up to four minutes); if the line is cut, the 5-minute cron finishes it.
+echo     --- Advisors: first run ^(once; ran:false afterwards is normal^)
+curl.exe -s -m 240 -X POST https://a2zcreative.my/api/v1/system/advisors/first-run
 echo.
 echo.
 echo     --- https://elfiaofficialstore.my/api/v1/health

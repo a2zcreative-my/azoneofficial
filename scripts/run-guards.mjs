@@ -143,6 +143,7 @@ const GUARDS = [
   ["role-assign", "the role on the staff record: the CEO and COO hand out the five working roles, never their own, never an executive's; the executive, customer and admin tiers stay with the super admin; every change audited with a reason"],
   ["roster-week", "the week, whole: public holidays from the one company calendar are named and tinted on every view of the roster but never lock a day; sales duty is the third thing a week is made of - its own table and routes, for the roles the register measures, a plan never a claim (the day's evidence is counted from the register), with the task rules (management, whole runs, 62 days, approved leave, audit)"],
   ["paper-one-page", "every A4 print window is laid out on the paper (794px viewport, 210mm body, print min-height from the printable page), so a phone prints the same one page as a desk; on a phone the PDF button opens the real one-page file"],
+  ["advisors", "the five AI desks advise and never decide: no write outside their own tables, evidence is the gate, the CEO alone approves, usage capped and metered, personal details scrubbed (the scrubber is run), the tab wired everywhere, no key or secret"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

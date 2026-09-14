@@ -2,6 +2,100 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.160.2] - 2026-09-14 - The Advisors call through the a2z-advisors gateway
+
+The CEO created AI Gateway `a2z-advisors` in his dashboard (cache on, spend
+limit on). `AI_GATEWAY_ID` names it in `wrangler.toml` - a plain name, not a
+secret - so every desk call now gets a cache, a log and the dollar cap.
+
+Files: `worker/wrangler.toml`, `package.json`.
+
+## [1.160.1] - 2026-09-14 - PUSH.bat performs the Advisors' first run, once
+
+The CEO: *"I want PUSH.bat to perform it once."*
+
+The deploy now runs the desks the first time, so nobody has to press Ask
+the desk after publishing. No key travels: PUSH.bat writes one flag into
+the database through wrangler's own authenticated line, straight after the
+migrations (`INSERT OR IGNORE`, so the row exists forever after the first
+time and every later deploy changes nothing), then, in the live check at
+the end, opens a public first-run door and waits for the desks. The door
+runs only while that flag says wanted; the claim is one atomic UPDATE, so
+two callers cannot both run it and a stranger who finds the door can
+neither start a run nor repeat one. A claim left hanging for ten minutes
+(the line was cut mid-run) may be claimed again, and the 5-minute cron
+calls the same function, so the first run happens within five minutes of
+the deploy even if the door was never reached. On every later deploy the
+line prints `{"ran":false}` and moves on. Guard `advisors` gains seven
+checks.
+
+Files: `PUSH.bat`, `worker/src/advisors.ts`, `worker/src/index.ts`,
+`tests/advisors.mjs`, `package.json`.
+
+## [1.160.0] - 2026-09-14 - Advisors: five AI desks that advise and never decide
+
+The CEO: *"I want to have a new tabs for the AI to work as a QA, Content
+research, Product development based on my existing product and service,
+Sales person for selling target achievement and Customer Service to review
+and response on the feedback. This AI should not make their decision, they
+need to communicate with each other but then need me to review their plan
+and implementation for me to final approved. they only provide me
+suggestion. at the same time need to minimize their usage since I use
+Cloudflare."* And his five decisions on the plan: one tab with the five
+desks inside; the CEO alone approves; Cloudflare Workers AI now, Claude as
+an optional later phase; daily at 06:30 MYT plus an "Ask the desk" button
+capped at ten a day; personal details always stripped before a model reads
+a customer.
+
+The Advisors tab, seventh behind the Sales trio so no phone thumb row
+moves. This release ships two of the five desks - Customer Service and QA -
+with the whole machinery around them; Sales (v1.161.0), Content research
+and Product development (v1.162.0) show on the tab as planned.
+
+How it works. At 06:30 MYT the worker builds each desk a compact digest by
+SQL (counts, gaps, the handful of records that matter, each with a
+reference the worker minted), the model answers in a fixed JSON shape, and
+the worker validates it: a proposal that cites no reference from the digest
+is dropped - no evidence, no proposal. Proposals wait in the CEO's queue
+with the evidence, a plan in steps, the suggested owner, the expected
+result and how to measure it. Approve creates a task for the person he
+picks with the plan as its checklist; a customer-service draft instead
+appears as a suggested reply in the box on the Enquiries tab, in EN and BM,
+where staff still read, edit and send it themselves. Ask for changes sends
+it back with his note and the desk revises it next run. Reject needs a
+reason and the reason is kept as a lesson the desk reads before it proposes
+again. Later parks it. An untouched proposal expires after fourteen days.
+The CEO's desk on the Dashboard lists what is waiting and the morning brief
+counts it.
+
+What a desk can never do, enforced in the worker and held by guard
+`advisors`: write to any table but its own (and, on approval, tasks); call
+anything but the AI binding; send anything to a customer; reply, post,
+change a price. Customer text enters the digest as data the model is told
+not to obey. Names, phones, emails, NRIC numbers and card-length digit
+runs are scrubbed before any message is read - the guard runs the scrubber
+on real-looking text.
+
+Usage, by design: the digest is capped, three proposals a desk a run, a
+desk whose digest did not change since its last run is skipped for nothing,
+open proposals are carried forward rather than regenerated, a hard
+max_tokens and low reasoning effort, a per-desk and a global daily neuron
+cap under Cloudflare's free 10,000, a kill switch (global and per desk),
+ten manual asks a day a person, and every run written down with its tokens
+and estimated neurons so the tab's meter shows today against the free
+allowance. When AI_GATEWAY_ID names a gateway, every call goes through it.
+
+Files: `worker/src/advisors.ts` (new), `worker/migrations/0131_advisors.sql`
+(new), `worker/wrangler.toml` (the `[ai]` binding and the 06:30 cron),
+`worker/src/index.ts`, `worker/src/staff.ts`, `worker/src/permissions.ts`,
+`worker/src/enquiries.ts`, `worker/src/desk.ts`, `worker/src/watchers.ts`,
+`components/portal/advisors-panel.tsx` (new),
+`components/portal/enquiries-panel.tsx`, `components/portal/one-desk.tsx`,
+`components/portal/lazy-panels.tsx`, `app/portal/page.tsx`,
+`lib/portal-tabs.ts`, `lib/i18n.ts`, `components/layout/side-nav.tsx`,
+`components/layout/nav-icons.tsx`, `tests/advisors.mjs` (new),
+`tests/enquiries.mjs`, `scripts/run-guards.mjs`, `package.json`.
+
 ## [1.159.9] - 2026-09-14 - Every Sales link goes somewhere
 
 The CEO: *"Review there is any error on the system and check the sales all
