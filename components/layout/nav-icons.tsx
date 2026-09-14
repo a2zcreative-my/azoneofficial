@@ -23,7 +23,7 @@
 
 import {
   AtSign, Banknote, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
-  Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, Lightbulb, ListChecks, Shirt,
+  Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
   ShoppingCart, SquarePen, Square, Store, Target, Timer, TrendingDown, UserRound,
@@ -47,7 +47,6 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Expenses: TrendingDown,
   Sales: FileText,
   "Sales Performance": Target, // v1.155.0 - the accountability register: did they sell, and can they prove it
-  Advisors: Lightbulb, // v1.160.0 - five AI desks that advise and never decide: a suggestion, not an instruction
   "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule); ShoppingBag would have duplicated Purchasing on the SAME rail.
   "ELFIA Traffic": Map, // v1.43.0: the visitor map tab — Map is unused on every rail, and the tab IS a map.
   "ELFIA Store": Shirt, // v1.45.0: the store's catalogue — what ELFIA sells is wear, and Shirt is unused on every rail (ShoppingBag is Purchasing's, on this same rail; Store is Stokis's).

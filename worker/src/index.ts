@@ -7,7 +7,6 @@ import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // 
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 - 30 minutes before a shift, 30 before its end, and at the end
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
-import { runAdvisorsDaily, firstRun as advisorsFirstRun } from "./advisors"; // v1.160.0 - the five desks, 06:30 MYT; v1.160.1 - PUSH.bat performs the first run once
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
@@ -75,16 +74,6 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
-  /** v1.160.0 - the Advisors desks (worker/src/advisors.ts). AI is the
-      Workers AI binding from wrangler.toml (`[ai] binding = "AI"`) - no key,
-      no secret, the account's own daily allowance. AI_GATEWAY_ID is an
-      optional plain var: the name of an AI Gateway the CEO created in his
-      dashboard; set, every call goes through it (cache, logs, the dollar
-      spend limit). Unset = direct. Typed loosely on purpose: the desks talk
-      to the binding through one adapter, and workers-types' per-model
-      generics would tie this file to a model list that moves monthly. */
-  AI?: { run: (model: string, inputs: unknown, options?: unknown) => Promise<unknown> };
-  AI_GATEWAY_ID?: string;
 }
 
 import { Role, can, MANDATORY_2FA_ROLES } from "./permissions";
@@ -291,7 +280,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0131_advisors";
+const LATEST_MIGRATION = "0132_advisors_workstation";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1992,12 +1981,6 @@ export default {
       } catch (e) {
         if (!String(e).includes("no such")) await logError(env, "shift_reminders", e instanceof Error ? e.message : String(e));
       }
-      /* v1.160.1 - the Advisors' FIRST run, if PUSH.bat asked for it and the
-         first-run door was never reached (advisors.ts firstRun). A no-op
-         forever after - one cheap UPDATE that changes nothing. */
-      try {
-        if (await advisorsFirstRun(env)) await bumpVersion(env, "advisors");
-      } catch (e) { await logError(env, "advisors", e instanceof Error ? e.message : String(e)); }
       return;
     }
     /* v1.108.0 - 08:00 MYT: the morning brief to the CEO, COO and CCO. Their
@@ -2010,20 +1993,6 @@ export default {
     }
     if (event.cron === "20 19 * * *") {
       await runBackup(env, null);
-      return;
-    }
-    /* v1.160.0 - 06:30 MYT: the Advisors desks. Each built desk reads its
-       digest, proposes at most three things, and the CEO gets one
-       notification if anything new is waiting. A desk whose digest did not
-       change is skipped for nothing. Never fatal, never in the 30-min chain. */
-    if (event.cron === "30 22 * * *") {
-      try {
-        const r = await runAdvisorsDaily(env);
-        const failed = r.filter((x) => x.status === "failed");
-        if (failed.length) await logError(env, "advisors", failed.map((x) => `${x.desk}: ${x.note ?? "failed"}`).join("; "));
-        /* the cron does not pass through the staff dispatch: an open tab hears by hand */
-        await bumpVersion(env, "advisors");
-      } catch (e) { await logError(env, "advisors", e instanceof Error ? e.message : String(e)); }
       return;
     }
     if (event.cron === "0 1 * * *") {
@@ -4472,24 +4441,6 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     });
   }
 
-  /* v1.160.1 - the Advisors' first run, performed once by PUSH.bat (CEO:
-     "I want PUSH.bat to perform it once"). Public and keyless on purpose:
-     the ONLY thing that makes it do anything is the first_run flag PUSH.bat
-     wrote through wrangler's own authenticated line; without the flag this
-     answers {ran:false} at the cost of one UPDATE that changes nothing, and
-     the flag is consumed atomically, so a stranger who finds the door can
-     neither start a run nor repeat one. No secret, no session, nothing to
-     leak - see advisors.ts firstRun for the rest. */
-  if (path === "/api/v1/system/advisors/first-run" && method === "POST") {
-    let results: Awaited<ReturnType<typeof advisorsFirstRun>> = null;
-    try { results = await advisorsFirstRun(env); }
-    catch (e) { await logError(env, "advisors", e instanceof Error ? e.message : String(e)); return errorResponse("failed", "The first run did not finish - the 5-minute cron will retry it", 500); }
-    if (results) await bumpVersion(env, "advisors");
-    return new Response(JSON.stringify({ ran: results !== null, results: results ?? [] }), {
-      status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
-    });
-  }
-
   if (path === "/api/v1/system/backup/download" && method === "GET") {
     if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
     const listed = await env.MEDIA.list({ prefix: "backups/" });
@@ -4642,7 +4593,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0128 (sales duty on the roster)", `SELECT focus FROM sales_shifts LIMIT 1`],
       ["0129 (a working-hours pattern can be retired)", `SELECT retired_at FROM shift_patterns LIMIT 1`],
       ["0130 (a replacement holiday remembers what it replaces)", `SELECT replaces_date FROM holidays LIMIT 1`],
-      ["0131 (the Advisors desks)", `SELECT fingerprint FROM ai_proposals LIMIT 1`],
+      ["0131 (Advisors - retired in v1.162.0; the tables stay until a later migration drops them)", `SELECT fingerprint FROM ai_proposals LIMIT 1`],
+      ["0132 (Advisors workstations - retired in v1.162.0)", `SELECT to_desk FROM ai_messages LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4793,6 +4745,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0129_shift_pattern_retire",
       "0130_holiday_replaces",
       "0131_advisors",
+      "0132_advisors_workstation",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

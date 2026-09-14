@@ -41,7 +41,7 @@ import { isOverdue as isEnquiryOverdue } from "./enquiries"; // v1.112.0
 import { leaveCanActAt } from "./leave-chain";
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries" | "advisors";
+  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
   id: string;
   title: string;
   sub: string;
@@ -305,21 +305,6 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       });
     }
   });
-
-  /* ---- v1.160.0 - Advisors proposals waiting for the CEO (D2: his alone) ---- */
-  if (user.role === "ceo") {
-    await guard("advisors", async () => {
-      const { results } = await env.DB.prepare(
-        `SELECT id, desk, kind, title, priority, created_at FROM ai_proposals WHERE status = 'proposed' ORDER BY created_at ASC LIMIT 30`,
-      ).all<{ id: number; desk: string; kind: string; title: string; priority: string; created_at: string }>();
-      for (const p of results) {
-        items.push({
-          bucket: "advisors", id: `proposal:${p.id}`, tab: "Advisors", title: p.title,
-          sub: `${p.desk} desk · ${p.kind.replace("_", " ")} · ${p.priority}`, since: p.created_at, overdue: ageDays(p.created_at) > 5,
-        });
-      }
-    });
-  }
 
   /* Overdue first, then oldest first: the thing that has waited longest is
      the thing to do first, and the desk should read that way. */

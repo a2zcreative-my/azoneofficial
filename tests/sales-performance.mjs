@@ -265,7 +265,7 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   const roster = read("components/portal/roster-board.tsx");
   const dash = read("components/portal/dashboard.tsx");
   ok("the page answers canOpen from the strip's own filter", /const canOpen = \(t: string\) => \(tabs as readonly string\[\]\)\.includes\(t\);/.test(page) && /const tabs = ALL_TABS\.filter\(\(t\) => canSeeTab\(user\?\.role, t, tabOverrides, myTabAccess\)\);/.test(page));
-  ok("Sales Performance receives canOpen and the roster preset", /<SalesPerformancePanel go=\{\(t\) => setTab\(t as TabName\)\} canOpen=\{canOpen\} preset=\{spPreset\} \/>/.test(page));
+  ok("Sales Performance receives canOpen and the roster preset", /<SalesPerformancePanel go=\{\(t\) => setTab\(t as TabName\)\} canOpen=\{canOpen\} preset=\{spPreset\}[^\n]*\/>/.test(page));
   ok("every Sales link on the register asks salesTab first: the row act, the section button, the new-order tile", /const salesTab = canOpen \? canOpen\("Sales"\) : true;/.test(panel) && /if \(salesTab\) acts\.push\(\{ label: L\("Open in Sales"/.test(panel) && /action=\{salesTab \? <button[^\n]*go\("Sales"\)[^\n]*: undefined\}/.test(panel) && /if \(salesTab\) \{ setDrawer\(null\); go\("Sales"\); \}/.test(panel));
   ok("...and no bare go(\"Sales\") is left", (panel.match(/go\("Sales"\)/g) ?? []).length === 3);
   ok("a live host without the Sales tab is told where an invoice is raised, not bounced", /Your account does not have the Sales tab - ask the sales team to raise the invoice\./.test(panel));

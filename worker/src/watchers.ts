@@ -215,9 +215,6 @@ export async function morningBrief(env: Env): Promise<number> {
   const yesterdayCents = await n(`SELECT COALESCE(SUM(COALESCE(booked_cents, total_cents)), 0) AS c FROM web_orders WHERE paid_seen_at IS NOT NULL AND date(paid_seen_at, '+8 hours') = date('now', '+8 hours', '-1 day')`);
   const yesterdayOrders = await n(`SELECT COUNT(*) AS c FROM web_orders WHERE paid_seen_at IS NOT NULL AND date(paid_seen_at, '+8 hours') = date('now', '+8 hours', '-1 day')`);
   const openWatch = await n(`SELECT COUNT(*) AS c FROM watcher_open`);
-  /* v1.160.0 - proposals from the Advisors desks waiting for the CEO (null
-     before migration 0131, and then simply not mentioned) */
-  const proposals = await n(`SELECT COUNT(*) AS c FROM ai_proposals WHERE status = 'proposed'`);
 
   let sent = 0;
   for (const e of execs) {
@@ -228,7 +225,6 @@ export async function morningBrief(env: Env): Promise<number> {
     if (clockedIn !== null && headcount !== null) parts.push(`${clockedIn} of ${headcount} clocked in so far`);
     if (yesterdayOrders !== null && yesterdayCents !== null) parts.push(`yesterday: ${yesterdayOrders} web order${yesterdayOrders === 1 ? "" : "s"}, RM ${(yesterdayCents / 100).toFixed(2)}`);
     if (openWatch) parts.push(`${openWatch} watcher finding${openWatch === 1 ? "" : "s"} open`);
-    if (proposals && e.role === "ceo") parts.push(`${proposals} Advisors proposal${proposals === 1 ? "" : "s"} waiting for your decision`);
     const day = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     await notify(env, e.id, "brief", `☀ Good morning, ${e.name.split(" ")[0]}. ${parts.join(" · ")}.`, `brief:${day}`);
     sent++;

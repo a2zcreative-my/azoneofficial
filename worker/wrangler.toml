@@ -77,10 +77,6 @@ GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleu
 # is an public identifier — it travels in query strings on every API call — so
 # it lives here; the app SECRET never does.
 TIKTOK_APP_KEY     = "6kraboau1veif"
-# v1.160.2 - the AI Gateway the Advisors desks call through (created by the
-# CEO in the dashboard, 14-09-2026): cache, logs and the dollar spend limit.
-# A name, not a secret; the [ai] binding authenticates. Blank = direct.
-AI_GATEWAY_ID      = "a2z-advisors"
 # v1.89.0 — optional: how many subrequests one Threads sync tick may spend.
 # Unset = 24, sized for the free Workers plan (50 per invocation, D1 calls
 # included). On a paid plan set it to 200 and a first import finishes in a
@@ -116,11 +112,8 @@ AI_GATEWAY_ID      = "a2z-advisors"
 # ELFIA_ORDERS_URL and ELFIA_BRIDGE_KEY are set — its handler RETURNS
 # immediately so 5-min firings never fall into the 30-min chain).
 [triggers]
-crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *", "30 22 * * *"] # 5-min ELFIA orders (+ hourly watchers on :00) / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings / 08:00 MYT morning brief (v1.108.0) / 06:30 MYT the Advisors desks (v1.160.0)
+crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *"] # 5-min ELFIA orders (+ hourly watchers on :00) / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings / 08:00 MYT morning brief (v1.108.0)
 
-# v1.160.0 - the Advisors desks run on Workers AI: the account's own daily
-# allowance, no key and no secret. AI_GATEWAY_ID (optional, under [vars]) is
-# the name of an AI Gateway created in the Cloudflare dashboard; when set,
-# every model call goes through it - cache, logs and the dollar spend limit.
-[ai]
-binding = "AI"
+# v1.162.0 - the Workers AI binding went with the Advisors (retired). Nothing
+# in the engine calls a model now. The AI Gateway in the dashboard can stay
+# where it is; it simply has nothing routed through it.

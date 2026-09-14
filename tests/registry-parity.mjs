@@ -25,7 +25,7 @@
       DEPLOY.bat's version gate ↔ package.json.
 
    Run: node tests/registry-parity.mjs */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
 let failed = 0;
@@ -381,6 +381,54 @@ if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); pro
   const pinned = files.filter((f) => /LATEST_MIGRATION = "0\d{3}_[a-z0-9_]+"/.test(code(f)));
   if (pinned.length) fail(`guard(s) pin LATEST_MIGRATION to a literal name and will fail on the next migration: ${pinned.join(", ")} - assert Number(m[1]) >= NNN instead`);
   else ok("no guard pins LATEST_MIGRATION to a literal name (it moves by design)");
+}
+
+/* ---- E. a retired feature leaves no trace (v1.162.0) ----
+   The CEO, 14-09-2026: *"remove Advisor tabs completely and the project of
+   the Advisor. I think it is not workable like I wish!"* The Advisors -
+   five AI desks, their workstations, the Workers AI binding and its cron -
+   are gone. Retired means GONE from the running system, not commented out:
+   no file, no tab, no permission, no route, no binding, no cron, no guard.
+   Migrations 0131 and 0132 STAY, as 0125 does: history is not rewritten,
+   and the unused tables wait for a migration that drops them. */
+{
+  const gone = [
+    "worker/src/advisors.ts", "components/portal/advisors-panel.tsx", "components/portal/advisors-shared.tsx",
+    "components/portal/team-bar.tsx", "components/portal/floor-ticker.tsx", "lib/advisors-presence.ts", "tests/advisors.mjs",
+  ].filter((f) => existsSync(f));
+  if (gone.length) fail(`retired Advisors file(s) still present: ${gone.join(", ")}`);
+  else ok("no Advisors file remains");
+
+  const live = [
+    ["lib/portal-tabs.ts", /Advisors/],
+    ["worker/src/staff.ts", /handleAdvisors|"Advisors"/],
+    ["worker/src/permissions.ts", /advisors_/],
+    ["components/layout/side-nav.tsx", /Advisors/],
+    ["app/portal/page.tsx", /Advisors|TeamBar|FloorTicker|useAdvisorPresence/],
+    ["components/portal/lazy-panels.tsx", /Advisors/],
+    ["components/layout/nav-icons.tsx", /Advisors/],
+    ["lib/i18n.ts", /Advisors/],
+    ["scripts/run-guards.mjs", /\["advisors",/],
+    ["worker/src/desk.ts", /advisors|ai_proposals/],
+    ["worker/src/enquiries.ts", /advisors|approvedDrafts/],
+    ["worker/src/watchers.ts", /ai_proposals/],
+  ].filter(([f, re]) => re.test(readFileSync(f, "utf8")));
+  if (live.length) fail(`the Advisors are retired but still named in: ${live.map(([f]) => f).join(", ")}`);
+  else ok("no tab, no door, no permission, no icon, no translation, no lazy wrapper, no desk bucket, no guard entry");
+
+  const toml = readFileSync("worker/wrangler.toml", "utf8");
+  if (/^\[ai\]/m.test(toml) || /AI_GATEWAY_ID\s*=/.test(toml)) fail("the Workers AI binding is still in wrangler.toml - nothing calls a model now");
+  else ok("the Workers AI binding and its gateway var are gone from wrangler.toml");
+
+  const push = readFileSync("PUSH.bat", "utf8");
+  if (/advisors\/first-run|first_run/.test(push)) fail("PUSH.bat still asks for the Advisors' first run");
+  else ok("PUSH.bat no longer runs the desks");
+  if (!/"worker\\src\\advisors\.ts"/.test(push)) fail("PUSH.bat does not remove the retired Advisors files from the CEO's machine");
+  else ok("PUSH.bat deletes the retired files on the CEO's machine before anything is checked");
+
+  const idx = readFileSync("worker/src/index.ts", "utf8");
+  if (!/"0131_advisors",/.test(idx) || !existsSync("worker/migrations/0131_advisors.sql")) fail("migrations 0131/0132 must STAY - history is not rewritten (0125 is the precedent)");
+  else ok("migrations 0131 and 0132 stay, with their probes - history is not rewritten");
 }
 
 console.log("\nregistry-parity: all registries agree.");

@@ -2,6 +2,113 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.162.0] - 2026-09-14 - The Advisors are retired
+
+The CEO: *"remove Advisor tabs completely and the project of the Advisor. I
+think it is not workable like I wish!"*
+
+Gone, and gone properly: the tab, the five desks and their workstations, the
+team bar and the floor ticker, the marks on the Enquiries and Sales
+Performance rows, the worker module and its routes, the two permissions, the
+proposals bucket on the CEO's desk and the line in the morning brief, the
+Workers AI binding and the AI Gateway var in `wrangler.toml`, both crons,
+and the two lines PUSH.bat used to run the desks after a deploy. Nothing in
+the engine calls a model now. PUSH.bat deletes the retired files from the
+CEO's machine on the next run, as it does for Criscikee, so a stale copy on
+disk cannot quietly come back.
+
+Migrations 0131 and 0132 STAY, with their health probes, exactly as 0125
+does: history is not rewritten, and the unused `ai_*` tables wait for a
+migration that drops them. Guard `registry-parity` gains six checks that
+fail the build if any of it returns by accident; guard `advisors` is gone
+with the feature (80 guards now).
+
+The AI Gateway `a2z-advisors` in the Cloudflare dashboard can stay where it
+is - nothing routes through it any more - or be deleted; either way it costs
+nothing.
+
+Files: removed `worker/src/advisors.ts`, `components/portal/advisors-panel.tsx`,
+`components/portal/advisors-shared.tsx`, `components/portal/team-bar.tsx`,
+`components/portal/floor-ticker.tsx`, `lib/advisors-presence.ts`,
+`tests/advisors.mjs`; edited `PUSH.bat`, `worker/wrangler.toml`,
+`worker/src/index.ts`, `worker/src/staff.ts`, `worker/src/permissions.ts`,
+`worker/src/enquiries.ts`, `worker/src/desk.ts`, `worker/src/watchers.ts`,
+`app/portal/page.tsx`, `lib/portal-tabs.ts`, `lib/i18n.ts`,
+`components/layout/side-nav.tsx`, `components/layout/nav-icons.tsx`,
+`components/portal/lazy-panels.tsx`, `components/portal/one-desk.tsx`,
+`components/portal/enquiries-panel.tsx`,
+`components/portal/sales-performance-panel.tsx`,
+`tests/registry-parity.mjs`, `tests/enquiries.mjs`, `scripts/run-guards.mjs`,
+`package.json`.
+
+## [1.161.1] - 2026-09-14 - On the floor: the desks are seen on every tab
+
+The CEO: *"I want AI that workable around to the tabs which is looks real
+live!!"* His choices: the faces in the header; office hours every two hours.
+
+The five faces sit in the app bar on every tab - a green dot while a desk
+is on shift, a pulse while it types - and tapping one opens that desk's
+workstation right there, whatever tab is underneath. The Dashboard opens
+with the floor: who is on shift and the latest steps across the desks,
+newest first, the clock ticking ("12 s ago"). And the desks are seen where
+they worked: an enquiry row wears Aina's face with "drafted a reply ·
+waiting for the CEO"; a sales person's row on Sales Performance wears
+Farid's with "has a plan". A mark is the proposal's own evidence shown at
+the source - nothing new is asked of the model, and the whole floor reads
+one remembered, live presence view.
+
+Office hours: a short shift every two hours from 09:30 to 17:30 MYT on the
+same runner as 06:30, with the same caps. A desk whose digest did not
+change is skipped for nothing, so a quiet day costs nothing and the faces
+still move.
+
+Files: `worker/src/advisors.ts`, `worker/src/index.ts`, `worker/wrangler.toml`,
+`components/portal/advisors-shared.tsx` (new), `components/portal/team-bar.tsx`
+(new), `components/portal/floor-ticker.tsx` (new), `lib/advisors-presence.ts`
+(new), `components/portal/advisors-panel.tsx`,
+`components/portal/enquiries-panel.tsx`,
+`components/portal/sales-performance-panel.tsx`, `app/portal/page.tsx`,
+`tests/advisors.mjs`, `package.json`.
+
+## [1.161.0] - 2026-09-14 - Advisors: five colleagues with workstations, the Sales desk, the round table
+
+The CEO: *"can I have a real AI like a staff with the workstation of them to
+view what is their activities? so that I can see their real time
+communication"* - and, on the plan, *"proceed"*: shifts at 06:30 plus his
+asks, his own voice in a thread, names chosen by the assistant.
+
+The desks are colleagues now. Aina (Customer Service), Hakim (QA), Farid
+(Sales), Mira (Content Research) and Zafri (Product Development) each have
+a face, a title and a live status - on shift with the step they are on,
+typing while the model writes, off shift with the next 06:30 in between -
+and a workstation: NOW (the current step, and the answer as it is being
+written, streamed from the model at no extra cost), ACTIVITY (every step of
+every shift as an event written the moment it happened: the digest and how
+many records it held, the model call, the answer with its tokens, each
+proposal kept, each one dropped with the reason - "cited no reference from
+the digest" is now a line the CEO can read instead of a bare zero) and
+CONVERSATION (the threads). The tab redraws within the second on the
+advisors topic; nothing polls.
+
+The desks talk. After the 06:30 run, when there is something new on the
+table, the round table sits once: each desk reads its colleagues' new
+proposals and may reply to at most two - a dependency, a risk, a figure the
+proposer lacked, or agreement - and two desks agreeing marks a joint
+proposal. A desk may also hand one question a shift to a colleague, who
+answers on its next shift. The CEO writes into any proposal's thread and
+the desk answers there next shift. One pass, bounded counts, the daily cap
+respected, then everyone stops; there is no loop to run away. The CEO can
+call the round table by hand.
+
+The Sales desk is built: this month's targets per person against the
+invoices raised, the pace the month expects, the prospects whose follow-up
+is overdue, the invoices unpaid past due - and "Three moves for <name>" as
+a plan with that person as its owner, for the CEO to approve.
+
+Files: `worker/migrations/0132_advisors_workstation.sql` (new),
+`worker/src/advisors.ts`, `worker/src/index.ts`,
+`components/portal/advisors-panel.tsx`, `tests/advisors.mjs`, `package.json`.
+
 ## [1.160.2] - 2026-09-14 - The Advisors call through the a2z-advisors gateway
 
 The CEO created AI Gateway `a2z-advisors` in his dashboard (cache on, spend

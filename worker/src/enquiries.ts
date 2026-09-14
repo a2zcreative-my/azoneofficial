@@ -24,7 +24,6 @@ import type { Env } from "./index";
 import { json, err, audit, bumpVersion } from "./shared";
 import { PERMS, can } from "./permissions";
 import { notify } from "./staff";
-import { approvedDrafts, markEnquiryReplied } from "./advisors"; // v1.160.0 - the Customer Service desk's approved drafts
 
 export const STATUSES = ["new", "contacted", "qualified", "closed"] as const;
 export type EnquiryStatus = (typeof STATUSES)[number];
@@ -118,13 +117,9 @@ export async function handleEnquiries(
     const { results: people } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users WHERE is_active = 1 AND role IN (${roles.map((_, i) => `?${i + 1}`).join(",")}) ORDER BY name`,
     ).bind(...roles).all<{ id: number; name: string; role: string }>();
-    /* v1.160.0 - a reply the Customer Service desk drafted and the CEO
-       approved rides along, by enquiry id. Staff read it in the reply box,
-       edit it, and send it themselves; nothing is sent by the desk. */
-    const suggested = await approvedDrafts(env);
     return json({
       enquiries: rows.map((r) => ({ ...r, overdue: isOverdue(r), hours_waiting: Math.round(hoursWaiting(r.created_at)) })),
-      counts, people, overdue_hours: OVERDUE_HOURS, statuses: STATUSES, categories: CATEGORIES, suggested,
+      counts, people, overdue_hours: OVERDUE_HOURS, statuses: STATUSES, categories: CATEGORIES,
     });
   }
 
@@ -173,8 +168,6 @@ export async function handleEnquiries(
       binds.push(id);
       await env.DB.prepare(`UPDATE enquiries SET ${sets.join(", ")} WHERE id = ?${binds.length}`).bind(...binds).run();
     }
-    /* v1.160.0 - the desk's approved draft is implemented once a reply goes out */
-    if (hasReply) await markEnquiryReplied(env, id);
     await audit(env, user.id, "enquiry.update_status", "enquiries", String(id), {
       ...(hasStatus ? { status: body.status } : {}), ...(hasReply ? { replied: true } : {}), ...(hasAssign ? { assigned_to: assignedTo } : {}),
     });
