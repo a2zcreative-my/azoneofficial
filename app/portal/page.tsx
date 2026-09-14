@@ -29,7 +29,6 @@ import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ALL_TABS,
-  SALES_ROLES,
   canSeeTab,
   type PersonAccess,
   type TabName,
@@ -481,6 +480,22 @@ export default function PortalPage() {
     if (!tabs.includes(tab)) setTab("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab]);
+  /* v1.159.9 (CEO, 14-09-2026: "check the sales all link to all the tabs").
+     A panel that offers a button INTO another tab must know whether this
+     account can see that tab - otherwise the press lands on the clamp above
+     and the person is bounced to the Dashboard with no word why. This is the
+     one question, answered from the same filter the strip is drawn from, so
+     a link can never be offered to a tab the strip does not show (a live
+     host has Sales Performance but not Sales; the CEO may also untick any
+     tab for any role in the access card). */
+  const canOpen = (t: string) => (tabs as readonly string[]).includes(t);
+  /* v1.159.9 - the roster's Sales-duty note opens the register on THAT
+     person and THAT day. Held here, not in the address, so nothing is left
+     for a reload to replay; cleared the moment the tab is left. */
+  const [spPreset, setSpPreset] = useState<{ staff: number; day: string } | null>(null);
+  useEffect(() => {
+    if (tab !== "Sales Performance") setSpPreset(null);
+  }, [tab]);
 
   /* v1.21.1: the shell scrolls INTERNALLY now (#shell-scroll in AppShell),
      so a tab switch must rewind that container — without this, opening a
@@ -743,7 +758,7 @@ export default function PortalPage() {
               setPaletteOpen(false);
             },
           },
-          ...(SALES_ROLES.includes(user.role)
+          ...(canOpen("Sales")
             ? [
                 {
                   label: tr("Create quotation", lang),
@@ -1386,7 +1401,7 @@ export default function PortalPage() {
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
                   the portal on the Home Screen. Phones only (md:hidden). */}
               <div className="mb-4 md:hidden"><InstallCoach /></div>
-              <Dashboard user={user} go={setTab} lang={lang} />
+              <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} />
             </>
           )}
           {activeTab === "Claims" && (
@@ -1418,6 +1433,9 @@ export default function PortalPage() {
                 canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(
                   user.role
                 )}
+                /* v1.159.9 - a Sales-duty note opens the register on that
+                   person and day; offered only when this account has the tab. */
+                onOpenRegister={canOpen("Sales Performance") ? (staff, day) => { setSpPreset({ staff, day }); setTab("Sales Performance"); } : undefined}
               />
               <Attendance user={user} />
               {/* v1.84.0 (CEO: "attendance verification should move to
@@ -1642,7 +1660,7 @@ export default function PortalPage() {
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel />}
           {/* v1.155.0 - the Sales Performance command centre: one page, evidence in, verified figures out. */}
-          {activeTab === "Sales Performance" && <SalesPerformancePanel go={(t) => setTab(t as TabName)} />}
+          {activeTab === "Sales Performance" && <SalesPerformancePanel go={(t) => setTab(t as TabName)} canOpen={canOpen} preset={spPreset} />}
           {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}

@@ -1162,11 +1162,22 @@ const orderStatus = (o: Order): [string, string] => {
 };
 const payChip = (s: string) => (s === "paid" ? chipSmSuccess : s === "overdue" ? chipSmDanger : chipSmWarn);
 
-export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
-  const [range, setRange] = useState<Range>("today");
-  const [from, setFrom] = useState(mytToday());
-  const [to, setTo] = useState(mytToday());
-  const [staff, setStaff] = useState("0");
+export function SalesPerformancePanel({ go, canOpen, preset }: {
+  go: (tab: string) => void;
+  /* v1.159.9 (CEO: "check the sales all link to all the tabs") - can THIS
+     account open a tab? A live host is on this page but has no Sales tab;
+     a button that says "Raise an invoice" and lands on the Dashboard is a
+     dead link. Absent = every link is offered (the page always passes it). */
+  canOpen?: (tab: string) => boolean;
+  /* v1.159.9 - arrived from a roster Sales-duty note: open on that person,
+     that day. Read once, when the page mounts. */
+  preset?: { staff: number; day: string } | null;
+}) {
+  const [range, setRange] = useState<Range>(preset ? "custom" : "today");
+  const [from, setFrom] = useState(preset?.day ?? mytToday());
+  const [to, setTo] = useState(preset?.day ?? mytToday());
+  const [staff, setStaff] = useState(preset ? String(preset.staff) : "0");
+  const salesTab = canOpen ? canOpen("Sales") : true;
   const [platform, setPlatform] = useState("");
   const [verification, setVerification] = useState("");
   const [status, setStatus] = useState("");
@@ -1243,7 +1254,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
   const orderActs = (o: Order): Act[] => {
     const acts: Act[] = [];
     if ((o.kind ?? "product") !== "service" && !o.ship_status && (mine(o.user_id) || manager)) acts.push({ label: L("Add shipment", "Tambah penghantaran"), tone: "primary", run: () => setDrawer({ kind: "shipment", presetOrder: o.id }) });
-    acts.push({ label: L("Open in Sales", "Buka di Jualan"), run: () => go("Sales") });
+    if (salesTab) acts.push({ label: L("Open in Sales", "Buka di Jualan"), run: () => go("Sales") });
     return acts;
   };
   const shipActs = (s: Shipment): Act[] => {
@@ -1543,7 +1554,7 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
           {/* ---- 6. Customer orders (invoices - the Sales tab's records - and TikTok Shop orders) ---- */}
           <Section id="sp-orders" icon="orders" title={L("Customer orders", "Pesanan pelanggan")} count={ov.orders.length + ov.tiktok_orders.length}
             summary={L(`${t!.orders} invoices · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} paid on invoices · ${t!.orders_completed} completed`, `${t!.orders} invois · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} dibayar atas invois · ${t!.orders_completed} selesai`)} open={open.orders} onToggle={() => toggle("orders")}
-            action={<button type="button" className={btnSm} onClick={() => go("Sales")}>{L("Raise an invoice", "Buat invois")}</button>}>
+            action={salesTab ? <button type="button" className={btnSm} onClick={() => go("Sales")}>{L("Raise an invoice", "Buat invois")}</button> : undefined}>
             {ov.orders.length === 0 ? <p className="text-muted-foreground text-sm">{L("No invoices raised in this range. An order is an invoice - there is no other way to record one.", "Tiada invois dibuat dalam julat ini. Pesanan ialah invois - tiada cara lain untuk merekodkannya.")}</p> : (<>
               <ul className={phoneList}>
                 {ov.orders.map((o) => {
@@ -1687,7 +1698,10 @@ export function SalesPerformancePanel({ go }: { go: (tab: string) => void }) {
                 else if (k === "customer_follow_up") setDrawer({ kind: "engagement", preset: { interaction_type: "follow_up" } });
                 else if (k === "whatsapp_follow_up") setDrawer({ kind: "engagement", preset: { interaction_type: "follow_up", channel: "whatsapp" } });
                 else if (k === "repeat_order") setDrawer({ kind: "engagement", preset: { interaction_type: "repeat_customer" } });
-                else if (k === "new_order") { setDrawer(null); go("Sales"); }
+                else if (k === "new_order") {
+                  if (salesTab) { setDrawer(null); go("Sales"); }
+                  else toast(L("Raised on the Sales tab", "Dibuat di tab Jualan"), L("Your account does not have the Sales tab - ask the sales team to raise the invoice.", "Akaun anda tiada tab Jualan - minta pasukan jualan membuat invois itu."), "notice");
+                }
                 else if (k === "promotion") setDrawer({ kind: "promotion" });
                 else if (k === "shipment" || k === "tracking_update") setDrawer({ kind: "shipment" });
                 else setDrawer({ kind: "other" });

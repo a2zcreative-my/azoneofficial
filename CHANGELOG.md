@@ -2,6 +2,42 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.159.9] - 2026-09-14 - Every Sales link goes somewhere
+
+The CEO: *"Review there is any error on the system and check the sales all
+link to all the tabs."*
+
+The review: all 80 guards, both typechecks and a clean build pass; the
+Sales, Enquiries and Sales Performance tabs are registered in every place a
+tab must be (registry, roles, worker whitelist, side nav, icon, translation,
+lazy wrapper, render) and every call the register makes is answered by the
+worker. The one fault was in the links between tabs. The Sales Performance
+page offered "Raise an invoice", "Open in Sales" and the New order tile to
+everyone on it - and a live host has that page but no Sales tab, so the
+press landed on the portal's visibility clamp and bounced to the Dashboard
+with no word why. The same could happen to anyone whose Sales tab the CEO
+had unticked in the access card.
+
+Fixed at the root: the portal page now answers one question, `canOpen`,
+from the same filter its tab strip is drawn from, and every link into
+another tab asks it first. On the register the three Sales links are shown
+only to an account that has the Sales tab; a live host picking New order is
+told where an invoice is raised instead of being bounced. The Dashboard's
+"Create quotation" quick action and the command-palette action follow the
+strip too, not the role list alone. And the link that was missing is added:
+a Sales-duty note on the roster named the register three times and offered
+no way to it - it now has "Open the register", which opens Sales
+Performance on that person and that day (custom range, staff filter). The
+button is offered only to an account that has the tab. The note itself,
+taller now by one action, opened with its head cut off on a five-row board
+(the board clips, and the placement worked from a height guess): a note now
+measures itself once drawn and slides just enough to sit inside the board.
+Guard `sales-performance` gains eleven checks.
+
+Files: `app/portal/page.tsx`, `components/portal/sales-performance-panel.tsx`,
+`components/portal/roster-board.tsx`, `components/portal/dashboard.tsx`,
+`tests/sales-performance.mjs`, `package.json`.
+
 ## [1.159.8] - 2026-09-13 - A released month is closed to overtime
 
 The CEO, on the Overtime card filling with August: *"more weird as the OT

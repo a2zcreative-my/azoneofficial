@@ -252,6 +252,31 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
 }
 
 /* ---- 6. Criscikee is gone ---- */
+/* ---- 5. v1.159.9 - the links between Sales and the other tabs ----
+   CEO, 14-09-2026: "check the sales all link to all the tabs". A button into
+   a tab this account cannot see lands on the page's visibility clamp and
+   bounces to the Dashboard - a dead link with no word why. So: the page
+   answers `canOpen` from the SAME filter its strip is drawn from; every
+   Sales link is offered only when it says yes; and a roster Sales-duty note
+   opens the register on that person and that day. */
+{
+  const page = read("app/portal/page.tsx");
+  const panel = read("components/portal/sales-performance-panel.tsx");
+  const roster = read("components/portal/roster-board.tsx");
+  const dash = read("components/portal/dashboard.tsx");
+  ok("the page answers canOpen from the strip's own filter", /const canOpen = \(t: string\) => \(tabs as readonly string\[\]\)\.includes\(t\);/.test(page) && /const tabs = ALL_TABS\.filter\(\(t\) => canSeeTab\(user\?\.role, t, tabOverrides, myTabAccess\)\);/.test(page));
+  ok("Sales Performance receives canOpen and the roster preset", /<SalesPerformancePanel go=\{\(t\) => setTab\(t as TabName\)\} canOpen=\{canOpen\} preset=\{spPreset\} \/>/.test(page));
+  ok("every Sales link on the register asks salesTab first: the row act, the section button, the new-order tile", /const salesTab = canOpen \? canOpen\("Sales"\) : true;/.test(panel) && /if \(salesTab\) acts\.push\(\{ label: L\("Open in Sales"/.test(panel) && /action=\{salesTab \? <button[^\n]*go\("Sales"\)[^\n]*: undefined\}/.test(panel) && /if \(salesTab\) \{ setDrawer\(null\); go\("Sales"\); \}/.test(panel));
+  ok("...and no bare go(\"Sales\") is left", (panel.match(/go\("Sales"\)/g) ?? []).length === 3);
+  ok("a live host without the Sales tab is told where an invoice is raised, not bounced", /Your account does not have the Sales tab - ask the sales team to raise the invoice\./.test(panel));
+  ok("the roster preset opens the register on that person and that day, read once at mount", /useState<Range>\(preset \? "custom" : "today"\)/.test(panel) && /useState\(preset\?\.day \?\? mytToday\(\)\)/.test(panel) && /useState\(preset \? String\(preset\.staff\) : "0"\)/.test(panel));
+  ok("the preset is held in page state and cleared when the tab is left - nothing for a reload to replay", /const \[spPreset, setSpPreset\] = useState<\{ staff: number; day: string \} \| null>\(null\);/.test(page) && /if \(tab !== "Sales Performance"\) setSpPreset\(null\);/.test(page) && !/searchParams\.set\("staff"/.test(page));
+  ok("the roster's Sales-duty note and bar both offer 'Open the register', only when the page passed the door", (roster.match(/onOpenRegister\(sh\.user_id, sh\.shift_date\)/g) ?? []).length === 2 && (roster.match(/L\("Open the register", "Buka daftar"\)/g) ?? []).length === 2 && /onOpenRegister\?: \(staffId: number, day: string\) => void;/.test(roster));
+  ok("the page passes that door only to an account with the Sales Performance tab", /onOpenRegister=\{canOpen\("Sales Performance"\) \? \(staff, day\) => \{ setSpPreset\(\{ staff, day \}\); setTab\("Sales Performance"\); \} : undefined\}/.test(page));
+  ok("a sticky note measures itself against the board and slides inside it - never opens cut off", /const wrap = el\?\.offsetParent as HTMLElement \| null;/.test(roster) && /if \(at\.top !== undefined && at\.top \+ h \+ 4 > H\)/.test(roster) && /if \(at\.bottom !== undefined && H - at\.bottom - h < 4\)/.test(roster) && /top: at\.top !== undefined \? at\.top \+ shift : undefined/.test(roster));
+  ok("the Dashboard quick action and the palette action into Sales follow the strip, not the role list alone", /\(canOpen \? canOpen\("Sales"\) : SALES_ROLES\.includes\(user\.role\)\) && \(/.test(dash) && /<Dashboard user=\{user\} go=\{setTab\} canOpen=\{canOpen\} lang=\{lang\} \/>/.test(page) && /\.\.\.\(canOpen\("Sales"\)\n\s+\? \[/.test(page) && !/SALES_ROLES\.includes/.test(page));
+}
+
 {
   ok("no Criscikee file remains", !has("components/portal/criscikee-panel.tsx") && !has("lib/criscikee.ts") && !has("worker/src/criscikee.ts") && !has("tests/criscikee.mjs"));
   const tabs = read("lib/portal-tabs.ts"), staff = read("worker/src/staff.ts"), perms = read("worker/src/permissions.ts"), nav = read("components/layout/side-nav.tsx"), page = read("app/portal/page.tsx"), lazy = read("components/portal/lazy-panels.tsx"), guards = read("scripts/run-guards.mjs");

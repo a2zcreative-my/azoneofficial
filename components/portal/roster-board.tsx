@@ -6,7 +6,7 @@
    and click-to-assign (reuses POST /staff/live-sessions). Managers see the
    whole floor; hosts see their own week read-only. */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
@@ -82,11 +82,32 @@ function noteFrom(el: HTMLElement, wrap: HTMLElement | null): NoteAt | null {
 /** The shell: placed, tailed, and out of the way of nothing else. Module
     scope, so React keeps one instance instead of rebuilding it every render. */
 function StickyNote({ at, children }: { at: NoteAt; children: ReactNode }) {
+  /* v1.159.9 - the board clips (overflow-hidden), and the guess above is a
+     guess: a Sales-duty note with a focus line and four actions is taller
+     than it, and on a five-row board it opened with its head cut off. So
+     after the note is drawn it measures ITSELF against the board and slides
+     just enough to sit inside - the chip keeps its gold ring, and the tail
+     is dropped when it would no longer point at the chip. */
+  const ref = useRef<HTMLDivElement>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const wrap = el?.offsetParent as HTMLElement | null;
+    if (!el || !wrap) return;
+    const h = el.offsetHeight;
+    const H = wrap.clientHeight;
+    let s = 0;
+    if (at.top !== undefined && at.top + h + 4 > H) s = Math.max(4 - at.top, H - 4 - (at.top + h));
+    if (at.bottom !== undefined && H - at.bottom - h < 4) s = Math.min(at.bottom - 4, 4 - (H - at.bottom - h));
+    setShift(Math.round(s));
+  }, [at]);
   return (
-    <div className="bg-brand absolute z-30 w-72 rounded-xl p-3.5 text-white shadow-xl"
-      style={{ left: at.left, top: at.top, bottom: at.bottom }}>
-      <span aria-hidden="true" className="bg-brand absolute h-3 w-3 rotate-45"
-        style={at.flip ? { left: at.arrow - 6, bottom: -6 } : { left: at.arrow - 6, top: -6 }} />
+    <div ref={ref} className="bg-brand absolute z-30 w-72 rounded-xl p-3.5 text-white shadow-xl"
+      style={{ left: at.left, top: at.top !== undefined ? at.top + shift : undefined, bottom: at.bottom !== undefined ? at.bottom - shift : undefined }}>
+      {shift === 0 && (
+        <span aria-hidden="true" className="bg-brand absolute h-3 w-3 rotate-45"
+          style={at.flip ? { left: at.arrow - 6, bottom: -6 } : { left: at.arrow - 6, top: -6 }} />
+      )}
       {children}
     </div>
   );
@@ -213,7 +234,15 @@ function toHHMM(minsTotal: number): string {
    prefilled, in EDIT mode (no repeat/plan tooling), and Save changes
    PATCHes the one session. canManage alone (hr_admin) still schedules,
    drags, completes and cancels exactly as before. */
-export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean; canEdit?: boolean }) {
+export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
+  canManage: boolean;
+  canEdit?: boolean;
+  /* v1.159.9 (CEO: "check the sales all link to all the tabs") - a Sales-duty
+     note names the register three times and offered no way to it. The page
+     passes this only when the account has the Sales Performance tab; it
+     opens the register on that person and that day. */
+  onOpenRegister?: (staffId: number, day: string) => void;
+}) {
   const { show: showToast, node: toastNode } = useSaveToast();
   /* v1.23.2 (CEO: "Why some doesn't change to BM?"): the board's READ
      surfaces — title, chips, week bar, agenda — follow the language toggle.
@@ -1491,8 +1520,15 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                 : L("They log posts, engagements and outcomes on the Sales Performance tab as the day happens.",
                                     "Mereka merekod hantaran, interaksi dan hasil di tab Prestasi Jualan sepanjang hari.")}
                             </p>
-                            {canManage && (
+                            {(canManage || onOpenRegister) && (
                               <div className="mt-2 flex flex-wrap gap-2">
+                                {onOpenRegister && (
+                                  <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                    onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>
+                                    {L("Open the register", "Buka daftar")}
+                                  </button>
+                                )}
+                                {canManage && (<>
                                 <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                                   onClick={() => openEditShift(sh)}>
                                   {L("Edit details", "Sunting butiran")}
@@ -1501,6 +1537,7 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                                   onClick={() => void removeShift(sh)}>
                                   {L("✕ Remove from the plan", "✕ Buang dari rancangan")}
                                 </button>
+                                </>)}
                               </div>
                             )}
                           </StickyNote>
@@ -1843,10 +1880,11 @@ export function RosterBoard({ canManage, canEdit = false }: { canManage: boolean
                     </span>
                   )}
                 </span>
-                {canManage && (
+                {(canManage || onOpenRegister) && (
                   <span className="flex shrink-0 flex-wrap items-center gap-2">
-                    <button type="button" className={btnSm} onClick={() => openEditShift(sh)}>{L("Edit", "Sunting")}</button>
-                    <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>
+                    {onOpenRegister && <button type="button" className={btnSm} onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>{L("Open the register", "Buka daftar")}</button>}
+                    {canManage && <button type="button" className={btnSm} onClick={() => openEditShift(sh)}>{L("Edit", "Sunting")}</button>}
+                    {canManage && <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>}
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setOpenShift(null)}>{L("Close", "Tutup")}</button>
                   </span>
                 )}

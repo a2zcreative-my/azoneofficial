@@ -110,10 +110,14 @@ export function PunchToast({
 export function Dashboard({
   user,
   go,
+  canOpen,
   lang = "en",
 }: {
   user: User;
   go: (t: TabName) => void;
+  /* v1.159.9 - whether this account's tab strip shows a tab (the page's own
+     filter, overrides included). Absent = fall back to the role default. */
+  canOpen?: (t: string) => boolean;
   lang?: Lang;
 }) {
   /* v1.25.1: seeded from remembered data IN THE INITIALISER — seeding only
@@ -971,7 +975,10 @@ export function Dashboard({
             >
               {tr("Apply leave", lang)}
             </button>
-            {SALES_ROLES.includes(user.role) && (
+            {/* v1.159.9 - a quick action into a tab this account cannot see
+                bounced to the Dashboard it was pressed on; the strip's own
+                answer decides, so an unticked Sales tab hides the button. */}
+            {(canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
               <button
                 type="button"
                 className={qaGhost}
