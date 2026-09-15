@@ -12,7 +12,8 @@ import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 
 import { makeApi } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
-import { btnSm, card, td, th } from "@/lib/ui-styles";
+import { AppIcon } from "@/components/ui/app-icon";
+import { btnSm, card, chipNeutral, chipDanger, chipWarn, td, th, tileCard } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
@@ -55,7 +56,7 @@ function CountTile({ n, label, tone, active, onPick }: {
 }) {
   return (
     <button type="button" aria-pressed={active}
-      className={`rounded-lg border py-2 text-center transition hover:brightness-95 ${tone} ${active ? "ring-primary ring-2" : ""}`}
+      className={`${tileCard} min-h-16 w-full text-center transition hover:brightness-95 ${tone} ${active ? "ring-primary ring-2" : ""}`}
       title={L("Show these", "Tunjukkan ini")}
       onClick={onPick}>
       <p className="text-xl font-semibold tabular-nums">{n}</p>
@@ -97,7 +98,10 @@ export function TaskProgressCard() {
     : pick === "completed" ? L("closed", "ditutup") : L("open", "terbuka");
   return (
     <div className={card}>
-      <p className="text-sm font-semibold">{L("Task progress — company-wide", "Kemajuan tugasan — seluruh syarikat")}</p>
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        <AppIcon name="assignment" className="text-muted-foreground" />
+        {L("Task progress — company-wide", "Kemajuan tugasan — seluruh syarikat")}
+      </p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-center sm:grid-cols-5">
         {([["open", "Open", "Terbuka"], ["in_progress", "Pending", "Menunggu"], ["completed", "Closed", "Ditutup"]] as const).map(([k, lbl, lblMs]) => (
           <CountTile key={k} n={data.task_summary?.find((t) => t.status === k)?.n ?? 0}
@@ -208,8 +212,8 @@ export function InventoryStatusCard() {
   const items = inventory.data?.items ?? null;
   if (!data?.inventory_status?.length) return null;
   const ALERT: Record<string, string> = {
-    low: "bg-warning-soft text-warning",
-    out_of_stock: "bg-danger-soft text-danger",
+    low: chipWarn,
+    out_of_stock: chipDanger,
   };
   const openItems = open ? (items ?? []).filter((i) => i.status === open) : [];
   return (
@@ -228,11 +232,11 @@ export function InventoryStatusCard() {
             return (
               <button key={r.status} type="button" aria-expanded={isOpenQ}
                 onClick={() => setOpen(isOpenQ ? null : r.status)}
-                className={`bg-secondary hover:brightness-95 rounded-full px-2.5 py-0.5 text-xs transition ${isOpenQ ? "ring-primary ring-2" : ""}`}
+                className={`${chipNeutral} cursor-pointer hover:brightness-95 transition ${isOpenQ ? "ring-primary ring-2" : ""}`}
                 title={L("Tap to see which items", "Tekan untuk lihat barang yang terlibat")}>
                 <b className="tabular-nums">{r.n}</b>{" "}
                 <span className="text-muted-foreground capitalize">{stockLabel(r.status)}</span>
-                <span aria-hidden className="ml-1 text-[10px]">{isOpenQ ? "▲" : "▼"}</span>
+                <AppIcon name="expand" className="ml-1 h-3 w-3" />
               </button>
             );
           }
@@ -240,11 +244,11 @@ export function InventoryStatusCard() {
           return (
             <button key={r.status} type="button" aria-expanded={isOpen}
               onClick={() => setOpen(isOpen ? null : r.status)}
-              className={`${ALERT[r.status]} ${isOpen ? "" : "animate-pulse"} rounded-full px-2.5 py-0.5 text-xs font-semibold`}
+              className={`${ALERT[r.status]} cursor-pointer ${isOpen ? "" : "animate-pulse"} transition`}
               title={L("Tap to see which items", "Tekan untuk lihat barang yang terlibat")}>
               <b className="tabular-nums">{r.n}</b>{" "}
               <span className="capitalize">{stockLabel(r.status)}</span>
-              <span aria-hidden className="ml-1 text-[10px]">{isOpen ? "▲" : "▼"}</span>
+              <AppIcon name="expand" className="ml-1 h-3 w-3" />
             </button>
           );
         })}

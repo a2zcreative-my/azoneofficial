@@ -2,7 +2,7 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Documentation baseline reviewed on 15 September 2026: package version **1.162.3**.
+Documentation baseline reviewed on 15 September 2026: package version **1.163.0**.
 This is a source-code baseline, not confirmation of the deployed version.
 
 ## Current Plan

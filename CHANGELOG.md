@@ -2,6 +2,20 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.163.0] - 2026-09-15 - Modest ERP UI pilot
+
+Started the visual pilot for the shared ERP interface. Dashboard quick actions
+now use named responsive button tokens; One Desk and Inventory use the shared
+chip vocabulary; repeated headings use AppIcon/PanelTitle; and decorative text
+arrows in the pilot surfaces use consistent Lucide chevrons. Existing card
+behavior, permissions, data fetching, and action handlers remain unchanged.
+
+Files: `lib/ui-styles.ts`, `components/ui/app-icon.tsx`,
+`components/portal/dashboard.tsx`, `components/portal/one-desk.tsx`,
+`components/portal/company-monitor.tsx`, `docs/UIUX-IMPLEMENTATION-PLAN.md`,
+`IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `CHANGELOG.md`,
+`package.json`.
+
 ## [1.162.3] - 2026-09-15 - Modest ERP interface plan
 
 Added the UI/UX design contract for the next visual implementation. It defines

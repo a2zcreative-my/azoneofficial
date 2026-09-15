@@ -20,9 +20,9 @@ import { cacheRead, cacheWrite } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { card, toastCard } from "@/lib/ui-styles";
+import { btnQuick, btnQuickPrimary, card, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { AppIcon } from "@/components/ui/app-icon";
+import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -873,19 +873,8 @@ export function Dashboard({
   const monthHours = Array.from(dayPairs.values()).reduce((a, e) => a + e.hours, 0);
   const doneTasks = allTasks.filter((t) => t.status === "completed").length;
 
-  /* v1.10.0 (reference design): the mockup's punchy action buttons — taller
-     and rounder on phones, pixel-identical to btnClass/btnGhost from `sm` up.
-     Self-contained strings (NOT btnClass + overrides): two conflicting
-     unprefixed utilities like h-9 + h-12 resolve by stylesheet order, not
-     class order — a silent trap. Class changes ONLY; every handler, guard
-     and geofence path is untouched. */
-  const qaPrimary =
-    "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex items-center px-4 transition-colors disabled:opacity-50 h-12 justify-center rounded-xl text-[15px] font-semibold md:h-9 md:justify-start md:rounded-lg md:text-sm md:font-medium";
-  const qaGhost =
-    "border-border inline-flex items-center border px-4 transition-colors hover:bg-secondary max-md:disabled:opacity-50 h-12 justify-center rounded-xl text-[15px] font-semibold md:h-9 md:justify-start md:rounded-lg md:text-sm md:font-medium";
-
   return (
-    <div className="space-y-3 md:space-y-6">
+    <div className="space-y-4 md:space-y-5">
       {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
           top of the reference's phone screen. Phones only; the desktop header
           already greets. */}
@@ -921,9 +910,9 @@ export function Dashboard({
       <div className={card}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
-        <p className="text-[15px] font-semibold md:text-sm">
+        <PanelTitle icon="time">
           {openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
-        </p>
+        </PanelTitle>
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. v1.10.0: the
             flip moved sm→md so the whole mobile shell (nav, hero, cards,
@@ -949,7 +938,7 @@ export function Dashboard({
                keeps qaPrimary's navy exactly. */
               /* v1.133.0: green whenever NOTHING is open — the first shift of
                  the day and the evening one alike. */
-              className={`${qaPrimary} ${!openNow ? "max-md:bg-tile-success max-md:text-tile-success-fg max-md:hover:bg-tile-success/90" : ""}`}
+              className={`${btnQuickPrimary} ${!openNow ? "max-md:bg-tile-success max-md:text-tile-success-fg max-md:hover:bg-tile-success/90" : ""}`}
               disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
@@ -962,7 +951,7 @@ export function Dashboard({
             </button>
             <button
               type="button"
-              className={qaGhost}
+              className={btnQuick}
               disabled={!!busy}
               onClick={() => void punch("clock_out", forgotArmed)}
             >
@@ -970,7 +959,7 @@ export function Dashboard({
             </button>
             <button
               type="button"
-              className={qaGhost}
+              className={btnQuick}
               onClick={() => go("Leave")}
             >
               {tr("Apply leave", lang)}
@@ -981,7 +970,7 @@ export function Dashboard({
             {(canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
               <button
                 type="button"
-                className={qaGhost}
+                className={btnQuick}
                 onClick={() => go("Sales")}
               >
                 {tr("Create quotation", lang)}
@@ -989,11 +978,11 @@ export function Dashboard({
             )}
             {showOt && (
               <>
-                <button type="button" className={hasOtIn ? qaGhost : qaPrimary} disabled={!!busy || hasOtIn}
+                <button type="button" className={hasOtIn ? btnQuick : btnQuickPrimary} disabled={!!busy || hasOtIn}
                   onClick={() => void punchOt("ot_in")}>
                   {hasOtIn ? "OT in ✓" : "OT in"}
                 </button>
-                <button type="button" className={qaGhost} disabled={!!busy || !hasOtIn || hasOtOut}
+                <button type="button" className={btnQuick} disabled={!!busy || !hasOtIn || hasOtOut}
                   onClick={() => void punchOt("ot_out")}>
                   {hasOtOut ? "OT out ✓" : "OT out"}
                 </button>

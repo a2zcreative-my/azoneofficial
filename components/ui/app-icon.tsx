@@ -37,7 +37,7 @@
  */
 
 import {
-  BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ClipboardList, Star,
+  BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ChevronDown, ChevronRight, ClipboardList, Star,
   Clapperboard, CreditCard, Database, DoorOpen, Download, Eye, FileText, Flame,
   Folder, Footprints, Gem, Hourglass, Lightbulb, Link2, Lock, MapPin, Paperclip,
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
@@ -72,6 +72,8 @@ export const APP_ICON = {
   calendarAdd: CalendarDays,
   offboard: DoorOpen,
   preview: Eye,
+  next: ChevronRight,
+  expand: ChevronDown,
   /* things */
   money: Banknote,
   receipt: ReceiptText,

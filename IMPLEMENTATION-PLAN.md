@@ -2,11 +2,11 @@
 
 ## Current ERP Plan - 15 September 2026
 
-**Status: Phase 0 in progress; source baseline mapped for package v1.162.3.**
+**Status: Phase 0 in progress; UI pilot implementation started in package v1.163.0.**
 This section is the current planning entry point and takes precedence over the older
 sequencing below. The August tracks remain historical context, not a current list
-of missing features or verified deployment status. The visual redesign remains
-documentation-only until the UI/UX plan is approved. Production data, browser
+of missing features or verified deployment status. The visual redesign is being
+implemented as a Dashboard/One Desk/Inventory pilot. Production data, browser
 behavior, and statutory calculations were not validated as part of this review.
 
 ### Purpose and agreed direction

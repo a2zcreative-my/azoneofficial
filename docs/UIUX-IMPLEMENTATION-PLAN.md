@@ -1,6 +1,6 @@
 # Modest UI/UX Implementation Plan
 
-**Status:** planning only; no visual redesign started  
+**Status:** pilot in progress; Dashboard, One Desk, and Inventory token pass started
 **Reviewed:** 15 September 2026  
 **Target:** the portal, admin, account, and document related screens
 
@@ -136,6 +136,16 @@ result of the event, not the only evidence.
 | 5. Admin/account | Admin CMS, Users, customer account, settings | Same shell and control language without exposing staff-only concepts |
 | 6. Cleanup | Remove obsolete style literals, dead icon/emoji maps, stale docs | Guard passes, no unexplained exceptions, updated screenshots and guides |
 
+## Pilot implementation record
+
+The first visual slice now routes Dashboard quick actions through `btnQuick` and
+`btnQuickPrimary`, uses `PanelTitle` for repeated work-area headings, uses the
+shared chip vocabulary for One Desk and Inventory status controls, and replaces
+the remaining decorative text arrows in these surfaces with AppIcon chevrons.
+The card and data behavior is unchanged. The next review gate is rendered
+validation at 390px and 1440px, followed by the Sales screen before this slice
+is considered complete.
+
 ## Acceptance checklist
 
 - A new staff member can identify the current module, company, period, status, and
@@ -158,4 +168,3 @@ result of the event, not the only evidence.
    modules.
 4. Confirm the signing verification method and the wording used for a final approval.
 5. Select one daily user from HR, Finance, and Operations for the pilot review.
-

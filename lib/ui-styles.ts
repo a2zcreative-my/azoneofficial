@@ -187,6 +187,12 @@ export const btnSm =
 export const btnSmPrimary =
   "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50";
 
+/** Quick actions — full-width touch targets on phones, compact row actions on desktop. */
+export const btnQuick =
+  "border-border inline-flex min-h-11 items-center justify-center rounded-lg border px-3 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50 md:min-h-9 md:justify-start";
+export const btnQuickPrimary =
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-50 md:min-h-9 md:justify-start";
+
 /** Field labels — the two spellings that existed are now named. */
 export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";
 export const fieldLabelSm = "text-muted-foreground mb-1 block text-xs";
