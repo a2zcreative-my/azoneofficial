@@ -1,5 +1,153 @@
 # IMPLEMENTATION PLAN — A2Z portal ⇄ ELFIA, and the road to a full business system
 
+## Current ERP Plan - 15 September 2026
+
+**Status: proposed implementation; documentation reviewed for package v1.162.1.**
+This section is the current planning entry point and takes precedence over the older
+sequencing below. The August tracks remain historical context, not a current list
+of missing features or verified deployment status. No application changes were
+made during this review. Production configuration, live data, browser behavior,
+and statutory calculations were not validated.
+
+### Purpose and agreed direction
+
+Make daily work clear for the team across A2Z CREATIVE MARKETING (`a2z`) and
+AZ ONE OFFICIAL (`azoo`): each record has an owner, company, status, next action,
+and traceable outcome. Keep e-signatures and require checking/verification before
+signing. Improve the existing modules incrementally; do not rebuild the platform
+or restore retired Advisors/Threads functionality as part of this plan.
+
+### Re-audit: what exists and what needs attention
+
+| ID | Evidence in this checkout | Assessment and next action |
+|---|---|---|
+| ERP-01 | README described v1.2.1; both roadmaps called payroll/inventory future work; the older plan describes 74 migrations while migration files extend to 0132 | Confirmed documentation drift. Use this section for current priorities; retain old material with explicit historical labels. |
+| ERP-02 | `lib/ui-styles.ts` defines card variants; `components/portal/company-monitor.tsx` now expands details inside the inventory card | The screenshot's sibling-card defect has been addressed in source. Verify the deployed build before reporting it as open. Review remaining screens for actual layout problems, not identical styling everywhere. |
+| ERP-03 | `components/layout/sidebar-nav.tsx` renders `TabIcon`; the deprecated emoji map is removed | Navigation uses SVG icons. Check rendered headings/actions for remaining emoji; do not treat comments or deleted code as visible defects. |
+| ERP-04 | `lib/issuers.ts`, migration `0073_document_issuer.sql`, migration `0118_signature_vault.sql`, `components/admin/signatures-panel.tsx` | Two document issuers and company/role/version signature assets already exist. Build on these rather than introducing a second vault. |
+| ERP-05 | `resolveSignatureKey` in `worker/src/staff.ts` and the public document resolver in `worker/src/index.ts` select signature assets by entity, role, and time | Asset selection does not itself record a person's consent to a specific document revision. No dedicated document-signing event/hash model was found in the reviewed paths. Add explicit signing events and test both render paths. |
+| ERP-06 | `components/portal/one-desk.tsx`, `lib/cached-api`, and existing live-topic guards | A team desk and refresh infrastructure already exist. Extend their coverage after mapping the current queues; avoid another parallel inbox. |
+| ERP-07 | `worker/src/erp.ts` includes reconciliation and commercial data queries; issuer identity is defined separately | Full company isolation across operational records, reports, exports, and permissions has not been demonstrated by this review. Trace each workflow before calling the application a fully separated two-company ERP. |
+| ERP-08 | InventoryStatusCard loads item details once and retains local `items`; a non-ok response leaves them null | Potential stale details after stock changes and an indefinite skeleton on request failure. Reproduce with a stock update and failed request; require refresh/invalidation and visible retry behavior. |
+
+### Delivery sequence
+
+Estimates are planning ranges for one developer with a team representative available
+for testing. They are not release promises; re-estimate after Phase 0. All phases
+below are proposed and not started as implementation. Do not reserve migration or
+release numbers from the historical plan; inspect the latest checkout when building.
+
+| Phase | Priority / estimate | Deliverable | Acceptance gate |
+|---|---|---|---|
+| 0. Workflow baseline | P0 / 2-3 days | Walk through claims, leave, payroll release, quote-to-payment, purchase-to-receipt, and stock adjustment with their users. Record source of truth, current handoffs, company scope, permissions, duplicate entry, and failure cases. | One owner and an agreed state/permission map per flow; existing functionality separated from missing behavior; baseline timings captured. |
+| 1. Company boundaries | P0 / 3-5 days after mapping | Retain issuer codes; define company membership and operation-level permissions; carry record company through related documents, lists, reports, exports, and caches. Show active company where it affects work. | An A2Z-only user cannot read or mutate AZ ONE records through direct API calls, exports, or guessed IDs. Switching company clears incompatible selection/cache state. Legacy documents retain their issuer. |
+| 2. Verified signing | P0 / 5-8 days after Phase 1 | Pilot claims approval with explicit signature events, document revisions, recent identity verification, and server-enforced transitions. Extend to leave and selected commercial/payroll release flows only after pilot acceptance. | Sign-before-check, stale revision, wrong company, unauthorized signer, and replay attempts fail. Successful retry creates one event. Original signed output remains reproducible. |
+| 3. Daily team experience | P1 / 4-6 days; visual work may run alongside Phase 1 | Extend One Desk with relevant approvals, assigned work, deadlines, returned items, and next actions. Reuse shared cards, icons, tables, dialogs, feedback, and cached/live data helpers. | Staff complete agreed daily tasks without duplicate entry or searching multiple tabs. Errors preserve form input, retries recover, and stale counts update after mutations. |
+| 4. Connected operations | P1 / 1-2 weeks after company boundaries | Trace and close verified gaps in quote/invoice/payment/receipt and purchase/receipt/stock flows. Link records by stable IDs; reuse existing ledger and reconciliation behavior. | Repeated requests do not duplicate stock or money. Partial receipts/payments and returns are either supported consistently or explicitly blocked. Totals reconcile per company. |
+| 5. Performance and rollout | P1 / 3-5 days plus pilot | Measure slow screens and queries; add bounded pagination/filtering where needed, remove measured serial request bottlenecks, verify recovery, and publish task-based team instructions. | Pilot users pass the scenarios below, material failures have owners, and rollback/recovery is rehearsed in an isolated environment. |
+
+### Two-company requirements
+
+- `issuer_code` remains the authority for an issued document. The UI's active company
+  is a navigation context and never sufficient authorization on its own.
+- Preserve the existing historical `NULL -> AZ ONE` interpretation only where the
+  legacy document contract requires it. Require a recognized issuer for new writes
+  and signing; do not silently assign unknown values to either company.
+- Record employee employer separately from access to another company's work.
+  A shared staff member may act for both only with explicit permission.
+- Determine ownership for customers, suppliers, inventory, bank accounts, and
+  operational records in Phase 0. Shared contacts may have company-specific business
+  relationships; company-owned balances and transactions must remain attributable.
+- Related invoices, receipts, credits, approvals, and postings must agree on company.
+  Represent intercompany work explicitly if needed; never silently transfer balances.
+- Keep company reports separate. Any combined management view must be labeled and
+  permission-controlled, with drill-down to the original company records.
+
+### E-signature design and approval flow
+
+Business verification (checking the claim/document) and signer verification
+(confirming the person's identity) are separate events. An uploaded signature PNG
+is a reusable visual asset, not proof that its owner approved a particular record.
+
+Target flow: Draft -> Submitted -> Checked -> Awaiting signature -> Signed/Approved
+-> Released/Posted, where the module needs a release/posting step. Return/reject
+must record a reason and route work back to its owner. Adapt these states to each
+existing module; do not force a payroll run and a leave request into identical rules.
+
+- Extend the existing `signature_assets` vault. Associate signing authority with the
+  actual user and company, not only a generic CEO/HR role or permission to upload.
+- Proposed `document_signature_events` fields: document type/ID, issuer code,
+  document revision, signer user ID, authority/role snapshot, signature asset ID,
+  verification method/time, signed time, content hash, and idempotency key.
+  Final schema and indexes follow the existing migration conventions.
+- Freeze a canonical document snapshot, including issuer details, line items,
+  amounts, and template version. Define its serialization before hashing so browser
+  and server formatting cannot change what the hash means. Retain the final output
+  or all inputs required to reproduce it.
+- Check current record revision, workflow stage, company permission, signer authority,
+  and recent identity verification on the server. Commit the transition and event
+  together. Scope verification to the user, company, document, revision, and action.
+- Bind each newly signed revision to its exact asset ID. Preserve the existing temporal
+  resolver for legacy records, clearly distinguished from newly recorded signing
+  evidence. Never invent historical consent or verification timestamps.
+- Content edits after signing create a new revision needing review/signature.
+  Keep the previous signed revision and record cancellation/supersession explicitly.
+- Display signer, company, time, revision, and verification reference in document
+  history. Public shares must expose only the intended document evidence and must
+  not grant general access to the signature vault.
+
+### Usability and reliability acceptance scenarios
+
+1. Staff submits a claim with evidence, sees its status, receives a return reason,
+   corrects it, and follows it to approval/payment without asking who has it.
+2. Checker and signer each see their pending work and the relevant evidence. A
+   concurrent edit prevents signing the obsolete revision. Self-approval follows
+   the explicitly agreed policy, never an accidental role bypass.
+3. Finance follows a transaction from invoice to receipt and reconciliation under
+   the correct company. Retrying a payment or posting does not duplicate an effect.
+4. Inventory changes refresh the count and expanded detail together. A failed load
+   shows a retry action rather than an endless skeleton or false zero.
+5. Verify mobile at 390px and desktop at 1440px, EN/BM, light/dark, keyboard focus,
+   empty/loading/error states, long names, and open expandable sections. Use shared
+   semantic status colors and Lucide icons; preserve intentional compact variants.
+6. Measure representative data volumes and agreed devices/network. Proposed targets:
+   primary list usable within 2 seconds at p95, mutation outcome within 2 seconds at
+   p95, and no duplicate effect in retry tests. Confirm or revise targets from the
+   baseline; these are not claims about current performance.
+7. For implementation releases run `npm run ci` plus relevant behavioral/API tests
+   and browser scenarios. Static guards alone do not prove authorization, concurrency,
+   document reproducibility, accessibility, or production readiness.
+
+### Decisions to settle during Phase 0
+
+| Decision | Proposed default | Decision owner |
+|---|---|---|
+| Who can work for both companies? | Explicit company membership and per-operation permissions | CEO + module owners |
+| Who checks and who signs each document? | Preserve current chains; require explicit policy for self-approval and delegation | CEO + HR/Finance |
+| Which actions need a signature? | Pilot final claim approval; expand where it adds accountability | HR/Finance + CEO |
+| How is signing identity rechecked? | Reuse available account verification with a short, action-bound validity period | Engineering + CEO |
+| What is shared between companies? | Shared contacts only when needed; separately attributable transactions | Finance + Operations |
+| Which team enters the pilot? | One checker, one signer, and 2-3 staff using claims daily | HR |
+
+### Communication and completion rules
+
+This plan owns scope and acceptance criteria; `ROADMAP.md` summarizes sequence;
+`CHANGELOG.md` records delivered changes. `WORKFLOW.md` is a historical reference
+until its individual workflows are revalidated. Files under `docs/` may be older
+copies; their existence does not establish a second current source of truth.
+
+For each implementation item record ID, owner, status (proposed/in progress/blocked/
+verified), linked change, test evidence, user acceptance, and remaining issues here.
+Update affected operating guides in the same change. Mark a feature verified only
+after its acceptance gate passes; distinguish source completion from deployment.
+
+---
+
+## Historical Plan - August 2026
+
+The status, counts, migration allocations, and gap claims below describe the older
+planning baseline. Re-check them against current code before implementation.
+
 **Status:** Active — **Track Q remediation BUILT** (v1.39.0–v1.40.1, 22-08-2026 evening): all 5 blockers and the 15 majors closed in code, 13 guards green. Go-live now waits only on the push + secrets. Track B (HRM) is next.
 **Owner:** Alīf
 **Target system:** `azoneofficial` (website) + `azoneofficial-api` (Worker) + D1 `azoneofficial`

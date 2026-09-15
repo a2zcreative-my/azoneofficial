@@ -1,5 +1,27 @@
 # Roadmap
 
+## Current ERP Priorities - 15 September 2026
+
+Planning baseline: package v1.162.1. Scope, evidence, estimates, acceptance criteria,
+and open decisions live in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---15-september-2026).
+The phases below are proposed work, not shipped functionality.
+
+1. Map current team workflows and measure bottlenecks (2-3 days).
+2. Verify and complete company boundaries for A2Z and AZ ONE (3-5 days).
+3. Pilot verification-backed signing on claims, extending the existing company/version vault (5-8 days).
+4. Improve the existing One Desk, shared UI, feedback, and data freshness (4-6 days).
+5. Close demonstrated gaps between sales, payments, purchasing, and stock (1-2 weeks).
+6. Measure performance, run a team pilot, and validate recovery (3-5 days plus pilot).
+
+The inventory sibling-card fix, SVG navigation, company-specific signature assets,
+and One Desk already exist in source. Validate and extend them; do not rebuild them.
+Retired Advisors and Threads automation are outside this plan.
+
+## Historical Roadmap
+
+The checklist below is retained for context. Its unchecked boxes are not evidence
+that a feature is still missing; many describe work already implemented.
+
 ## Now (pre-launch)
 - [ ] Replace sample statistics with real numbers (`constants/content.ts`)
 - [ ] Confirm social handles + email (`constants/content.ts`)

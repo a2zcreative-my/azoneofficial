@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.162.1] - 2026-09-15 - One current plan for the ERP
+
+The ERP review now has one current entry point. It records what the platform
+already has, what still needs verification, and a phased plan for company
+boundaries, verification-backed e-signatures, One Desk, connected operations,
+performance, and team rollout. Each phase has an acceptance gate so a source
+change, a deployment, and a verified workflow are no longer described as the
+same thing.
+
+The README and root roadmap now reflect the present platform instead of calling
+payroll and inventory future work. The v1.7 workflow and duplicate roadmap are
+clearly marked as historical until their individual procedures are checked with
+the team. This release changes documentation and the displayed package version;
+it does not change application behavior, permissions, database schema, or API
+routes.
+
+Files: `IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `WORKFLOW.md`,
+`docs/ROADMAP.md`, `CHANGELOG.md`, `package.json`.
+
 ## [1.162.0] - 2026-09-14 - The Advisors are retired
 
 The CEO: *"remove Advisor tabs completely and the project of the Advisor. I

@@ -1,5 +1,9 @@
 # Roadmap
 
+> Historical copy. For the current ERP priorities use the root
+> [ROADMAP.md](../ROADMAP.md) and [IMPLEMENTATION-PLAN.md](../IMPLEMENTATION-PLAN.md).
+> Do not treat the unchecked items below as current feature gaps.
+
 ## Now (pre-launch)
 - [ ] Replace sample statistics with real numbers (`constants/content.ts`)
 - [ ] Confirm social handles + email (`constants/content.ts`)

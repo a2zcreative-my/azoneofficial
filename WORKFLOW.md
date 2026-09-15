@@ -1,5 +1,10 @@
 # AZ ONE OFFICIAL — Full System Workflow Reference
 
+> Historical workflow snapshot based on v1.7.x, not a verified description of
+> v1.162.0. Current two-company and verified-signing requirements are in
+> [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---15-september-2026).
+> Revalidate each module with its team owner before using this reference as an SOP.
+
 **Version:** based on codebase v1.7.x (azoneofficialv1.7.5) · **Generated:** 13 Aug 2026
 **Purpose:** one document that explains, end to end, how the whole platform works — public site, API Worker, admin CMS, staff portal, customer accounts, integrations, and deployment.
 
