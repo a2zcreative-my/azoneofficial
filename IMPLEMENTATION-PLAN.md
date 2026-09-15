@@ -2,7 +2,7 @@
 
 ## Current ERP Plan - 15 September 2026
 
-**Status: proposed implementation; documentation reviewed for package v1.162.1.**
+**Status: Phase 0 in progress; source baseline mapped for package v1.162.2.**
 This section is the current planning entry point and takes precedence over the older
 sequencing below. The August tracks remain historical context, not a current list
 of missing features or verified deployment status. No application changes were
@@ -28,7 +28,7 @@ or restore retired Advisors/Threads functionality as part of this plan.
 | ERP-05 | `resolveSignatureKey` in `worker/src/staff.ts` and the public document resolver in `worker/src/index.ts` select signature assets by entity, role, and time | Asset selection does not itself record a person's consent to a specific document revision. No dedicated document-signing event/hash model was found in the reviewed paths. Add explicit signing events and test both render paths. |
 | ERP-06 | `components/portal/one-desk.tsx`, `lib/cached-api`, and existing live-topic guards | A team desk and refresh infrastructure already exist. Extend their coverage after mapping the current queues; avoid another parallel inbox. |
 | ERP-07 | `worker/src/erp.ts` includes reconciliation and commercial data queries; issuer identity is defined separately | Full company isolation across operational records, reports, exports, and permissions has not been demonstrated by this review. Trace each workflow before calling the application a fully separated two-company ERP. |
-| ERP-08 | InventoryStatusCard loads item details once and retains local `items`; a non-ok response leaves them null | Potential stale details after stock changes and an indefinite skeleton on request failure. Reproduce with a stock update and failed request; require refresh/invalidation and visible retry behavior. |
+| ERP-08 | InventoryStatusCard loaded item details once and retained local `items`; a non-ok response left them null | Implemented in v1.162.2 source: overview/details use cached live refresh and failed first loads offer retry. One Desk also no longer reports an empty queue when its first request failed. Pending deployment and user acceptance. |
 
 ### Delivery sequence
 
@@ -39,7 +39,7 @@ release numbers from the historical plan; inspect the latest checkout when build
 
 | Phase | Priority / estimate | Deliverable | Acceptance gate |
 |---|---|---|---|
-| 0. Workflow baseline | P0 / 2-3 days | Walk through claims, leave, payroll release, quote-to-payment, purchase-to-receipt, and stock adjustment with their users. Record source of truth, current handoffs, company scope, permissions, duplicate entry, and failure cases. | One owner and an agreed state/permission map per flow; existing functionality separated from missing behavior; baseline timings captured. |
+| 0. Workflow baseline | **In progress** / P0 / 2-3 days | Source map recorded in `docs/ERP-WORKFLOW-BASELINE.md`; next, walk through claims, leave, payroll release, quote-to-payment, purchase-to-receipt, and stock adjustment with their users. Record source of truth, current handoffs, company scope, permissions, duplicate entry, and failure cases. | One owner and an agreed state/permission map per flow; existing functionality separated from missing behavior; baseline timings captured. |
 | 1. Company boundaries | P0 / 3-5 days after mapping | Retain issuer codes; define company membership and operation-level permissions; carry record company through related documents, lists, reports, exports, and caches. Show active company where it affects work. | An A2Z-only user cannot read or mutate AZ ONE records through direct API calls, exports, or guessed IDs. Switching company clears incompatible selection/cache state. Legacy documents retain their issuer. |
 | 2. Verified signing | P0 / 5-8 days after Phase 1 | Pilot claims approval with explicit signature events, document revisions, recent identity verification, and server-enforced transitions. Extend to leave and selected commercial/payroll release flows only after pilot acceptance. | Sign-before-check, stale revision, wrong company, unauthorized signer, and replay attempts fail. Successful retry creates one event. Original signed output remains reproducible. |
 | 3. Daily team experience | P1 / 4-6 days; visual work may run alongside Phase 1 | Extend One Desk with relevant approvals, assigned work, deadlines, returned items, and next actions. Reuse shared cards, icons, tables, dialogs, feedback, and cached/live data helpers. | Staff complete agreed daily tasks without duplicate entry or searching multiple tabs. Errors preserve form input, retries recover, and stale counts update after mutations. |

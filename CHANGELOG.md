@@ -2,6 +2,30 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.162.2] - 2026-09-15 - The queue tells the truth
+
+The first ERP implementation slice fixes two small screens with an important
+rule: a failed request must never look like completed work. One Desk previously
+showed "Nothing is waiting on you" when its first request failed. It now says
+that the queue could not be loaded and offers a bilingual retry without marking
+anything complete.
+
+The Inventory status card now reads its overview and expanded item details
+through the portal's existing remembered/live data system. Stock writes refresh
+the count and the open detail together; a failed first detail load offers retry
+instead of leaving an endless skeleton. The empty message now describes the live
+state instead of instructing staff to reload the whole page.
+
+Phase 0 also gains a source-backed workflow baseline for claims, leave, payroll,
+sales, purchasing, inventory, reconciliation, and One Desk. It records the main
+two-company gap: issuer-aware documents and signatures exist, while general user
+membership and operational record ownership are not yet modeled.
+
+Files: `components/portal/company-monitor.tsx`,
+`components/portal/one-desk.tsx`, `docs/ERP-WORKFLOW-BASELINE.md`,
+`IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `CHANGELOG.md`,
+`package.json`.
+
 ## [1.162.1] - 2026-09-15 - One current plan for the ERP
 
 The ERP review now has one current entry point. It records what the platform

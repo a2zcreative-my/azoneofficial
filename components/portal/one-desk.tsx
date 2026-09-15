@@ -22,7 +22,7 @@
 import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
-import { card } from "@/lib/ui-styles";
+import { btnSm, card } from "@/lib/ui-styles";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
 
@@ -83,6 +83,22 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
         <div className="mt-3 space-y-2">
           <Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" />
         </div>
+      </div>
+    );
+  }
+
+  if (desk.failed && !desk.data) {
+    return (
+      <div className={card} role="alert">
+        <p className="text-danger text-sm font-semibold">
+          {L("Your work queue could not be loaded.", "Senarai kerja anda tidak dapat dimuatkan.")}
+        </p>
+        <p className="text-muted-foreground mt-1 text-xs">
+          {L("Nothing has been marked complete. Try loading the queue again.", "Tiada kerja ditandakan selesai. Cuba muatkan senarai sekali lagi.")}
+        </p>
+        <button type="button" className={`${btnSm} mt-3`} onClick={desk.refresh}>
+          {L("Try again", "Cuba lagi")}
+        </button>
       </div>
     );
   }

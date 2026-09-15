@@ -8,10 +8,11 @@
  */
 
 import { useEffect, useState } from "react";
-import { Skel, SkelText } from "@/components/ui/skeleton";
+import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 
 import { makeApi } from "@/lib/api";
-import { card, td, th } from "@/lib/ui-styles";
+import { useCachedApi } from "@/lib/cached-api";
+import { btnSm, card, td, th } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
@@ -35,11 +36,7 @@ interface OverviewData {
 }
 
 function useOverview(): OverviewData | null {
-  const [data, setData] = useState<OverviewData | null>(null);
-  useEffect(() => {
-    void api<OverviewData>(`/overview`).then((r) => { if (r.ok && r.data) setData(r.data); });
-  }, []);
-  return data;
+  return useCachedApi<OverviewData>("/staff/overview", true, ["tasks", "inventory"]).data;
 }
 
 /** Company-wide task load — Tasks tab, management roles. */
@@ -205,12 +202,10 @@ export function TaskProgressCard() {
 export function InventoryStatusCard() {
   const data = useOverview();
   const [open, setOpen] = useState<string | null>(null);
-  const [items, setItems] = useState<{ sku: string; name: string; stock: number; status: string }[] | null>(null);
-  useEffect(() => {
-    if (!open || items) return;
-    void api<{ items: { sku: string; name: string; stock: number; status: string }[] }>(`/inventory`)
-      .then((r) => { if (r.ok && r.data) setItems(r.data.items ?? []); });
-  }, [open, items]);
+  const inventory = useCachedApi<{ items: { sku: string; name: string; stock: number; status: string }[] }>(
+    "/staff/inventory", Boolean(open), ["inventory"],
+  );
+  const items = inventory.data?.items ?? null;
   if (!data?.inventory_status?.length) return null;
   const ALERT: Record<string, string> = {
     low: "bg-warning-soft text-warning",
@@ -259,11 +254,21 @@ export function InventoryStatusCard() {
         <div className="border-border mt-3 border-t pt-3">
           <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
             {L(`${open.replace(/_/g, " ")} items`, `barang ${STOCK_MS[open] ?? open.replace(/_/g, " ")}`)}
+            <StaleHint show={inventory.stale} className="ml-2" />
           </p>
-          {!items ? (
+          {inventory.failed && !items ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2" role="alert">
+              <p className="text-danger text-xs">
+                {L("Stock details could not be loaded.", "Butiran stok tidak dapat dimuatkan.")}
+              </p>
+              <button type="button" className={btnSm} onClick={inventory.refresh}>
+                {L("Try again", "Cuba lagi")}
+              </button>
+            </div>
+          ) : !items ? (
             <SkelText lines={2} className="mt-2" />
           ) : openItems.length === 0 ? (
-            <p className="text-muted-foreground mt-1 text-xs">{L("Nothing here anymore — the count refreshes on reload.", "Tiada apa-apa lagi di sini — kiraan dikemas kini selepas muat semula.")}</p>
+            <p className="text-muted-foreground mt-1 text-xs">{L("No items currently have this status.", "Tiada barang dengan status ini sekarang.")}</p>
           ) : (
             <div className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
               {openItems.map((i) => (

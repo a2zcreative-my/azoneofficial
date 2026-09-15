@@ -2,11 +2,11 @@
 
 ## Current ERP Priorities - 15 September 2026
 
-Planning baseline: package v1.162.1. Scope, evidence, estimates, acceptance criteria,
+Planning baseline: package v1.162.2. Scope, evidence, estimates, acceptance criteria,
 and open decisions live in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---15-september-2026).
 The phases below are proposed work, not shipped functionality.
 
-1. Map current team workflows and measure bottlenecks (2-3 days).
+1. **In progress:** source map created; complete team walkthroughs and measure bottlenecks (2-3 days).
 2. Verify and complete company boundaries for A2Z and AZ ONE (3-5 days).
 3. Pilot verification-backed signing on claims, extending the existing company/version vault (5-8 days).
 4. Improve the existing One Desk, shared UI, feedback, and data freshness (4-6 days).
