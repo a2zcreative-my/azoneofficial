@@ -2,7 +2,7 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Documentation baseline reviewed on 15 September 2026: package version **1.162.2**.
+Documentation baseline reviewed on 15 September 2026: package version **1.162.3**.
 This is a source-code baseline, not confirmation of the deployed version.
 
 ## Current Plan
@@ -64,6 +64,7 @@ scripts/      Build and release helpers
 |---|---|
 | IMPLEMENTATION-PLAN.md | Current ERP scope, evidence, acceptance criteria, decisions; older tracks are labeled historical |
 | docs/ERP-WORKFLOW-BASELINE.md | Phase 0 source map, company gaps, walkthrough script, and exit criteria |
+| docs/UIUX-IMPLEMENTATION-PLAN.md | Modest UI/UX design rules, rollout order, and acceptance checklist |
 | CHANGELOG.md | Version history (granular changes per release) |
 | MILESTONES.md | Milestone log — full timeline, assets, decisions |
 | FEATURES.md | Implemented functionality |

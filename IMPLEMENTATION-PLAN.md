@@ -2,12 +2,12 @@
 
 ## Current ERP Plan - 15 September 2026
 
-**Status: Phase 0 in progress; source baseline mapped for package v1.162.2.**
+**Status: Phase 0 in progress; source baseline mapped for package v1.162.3.**
 This section is the current planning entry point and takes precedence over the older
 sequencing below. The August tracks remain historical context, not a current list
-of missing features or verified deployment status. No application changes were
-made during this review. Production configuration, live data, browser behavior,
-and statutory calculations were not validated.
+of missing features or verified deployment status. The visual redesign remains
+documentation-only until the UI/UX plan is approved. Production data, browser
+behavior, and statutory calculations were not validated as part of this review.
 
 ### Purpose and agreed direction
 
@@ -28,7 +28,7 @@ or restore retired Advisors/Threads functionality as part of this plan.
 | ERP-05 | `resolveSignatureKey` in `worker/src/staff.ts` and the public document resolver in `worker/src/index.ts` select signature assets by entity, role, and time | Asset selection does not itself record a person's consent to a specific document revision. No dedicated document-signing event/hash model was found in the reviewed paths. Add explicit signing events and test both render paths. |
 | ERP-06 | `components/portal/one-desk.tsx`, `lib/cached-api`, and existing live-topic guards | A team desk and refresh infrastructure already exist. Extend their coverage after mapping the current queues; avoid another parallel inbox. |
 | ERP-07 | `worker/src/erp.ts` includes reconciliation and commercial data queries; issuer identity is defined separately | Full company isolation across operational records, reports, exports, and permissions has not been demonstrated by this review. Trace each workflow before calling the application a fully separated two-company ERP. |
-| ERP-08 | InventoryStatusCard loaded item details once and retained local `items`; a non-ok response left them null | Implemented in v1.162.2 source: overview/details use cached live refresh and failed first loads offer retry. One Desk also no longer reports an empty queue when its first request failed. Pending deployment and user acceptance. |
+| ERP-08 | InventoryStatusCard loaded item details once and retained local `items`; a non-ok response left them null | Implemented and deployed in v1.162.2: overview/details use cached live refresh and failed first loads offer retry. One Desk also no longer reports an empty queue when its first request failed. User acceptance remains. |
 
 ### Delivery sequence
 
@@ -140,6 +140,13 @@ For each implementation item record ID, owner, status (proposed/in progress/bloc
 verified), linked change, test evidence, user acceptance, and remaining issues here.
 Update affected operating guides in the same change. Mark a feature verified only
 after its acceptance gate passes; distinguish source completion from deployment.
+
+### Modest UI/UX plan
+
+The detailed visual plan is in [`docs/UIUX-IMPLEMENTATION-PLAN.md`](docs/UIUX-IMPLEMENTATION-PLAN.md).
+It is the design contract for the next UI pass: calm ERP surfaces, predictable
+spacing and controls, strong information hierarchy, clear state feedback, and
+company-aware workflows. It does not change business rules or add decoration.
 
 ---
 

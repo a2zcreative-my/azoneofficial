@@ -1,7 +1,7 @@
 # ERP Workflow Baseline
 
 **Reviewed:** 15 September 2026  
-**Source baseline:** v1.162.1  
+**Source baseline:** v1.162.3
 **Phase:** 0 - source mapping in progress
 
 This file records what the current source proves before broader ERP changes begin.
@@ -79,4 +79,3 @@ system, unclear ownership, and recovery from a failed step.
   inventory, purchasing, bank accounts, claims, and reporting.
 - Baseline timings and the three most expensive team frustrations are recorded.
 - Phase 1 schema and API changes can be designed without guessing company ownership.
-

@@ -2,6 +2,22 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.162.3] - 2026-09-15 - Modest ERP interface plan
+
+Added the UI/UX design contract for the next visual implementation. It defines
+one restrained language for the portal, admin, account, and document screens:
+shared hierarchy, named surfaces, semantic state colors, consistent controls,
+reliable loading/error/empty states, responsive behavior, bilingual display,
+company context, and verification-backed signing screens.
+
+The rollout starts with shared primitives and a Dashboard/One Desk/Inventory
+pilot before moving through people, money, and admin workflows. This release is
+documentation-only for visual changes; it does not change application behavior,
+permissions, API routes, database schema, or document logic.
+
+Files: `docs/UIUX-IMPLEMENTATION-PLAN.md`, `IMPLEMENTATION-PLAN.md`,
+`README.md`, `CHANGELOG.md`, `package.json`.
+
 ## [1.162.2] - 2026-09-15 - The queue tells the truth
 
 The first ERP implementation slice fixes two small screens with an important

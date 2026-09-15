@@ -2,7 +2,7 @@
 
 ## Current ERP Priorities - 15 September 2026
 
-Planning baseline: package v1.162.2. Scope, evidence, estimates, acceptance criteria,
+Planning baseline: package v1.162.3. Scope, evidence, estimates, acceptance criteria,
 and open decisions live in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---15-september-2026).
 The phases below are proposed work, not shipped functionality.
 
