@@ -23,7 +23,7 @@ import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
-import { btnSm, card, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, card, chipAction, chipNeutral } from "@/lib/ui-styles";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
 
@@ -119,20 +119,20 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
     <div className={`${card} border-l-4`} style={{ borderLeftColor: overdue ? "var(--warning)" : "var(--gold-solid)" }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-        <PanelTitle icon="orders">
+          <PanelTitle icon="orders" className="flex-wrap">
             {L(`Waiting on you — ${items.length}`, `Menunggu anda — ${items.length}`)}
             <StaleHint show={desk.stale} className="ml-2" />
-        </PanelTitle>
+          </PanelTitle>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {overdue > 0
               ? L(`${overdue} of these have waited longer than they should.`, `${overdue} daripadanya telah menunggu lebih lama daripada sepatutnya.`)
-              : L("Oldest first. Press one to go where it is decided.", "Yang terlama dahulu. Tekan satu untuk ke tempat ia diputuskan.")}
+              : L("Pending review and action", "Menunggu semakan dan tindakan")}
           </p>
         </div>
         <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
           {(Object.keys(BUCKET) as DeskItem["bucket"][]).filter((b) => counts[b]).map((b) => (
             <button key={b} type="button"
-              className={`${chipNeutral} text-foreground/80 cursor-pointer py-1 tabular-nums hover:bg-secondary/70`}
+              className={`${chipNeutral} ${chipAction} text-foreground/80 tabular-nums hover:bg-secondary/70`}
               onClick={() => { go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard"); revealAnchor(ANCHOR[b]); }}
               title={L(`Open ${BUCKET[b][0]}`, `Buka ${BUCKET[b][1]}`)}>
               {L(BUCKET[b][0], BUCKET[b][1])} {counts[b]}
@@ -145,11 +145,11 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
         {shown.map((i) => (
           <li key={i.id}>
             <button type="button" onClick={() => { go(i.tab); revealAnchor(ANCHOR[i.bucket]); }}
-              className="hover:bg-secondary/50 flex w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors">
+              className="hover:bg-secondary/50 flex min-h-14 w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors">
               <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${i.overdue ? "bg-warning" : "bg-gold-solid"}`} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{i.title}</span>
-                <span className="text-muted-foreground block truncate text-xs">{i.sub}</span>
+                <span className="block text-sm font-medium break-words">{i.title}</span>
+                <span className="text-muted-foreground block text-xs break-words">{i.sub}</span>
               </span>
               <span className={`shrink-0 text-[11px] tabular-nums ${i.overdue ? "text-warning font-semibold" : "text-muted-foreground"}`}>
                 {waited(i.since)}

@@ -20,6 +20,8 @@
  */
 
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { getLang } from "@/lib/i18n";
 
 interface NavItem { name: string; label: string }
 
@@ -67,6 +69,8 @@ export function SideNav({
   userName: string;
   userRole: string;
 }) {
+  const ms = getLang() === "ms";
+  const sectionLabel: Record<string, string> = { Overview: "Ringkasan", Business: "Perniagaan", People: "Kakitangan", Finance: "Kewangan", Account: "Akaun", Other: "Lain-lain" };
   const byName = new Map(items.map((i) => [i.name, i]));
   const grouped = SECTIONS
     .map((s) => ({ title: s.title, items: s.tabs.map((t) => byName.get(t)).filter((x): x is NavItem => !!x) }))
@@ -79,26 +83,27 @@ export function SideNav({
 
   return (
     <aside
-      className={`bg-brand sticky top-0 hidden h-screen shrink-0 flex-col md:flex ${collapsed ? "w-16" : "w-60"} transition-[width] duration-200`}
-      aria-label="Main navigation"
+      className={`border-border bg-background hidden h-full shrink-0 flex-col border-r md:flex ${collapsed ? "w-16" : "w-56"}`}
+      aria-label={ms ? "Navigasi utama" : "Main navigation"}
     >
       {/* Brand + collapse toggle */}
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-3">
+      <div className={`flex min-h-16 shrink-0 items-center gap-2 border-b border-border ${collapsed ? "justify-center px-2" : "px-3"}`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg bg-white/90 object-contain p-1" />
+        {!collapsed && <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg bg-white object-contain p-1" />}
         {!collapsed && (
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-white">
+          <span className="min-w-0 flex-1 text-xs font-semibold leading-relaxed">
             A2Z CREATIVE MARKETING
           </span>
         )}
         <button
           type="button"
           onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-label={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
+          title={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
           aria-expanded={!collapsed}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          className="text-muted-foreground hover:bg-secondary grid h-11 w-11 shrink-0 place-items-center rounded-lg"
         >
-          <span aria-hidden>{collapsed ? "»" : "«"}</span>
+          {collapsed ? <PanelLeftOpen aria-hidden className="h-4 w-4" /> : <PanelLeftClose aria-hidden className="h-4 w-4" />}
         </button>
       </div>
 
@@ -109,10 +114,10 @@ export function SideNav({
                 announced. Collapsed mode replaces it with a hairline so the
                 grouping is still legible without text. */}
             {collapsed ? (
-              <div className="mx-3 my-2 border-t border-white/10" aria-hidden />
+              <div className="border-border mx-3 my-2 border-t" aria-hidden />
             ) : (
-              <p className="text-gold px-3 pt-3 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase">
-                {section.title}
+              <p className="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">
+                {ms ? sectionLabel[section.title] ?? section.title : section.title}
               </p>
             )}
             <ul>
@@ -125,14 +130,15 @@ export function SideNav({
                       onClick={() => onSelect(it.name)}
                       aria-current={on ? "page" : undefined}
                       title={collapsed ? it.label : undefined}
-                      className={`group relative flex w-full items-center gap-2.5 py-2 text-[13px] font-medium transition-colors ${
+                      aria-label={it.label}
+                      className={`group relative flex min-h-11 w-full items-center gap-2.5 py-2 text-[13px] font-medium transition-colors ${
                         collapsed ? "justify-center px-0" : "px-3"
-                      } ${on ? "bg-brand-soft text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+                      } ${on ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                     >
                       {/* gold active marker — the same cue the rail used */}
                       {on && <span aria-hidden className="bg-gold absolute inset-y-0 left-0 w-1" />}
                       <span className="grid w-5 shrink-0 place-items-center"><TabIcon name={it.name} className="h-4 w-4" /></span>
-                      {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{it.label}</span>}
+                      {!collapsed && <span className="min-w-0 flex-1 text-left break-words">{it.label}</span>}
                     </button>
                   </li>
                 );
@@ -143,23 +149,24 @@ export function SideNav({
       </nav>
 
       {/* Signed-in identity + sign out */}
-      <div className="shrink-0 border-t border-white/10 p-2">
+      <div className="border-border shrink-0 border-t p-2">
         {!collapsed && (
           <div className="px-1 pb-2">
-            <p className="truncate text-[12.5px] font-medium text-white">{userName}</p>
-            <p className="text-gold truncate text-[11px] capitalize">{userRole.replace(/_/g, " ")}</p>
+            <p className="truncate text-sm font-medium">{userName}</p>
+            <p className="text-muted-foreground truncate text-xs capitalize">{userRole.replace(/_/g, " ")}</p>
           </div>
         )}
         <button
           type="button"
           onClick={onSignOut}
-          title={collapsed ? "Sign out" : undefined}
-          className={`flex w-full items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white ${
+          title={ms ? "Log keluar" : "Sign out"}
+          aria-label={ms ? "Log keluar" : "Sign out"}
+          className={`text-muted-foreground hover:bg-secondary hover:text-foreground flex min-h-11 w-full items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-colors ${
             collapsed ? "justify-center px-0" : "px-2"
           }`}
         >
           <span className="grid w-5 shrink-0 place-items-center"><LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} /></span>
-          {!collapsed && <span>Sign out</span>}
+          {!collapsed && <span>{ms ? "Log keluar" : "Sign out"}</span>}
         </button>
       </div>
     </aside>

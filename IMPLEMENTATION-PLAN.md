@@ -1,13 +1,14 @@
 # IMPLEMENTATION PLAN — A2Z portal ⇄ ELFIA, and the road to a full business system
 
-## Current ERP Plan - 15 September 2026
+## Current ERP Plan - 16 September 2026
 
-**Status: Phase 0 in progress; UI pilot implementation started in package v1.163.0.**
+**Status: Phase 0 in progress; responsive UI foundation implemented in package v1.164.0.**
 This section is the current planning entry point and takes precedence over the older
 sequencing below. The August tracks remain historical context, not a current list
 of missing features or verified deployment status. The visual redesign is being
-implemented as a Dashboard/One Desk/Inventory pilot. Production data, browser
-behavior, and statutory calculations were not validated as part of this review.
+implemented as a Dashboard/One Desk/Inventory pilot. Mocked-data browser checks
+now cover seven viewport widths and Malay/dark mode. Production data, installed
+PWA/WebView behavior, and statutory calculations have not been validated.
 
 ### Purpose and agreed direction
 
@@ -147,6 +148,12 @@ The detailed visual plan is in [`docs/UIUX-IMPLEMENTATION-PLAN.md`](docs/UIUX-IM
 It is the design contract for the next UI pass: calm ERP surfaces, predictable
 spacing and controls, strong information hierarchy, clear state feedback, and
 company-aware workflows. It does not change business rules or add decoration.
+
+The 16 September video review extends that plan with a concrete responsive layout
+proposal: [Interface video implementation plan](docs/INTERFACE-VIDEO-IMPLEMENTATION-PLAN.md).
+It covers the current tablet width conflict, labeled navigation, work-list/detail
+patterns, mobile PWA/WebView behavior and dependencies for both company identities
+and verification-backed signatures. This addition is planning documentation only.
 
 ---
 

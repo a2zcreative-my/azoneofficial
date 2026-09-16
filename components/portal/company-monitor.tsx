@@ -13,7 +13,7 @@ import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { AppIcon } from "@/components/ui/app-icon";
-import { btnSm, card, chipNeutral, chipDanger, chipWarn, td, th, tileCard } from "@/lib/ui-styles";
+import { btnSm, card, chipAction, chipNeutral, chipDanger, chipWarn, td, th, tileCard } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
@@ -232,11 +232,11 @@ export function InventoryStatusCard() {
             return (
               <button key={r.status} type="button" aria-expanded={isOpenQ}
                 onClick={() => setOpen(isOpenQ ? null : r.status)}
-                className={`${chipNeutral} cursor-pointer hover:brightness-95 transition ${isOpenQ ? "ring-primary ring-2" : ""}`}
+                className={`${chipNeutral} ${chipAction} hover:brightness-95 ${isOpenQ ? "ring-primary ring-2" : ""}`}
                 title={L("Tap to see which items", "Tekan untuk lihat barang yang terlibat")}>
                 <b className="tabular-nums">{r.n}</b>{" "}
                 <span className="text-muted-foreground capitalize">{stockLabel(r.status)}</span>
-                <AppIcon name="expand" className="ml-1 h-3 w-3" />
+                <AppIcon name="expand" className={isOpenQ ? "rotate-180" : ""} />
               </button>
             );
           }
@@ -244,11 +244,11 @@ export function InventoryStatusCard() {
           return (
             <button key={r.status} type="button" aria-expanded={isOpen}
               onClick={() => setOpen(isOpen ? null : r.status)}
-              className={`${ALERT[r.status]} cursor-pointer ${isOpen ? "" : "animate-pulse"} transition`}
+              className={`${ALERT[r.status]} ${chipAction} ${isOpen ? "ring-primary ring-2" : ""}`}
               title={L("Tap to see which items", "Tekan untuk lihat barang yang terlibat")}>
               <b className="tabular-nums">{r.n}</b>{" "}
               <span className="capitalize">{stockLabel(r.status)}</span>
-              <AppIcon name="expand" className="ml-1 h-3 w-3" />
+              <AppIcon name="expand" className={isOpen ? "rotate-180" : ""} />
             </button>
           );
         })}
@@ -277,7 +277,7 @@ export function InventoryStatusCard() {
             <div className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
               {openItems.map((i) => (
                 <p key={i.sku} className="flex items-baseline justify-between gap-3 text-xs">
-                  <span className="min-w-0 truncate"><span className="text-muted-foreground tabular-nums">{i.sku}</span> {i.name}</span>
+                  <span className="min-w-0 break-words"><span className="text-muted-foreground tabular-nums">{i.sku}</span> {i.name}</span>
                   <span className={`shrink-0 font-semibold tabular-nums ${i.stock === 0 ? "text-danger" : "text-warning"}`}>
                     {L(`${i.stock} left`, `baki ${i.stock}`)}
                   </span>

@@ -882,7 +882,7 @@ export function Dashboard({
         <p className="text-muted-foreground text-[12px]">
           {mytTodayLine(lang)}
         </p>
-        <h2 className="mt-0.5 text-[23px] font-semibold tracking-tight">
+        <h2 className="mt-0.5 text-xl font-semibold">
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
@@ -925,20 +925,14 @@ export function Dashboard({
             aria-busy="true"
           >
             {[0, 1, 2, 3].map((i) => (
-              <Skel key={i} className="h-10 rounded-lg md:w-36" />
+              <Skel key={i} className="h-11 rounded-lg md:h-9 md:w-36" />
             ))}
           </div>
         ) : (
           <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap">
             <button
               type="button"
-              /* v1.15.0: phones get the reference's green Clock in. tile tokens,
-               not --success — that one flips to a light text-green in dark
-               mode and white text on it would fail contrast. Desktop (md:)
-               keeps qaPrimary's navy exactly. */
-              /* v1.133.0: green whenever NOTHING is open — the first shift of
-                 the day and the evening one alike. */
-              className={`${btnQuickPrimary} ${!openNow ? "max-md:bg-tile-success max-md:text-tile-success-fg max-md:hover:bg-tile-success/90" : ""}`}
+              className={btnQuickPrimary}
               disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
@@ -1185,8 +1179,8 @@ export function Dashboard({
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className={card}>
+        <div className={`${card} grid grid-cols-2 gap-4 xl:grid-cols-4`}>
+          <div className="min-w-0">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {tr("Today", lang)}
             </p>
@@ -1211,7 +1205,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className={card}>
+          <div className="min-w-0">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Days present · month", "Hari hadir · bulan")}
             </p>
@@ -1228,7 +1222,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className={card}>
+          <div className="min-w-0">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Hours · month", "Jam · bulan")}
             </p>
@@ -1249,7 +1243,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className={card}>
+          <div className="min-w-0">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Open tasks", "Tugasan terbuka")}
             </p>

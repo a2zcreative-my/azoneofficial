@@ -1,8 +1,18 @@
 # Modest UI/UX Implementation Plan
 
-**Status:** pilot in progress; Dashboard, One Desk, and Inventory token pass started
-**Reviewed:** 15 September 2026  
+**Status:** responsive shell and Dashboard/One Desk/Inventory pilot implemented in v1.164.0; broader rollout remains open
+**Reviewed:** 16 September 2026
 **Target:** the portal, admin, account, and document related screens
+
+## Video reference implementation - 16 September 2026
+
+The source-backed review, implementation record, and remaining phases are in
+[INTERFACE-VIDEO-IMPLEMENTATION-PLAN.md](INTERFACE-VIDEO-IMPLEMENTATION-PLAN.md).
+The v1.164.0 implementation adds labeled desktop navigation, a collapsed tablet
+rail, scoped 8px shared surfaces, compact metrics, phone controls and Inventory
+record details. Mocked-data browser checks cover 360-1920px plus Malay/dark mode.
+Company isolation, verified-signing events, Sales/Claims detail adoption and actual
+installed PWA/WebView acceptance remain separate, incomplete phases.
 
 ## Goal
 

@@ -107,20 +107,14 @@ const codeOnly = (src) => src
 {
   const shell = read("components/layout/app-shell.tsx");
   const skel = read("components/portal/portal-skeleton.tsx");
-  const canvas = shell.match(/className=\{`([^`]*?) \$\{maxWidth\}`\}/)?.[1];
-  const def = shell.match(/maxWidth = "([^"]+)"/)?.[1];
-  ok("AppShell's canvas classes were found", Boolean(canvas && def));
-  ok("the skeleton canvas carries AppShell's classes and its default width",
-     Boolean(canvas && def) && skel.includes(`className="${canvas} ${def}"`),
-     `expected "${canvas} ${def}" — a skeleton narrower than the app makes the page jump sideways when data lands`);
-  for (const side of ["left", "right"]) {
-    const re = side === "left"
-      ? /<aside className="([^"]*border-r[^"]*)"/
-      : /<aside className="([^"]*border-l[^"]*)"/;
-    const real = shell.match(re)?.[1];
-    ok(`the skeleton's ${side} column matches AppShell's`, Boolean(real) && skel.includes(`className="${real}"`),
-       `the Dashboard has a ${side === "left" ? "264" : "292"}px column; a skeleton without it is ${side === "left" ? "264" : "292"}px too wide`);
-  }
+  const page = read("app/portal/page.tsx");
+  ok("the skeleton and portal reuse AppShell's workspace geometry",
+     /<AppShell\s+navigation=/.test(skel) && /<AppShell\s+navigation=/.test(page));
+  ok("the workspace navigation has a dedicated slot", /\{navigation\}/.test(shell));
+  ok("neither first paint nor portal squeezes content between permanent side panels",
+     !/\b(?:contextPanel|rightRail)=/.test(skel + page));
+  ok("the skeleton matches compact tablet and expanded desktop navigation",
+     /w-16.*xl:w-56/.test(skel) && /min-width: 1280px/.test(page));
 }
 
 /* ---- R4 / R5: every component that fetches on mount shows a skeleton ---- */

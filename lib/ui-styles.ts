@@ -21,8 +21,9 @@
     (`rounded-card`), so phone and desktop finally agree and cards sit
     correctly inside the 26px rounded canvas. Changing this ONE string
     restyles every card in the portal, admin and account — which is the
-    whole reason it lives here. */
-export const card = "rounded-2xl md:rounded-card border border-border bg-card p-4 md:p-5";
+    whole reason it lives here. v1.164.0: the ERP workspace scopes this
+    radius to 8px; legacy surfaces retain their existing defaults. */
+export const card = "rounded-card border border-border bg-card p-4 md:p-5";
 
 /* ============ v1.125.0 — THE CARD VOCABULARY ===========================
    The CEO, 06-09-2026: *"Some card-like inner rows use borders and rounded
@@ -68,12 +69,12 @@ export const card = "rounded-2xl md:rounded-card border border-border bg-card p-
 export const compactCard = "rounded-card border border-border bg-card p-3";
 
 /** A bordered box inside a card. Smaller radius: contained, not competing. */
-export const insetCard = "rounded-xl border border-border bg-card p-3";
+export const insetCard = "rounded-panel border border-border bg-card p-3";
 
 /** A card with a coloured top edge, for a figure that carries a status.
     The caller supplies the edge colour (`border-t-success`, `border-t-brand`);
     everything else is the card. */
-export const accentCard = "rounded-xl border border-border bg-card border-t-2 p-4 shadow-sm";
+export const accentCard = "rounded-panel border border-border bg-card border-t-2 p-4 shadow-sm";
 
 /** One figure, one label, centred — in a grid of siblings. */
 export const tileCard = "rounded-lg border border-border bg-card p-2.5 flex flex-col items-center justify-center";
@@ -118,7 +119,7 @@ export const PORTAL_WIDTH = "mx-auto w-full max-w-none";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
+  "min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring md:min-h-9 md:text-sm";
 
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
@@ -127,7 +128,7 @@ export const inputClassLg =
 
 /** Standard primary button. */
 export const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
+  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-1 text-sm font-medium transition-colors disabled:opacity-50 md:min-h-9";
 
 /** Full-width variant — sign-in and other single-action forms. */
 export const btnClassBlock =
@@ -159,13 +160,13 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 
 /** Secondary (outline) button — was duplicated in 4 files. */
 export const btnGhost =
-  "inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary";
+  "inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 py-1 text-sm font-medium transition-colors hover:bg-secondary md:min-h-9";
 
 /** Compact header control (phones share one row).
     v1.10.0: phones get the reference design's soft rounded square (h-9,
     rounded-xl); desktop keeps its previous look. */
 export const btnHdr =
-  "inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:rounded-lg md:px-2.5";
+  "inline-flex h-11 min-w-11 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:min-w-9 md:px-2.5";
 
 /** Header control that exists ONLY from `md` up (sound, push, theme, EN/BM).
  *
@@ -183,9 +184,9 @@ export const btnHdrDesktop =
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
-  "border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary";
+  "border-border inline-flex min-h-11 items-center justify-center rounded-lg border px-3 py-1 text-xs font-medium hover:bg-secondary md:min-h-8";
 export const btnSmPrimary =
-  "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium disabled:opacity-50";
+  "bg-primary text-primary-foreground inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-1 text-xs font-medium disabled:opacity-50 md:min-h-8";
 
 /** Quick actions — full-width touch targets on phones, compact row actions on desktop. */
 export const btnQuick =
@@ -211,7 +212,7 @@ export const inputClassSm =
    rather than py-2/py-1. Everything else matches the input it stands next
    to, deliberately. */
 export const selectClass =
-  "h-9 w-full rounded-lg border border-input bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:w-auto";
+  "h-11 w-full rounded-lg border border-input bg-background px-2 text-base outline-none focus:ring-2 focus:ring-ring sm:w-auto md:h-9 md:text-sm";
 
 /** Card-header row: title left, actions right, wraps politely on phones. */
 export const rowHead = "flex flex-wrap items-center justify-between gap-2";
@@ -227,6 +228,9 @@ export const chipSuccess = `${chip} bg-success-soft text-success`;
 export const chipWarn = `${chip} bg-warning-soft text-warning`;
 export const chipDanger = `${chip} bg-danger-soft text-danger`;
 export const chipInfo = `${chip} bg-info-soft text-info`;
+
+/** Interactive chips keep a full touch target without enlarging display-only badges. */
+export const chipAction = "min-h-11 gap-1.5 cursor-pointer justify-center transition-colors md:min-h-8";
 
 /* v1.137.0 — the DENSE chip, for a chip that sits in a list row rather than
    in a card. Users had eight of these hand-rolled at `px-1.5 py-px
@@ -271,6 +275,6 @@ export const tile = card;
    draws it. A card with more than one thing to show uses that, so a pill
    means the same thing on every tab of the portal. */
 export const tabPill =
-  "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs";
+  "border-border text-muted-foreground hover:bg-secondary/70 inline-flex min-h-11 items-center justify-center rounded-lg border px-3 py-1 text-xs md:min-h-8";
 export const tabPillOn =
-  "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium";
+  "bg-primary text-primary-foreground inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-1 text-xs font-medium md:min-h-8";

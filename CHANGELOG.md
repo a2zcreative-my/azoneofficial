@@ -2,6 +2,32 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.164.0] - 2026-09-16 - Responsive ERP workspace
+
+Implemented the first interface slice from the video reference: labeled desktop
+navigation, collapsed tablet navigation, a full-width neutral workspace, and
+8px shared operational surfaces. Removed the duplicate desktop page heading;
+calendar/team panels now sit in a collapsed Dashboard section. Tablet toolbars
+wrap separately so long translated titles remain readable.
+
+Dashboard metrics share a compact responsive surface. One Desk labels wrap and
+its filters use touch-sized controls. Phone navigation retains safe-area spacing;
+More now has keyboard focus containment and Escape handling. Shared inputs and
+buttons have larger phone targets, and Inventory search gets its own phone row.
+
+Inventory records open in a desktop side sheet or full-screen mobile dialog,
+showing stock, category, price and the loaded manual movement history. Closing
+with Back preserves the mounted list and filters. Existing permissions, writes,
+issuer selection and signature assets are unchanged. This is not a native wrapper
+release, a full company-isolation implementation, or verified-signing delivery.
+
+Added `scratch/interface-responsive.cjs` for isolated, mocked-API browser checks.
+Checked seven widths from 360 to 1920px in English/light and three widths in
+Malay/dark, including expanded tablet navigation, stock expansion, mobile control
+sizes, overflow, detail Back handling and menu Escape. Actual installed PWA and
+native WebView host testing remain outstanding. See the interface plan for scope
+and the remaining rollout gates.
+
 ## [1.163.0] - 2026-09-15 - Modest ERP UI pilot
 
 Started the visual pilot for the shared ERP interface. Dashboard quick actions

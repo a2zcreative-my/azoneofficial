@@ -7,8 +7,8 @@
  *   v1.13.0  replaced by a grouped labelled sidebar (reference set B / DZI)
  *   v1.14.0  back to the canvas + icon rail — the CEO reviewed both built and
  *            chose set A, adding the context panel and right rail.
- * `side-nav.tsx` is kept, unused, rather than deleted: it is the working
- * grouped-sidebar implementation and the module count is still climbing.
+ * v1.164.0: the portal uses `navigation` with side-nav.tsx and a full-width
+ * neutral workspace. The framed rail layout below remains for legacy callers.
  *
  * Desktop layout:
  *
@@ -58,7 +58,7 @@
 import { useEffect, type ReactNode } from "react";
 
 export function AppShell({
-  rail, contextPanel, rightRail, children,
+  rail, navigation, contextPanel, rightRail, children,
   /* v1.74.0 (CEO: "I want it full fit to the website width... dont change
      the interface layout or any new. just make it fit only") — the canvas
      capped at 1440px, so on a 1920 monitor a 370px band of backdrop sat down
@@ -71,6 +71,8 @@ export function AppShell({
   maxWidth = "md:max-w-none",
 }: {
   rail?: ReactNode;
+  /** Full-height labeled navigation; mutually exclusive with the legacy icon rail. */
+  navigation?: ReactNode;
   /** Left context column — mini calendar, "today at a glance". Desktop only. */
   contextPanel?: ReactNode;
   /** Right column — queues, availability, ops. Desktop only. */
@@ -94,10 +96,11 @@ export function AppShell({
     return () => document.documentElement.classList.remove("shell-locked");
   }, []);
   return (
-    <div className="md:bg-shell-backdrop md:relative md:h-dvh md:overflow-hidden md:p-5">
+    <div className={`${navigation ? "erp-workspace bg-secondary" : "md:bg-shell-backdrop"} md:relative md:h-dvh md:overflow-hidden ${navigation ? "" : "md:p-5"}`}>
       <style>{`@media (min-width: 768px) { html.shell-locked, html.shell-locked body { overflow: hidden; height: 100%; } }`}</style>
-      <div className={`md:rounded-shell md:bg-background md:shadow-shell md:mx-auto md:flex md:h-full md:overflow-hidden ${maxWidth}`}>
-        {rail ? (
+      <div className={`${navigation ? "md:bg-secondary" : "md:rounded-shell md:bg-background md:shadow-shell"} md:mx-auto md:flex md:h-full md:overflow-hidden ${maxWidth}`}>
+        {navigation}
+        {!navigation && rail ? (
           <div className="bg-brand rounded-l-shell hidden w-14 shrink-0 md:block">{rail}</div>
         ) : null}
 

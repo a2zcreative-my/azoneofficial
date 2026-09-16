@@ -43,7 +43,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
 import { setCacheScope, clearApiCache } from "@/lib/cached-api";
 
-import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { SideNav } from "@/components/layout/side-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import {
@@ -84,7 +84,7 @@ import { LeaderboardCard, MoneyCard } from "@/components/portal/commission";
 import { Dashboard, REVENUE_ROLES } from "@/components/portal/dashboard";
 import { Leave } from "@/components/portal/leave";
 import { OtApprovalsCard } from "@/components/portal/live-cards";
-import { L, MANAGE_ROLES, Notification, User, ZoneLabel, mytGreeting } from "@/components/portal/page-shared";
+import { L, MANAGE_ROLES, Notification, User, ZoneLabel } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
@@ -110,6 +110,14 @@ const CONTENT_ONLY_ROLES: string[] = [];
 export default function PortalPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(true);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1280px)");
+    const fit = () => setNavCollapsed(!desktop.matches);
+    fit();
+    desktop.addEventListener("change", fit);
+    return () => desktop.removeEventListener("change", fit);
+  }, []);
   /* v1.4.231 (CEO: "when I refresh the tabs back to Dashboard instead of
      last tab that I open"): the active tab was plain useState — a refresh
      rebuilds the page and lands on the default. Now the last tab persists
@@ -231,6 +239,31 @@ export default function PortalPage() {
     document.body.style.overflow = moreOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
+    };
+  }, [moreOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const menu = document.getElementById("portal-more-menu");
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-controls="portal-more-menu"]');
+    const buttons = () => Array.from(menu?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+    buttons()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setMoreOpen(false); }
+      if (event.key !== "Tab") return;
+      const controls = buttons();
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const resize = () => { if (desktop.matches) setMoreOpen(false); };
+    document.addEventListener("keydown", onKey);
+    desktop.addEventListener("change", resize);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      desktop.removeEventListener("change", resize);
+      trigger?.focus({ preventScroll: true });
     };
   }, [moreOpen]);
 
@@ -708,16 +741,16 @@ export default function PortalPage() {
 
   const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
   return (
-    /* v1.13.0: AppShell now renders the grouped ERP sidebar (CEO's DZI
-       reference). It receives the SAME `navItems` the role gating and
-       tab-access overrides already produced — the shell groups them for
-       display and decides nothing about visibility. Below `md` it renders
-       `children` unstyled, so the v1.11.1 phone is untouched. */
+    /* Navigation receives the already permission-filtered registry. */
     <AppShell
-      rail={
-        <SidebarNav
+      navigation={
+        <SideNav
           items={navItems}
           active={activeTab}
+          collapsed={navCollapsed}
+          onToggleCollapsed={() => setNavCollapsed((v) => !v)}
+          userName={user.name}
+          userRole={user.role}
           onSelect={(t) => setTab(t as TabName)}
           onSignOut={() =>
             void api("/auth/logout", {
@@ -729,18 +762,6 @@ export default function PortalPage() {
             })
           }
         />
-      }
-      /* v1.14.0: the side columns carry a date context.
-         v1.17.0 (CEO: "Schedule & Roster seem take so much unrelated things
-         there"): DASHBOARD ONLY. On Attendance the rails repeated pending
-         leave / open tasks / announcements beside a tab that is already five
-         cards deep — duplication read as clutter, and the roster lost width
-         to it. Work tabs get the full working area. */
-      contextPanel={
-        activeTab === "Dashboard" ? <ContextPanel lang={lang} /> : undefined
-      }
-      rightRail={
-        activeTab === "Dashboard" ? <RightRail lang={lang} go={(t) => setTab(t as TabName)} /> : undefined
       }
     >
       <CommandPalette
@@ -805,9 +826,9 @@ export default function PortalPage() {
             sticky, keeps clearing it as the page scrolls. The bottom bar has
             done the same for its inset since v1.10.0; the top simply never
             had to until phones started drawing under it. */}
-        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 pb-2 backdrop-blur [--hdr-pt:0.5rem] md:-mx-5 md:mb-4 md:gap-3 md:px-5 md:pb-3 md:backdrop-blur-none md:[--hdr-pt:0.75rem]"
+        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 pb-2 backdrop-blur [--hdr-pt:0.5rem] md:-mx-5 md:mb-4 md:flex-wrap md:gap-3 md:px-5 md:pb-3 md:backdrop-blur-none md:[--hdr-pt:0.75rem] lg:flex-nowrap"
           style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-          <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:basis-full md:gap-3 lg:basis-auto">
             {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
               on mobile. Falls back to the initial when no photo is set. */}
@@ -829,26 +850,21 @@ export default function PortalPage() {
               <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
                 {tr("Staff Portal short", lang)}
               </p>
-              {/* v1.15.0: time-of-day greeting, as the reference.
-                v1.16.0: text-lg until 2xl — xl is 1280px, so at a 1440px
-                viewport (both side columns open, 773px header) xl:text-xl
-                re-applied the 20px size and the name clipped by 12px. 2xl
-                (1536px) is the first width with room for it. Measured, not
-                guessed: h1 183px available vs 195px scrollWidth at text-xl. */}
-              <h1 className="hidden truncate text-lg font-semibold tracking-tight md:block 2xl:text-xl">
-                {mytGreeting(lang)}, {user.name.split(" ")[0]}
+              {/* Tablet tools use a second row so translated titles remain readable. */}
+              <h1 className="hidden text-lg font-semibold break-words md:block">
+                {tr(activeTab, lang)}
               </h1>
               {/* On phones the header reads like an app screen title.
                 v1.10.0: the Dashboard says "Today" (the reference design's
                 home title); every other tab keeps its own name. */}
-              <h1 className="truncate text-xl font-bold tracking-tight md:hidden">
+              <h1 className="text-lg font-semibold break-words md:hidden">
                 {activeTab === "Dashboard"
                   ? tr("Today", lang)
                   : tr(activeTab, lang)}
               </h1>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 md:min-w-0 md:shrink">
+          <div className="flex shrink-0 items-center gap-1.5 md:w-full md:min-w-0 md:shrink md:justify-end lg:w-auto">
             {/* v1.8.0: global search — opens the palette (Ctrl/Cmd+K works anywhere) */}
             <button
               type="button"
@@ -874,7 +890,7 @@ export default function PortalPage() {
             </button>
             {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
               taps — on phones they live in the More sheet's Preferences row
-              so the app bar keeps just search · bell · dark · sign out. */}
+              so the phone app bar keeps just search and notifications. */}
             <button
               type="button"
               className={btnHdrDesktop}
@@ -1033,7 +1049,7 @@ export default function PortalPage() {
             </button>
             <button
               type="button"
-              className={btnHdr}
+              className={btnHdrDesktop}
               onClick={() => setDark((v) => !v)}
               aria-label={L("Toggle dark mode", "Togol mod gelap")}
             >
@@ -1048,7 +1064,7 @@ export default function PortalPage() {
               it discoverable and announced. */}
             <button
               type="button"
-              className={btnHdr}
+              className={btnHdrDesktop}
               title={tr("Sign out", lang)}
               aria-label={tr("Sign out", lang)}
               onClick={() =>
@@ -1065,16 +1081,6 @@ export default function PortalPage() {
             </button>
           </div>
         </header>
-
-        {/* v1.13.0: the reference's page header — title left, breadcrumb right. */}
-        <div className="mb-3 hidden items-baseline justify-between gap-4 md:flex">
-          <h2 className="text-[22px] font-semibold tracking-tight">
-            {tr(activeTab, lang)}
-          </h2>
-          <p className="text-muted-foreground text-xs">
-            {tr("Staff Portal", lang)} / {tr(activeTab, lang)}
-          </p>
-        </div>
 
         {showNotifs && (
           <div className={`${card} mt-4`}>
@@ -1151,9 +1157,9 @@ export default function PortalPage() {
               >
                 <span
                   aria-hidden
-                  className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                  className={`grid h-9 w-9 place-items-center rounded-lg text-base transition-colors ${
                     active
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                      ? "bg-secondary text-primary"
                       : "text-muted-foreground"
                   }`}
                 >
@@ -1178,13 +1184,15 @@ export default function PortalPage() {
               <button
                 type="button"
                 onClick={() => setMoreOpen((v) => !v)}
+                aria-expanded={moreOpen}
+                aria-controls="portal-more-menu"
                 className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
               >
                 <span
                   aria-hidden
-                  className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
+                  className={`grid h-9 w-9 place-items-center rounded-lg text-base transition-colors ${
                     active
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                      ? "bg-secondary text-primary"
                       : "text-muted-foreground"
                   }`}
                 >
@@ -1215,19 +1223,14 @@ export default function PortalPage() {
             {/* v1.10.0 review fix: bottom padding clears the taller nav PLUS the
               phone's home-indicator inset — the old pb-16 left the Preferences
               row half-covered and untappable on notched iPhones. */}
-            <div className={sheetCard}>
+            <div id="portal-more-menu" role="dialog" aria-modal="true" aria-label={tr("More", lang)} className={sheetCard}>
               <div className="mb-3 flex items-center justify-between">
                 <span className="w-9" />
-                <button
-                  type="button"
-                  aria-label={L("Close menu", "Tutup menu")}
-                  className="bg-border mx-auto h-1.5 w-12 rounded-full"
-                  onClick={() => setMoreOpen(false)}
-                />
+                <span aria-hidden className="bg-border mx-auto h-1.5 w-12 rounded-full" />
                 <button
                   type="button"
                   aria-label={L("Close", "Tutup")}
-                  className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
+                  className="border-border text-muted-foreground flex h-11 w-11 items-center justify-center rounded-lg border text-base"
                   onClick={() => setMoreOpen(false)}
                 >
                   <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
@@ -1383,6 +1386,18 @@ export default function PortalPage() {
                       : "Navy"}
                 </button>
               </div>
+              <div className="border-border mt-4 flex flex-wrap gap-2 border-t pt-3">
+                <button type="button" className={`${btnHdr} gap-2`} onClick={() => setDark((v) => !v)}>
+                  {dark ? <Sun aria-hidden className="h-4 w-4" /> : <Moon aria-hidden className="h-4 w-4" />}
+                  {L("Toggle dark mode", "Togol mod gelap")}
+                </button>
+                <button type="button" className={`${btnHdr} gap-2`} onClick={() =>
+                  void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => {
+                    clearApiCache(); setUser(null); setMoreOpen(false);
+                  })}>
+                  <LogOut aria-hidden className="h-4 w-4" />{tr("Sign out", lang)}
+                </button>
+              </div>
               {/* v1.23.4: the visible build stamp — "is the live site on the
                 new version?" is now answerable from any phone. */}
               <p className="text-muted-foreground/70 mt-3 text-center text-[10px] tabular-nums">
@@ -1402,6 +1417,15 @@ export default function PortalPage() {
                   the portal on the Home Screen. Phones only (md:hidden). */}
               <div className="mb-4 md:hidden"><InstallCoach /></div>
               <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} />
+              <details className="border-border mt-5 border-t pt-3">
+                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">
+                  {L("Calendar and team overview", "Kalendar dan ringkasan pasukan")}
+                </summary>
+                <div className="grid gap-4 pb-4 lg:grid-cols-2">
+                  <div className="min-w-0 space-y-3"><ContextPanel lang={lang} /></div>
+                  <div className="min-w-0 space-y-3"><RightRail lang={lang} go={(t) => setTab(t as TabName)} /></div>
+                </div>
+              </details>
             </>
           )}
           {activeTab === "Claims" && (

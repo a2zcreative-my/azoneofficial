@@ -32,6 +32,7 @@ import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.138.0 - this ca
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
+import { RecordDetail } from "@/components/ui/record-detail";
 import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { buildClaimPdf } from "@/lib/form-pdf";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
@@ -575,6 +576,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
   const [items, setItems] = useState<InvItem[]>([]);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const detailItem = items.find((item) => item.id === detailId);
   const [postage, setPostage] = useState<PostRec[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [invDraft, setInvDraft] = useState({ sku: "", name: "", stock: 0, unit_price: "", category: "" });
@@ -855,6 +858,28 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
     <div className="space-y-4 md:space-y-6">
       {invConfirmNode}
       {invToastNode}
+      {detailItem && (
+        <RecordDetail title={detailItem.name} onClose={() => setDetailId(null)}>
+          <p className="text-muted-foreground mb-4 font-mono text-sm">{detailItem.sku}</p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            <dt className="text-muted-foreground">{L("Stock", "Stok")}</dt><dd className="text-right font-semibold tabular-nums">{detailItem.stock}</dd>
+            <dt className="text-muted-foreground">Status</dt><dd className="text-right"><Badge value={detailItem.status} /></dd>
+            <dt className="text-muted-foreground">{L("Category", "Kategori")}</dt><dd className="text-right break-words">{detailItem.category || L("Uncategorised", "Tanpa kategori")}</dd>
+            <dt className="text-muted-foreground">{L("Price per unit", "Harga seunit")}</dt><dd className="text-right tabular-nums">{detailItem.unit_price_cents == null ? L("Not set", "Belum ditetapkan") : `RM ${rmBare(detailItem.unit_price_cents)}`}</dd>
+          </dl>
+          <h3 className="border-border mt-6 border-t pt-4 text-sm font-semibold">{L("Recent manual movements", "Pergerakan manual terkini")}</h3>
+          <ul className="divide-border mt-2 divide-y">
+            {manualOuts.filter((entry) => entry.item_id === detailItem.id).slice(0, 10).map((entry) => (
+              <li key={entry.id} className="py-3 text-sm">
+                <p className="break-words">{entry.remark || L("Stock movement", "Pergerakan stok")}</p>
+                <p className="text-muted-foreground mt-1 text-xs">{entry.direction === "in" ? L("In", "Masuk") : L("Out", "Keluar")} · {entry.qty} {L("units", "unit")}{entry.reverted ? ` · ${L("Reversed", "Dibatalkan")}` : ""}</p>
+                <p className="text-muted-foreground mt-1 text-xs">{entry.created_at}</p>
+              </li>
+            ))}
+          </ul>
+          {!manualOuts.some((entry) => entry.item_id === detailItem.id) && <p className="text-muted-foreground mt-2 text-sm">{L("No manual movements in the loaded history.", "Tiada pergerakan manual dalam sejarah yang dimuatkan.")}</p>}
+        </RecordDetail>
+      )}
       {/* v1.4.170 (CEO): manual stock-out MODAL — pick SKU/item, quantity,
           optional Sold @ (makes it a sale in the totals), and a MANDATORY
           remark for traceability. House card pattern + save-toast. */}
@@ -1095,7 +1120,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               list in its on-screen sort, PLUS the three columns a physical
               stock count needs — Counted qty / Variance / Note — left
               blank for the person walking the shelves. */}
-          <button type="button" className="border-border inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+          <button type="button" className={btnSm}
             onClick={() => {
               /* v1.74.0: was a hand-rolled CSV with its own escaper. Same
                  file, now through the one builder — rows of CELLS rather
@@ -1140,12 +1165,12 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             add-item form behind a button - adding a SKU happens a few times a
             year, the table is used every day. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input className={`${inputClassSm} min-w-0 flex-1 sm:max-w-64`} value={invQ} placeholder={L("Find by SKU or name", "Cari ikut SKU atau nama")}
+          <input className={`${inputClass} min-w-0 basis-full md:max-w-64 md:basis-auto`} value={invQ} placeholder={L("Find by SKU or name", "Cari ikut SKU atau nama")}
             aria-label={L("Find an item", "Cari barang")} onChange={(e) => setInvQ(e.target.value)} />
           <span role="tablist" aria-label={L("Show items that are", "Tunjuk barang yang")} className="flex gap-1.5">
             {([["all", L("All", "Semua"), items.length, ""], ["low", L("Low", "Rendah"), lowCount, "text-warning"], ["out", L("Out", "Habis"), outCount, "text-destructive"]] as const).map(([k, label, n, tone]) => (
               <button key={k} type="button" role="tab" aria-selected={invFilter === k} onClick={() => setInvFilter(k)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${invFilter === k ? "bg-primary text-primary-foreground" : `bg-secondary hover:text-foreground ${tone || "text-muted-foreground"}`}`}>
+                className={`min-h-11 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors md:min-h-8 ${invFilter === k ? "bg-primary text-primary-foreground" : `bg-secondary hover:text-foreground ${tone || "text-muted-foreground"}`}`}>
                 {label} {n}
               </button>
             ))}
@@ -1170,7 +1195,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                  ...(uncatCount > 0 ? [["\u0000none", L("Uncategorised", "Tanpa kategori"), uncatCount] as const] : [])])
                 .map(([k, label, n]) => (
                   <button key={k || "all"} type="button" role="tab" aria-selected={invCat === k} onClick={() => setInvCat(k)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${invCat === k ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                    className={`min-h-11 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors md:min-h-8 ${invCat === k ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>
                     {label} {n}
                   </button>
                 ))}
@@ -1264,7 +1289,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             <li key={`m-${it.id}`} className="py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{it.name}</p>
+                  <button type="button" className="min-h-11 text-left text-sm font-semibold break-words hover:underline" onClick={() => setDetailId(it.id)}>{it.name}<AppIcon name="next" className="ml-1" /></button>
                   <p className="text-muted-foreground truncate text-[11px]"><span className="font-mono">{it.sku}</span>{it.unit_price_cents ? ` · RM ${rmBare(it.unit_price_cents)}` : ""}</p>
                   {/* v1.136.0 - the family on the phone too. Read-only here:
                       the strip above is how a phone narrows to one family,
@@ -1279,9 +1304,9 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 </div>
               </div>
               <div className="mt-2 flex gap-2">
-                <button type="button" className="border-border h-10 flex-1 rounded-xl border text-sm font-semibold transition-colors hover:bg-secondary"
+                <button type="button" className={`${btnSm} flex-1`}
                   onClick={() => setOutModal({ dir: "in", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>{L("＋ In", "＋ Masuk")}</button>
-                <button type="button" className="border-border h-10 flex-1 rounded-xl border text-sm font-semibold transition-colors hover:bg-secondary"
+                <button type="button" className={`${btnSm} flex-1`}
                   onClick={() => setOutModal({ dir: "out", edit_id: null, item_id: it.id, qty: String(adjQty[it.id] ?? 1), price: "", reason: "", remark: "", out_date: todayMYT() })}>{L("− Out", "− Keluar")}</button>
               </div>
             </li>
@@ -1363,7 +1388,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     {invEditId === it.id
                       ? <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" value={invEditDraft.name}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, name: e.target.value }))} />
-                      : it.name}
+                      : <button type="button" className="min-h-9 text-left hover:underline" onClick={() => setDetailId(it.id)}>{it.name}<AppIcon name="next" className="ml-1" /></button>}
                   </td>
                   {/* v1.136.0 - the family, typed once and picked thereafter
                       from the browser's own list of the families in use.
