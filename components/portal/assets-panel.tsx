@@ -93,7 +93,7 @@ export function AssetsPanel() {
       location: a.location ?? "", assigned_to: a.assigned_to != null ? String(a.assigned_to) : "",
       status: a.status, condition_note: a.condition_note ?? "",
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    requestAnimationFrame(() => document.getElementById("asset-form")?.scrollIntoView({ block: "start" }));
   };
 
   const save = async () => {
@@ -170,62 +170,6 @@ export function AssetsPanel() {
           ))}
           {totalValue > 0 && <span className="rounded-full bg-success-soft px-2 py-0.5 font-semibold text-success">{L("Value","Nilai")} {rm(totalValue)}</span>}
         </div>
-      </div>
-
-      <div className={card}>
-        <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium"
-          onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
-          {openForm ? (editId ? L("Cancel edit", "Batal sunting") : L("Hide form", "Sembunyi borang")) : L("+ New asset — show details", "+ Aset baharu — tunjuk butiran")}
-        </button>
-        {openForm && (
-          <div className="mt-3">
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="identification" className="h-3.5 w-3.5" />{L("Identification", "Pengenalan")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
-                <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
-              <label className="block"><span className={lbl}>{L("Asset name *", "Nama aset *")}</span>
-                <input className={input} placeholder={L('e.g. Ring light 18"', 'cth. Ring light 18"')} {...f("name")} /></label>
-              <label className="block"><span className={lbl}>{L("Category", "Kategori")}</span>
-                <select className={input} {...f("category")}>{CATS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
-              <label className="block"><span className={lbl}>{L("Brand & model", "Jenama & model")}</span>
-                <input className={input} placeholder={L("e.g. Godox SL-60W", "cth. Godox SL-60W")} {...f("brand_model")} /></label>
-              <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
-                <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
-            </div>
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="purchase" className="h-3.5 w-3.5" />{L("Purchase", "Pembelian")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
-                <input className={input} type="date" {...f("purchase_date")} /></label>
-              <label className="block"><span className={lbl}>{L("Price (RM)", "Harga (RM)")}</span>
-                <input className={input} inputMode="decimal" placeholder="0.00" {...f("purchase_price")} /></label>
-              <label className="block"><span className={lbl}>{L("Vendor", "Pembekal")}</span>
-                <input className={input} placeholder={L("e.g. Shopee, Machines", "cth. Shopee, Machines")} {...f("vendor")} /></label>
-              <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
-                <input className={input} type="date" {...f("warranty_until")} /></label>
-            </div>
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="assignment" className="h-3.5 w-3.5" />{L("Assignment & status", "Penugasan & status")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
-                <select className={input} {...f("assigned_to")}>
-                  <option value="">{L("— unassigned / shared —", "— tidak diberikan / kongsi —")}</option>
-                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select></label>
-              <label className="block"><span className={lbl}>{L("Location", "Lokasi")}</span>
-                <input className={input} placeholder={L("e.g. Studio A, Store room", "cth. Studio A, Bilik stor")} {...f("location")} /></label>
-              <label className="block"><span className={lbl}>{L("Status", "Status")}</span>
-                <select className={input} {...f("status")}>{STATUSES.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
-              <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
-                <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
-            </div>
-            <button type="button" className="bg-primary text-primary-foreground mt-3 rounded-lg px-4 py-2 text-sm font-medium" onClick={() => void save()}>
-              {editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}
-            </button>
-          </div>
-        )}
-        {unavailable && <p className="text-warning mt-2 text-xs font-medium">{L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")}</p>}
-        <StaleHint show={register.stale} className="mt-2" />
-        {toastNode}
-        {confirmNode}
       </div>
 
       <div className={card}>
@@ -330,6 +274,63 @@ export function AssetsPanel() {
           </div>
         )}
       </div>
+
+      <div id="asset-form" className={`${card} scroll-mt-36`}>
+        <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium"
+          onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
+          {openForm ? (editId ? L("Cancel edit", "Batal sunting") : L("Hide form", "Sembunyi borang")) : L("+ New asset — show details", "+ Aset baharu — tunjuk butiran")}
+        </button>
+        {openForm && (
+          <div className="mt-3">
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="identification" className="h-3.5 w-3.5" />{L("Identification", "Pengenalan")}</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
+                <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
+              <label className="block"><span className={lbl}>{L("Asset name *", "Nama aset *")}</span>
+                <input className={input} placeholder={L('e.g. Ring light 18"', 'cth. Ring light 18"')} {...f("name")} /></label>
+              <label className="block"><span className={lbl}>{L("Category", "Kategori")}</span>
+                <select className={input} {...f("category")}>{CATS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Brand & model", "Jenama & model")}</span>
+                <input className={input} placeholder={L("e.g. Godox SL-60W", "cth. Godox SL-60W")} {...f("brand_model")} /></label>
+              <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
+                <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
+            </div>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="purchase" className="h-3.5 w-3.5" />{L("Purchase", "Pembelian")}</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
+                <input className={input} type="date" {...f("purchase_date")} /></label>
+              <label className="block"><span className={lbl}>{L("Price (RM)", "Harga (RM)")}</span>
+                <input className={input} inputMode="decimal" placeholder="0.00" {...f("purchase_price")} /></label>
+              <label className="block"><span className={lbl}>{L("Vendor", "Pembekal")}</span>
+                <input className={input} placeholder={L("e.g. Shopee, Machines", "cth. Shopee, Machines")} {...f("vendor")} /></label>
+              <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
+                <input className={input} type="date" {...f("warranty_until")} /></label>
+            </div>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="assignment" className="h-3.5 w-3.5" />{L("Assignment & status", "Penugasan & status")}</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
+                <select className={input} {...f("assigned_to")}>
+                  <option value="">{L("— unassigned / shared —", "— tidak diberikan / kongsi —")}</option>
+                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select></label>
+              <label className="block"><span className={lbl}>{L("Location", "Lokasi")}</span>
+                <input className={input} placeholder={L("e.g. Studio A, Store room", "cth. Studio A, Bilik stor")} {...f("location")} /></label>
+              <label className="block"><span className={lbl}>{L("Status", "Status")}</span>
+                <select className={input} {...f("status")}>{STATUSES.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
+                <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
+            </div>
+            <button type="button" className="bg-primary text-primary-foreground mt-3 rounded-lg px-4 py-2 text-sm font-medium" onClick={() => void save()}>
+              {editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}
+            </button>
+          </div>
+        )}
+        {unavailable && <p className="text-warning mt-2 text-xs font-medium">{L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")}</p>}
+        <StaleHint show={register.stale} className="mt-2" />
+        {toastNode}
+        {confirmNode}
+      </div>
+
     </div>
   );
 }

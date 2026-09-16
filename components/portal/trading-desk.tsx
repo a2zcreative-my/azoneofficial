@@ -950,7 +950,7 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
   const delta =
     lastTotal > 0 ? Math.round(((total - lastTotal) / lastTotal) * 100) : null;
   const box = (label: string, value: string, sub: string) => (
-    <div className="border-border rounded-lg border p-3">
+    <div className="min-w-0 space-y-1">
       <p className="text-muted-foreground text-xs tracking-wide uppercase">
         {label}
       </p>
@@ -963,6 +963,15 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
       <p className="text-sm font-semibold">
         {L("Sales revenue", "Hasil jualan")} — {rev.month}
       </p>
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <p className="text-xl font-semibold tabular-nums break-words">{rm(total)}</p>
+        <p className="text-muted-foreground text-xs">{L("Total — all channels", "Jumlah — semua saluran")}</p>
+        <p className="text-muted-foreground text-xs">{delta === null
+          ? L(`last month ${rm(lastTotal)}`, `bulan lepas ${rm(lastTotal)}`)
+          : L(`${delta > 0 ? "+" : ""}${delta}% vs last month`, `${delta > 0 ? "+" : ""}${delta}% berbanding bulan lepas`)}</p>
+      </div>
+      <details className="mt-2">
+        <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium md:min-h-8 md:py-2">{L("Revenue breakdown", "Pecahan hasil")}</summary>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L(
           "TikTok figures from synced order amounts (returned orders excluded). Invoiced figures count PAYMENTS RECEIVED (paid invoices, in the month the payment landed) — comparable with Expenses. The Total also counts non-TikTok shipments (order amount on the postage form) and manual sales (an Out − with a sold price) — every channel, one number.",
@@ -1009,16 +1018,6 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
             `${rev.manual?.this_units ?? 0} unit dijual melalui Out − · bulan lepas ${rm(rev.manual?.last_cents ?? 0)}`
           )
         )}
-        {box(
-          L("Total — all channels", "Jumlah — semua saluran"),
-          rm(total),
-          delta === null
-            ? L(`last month ${rm(lastTotal)}`, `bulan lepas ${rm(lastTotal)}`)
-            : L(
-                `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month`,
-                `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% berbanding bulan lepas`
-              )
-        )}
       </div>
       {/* v1.6.1: last month's KPI result stays as context; the editable KPI
           target itself now lives on the Dashboard's Sales Floor. */}
@@ -1048,6 +1047,7 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
             );
           })()
         : null}
+      </details>
     </div>
   );
 }

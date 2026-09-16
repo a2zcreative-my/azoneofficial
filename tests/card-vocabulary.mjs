@@ -134,11 +134,11 @@ ok("opening an item list does not add a second card to the row",
 ok("the items open inside the card, under a rule",
    /\{open && \(\s*<div className="border-border mt-3 border-t pt-3">/.test(body));
 
-/* and the row it sits in is still a two-cell grid */
+/* Stock details stay in their own card; bridge diagnostics now follow the work. */
 const panels = read("components/portal/role-panels.tsx");
 const row = panels.slice(panels.indexOf('<ZoneLabel>{L("Stock now"'), panels.indexOf('<ZoneLabel>{L("Stock now"') + 1400);
-ok("the Stock now row is two cells, whatever is expanded",
-   /grid grid-cols-1 items-stretch gap-3[^"]*\$\{statusCard \? "md:grid-cols-2" : ""\}/.test(row));
+ok("Stock now owns its status card and links to separate diagnostics",
+   row.includes("{statusCard}") && row.includes('href="#inventory-bridge"') && !row.includes('L("ELFIA bridge"'));
 
 console.log(`${failed ? "✗" : "✓"} card-vocabulary: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

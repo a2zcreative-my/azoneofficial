@@ -11,11 +11,11 @@ import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 /* ================= Tasks ================= */
 
-export function Tasks({ user }: { user: User }) {
+export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) {
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -175,10 +175,176 @@ export function Tasks({ user }: { user: User }) {
     void load();
   };
 
+  const renderTasks = (rows: Task[], title: string, pending = false) => (
+    <div className={card}>
+      <p className="text-sm font-semibold">{title}</p>
+      {/* v1.77.0 — skeleton until the first fetch lands. */}
+      {pending && <SkelRows rows={5} className="max-h-96" />}
+      {!pending && rows.length === 0 && (
+        <p className="text-muted-foreground mt-2 text-sm">
+          {L("No tasks.", "Tiada tugasan.")}
+        </p>
+      )}
+      <div className="max-h-96 overflow-y-auto">
+        {rows.map((t) => {
+          /* v1.42.0: the list is a monitoring surface — an overdue task is
+             RED before anyone reads a date, an unacknowledged assignment
+             wears an amber badge, and the scope tally shows how far along
+             the work actually is. */
+          const overdue = !!t.deadline && t.deadline < todayISO && t.status !== "completed";
+          const mine = t.assigned_to === undefined || t.assigned_to === user.id;
+          const assigned = t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
+          return (
+          <div
+            key={t.id}
+            className="border-border border-b py-2 text-sm last:border-0"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                <span className={`font-medium ${overdue ? "text-danger" : ""}`}>{t.title}</span>
+                {t.assignee ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {t.assignee}
+                  </span>
+                ) : null}
+                <span className={overdue ? "text-danger font-medium" : "text-muted-foreground"}>
+                  {" "}
+                  · {priorityL(t.priority)}
+                  {t.deadline
+                    ? overdue
+                      ? L(` · OVERDUE — was due ${t.deadline}`, ` · TERTUNGGAK — sepatutnya ${t.deadline}`)
+                      : L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`)
+                    : ""}
+                </span>
+                {(t.item_count ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="border-border hover:bg-secondary ml-2 rounded-full border px-2 py-0.5 text-xs"
+                    title={L("Open the scope checklist", "Buka senarai semak skop")}
+                    onClick={() => void openChecklist(t.id)}
+                  >
+                    ✓ {t.item_done ?? 0}/{t.item_count} {L("scope", "skop")}
+                  </button>
+                )}
+                {assigned && t.acknowledged === 0 && t.status !== "completed" && (
+                  mine ? (
+                    <button
+                      type="button"
+                      className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
+                      onClick={() => void acknowledge(t.id)}
+                      title={L("Confirm you have seen and understood this task — your assigner is notified", "Sahkan anda telah melihat dan memahami tugasan ini — pemberi tugasan dimaklumkan")}
+                    >
+                      {L("Acknowledge", "Akui terima")}
+                    </button>
+                  ) : (
+                    <span className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
+                      {L("Not acknowledged", "Belum diakui")}
+                    </span>
+                  )
+                )}
+              </span>
+              <span className="flex items-center gap-2">
+                <select
+                  className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                  value={t.status}
+                  onChange={(e) =>
+                    void update(t.id, {
+                      status: e.target.value,
+                      progress:
+                        e.target.value === "completed" ? 100 : t.progress,
+                    })
+                  }
+                >
+                  {[
+                    ["open", "Open"],
+                    ["in_progress", "Pending"],
+                    ["completed", "Closed"],
+                  ].map(([v, lbl]) => (
+                    <option key={v} value={v}>
+                      {L(
+                        lbl!,
+                        v === "open"
+                          ? "Terbuka"
+                          : v === "in_progress"
+                            ? "Menunggu"
+                            : "Selesai"
+                      )}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-muted-foreground text-xs">
+                  {t.progress}%
+                </span>
+                {canDelete && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-danger px-1 text-base leading-none"
+                    title={L("Delete this task (CEO only)", "Padam tugasan ini (CEO sahaja)")}
+                    aria-label={L("Delete task", "Padam tugasan")}
+                    onClick={() => void remove(t)}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            </div>
+            {/* v1.152.2 (the CEO's kept-lines sweep): the description was
+                typed, saved, and shown NOWHERE - the row listed everything
+                about a task except what it said. Its lines are kept. */}
+            {t.description && (
+              <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{t.description}</p>
+            )}
+            {openTask === t.id && (
+              <div className="border-border mt-2 rounded-lg border p-2">
+                {/* v1.77.0 — skeleton until the first fetch lands: two
+                    checklist lines, the shape of the scope items. */}
+                {!items && (
+                  <div className="space-y-2 py-1" aria-hidden>
+                    {[0, 1].map((i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Skel className="h-4 w-4 shrink-0" />
+                        <Skel className={`h-3.5 ${i === 0 ? "w-2/3" : "w-1/2"}`} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {items && items.length === 0 && (
+                  <p className="text-muted-foreground text-xs">{L("No scope items on this task.", "Tiada item skop pada tugasan ini.")}</p>
+                )}
+                {items && items.map((it) => (
+                  <label key={it.id} className="flex items-start gap-2 py-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={it.done === 1}
+                      disabled={!mine && !canManage}
+                      onChange={() => void toggleItem(t.id, it.id)}
+                    />
+                    <span className={it.done ? "text-muted-foreground line-through" : ""}>
+                      {it.title}
+                      {it.done === 1 && it.done_by_name ? (
+                        <span className="text-muted-foreground ml-1 text-xs no-underline">
+                          — {it.done_by_name}{it.done_at ? ` · ${it.done_at.slice(0, 10)}` : ""}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+        })}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
+    <div className="space-y-4 md:space-y-6">
       {deleteConfirmNode}
       {taskToastNode}
+      {renderTasks(tasks.filter((t) => t.status !== "completed"), canManage ? L("Active tasks", "Tugasan aktif") : L("My active tasks", "Tugasan aktif saya"), !loaded)}
+
       <div className={card}>
         <p className="text-sm font-semibold">
           {canManage
@@ -295,172 +461,11 @@ export function Tasks({ user }: { user: User }) {
           </button>
         </div>
       </div>
-
-      <div className={card}>
-        <p className="text-sm font-semibold">
-          {canManage
-            ? L("All tasks", "Semua tugasan")
-            : L("My tasks", "Tugasan saya")}
-        </p>
-        {/* v1.77.0 — skeleton until the first fetch lands. */}
-        {!loaded && <SkelRows rows={5} className="max-h-96" />}
-        {loaded && tasks.length === 0 && (
-          <p className="text-muted-foreground mt-2 text-sm">
-            {L("No tasks.", "Tiada tugasan.")}
-          </p>
-        )}
-        <div className="max-h-96 overflow-y-auto">
-          {loaded && tasks.map((t) => {
-            /* v1.42.0: the list is a monitoring surface — an overdue task is
-               RED before anyone reads a date, an unacknowledged assignment
-               wears an amber badge, and the scope tally shows how far along
-               the work actually is. */
-            const overdue = !!t.deadline && t.deadline < todayISO && t.status !== "completed";
-            const mine = t.assigned_to === undefined || t.assigned_to === user.id;
-            const assigned = t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
-            return (
-            <div
-              key={t.id}
-              className="border-border border-b py-2 text-sm last:border-0"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  <span className={`font-medium ${overdue ? "text-danger" : ""}`}>{t.title}</span>
-                  {t.assignee ? (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {t.assignee}
-                    </span>
-                  ) : null}
-                  <span className={overdue ? "text-danger font-medium" : "text-muted-foreground"}>
-                    {" "}
-                    · {priorityL(t.priority)}
-                    {t.deadline
-                      ? overdue
-                        ? L(` · OVERDUE — was due ${t.deadline}`, ` · TERTUNGGAK — sepatutnya ${t.deadline}`)
-                        : L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`)
-                      : ""}
-                  </span>
-                  {(t.item_count ?? 0) > 0 && (
-                    <button
-                      type="button"
-                      className="border-border hover:bg-secondary ml-2 rounded-full border px-2 py-0.5 text-xs"
-                      title={L("Open the scope checklist", "Buka senarai semak skop")}
-                      onClick={() => void openChecklist(t.id)}
-                    >
-                      ✓ {t.item_done ?? 0}/{t.item_count} {L("scope", "skop")}
-                    </button>
-                  )}
-                  {assigned && t.acknowledged === 0 && t.status !== "completed" && (
-                    mine ? (
-                      <button
-                        type="button"
-                        className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
-                        onClick={() => void acknowledge(t.id)}
-                        title={L("Confirm you have seen and understood this task — your assigner is notified", "Sahkan anda telah melihat dan memahami tugasan ini — pemberi tugasan dimaklumkan")}
-                      >
-                        {L("Acknowledge", "Akui terima")}
-                      </button>
-                    ) : (
-                      <span className="bg-warning-soft text-warning ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
-                        {L("Not acknowledged", "Belum diakui")}
-                      </span>
-                    )
-                  )}
-                </span>
-                <span className="flex items-center gap-2">
-                  <select
-                    className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
-                    value={t.status}
-                    onChange={(e) =>
-                      void update(t.id, {
-                        status: e.target.value,
-                        progress:
-                          e.target.value === "completed" ? 100 : t.progress,
-                      })
-                    }
-                  >
-                    {[
-                      ["open", "Open"],
-                      ["in_progress", "Pending"],
-                      ["completed", "Closed"],
-                    ].map(([v, lbl]) => (
-                      <option key={v} value={v}>
-                        {L(
-                          lbl!,
-                          v === "open"
-                            ? "Terbuka"
-                            : v === "in_progress"
-                              ? "Menunggu"
-                              : "Selesai"
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-muted-foreground text-xs">
-                    {t.progress}%
-                  </span>
-                  {canDelete && (
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-danger px-1 text-base leading-none"
-                      title={L("Delete this task (CEO only)", "Padam tugasan ini (CEO sahaja)")}
-                      aria-label={L("Delete task", "Padam tugasan")}
-                      onClick={() => void remove(t)}
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              </div>
-              {/* v1.152.2 (the CEO's kept-lines sweep): the description was
-                  typed, saved, and shown NOWHERE - the row listed everything
-                  about a task except what it said. Its lines are kept. */}
-              {t.description && (
-                <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{t.description}</p>
-              )}
-              {openTask === t.id && (
-                <div className="border-border mt-2 rounded-lg border p-2">
-                  {/* v1.77.0 — skeleton until the first fetch lands: two
-                      checklist lines, the shape of the scope items. */}
-                  {!items && (
-                    <div className="space-y-2 py-1" aria-hidden>
-                      {[0, 1].map((i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <Skel className="h-4 w-4 shrink-0" />
-                          <Skel className={`h-3.5 ${i === 0 ? "w-2/3" : "w-1/2"}`} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {items && items.length === 0 && (
-                    <p className="text-muted-foreground text-xs">{L("No scope items on this task.", "Tiada item skop pada tugasan ini.")}</p>
-                  )}
-                  {items && items.map((it) => (
-                    <label key={it.id} className="flex items-start gap-2 py-1 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={it.done === 1}
-                        disabled={!mine && !canManage}
-                        onChange={() => void toggleItem(t.id, it.id)}
-                      />
-                      <span className={it.done ? "text-muted-foreground line-through" : ""}>
-                        {it.title}
-                        {it.done === 1 && it.done_by_name ? (
-                          <span className="text-muted-foreground ml-1 text-xs no-underline">
-                            — {it.done_by_name}{it.done_at ? ` · ${it.done_at.slice(0, 10)}` : ""}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-          })}
-        </div>
-      </div>
+    {progress}
+      <details>
+        <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{L("Completed tasks", "Tugasan selesai")} ({tasks.filter((t) => t.status === "completed").length})</summary>
+        {renderTasks(tasks.filter((t) => t.status === "completed"), L("Completed tasks", "Tugasan selesai"))}
+      </details>
     </div>
   );
 }

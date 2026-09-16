@@ -139,8 +139,57 @@ export function Announcements({ user }: { user: User }) {
     void load();
   };
 
+  const renderAnnouncements = (rows: Announcement[], pending = false) => (
+    <div className="max-h-[28rem] space-y-6 overflow-y-auto pr-1">
+      {/* v1.77.0 — skeleton until the first fetch lands: two article
+          cards (title row + body lines), the shape of a post. */}
+      {pending && [0, 1].map((i) => <SkelCard key={i} lines={3} sub={false} />)}
+      {rows.map((a) => (
+        <article
+          key={a.id}
+          className={
+            a.acked
+              ? card
+              : `${card} border-warning/30 bg-warning-soft `
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">
+              {!a.acked && (
+                <span className="mr-2 inline-flex -translate-y-px animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 align-middle text-[10px] font-bold tracking-wide text-white uppercase">
+                  {L("New", "Baru")}
+                </span>
+              )}
+              {a.title}{" "}
+              <span className="text-muted-foreground font-normal">
+                · {annCatL(a.category)} · {dmy(a.created_at)}
+              </span>
+            </p>
+            {a.acked ? (
+              <span className="text-muted-foreground text-xs">
+                {L("Acknowledged ✓", "Diperakui ✓")}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={() => void ack(a.id)}
+              >
+                {L("Acknowledge", "Perakui")}
+              </button>
+            )}
+          </div>
+          <MemoBody body={a.body} />
+        </article>
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-4 md:space-y-6">
+      <section aria-label={L("Current announcements", "Pengumuman semasa")}>
+        {renderAnnouncements(anns.filter((a) => !a.acked), !loaded)}
+      </section>
       {canPost && (
         <div className={card}>
           <p className="text-sm font-semibold">
@@ -266,49 +315,10 @@ export function Announcements({ user }: { user: User }) {
           </div>
         </div>
       )}
-      <div className="max-h-[28rem] space-y-6 overflow-y-auto pr-1">
-        {/* v1.77.0 — skeleton until the first fetch lands: two article
-            cards (title row + body lines), the shape of a post. */}
-        {!loaded && [0, 1].map((i) => <SkelCard key={i} lines={3} sub={false} />)}
-        {loaded && anns.map((a) => (
-          <article
-            key={a.id}
-            className={
-              a.acked
-                ? card
-                : `${card} border-warning/30 bg-warning-soft `
-            }
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">
-                {!a.acked && (
-                  <span className="mr-2 inline-flex -translate-y-px animate-pulse items-center rounded-full bg-amber-500 px-2 py-0.5 align-middle text-[10px] font-bold tracking-wide text-white uppercase">
-                    {L("New", "Baru")}
-                  </span>
-                )}
-                {a.title}{" "}
-                <span className="text-muted-foreground font-normal">
-                  · {annCatL(a.category)} · {dmy(a.created_at)}
-                </span>
-              </p>
-              {a.acked ? (
-                <span className="text-muted-foreground text-xs">
-                  {L("Acknowledged ✓", "Diperakui ✓")}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className={btnGhost}
-                  onClick={() => void ack(a.id)}
-                >
-                  {L("Acknowledge", "Perakui")}
-                </button>
-              )}
-            </div>
-            <MemoBody body={a.body} />
-          </article>
-        ))}
-      </div>
+      <details>
+        <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{L("Acknowledged announcements", "Pengumuman diperakui")} ({anns.filter((a) => a.acked).length})</summary>
+        {renderAnnouncements(anns.filter((a) => a.acked))}
+      </details>
       {loaded && anns.length === 0 && (
         <p className="text-muted-foreground text-sm">
           {L("No announcements yet.", "Tiada pengumuman lagi.")}

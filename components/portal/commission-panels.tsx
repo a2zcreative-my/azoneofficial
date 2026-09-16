@@ -56,6 +56,9 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
   const [entries, setEntries] = useState<CommEntry[]>([]);
   const [pending, setPending] = useState(false);
   const [showRates, setShowRates] = useState(false);
+  useEffect(() => {
+    if (showRates) document.getElementById("commission-rates")?.scrollIntoView({ block: "start" });
+  }, [showRates]);
   const [rateDraft, setRateDraft] = useState({ host_id: "", percent: "", per_hour: "", effective_from: "" });
   const [draft, setDraft] = useState({ host_id: "", period: MYT_MONTH(), basis: "", hours: "", note: "" });
   /* v1.77.0 — true once the first load settles (ok or not); until then the
@@ -136,50 +139,6 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
         )}
       </div>
 
-      {showRates && (
-        <div className="border-border mb-4 rounded-xl border p-3">
-          <p className="mb-2 text-xs font-semibold">{L("Rates (latest effective wins; only the CEO tier can set)", "Kadar (yang berkuat kuasa terkini digunakan; hanya peringkat CEO boleh tetapkan)")}</p>
-          {rates.map((r) => (
-            <p key={r.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
-              <span>{r.host_name}</span>
-              <span className="text-muted-foreground tabular-nums">{r.percent}% {r.per_hour_cents > 0 ? `+ ${fmtRM(r.per_hour_cents)}/h` : ""} · {L("from", "dari")} {r.effective_from}</span>
-            </p>
-          ))}
-          {canDecide && (
-            <div className={`${fieldRow} mt-2`}>
-              <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
-                <select className={inputClass} value={rateDraft.host_id} onChange={(e) => setRateDraft((d) => ({ ...d, host_id: e.target.value }))}>
-                  <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-                </select></label>
-              <label><span className={fieldLabel}>{L("Percent", "Peratus")}</span>
-                <input type="number" min="0" max="50" step="0.1" className={inputClass} value={rateDraft.percent} onChange={(e) => setRateDraft((d) => ({ ...d, percent: e.target.value }))} /></label>
-              <label><span className={fieldLabel}>{L("+ RM/hour", "+ RM/jam")}</span>
-                <input type="number" min="0" step="0.01" className={inputClass} value={rateDraft.per_hour} onChange={(e) => setRateDraft((d) => ({ ...d, per_hour: e.target.value }))} /></label>
-              <label><span className={fieldLabel}>{L("Effective from", "Berkuat kuasa dari")}</span>
-                <input type="date" className={inputClass} value={rateDraft.effective_from} onChange={(e) => setRateDraft((d) => ({ ...d, effective_from: e.target.value }))} /></label>
-              <button type="button" className={btnSm} onClick={() => void addRate()}>{L("Set rate", "Tetapkan kadar")}</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
-          <select className={inputClass} value={draft.host_id} onChange={(e) => setDraft((d) => ({ ...d, host_id: e.target.value }))}>
-            <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select></label>
-        <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
-          <input type="month" className={inputClass} value={draft.period} onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Sales basis (RM)", "Asas jualan (RM)")}</span>
-          <input type="number" min="0" step="0.01" className={inputClass} value={draft.basis} onChange={(e) => setDraft((d) => ({ ...d, basis: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Live hours", "Jam live")}</span>
-          <input type="number" min="0" step="0.5" className={inputClass} value={draft.hours} onChange={(e) => setDraft((d) => ({ ...d, hours: e.target.value }))} /></label>
-        <button type="button" className={btnClass} disabled={!draft.host_id || !draft.basis} onClick={() => void addEntry()}>
-          {L("+ Compute entry", "+ Kira catatan")}
-        </button>
-      </div>
-      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
-
       {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
           the table below. */}
       {!loaded ? <SkelTable rows={5} cols={5} /> : (
@@ -210,6 +169,52 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
         empty={L("No commission entries yet.", "Tiada catatan komisen lagi.")}
       />
       )}
+
+      <div className={`${fieldRow} mb-4`}>
+        <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
+          <select className={inputClass} value={draft.host_id} onChange={(e) => setDraft((d) => ({ ...d, host_id: e.target.value }))}>
+            <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select></label>
+        <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
+          <input type="month" className={inputClass} value={draft.period} onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Sales basis (RM)", "Asas jualan (RM)")}</span>
+          <input type="number" min="0" step="0.01" className={inputClass} value={draft.basis} onChange={(e) => setDraft((d) => ({ ...d, basis: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Live hours", "Jam live")}</span>
+          <input type="number" min="0" step="0.5" className={inputClass} value={draft.hours} onChange={(e) => setDraft((d) => ({ ...d, hours: e.target.value }))} /></label>
+        <button type="button" className={btnClass} disabled={!draft.host_id || !draft.basis} onClick={() => void addEntry()}>
+          {L("+ Compute entry", "+ Kira catatan")}
+        </button>
+      </div>
+      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
+
+
+      {showRates && (
+        <div id="commission-rates" className="border-border mt-4 scroll-mt-36 border-t pt-4">
+          <p className="mb-2 text-xs font-semibold">{L("Rates (latest effective wins; only the CEO tier can set)", "Kadar (yang berkuat kuasa terkini digunakan; hanya peringkat CEO boleh tetapkan)")}</p>
+          {rates.map((r) => (
+            <p key={r.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+              <span>{r.host_name}</span>
+              <span className="text-muted-foreground tabular-nums">{r.percent}% {r.per_hour_cents > 0 ? `+ ${fmtRM(r.per_hour_cents)}/h` : ""} · {L("from", "dari")} {r.effective_from}</span>
+            </p>
+          ))}
+          {canDecide && (
+            <div className={`${fieldRow} mt-2`}>
+              <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
+                <select className={inputClass} value={rateDraft.host_id} onChange={(e) => setRateDraft((d) => ({ ...d, host_id: e.target.value }))}>
+                  <option value="">—</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select></label>
+              <label><span className={fieldLabel}>{L("Percent", "Peratus")}</span>
+                <input type="number" min="0" max="50" step="0.1" className={inputClass} value={rateDraft.percent} onChange={(e) => setRateDraft((d) => ({ ...d, percent: e.target.value }))} /></label>
+              <label><span className={fieldLabel}>{L("+ RM/hour", "+ RM/jam")}</span>
+                <input type="number" min="0" step="0.01" className={inputClass} value={rateDraft.per_hour} onChange={(e) => setRateDraft((d) => ({ ...d, per_hour: e.target.value }))} /></label>
+              <label><span className={fieldLabel}>{L("Effective from", "Berkuat kuasa dari")}</span>
+                <input type="date" className={inputClass} value={rateDraft.effective_from} onChange={(e) => setRateDraft((d) => ({ ...d, effective_from: e.target.value }))} /></label>
+              <button type="button" className={btnSm} onClick={() => void addRate()}>{L("Set rate", "Tetapkan kadar")}</button>
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
@@ -287,6 +292,28 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         )}
       </div>
 
+      {/* v1.77.0 — skeleton until the first fetch lands: four columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={4} /> : (
+      <DataTable
+        rows={claims}
+        searchText={(c) => `${c.claimant} ${c.description}`}
+        defaultSort="id"
+        columns={[
+          { key: "claimant", label: L("By", "Oleh") },
+          { key: "description", label: L("Spent on", "Dibelanjakan untuk") },
+          { key: "amount_cents", label: L("Amount", "Amaun"), numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
+          {
+            key: "status", label: "Status", sortable: false,
+            // Legacy pending/rejected rows (pre-v1.20.0) still display; new
+            // entries are born approved.
+            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{L(c.status, statusMs[c.status] ?? c.status)}</span>,
+          },
+        ]}
+        empty={L("No spend recorded yet — allocate a budget, then record spend against it.", "Tiada perbelanjaan direkodkan lagi — peruntukkan bajet, kemudian rekod perbelanjaan terhadapnya.")}
+      />
+      )}
+
       {canManage && (
         <div className={`${fieldRow} mb-3`}>
           <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
@@ -323,27 +350,6 @@ export function AdsFundPanel({ canManage }: { canManage: boolean }) {
         {L("Paid for ads out of pocket? Submit it on the", "Bayar iklan dari poket sendiri? Hantarkannya pada tab")} <b>{L("Claims", "Tuntutan")}</b> {L("tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.", "(resit + rantaian kelulusan) — kad ini ialah buku bajet, bukan barisan bayaran balik.")}
       </p>
 
-      {/* v1.77.0 — skeleton until the first fetch lands: four columns, like
-          the table below. */}
-      {!loaded ? <SkelTable rows={5} cols={4} /> : (
-      <DataTable
-        rows={claims}
-        searchText={(c) => `${c.claimant} ${c.description}`}
-        defaultSort="id"
-        columns={[
-          { key: "claimant", label: L("By", "Oleh") },
-          { key: "description", label: L("Spent on", "Dibelanjakan untuk") },
-          { key: "amount_cents", label: L("Amount", "Amaun"), numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
-          {
-            key: "status", label: "Status", sortable: false,
-            // Legacy pending/rejected rows (pre-v1.20.0) still display; new
-            // entries are born approved.
-            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{L(c.status, statusMs[c.status] ?? c.status)}</span>,
-          },
-        ]}
-        empty={L("No spend recorded yet — allocate a budget, then record spend against it.", "Tiada perbelanjaan direkodkan lagi — peruntukkan bajet, kemudian rekod perbelanjaan terhadapnya.")}
-      />
-      )}
     </div>
   );
 }

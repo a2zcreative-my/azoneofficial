@@ -55,20 +55,19 @@ const tab = page.slice(a, b);
 ok("the Ecommerce block was found", a > 0 && b > a);
 
 /* 1. the order */
-const seq = ["<OpsMapCard", "<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<MoneyCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
+const seq = ["<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<OpsMapCard", "<MoneyCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
 const pos = seq.map((s) => tab.indexOf(s));
 ok("every card is still on the tab", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
-ok("map, the month card, tracker, fulfilment, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
+ok("month summary, tracker, fulfilment, map, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
 ok("the connection is last, as v1.4.217 ordered", pos[6] === Math.max(...pos));
 ok("the leaderboard rides in the map's side column", /<OpsMapCard aside=\{<LeaderboardCard user=\{user\} compact \/>\} \/>/.test(tab));
 const caps = ["This month", "The work", "The longer view", "Setup"];
 ok("the four zones are captioned", caps.every((c) => tab.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !tab.includes(`<ZoneLabel>{L("${c}"`)).join(","));
-ok("revenue and by-hour share a row on the desk, the map spans it", /md:grid-cols-2/.test(tab) && /md:col-span-2/.test(tab));
+ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
 ok("the tracker is wide and fulfilment beside it", /md:grid-cols-\[minmax\(0,2fr\)_minmax\(0,1fr\)\]/.test(tab));
 
-/* 2. the phone differs by one card, on the same tree */
-ok("on the phone the month's figures come before the map, by CSS order", /className="order-1 md:order-2 md:col-span-2"><RevenueAndHoursCard \/>/.test(tab) && /className="order-2 md:order-1 md:col-span-2">\s*<OpsMapCard/.test(tab),
-   "a second copy of the cards for the phone would be two trees to keep in step");
+/* 2. visual and keyboard reading order agree on every viewport */
+ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab));
 ok("...and the cards appear once each", seq.every((s) => tab.split(s).length === 2));
 
 /* 3. one caption component */
@@ -90,17 +89,9 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   /* v1.125.0 — `fill` is gone (the component had two card contracts and only
    one was ever used), so this asks what it always meant: the strip is the
    page's to pass in, and only for the roles that manage stock. */
-  ok("the status strip rides beside the bridge pulse, passed in by the page", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard \/> : undefined\}/.test(page));
-  /* v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge") - two
-     cards of the same kind, stretched to the same height, not a pill beside a
-     card. v1.125.0: this pinned the `fill ? … : …` ternary that made the strip
-     switchable, which v1.125.0 deleted because only one branch was ever used.
-     What it means is that BOTH cells draw the house card at full width and the
-     row stretches them level - which is what it asks now. */
-  ok("stock status and the bridge are the same card, stretched level",
-     /items-stretch/.test(inv)
-     && /\$\{card\} w-full/.test(inv)
-     && /\$\{card\} w-full/.test(read("components/portal/company-monitor.tsx")));
+  ok("stock status stays permission-filtered", /\{statusCard\}/.test(inv) && /statusCard=\{MANAGE_ROLES\.includes\(user\.role\) \? <InventoryStatusCard \/> : undefined\}/.test(page));
+  ok("bridge diagnostics follow daily work and movement history", inv.indexOf('id="inventory-bridge"') > inv.indexOf('L("Manual stock movements"') && inv.includes('href="#inventory-bridge"'));
+  ok("bridge problems remain visible beside the stock summary", inv.indexOf('role="status"') < inv.indexOf('L("Inventory — live status & stock"') && inv.includes("bridgeHealth.unknown.length > 0"));
   const order = ["Inventory — live status & stock", "Supplier returns", "Postage tracking", "TikTok Live — stock out", "Manual stock movements"].map((t) => inv.indexOf(t));
   ok("table, then the two forms, then the two histories", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
   ok("the table and the phone list draw from ONE filtered list", inv.split("{visibleItems.map((it) => (").length === 3 && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),
@@ -152,12 +143,12 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("the customer form prints top to bottom: company, contact, address, phone, email; website and logo under 'not printed'", cb > 0 && fields.every((x) => x > 0) && fields.every((x, i) => i === 0 || x > fields[i - 1]), fields.join(" < "));
   /* the tab's zones */
   const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
-  const z = [st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf("<Sales user={user}"), st.indexOf('L("The longer view"')];
-  ok("the Sales tab reads: this month, the Sales component, the longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st));
-  /* v1.123.0 (CEO: "Bring up Customers above The work") - a document needs a
-     customer to exist, so the tab that makes one reads first. */
-  const inner = [comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}"), comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}")];
-  ok("CUSTOMERS comes above THE WORK, each with its form then its list", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
+  const z = [st.indexOf("<Sales user={user}"), st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf('L("The longer view"')];
+  ok("the Sales workspace precedes the map and longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st));
+  const inner = [comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
+  ok("THE WORK precedes CUSTOMERS without duplicating their forms", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
+  ok("Sales opens records by default and keeps explicit creation intent", comp.includes('initialView = "documents"') && comp.includes('(initialView)') && page.includes('setSalesStart("create")') && dash.includes('onCreateQuotation()'));
+  ok("editing a document opens its mounted form and scrolls the workspace", /setEditingDoc\(\{ id: d.id, doc_number: d.doc_number \}\);\s*setWorkTab\("create"\)/.test(comp) && comp.includes('getElementById("sales-work")?.scrollIntoView'));
   ok("Customers has two tabs and The work three", /value=\{custTab\} onChange=\{setCustTab\}/.test(comp) && ["add", "clients"].every((k) => comp.includes(`["${k}", L(`))
      && /value=\{workTab\} onChange=\{setWorkTab\}/.test(comp) && ["create", "documents", "receipts"].every((k) => comp.includes(`["${k}", L(`)));
   ok("every Sales tab body is hidden, never unmounted", ["add", "clients"].every((k) => comp.includes(`custTab === "${k}" ? "mt-3" : "hidden"`)) && ["create", "documents", "receipts"].every((k) => comp.includes(`workTab === "${k}" ? "mt-3" : "hidden"`)),
@@ -208,6 +199,59 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   for (const [file, src] of [["role-panels.tsx", panels], ["commission.tsx", commission], ["sales.tsx", sales], ["trading-desk.tsx", trading]]) {
     if (src.includes("<SectionTabs")) ok(`${file} imports SectionTabs from page-shared`, /import \{[^}]*SectionTabs[^}]*\} from "@\/components\/portal\/page-shared"/.test(src));
   }
+}
+
+/* Approved work-first pilot: source order is shared by phone and desktop. */
+{
+  const ordered = (source, labels) => {
+    const positions = labels.map(label => source.indexOf(label));
+    return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
+  };
+  ok("Dashboard actions and queue precede metrics and company reporting",
+    ordered(dash, ['<PanelTitle icon="time">', '<OneDesk', '<WatchersCard', '<NextEventCard', 'L("My summary"', '<TradingDesk']));
+  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Reconciliation"'));
+  ok("Attendance records and decisions precede scheduling and setup",
+    ordered(attendance, ['<Attendance user=', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));
+  const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
+  ok("Users starts with accounts, then review, permissions and locations",
+    ordered(users, ['<UsersPanel', '<AccessReviewCard', '<TabAccessCard', '<GeofenceCard']));
+}
+
+/* The approved rollout retains already-correct tabs and reorders exceptions. */
+{
+  const ordered = (source, labels) => {
+    const positions = labels.map(label => source.indexOf(label));
+    return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
+  };
+  const purchase = read("components/portal/purchasing-panels.tsx");
+  const funds = read("components/portal/commission-panels.tsx");
+  const finance = read("components/portal/finance-panels.tsx");
+  const assets = read("components/portal/assets-panel.tsx");
+  const hotels = read("components/portal/hotels-panel.tsx");
+  const payroll = read("components/portal/payroll-panel.tsx");
+  const leave = read("components/portal/leave.tsx");
+  const tasks = read("components/portal/tasks.tsx");
+  const announcements = read("components/portal/announcements.tsx");
+  const sp = read("components/portal/sales-performance-panel.tsx");
+  ok("Purchasing: register, creation, suppliers", ordered(purchase, ['rows={openOnly ? open : pos}', 'L("New purchase order"', 'id="purchasing-suppliers"']));
+  ok("Accounting: balance before adjustment", ordered(purchase, ['L("Trial balance"', 'L("New journal entry"']));
+  ok("Commission: decisions, calculation, rates", ordered(funds, ['rows={entries}', 'value={draft.basis}', 'id="commission-rates"']));
+  ok("Ads Fund: spending before allocation and entry forms", ordered(funds, ['rows={claims}', 'value={allocDraft.period}', 'value={claimDraft.allocation_id}']));
+  const reconciliation = finance.slice(finance.indexOf("export function ReconciliationPanel"));
+  ok("Reconciliation: pull period, summary, register, manual entry", ordered(reconciliation, ['value={draft.period}', '<StatStrip>', 'rows={rows}', 'value={draft.order_no}']));
+  ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
+  ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
+  ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'THE MAP']));
+  ok("HR: task reports, gated administration, birthdays", ordered(panels, ['L("Task report"', '{administration}', 'L("Staff birthdays"']) && page.includes('<HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes('));
+  ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
+  const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
+  ok("Payroll: review before save, payment export, release and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("M2E salary file"', 'L("Release now"', 'id="payroll-base"', 'L("M2E setup']));
+  ok("Claims: submission link, pending decisions, form, records", ordered(panels.slice(panels.indexOf('export function ClaimsPanel')), ['href="#claim-form"', 'id="claims-pending"', 'id="claim-form"', 'L("All claims"']));
+  ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.map((l)']));
+  ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['{renderTasks(tasks.filter((t) => t.status !== "completed")', 'L("Create / assign a task"', '{progress}', '{renderTasks(tasks.filter((t) => t.status === "completed")']));
+  ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
+  ok("Sales Performance: records and closing before scores", ordered(sp, ['id="sp-shipments"', 'id="sp-closing"', 'L("Per staff"', 'id="sp-funnel"', 'id="sp-trend"']));
+  ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));
 }
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }

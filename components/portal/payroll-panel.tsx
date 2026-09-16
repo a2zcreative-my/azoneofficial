@@ -680,6 +680,9 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
   const [showBase, setShowBase] = useState(false);
+  useEffect(() => {
+    if (showBase) document.getElementById("payroll-base")?.scrollIntoView({ block: "start" });
+  }, [showBase]);
 
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
@@ -866,12 +869,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{L("Payroll processing", "Pemprosesan gaji")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+          <details className="mt-2">
+            <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">{L("Payroll calculation details", "Butiran pengiraan gaji")}</summary>
+<p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (1/26 of monthly wage per day, Employment Act — a FIXED divisor; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × working days not yet employed ÷ this month's working days — joiners, leavers and re-joiners only). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
               "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari bekerja belum diambil bekerja ÷ hari bekerja bulan ini — pekerja baharu, berhenti dan kembali sahaja). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
             )}
           </p>
+          </details>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-muted-foreground text-xs" title={L("Computed automatically: Monday–Friday minus every holiday on the company calendar (public, replacement and company days). Edit only for exceptions.", "Dikira secara automatik: Isnin–Jumaat tolak setiap cuti pada kalendar syarikat (cuti umum, gantian dan hari syarikat). Sunting hanya untuk pengecualian.")}>
@@ -918,80 +924,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           >
             <><AppIcon name="fix" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Recompute nets", "Kira semula bersih")}</>
           </button>
-          <button
-            type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
-            onClick={() => void downloadM2e()}
-          >
-            <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
-          </button>
-          <a
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
-            title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
-            href={`${API}/payroll/payment-file?month=${month}`}
-            download
-          >
-            CSV
-          </a>
-          <button
-            type="button"
-            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-            onClick={() => void saveAll()}
-          >
-            {L("Save all", "Simpan semua")}
-          </button>
+
         </div>
       </div>
       {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
 
       {!readOnly && (<>
-        <details className="mt-2 text-xs">
-          <summary className="text-muted-foreground cursor-pointer select-none">
-            {L("M2E setup (one-time) — ", "Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("incomplete — the M2E salary file needs this", "belum lengkap — fail gaji M2E memerlukannya") : L("complete", "lengkap")}
-          </summary>
-          <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
-            <p className="text-muted-foreground">
-              {L("Stored once, reused every month. Your M2E ", "Disimpan sekali, diguna semula setiap bulan. ")}<span className="font-medium">{L("User ID and password are never stored", "User ID dan kata laluan M2E anda tidak pernah disimpan")}</span>{L(" — you still sign in yourself to upload and approve.", " — anda masih log masuk sendiri untuk memuat naik dan meluluskan.")}
-            </p>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
-              <label className="block">
-                <span className="text-muted-foreground">Corporate ID</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
-                  placeholder={L("e.g. MYXXXXX", "cth. MYXXXXX")} onChange={(e) => setM2eCid(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">Client Batch ID</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
-                  placeholder={L("e.g. MYXXXXX1D", "cth. MYXXXXX1D")} title={L("From your working M2E batch — shown as Client Batch ID on the template's Home sheet", "Daripada kelompok M2E anda yang berjaya — dipaparkan sebagai Client Batch ID pada helaian Home templat")}
-                  onChange={(e) => setM2eCbid(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="text-muted-foreground">{L("Payer account no", "No akaun pembayar")}</span>
-                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
-                  inputMode="numeric" placeholder={L("Maybank account", "Akaun Maybank")} onChange={(e) => setM2eAcc(e.target.value)} />
-              </label>
-              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
-                onClick={() => void saveM2eSettings()}>
-                {L("Save", "Simpan")}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 items-center gap-2 sm:flex">
-              <span className="text-muted-foreground">{L("Blank template (.xlsm): ", "Templat kosong (.xlsm): ")}{m2eHasTpl ? L("✔ stored", "✔ disimpan") : L("not uploaded yet", "belum dimuat naik")}</span>
-              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
-                {m2eHasTpl ? L("Replace template", "Ganti templat") : L("Upload template", "Muat naik templat")}
-                <input type="file" accept=".xlsm" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
-              </label>
-            </div>
-            <p className="text-muted-foreground">
-              {L(
-                "The M2E salary file button then downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff's Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.",
-                "Kemudian butang fail gaji M2E memuat turun templat yang sudah terisi: helaian Home (Corporate ID, Client Batch ID, akaun pembayar, tarikh nilai = 5 haribulan atau Jumaat sebelumnya) + semua baris gaji dari baris 5 — Favourite Recipient Code terisi automatik daripada Employee ID setiap kakitangan, Own Ref berjalan PAYROLL+tarikh+01,02,… Buka → aktifkan makro → Generate File → muat naik → luluskan → Tanda dibayar.",
-              )}
-            </p>
-          </div>
-        </details>
+
 
         {/* v1.19.0 (consolidation C3): the v1.4.226 percent-helper is gone —
             it multiplied month sales by a TYPED rate, a second commission
@@ -1099,213 +1038,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           )}
         </p>
       )}
-      {release && (
-        <p className="mt-2 text-xs">
-          {release.released ? (
-            (() => {
-              /* v1.4.210 (CEO: "if I release payslip earlier than 5th, it
-                 is for last month instead of next month"): a release BEFORE
-                 the automatic date is almost always the wrong month — the
-                 run paid in early August is JULY's, and July opens by
-                 itself on the 5th. Flag it and offer one-click undo. */
-              const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
-              const early = release.available_from > nowMYT;
-              return (
-                <span className="font-medium text-success">
-                  {L(`Payslips for ${monthDMY(month)} are RELEASED to staff (since ${release.released.released_at.slice(0, 16)} UTC).`, `Slip gaji untuk ${monthDMY(month)} telah DIKELUARKAN kepada kakitangan (sejak ${release.released.released_at.slice(0, 16)} UTC).`)}
-                  {early && (
-                    <>
-                      {""}<span className="font-semibold text-warning">{L(`Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
-                      {" "}<button type="button" className="font-medium underline"
-                        title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
-                        onClick={async () => {
-                          const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month, undo: true }) });
-                          setMsg(res.ok ? L("Early release undone — automatic date resumes.", "Keluaran awal dibatalkan — tarikh automatik disambung semula.") : L("Undo failed", "Batal gagal"));
-                          window.setTimeout(() => setMsg(""), 3000);
-                          void load();
-                        }}>{L("Undo release", "Batal keluaran")}</button>
-                    </>
-                  )}
-                </span>
-              );
-            })()
-          ) : (
-            <>
-              <span className="text-muted-foreground">
-                {L("Staff can view", "Kakitangan boleh melihat slip gaji")} {monthDMY(month)} {L("payslips from", "dari")}{" "}
-                <span className="font-medium">{dmy(release.available_from)} {release.available_from.split(" ")[1]} MYT</span>
-                {" "}{L("(5th of the next month, or the next working day). Until then, only payroll processors see the figures.", "(5 haribulan bulan berikutnya, atau hari bekerja berikutnya). Sehingga itu, hanya pemproses gaji melihat angkanya.")}
-                {(() => {
-                  /* v1.4.211: when the CURRENT month is on screen, the
-                     early release the CEO usually wants is LAST month's —
-                     say so instead of relying on him remembering the rule. */
-                  const nowM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-                  const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
-                  return month === nowM
-                    ? <> {L("Paying salaries early? The payslips to release are", "Membayar gaji awal? Slip gaji yang perlu dikeluarkan ialah")} <span className="font-medium">{monthDMY(cycleM)}</span>{L(" — pick that month above, then Release now.", " — pilih bulan itu di atas, kemudian Keluarkan sekarang.")}</>
-                    : null;
-                })()}
-              </span>{" "}
-              <button
-                type="button"
-                className="font-medium underline"
-                title={L("Release this month's payslips to staff now, before the automatic date", "Keluarkan slip gaji bulan ini kepada kakitangan sekarang, sebelum tarikh automatik")}
-                onClick={async () => {
-                  /* v1.4.210: releasing before the automatic date usually
-                     means the wrong month is on screen — confirm with the
-                     CEO's own flow rule spelled out. */
-                  const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
-                  if (release.available_from > nowMYT) {
-                    /* v1.4.211 (CEO: "if I want to release the payslip
-                       earlier then how?"): early release of the month
-                       being PAID (= last calendar month, before its
-                       automatic 5th) is the LEGITIMATE case — benign
-                       confirm. Early release of the current/future month
-                       keeps the strong wrong-month warning (v1.4.210). */
-                    const [yR, moR] = month.split("-").map(Number);
-                    const prevM = new Date(Date.UTC(yR || 0, (moR || 0) - 2, 1)).toISOString().slice(0, 7);
-                    const autoD = dmy(release.available_from);
-                    const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
-                    const ok = month === cycleM
-                      ? await payConfirm({
-                          title: L(`Release ${monthDMY(month)} payslips now?`, `Keluarkan slip gaji ${monthDMY(month)} sekarang?`),
-                          message: L(`Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`, `Lebih awal daripada tarikh automatik (${autoD} 10:00 MYT).\nIni keluaran awal biasa apabila anda membayar gaji sebelum 5 haribulan.`),
-                          confirmLabel: L("Release now", "Keluarkan sekarang"),
-                        })
-                      : await payConfirm({
-                          title: L("Early release — check the month", "Keluaran awal — semak bulan"),
-                          message: L(`${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(month)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
-                          confirmLabel: L(`Release ${monthDMY(month)} anyway`, `Keluarkan ${monthDMY(month)} juga`),
-                          variant: "danger",
-                        });
-                    if (!ok) return;
-                  }
-                  const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
-                  setMsg(res.ok ? L("Payslips released to staff.", "Slip gaji dikeluarkan kepada kakitangan.") : L("Release failed", "Keluaran gagal"));
-                  window.setTimeout(() => setMsg(""), 3000);
-                  void load();
-                }}
-              >
-                {L("Release now", "Keluarkan sekarang")}
-              </button>
-            </>
-          )}
-        </p>
-      )}
-
-      {showBase && (
-        <div className="border-border mt-3 rounded-lg border p-3">
-          <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L(
-              "Every new month's Basic auto-fills from these figures — no retyping. When someone gets an increment, change it here and it applies from the next unsaved month onwards; months already saved stay as saved.",
-              "Gaji pokok setiap bulan baharu terisi automatik daripada angka ini — tiada taipan semula. Apabila seseorang menerima kenaikan, ubah di sini dan ia terpakai dari bulan belum disimpan yang berikutnya; bulan yang sudah disimpan kekal seperti disimpan.",
-            )}
-          </p>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {staff.map((u) => (
-              <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{displayName(u)}</span>
-                <span className="flex items-center gap-1 whitespace-nowrap">
-                  RM
-                  <input
-                    type="number" min={0} step="0.01"
-                    className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
-                    value={baseDraft[u.id] ? ((baseDraft[u.id] || 0) / 100).toString() : ""}
-                    placeholder="0.00"
-                    onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
-                  />
-                </span>
-              </label>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="bg-primary text-primary-foreground mt-3 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-            onClick={async () => {
-              /* v1.97.1 (CEO: "Base salaries was not sync with staff table
-                 Basic! then Net why didnt correcly count? this is something
-                 that bug or wrong flow!") — it was the flow. A base change
-                 used to reach only months not yet saved; the open month,
-                 already saved at the OLD base, kept it, and the only sign was
-                 a 10px "Base" link. Now a base change is carried into the
-                 open month at once, for every row that was simply following
-                 the base (Basic == old base, or never saved), and the row is
-                 saved with its net recomputed - so the table and the panel
-                 above it say the same figure the moment the button is
-                 pressed. Two things are deliberately NOT touched: a month
-                 already RELEASED to staff (a payslip somebody has read does
-                 not change under them - reopen it on purpose), and a Basic
-                 that was set by hand to something other than the old base
-                 (that was a decision; it is flagged in the row, not undone). */
-              let n = 0;
-              const carried: string[] = [];
-              const held: string[] = [];
-              /* v1.159.3 (CEO: "previous month should not update the base, it
-                 is only the present month which is to avoid that they
-                 manipulate the payslip which is incorrect!") - a base change
-                 is carried into the PRESENT month only. A month that has
-                 passed is a payslip that was paid; it keeps its figures
-                 whatever the base becomes now. */
-              const presentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-              const pastMonth = month < presentMonth;
-              for (const u of staff) {
-                const oldBase = base[u.id] ?? 0;
-                const newBase = baseDraft[u.id] ?? 0;
-                if (newBase === oldBase) continue;
-                const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: newBase }) });
-                if (!res.ok) continue;
-                n++;
-                if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
-                if (pastMonth || release?.released) { held.push(u.name); continue; }
-                const cur = entry(u.id);
-                /* v1.159.2 (CEO: "Once I click on Save Base Salaries button,
-                   it should update automatically Basic!") - the base IS the
-                   Basic. Every row of an unreleased month takes the new base,
-                   including one that was typed by hand: the base salary is
-                   where a person's pay is decided, and a Basic that disagrees
-                   with it is the thing he keeps finding. A released month is
-                   the one exception, as before. */
-                if (cur.basic_cents === newBase) continue;
-                const next: Entry = { ...cur, basic_cents: newBase };
-                const d = workedDays[u.id];
-                const hasDays = typeof d === "number" && !Number.isNaN(d);
-                const r2 = await api(`/payroll`, {
-                  method: "POST",
-                  body: JSON.stringify({
-                    ...next, month,
-                    ot_cents: otPay(next.basic_cents, next.ot_hours),
-                    worked_days: hasDays ? d : null,
-                    month_working_days: hasDays ? monthDays : null,
-                    net_cents: netFor(u.id, next),
-                  }),
-                });
-                if (r2.ok) carried.push(`${u.name} (${fmtRM(cur.basic_cents)} → ${fmtRM(newBase)})`);
-                else held.push(u.name);
-              }
-              if (n === 0) {
-                showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
-              } else {
-                const parts = [L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`)];
-                if (carried.length) parts.push(L(`${month} Basic re-filled and saved: ${carried.join(", ")}.`, `Gaji pokok ${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
-                if (held.length) parts.push(pastMonth
-                  ? L(`${month} has passed, so its Basic was left as paid for ${held.join(", ")} - the new base applies from ${presentMonth}.`,
-                      `${month} sudah berlalu, jadi Gaji pokoknya dikekalkan seperti yang dibayar untuk ${held.join(", ")} - asas baharu terpakai dari ${presentMonth}.`)
-                  : release?.released
-                  ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
-                      `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
-                  : L(`Basic for ${held.join(", ")} could not be saved - press Save on the row.`,
-                      `Gaji pokok ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
-                showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
-              }
-              void load();
-            }}
-          >
-            {L("Save base salaries", "Simpan gaji asas")}
-          </button>
-        </div>
-      )}
-
+      {release && <p className="mt-2 text-xs">
+        {L("Payslip status", "Status slip gaji")}: {release.released
+          ? L("Released", "Dikeluarkan")
+          : L(`Available from ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`, `Tersedia dari ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`)}
+      </p>}
       <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
         <table className="tbl-sticky w-full min-w-[820px] border-collapse text-sm">
           <thead>
@@ -1650,6 +1387,282 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </tfoot>
         </table>
       </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2"><button
+            type="button"
+            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={() => void saveAll()}
+          >
+            {L("Save all", "Simpan semua")}
+          </button>
+<button
+            type="button"
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
+            onClick={() => void downloadM2e()}
+          >
+            <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
+          </button>
+<a
+            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
+            href={`${API}/payroll/payment-file?month=${month}`}
+            download
+          >
+            CSV
+          </a></div>
+      {release && (
+        <p className="mt-2 text-xs">
+          {release.released ? (
+            (() => {
+              /* v1.4.210 (CEO: "if I release payslip earlier than 5th, it
+                 is for last month instead of next month"): a release BEFORE
+                 the automatic date is almost always the wrong month — the
+                 run paid in early August is JULY's, and July opens by
+                 itself on the 5th. Flag it and offer one-click undo. */
+              const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+              const early = release.available_from > nowMYT;
+              return (
+                <span className="font-medium text-success">
+                  {L(`Payslips for ${monthDMY(month)} are RELEASED to staff (since ${release.released.released_at.slice(0, 16)} UTC).`, `Slip gaji untuk ${monthDMY(month)} telah DIKELUARKAN kepada kakitangan (sejak ${release.released.released_at.slice(0, 16)} UTC).`)}
+                  {early && (
+                    <>
+                      {""}<span className="font-semibold text-warning">{L(`Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
+                      {" "}<button type="button" className="font-medium underline"
+                        title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
+                        onClick={async () => {
+                          const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month, undo: true }) });
+                          setMsg(res.ok ? L("Early release undone — automatic date resumes.", "Keluaran awal dibatalkan — tarikh automatik disambung semula.") : L("Undo failed", "Batal gagal"));
+                          window.setTimeout(() => setMsg(""), 3000);
+                          void load();
+                        }}>{L("Undo release", "Batal keluaran")}</button>
+                    </>
+                  )}
+                </span>
+              );
+            })()
+          ) : (
+            <>
+              <span className="text-muted-foreground">
+                {L("Staff can view", "Kakitangan boleh melihat slip gaji")} {monthDMY(month)} {L("payslips from", "dari")}{" "}
+                <span className="font-medium">{dmy(release.available_from)} {release.available_from.split(" ")[1]} MYT</span>
+                {" "}{L("(5th of the next month, or the next working day). Until then, only payroll processors see the figures.", "(5 haribulan bulan berikutnya, atau hari bekerja berikutnya). Sehingga itu, hanya pemproses gaji melihat angkanya.")}
+                {(() => {
+                  /* v1.4.211: when the CURRENT month is on screen, the
+                     early release the CEO usually wants is LAST month's —
+                     say so instead of relying on him remembering the rule. */
+                  const nowM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+                  const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
+                  return month === nowM
+                    ? <> {L("Paying salaries early? The payslips to release are", "Membayar gaji awal? Slip gaji yang perlu dikeluarkan ialah")} <span className="font-medium">{monthDMY(cycleM)}</span>{L(" — pick that month above, then Release now.", " — pilih bulan itu di atas, kemudian Keluarkan sekarang.")}</>
+                    : null;
+                })()}
+              </span>{" "}
+              <button
+                type="button"
+                className="font-medium underline"
+                title={L("Release this month's payslips to staff now, before the automatic date", "Keluarkan slip gaji bulan ini kepada kakitangan sekarang, sebelum tarikh automatik")}
+                onClick={async () => {
+                  /* v1.4.210: releasing before the automatic date usually
+                     means the wrong month is on screen — confirm with the
+                     CEO's own flow rule spelled out. */
+                  const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+                  if (release.available_from > nowMYT) {
+                    /* v1.4.211 (CEO: "if I want to release the payslip
+                       earlier then how?"): early release of the month
+                       being PAID (= last calendar month, before its
+                       automatic 5th) is the LEGITIMATE case — benign
+                       confirm. Early release of the current/future month
+                       keeps the strong wrong-month warning (v1.4.210). */
+                    const [yR, moR] = month.split("-").map(Number);
+                    const prevM = new Date(Date.UTC(yR || 0, (moR || 0) - 2, 1)).toISOString().slice(0, 7);
+                    const autoD = dmy(release.available_from);
+                    const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
+                    const ok = month === cycleM
+                      ? await payConfirm({
+                          title: L(`Release ${monthDMY(month)} payslips now?`, `Keluarkan slip gaji ${monthDMY(month)} sekarang?`),
+                          message: L(`Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`, `Lebih awal daripada tarikh automatik (${autoD} 10:00 MYT).\nIni keluaran awal biasa apabila anda membayar gaji sebelum 5 haribulan.`),
+                          confirmLabel: L("Release now", "Keluarkan sekarang"),
+                        })
+                      : await payConfirm({
+                          title: L("Early release — check the month", "Keluaran awal — semak bulan"),
+                          message: L(`${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(month)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
+                          confirmLabel: L(`Release ${monthDMY(month)} anyway`, `Keluarkan ${monthDMY(month)} juga`),
+                          variant: "danger",
+                        });
+                    if (!ok) return;
+                  }
+                  const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
+                  setMsg(res.ok ? L("Payslips released to staff.", "Slip gaji dikeluarkan kepada kakitangan.") : L("Release failed", "Keluaran gagal"));
+                  window.setTimeout(() => setMsg(""), 3000);
+                  void load();
+                }}
+              >
+                {L("Release now", "Keluarkan sekarang")}
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
+      {showBase && (
+        <div id="payroll-base" className="border-border mt-4 scroll-mt-36 border-t pt-4">
+          <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {L(
+              "Every new month's Basic auto-fills from these figures — no retyping. When someone gets an increment, change it here and it applies from the next unsaved month onwards; months already saved stay as saved.",
+              "Gaji pokok setiap bulan baharu terisi automatik daripada angka ini — tiada taipan semula. Apabila seseorang menerima kenaikan, ubah di sini dan ia terpakai dari bulan belum disimpan yang berikutnya; bulan yang sudah disimpan kekal seperti disimpan.",
+            )}
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {staff.map((u) => (
+              <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate">{displayName(u)}</span>
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  RM
+                  <input
+                    type="number" min={0} step="0.01"
+                    className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
+                    value={baseDraft[u.id] ? ((baseDraft[u.id] || 0) / 100).toString() : ""}
+                    placeholder="0.00"
+                    onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
+                  />
+                </span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="bg-primary text-primary-foreground mt-3 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={async () => {
+              /* v1.97.1 (CEO: "Base salaries was not sync with staff table
+                 Basic! then Net why didnt correcly count? this is something
+                 that bug or wrong flow!") — it was the flow. A base change
+                 used to reach only months not yet saved; the open month,
+                 already saved at the OLD base, kept it, and the only sign was
+                 a 10px "Base" link. Now a base change is carried into the
+                 open month at once, for every row that was simply following
+                 the base (Basic == old base, or never saved), and the row is
+                 saved with its net recomputed - so the table and the panel
+                 above it say the same figure the moment the button is
+                 pressed. Two things are deliberately NOT touched: a month
+                 already RELEASED to staff (a payslip somebody has read does
+                 not change under them - reopen it on purpose), and a Basic
+                 that was set by hand to something other than the old base
+                 (that was a decision; it is flagged in the row, not undone). */
+              let n = 0;
+              const carried: string[] = [];
+              const held: string[] = [];
+              /* v1.159.3 (CEO: "previous month should not update the base, it
+                 is only the present month which is to avoid that they
+                 manipulate the payslip which is incorrect!") - a base change
+                 is carried into the PRESENT month only. A month that has
+                 passed is a payslip that was paid; it keeps its figures
+                 whatever the base becomes now. */
+              const presentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+              const pastMonth = month < presentMonth;
+              for (const u of staff) {
+                const oldBase = base[u.id] ?? 0;
+                const newBase = baseDraft[u.id] ?? 0;
+                if (newBase === oldBase) continue;
+                const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: newBase }) });
+                if (!res.ok) continue;
+                n++;
+                if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
+                if (pastMonth || release?.released) { held.push(u.name); continue; }
+                const cur = entry(u.id);
+                /* v1.159.2 (CEO: "Once I click on Save Base Salaries button,
+                   it should update automatically Basic!") - the base IS the
+                   Basic. Every row of an unreleased month takes the new base,
+                   including one that was typed by hand: the base salary is
+                   where a person's pay is decided, and a Basic that disagrees
+                   with it is the thing he keeps finding. A released month is
+                   the one exception, as before. */
+                if (cur.basic_cents === newBase) continue;
+                const next: Entry = { ...cur, basic_cents: newBase };
+                const d = workedDays[u.id];
+                const hasDays = typeof d === "number" && !Number.isNaN(d);
+                const r2 = await api(`/payroll`, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    ...next, month,
+                    ot_cents: otPay(next.basic_cents, next.ot_hours),
+                    worked_days: hasDays ? d : null,
+                    month_working_days: hasDays ? monthDays : null,
+                    net_cents: netFor(u.id, next),
+                  }),
+                });
+                if (r2.ok) carried.push(`${u.name} (${fmtRM(cur.basic_cents)} → ${fmtRM(newBase)})`);
+                else held.push(u.name);
+              }
+              if (n === 0) {
+                showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
+              } else {
+                const parts = [L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`)];
+                if (carried.length) parts.push(L(`${month} Basic re-filled and saved: ${carried.join(", ")}.`, `Gaji pokok ${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
+                if (held.length) parts.push(pastMonth
+                  ? L(`${month} has passed, so its Basic was left as paid for ${held.join(", ")} - the new base applies from ${presentMonth}.`,
+                      `${month} sudah berlalu, jadi Gaji pokoknya dikekalkan seperti yang dibayar untuk ${held.join(", ")} - asas baharu terpakai dari ${presentMonth}.`)
+                  : release?.released
+                  ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
+                      `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
+                  : L(`Basic for ${held.join(", ")} could not be saved - press Save on the row.`,
+                      `Gaji pokok ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
+                showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
+              }
+              void load();
+            }}
+          >
+            {L("Save base salaries", "Simpan gaji asas")}
+          </button>
+        </div>
+      )}
+
+    {!readOnly && (<details className="mt-2 text-xs">
+          <summary className="text-muted-foreground cursor-pointer select-none">
+            {L("M2E setup (one-time) — ", "Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("incomplete — the M2E salary file needs this", "belum lengkap — fail gaji M2E memerlukannya") : L("complete", "lengkap")}
+          </summary>
+          <div className="border-border mt-2 space-y-2 rounded-lg border p-3">
+            <p className="text-muted-foreground">
+              {L("Stored once, reused every month. Your M2E ", "Disimpan sekali, diguna semula setiap bulan. ")}<span className="font-medium">{L("User ID and password are never stored", "User ID dan kata laluan M2E anda tidak pernah disimpan")}</span>{L(" — you still sign in yourself to upload and approve.", " — anda masih log masuk sendiri untuk memuat naik dan meluluskan.")}
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+              <label className="block">
+                <span className="text-muted-foreground">Corporate ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCid}
+                  placeholder={L("e.g. MYXXXXX", "cth. MYXXXXX")} onChange={(e) => setM2eCid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">Client Batch ID</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-36" value={m2eCbid}
+                  placeholder={L("e.g. MYXXXXX1D", "cth. MYXXXXX1D")} title={L("From your working M2E batch — shown as Client Batch ID on the template's Home sheet", "Daripada kelompok M2E anda yang berjaya — dipaparkan sebagai Client Batch ID pada helaian Home templat")}
+                  onChange={(e) => setM2eCbid(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground">{L("Payer account no", "No akaun pembayar")}</span>
+                <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
+                  inputMode="numeric" placeholder={L("Maybank account", "Akaun Maybank")} onChange={(e) => setM2eAcc(e.target.value)} />
+              </label>
+              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
+                onClick={() => void saveM2eSettings()}>
+                {L("Save", "Simpan")}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 items-center gap-2 sm:flex">
+              <span className="text-muted-foreground">{L("Blank template (.xlsm): ", "Templat kosong (.xlsm): ")}{m2eHasTpl ? L("✔ stored", "✔ disimpan") : L("not uploaded yet", "belum dimuat naik")}</span>
+              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
+                {m2eHasTpl ? L("Replace template", "Ganti templat") : L("Upload template", "Muat naik templat")}
+                <input type="file" accept=".xlsm" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
+              </label>
+            </div>
+            <p className="text-muted-foreground">
+              {L(
+                "The M2E salary file button then downloads the template already filled: Home sheet (Corporate ID, Client Batch ID, payer account, value date = 5th or the Friday before) + all salary rows from row 5 — Favourite Recipient Code auto-fills from each staff's Employee ID, Own Ref runs PAYROLL+date+01,02,… Open → enable macros → Generate File → upload → approve → Mark paid.",
+                "Kemudian butang fail gaji M2E memuat turun templat yang sudah terisi: helaian Home (Corporate ID, Client Batch ID, akaun pembayar, tarikh nilai = 5 haribulan atau Jumaat sebelumnya) + semua baris gaji dari baris 5 — Favourite Recipient Code terisi automatik daripada Employee ID setiap kakitangan, Own Ref berjalan PAYROLL+tarikh+01,02,… Buka → aktifkan makro → Generate File → muat naik → luluskan → Tanda dibayar.",
+              )}
+            </p>
+          </div>
+        </details>)}
     </div>
   );
 }

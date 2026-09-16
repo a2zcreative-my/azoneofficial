@@ -134,11 +134,11 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      watchers) - THE COMPANY (the sales floor) - AROUND ME. The desk is the
      first thing after "my day" and stays above the company and the feeds. */
   const at = (needle) => ret.indexOf(needle);
-  const order = [at('tr("Quick actions", lang)'), at("personal KPI strip"), at("<OneDesk"), at("<WatchersCard"), at("<TradingDesk"), at('tr("Pending leave", lang)')];
-  ok("the Dashboard reads: quick actions, tiles, desk, watchers, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
-     `positions ${order.join(" < ")} - the CEO, 06-09-2026: one order for web and phone`);
-  ok("the four zones are captioned, and the company caption lives inside the desk it captions",
-     ["My day", "Waiting on me", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
+  const order = [at('tr("Quick actions", lang)'), at("<OneDesk"), at("<WatchersCard"), at('L("My summary"'), at("<TradingDesk"), at('tr("Pending leave", lang)')];
+  ok("the Dashboard reads: quick actions, desk, watchers, metrics, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
+     `positions ${order.join(" < ")} - approved work-first order on web and phone`);
+  ok("the zones are captioned, and the company caption lives inside the desk it captions",
+     ["My day", "Waiting on me", "My summary", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
      "a caption for a zone a role cannot see would be a heading over nothing");
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));

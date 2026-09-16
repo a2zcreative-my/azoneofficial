@@ -27,10 +27,10 @@ export function PortalSkeleton() {
               {Array.from({ length: 4 }, (_, i) => <Skel key={i} className="h-11 rounded-lg md:h-9 md:w-36" />)}
             </div>
           </div>
+          <div className={card}><Skel className="h-4 w-36" /><SkelRows rows={4} className="mt-3" /></div>
           <div className={`${card} grid grid-cols-2 gap-4 xl:grid-cols-4`}>
             {Array.from({ length: 4 }, (_, i) => <div key={i} className="space-y-3"><Skel className="h-3 w-20" /><Skel className="h-7 w-14" /><Skel className="h-3 w-24" /></div>)}
           </div>
-          <div className={card}><Skel className="h-4 w-36" /><SkelRows rows={4} className="mt-3" /></div>
         </div>
       </div>
       <nav className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }} aria-hidden>

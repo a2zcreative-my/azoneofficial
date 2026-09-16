@@ -111,10 +111,12 @@ export function Dashboard({
   user,
   go,
   canOpen,
+  onCreateQuotation,
   lang = "en",
 }: {
   user: User;
   go: (t: TabName) => void;
+  onCreateQuotation?: () => void;
   /* v1.159.9 - whether this account's tab strip shows a tab (the page's own
      filter, overrides included). Absent = fall back to the role default. */
   canOpen?: (t: string) => boolean;
@@ -886,18 +888,7 @@ export function Dashboard({
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
-      {/* v1.116.0 — THE DASHBOARD IN FOUR ZONES. The CEO, 06-09-2026: *"for
-          the Dashboard I want UI/UX being re-organized for better user
-          experience and at the same time the user interface well organized
-          ... both are being checked - Webview and Mobile apps view"*. One
-          order for both screens, read top to bottom: MY DAY (the buttons
-          and the four numbers that explain them) - WAITING ON ME (the desk,
-          the watchers, the next event, my sessions) - THE COMPANY (the
-          sales floor, for the roles that have it, moved up from the bottom
-          of the page) - AROUND ME (leave, tasks, news, my attendance, the
-          calendar). Every card kept its content and its gate; three
-          duplicates folded: the sales floor greeting, and the phone-only
-          twin of the KPI tiles. The zone captions are text, not chrome. */}
+      {/* Daily actions and pending work precede metrics and company reporting. */}
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("My day", "Hari saya")}</ZoneLabel>
       {/* v1.115.0 — QUICK ACTIONS FIRST. The CEO, 05-09-2026, with the
@@ -965,7 +956,7 @@ export function Dashboard({
               <button
                 type="button"
                 className={btnQuick}
-                onClick={() => go("Sales")}
+                onClick={() => onCreateQuotation ? onCreateQuotation() : go("Sales")}
               >
                 {tr("Create quotation", lang)}
               </button>
@@ -1165,10 +1156,85 @@ export function Dashboard({
         )}
       </div>
 
-      {/* v1.15.0 — personal KPI strip: my day and my month at a glance, from
-          data this component already fetched. v1.116.0: on every screen - four
-          across on the desk, two by two on the phone - directly under the
-          buttons they explain; the phone-only "This month" twin is gone. */}
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
+      {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
+          person, from every module. One quiet line when there is nothing.
+          v1.115.0: it follows the Quick actions card - the CEO put the
+          clock-in first - and stays above everything else. */}
+      <OneDesk go={(t) => go(t as TabName)} />
+      {/* v1.108.0 — WATCHERS, executive tier: what the company's rules find
+          true right now, and (CEO) the rules themselves. One quiet line when
+          nothing is. */}
+      <WatchersCard role={user.role} go={(t) => go(t as TabName)} />
+      {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
+      <NextEventCard lang={lang} />
+      {/* v1.21.6 — My schedule: the person's own upcoming roster/live
+          sessions, on the Dashboard where the phone actually opens. */}
+      {mySessions.length > 0 && (
+        <div className={card}>
+          <p className="text-[15px] font-semibold md:text-sm">
+            {lang === "ms" ? "Jadual saya" : "My schedule"}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {lang === "ms"
+              ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
+              : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
+          </p>
+          <div className="mt-1.5">
+            {mySessions.map((s) => {
+              const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
+                .toISOString()
+                .slice(0, 10);
+              const isToday = s.session_date === todayIso;
+              return (
+                <div
+                  key={s.id}
+                  className="border-border border-b py-2 text-sm last:border-0 last:pb-0"
+                >
+                  <p className="flex flex-wrap items-baseline gap-x-1.5">
+                    <span
+                      className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}
+                    >
+                      {isToday
+                        ? lang === "ms"
+                          ? "HARI INI"
+                          : "TODAY"
+                        : dmy(s.session_date)}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {s.start_time}
+                      {s.end_time ? `–${s.end_time}` : ""}
+                    </span>
+                    <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                      {s.platform}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 truncate text-[13px] font-medium">
+                    {s.client_company ??
+                      s.client_name ??
+                      L("Live session", "Sesi LIVE")}
+                    {s.notes ? (
+                      <span className="text-muted-foreground font-normal">
+                        {" "}
+                        — {s.notes}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      </section>
+      {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
+          of today, the KPI target (auto-computed from history), product vs
+          service market targets, motivation and boost suggestions. */}
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("My summary", "Ringkasan saya")}</ZoneLabel>
+      {/* Personal metrics follow the work queue and upcoming schedule. */}
       {/* v1.25.1: the KPI tiles derive from the SAME punches — while those are
           unknown they would read "—", "Not clocked in yet" and 0 days, which
           is the same false answer as the button bug. Skeletons until known. */}
@@ -1267,81 +1333,6 @@ export function Dashboard({
         </div>
       )}
       </section>
-      <section className="space-y-3 md:space-y-4">
-        <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
-      {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
-          person, from every module. One quiet line when there is nothing.
-          v1.115.0: it follows the Quick actions card - the CEO put the
-          clock-in first - and stays above everything else. */}
-      <OneDesk go={(t) => go(t as TabName)} />
-      {/* v1.108.0 — WATCHERS, executive tier: what the company's rules find
-          true right now, and (CEO) the rules themselves. One quiet line when
-          nothing is. */}
-      <WatchersCard role={user.role} go={(t) => go(t as TabName)} />
-      {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
-      <NextEventCard lang={lang} />
-      {/* v1.21.6 — My schedule: the person's own upcoming roster/live
-          sessions, on the Dashboard where the phone actually opens. */}
-      {mySessions.length > 0 && (
-        <div className={card}>
-          <p className="text-[15px] font-semibold md:text-sm">
-            {lang === "ms" ? "Jadual saya" : "My schedule"}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {lang === "ms"
-              ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
-              : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
-          </p>
-          <div className="mt-1.5">
-            {mySessions.map((s) => {
-              const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
-                .toISOString()
-                .slice(0, 10);
-              const isToday = s.session_date === todayIso;
-              return (
-                <div
-                  key={s.id}
-                  className="border-border border-b py-2 text-sm last:border-0 last:pb-0"
-                >
-                  <p className="flex flex-wrap items-baseline gap-x-1.5">
-                    <span
-                      className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}
-                    >
-                      {isToday
-                        ? lang === "ms"
-                          ? "HARI INI"
-                          : "TODAY"
-                        : dmy(s.session_date)}
-                    </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {s.start_time}
-                      {s.end_time ? `–${s.end_time}` : ""}
-                    </span>
-                    <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
-                      {s.platform}
-                    </span>
-                  </p>
-                  <p className="mt-0.5 truncate text-[13px] font-medium">
-                    {s.client_company ??
-                      s.client_name ??
-                      L("Live session", "Sesi LIVE")}
-                    {s.notes ? (
-                      <span className="text-muted-foreground font-normal">
-                        {" "}
-                        — {s.notes}
-                      </span>
-                    ) : null}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      </section>
-      {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
-          of today, the KPI target (auto-computed from history), product vs
-          service market targets, motivation and boost suggestions. */}
       <TradingDesk user={user} go={go} lang={lang} />
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>

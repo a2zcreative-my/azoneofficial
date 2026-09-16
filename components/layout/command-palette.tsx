@@ -14,7 +14,7 @@
    preload (staff + clients, two fetches on every open) is gone: the server
    answers in one. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
@@ -105,8 +105,9 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
   }, [open, queryNow]);
   const dirLoaded = !searching && hitsFor === queryNow;
 
-  useEffect(() => {
-    if (open) { setQ(""); setSel(0); window.setTimeout(() => inputRef.current?.focus(), 30); }
+  // Reset before paint so a fast first keystroke cannot be cleared on opening.
+  useLayoutEffect(() => {
+    if (open) { setQ(""); setSel(0); inputRef.current?.focus(); }
   }, [open]);
 
   const rows: Row[] = [];
@@ -182,7 +183,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
               directory is still in flight and a query is waiting on it. */}
           {query.length >= 2 && !dirLoaded && (
             <div aria-hidden>
-              <p className="px-3 pt-2 pb-0.5"><Skel className="h-2.5 w-12" /></p>
+              <div className="px-3 pt-2 pb-0.5"><Skel className="h-2.5 w-12" /></div>
               {Array.from({ length: 3 }, (_, i) => (
                 <div key={i} className="flex items-center justify-between rounded-lg px-3 py-2">
                   <Skel className="h-4 w-40" />

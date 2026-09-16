@@ -58,6 +58,9 @@ export function PurchasingPanel() {
   const [pos, setPos] = useState<Po[]>([]);
   const [pending, setPending] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
+  useEffect(() => {
+    if (showSuppliers) document.getElementById("purchasing-suppliers")?.scrollIntoView({ block: "start" });
+  }, [showSuppliers]);
   const [supplierDraft, setSupplierDraft] = useState({ name: "", contact: "", phone: "" });
   const [poDraft, setPoDraft] = useState<{ supplier_id: string; expected_date: string; items: PoItemDraft[] }>({
     supplier_id: "", expected_date: "", items: [{ title: "", qty: "", unit_price: "", inventory_item_id: "" }],
@@ -150,28 +153,36 @@ export function PurchasingPanel() {
         )}
       </div>
 
-      {showSuppliers && (
-        <div className="border-border mb-4 rounded-xl border p-3">
-          {suppliers.map((s) => (
-            <p key={s.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
-              <span className="font-medium">{s.name}</span>
-              <span className="text-muted-foreground">{[s.contact, s.phone].filter(Boolean).join(" · ") || "—"}</span>
-            </p>
-          ))}
-          <div className={`${fieldRow} mt-2`}>
-            <label className="min-w-32 flex-1"><span className={fieldLabel}>{L("Name", "Nama")}</span>
-              <input className={inputClassSm} value={supplierDraft.name} onChange={(e) => setSupplierDraft((d) => ({ ...d, name: e.target.value }))} /></label>
-            <label><span className={fieldLabel}>{L("Contact person", "Orang hubungan")}</span>
-              <input className={inputClassSm} value={supplierDraft.contact} onChange={(e) => setSupplierDraft((d) => ({ ...d, contact: e.target.value }))} /></label>
-            <label><span className={fieldLabel}>{L("Phone", "Telefon")}</span>
-              <input className={inputClassSm} value={supplierDraft.phone} onChange={(e) => setSupplierDraft((d) => ({ ...d, phone: e.target.value }))} /></label>
-            <button type="button" className={btnSm} onClick={() => void addSupplier()}>{L("Add supplier", "Tambah pembekal")}</button>
-          </div>
-        </div>
+      {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
+          the table below. */}
+      {!loaded ? <SkelTable rows={5} cols={5} /> : (
+      <DataTable
+        rows={openOnly ? open : pos}
+        searchText={(p) => `${p.po_no} ${p.supplier_name}`}
+        defaultSort="id"
+        columns={[
+          { key: "po_no", label: L("PO no", "No PO"), render: (p) => <b className="tabular-nums">{p.po_no}</b> },
+          { key: "supplier_name", label: L("Supplier", "Pembekal") },
+          { key: "expected_date", label: L("Expected", "Dijangka"), render: (p) => <span className="tabular-nums">{dmy2(p.expected_date)}</span> },
+          { key: "total_cents", label: L("Total", "Jumlah"), numeric: true, sortValue: (p) => p.total_cents, render: (p) => fmtRM(p.total_cents) },
+          {
+            key: "status", label: "Status", sortable: false,
+            render: (p) => (
+              <span className="flex items-center gap-1.5">
+                <span className={p.status === "received" ? chipSuccess : p.status === "cancelled" ? chipDanger : p.status === "sent" ? chipNeutral : chipWarn}>{L(p.status, poStatusMs[p.status] ?? p.status)}</span>
+                {p.status === "draft" && <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(p.id, "sent")}>{L("send", "hantar")}</button>}
+                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" title={L("Adds linked items to stock", "Menambah item berpaut ke stok")}
+                  onClick={() => void setStatus(p.id, "received")}>{L("received → stock", "diterima → stok")}</button>}
+              </span>
+            ),
+          },
+        ]}
+        empty={L("No purchase orders yet.", "Tiada pesanan pembelian lagi.")}
+      />
       )}
 
       {/* New PO */}
-      <div className="border-border mb-4 rounded-xl border p-3">
+      <div className="border-border mt-4 border-t pt-4">
         <p className="mb-2 text-xs font-semibold">{L("New purchase order", "Pesanan pembelian baharu")}</p>
         <div className={fieldRow}>
           <label><span className={fieldLabel}>{L("Supplier", "Pembekal")}</span>
@@ -212,33 +223,27 @@ export function PurchasingPanel() {
         </div>
       </div>
 
-      {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
-          the table below. */}
-      {!loaded ? <SkelTable rows={5} cols={5} /> : (
-      <DataTable
-        rows={openOnly ? open : pos}
-        searchText={(p) => `${p.po_no} ${p.supplier_name}`}
-        defaultSort="id"
-        columns={[
-          { key: "po_no", label: L("PO no", "No PO"), render: (p) => <b className="tabular-nums">{p.po_no}</b> },
-          { key: "supplier_name", label: L("Supplier", "Pembekal") },
-          { key: "expected_date", label: L("Expected", "Dijangka"), render: (p) => <span className="tabular-nums">{dmy2(p.expected_date)}</span> },
-          { key: "total_cents", label: L("Total", "Jumlah"), numeric: true, sortValue: (p) => p.total_cents, render: (p) => fmtRM(p.total_cents) },
-          {
-            key: "status", label: "Status", sortable: false,
-            render: (p) => (
-              <span className="flex items-center gap-1.5">
-                <span className={p.status === "received" ? chipSuccess : p.status === "cancelled" ? chipDanger : p.status === "sent" ? chipNeutral : chipWarn}>{L(p.status, poStatusMs[p.status] ?? p.status)}</span>
-                {p.status === "draft" && <button type="button" className="text-gold-deep text-[11px] font-semibold" onClick={() => void setStatus(p.id, "sent")}>{L("send", "hantar")}</button>}
-                {p.status === "sent" && <button type="button" className="text-success text-[11px] font-semibold" title={L("Adds linked items to stock", "Menambah item berpaut ke stok")}
-                  onClick={() => void setStatus(p.id, "received")}>{L("received → stock", "diterima → stok")}</button>}
-              </span>
-            ),
-          },
-        ]}
-        empty={L("No purchase orders yet.", "Tiada pesanan pembelian lagi.")}
-      />
+
+      {showSuppliers && (
+        <div id="purchasing-suppliers" className="border-border mt-4 scroll-mt-36 border-t pt-4">
+          {suppliers.map((s) => (
+            <p key={s.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
+              <span className="font-medium">{s.name}</span>
+              <span className="text-muted-foreground">{[s.contact, s.phone].filter(Boolean).join(" · ") || "—"}</span>
+            </p>
+          ))}
+          <div className={`${fieldRow} mt-2`}>
+            <label className="min-w-32 flex-1"><span className={fieldLabel}>{L("Name", "Nama")}</span>
+              <input className={inputClassSm} value={supplierDraft.name} onChange={(e) => setSupplierDraft((d) => ({ ...d, name: e.target.value }))} /></label>
+            <label><span className={fieldLabel}>{L("Contact person", "Orang hubungan")}</span>
+              <input className={inputClassSm} value={supplierDraft.contact} onChange={(e) => setSupplierDraft((d) => ({ ...d, contact: e.target.value }))} /></label>
+            <label><span className={fieldLabel}>{L("Phone", "Telefon")}</span>
+              <input className={inputClassSm} value={supplierDraft.phone} onChange={(e) => setSupplierDraft((d) => ({ ...d, phone: e.target.value }))} /></label>
+            <button type="button" className={btnSm} onClick={() => void addSupplier()}>{L("Add supplier", "Tambah pembekal")}</button>
+          </div>
+        </div>
       )}
+
     </div>
   );
 }
@@ -322,38 +327,6 @@ export function AccountingPanel() {
       <p className="text-muted-foreground mb-3 text-[11.5px]">
         {L("Bank movements post here automatically (paid expenses, payroll runs, claim payouts, Finance-tab entries) — this composer is for adjustments only.", "Pergerakan bank diposkan di sini secara automatik (perbelanjaan dibayar, larian gaji, bayaran tuntutan, catatan tab Kewangan) — borang ini untuk pelarasan sahaja.")}
       </p>
-      {/* Journal entry — the server refuses unbalanced entries; the button
-          mirrors that rule so nobody types a whole entry to be told no. */}
-      <div className="border-border mb-4 rounded-xl border p-3">
-        <p className="mb-2 text-xs font-semibold">{L("New journal entry", "Catatan jurnal baharu")}</p>
-        <div className={fieldRow}>
-          <label><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
-            <input type="date" className={inputClass} value={draft.entry_date} onChange={(e) => setDraft((d) => ({ ...d, entry_date: e.target.value }))} /></label>
-          <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Memo</span>
-            <input className={inputClass} placeholder={L("August TikTok payout banked", "Bayaran TikTok Ogos dibankkan")} value={draft.memo} onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))} /></label>
-        </div>
-        {draft.lines.map((l, i) => (
-          <div key={i} className={`${fieldRow} mt-2`}>
-            <label className="col-span-2 min-w-44 flex-1 sm:col-span-1"><span className={fieldLabel}>{L("Account", "Akaun")}</span>
-              <select className={inputClassSm} value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
-                <option value="">—</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-              </select></label>
-            <label><span className={fieldLabel}>Debit (RM)</span>
-              <input type="number" min="0" step="0.01" className={inputClassSm} value={l.debit} onChange={(e) => setLine(i, { debit: e.target.value, credit: "" })} /></label>
-            <label><span className={fieldLabel}>{L("Credit (RM)", "Kredit (RM)")}</span>
-              <input type="number" min="0" step="0.01" className={inputClassSm} value={l.credit} onChange={(e) => setLine(i, { credit: e.target.value, debit: "" })} /></label>
-          </div>
-        ))}
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { account_id: "", debit: "", credit: "" }] }))}>{L("+ Line", "+ Baris")}</button>
-          <button type="button" className={btnClass} disabled={!draft.entry_date || !balanced} onClick={() => void post()}>{L("Post entry", "Pos catatan")}</button>
-          <span className={`text-xs font-medium tabular-nums ${balanced ? "text-success" : "text-muted-foreground"}`}>
-            Dr {totalDebit.toFixed(2)} / Cr {totalCredit.toFixed(2)} {balanced ? L("— balanced ✓", "— seimbang ✓") : L("— must match", "— mesti sepadan")}
-          </span>
-        </div>
-      </div>
-
       {/* Trial balance */}
       <p className="mb-2 text-xs font-semibold">{L("Trial balance", "Imbangan duga")}</p>
       <div className="overflow-x-auto">
@@ -396,6 +369,39 @@ export function AccountingPanel() {
           )}
         </table>
       </div>
+
+      {/* Journal entry — the server refuses unbalanced entries; the button
+          mirrors that rule so nobody types a whole entry to be told no. */}
+      <div className="border-border mt-4 border-t pt-4">
+        <p className="mb-2 text-xs font-semibold">{L("New journal entry", "Catatan jurnal baharu")}</p>
+        <div className={fieldRow}>
+          <label><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
+            <input type="date" className={inputClass} value={draft.entry_date} onChange={(e) => setDraft((d) => ({ ...d, entry_date: e.target.value }))} /></label>
+          <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>Memo</span>
+            <input className={inputClass} placeholder={L("August TikTok payout banked", "Bayaran TikTok Ogos dibankkan")} value={draft.memo} onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))} /></label>
+        </div>
+        {draft.lines.map((l, i) => (
+          <div key={i} className={`${fieldRow} mt-2`}>
+            <label className="col-span-2 min-w-44 flex-1 sm:col-span-1"><span className={fieldLabel}>{L("Account", "Akaun")}</span>
+              <select className={inputClassSm} value={l.account_id} onChange={(e) => setLine(i, { account_id: e.target.value })}>
+                <option value="">—</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+              </select></label>
+            <label><span className={fieldLabel}>Debit (RM)</span>
+              <input type="number" min="0" step="0.01" className={inputClassSm} value={l.debit} onChange={(e) => setLine(i, { debit: e.target.value, credit: "" })} /></label>
+            <label><span className={fieldLabel}>{L("Credit (RM)", "Kredit (RM)")}</span>
+              <input type="number" min="0" step="0.01" className={inputClassSm} value={l.credit} onChange={(e) => setLine(i, { credit: e.target.value, debit: "" })} /></label>
+          </div>
+        ))}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button type="button" className={btnSm} onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { account_id: "", debit: "", credit: "" }] }))}>{L("+ Line", "+ Baris")}</button>
+          <button type="button" className={btnClass} disabled={!draft.entry_date || !balanced} onClick={() => void post()}>{L("Post entry", "Pos catatan")}</button>
+          <span className={`text-xs font-medium tabular-nums ${balanced ? "text-success" : "text-muted-foreground"}`}>
+            Dr {totalDebit.toFixed(2)} / Cr {totalCredit.toFixed(2)} {balanced ? L("— balanced ✓", "— seimbang ✓") : L("— must match", "— mesti sepadan")}
+          </span>
+        </div>
+      </div>
+
     </div>
   );
 }

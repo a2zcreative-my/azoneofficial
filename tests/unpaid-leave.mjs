@@ -311,7 +311,7 @@ ok("the attendance panel is actually given the role",
   ok("adjusting one hourly balance is refused", /has no leave entitlement to adjust", 400\)/.test(staff));
   ok("apply-to-all skips hourly hosts", /\.filter\(\(p\) => !p\.hourly\);/.test(staff));
   ok("the Leave tab hides the form and the tiles from an hourly host and says why",
-     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*\n?\s*<div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">\s*\n?\s*<div className=\{card\}>\s*\n?\s*<p className="text-sm font-semibold">\s*\n?\s*\{L\("Apply for leave"/.test(page));
+     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*<div className="space-y-4 md:space-y-6">\s*<div className=\{card\}>\s*<p className="text-sm font-semibold">\s*\{L\("Apply for leave"/.test(page));
   ok("the entitlement table shows one quiet cell for an hourly row instead of boxes",
      /\{p\.hourly && \(\s*\n?\s*<td className=\{`\$\{td\} text-muted-foreground text-xs`\} colSpan=\{ENT_TYPES\.length \+ 1\}>/.test(page) && /\{!p\.hourly && ENT_TYPES\.map/.test(page));
 }

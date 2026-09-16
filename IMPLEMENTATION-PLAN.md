@@ -2,6 +2,11 @@
 
 ## Current ERP Plan - 16 September 2026
 
+Card positioning: the six-tab work-first pilot is accepted; the approved extension
+changes 15 further tabs and retains eight already-correct layouts locally.
+See [CARD-ORDER-IMPLEMENTATION.md](docs/CARD-ORDER-IMPLEMENTATION.md) for the exact
+order, verification results and publication checkpoint. This work is not yet deployed.
+
 **Status: Phase 0 in progress; responsive UI foundation implemented in package v1.164.0.**
 This section is the current planning entry point and takes precedence over the older
 sequencing below. The August tracks remain historical context, not a current list

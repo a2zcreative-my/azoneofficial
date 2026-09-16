@@ -326,6 +326,8 @@ export function ReconciliationPanel() {
           {L("Pull", "Tarik")} {ym(draft.period)} {L("from channels", "dari saluran")}
         </button>
       </div>
+      <div className="mt-3 flex flex-wrap gap-3"><label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
+          <input type="month" className={inputClass} value={draft.period} onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))} /></label></div>
       <div className="mt-3">
         {/* v1.77.0 — skeleton until the first fetch lands. */}
         {!loaded ? <SkelTileStrip /> : (
@@ -336,30 +338,6 @@ export function ReconciliationPanel() {
             <StatTile tone="gold" label={L("Actual (reconciled)", "Sebenar (diselaraskan)")} value={fmtRM(actual)} icon="$" />
           </StatStrip>
         )}
-      </div>
-
-      <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
-          <input type="month" className={inputClass} value={draft.period} onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Channel", "Saluran")}</span>
-          <select className={inputClass} value={draft.channel} onChange={(e) => setDraft((d) => ({ ...d, channel: e.target.value }))}>
-            {["tiktok", "shopee", "lazada", "direct", "stokis"].map((c) => <option key={c} value={c}>{c}</option>)}
-          </select></label>
-        <label><span className={fieldLabel}>{L("Order no", "No pesanan")}</span>
-          <input className={inputClass} value={draft.order_no} onChange={(e) => setDraft((d) => ({ ...d, order_no: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Customer", "Pelanggan")}</span>
-          <input className={inputClass} value={draft.customer} onChange={(e) => setDraft((d) => ({ ...d, customer: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Est. sales", "Angg. jualan")}</span>
-          <input type="number" step="0.01" className={inputClass} value={draft.est_sales} onChange={(e) => setDraft((d) => ({ ...d, est_sales: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Actual sales", "Jualan sebenar")}</span>
-          <input type="number" step="0.01" className={inputClass} value={draft.actual_sales} onChange={(e) => setDraft((d) => ({ ...d, actual_sales: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Cost", "Kos")}</span>
-          <input type="number" step="0.01" className={inputClass} value={draft.actual_cost} onChange={(e) => setDraft((d) => ({ ...d, actual_cost: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Fees", "Fi")}</span>
-          <input type="number" step="0.01" className={inputClass} value={draft.fees} onChange={(e) => setDraft((d) => ({ ...d, fees: e.target.value }))} /></label>
-        <label><span className={fieldLabel}>{L("Shipping", "Penghantaran")}</span>
-          <input type="number" step="0.01" className={inputClass} value={draft.shipping} onChange={(e) => setDraft((d) => ({ ...d, shipping: e.target.value }))} /></label>
-        <button type="button" className={btnClass} disabled={busy} onClick={() => void save()}>{L("+ Add row", "+ Tambah baris")}</button>
       </div>
 
       {/* v1.77.0 — skeleton until the first fetch lands: nine columns, like
@@ -393,9 +371,33 @@ export function ReconciliationPanel() {
             ),
           },
         ]}
-        empty={L("Nothing to reconcile yet — add the first row above.", "Tiada apa untuk diselaraskan lagi — tambah baris pertama di atas.")}
+        empty={L("Nothing to reconcile yet.", "Tiada apa untuk diselaraskan lagi.")}
       />
       )}
+
+      <div className={`${fieldRow} mb-4`}>
+
+        <label><span className={fieldLabel}>{L("Channel", "Saluran")}</span>
+          <select className={inputClass} value={draft.channel} onChange={(e) => setDraft((d) => ({ ...d, channel: e.target.value }))}>
+            {["tiktok", "shopee", "lazada", "direct", "stokis"].map((c) => <option key={c} value={c}>{c}</option>)}
+          </select></label>
+        <label><span className={fieldLabel}>{L("Order no", "No pesanan")}</span>
+          <input className={inputClass} value={draft.order_no} onChange={(e) => setDraft((d) => ({ ...d, order_no: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Customer", "Pelanggan")}</span>
+          <input className={inputClass} value={draft.customer} onChange={(e) => setDraft((d) => ({ ...d, customer: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Est. sales", "Angg. jualan")}</span>
+          <input type="number" step="0.01" className={inputClass} value={draft.est_sales} onChange={(e) => setDraft((d) => ({ ...d, est_sales: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Actual sales", "Jualan sebenar")}</span>
+          <input type="number" step="0.01" className={inputClass} value={draft.actual_sales} onChange={(e) => setDraft((d) => ({ ...d, actual_sales: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Cost", "Kos")}</span>
+          <input type="number" step="0.01" className={inputClass} value={draft.actual_cost} onChange={(e) => setDraft((d) => ({ ...d, actual_cost: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Fees", "Fi")}</span>
+          <input type="number" step="0.01" className={inputClass} value={draft.fees} onChange={(e) => setDraft((d) => ({ ...d, fees: e.target.value }))} /></label>
+        <label><span className={fieldLabel}>{L("Shipping", "Penghantaran")}</span>
+          <input type="number" step="0.01" className={inputClass} value={draft.shipping} onChange={(e) => setDraft((d) => ({ ...d, shipping: e.target.value }))} /></label>
+        <button type="button" className={btnClass} disabled={busy} onClick={() => void save()}>{L("+ Add row", "+ Tambah baris")}</button>
+      </div>
+
     </div>
   );
 }

@@ -1027,7 +1027,7 @@ export function Leave({ user }: { user: User }) {
       )}
 
       {!hourly && (
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="space-y-4 md:space-y-6">
         <div className={card}>
           <p className="text-sm font-semibold">
             {L("Apply for leave", "Mohon cuti")}
@@ -1117,108 +1117,7 @@ export function Leave({ user }: { user: User }) {
           </div>
         </div>
 
-        <div className={card}>
-          <p className="text-sm font-semibold">
-            {L("My leave history", "Sejarah cuti saya")}
-          </p>
-          {/* v1.77.0 — skeleton until the first fetch lands. */}
-          {!loaded && <SkelRows rows={4} className="max-h-72" />}
-          {loaded && mine.length === 0 && (
-            <p className="text-muted-foreground mt-2 text-sm">
-              {L("No requests yet.", "Tiada permohonan lagi.")}
-            </p>
-          )}
-          <div className="max-h-72 overflow-y-auto">
-            {loaded && mine.map((l) => (
-              <div
-                key={l.id}
-                className="border-border border-b py-2 text-sm last:border-0"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0">
-                    {/* v1.4.249: the leave number opens the record; type, period,
-                    reason and the reviewer's comment moved into the panel. */}
-                    <RecordToggle
-                      open={openLeave === l.id}
-                      title={L(
-                        "Type, period, reason and comments",
-                        "Jenis, tempoh, sebab dan komen"
-                      )}
-                      onToggle={() =>
-                        setOpenLeave(openLeave === l.id ? null : l.id)
-                      }
-                    >
-                      {leaveNoOf(l)}
-                    </RecordToggle>
-                    {" · "}
-                    {l.days}d ·{" "}
-                    <span className="font-medium">
-                      {stageL((l as LeaveReq).stage ?? l.status)}
-                    </span>
-                  </span>
-                  <span className="flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      className={rowBtn}
-                      title={L(
-                        "Print the Leave Application Form",
-                        "Cetak Borang Permohonan Cuti"
-                      )}
-                      onClick={() => printLeaveForm(l, user.name)}
-                    >
-                      {L("Print form", "Cetak borang")}
-                    </button>
-                    {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
-                    <button
-                      type="button"
-                      className={rowBtn}
-                      title={L(
-                        "Send the leave form as a PDF file",
-                        "Hantar borang cuti sebagai fail PDF"
-                      )}
-                      onClick={() => void sendLeavePdf(l)}
-                    >
-                      {L("Send PDF", "Hantar PDF")}
-                    </button>
-                    {!["approved", "rejected", "cancelled"].includes(
-                      (l as LeaveReq).stage ?? ""
-                    ) && (
-                      <button
-                        type="button"
-                        className={rowBtnDanger}
-                        onClick={() => void act(l.id, "cancel")}
-                      >
-                        {L("Cancel", "Batal")}
-                      </button>
-                    )}
-                  </span>
-                </div>
-                {openLeave === l.id && (
-                  <DetailGrid
-                    items={[
-                      { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
-                      {
-                        label: L("Period", "Tempoh"),
-                        value: `${dmy(l.start_date)} → ${dmy(l.end_date)}`,
-                      },
-                      { label: L("Days", "Hari"), value: `${l.days}` },
-                      {
-                        label: L("Reason", "Sebab"),
-                        wide: true,
-                        value: l.reason ?? "",
-                      },
-                      {
-                        label: L("Reviewer note", "Catatan penyemak"),
-                        wide: true,
-                        value: l.review_comment ?? "",
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+
       </div>
       )}
 
@@ -1499,6 +1398,110 @@ export function Leave({ user }: { user: User }) {
             </div>
           );
         })()}
+    {!hourly && (
+<div className={card}>
+          <p className="text-sm font-semibold">
+            {L("My leave history", "Sejarah cuti saya")}
+          </p>
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!loaded && <SkelRows rows={4} className="max-h-72" />}
+          {loaded && mine.length === 0 && (
+            <p className="text-muted-foreground mt-2 text-sm">
+              {L("No requests yet.", "Tiada permohonan lagi.")}
+            </p>
+          )}
+          <div className="max-h-72 overflow-y-auto">
+            {loaded && mine.map((l) => (
+              <div
+                key={l.id}
+                className="border-border border-b py-2 text-sm last:border-0"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    {/* v1.4.249: the leave number opens the record; type, period,
+                    reason and the reviewer's comment moved into the panel. */}
+                    <RecordToggle
+                      open={openLeave === l.id}
+                      title={L(
+                        "Type, period, reason and comments",
+                        "Jenis, tempoh, sebab dan komen"
+                      )}
+                      onToggle={() =>
+                        setOpenLeave(openLeave === l.id ? null : l.id)
+                      }
+                    >
+                      {leaveNoOf(l)}
+                    </RecordToggle>
+                    {" · "}
+                    {l.days}d ·{" "}
+                    <span className="font-medium">
+                      {stageL((l as LeaveReq).stage ?? l.status)}
+                    </span>
+                  </span>
+                  <span className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      title={L(
+                        "Print the Leave Application Form",
+                        "Cetak Borang Permohonan Cuti"
+                      )}
+                      onClick={() => printLeaveForm(l, user.name)}
+                    >
+                      {L("Print form", "Cetak borang")}
+                    </button>
+                    {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      title={L(
+                        "Send the leave form as a PDF file",
+                        "Hantar borang cuti sebagai fail PDF"
+                      )}
+                      onClick={() => void sendLeavePdf(l)}
+                    >
+                      {L("Send PDF", "Hantar PDF")}
+                    </button>
+                    {!["approved", "rejected", "cancelled"].includes(
+                      (l as LeaveReq).stage ?? ""
+                    ) && (
+                      <button
+                        type="button"
+                        className={rowBtnDanger}
+                        onClick={() => void act(l.id, "cancel")}
+                      >
+                        {L("Cancel", "Batal")}
+                      </button>
+                    )}
+                  </span>
+                </div>
+                {openLeave === l.id && (
+                  <DetailGrid
+                    items={[
+                      { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
+                      {
+                        label: L("Period", "Tempoh"),
+                        value: `${dmy(l.start_date)} → ${dmy(l.end_date)}`,
+                      },
+                      { label: L("Days", "Hari"), value: `${l.days}` },
+                      {
+                        label: L("Reason", "Sebab"),
+                        wide: true,
+                        value: l.reason ?? "",
+                      },
+                      {
+                        label: L("Reviewer note", "Catatan penyemak"),
+                        wide: true,
+                        value: l.review_comment ?? "",
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

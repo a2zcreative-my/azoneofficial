@@ -11,7 +11,7 @@
  *
  *   KPI summary -> Today's sales activity -> Social media -> Customer
  *   engagement -> Promotion & campaign -> Customer orders -> Shipment &
- *   tracking -> Sales funnel -> Performance trend -> Daily closing.
+ *   tracking -> Daily closing -> Staff scores -> Sales funnel -> Performance trend.
  *
  * NOTHING IS DECIDED HERE. Every figure, every score, every status and every
  * flag on this page came from worker/src/sales-performance.ts in ONE read
@@ -1352,18 +1352,6 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
             </div>
           </section>
 
-          {/* ---- the score: the team's table for management, my own card for staff ---- */}
-          {manager ? (
-            <div className={card}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <PanelTitle icon="person">{L("Per staff", "Setiap staf")} <span className="text-muted-foreground hidden font-normal sm:inline">· {L("who worked, and can prove it", "siapa bekerja, dan boleh membuktikannya")}</span></PanelTitle>
-                <span className="text-muted-foreground text-xs">{L("Press a name to see only that person.", "Tekan nama untuk melihat orang itu sahaja.")}</span>
-              </div>
-              <div className="mt-2">{shown.length === 0 ? <p className="text-muted-foreground text-sm">{L("No sales staff on the register.", "Tiada staf jualan dalam daftar.")}</p> : <StaffTable rows={shown} onPick={(id) => setStaff(String(id))} />}</div>
-              {shown.length === 1 && shown[0] && <div className="mt-3"><ScoreCard row={shown[0]} title={L(`${shown[0].name} - score breakdown`, `${shown[0].name} - pecahan skor`)} /></div>}
-            </div>
-          ) : myRow ? <ScoreCard row={myRow} title={L("My productivity score", "Skor produktiviti saya")} /> : null}
-
           {/* ---- 2. Today's sales activity ---- */}
           <Section id="sp-feed" icon="time" title={ov.range.label === "today" ? L("Today's sales activity", "Aktiviti jualan hari ini") : L("Sales activity", "Aktiviti jualan")} count={ov.feed.length}
             summary={L(`${t!.verified_activities} verified of ${t!.activities_total} recorded`, `${t!.verified_activities} disahkan daripada ${t!.activities_total} direkodkan`)} open={open.feed} onToggle={() => toggle("feed")}
@@ -1666,6 +1654,24 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
             <p className="text-muted-foreground mt-2 text-[11px]">{L("Shipped, in transit and delivered all require a tracking number - the server refuses the status without one. A shipment is complete when it is delivered, not when it is marked shipped.", "Dihantar, dalam perjalanan dan diterima semuanya memerlukan nombor penjejakan - pelayan menolak status tanpanya. Penghantaran selesai apabila diterima, bukan apabila ditanda dihantar.")}</p>
           </Section>
 
+          {/* ---- 10. Daily closing ---- */}
+          <Section id="sp-closing" icon="document" title={L("Daily closing", "Penutupan harian")} count={ov.closings.length}
+            summary={ov.closings.some((c) => c.user_id === me) ? L("You have closed this day - open to update it", "Anda telah menutup hari ini - buka untuk mengemaskininya") : L("Not closed yet - the system's figures are ready, your words are missing", "Belum ditutup - angka sistem sudah sedia, kata-kata anda belum ada")} open={open.closing} onToggle={() => toggle("closing")}>
+            <ClosingCard ov={ov} toast={toast} onSaved={refresh} />
+          </Section>
+
+          {/* ---- the score: the team's table for management, my own card for staff ---- */}
+          {manager ? (
+            <div className={card}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <PanelTitle icon="person">{L("Per staff", "Setiap staf")} <span className="text-muted-foreground hidden font-normal sm:inline">· {L("who worked, and can prove it", "siapa bekerja, dan boleh membuktikannya")}</span></PanelTitle>
+                <span className="text-muted-foreground text-xs">{L("Press a name to see only that person.", "Tekan nama untuk melihat orang itu sahaja.")}</span>
+              </div>
+              <div className="mt-2">{shown.length === 0 ? <p className="text-muted-foreground text-sm">{L("No sales staff on the register.", "Tiada staf jualan dalam daftar.")}</p> : <StaffTable rows={shown} onPick={(id) => setStaff(String(id))} />}</div>
+              {shown.length === 1 && shown[0] && <div className="mt-3"><ScoreCard row={shown[0]} title={L(`${shown[0].name} - score breakdown`, `${shown[0].name} - pecahan skor`)} /></div>}
+            </div>
+          ) : myRow ? <ScoreCard row={myRow} title={L("My productivity score", "Skor produktiviti saya")} /> : null}
+
           {/* ---- 8. Sales funnel ---- */}
           <Section id="sp-funnel" icon="chart" title={L("Sales funnel", "Corong jualan")} summary={L(`${ov.funnel.posts} verified posts → ${ov.funnel.inquiries} inquiries → ${ov.funnel.orders} orders → ${fmtRM(ov.funnel.revenue_cents)}`, `${ov.funnel.posts} pos disahkan → ${ov.funnel.inquiries} pertanyaan → ${ov.funnel.orders} pesanan → ${fmtRM(ov.funnel.revenue_cents)}`)} open={open.funnel} onToggle={() => toggle("funnel")}>
             <Funnel f={ov.funnel} />
@@ -1676,11 +1682,7 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
             <Trend trend={ov.trend} who={manager && staff === "0" ? L("the whole team", "seluruh pasukan") : L("this person", "orang ini")} />
           </Section>
 
-          {/* ---- 10. Daily closing ---- */}
-          <Section id="sp-closing" icon="document" title={L("Daily closing", "Penutupan harian")} count={ov.closings.length}
-            summary={ov.closings.some((c) => c.user_id === me) ? L("You have closed this day - open to update it", "Anda telah menutup hari ini - buka untuk mengemaskininya") : L("Not closed yet - the system's figures are ready, your words are missing", "Belum ditutup - angka sistem sudah sedia, kata-kata anda belum ada")} open={open.closing} onToggle={() => toggle("closing")}>
-            <ClosingCard ov={ov} toast={toast} onSaved={refresh} />
-          </Section>
+
         </>
       )}
 

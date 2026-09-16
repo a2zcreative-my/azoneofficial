@@ -125,6 +125,9 @@ export default function PortalPage() {
      if the saved tab isn't visible to this account (role change, 🔐 tab
      access change), the guard effect below falls back to Dashboard. */
   const [tab, setTab] = useState<TabName>("Dashboard");
+  const [salesStart, setSalesStart] = useState<"documents" | "create">("documents");
+  const [salesCreateRequest, setSalesCreateRequest] = useState(0);
+  useEffect(() => { if (tab !== "Sales") setSalesStart("documents"); }, [tab]);
   /* v1.4.232 (CEO: "does it will accidentally appear the full tabs roles by
      accidents?"): his question exposed a shared-device edge in v1.4.231 —
      the remembered tab was stored per DEVICE, so a lower-role account
@@ -785,6 +788,8 @@ export default function PortalPage() {
                   label: tr("Create quotation", lang),
                   hint: L("action", "tindakan"),
                   run: () => {
+                    setSalesStart("create");
+                    setSalesCreateRequest((n) => n + 1);
                     setTab("Sales");
                     setPaletteOpen(false);
                   },
@@ -1416,7 +1421,8 @@ export default function PortalPage() {
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
                   the portal on the Home Screen. Phones only (md:hidden). */}
               <div className="mb-4 md:hidden"><InstallCoach /></div>
-              <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} />
+              <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang}
+                onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }} />
               <details className="border-border mt-5 border-t pt-3">
                 <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">
                   {L("Calendar and team overview", "Kalendar dan ringkasan pasukan")}
@@ -1433,18 +1439,29 @@ export default function PortalPage() {
           )}
           {activeTab === "Finance" && (
             <div className="space-y-4 md:space-y-6">
-              {/* v1.21.1 (CEO): Cash Flow LEADS the tab — the live bank picture
-                first, the P&L and expense detail below it. */}
+              {/* Current cash and payments due precede reporting. */}
               <CashFlowPanel />
-              <PnlCard />
-              <ExpensesPanel />
+              <ExpensesPanel reporting={<PnlCard />} />
             </div>
           )}
           {activeTab === "Attendance" && (
             <div className="space-y-4 md:space-y-6">
-              {/* v1.8.0: the Schedule & Roster board (reference design) leads. */}
-              {/* v1.22.6: canEdit — amend/typo-fix on sessions is CEO/COO/CCO
-                (+ admin tier) only; hr_admin keeps scheduling powers. */}
+              <Attendance user={user} />
+              {/* v1.84.0 (CEO: "attendance verification should move to
+                  Attendance ... full report is require and a must!") — it was
+                  on the HR tab, printing every punch in the month with no
+                  total. Same tier that could see it there. */}
+              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) && (
+                <VerificationCard />
+              )}
+              {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? (
+                <OtApprovalsCard />
+              ) : (
+                <PermissionPlaceholder
+                  title={L("OT Approvals", "Kelulusan OT")}
+                />
+              )}
+              {/* Scheduling follows attendance review and OT decisions. */}
               <RosterBoard
                 canManage={[
                   "ceo",
@@ -1461,21 +1478,6 @@ export default function PortalPage() {
                    person and day; offered only when this account has the tab. */
                 onOpenRegister={canOpen("Sales Performance") ? (staff, day) => { setSpPreset({ staff, day }); setTab("Sales Performance"); } : undefined}
               />
-              <Attendance user={user} />
-              {/* v1.84.0 (CEO: "attendance verification should move to
-                  Attendance ... full report is require and a must!") — it was
-                  on the HR tab, printing every punch in the month with no
-                  total. Same tier that could see it there. */}
-              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) && (
-                <VerificationCard />
-              )}
-              {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? (
-                <OtApprovalsCard />
-              ) : (
-                <PermissionPlaceholder
-                  title={L("OT Approvals", "Kelulusan OT")}
-                />
-              )}
               {/* v1.91.0 — mirrors attendance_correct in the worker. */}
               {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) ? (
                 <AttendanceAdminPanel role={user.role} />
@@ -1504,8 +1506,7 @@ export default function PortalPage() {
           {activeTab === "Leave" && <Leave user={user} />}
           {activeTab === "Tasks" && (
             <div className="space-y-4 md:space-y-6">
-              <Tasks user={user} />
-              {MANAGE_ROLES.includes(user.role) && <TaskProgressCard />}
+              <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} />
             </div>
           )}
           {activeTab === "Announcements" && <Announcements user={user} />}
@@ -1518,20 +1519,11 @@ export default function PortalPage() {
           {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} />}
           {activeTab === "Sales" && (
             <div className="space-y-4 md:space-y-6">
-              {/* v1.21.0 put the enquiries card here; v1.112.0 moved it to its
-                own tab, one place to the right. v1.113.0: the CEO's sales map
-                leads the tab - where the money is, by state. v1.120.0: four
-                zones - THIS MONTH (the map), THE WORK (the document-shaped
-                form with its live preview, the documents, receipts / credit
-                notes / outstanding), CUSTOMERS (the billing-block form with
-                the customer list, the Clients card), THE LONGER VIEW (live
-                economics, packages). The Sales component draws the middle
-                two, because Edit on a customer loads that form. */}
+              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
               <section className="space-y-3 md:space-y-4">
                 <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
                 <SalesMap />
               </section>
-              <Sales user={user} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
               <section className="space-y-3 md:space-y-4">
                 <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
                 <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
@@ -1576,8 +1568,7 @@ export default function PortalPage() {
           )}
           {activeTab === "HR" && (
             <div className="space-y-4 md:space-y-6">
-              <HrPanel />
-              {["hr_admin", "ceo", "super_admin", "admin"].includes(
+              <HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes(
                 user.role
               ) ? (
                 <HrAdminPanel />
@@ -1585,7 +1576,7 @@ export default function PortalPage() {
                 <PermissionPlaceholder
                   title={L("HR Administration", "Pentadbiran HR")}
                 />
-              )}
+              )} />
             </div>
           )}
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
@@ -1625,33 +1616,10 @@ export default function PortalPage() {
           )}
           {activeTab === "Ecommerce" && (
             <div className="space-y-3 md:space-y-6">
-              {/* v1.4.214 (CEO): every TikTok / e-commerce card in one place.
-                v1.4.217: connection status last (plumbing below the business).
-                v1.21.1: the map leads. v1.64.3: leaderboard rides in the map's
-                side column; targets + history + lines are one three-tab card.
-
-                v1.117.0 — FOUR ZONES, like the Dashboard (CEO, 06-09-2026:
-                "Now review on Ecommerce"). THIS MONTH: the map (leaderboard
-                beside it), then Sales revenue and Sales by hour side by side -
-                how much, and when in the day. THE WORK: the order tracker with
-                Fulfilment beside it - the four counts are a summary of the same
-                orders. THE LONGER VIEW: targets / history / lines, and the
-                platform's own analytics. SETUP: the connection, last. The one
-                place the phone differs from the desk is by one card: the
-                month's total comes before the map on a small screen (a number
-                reads in a glance; a map needs a scroll and a tap) - done with
-                CSS order on the same three cards, so it is one tree. Every
-                card is unchanged inside; only the order and the grouping. */}
               {REVENUE_ROLES.includes(user.role) && (
                 <section className="space-y-3 md:space-y-4">
                   <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-                    <div className="order-2 md:order-1 md:col-span-2">
-                      <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
-                    </div>
-                    {/* v1.123.0 - revenue and by-hour are one tabbed card */}
-                    <div className="order-1 md:order-2 md:col-span-2"><RevenueAndHoursCard /></div>
-                  </div>
+                  <RevenueAndHoursCard />
                 </section>
               )}
               <section className="space-y-3 md:space-y-4">
@@ -1669,6 +1637,7 @@ export default function PortalPage() {
               {REVENUE_ROLES.includes(user.role) && (
                 <section className="space-y-3 md:space-y-4">
                   <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
+                  <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
                   <MoneyCard user={user} />
                   {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
                 </section>
@@ -1691,12 +1660,12 @@ export default function PortalPage() {
           {activeTab === "Cards" && <CardsPanel role={user.role} />}
           {activeTab === "Users" && (
             <div className="space-y-4 md:space-y-6">
-              {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
+              <UsersPanel role={user.role} />
               {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard />}
+              {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
               {["super_admin", "ceo", "coo"].includes(user.role) && (
                 <GeofenceCard />
               )}
-              <UsersPanel role={user.role} />
             </div>
           )}
           {activeTab === "Profile" && (

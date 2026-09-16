@@ -2,6 +2,25 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## Unreleased - Work-first card-order rollout
+
+Reordered Dashboard, Ecommerce, Inventory, Sales, Attendance and Users around daily
+work. Summaries stay compact; maps, reports and configuration follow the work they
+support. Inventory bridge diagnostics move below movement history while failures
+retain a top warning. Sales defaults to Documents and Clients; creation shortcuts
+and editing open the correct mounted form without losing drafts between local views.
+The Ecommerce revenue total leads, with its complete breakdown available on expansion.
+
+Updated order guards and browser fixtures. No API, permission, company-identity,
+financial calculation or signature changes. The user accepted the pilot and approved
+extending it to the remaining tabs. Fifteen further tabs now put existing work and
+decisions ahead of reporting/setup; eight already-correct layouts are retained.
+Completed tasks and acknowledged announcements remain in expandable archives.
+Payroll review precedes payment/release, and relocated forms keep working entry
+points. PUSH.bat has not been run. See `docs/CARD-ORDER-IMPLEMENTATION.md`.
+Browser verification also exposed and fixed a search-opening race that could clear
+the first typed query; reset and focus now happen before paint.
+
 ## [1.164.0] - 2026-09-16 - Responsive ERP workspace
 
 Implemented the first interface slice from the video reference: labeled desktop

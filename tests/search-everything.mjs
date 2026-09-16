@@ -124,6 +124,7 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
     ok(`kind ${k} has a group header in both languages`, Boolean(groups[k]) && ms.has(groups[k]), `group ${groups[k] ?? "(none)"}`);
   }
   ok("the placeholder invites a phone number", /a phone number/.test(palette));
+  ok("opening resets the query before paint, not after a first keystroke", /useLayoutEffect\(\(\) => \{\s*if \(open\) \{ setQ\(""\); setSel\(0\); inputRef\.current\?\.focus\(\); \}\s*\}, \[open\]\);/.test(palette));
 }
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }

@@ -449,212 +449,13 @@ export function HotelsPanel() {
     <div className="grid grid-cols-1 gap-4">
       {toastNode}
       {confirmNode}
-      {/* ================= THE MAP ================= */}
-      <div className={card}>
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{byPublished ? L("Reviews published by state", "Ulasan diterbitkan mengikut negeri") : L("Hotels by state", "Hotel mengikut negeri")}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {byPublished
-                ? L("Press a state to see its hotels. The shade is how many reviews are published there.",
-                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan berapa ulasan diterbitkan di sana.")
-                : L("Press a state to see its hotels. The shade is how many are in it.",
-                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan bilangannya.")}
-            </p>
-          </div>
-          <span className="flex flex-wrap items-center gap-1.5">
-            {/* v1.111.0 - the second colouring: where the published reviews are, not where the hotels are */}
-            {pipelineOn && (
-              <span role="radiogroup" aria-label={L("Colour the map by", "Warnakan peta mengikut")} className="bg-secondary flex rounded-full p-0.5 text-[11px]">
-                {(["hotels", "published"] as const).map((m) => (
-                  <button key={m} type="button" role="radio" aria-checked={mapMode === m} onClick={() => setMapMode(m)}
-                    className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${mapMode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}>
-                    {m === "hotels" ? L("Hotels", "Hotel") : L("Published", "Diterbitkan")}
-                  </button>
-                ))}
-              </span>
-            )}
-            <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1 text-[11px] font-medium">
-              {byPublished ? `${totalPublished} ${L("published", "diterbitkan")}` : `${total} ${L("hotels", "hotel")} · ${states.length} ${L("states", "negeri")}`}
-            </span>
-            {state && (
-              <button type="button" className={rowBtn} onClick={() => setState("")}>
-                {L("All states", "Semua negeri")}
-              </button>
-            )}
-          </span>
-        </div>
-
-        {pending && (
+      {/* ================= THE LIST ================= */}
+      {pending && (
           <p className="text-warning mt-3 text-xs">
             {L("The hotel tables are not on this database yet — run the deploy so migrations 0111 and 0112 apply.",
                "Jadual hotel belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0111 dan 0112 digunakan.")}
           </p>
         )}
-
-        {/* the cartogram: a glass panel with a slow sweep behind it */}
-        {/* v1.100.3 — the real map, drawn exactly as the Operations map draws
-            it: gold fill whose weight is the count, a navy bubble carrying the
-            number, the two standard insets and the dashed divider between
-            them. A state with no hotels is left in the neutral fill rather
-            than shaded, because nothing is not a small something. */}
-        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
-          {!loaded ? (
-            <Skel className="aspect-[860/400] w-full rounded-xl" />
-          ) : (
-            <svg viewBox="0 -20 860 400" className="w-full"
-              aria-label={L("Map of Malaysia — each state is a button showing how many hotels are in it",
-                            "Peta Malaysia — setiap negeri ialah butang yang menunjukkan bilangan hotelnya")}>
-              <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
-                {L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}
-              </text>
-              <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
-                SABAH &amp; SARAWAK
-              </text>
-              <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
-              {/* v1.140.0 - north first, so a southern state's wall covers its
-                  northern neighbour's; the selected state is still drawn last
-                  so its stroke sits above its neighbours. */}
-              {(state ? [...raised.filter((x) => stateKey(x.name) !== state), ...raised.filter((x) => stateKey(x.name) === state)] : raised).map((sh) => {
-                const key = stateKey(sh.name);
-                const n = byState[key] ?? 0;
-                const pub = statePipe[key]?.published ?? 0;
-                /* by published the weight is how many reviews are out in the
-                   state; a state with hotels but none yet is the neutral fill */
-                const w = byPublished ? pub / maxPublished : n / maxState;
-                const has = byPublished ? pub > 0 : n > 0;
-                const isSel = state === key;
-                const label = byPublished
-                  ? `${sh.name}: ${pub} ${L("published", "diterbitkan")} · ${n} ${L("hotels", "hotel")}`
-                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
-                const h = lifts[sh.name] ?? 0;
-                const wall = wallPath(sh.name, h);
-                return (
-                  <g key={sh.name}>
-                  {wall && (
-                    <>
-                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * w} pointerEvents="none" aria-hidden="true" />
-                      <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
-                    </>
-                  )}
-                  <path d={sh.d} transform={h ? `translate(0 ${-h})` : undefined}
-                    role="button" tabIndex={0} aria-pressed={isSel}
-                    aria-label={label}
-                    onClick={() => setState(isSel ? "" : key)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
-                    fill={has ? "var(--gold-solid)" : "var(--secondary)"}
-                    fillOpacity={has ? 0.3 + 0.55 * w : 1}
-                    stroke={isSel ? "var(--primary)" : "var(--border)"}
-                    strokeWidth={isSel ? 2.5 : 1}
-                    strokeLinejoin="round">
-                    <title>{label}</title>
-                  </path>
-                  </g>
-                );
-              })}
-              {/* The bubbles are BUTTONS, not decoration: Kuala Lumpur holds
-                  104 hotels on a shape a few pixels across and Putrajaya is a
-                  single point, so on the Operations map those two are
-                  effectively unreachable. Here the number you can read is the
-                  thing you press. */}
-              {STATES.map((sh) => {
-                const key = stateKey(sh.name);
-                const n = byState[key] ?? 0;
-                const pub = statePipe[key]?.published ?? 0;
-                if (!n) return null;
-                if (byPublished && !pub) return null;
-                const r = byPublished ? 9 + Math.sqrt(pub / maxPublished) * 9 : 9 + Math.sqrt(n / maxState) * 9;
-                const isSel = state === key;
-                const label = byPublished
-                  ? `${sh.name}: ${pub} ${L("published", "diterbitkan")}`
-                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
-                return (
-                  <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel}
-                    transform={lifts[sh.name] ? `translate(0 ${-(lifts[sh.name] ?? 0)})` : undefined}
-                    aria-label={label}
-                    onClick={() => setState(isSel ? "" : key)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                    className="cursor-pointer outline-none">
-                    <circle cx={sh.cx} cy={sh.cy} r={r}
-                      fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"}
-                      strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
-                    <text x={sh.cx} y={sh.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>
-                      {byPublished ? pub : n}
-                    </text>
-                    <title>{label}</title>
-                  </g>
-                );
-              })}
-            </svg>
-          )}
-
-          {/* the side panel: the whole country, or the state you pressed */}
-          <div className="border-border rounded-xl border p-3">
-            {!loaded ? (
-              <div className="space-y-2">
-                <Skel className="h-4 w-32" />
-                <Skel className="h-12 rounded-lg" />
-                <Skel className="h-3 w-full" /><Skel className="h-3 w-full" /><Skel className="h-3 w-full" />
-              </div>
-            ) : (
-              <>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold">{state || L("Malaysia — all states", "Malaysia — semua negeri")}</p>
-                    <p className="text-muted-foreground text-[11px]">
-                      {state
-                        ? `${Math.round(((byState[state] ?? 0) / Math.max(1, total)) * 100)}% ${L("of the directory", "daripada direktori")}`
-                        : L("Press a state on the map for its hotels.", "Tekan sesebuah negeri pada peta untuk hotelnya.")}
-                    </p>
-                  </div>
-                  {state && <button type="button" className={btnSm} onClick={() => setState("")}>{L("All states", "Semua negeri")}</button>}
-                </div>
-                <div className="bg-secondary mt-2.5 rounded-lg px-2.5 py-2">
-                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{byPublished ? L("Published", "Diterbitkan") : L("Hotels", "Hotel")}</p>
-                  <p className="text-lg font-bold tabular-nums">
-                    {byPublished ? (state ? (statePipe[state]?.published ?? 0) : totalPublished) : (state ? (byState[state] ?? 0) : total)}
-                  </p>
-                  {pipelineOn && (() => {
-                    /* the pipeline in one line: asked, stays agreed, reviews out */
-                    const sp = state ? statePipe[state] : null;
-                    const sum = (k: keyof StatePipeline) => (sp ? sp[k] : Object.values(statePipe).reduce((a, b) => a + b[k], 0));
-                    const n = state ? (byState[state] ?? 0) : total;
-                    return (
-                      <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
-                        {L(`${sum("contacted")} of ${n} contacted · ${sum("agreed")} stays agreed · ${sum("published")} published`,
-                           `${sum("contacted")} daripada ${n} dihubungi · ${sum("agreed")} penginapan dipersetujui · ${sum("published")} diterbitkan`)}
-                      </p>
-                    );
-                  })()}
-                </div>
-                <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">
-                  {byPublished ? L("Most reviews published", "Ulasan terbanyak diterbitkan") : L("Most hotels", "Hotel terbanyak")}
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {(byPublished
-                    ? Object.entries(statePipe).map(([st, m]) => [st, m.published] as [string, number]).filter(([, v]) => v > 0)
-                    : Object.entries(byState)
-                  ).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => (
-                    <li key={st}>
-                      <button type="button" onClick={() => setState(state === st ? "" : st)}
-                        className={`flex w-full items-center justify-between gap-2 text-xs ${state === st ? "font-semibold" : ""}`}>
-                        <span className="truncate">{st}</span>
-                        <span className="tabular-nums">{n}</span>
-                      </button>
-                    </li>
-                  ))}
-                  {byPublished && totalPublished === 0 && (
-                    <li className="text-muted-foreground text-[11px]">{L("No review is published yet. Log a call with \"The review is published\" and its link on the hotel.", "Belum ada ulasan diterbitkan. Rekod panggilan dengan \"Ulasan diterbitkan\" dan pautannya pada hotel.")}</li>
-                  )}
-                </ul>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ================= THE LIST ================= */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">
@@ -667,6 +468,11 @@ export function HotelsPanel() {
           <span className="flex flex-wrap items-center gap-1.5">
             <input className={`${inputClassSm} w-44`} value={qLive} placeholder={L("Find hotel, company or person", "Cari hotel, syarikat atau orang")}
               aria-label={L("Search the directory", "Cari direktori")} onChange={(e) => setQLive(e.target.value)} />
+            <select className={`${inputClassSm} max-w-full`} value={state}
+              aria-label={L("Filter by state", "Tapis mengikut negeri")} onChange={(e) => setState(e.target.value)}>
+              <option value="">{L("All states", "Semua negeri")}</option>
+              {[...new Set([...states, ...(state ? [state] : [])])].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
             {qLive && (
               <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setQLive("")}>
                 {L("Clear", "Kosongkan")}
@@ -888,6 +694,205 @@ export function HotelsPanel() {
           </ul>
         )}
       </div>
+
+      {/* ================= THE MAP ================= */}
+      <div className={card}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{byPublished ? L("Reviews published by state", "Ulasan diterbitkan mengikut negeri") : L("Hotels by state", "Hotel mengikut negeri")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {byPublished
+                ? L("Press a state to see its hotels. The shade is how many reviews are published there.",
+                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan berapa ulasan diterbitkan di sana.")
+                : L("Press a state to see its hotels. The shade is how many are in it.",
+                    "Tekan sesebuah negeri untuk melihat hotelnya. Warna menunjukkan bilangannya.")}
+            </p>
+          </div>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {/* v1.111.0 - the second colouring: where the published reviews are, not where the hotels are */}
+            {pipelineOn && (
+              <span role="radiogroup" aria-label={L("Colour the map by", "Warnakan peta mengikut")} className="bg-secondary flex rounded-full p-0.5 text-[11px]">
+                {(["hotels", "published"] as const).map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={mapMode === m} onClick={() => setMapMode(m)}
+                    className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${mapMode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}>
+                    {m === "hotels" ? L("Hotels", "Hotel") : L("Published", "Diterbitkan")}
+                  </button>
+                ))}
+              </span>
+            )}
+            <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1 text-[11px] font-medium">
+              {byPublished ? `${totalPublished} ${L("published", "diterbitkan")}` : `${total} ${L("hotels", "hotel")} · ${states.length} ${L("states", "negeri")}`}
+            </span>
+            {state && (
+              <button type="button" className={rowBtn} onClick={() => setState("")}>
+                {L("All states", "Semua negeri")}
+              </button>
+            )}
+          </span>
+        </div>
+
+        {/* the cartogram: a glass panel with a slow sweep behind it */}
+        {/* v1.100.3 — the real map, drawn exactly as the Operations map draws
+            it: gold fill whose weight is the count, a navy bubble carrying the
+            number, the two standard insets and the dashed divider between
+            them. A state with no hotels is left in the neutral fill rather
+            than shaded, because nothing is not a small something. */}
+        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+          {!loaded ? (
+            <Skel className="aspect-[860/400] w-full rounded-xl" />
+          ) : (
+            <svg viewBox="0 -20 860 400" className="w-full"
+              aria-label={L("Map of Malaysia — each state is a button showing how many hotels are in it",
+                            "Peta Malaysia — setiap negeri ialah butang yang menunjukkan bilangan hotelnya")}>
+              <text x="14" y="16" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
+                {L("PENINSULAR MALAYSIA", "SEMENANJUNG MALAYSIA")}
+              </text>
+              <text x="340" y="46" style={{ font: "600 11px sans-serif", letterSpacing: "0.08em" }} fill="var(--muted-foreground)">
+                SABAH &amp; SARAWAK
+              </text>
+              <line x1="320" y1="24" x2="320" y2="364" stroke="var(--border)" strokeWidth="1" strokeDasharray="3 5" />
+              {/* v1.140.0 - north first, so a southern state's wall covers its
+                  northern neighbour's; the selected state is still drawn last
+                  so its stroke sits above its neighbours. */}
+              {(state ? [...raised.filter((x) => stateKey(x.name) !== state), ...raised.filter((x) => stateKey(x.name) === state)] : raised).map((sh) => {
+                const key = stateKey(sh.name);
+                const n = byState[key] ?? 0;
+                const pub = statePipe[key]?.published ?? 0;
+                /* by published the weight is how many reviews are out in the
+                   state; a state with hotels but none yet is the neutral fill */
+                const w = byPublished ? pub / maxPublished : n / maxState;
+                const has = byPublished ? pub > 0 : n > 0;
+                const isSel = state === key;
+                const label = byPublished
+                  ? `${sh.name}: ${pub} ${L("published", "diterbitkan")} · ${n} ${L("hotels", "hotel")}`
+                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
+                const h = lifts[sh.name] ?? 0;
+                const wall = wallPath(sh.name, h);
+                return (
+                  <g key={sh.name}>
+                  {wall && (
+                    <>
+                      <path d={wall} fill="var(--gold-solid)" fillOpacity={0.3 + 0.55 * w} pointerEvents="none" aria-hidden="true" />
+                      <path d={wall} fill="var(--foreground)" fillOpacity={0.15} pointerEvents="none" aria-hidden="true" />
+                    </>
+                  )}
+                  <path d={sh.d} transform={h ? `translate(0 ${-h})` : undefined}
+                    role="button" tabIndex={0} aria-pressed={isSel}
+                    aria-label={label}
+                    onClick={() => setState(isSel ? "" : key)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
+                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    fill={has ? "var(--gold-solid)" : "var(--secondary)"}
+                    fillOpacity={has ? 0.3 + 0.55 * w : 1}
+                    stroke={isSel ? "var(--primary)" : "var(--border)"}
+                    strokeWidth={isSel ? 2.5 : 1}
+                    strokeLinejoin="round">
+                    <title>{label}</title>
+                  </path>
+                  </g>
+                );
+              })}
+              {/* The bubbles are BUTTONS, not decoration: Kuala Lumpur holds
+                  104 hotels on a shape a few pixels across and Putrajaya is a
+                  single point, so on the Operations map those two are
+                  effectively unreachable. Here the number you can read is the
+                  thing you press. */}
+              {STATES.map((sh) => {
+                const key = stateKey(sh.name);
+                const n = byState[key] ?? 0;
+                const pub = statePipe[key]?.published ?? 0;
+                if (!n) return null;
+                if (byPublished && !pub) return null;
+                const r = byPublished ? 9 + Math.sqrt(pub / maxPublished) * 9 : 9 + Math.sqrt(n / maxState) * 9;
+                const isSel = state === key;
+                const label = byPublished
+                  ? `${sh.name}: ${pub} ${L("published", "diterbitkan")}`
+                  : `${sh.name}: ${n} ${n === 1 ? L("hotel", "hotel") : L("hotels", "hotel")}`;
+                return (
+                  <g key={`b-${sh.name}`} role="button" tabIndex={0} aria-pressed={isSel}
+                    transform={lifts[sh.name] ? `translate(0 ${-(lifts[sh.name] ?? 0)})` : undefined}
+                    aria-label={label}
+                    onClick={() => setState(isSel ? "" : key)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
+                    className="cursor-pointer outline-none">
+                    <circle cx={sh.cx} cy={sh.cy} r={r}
+                      fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"}
+                      strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
+                    <text x={sh.cx} y={sh.cy + 3.5} textAnchor="middle" style={{ font: "700 10px sans-serif", fill: "#fff" }}>
+                      {byPublished ? pub : n}
+                    </text>
+                    <title>{label}</title>
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+
+          {/* the side panel: the whole country, or the state you pressed */}
+          <div className="border-border rounded-xl border p-3">
+            {!loaded ? (
+              <div className="space-y-2">
+                <Skel className="h-4 w-32" />
+                <Skel className="h-12 rounded-lg" />
+                <Skel className="h-3 w-full" /><Skel className="h-3 w-full" /><Skel className="h-3 w-full" />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">{state || L("Malaysia — all states", "Malaysia — semua negeri")}</p>
+                    <p className="text-muted-foreground text-[11px]">
+                      {state
+                        ? `${Math.round(((byState[state] ?? 0) / Math.max(1, total)) * 100)}% ${L("of the directory", "daripada direktori")}`
+                        : L("Press a state on the map for its hotels.", "Tekan sesebuah negeri pada peta untuk hotelnya.")}
+                    </p>
+                  </div>
+                  {state && <button type="button" className={btnSm} onClick={() => setState("")}>{L("All states", "Semua negeri")}</button>}
+                </div>
+                <div className="bg-secondary mt-2.5 rounded-lg px-2.5 py-2">
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">{byPublished ? L("Published", "Diterbitkan") : L("Hotels", "Hotel")}</p>
+                  <p className="text-lg font-bold tabular-nums">
+                    {byPublished ? (state ? (statePipe[state]?.published ?? 0) : totalPublished) : (state ? (byState[state] ?? 0) : total)}
+                  </p>
+                  {pipelineOn && (() => {
+                    /* the pipeline in one line: asked, stays agreed, reviews out */
+                    const sp = state ? statePipe[state] : null;
+                    const sum = (k: keyof StatePipeline) => (sp ? sp[k] : Object.values(statePipe).reduce((a, b) => a + b[k], 0));
+                    const n = state ? (byState[state] ?? 0) : total;
+                    return (
+                      <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
+                        {L(`${sum("contacted")} of ${n} contacted · ${sum("agreed")} stays agreed · ${sum("published")} published`,
+                           `${sum("contacted")} daripada ${n} dihubungi · ${sum("agreed")} penginapan dipersetujui · ${sum("published")} diterbitkan`)}
+                      </p>
+                    );
+                  })()}
+                </div>
+                <p className="text-muted-foreground mt-3 text-[10px] font-semibold tracking-wider uppercase">
+                  {byPublished ? L("Most reviews published", "Ulasan terbanyak diterbitkan") : L("Most hotels", "Hotel terbanyak")}
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {(byPublished
+                    ? Object.entries(statePipe).map(([st, m]) => [st, m.published] as [string, number]).filter(([, v]) => v > 0)
+                    : Object.entries(byState)
+                  ).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => (
+                    <li key={st}>
+                      <button type="button" onClick={() => setState(state === st ? "" : st)}
+                        className={`flex w-full items-center justify-between gap-2 text-xs ${state === st ? "font-semibold" : ""}`}>
+                        <span className="truncate">{st}</span>
+                        <span className="tabular-nums">{n}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {byPublished && totalPublished === 0 && (
+                    <li className="text-muted-foreground text-[11px]">{L("No review is published yet. Log a call with \"The review is published\" and its link on the hotel.", "Belum ada ulasan diterbitkan. Rekod panggilan dengan \"Ulasan diterbitkan\" dan pautannya pada hotel.")}</li>
+                  )}
+                </ul>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }

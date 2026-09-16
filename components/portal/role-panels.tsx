@@ -178,7 +178,7 @@ function Badge({ value }: { value: string }) {
 
 /* v1.84.0 - AttendanceRow left with the verification table. */
 
-export function HrPanel() {
+export function HrPanel({ administration }: { administration?: ReactNode }) {
   /* v1.84.0 — month, rows and shift left with the verification table. */
   const [reports, setReports] = useState<
     { id: number; period: string; report_date: string; content: string; author: string }[]
@@ -230,7 +230,7 @@ export function HrPanel() {
           leave counted instead of appearing as a gap. See
           components/portal/verification-card.tsx. */}
 
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
+      <div className="space-y-4 md:space-y-6">
         <div className={card}>
           <p className="text-sm font-semibold">{L("Task report", "Laporan tugasan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -284,6 +284,7 @@ export function HrPanel() {
           </ul>
         </div>
 
+        {administration}
         <div className={card}>
           <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1026,89 +1027,12 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       )}
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Stock now", "Stok sekarang")}</ZoneLabel>
-      {/* v1.119.0 - two one-line facts, one row: the status strip (manage
-          roles; page.tsx passes it in) and the ELFIA bridge pulse.
-          v1.123.0 (CEO: "properly aligned for Stock status & ELFIA bridge for
-          better UI") - they were an inline pill beside a full card, so the
-          row read as two different things at two different heights. Both are
-          the house card now, stretched to the same height.
-          v1.125.0 - and they STAY two. Opening "Low" used to add a third card
-          between them; the items now open inside the status card, so this row
-          is two cells whatever is expanded (see company-monitor.tsx). */}
-      <div className={`grid grid-cols-1 items-stretch gap-3 md:gap-4 ${statusCard ? "md:grid-cols-2" : ""}`}>
-        {statusCard}
-        <div className="flex">
-      {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
-          it last report a sale, and (the part a human must act on) SKUs it
-          sent that the portal does not hold. Compact strip, reads before the
-          table like the status strip above it. */}
-      {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
-          card so the table below does not jump up when the pulse arrives. */}
-      {!loaded && (
-        <div className={`${card} w-full`} aria-hidden>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <Skel className="h-4 w-24" />
-            <Skel className="h-3 w-40" />
-            <Skel className="h-3 w-24" />
-            <Skel className="h-3 w-36" />
-          </div>
-        </div>
+      {statusCard}
+      {bridgeHealth && (bridgeHealth.unavailable || !bridgeHealth.key_configured || bridgeHealth.pending_migration || bridgeHealth.unknown.length > 0) && (
+        <p role="status" className="text-warning text-sm">
+          <a href="#inventory-bridge" className="underline underline-offset-2">{L("Stock sync needs attention. Review the ELFIA bridge.", "Penyegerakan stok perlu perhatian. Semak jambatan ELFIA.")}</a>
+        </p>
       )}
-      {bridgeHealth && (
-        <div className={`${card} w-full`}>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
-            {bridgeHealth.unavailable && (
-              <span className="text-muted-foreground">
-                {L("Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site (they deploy separately): deploy azoneofficial-api, then reload.",
-                   "Status tidak tersedia — halaman ini tidak dapat menghubungi laluan jambatan. Biasanya pekerja API lebih lama daripada laman (ia digunakan secara berasingan): deploy azoneofficial-api, kemudian muat semula.")}
-              </span>
-            )}
-            {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
-              <span className="font-medium text-warning">
-                {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
-              </span>
-            )}
-            {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
-              <span className="text-muted-foreground">{L("Waiting for migration 0078", "Menunggu migrasi 0078")}</span>
-            )}
-            {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
-              <>
-                <span className="text-muted-foreground">
-                  {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
-                  {bridgeHealth.last_event_at ? bridgeHealth.last_event_at.slice(0, 16) : L("never", "belum ada")}
-                </span>
-                <span className="text-muted-foreground">
-                  {L("Applied 24h:", "Digunakan 24j:")} {bridgeHealth.applied_24h}
-                </span>
-                <span className="text-muted-foreground">
-                  {L("Orders pulled:", "Pesanan ditarik:")}{" "}
-                  {bridgeHealth.last_poll_at ? bridgeHealth.last_poll_at.slice(0, 16) : L("never", "belum ada")}
-                </span>
-              </>
-            )}
-          </div>
-          {bridgeHealth.unknown.length > 0 && (
-            <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-sm">
-              <p className="font-medium text-warning">
-                {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
-              </p>
-              <ul className="mt-1 flex flex-wrap gap-2">
-                {bridgeHealth.unknown.map((u) => (
-                  <li key={u.sku} className="rounded border border-warning/30 px-1.5 py-0.5 font-mono text-xs">
-                    {u.sku} ×{u.n}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {L("Fix: rename the item's SKU here to match the store (Edit), or add the item — the store retries nothing; reconcile the count manually after.", "Penyelesaian: namakan semula SKU barang di sini agar sepadan dengan kedai (Sunting), atau tambah barang itu — kedai tidak mencuba semula; selaraskan kiraan secara manual selepas itu.")}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-        </div>
-      </div>
       {/* v1.4.214 (CEO reorg): TikTok Orders moved to the new Ecommerce
           tab with the rest of the TikTok cards. Inventory keeps the stock
           views; the tracker follows the channel. */}
@@ -2546,6 +2470,78 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         )}
         </div>
       </div>
+      </section>
+      <section id="inventory-bridge" className="scroll-mt-36 space-y-3 md:space-y-4">
+        <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
+      {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
+          it last report a sale, and (the part a human must act on) SKUs it
+          sent that the portal does not hold. Compact strip, reads before the
+          table like the status strip above it. */}
+      {/* v1.77.0 — skeleton until the first fetch lands: the strip's real
+          card so the table below does not jump up when the pulse arrives. */}
+      {!loaded && (
+        <div className={`${card} w-full`} aria-hidden>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Skel className="h-4 w-24" />
+            <Skel className="h-3 w-40" />
+            <Skel className="h-3 w-24" />
+            <Skel className="h-3 w-36" />
+          </div>
+        </div>
+      )}
+      {bridgeHealth && (
+        <div className={`${card} w-full`}>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="font-semibold">{L("ELFIA bridge", "Jambatan ELFIA")}</span>
+            {bridgeHealth.unavailable && (
+              <span className="text-muted-foreground">
+                {L("Status unavailable — this page could not reach the bridge route. Usually the API worker is older than the site (they deploy separately): deploy azoneofficial-api, then reload.",
+                   "Status tidak tersedia — halaman ini tidak dapat menghubungi laluan jambatan. Biasanya pekerja API lebih lama daripada laman (ia digunakan secara berasingan): deploy azoneofficial-api, kemudian muat semula.")}
+              </span>
+            )}
+            {!bridgeHealth.unavailable && !bridgeHealth.key_configured && (
+              <span className="font-medium text-warning">
+                {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)", "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
+              </span>
+            )}
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && bridgeHealth.pending_migration && (
+              <span className="text-muted-foreground">{L("Waiting for migration 0078", "Menunggu migrasi 0078")}</span>
+            )}
+            {!bridgeHealth.unavailable && bridgeHealth.key_configured && !bridgeHealth.pending_migration && (
+              <>
+                <span className="text-muted-foreground">
+                  {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
+                  {bridgeHealth.last_event_at ? bridgeHealth.last_event_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Applied 24h:", "Digunakan 24j:")} {bridgeHealth.applied_24h}
+                </span>
+                <span className="text-muted-foreground">
+                  {L("Orders pulled:", "Pesanan ditarik:")}{" "}
+                  {bridgeHealth.last_poll_at ? bridgeHealth.last_poll_at.slice(0, 16) : L("never", "belum ada")}
+                </span>
+              </>
+            )}
+          </div>
+          {bridgeHealth.unknown.length > 0 && (
+            <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-sm">
+              <p className="font-medium text-warning">
+                {L("The store sent SKUs the portal does not hold — these sales are NOT deducted until a human resolves them:", "Kedai menghantar SKU yang tiada dalam portal — jualan ini TIDAK ditolak sehingga diselesaikan:")}
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {bridgeHealth.unknown.map((u) => (
+                  <li key={u.sku} className="rounded border border-warning/30 px-1.5 py-0.5 font-mono text-xs">
+                    {u.sku} ×{u.n}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {L("Fix: rename the item's SKU here to match the store (Edit), or add the item — the store retries nothing; reconcile the count manually after.", "Penyelesaian: namakan semula SKU barang di sini agar sepadan dengan kedai (Sunting), atau tambah barang itu — kedai tidak mencuba semula; selaraskan kiraan secara manual selepas itu.")}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       </section>
     </div>
   );
@@ -4571,7 +4567,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   setPurpose(c.description ?? "");
                   setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
                   setReceipt(null);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
+                  requestAnimationFrame(() => document.getElementById("claim-form")?.scrollIntoView({ block: "start" }));
                 }}>
                 {c.status === "rejected" ? L("Edit & resubmit", "Sunting & hantar semula") : L("Edit", "Sunting")}
               </button>
@@ -4738,7 +4734,28 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       {toastNode}
       {stepUpNode}
       {confirmNode}
-      <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">{L("Claims", "Tuntutan")}</p>
+        <a href="#claim-form" className="min-h-11 py-3 text-sm underline">{L("Claim form", "Borang tuntutan")}</a>
+      </div>
+      {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
+        <div id="claims-pending" className={`${card} scroll-mt-16`}>
+          <p className="text-sm font-semibold">
+            {L("Pending approvals", "Kelulusan menunggu")}
+            {pending.length > 0 && (
+              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{pending.length}</span>
+            )}
+          </p>
+          <div className="mt-3 space-y-2">
+            {/* v1.77.0 — skeleton until the first fetch lands. */}
+            {!loaded && <SkelRows rows={2} />}
+            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
+            {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
+          </div>
+        </div>
+      )}
+
+      <div id="claim-form" className={`${card} scroll-mt-36`}>
         <p className="text-sm font-semibold">
           {editingClaim
             ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); }}>{L("cancel", "batal")}</button></>
@@ -4881,23 +4898,6 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       </div>
-
-      {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
-        <div id="claims-pending" className={`${card} scroll-mt-16`}>
-          <p className="text-sm font-semibold">
-            {L("Pending approvals", "Kelulusan menunggu")}
-            {pending.length > 0 && (
-              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{pending.length}</span>
-            )}
-          </p>
-          <div className="mt-3 space-y-2">
-            {/* v1.77.0 — skeleton until the first fetch lands. */}
-            {!loaded && <SkelRows rows={2} />}
-            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
-            {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
-          </div>
-        </div>
-      )}
 
       <div className={card}>
         <p className="text-sm font-semibold">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
@@ -5075,7 +5075,7 @@ function ExpensePie({ slices, active, onSelect, centerTop, centerBottom }: {
     reimbursements routed to the CEO for approval. */
 interface ClaimExp { id: number; amount_cents: number; paid_at?: string | null; decided_at?: string | null; claim_date?: string | null; claimant?: string | null }
 
-export function ExpensesPanel() {
+export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
   const [openExp, setOpenExp] = useState<number | null>(null);
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<ExpenseRec[]>([]);
@@ -5368,6 +5368,7 @@ export function ExpensesPanel() {
         </div>
       )}
 
+      {reporting}
       <div className={card}>
         {/* v1.77.0 — skeleton until the first fetch lands: the month heading
             with its total on the right, then the expense rows — so neither
