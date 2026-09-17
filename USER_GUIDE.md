@@ -61,3 +61,16 @@ glance — read-only by design.
 | Version | Change |
 |---|---|
 | v1.4.4 | Staff guide for the five role modules added. |
+# PWA Documents And Calendar (1.165.0, 2026-09-17)
+
+Print forms, receipts and payment proofs open with a Back control. Back closes the
+viewer and returns to the current register. Use Print, Download or Share where
+available; PDF receipts stay inside the viewer.
+
+Add to calendar opens a choice of Google Calendar, Outlook or calendar-file export.
+Finish saving in your selected calendar. Opening a draft or downloading an ICS file
+does not confirm that the event was added. Apple Calendar users can use a synced
+Google/Outlook account or import the file using a compatible application.
+
+No migration or changes to company ownership, approvals or signature requirements.
+See `docs/PWA-PRODUCTION-AUDIT-2026-09-17.md` for scope and verification limits.

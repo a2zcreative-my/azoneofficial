@@ -1,4 +1,5 @@
 "use client";
+import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
  * Payroll processing (v1.4.36).
@@ -311,9 +312,7 @@ export function printPayslip(
     : `<tr><td class="muted">NO DEDUCTION</td><td class="amt"></td></tr>`;
   const othersRows = D.others.map(([label, v]) => `<tr><td>${esc(label)}</td><td class="amt">${n2(v)}</td></tr>`).join("");
 
-  const w = window.open("", "_blank", "width=900,height=950");
-  if (!w) return;
-  w.document.write(`<!doctype html><html><head><title>Payslip ${esc(u.name)} ${esc(monthDMY(month))}</title>
+  openPrintPreview(`<!doctype html><html><head><title>Payslip ${esc(u.name)} ${esc(monthDMY(month))}</title>
 <style>
   @page { size: A4; margin: 0; } /* v1.4.239 — margin as body padding so the browser prints no headers */
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -400,7 +399,6 @@ export function printPayslip(
   <p class="privacy">SULIT / PRIVATE &amp; CONFIDENTIAL — This payslip is issued to the named employee pursuant to the Employment Act 1955 and contains personal data protected under the Personal Data Protection Act 2010 (PDPA). It must not be disclosed, copied, or shared with any other party without the employee's or the company's written consent. Retain for your records.</p>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`);
-  w.document.close();
 }
 
 /* v1.75.0 — a working day with no clock-in, or one clocked well short of

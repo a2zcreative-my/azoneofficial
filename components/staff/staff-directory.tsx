@@ -1,4 +1,5 @@
 "use client";
+import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
  * Staff directory & ID badges (v1.4.22).
@@ -256,24 +257,19 @@ function badgeDocHtml(s: Staff, origin: string): string {
 }
 
 function printBadge(s: Staff) {
-  const w = window.open("", "_blank", "width=300,height=520");
-  if (!w) return;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badge", "Lencana")} — ${esc(s.full_name || s.name)}</title>
+  openPrintPreview(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badge", "Lencana")} — ${esc(s.full_name || s.name)}</title>
   <style>@page { size: 54mm 85.6mm; margin: 0; }${BADGE_CSS}</style></head>
   <body onload="setTimeout(function(){window.print()},250)">
   ${badgeCardHtml(s, window.location.origin)}
   </body></html>`);
-  w.document.close();
 }
 
 /** Multi-badge sheet (v1.4.43): several badges per A4 page — 3 × 3 = up to
     nine 54×85.6 mm cards per sheet, saving paper over one page per badge. */
 function printBadges(list: Staff[]) {
   if (list.length === 0) return;
-  const w = window.open("", "_blank", "width=900,height=1000");
-  if (!w) return;
   const origin = window.location.origin;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badges", "Lencana")} — ${list.length} ${L("staff", "kakitangan")}</title>
+  openPrintPreview(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Badges", "Lencana")} — ${list.length} ${L("staff", "kakitangan")}</title>
   <style>
     @page { size: A4; margin: 8mm; }
     ${BADGE_CSS}
@@ -284,7 +280,6 @@ function printBadges(list: Staff[]) {
   <div class="sheet">
     ${list.map((s) => badgeCardHtml(s, origin)).join("")}
   </div></body></html>`);
-  w.document.close();
 }
 
 /* ---------------- directory ---------------- */

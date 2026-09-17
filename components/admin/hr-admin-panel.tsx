@@ -1,4 +1,5 @@
 "use client";
+import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
  * HR / payroll administration (v1.4.16), for the admin Staff area:
@@ -204,15 +205,13 @@ interface PayslipData {
 }
 
 function printPayslip(p: PayslipData) {
-  const w = window.open("", "_blank", "width=800,height=1000");
-  if (!w) return;
   /* v1.45.0 (security audit C7): payslip values are staff records someone
      typed and this document is a STRING, so React's escaping never runs on
      it. esc() is what stops a name or position containing markup from being
      parsed as markup in the print window. */
   const row = (k: string, v: string | number) =>
     `<tr><td style="padding:4px 8px;color:${DOC.inkSoft}">${esc(k)}</td><td style="padding:4px 8px;font-weight:600;text-align:right">${esc(v)}</td></tr>`;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Payslip", "Slip gaji")} ${esc(p.staff.name)} ${esc(p.month)}</title>
+  openPrintPreview(`<!doctype html><html><head><meta charset="utf-8"><title>${L("Payslip", "Slip gaji")} ${esc(p.staff.name)} ${esc(p.month)}</title>
   <style>/* v1.4.242: this report is a staff TABLE that can run to several pages,
   so it keeps a real @page margin — page 2+ would otherwise print edge to edge.
   Trade-off accepted: the browser's own header/footer strip may appear here. */
@@ -242,5 +241,4 @@ function printPayslip(p: PayslipData) {
   <table>${row(L("Approved leave days", "Hari cuti diluluskan"), p.approved_leave_days)}</table>
   <p style="margin-top:24px;font-size:10px;color:${DOC.muted}">${L("Generated", "Dijana")} ${(() => { const i = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)}`; })()} · ${DOCUMENT_ISSUER.registration} · ${L("This is an attendance summary, not a statement of wages.", "Ini ialah ringkasan kehadiran, bukan penyata gaji.")}</p>
   </body></html>`);
-  w.document.close();
 }

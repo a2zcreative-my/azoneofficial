@@ -1,4 +1,5 @@
 "use client";
+import { openAttachment, openDocumentPreview } from "@/components/ui/document-preview";
 
 /**
  * Role-specific portal modules (v1.4.4).
@@ -4121,18 +4122,21 @@ async function printClaimForm(c: Claim) {
   // v1.4.102: the uploaded receipt prints ON the form (bottom right) when it
   // is an image — fetched as a blob so it is fully loaded before printing.
   // PDF receipts can't be inlined into the page; the form says so instead.
-  // The window opens FIRST (inside the click) so popup blockers stay quiet.
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
-  w.document.write(`<p style="font-family:Arial;padding:20px;color:${DOC.inkSoft}">${L("Preparing claim form…", "Menyediakan borang tuntutan…")}</p>`);
+  openDocumentPreview(claimNo, async (signal) => {
   let receiptImg = "";
   let receiptNote = "";
   if (c.receipt_key) {
     try {
-      const rr = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, { credentials: "include" });
+      const rr = await fetch(`/api/v1/staff/claims/${c.id}/receipt`, { credentials: "include", signal });
       const ct = rr.headers.get("content-type") ?? "";
       if (rr.ok && ct.startsWith("image/")) {
-        const blobUrl = URL.createObjectURL(await rr.blob());
+        const receipt = await rr.blob();
+        const blobUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(receipt);
+        });
         receiptImg = `<div class="receiptbox"><p class="bt">RECEIPT (UPLOADED BY STAFF)</p><img src="${blobUrl}" alt="Receipt" /></div>`;
       } else if (rr.ok) {
         receiptNote = `<p class="tiny" style="text-align:right;margin-top:10px">Receipt attached as PDF in the system — printed separately.</p>`;
@@ -4144,8 +4148,7 @@ async function printClaimForm(c: Claim) {
     : c.status === "rejected"
       ? `REJECTED IN SYSTEM${c.decided_by_name ? " by " + c.decided_by_name : ""}`
       : "PENDING SYSTEM APPROVAL";
-  w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  return { html: `<!doctype html><html><head><meta charset="utf-8">
   <meta name="viewport" content="width=794">
   <title>${esc(claimNo)} — Employee Claim Form</title>
   <style>
@@ -4243,8 +4246,8 @@ async function printClaimForm(c: Claim) {
   </table>
   ${receiptImg ? `<div class="receiptwrap">${receiptImg}</div>` : receiptNote}
   <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${claimNo}; the in-system decision is authoritative.</p>
-  </body></html>`);
-  w.document.close();
+  </body></html>`, blob: await buildClaimPdf(c, claimNo), filename: `${claimNo}.pdf` };
+  });
 }
 
 const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "accommodation", "equipment", "medical", "other"] as const;
@@ -4640,7 +4643,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               an underlined word has no tap target on a phone. */}
           <div className={`${rowActions} mt-1.5 justify-start`}>
             {c.receipt_key
-              ? <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/receipt`} target="_blank" rel="noreferrer">{L("View receipt", "Lihat resit")}</a>
+              ? <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}>{L("View receipt", "Lihat resit")}</button>
               : <span className="text-muted-foreground text-xs">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
             <button type="button" className={rowBtn} title={L("Claim form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang tuntutan sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
               onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
@@ -4676,7 +4679,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {c.payment_proof_key && (c.user_id === userId || canDecide || role === "hr_admin") && (
             <p className="mt-1 text-xs">
-              <a className="underline" href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</a>
+              <button type="button" className="underline" onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</button>
             </p>
           )}
           {canDecide && c.status === "approved" && !c.paid_at && (
@@ -4970,7 +4973,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
                   <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
                   <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c)}>{L("Send PDF", "Hantar PDF")}</button>
-                  {c.payment_proof_key && <a className={rowBtn} href={`/api/v1/staff/claims/${c.id}/payment-proof`} target="_blank" rel="noreferrer">{L("Payment proof", "Bukti bayaran")}</a>}
+                  {c.payment_proof_key && <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("Payment proof", "Bukti bayaran")}</button>}
                 </span>
               </div>
             ))}
@@ -5358,7 +5361,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                     </p>
                   </div>
                   <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
-                    onClick={async () => { await api(`/expenses/${r.id}/paid`, { method: "POST" }); showToast(L("Saved", "Disimpan"), `${rmc(r.amount_cents)} ${L("marked paid", "ditanda dibayar")}`); void load(); }}>
+                    onClick={async () => { const result = await api(`/expenses/${r.id}/paid`, { method: "POST" }); if (!result.ok) { showToast(L("Not saved", "Tidak disimpan"), L("Payment status was not changed. Try again.", "Status bayaran tidak berubah. Cuba lagi."), "notice"); return; } showToast(L("Saved", "Disimpan"), `${rmc(r.amount_cents)} ${L("marked paid", "ditanda dibayar")}`); void load(); }}>
                     {L("Mark paid", "Tanda dibayar")}
                   </button>
                 </div>
@@ -5585,7 +5588,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                     setEditId(r.id);
                     setEdit({ expense_date: r.expense_date, category: r.category, amount: (r.amount_cents / 100).toString(), vendor: r.vendor ?? "", description: r.description ?? "" });
                   }}>{L("Edit", "Sunting")}</button>
-                <button type="button" className={rowBtnDanger} onClick={async () => { await api(`/expenses/${r.id}`, { method: "DELETE" }); showToast(L("Saved", "Disimpan"), L("Expense removed", "Perbelanjaan dibuang")); void load(); }}>{L("Remove", "Buang")}</button>
+                <button type="button" className={rowBtnDanger} onClick={async () => { const result = await api(`/expenses/${r.id}`, { method: "DELETE" }); if (!result.ok) { showToast(L("Not removed", "Tidak dibuang"), L("The expense is still recorded. Try again.", "Perbelanjaan masih direkodkan. Cuba lagi."), "notice"); return; } showToast(L("Saved", "Disimpan"), L("Expense removed", "Perbelanjaan dibuang")); void load(); }}>{L("Remove", "Buang")}</button>
               </span>
               {openExp === r.id && (
                 <DetailGrid items={[

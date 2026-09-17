@@ -105,15 +105,17 @@ async function encryptPayload(sub: PushSubscription, plaintext: Uint8Array): Pro
   const asKeyPair = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"],
   ) as CryptoKeyPair;
-  const asPublicRaw = new Uint8Array(await crypto.subtle.exportKey("raw", asKeyPair.publicKey));
+  const exported = await crypto.subtle.exportKey("raw", asKeyPair.publicKey);
+  if (!(exported instanceof ArrayBuffer)) throw new Error("Expected a raw ECDH public key");
+  const asPublicRaw = new Uint8Array(exported);
 
   // ECDH shared secret with the client's public key.
   const uaPubKey = await crypto.subtle.importKey(
     "raw", uaPublic as unknown as BufferSource, { name: "ECDH", namedCurve: "P-256" }, false, [],
   );
-  const ecdhSecret = new Uint8Array(await crypto.subtle.deriveBits(
-    { name: "ECDH", public: uaPubKey }, asKeyPair.privateKey, 256,
-  ));
+  // Web Crypto uses `public`; the generated Workers declaration spells it `$public`.
+  const ecdhAlgorithm = { name: "ECDH", public: uaPubKey };
+  const ecdhSecret = new Uint8Array(await crypto.subtle.deriveBits(ecdhAlgorithm, asKeyPair.privateKey, 256));
 
   // RFC 8291: combine ECDH + auth secret.
   const keyInfo = concat(utf8("WebPush: info\0"), uaPublic, asPublicRaw);

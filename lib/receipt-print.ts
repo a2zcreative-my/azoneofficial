@@ -23,6 +23,7 @@ import { fmtRM } from "@/lib/format";
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import { openPrintPreview } from "@/components/ui/document-preview";
 
 export interface PrintDocData {
   kind: "RECEIPT" | "CREDIT NOTE";
@@ -97,9 +98,5 @@ export function printBusinessDoc(d: PrintDocData): void {
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) { window.alert("Please allow pop-ups to print the document."); return; }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  openPrintPreview(html);
 }

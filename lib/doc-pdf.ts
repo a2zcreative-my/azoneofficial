@@ -313,17 +313,20 @@ export function readJpeg(buf: Uint8Array, id: string): Img | null {
 
 /** Hand a finished PDF to the phone's share sheet, falling back to a download.
     Returns what actually happened so the caller can word its toast. */
-export async function sharePdfFile(blob: Blob, filename: string, title: string): Promise<"shared" | "downloaded"> {
+export async function sharePdfFile(blob: Blob, filename: string, title: string): Promise<"shared" | "downloaded" | "cancelled"> {
   if (typeof navigator.canShare === "function") {
     const file = new File([blob], filename, { type: "application/pdf" });
     if (navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title }); } catch { /* sheet dismissed */ }
-      return "shared";
+      try { await navigator.share({ files: [file], title }); return "shared"; }
+      catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+        // WebViews may expose share() but reject it. Keep the download fallback.
+      }
     }
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
+  a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   return "downloaded";
 }

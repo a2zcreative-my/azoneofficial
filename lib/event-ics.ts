@@ -1,39 +1,43 @@
-/* v1.4.264 — "Add to my calendar" for company events.
-
-   The portal's event card is a NOTICE BOARD: it can remind people while they
-   are looking at it, and no further. The phone's own calendar is what buzzes
-   at 9am on the day — so the honest way to "ensure the event is saved inside
-   the user's mobile calendar" is to hand the phone a standard calendar file
-   (RFC 5545 .ics) and let its own Calendar app take it from there. iOS opens
-   it straight into Calendar; Android offers Google Calendar; a laptop gets
-   Outlook or Apple Calendar. No permission prompts, no store app needed.
-
-   The live button now opens the Worker-served .ics URL directly because that
-   is the path phone calendar apps understand most reliably. The builder below
-   stays exported for tests and for any future offline/export surface. */
+/* Calendar file export and provider drafts. Import behaviour depends on the
+   calendar application; generating a file or opening a draft is not a save. */
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** RFC 5545 text escaping: backslash, comma, semicolon, newline. */
 function icsEscape(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
 }
 
 /** Lines over 75 octets must fold onto a continuation line (RFC 5545 §3.1) —
     a long event description otherwise breaks strict parsers like Outlook. */
 function fold(line: string): string {
+  const encoder = new TextEncoder();
   const out: string[] = [];
-  let s = line;
-  while (s.length > 74) { out.push(s.slice(0, 74)); s = " " + s.slice(74); }
-  out.push(s);
+  let current = "",
+    bytes = 0;
+  for (const character of line) {
+    const length = encoder.encode(character).length;
+    if (bytes + length > 75) {
+      out.push(current);
+      current = " ";
+      bytes = 1;
+    }
+    current += character;
+    bytes += length;
+  }
+  out.push(current);
   return out.join("\r\n");
 }
 
 export interface CalendarEventLike {
   id: number;
   title: string;
-  event_date: string;             // YYYY-MM-DD
-  start_time?: string | null;     // HH:MM (Malaysia time)
+  event_date: string; // YYYY-MM-DD
+  start_time?: string | null; // HH:MM (Malaysia time)
   end_time?: string | null;
   location?: string | null;
   details?: string | null;
@@ -55,8 +59,7 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
     "PRODID:-//AZ ONE OFFICIAL//Staff Portal//EN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    // a STABLE UID: re-adding the same event UPDATES the phone's copy
-    // instead of duplicating it.
+    // Stable identity; each calendar application decides how to handle re-imports.
     `UID:event-${ev.id}@azoneofficial.com`,
     `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
     `SUMMARY:${icsEscape(ev.title)}`,
@@ -81,44 +84,79 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
     const next = new Date(Date.UTC(y!, mo! - 1, d! + 1));
     lines.push(
       `DTSTART;VALUE=DATE:${y}${pad(mo!)}${pad(d!)}`,
-      `DTEND;VALUE=DATE:${next.getUTCFullYear()}${pad(next.getUTCMonth() + 1)}${pad(next.getUTCDate())}`,
+      `DTEND;VALUE=DATE:${next.getUTCFullYear()}${pad(next.getUTCMonth() + 1)}${pad(next.getUTCDate())}`
     );
   }
 
   if (ev.location) lines.push(`LOCATION:${icsEscape(ev.location)}`);
-  const desc = [ev.category ? `Category: ${ev.category}` : "", ev.details ?? ""].filter(Boolean).join("\n");
+  const desc = [ev.category ? `Category: ${ev.category}` : "", ev.details ?? ""]
+    .filter(Boolean)
+    .join("\n");
   if (desc) lines.push(`DESCRIPTION:${icsEscape(desc)}`);
   lines.push(
-    // buzz the phone the evening before AND at the start — the point of the
-    // whole exercise is that nobody has to be looking at the portal.
-    "BEGIN:VALARM", "TRIGGER:-PT15H", "ACTION:DISPLAY", `DESCRIPTION:${icsEscape(ev.title)} — tomorrow`, "END:VALARM",
-    "BEGIN:VALARM", "TRIGGER:-PT0M", "ACTION:DISPLAY", `DESCRIPTION:${icsEscape(ev.title)}`, "END:VALARM",
+    // Request alerts 15 hours before and at the start; importers may override them.
+    "BEGIN:VALARM",
+    "TRIGGER:-PT15H",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsEscape(ev.title)} — upcoming`,
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT0M",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsEscape(ev.title)}`,
+    "END:VALARM",
     "END:VEVENT",
-    "END:VCALENDAR",
+    "END:VCALENDAR"
   );
-  return new Blob([lines.map(fold).join("\r\n") + "\r\n"], { type: "text/calendar;charset=utf-8" });
+  return new Blob([lines.map(fold).join("\r\n") + "\r\n"], {
+    type: "text/calendar;charset=utf-8",
+  });
 }
 
-/* v1.4.274 — the FIX for "it doesn't save inside my phone calendar".
-
-   v1.4.264 handed the file to the SHARE SHEET — but iOS's share sheet does
-   not offer Calendar as a target for .ics files (Calendar has no share
-   extension), and Android's rarely does. So the sheet opened, Calendar was
-   nowhere in it, and nothing saved. The door BOTH phones actually
-   understand is a plain navigation to an HTTPS URL whose response is
-   text/calendar: iOS Safari shows its built-in event preview with an
-   "Add All" button straight into Calendar; Android Chrome opens the file
-   into Google Calendar's import dialog. The worker now serves exactly that
-   at /api/v1/staff/events/:id/ics (session cookie rides along — same
-   origin), and this function navigates to it directly during the tap. */
-export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened"> {
-  // Navigate straight to the ICS URL while still inside the user's tap. The
-  // older blank-tab-then-probe flow was technically careful but felt broken in
-  // installed PWA/WebView shells: users could see a blank window before the
-  // calendar preview appeared, or no preview at all.
-  const url = `/api/v1/staff/events/${ev.id}/ics`;
-  const w = window.open(url, "_blank");
-  if (w) return "opened";
-  window.location.assign(url); // popup blocked — navigate here instead; Back returns to the portal
-  return "opened";
+/** Provider draft links do not prove that the person saved an event. */
+export function calendarLinks(ev: CalendarEventLike): {
+  google: string;
+  outlook: string;
+} {
+  const start = new Date(
+    `${ev.event_date}T${ev.start_time?.slice(0, 5) || "00:00"}:00+08:00`
+  );
+  let end =
+    ev.end_time && ev.start_time
+      ? new Date(`${ev.event_date}T${ev.end_time.slice(0, 5)}:00+08:00`)
+      : new Date(start.getTime() + (ev.start_time ? 3600000 : 86400000));
+  if (end <= start) end = new Date(end.getTime() + 86400000);
+  const compact = (d: Date) =>
+    d
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}/, "");
+  const nextDay = new Date(Date.parse(`${ev.event_date}T00:00:00Z`) + 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const google = new URL("https://calendar.google.com/calendar/render");
+  google.search = new URLSearchParams({
+    action: "TEMPLATE",
+    text: ev.title,
+    dates: ev.start_time
+      ? `${compact(start)}/${compact(end)}`
+      : `${ev.event_date.replaceAll("-", "")}/${nextDay.replaceAll("-", "")}`,
+    ctz: "Asia/Kuala_Lumpur",
+    details: ev.details || "",
+    location: ev.location || "",
+  }).toString();
+  const outlook = new URL(
+    "https://outlook.office.com/calendar/0/deeplink/compose"
+  );
+  outlook.search = new URLSearchParams({
+    path: "/calendar/action/compose",
+    rru: "addevent",
+    subject: ev.title,
+    startdt: ev.start_time ? start.toISOString() : ev.event_date,
+    enddt: ev.start_time ? end.toISOString() : nextDay,
+    allday: String(!ev.start_time),
+    body: ev.details || "",
+    location: ev.location || "",
+  }).toString();
+  return { google: google.href, outlook: outlook.href };
 }

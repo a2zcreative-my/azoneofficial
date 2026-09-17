@@ -33,7 +33,7 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
       }
     } catch { /* private mode */ }
     // full reload — a clean mount on the Dashboard, nothing half-broken kept
-    window.location.reload();
+    window.location.replace("/portal?tab=Dashboard");
   };
 
   return (

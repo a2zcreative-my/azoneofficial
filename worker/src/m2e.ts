@@ -38,8 +38,8 @@ interface ZipEntry { name: string; data: Uint8Array }
 const td = new TextDecoder();
 const te = new TextEncoder();
 
-function u16(b: Uint8Array, o: number): number { return b[o] | (b[o + 1] << 8); }
-function u32(b: Uint8Array, o: number): number { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+function u16(b: Uint8Array, o: number): number { return new DataView(b.buffer, b.byteOffset, b.byteLength).getUint16(o, true); }
+function u32(b: Uint8Array, o: number): number { return new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(o, true); }
 
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream("deflate-raw");
@@ -91,7 +91,7 @@ const CRC_TABLE = (() => {
 
 function crc32(data: Uint8Array): number {
   let c = 0xffffffff;
-  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  for (const byte of data) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 
@@ -187,7 +187,7 @@ export function patchSheetXml(xml: string, cells: Map<number, CellVal[]>): strin
           const cellsIn = [...inner.matchAll(/<c r="([A-Z]+)\d+"/g)];
           let inserted = false;
           for (const ci of cellsIn) {
-            if (COL_ORD(ci[1]) > COL_ORD(v.col)) {
+            if (COL_ORD(ci[1]!) > COL_ORD(v.col)) {
               inner = inner.slice(0, ci.index!) + nc + inner.slice(ci.index!);
               inserted = true;
               break;
@@ -207,7 +207,7 @@ export function patchSheetXml(xml: string, cells: Map<number, CellVal[]>): strin
         .join("");
       const newRow = `<row r="${row}">${nc}</row>`;
       const rows = [...xml.matchAll(/<row r="(\d+)"/g)];
-      const after = rows.find((r) => parseInt(r[1], 10) > row);
+      const after = rows.find((r) => parseInt(r[1]!, 10) > row);
       if (after) xml = xml.slice(0, after.index!) + newRow + xml.slice(after.index!);
       else xml = xml.replace("</sheetData>", `${newRow}</sheetData>`);
     }
@@ -221,11 +221,11 @@ function sheetPaths(entries: ZipEntry[]): Map<string, string> {
   const wb = td.decode(get("xl/workbook.xml")!.data);
   const rels = td.decode(get("xl/_rels/workbook.xml.rels")!.data);
   const relMap = new Map<string, string>();
-  for (const m of rels.matchAll(/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/>/g)) relMap.set(m[1], m[2]);
+  for (const m of rels.matchAll(/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/>/g)) relMap.set(m[1]!, m[2]!);
   const out = new Map<string, string>();
   for (const m of wb.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"[^>]*\/>/g)) {
-    const target = relMap.get(m[2]);
-    if (target) out.set(m[1].replace(/&amp;/g, "&").replace(/&quot;/g, '"'), target.startsWith("/") ? target.slice(1) : `xl/${target}`);
+    const target = relMap.get(m[2]!);
+    if (target) out.set(m[1]!.replace(/&amp;/g, "&").replace(/&quot;/g, '"'), target.startsWith("/") ? target.slice(1) : `xl/${target}`);
   }
   return out;
 }

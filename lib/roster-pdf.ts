@@ -426,7 +426,7 @@ export async function shareRosterPdf(
   onLeave: RosterPdfLeave[], conflictIds: number[], generatedBy: string,
   blocks: RosterPdfBlock[] = [], blockConflictIds: number[] = [],
   extras: RosterPdfExtras = {},
-): Promise<"shared" | "downloaded"> {
+): Promise<"shared" | "downloaded" | "cancelled"> {
   const weekTag = days[0] ? days[0]!.slice(0, 10) : "week";
   const blob = new Blob(
     [assemblePdf(drawRosterGrid(days, sessions, staff, onLeave, conflictIds, generatedBy, blocks, blockConflictIds, extras),

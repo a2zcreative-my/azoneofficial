@@ -1,4 +1,5 @@
 "use client";
+import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-preview";
 
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
@@ -104,10 +105,7 @@ export function printSOA(company: string, docs: SalesDoc[]) {
   </tr>`
     )
     .join("");
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
-  w.document
-    .write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=794">
+  openPrintPreview(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=794">
   <title>SOA — ${esc(company)}</title>
   <style>
     /* v1.158.1 - the viewport is the paper (794px), so a phone prints the same one page as a desk; see lib/doc-template.ts */
@@ -157,7 +155,6 @@ export function printSOA(company: string, docs: SalesDoc[]) {
   <div class="pay">Kindly settle the outstanding balance by bank transfer — ${bankTransferLine(DOCUMENT_ISSUER)}, quoting the invoice number. Please send the transfer receipt via WhatsApp ${DOCUMENT_ISSUER.whatsapp}.</div>
   <div class="foot">${DOCUMENT_ISSUER.name} · ${DOCUMENT_ISSUER.slogan} · ${DOCUMENT_ISSUER.website}<br/>This is a computer-generated statement; no signature is required.</div>
   </body></html>`);
-  w.document.close();
 }
 
 /** Fetch a full document and open a branded, print-ready PDF window. */
@@ -165,10 +162,12 @@ export function printSOA(company: string, docs: SalesDoc[]) {
    itself is built by lib/doc-template so the customer's shared link renders
    the identical thing. */
 export async function printDoc(id: number) {
+  openDocumentPreview(L("Document", "Dokumen"), async (signal) => {
   const res = await fetch(`/api/v1/staff/docs/${id}`, {
     credentials: "include",
+    signal,
   });
-  if (!res.ok) return;
+  if (!res.ok) throw new Error(L("The document could not be loaded. Try again.", "Dokumen tidak dapat dimuatkan. Cuba lagi."));
   /* v1.33.3 — a 200 carrying no `doc` used to throw inside buildDocHtml, and
      this runs straight after a SUCCESSFUL save. The document exists; the
      person just sees the screen fall over instead of their PDF, assumes the
@@ -177,28 +176,10 @@ export async function printDoc(id: number) {
   const { doc } = ((await res.json().catch(() => ({}))) ?? {}) as {
     doc?: DocFull;
   };
-  if (!doc) return;
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
-  /* v1.158.1 (CEO: "when I create invoice in Mobile apps view, the pdf
-     generate 2 page instead of the 1 pages format which is being used in
-     Web view! this is unacceptable!"). On a phone the PDF button used to
-     hand the browser's OWN print dialog a page laid out at phone width, and
-     Save as PDF paginated that into two. A phone now gets the real file
-     instead - the same one-page A4 the Share button has always built
-     (lib/doc-pdf.ts) - opened in the tab, where the phone's viewer shows it
-     and can share or save it. A desk keeps the print dialog, which prints
-     the same one page. lib/doc-template.ts is fixed for the phone too, for
-     the customer's shared link. */
-  if (window.matchMedia("(max-width: 767px)").matches) {
-    try {
-      const blob = await buildDocPdf(doc);
-      w.location.href = URL.createObjectURL(blob);
-      return;
-    } catch { /* fall through to the print window */ }
-  }
-  w.document.write(buildDocHtml(doc));
-  w.document.close();
+  if (!doc) throw new Error(L("The document response was incomplete. Try again.", "Maklum balas dokumen tidak lengkap. Cuba lagi."));
+  const blob = await buildDocPdf(doc);
+  return { html: buildDocHtml(doc, false), blob, filename: `${doc.doc_number}.pdf` };
+  });
 }
 
 /* v1.4.191 CLIENT LAYER (CEO gap list): per-client agency view — invoiced /

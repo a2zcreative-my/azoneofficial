@@ -2,6 +2,27 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.165.0] - 2026-09-17 - PWA documents, calendar and production audit
+
+- Claims, receipts, payment proofs, evidence, invoices, payslips, leave forms,
+  statements and badges use a shared viewer with a visible Back control.
+  Closing retains the current page; PDF attachments render inside the app.
+- Calendar actions offer Google Calendar, Outlook and an ICS file export.
+  They no longer open an authenticated calendar file as a blank PWA window
+  or claim that an external calendar saved the event. UTC/MYT, overnight,
+  all-day and multilingual exports are covered by executable checks.
+- Repeated event-save taps are locked while saving; a failed save retains the
+  draft. Failed event loads show a retry action. Finance no longer announces
+  successful payment/removal for rejected requests. Cancelled PDF sharing
+  is distinct from success; unsupported sharing falls back to download.
+- Permission Matrix reads the real role policy. Page errors have recovery
+  controls, and portal recovery clears a failing deep link.
+- Cleared API strict type errors and made all future TypeScript errors block
+  release. Added regression tests for OTP, payroll exports, sharing and PWA
+  navigation. Service-worker shell cache advanced to v34.
+- No database migrations or approval/signature policy changes. Audit scope,
+  verification and device limitations: `docs/PWA-PRODUCTION-AUDIT-2026-09-17.md`.
+
 ## Unreleased - Work-first card-order rollout
 
 Reordered Dashboard, Ecommerce, Inventory, Sales, Attendance and Users around daily

@@ -13,7 +13,7 @@
    (/portal?tab=Leave), and an open portal window is NAVIGATED there rather
    than matched by substring and missed. Bumped so every installed shell picks
    up the new click handler on its next visit. */
-const SHELL = "azone-shell-v33";
+const SHELL = "azone-shell-v34";
 const SHELL_URLS = ["/portal", "/account", "/login", "/logo.png", "/icon-192.png", "/manifest.json"];
 
 self.addEventListener("install", (e) => {

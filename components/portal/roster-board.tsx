@@ -1177,7 +1177,8 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                     data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal",
                     blocks, [...hardBlockIds, ...softBlockIds],
                     { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })), shifts, restDays: (data.rest_days ?? []).filter((r) => !bookedAt(r.user_id, r.date)) });
-                  showToast(how === "shared" ? L("Ready to share", "Sedia untuk dikongsi") : L("Downloaded", "Dimuat turun"),
+                  if (how === "cancelled") return;
+                  showToast(how === "shared" ? L("Shared", "Dikongsi") : L("Downloaded", "Dimuat turun"),
                     `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`
                     + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : ""));
                 }}>

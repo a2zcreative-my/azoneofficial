@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { mobileAppBottomClearance } from "@/lib/ui-styles";
+import { can, type Role } from "@/worker/src/permissions";
 
 /* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same goes
    to other. everything must follow like /portal UI/UX") — this page had NO
@@ -11,19 +12,19 @@ import { mobileAppBottomClearance } from "@/lib/ui-styles";
    looked like leaving the product. It sits in the same shell now, full
    width, with a way back. The matrix itself is untouched. */
 export default function PermissionsPage() {
-  const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+  const ROLES: Role[] = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
   
   const PERMISSIONS = [
-    { id: "staff_read", label: "View Staff" },
-    { id: "staff_write", label: "Edit Staff" },
-    { id: "audit_read", label: "View Audit Logs" },
-    { id: "roles_manage", label: "Manage Roles" },
-    { id: "payroll_manage", label: "Manage Payroll" },
-    { id: "payroll_view", label: "View Payroll" },
-    { id: "inventory_read", label: "View Inventory" },
-    { id: "inventory_write", label: "Edit Inventory" },
-    { id: "claims_manage", label: "Manage Claims" },
-    { id: "sales_manage", label: "Manage Sales" },
+    { id: "hr_manage", label: "HR Administration" },
+    { id: "team_manage", label: "Team Management" },
+    { id: "exec_view", label: "Executive Reports" },
+    { id: "role_assign", label: "Staff Role Assignment" },
+    { id: "payroll_export", label: "Payroll Export" },
+    { id: "events_manage", label: "Manage Events" },
+    { id: "inventory", label: "Inventory" },
+    { id: "claims_submit", label: "Submit Claims" },
+    { id: "claims_decide", label: "Decide Claims" },
+    { id: "sales", label: "Sales" },
     { id: "enquiry_manage", label: "Manage Enquiries" },
     { id: "sync_manage", label: "Manage Integrations" },
   ];
@@ -42,7 +43,7 @@ export default function PermissionsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Permission Matrix</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            A read-only overview of which roles have access to which actions across the platform.
+            Role permissions. Individual records can also require ownership, approval or verification.
           </p>
         </div>
         <Link href="/admin" className="border-border hover:bg-secondary rounded-lg border px-3 py-1.5 text-sm">← Admin console</Link>
@@ -65,17 +66,7 @@ export default function PermissionsPage() {
               <tr key={perm.id} className="hover:bg-secondary/20 transition-colors">
                 <td className="p-3 font-medium">{perm.label}</td>
                 {ROLES.map((role) => {
-                  // Simplified representation for visual matrix.
-                  // The actual `can(role, perm)` is enforced server-side.
-                  let hasPerm = false;
-                  if (role === "super_admin" || role === "ceo") hasPerm = true;
-                  else if (perm.id.includes("sales") && ["sales_marketing", "marketing", "editor"].includes(role)) hasPerm = true;
-                  else if (perm.id.includes("payroll") && ["hr_admin", "admin", "coo", "cco"].includes(role)) hasPerm = true;
-                  else if (perm.id.includes("staff") && ["hr_admin", "admin", "coo", "cco", "sales_marketing"].includes(role)) hasPerm = true;
-                  else if (perm.id.includes("inventory") && ["editor", "marketing", "admin"].includes(role)) hasPerm = true;
-                  else if (role === "admin" && perm.id !== "roles_manage") hasPerm = true;
-                  else if (role === "coo" || role === "cco") hasPerm = true;
-                  else if (role === "customer") hasPerm = false;
+                  const hasPerm = can(role, perm.id);
                   
                   return (
                     <td key={`${perm.id}-${role}`} className="p-3 text-center">

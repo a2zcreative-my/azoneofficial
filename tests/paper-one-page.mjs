@@ -69,9 +69,9 @@ for (const [name, file] of papers) {
 {
   const sales = read("components/portal/sales.tsx");
   const fn = sales.slice(sales.indexOf("export async function printDoc("), sales.indexOf("/* v1.4.191 CLIENT LAYER"));
-  ok("on a phone, printDoc opens the real one-page PDF instead of the print dialog",
-    /window\.matchMedia\("\(max-width: 767px\)"\)\.matches/.test(fn) && /const blob = await buildDocPdf\(doc\);/.test(fn) && /w\.location\.href = URL\.createObjectURL\(blob\);/.test(fn));
-  ok("...and a desk keeps the print window", /w\.document\.write\(buildDocHtml\(doc\)\);/.test(fn));
+  ok("printDoc provides the real one-page PDF in a closable viewer",
+    /openDocumentPreview/.test(fn) && /const blob = await buildDocPdf\(doc\);/.test(fn) && /blob, filename:/.test(fn) && !/window\.open/.test(fn));
+  ok("...and keeps the shared HTML for printing", /html: buildDocHtml\(doc, false\)/.test(fn));
   ok("...built by the same file the Share button uses", /import \{ buildDocPdf \} from "@\/lib\/doc-pdf";/.test(sales));
 }
 

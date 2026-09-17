@@ -1,4 +1,5 @@
 "use client";
+import { openPrintPreview } from "@/components/ui/document-preview";
 
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
@@ -136,8 +137,6 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
      AZOO-HR-LVE document number; an A2Z form is a different controlled
      document with its own number and version (see lib/issuers.ts). */
   const issuer = resolveIssuer(l.issuer_code);
-  const w = window.open("", "_blank", "width=900,height=950");
-  if (!w) return;
   const myt = (iso: string | null | undefined): string => {
     if (!iso) return "";
     if (iso.length <= 10) return dmy(iso);
@@ -182,8 +181,7 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
   ]
     .filter(Boolean)
     .join(" · ");
-  w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+  openPrintPreview(`<!doctype html><html><head><meta charset="utf-8">
   <title>${esc(lvNo)} — Leave Application Form</title>
   <style>
     @page { size: A4; margin: 0; } /* v1.4.239 — margin moved to @media print */
@@ -250,7 +248,6 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
   <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${esc(lvNo)}; the in-system decision is authoritative.</p>
   <script>window.onload = function () { window.print(); };</script>
   </body></html>`);
-  w.document.close();
 }
 
 /* v1.4.249: the same number the printed form and the PDF carry, so a row, a

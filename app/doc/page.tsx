@@ -29,6 +29,7 @@ import { buildDocHtml, type DocFull } from "@/lib/doc-template";
    document's issuer was — support is who answers the phone today. */
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
+import { ArrowLeft } from "lucide-react";
 
 // A4 at 96dpi — the width the template is designed against.
 const PAGE_W = 794;
@@ -96,8 +97,9 @@ export default function PublicDocPage() {
 
   return (
     <main className="min-h-screen bg-[var(--doc-page)] pb-10">
-      <header className="sticky top-0 z-10 border-b border-[var(--doc-line)] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-[var(--doc-line)] bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="mx-auto flex max-w-[850px] flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <button type="button" className="inline-flex min-h-11 items-center gap-1 px-2 text-sm text-[var(--doc-navy)]" onClick={() => { if (history.length > 1) history.back(); else window.location.assign("/"); }}><ArrowLeft size={18} aria-hidden />Back</button>
           <div className="min-w-0">
             <p className="truncate text-sm font-extrabold text-[var(--doc-navy)]">{brand}</p>
             <p className="truncate text-xs text-[var(--doc-muted)]">{label}</p>

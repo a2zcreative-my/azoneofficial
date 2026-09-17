@@ -1,4 +1,5 @@
 "use client";
+import { openAttachment } from "@/components/ui/document-preview";
 
 /**
  * SALES PERFORMANCE - one tab, one page, the command centre. v1.155.0.
@@ -228,10 +229,10 @@ function Evidence({ evidenceKey, className = "" }: { evidenceKey: string | null 
   if (!evidenceKey) return <span className="text-muted-foreground text-[11px]">{L("no screenshot", "tiada tangkapan skrin")}</span>;
   const src = `${EVIDENCE_URL}?key=${encodeURIComponent(evidenceKey)}`;
   return (
-    <a href={src} target="_blank" rel="noreferrer" className={`inline-block ${className}`} title={L("Open the screenshot", "Buka tangkapan skrin")}>
+    <button type="button" onClick={() => openAttachment(src, L("Evidence screenshot", "Tangkapan skrin bukti"))} className={`inline-block ${className}`} title={L("Open the screenshot", "Buka tangkapan skrin")}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={L("Evidence screenshot", "Tangkapan skrin bukti")} className="border-border h-10 w-10 rounded-md border object-cover" loading="lazy" />
-    </a>
+    </button>
   );
 }
 

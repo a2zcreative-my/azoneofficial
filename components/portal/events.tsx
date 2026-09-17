@@ -9,12 +9,12 @@ import { rowActions, rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { addEventToCalendar } from "@/lib/event-ics";
+import { openCalendarDialog } from "@/components/ui/calendar-dialog";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 
 /* ================= Company events (v1.4.73) ================= */
@@ -64,6 +64,9 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
   const [events, setEvents] = useState<CompanyEvent[]>([]);
   const [msg, setMsg] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     category: "training",
@@ -112,6 +115,9 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
     if (res.ok && res.data) {
       setEvents(res.data.events);
       setStaffOptions(res.data.staff ?? []);
+      setLoadError("");
+    } else {
+      setLoadError(L("Events could not be refreshed. Try again.", "Acara tidak dapat dimuat semula. Cuba lagi."));
     }
     setLoaded(true);
   }, []);
@@ -167,11 +173,15 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
   };
 
   const createEvent = async () => {
+    if (savingRef.current) return;
     if (!draft.title.trim() || !draft.event_date) {
       setMsg(L("Title and date are required.", "Tajuk dan tarikh diperlukan."));
       return;
     }
     setMsg("");
+    savingRef.current = true;
+    setSaving(true);
+    try {
     const res = await api<{ error?: { message?: string } }>(`/staff/events`, {
       method: "POST",
       body: JSON.stringify({
@@ -209,6 +219,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
       )
     );
     void loadEvents();
+    } finally { savingRef.current = false; setSaving(false); }
   };
 
   /* v1.77.0 — this used to delete and say nothing, not even checking whether
@@ -229,6 +240,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
   return (
     <div className={embedded ? "" : card}>
       {toastNode}
+      {loadError && <p role="alert" className="mb-3 text-sm text-destructive">{loadError} <button type="button" className="underline" onClick={() => void loadEvents()}>{L("Retry", "Cuba lagi")}</button></p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           {!embedded && (
@@ -419,6 +431,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
             type="button"
             className={btnClass}
             onClick={() => void createEvent()}
+            disabled={saving}
           >
             {draft.attendees.length === 0
               ? L("Save event — notifies all staff", "Simpan acara — memaklumkan semua kakitangan")
@@ -486,15 +499,6 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
-          onAdded={(title) =>
-            showToast(
-              L("Calendar opened", "Kalendar dibuka"),
-              L(
-                `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
-                `${title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
-              )
-            )
-          }
         />
       )}
       {loaded && view === "list" && (
@@ -559,19 +563,10 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
                   type="button"
                   className={rowBtn}
                   title={L(
-                    "Save this event into your phone's calendar — it carries a reminder the evening before and at the start",
-                    "Simpan acara ini ke dalam kalendar telefon anda — ia membawa peringatan pada malam sebelumnya dan pada waktu mula"
+                    "Choose a calendar or download the event file",
+                    "Pilih kalendar atau muat turun fail acara"
                   )}
-                  onClick={async () => {
-                    await addEventToCalendar(ev);
-                    showToast(
-                      L("Calendar opened", "Kalendar dibuka"),
-                      L(
-                        `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
-                        `${ev.title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
-                      ),
-                    );
-                  }}
+                  onClick={() => openCalendarDialog(ev)}
                 >
                   <AppIcon name="calendarAdd" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Add to my calendar", "Tambah ke kalendar saya")}
                 </button>
@@ -623,7 +618,6 @@ export function EventsCalendar({
   onSelect,
   canManage,
   onRemove,
-  onAdded,
 }: {
   events: CompanyEvent[];
   holidays: { holiday_date: string; name: string; kind: string }[];
@@ -636,10 +630,6 @@ export function EventsCalendar({
   onSelect: (d: string | null) => void;
   canManage: boolean;
   onRemove: (id: number) => void;
-  onAdded: (
-    title: string,
-    how: "opened"
-  ) => void;
 }) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -929,13 +919,10 @@ export function EventsCalendar({
                     type="button"
                     className={rowBtn}
                     title={L(
-                      "Save this event into your phone's calendar — it carries a reminder the evening before and at the start",
-                      "Simpan acara ini ke dalam kalendar telefon anda — ia membawa peringatan pada malam sebelumnya dan pada waktu mula"
+                      "Choose a calendar or download the event file",
+                      "Pilih kalendar atau muat turun fail acara"
                     )}
-                    onClick={async () => {
-                      const how = await addEventToCalendar(ev);
-                      onAdded(ev.title, how);
-                    }}
+                    onClick={() => openCalendarDialog(ev)}
                   >
                     <AppIcon name="calendarAdd" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Add to my calendar", "Tambah ke kalendar saya")}
                   </button>

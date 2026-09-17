@@ -181,7 +181,7 @@ async function verifyPassword(
 ): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
-  const iterations = parseInt(parts[1], 10);
+  const iterations = parseInt(parts[1]!, 10);
   const salt = parts[2];
   const expected = parts[3];
   if (!salt || !expected || isNaN(iterations)) return false;
@@ -257,7 +257,7 @@ export function primaryOrigin(env: Env): string {
 function corsHeaders(env: Env, request?: Request, allowPublicForm = false): HeadersInit {
   const origins = allowPublicForm ? [...allowedOrigins(env), ...publicFormOrigins(env)] : allowedOrigins(env);
   const reqOrigin = request?.headers.get("Origin");
-  const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : origins[0];
+  const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : (origins[0] ?? "null");
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -333,10 +333,9 @@ async function totpAt(secret: string, counter: number): Promise<string> {
   view.setUint32(0, Math.floor(counter / 2 ** 32));
   view.setUint32(4, counter >>> 0);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg));
-  const offset = sig[sig.length - 1] & 0x0f;
-  const bin =
-    ((sig[offset] & 0x7f) << 24) | (sig[offset + 1] << 16) |
-    (sig[offset + 2] << 8) | sig[offset + 3];
+  const signature = new DataView(sig.buffer, sig.byteOffset, sig.byteLength);
+  const offset = signature.getUint8(sig.length - 1) & 0x0f;
+  const bin = signature.getUint32(offset) & 0x7fffffff;
   return String(bin % 1_000_000).padStart(6, "0");
 }
 
@@ -1936,7 +1935,7 @@ export default {
       (03:20 MYT) = database backup to R2 (v1.4.72). Real sync failures land
       in the error log — "not configured / not authorized" are expected until
       the TikTok setup completes and stay silent. */
-  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
     // v1.37.0: the ELFIA orders poller gets its OWN 5-minute trigger — a web
     // order should not wait half an hour, and a bridge failure must never be
     // able to swallow the 30-min chain (clock-out reminders, TikTok sync).
@@ -2397,7 +2396,7 @@ export default {
       const err = err0;
       if (!retried) console.error(err);
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
-      const error_id = "ERR-" + crypto.randomUUID().split('-')[0].toUpperCase();
+      const error_id = "ERR-" + crypto.randomUUID().slice(0, 8).toUpperCase();
       // v1.7.2: the message stored in the log must NOT contain the random
       // error_id — including it gave every occurrence of the SAME exception a
       // unique message, which defeated the 6-hour de-dupe and produced the
@@ -2605,7 +2604,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     let pending = false;
     try {
       const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1`).all<{ name: string }>();
-      if (results.length === 0 || results[0].name !== `${LATEST_MIGRATION}.sql`) {
+      if (results[0]?.name !== `${LATEST_MIGRATION}.sql`) {
         pending = true;
       }
     } catch {
