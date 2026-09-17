@@ -486,29 +486,13 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
-          onAdded={(title, how) =>
+          onAdded={(title) =>
             showToast(
-              how === "opened"
-                ? L("Calendar opened", "Kalendar dibuka")
-                : how === "stale"
-                  ? L("Server needs the update", "Pelayan perlu dikemas kini")
-                  : L("Saved", "Disimpan"),
-              how === "opened"
-                ? L(
-                    `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
-                    `${title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
-                  )
-                : how === "stale"
-                  ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
-                  : how === "shared"
-                    ? L(
-                        `${title} — pick Calendar in the share sheet to finish`,
-                        `${title} — pilih Kalendar dalam helaian kongsi untuk selesai`
-                      )
-                    : L(
-                        `${title} — calendar file downloaded; open it to add the event`,
-                        `${title} — fail kalendar dimuat turun; buka untuk menambah acara`
-                      )
+              L("Calendar opened", "Kalendar dibuka"),
+              L(
+                `${title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
+                `${title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
+              )
             )
           }
         />
@@ -579,33 +563,13 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
                     "Simpan acara ini ke dalam kalendar telefon anda — ia membawa peringatan pada malam sebelumnya dan pada waktu mula"
                   )}
                   onClick={async () => {
-                    const how = await addEventToCalendar(ev);
+                    await addEventToCalendar(ev);
                     showToast(
-                      how === "opened"
-                        ? L("Calendar opened", "Kalendar dibuka")
-                        : how === "stale"
-                          ? L(
-                              "Server needs the update",
-                              "Pelayan perlu dikemas kini"
-                            )
-                          : L("Saved", "Disimpan"),
-                      how === "opened"
-                        ? L(
-                            `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
-                            `${ev.title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
-                          )
-                        : how === "stale"
-                          ? "The calendar fix lives on the server — deploy the worker (cd worker && wrangler deploy), then this button saves properly"
-                          : how === "shared"
-                            ? L(
-                                `${ev.title} — pick Calendar in the share sheet to finish`,
-                                `${ev.title} — pilih Kalendar dalam helaian kongsi untuk selesai`
-                              )
-                            : L(
-                                `${ev.title} — calendar file downloaded; open it to add the event`,
-                                `${ev.title} — fail kalendar dimuat turun; buka untuk menambah acara`
-                              ),
-                      how === "stale" ? "notice" : undefined
+                      L("Calendar opened", "Kalendar dibuka"),
+                      L(
+                        `${ev.title} — tap Add All (iPhone) or Save (Android) on the page that just opened`,
+                        `${ev.title} — tekan Add All (iPhone) atau Save (Android) pada halaman yang baru dibuka`
+                      ),
                     );
                   }}
                 >
@@ -674,7 +638,7 @@ export function EventsCalendar({
   onRemove: (id: number) => void;
   onAdded: (
     title: string,
-    how: "opened" | "shared" | "downloaded" | "stale"
+    how: "opened"
   ) => void;
 }) {
   const y = Number(month.slice(0, 4));

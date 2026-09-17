@@ -5109,7 +5109,7 @@ export async function handleStaff(
         if (ev.end_time && /^\d{2}:\d{2}/.test(ev.end_time)) {
           const [eh, em] = ev.end_time.split(":").map(Number);
           endUtc = new Date(Date.UTC(y!, mo! - 1, d!, eh! - 8, em!));
-          if (endUtc <= startUtc) endUtc = new Date(startUtc.getTime() + 3600_000);
+          if (endUtc <= startUtc) endUtc = new Date(endUtc.getTime() + 86_400_000);
         } else endUtc = new Date(startUtc.getTime() + 3600_000);
         const z = (dt: Date) => `${dt.getUTCFullYear()}${pad2(dt.getUTCMonth() + 1)}${pad2(dt.getUTCDate())}T${pad2(dt.getUTCHours())}${pad2(dt.getUTCMinutes())}00Z`;
         lines.push(`DTSTART:${z(startUtc)}`, `DTEND:${z(endUtc)}`);

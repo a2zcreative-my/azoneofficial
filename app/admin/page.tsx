@@ -21,7 +21,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { btnClass, btnGhost, btnHdr, card, inputClass, sheetCard } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnHdr, card, inputClass, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmyMYT as dmyMyt } from "@/lib/format";
@@ -1054,7 +1054,7 @@ function AdminPageSkeleton() {
         </div>
       }
     >
-    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`} aria-busy="true">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
         style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
         <div className="space-y-1.5">
@@ -1069,7 +1069,7 @@ function AdminPageSkeleton() {
       </header>
 
       {/* bottom navigation (phones) — four tab slots + More, like the real one */}
-      <nav className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }} aria-hidden>
+      <nav className={mobileBottomNav} aria-hidden>
         {Array.from({ length: 5 }, (_, i) => (
           <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
             <Skel className="h-9 w-9 rounded-xl" />
@@ -1186,9 +1186,8 @@ export default function AdminPage() {
     setUser(null);
   };
 
-  /* v1.11.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset (same
-     as /portal), and pb-24 left the last card tucked under it on notched
-     phones. */
+  /* v1.164.1: phone bottom spacing follows the shared PWA nav clearance used
+     by /portal and /account. */
   /* v1.22.8 (CEO: "/admin and /account also I found doesnt follow UI/UX as
      /portal"): the admin console now sits on the SAME shell as the portal —
      navy backdrop, rounded canvas, internal scroll on desktop — and every
@@ -1215,7 +1214,7 @@ export default function AdminPage() {
         />
       }
     >
-    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
@@ -1263,12 +1262,7 @@ export default function AdminPage() {
         return (
           <>
             <nav
-              className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-              /* v1.25.4 (CEO: "Why bottom nav like this?!!!" — labels sliced along
-           their bottom edge on iPhone): iOS Safari reports this inset as 0 while
-           its floating toolbar is shown, which removed ALL breathing room under
-           the labels. max() guarantees a floor either way. */
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
+              className={mobileBottomNav}
               aria-label={L("Admin sections (mobile)", "Seksyen admin (mudah alih)")}
             >
               {/* v1.11.0 (reference design, ported from /portal): each tab

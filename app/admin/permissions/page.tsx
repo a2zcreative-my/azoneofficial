@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
+import { mobileAppBottomClearance } from "@/lib/ui-styles";
 
 /* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same goes
    to other. everything must follow like /portal UI/UX") — this page had NO
@@ -36,7 +37,7 @@ export default function PermissionsPage() {
         </div>
       }
     >
-    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Permission Matrix</h1>

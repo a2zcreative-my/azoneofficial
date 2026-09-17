@@ -88,6 +88,19 @@ export const sheetCard = "border-border bg-card absolute inset-x-0 bottom-0 max-
 /** The centred confirmation card that pops and fades. */
 export const toastCard = "bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl";
 
+/* v1.164.1 — PWA bottom chrome has one measurement now.
+
+   The installed app and an ordinary browser tab do not agree on the bottom
+   safe area. Hard-coded `pb-28` cleared most phones, but it was disconnected
+   from the fixed nav's real height, so the content could feel slightly
+   floated or tucked depending on the WebView. Keep the nav and the page
+   clearance on the same formula: 4rem nav + its safe-area floor + one
+   breathing unit for the last card. */
+export const mobileAppBottomClearance =
+  "pb-[calc(5rem+max(env(safe-area-inset-bottom,0px),6px))]";
+export const mobileBottomNav =
+  "border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t pb-[max(env(safe-area-inset-bottom,0px),6px)] md:hidden";
+
 /* v1.70.0 — ONE standard content width for the whole portal.
    (CEO: "make the width globally standardize instead of inconsistent")
 

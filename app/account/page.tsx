@@ -9,7 +9,7 @@ import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a 
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, btnClass, btnGhost, btnHdr, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, btnGhost, btnHdr, chipSuccess, chipWarn, chipNeutral, mobileAppBottomClearance, mobileBottomNav } from "@/lib/ui-styles";
 import { AppShell } from "@/components/layout/app-shell";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { dmy, fmtRM } from "@/lib/format";
@@ -70,7 +70,7 @@ function AccountPageSkeleton() {
         </div>
       }
     >
-    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8" aria-busy="true">
+    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`} aria-busy="true">
       <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
         style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
         <div className="space-y-1.5">
@@ -84,7 +84,7 @@ function AccountPageSkeleton() {
       </header>
 
       {/* bottom navigation (phones) — three real-sized slots */}
-      <nav className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }} aria-hidden>
+      <nav className={mobileBottomNav} aria-hidden>
         {Array.from({ length: 3 }, (_, i) => (
           <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
             <Skel className="h-9 w-9 rounded-xl" />
@@ -195,7 +195,7 @@ export default function AccountPage() {
         />
       }
     >
-    <div className="w-full px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-8">
+    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
       {toastNode}
       {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
           the sticky header overhung the viewport by 4px each side. */}
@@ -247,12 +247,7 @@ export default function AccountPage() {
           v1.11.0: same shell as /portal and /admin — icon per tab, the active
           one in a filled navy rounded square with the label beneath. */}
       <nav
-        className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-        /* v1.25.4 (CEO: "Why bottom nav like this?!!!" — labels sliced along
-           their bottom edge on iPhone): iOS Safari reports this inset as 0 while
-           its floating toolbar is shown, which removed ALL breathing room under
-           the labels. max() guarantees a floor either way. */
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
+        className={mobileBottomNav}
         aria-label={L("Account sections (mobile)", "Bahagian akaun (mudah alih)")}
       >
         {/* v1.16.0: emoji tuples -> the shared SVG icon map. */}

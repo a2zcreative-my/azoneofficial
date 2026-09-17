@@ -76,7 +76,7 @@ import {
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
-import { PORTAL_WIDTH, btnClass, btnHdr, btnHdrDesktop, card, sheetCard } from "@/lib/ui-styles";
+import { PORTAL_WIDTH, btnClass, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
@@ -820,8 +820,8 @@ export default function PortalPage() {
           },
         ]}
       />
-      {/* v1.10.0: pb-28 — the bottom nav grew to min-h-16 + safe-area inset,
-        pb-24 left the last card's edge underneath it on notched phones. */}
+      {/* v1.164.1: the bottom clearance now follows the fixed nav's real PWA
+        safe-area formula instead of a detached pb-28 guess. */}
       {/* v1.70.0 (CEO: "make the width globally standardize instead of
           inconsistent") — the portal had NO maximum width on desktop
           (`md:max-w-none`), so every card stretched to whatever the window
@@ -831,7 +831,7 @@ export default function PortalPage() {
           One standard width, centred, defined once in ui-styles and used by
           every screen. 1600px is wide enough for the seven-column roster and
           the payroll tables, narrow enough that prose stays readable. */}
-      <div className={`w-full px-4 py-3 pb-28 md:px-5 md:py-4 md:pb-6 ${PORTAL_WIDTH}`}>
+      <div className={`w-full px-4 py-3 md:px-5 md:py-4 md:pb-6 ${mobileAppBottomClearance} ${PORTAL_WIDTH}`}>
         {/* v1.13.0: on desktop this row IS the shell's topbar. `md:-mx-5 md:-mt-4`
           breaks it out of <main>'s padding so it spans the full working area,
           and it stays sticky/bordered instead of dissolving into the page as
@@ -1144,14 +1144,7 @@ export default function PortalPage() {
         {/* App-style bottom navigation (v1.4.49) — phones only. The first four
           of this person's tabs are one thumb-tap away; the rest are in More. */}
         <nav
-          className="border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
-          /* v1.25.4 (CEO: "Why bottom nav like this?!!!" — labels sliced along
-           their bottom edge on iPhone): iOS Safari reports this inset as 0 while
-           its floating toolbar is shown, which removed ALL breathing room under
-           the labels. max() guarantees a floor either way. */
-          style={{
-            paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
-          }}
+          className={mobileBottomNav}
           aria-label={L(
             "Portal sections (mobile)",
             "Bahagian portal (mudah alih)"

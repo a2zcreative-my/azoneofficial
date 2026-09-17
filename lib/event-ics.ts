@@ -8,7 +8,9 @@
    it straight into Calendar; Android offers Google Calendar; a laptop gets
    Outlook or Apple Calendar. No permission prompts, no store app needed.
 
-   Built as text in the browser, like the PDFs — no server round-trip. */
+   The live button now opens the Worker-served .ics URL directly because that
+   is the path phone calendar apps understand most reliably. The builder below
+   stays exported for tests and for any future offline/export surface. */
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -68,7 +70,7 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
     if (ev.end_time && /^\d{2}:\d{2}/.test(ev.end_time)) {
       const [eh, em] = ev.end_time.split(":").map(Number);
       endUtc = new Date(Date.UTC(y!, mo! - 1, d!, eh! - 8, em!));
-      if (endUtc <= startUtc) endUtc = new Date(startUtc.getTime() + 3600_000);
+      if (endUtc <= startUtc) endUtc = new Date(endUtc.getTime() + 86_400_000);
     } else {
       endUtc = new Date(startUtc.getTime() + 3600_000);
     }
@@ -108,45 +110,15 @@ export function buildEventIcs(ev: CalendarEventLike): Blob {
    "Add All" button straight into Calendar; Android Chrome opens the file
    into Google Calendar's import dialog. The worker now serves exactly that
    at /api/v1/staff/events/:id/ics (session cookie rides along — same
-   origin), and this function navigates to it. The old share/download path
-   stays as the fallback for a worker that predates the route. */
-export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened" | "shared" | "downloaded" | "stale"> {
-  // Open the tab SYNCHRONOUSLY (inside the tap) so popup blocking can't
-  // eat it, then point it at the .ics once the probe confirms the route.
+   origin), and this function navigates to it directly during the tap. */
+export async function addEventToCalendar(ev: CalendarEventLike): Promise<"opened"> {
+  // Navigate straight to the ICS URL while still inside the user's tap. The
+  // older blank-tab-then-probe flow was technically careful but felt broken in
+  // installed PWA/WebView shells: users could see a blank window before the
+  // calendar preview appeared, or no preview at all.
   const url = `/api/v1/staff/events/${ev.id}/ics`;
-  const w = window.open("", "_blank");
-  try {
-    const probe = await fetch(url, { credentials: "include" });
-    if (probe.ok && (probe.headers.get("Content-Type") ?? "").includes("text/calendar")) {
-      if (w) { w.location.href = url; return "opened"; }
-      window.location.assign(url); // popup blocked — navigate here instead; Back returns to the portal
-      return "opened";
-    }
-  } catch { /* old worker / offline — fall through */ }
-  if (w) w.close();
-  // v1.4.275: the route isn't there — the worker predates v1.4.274. The
-  // local share/download path still runs so the button does SOMETHING, but
-  // the caller must tell the truth: on iPhone this path cannot save, and
-  // the real fix is the worker deploy.
-  await addEventToCalendarLocal(ev);
-  return "stale";
-}
-
-/** The v1.4.264 client-side path — now the FALLBACK for a stale worker:
-    share sheet on a phone, download on a desktop. */
-async function addEventToCalendarLocal(ev: CalendarEventLike): Promise<"shared" | "downloaded"> {
-  const blob = buildEventIcs(ev);
-  const filename = `${ev.event_date}-${ev.title.replace(/[^\w-]+/g, "-").slice(0, 40)}.ics`;
-  if (typeof navigator.canShare === "function") {
-    const file = new File([blob], filename, { type: "text/calendar" });
-    if (navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: ev.title }); } catch { /* sheet dismissed */ }
-      return "shared";
-    }
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  return "downloaded";
+  const w = window.open(url, "_blank");
+  if (w) return "opened";
+  window.location.assign(url); // popup blocked — navigate here instead; Back returns to the portal
+  return "opened";
 }

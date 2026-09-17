@@ -63,6 +63,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /* Order matters only for readability — each of these is independent. */
 const GUARDS = [
   ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
+  ["pwa-calendar", "PWA bottom chrome uses one shared clearance and calendar imports open the correct .ics"],
   ["shift-entry-coverage", "shift launch, overnight clocking, and saved half-day coverage"],
   ["release-offline", "release failures stay failures and offline assets never receive portal HTML"],
   ["brands-guard", "brand registry, client-permission gate, no hardcoded domains"],
