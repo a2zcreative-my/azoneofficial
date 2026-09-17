@@ -62,6 +62,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /* Order matters only for readability — each of these is independent. */
 const GUARDS = [
+  ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
+  ["shift-entry-coverage", "shift launch, overnight clocking, and saved half-day coverage"],
+  ["release-offline", "release failures stay failures and offline assets never receive portal HTML"],
   ["brands-guard", "brand registry, client-permission gate, no hardcoded domains"],
   ["csrf-guard", "every state-changing endpoint is CSRF-protected"],
   ["doc-issuer-render", "quotations/DOs/invoices render under the right letterhead"],

@@ -72,6 +72,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   // v1.10.0 — mobile app shell
   "Today": { en: "Today", ms: "Hari ini" },
   "On shift": { en: "On shift", ms: "Sedang bertugas" },
+  "On Shift": { en: "On Shift", ms: "Syif Saya" },
   "Preferences": { en: "Preferences", ms: "Tetapan" },
   "Next event": { en: "Next event", ms: "Acara akan datang" },
   "Public holiday": { en: "Public holiday", ms: "Cuti umum" },
@@ -85,6 +86,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Ads Fund": { en: "Ads Fund", ms: "Dana Iklan" },
   "Purchasing": { en: "Purchasing", ms: "Pembelian" },
   "Accounting": { en: "Accounting", ms: "Perakaunan" },
+  "Companies": { en: "Companies", ms: "Syarikat" },
   // dashboard cards
   "Pending leave": { en: "Pending leave", ms: "Cuti menunggu" },
   "None pending.": { en: "None pending.", ms: "Tiada yang menunggu." },

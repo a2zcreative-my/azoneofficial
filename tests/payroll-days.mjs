@@ -466,8 +466,8 @@ const AUG = (() => {
 {
   const staff = read("worker/src/staff.ts");
   ok("the absence scan exists", /path === "\/payroll\/absences" && method === "GET"/.test(staff));
-  ok("a day covered by ANY approved leave is not proposed",
-     /lv\.some\(\(l\) => l\.user_id === u\.id && l\.start_date <= d && l\.end_date >= d\)/.test(staff),
+  ok("approved full days are excluded and partial days are reviewed without a deduction",
+     /covered\.some\(l => !isPartialLeave\(l\)\)\) continue/.test(staff) && /partial_review\.push\([\s\S]{0,150}continue;/.test(staff),
      "paid leave must not be offered up as an unpaid day");
   ok("days in the future are not proposed", /\.filter\(\(d\) => d <= todayMyt\)/.test(staff));
   ok("hourly part-timers are skipped", /if \(isHourlyUser\(u\.role, u\.employment_status\)\) continue;/.test(staff),

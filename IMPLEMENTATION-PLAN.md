@@ -1,11 +1,24 @@
 # IMPLEMENTATION PLAN — A2Z portal ⇄ ELFIA, and the road to a full business system
 
-## Current ERP Plan - 16 September 2026
+## Current ERP Plan - 17 September 2026
+
+The current local attendance implementation and remaining ERP phases are tracked in
+[SHIFT-AND-ERP-IMPLEMENTATION.md](docs/SHIFT-AND-ERP-IMPLEMENTATION.md). The user has
+confirmed that mixed legacy operational records require management assignment and
+half-day leave means the first/second half of the total scheduled workday.
+Company isolation and revision-bound signing remain open; they are not implied by
+the On Shift and half-day changes. Migrations 0133 and 0134 are local, not applied to production.
+The [Companies reconciliation workspace](docs/COMPANY-REVIEW-IMPLEMENTATION.md) now
+records ownership proposals and independent employer/membership setup with atomic
+audit history. These preparations do not activate company access restrictions or
+change operational balances. Reconciled ownership promotion and enforcement are next.
 
 Card positioning: the six-tab work-first pilot is accepted; the approved extension
 changes 15 further tabs and retains eight already-correct layouts locally.
 See [CARD-ORDER-IMPLEMENTATION.md](docs/CARD-ORDER-IMPLEMENTATION.md) for the exact
-order, verification results and publication checkpoint. This work is not yet deployed.
+order and verification results. The card-order rollout was published through PUSH.bat
+at portal commit 6d6fafb3d38e0874b796f36832afef68486eafe2. The newer attendance changes
+are not part of that deployment.
 
 **Status: Phase 0 in progress; responsive UI foundation implemented in package v1.164.0.**
 This section is the current planning entry point and takes precedence over the older
@@ -40,7 +53,8 @@ or restore retired Advisors/Threads functionality as part of this plan.
 
 Estimates are planning ranges for one developer with a team representative available
 for testing. They are not release promises; re-estimate after Phase 0. All phases
-below are proposed and not started as implementation. Do not reserve migration or
+below describe the overall delivery sequence; the local reconciliation foundation
+is implemented, while full company enforcement and signing remain open. Do not reserve migration or
 release numbers from the historical plan; inspect the latest checkout when building.
 
 | Phase | Priority / estimate | Deliverable | Acceptance gate |

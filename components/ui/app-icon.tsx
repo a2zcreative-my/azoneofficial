@@ -44,7 +44,7 @@ import {
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
-  type LucideIcon,
+  RefreshCw, Save, ExternalLink, ChevronLeft, type LucideIcon,
 } from "lucide-react";
 import type React from "react";
 
@@ -59,6 +59,10 @@ export const APP_ICON = {
   /* actions */
   edit: Pencil,
   search: Search,
+  refresh: RefreshCw,
+  save: Save,
+  external: ExternalLink,
+  previous: ChevronLeft,
   download: Download,
   upload: Upload,
   attach: Paperclip,

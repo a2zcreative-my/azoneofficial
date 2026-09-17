@@ -50,8 +50,8 @@ export const SECTIONS: { title: string; tabs: string[] }[] = [
   /* v1.149.0 - the second product line gets its own heading, the way ELFIA
      has one: a reader scanning the rail sees two brands, not one brand and
      a stray. */
-  { title: "People", tabs: ["HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
-  { title: "Finance", tabs: ["Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting"] },
+  { title: "People", tabs: ["HR", "Attendance", "On Shift", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
+  { title: "Finance", tabs: ["Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies"] },
   /* v1.129.0 - Cards sits with Profile: both are "who you are to somebody
      outside the company", and the registry places it there too. */
   { title: "Account", tabs: ["Cards", "Profile", "Users"] },

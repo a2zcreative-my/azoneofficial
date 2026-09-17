@@ -6,6 +6,7 @@ export type Role =
   | "customer";
 
 export const PERMS: Record<string, readonly Role[]> = {
+  company_review: ["super_admin", "ceo"],
   // === index.ts ===
   content_manage: ["super_admin", "admin"],
   enquiry_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],

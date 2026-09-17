@@ -269,7 +269,7 @@ const ok = (label, cond, extra = "") => {
 /* ---- 5. the client ---- */
 {
   ok("a forgotten clock-out is offered, not refused",
-     /if \(type === "clock_out" && !today\.some\(\(r\) => r\.type === "clock_in"\) && !forgot\)/.test(page),
+     /if \(type === "clock_out" && !todayShift\?\.entry\?\.clocked_in && !today\.some\(\(r\) => r\.type === "clock_in"\) && !forgot\)/.test(page),
      "refusing meant a worked day could not be recorded at all and vanished from payroll");
   ok("it takes a second, deliberate tap", /setForgotArmed\(true\)/.test(page) && /punch\("clock_out", forgotArmed\)/.test(page));
   ok("the person is told it does not count yet",
@@ -496,7 +496,7 @@ const ok = (label, cond, extra = "") => {
   const vcard = read("components/portal/verification-card.tsx");
   ok("there is a verification report", /path === "\/attendance\/verification" && method === "GET"/.test(staff));
   ok("the month reconciles on every row",
-     /balances: worked \+ leaveTotal \+ absent === scheduled,/.test(staff),
+     /balances: partialReviewDates\.length === 0 && worked \+ leaveTotal \+ absent === scheduled,/.test(staff),
      "a report whose buckets do not sum to the scheduled days is a list, not a report");
   ok("and a row that does not add up says so",
      /This row does not add up/.test(vcard),

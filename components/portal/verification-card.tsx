@@ -69,6 +69,7 @@ interface VRow {
   worked_minutes: number;
   absent_dates: string[];
   leave_dates: { d: string; type: string }[];
+  partial_review_dates?: string[];
   balances: boolean;
 }
 
@@ -186,6 +187,7 @@ export function VerificationCard() {
         L("Balances", "Seimbang"),
         L("Absent dates", "Tarikh tidak hadir"), L("Leave dates", "Tarikh cuti"),
         L("No clock-out", "Tiada daftar keluar"), L("No clock-out dates", "Tarikh tiada daftar keluar"),
+        L("Partial leave review dates", "Tarikh semakan cuti separa"),
       ],
       ...list.map((r) => [
         r.employee_id ?? "", properName(r.name), r.email ?? "", r.position ?? "",
@@ -200,6 +202,7 @@ export function VerificationCard() {
         r.leave_dates.map((l) => `${l.d}:${l.type}`).join(" "),
         r.no_clock_out ?? 0,
         (r.open_dates ?? []).join(" "),
+        (r.partial_review_dates ?? []).join(" "),
       ]),
     ]);
   };
@@ -340,7 +343,8 @@ export function VerificationCard() {
                   <span className="text-muted-foreground">{" / "}{hm(r.scheduled_minutes)}</span>
                 </td>
                 <td className={`${td} align-top`}>
-                  {(r.absent_dates.length > 0 || r.leave_dates.length > 0 || (r.open_dates ?? []).length > 0) && !showDates && (
+                  {(r.partial_review_dates ?? []).length > 0 && <p className="text-warning text-xs">{L("Partial leave review", "Semakan cuti separa")}</p>}
+                  {(r.absent_dates.length > 0 || r.leave_dates.length > 0 || (r.open_dates ?? []).length > 0 || (r.partial_review_dates ?? []).length > 0) && !showDates && (
                     <button type="button" className={rowBtn}
                       onClick={() => setOpen(open === r.user_id ? null : r.user_id)}>
                       {open === r.user_id ? L("Hide", "Sembunyi") : L("Dates", "Tarikh")}
@@ -376,7 +380,12 @@ export function VerificationCard() {
                       </span>
                     </p>
                   )}
-                  {!r.balances && (
+                  {(r.partial_review_dates ?? []).length > 0 && (
+                    <p className="text-warning mt-1 font-medium">
+                      {L("Partial leave: remaining attendance needs review", "Cuti separa: baki kehadiran perlu disemak")}: {r.partial_review_dates!.map(dmy).join(" · ")}
+                    </p>
+                  )}
+                  {!r.balances && !(r.partial_review_dates ?? []).length && (
                     <p className="text-danger mt-1 font-medium">
                       {L(`This row does not add up: ${r.worked} worked + ${r.leave_total} leave + ${r.absent} absent is not ${r.scheduled} scheduled days. Usually a punch recorded on a rest day, or a leave whose dates fall outside the month.`,
                          `Baris ini tidak seimbang: ${r.worked} bekerja + ${r.leave_total} cuti + ${r.absent} tidak hadir bukan ${r.scheduled} hari berjadual. Biasanya ketukan pada hari rehat, atau cuti yang tarikhnya di luar bulan ini.`)}

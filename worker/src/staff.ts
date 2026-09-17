@@ -4,7 +4,10 @@
  */
 
 import type { Env } from "./index";
+import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
+import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
+import { handleCompanyReview } from "./company-review";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -1264,30 +1267,25 @@ const dmyMsg = (iso: string) => iso.split("-").reverse().join("-");
 /** Which of `dates` fall inside an APPROVED leave row for `userId`.
     One query over the span and the filtering in JS: a leave row is a range,
     and expanding ranges into days in SQLite costs more than it saves. */
-async function leaveClashDates(env: Env, userId: number, dates: string[]): Promise<string[]> {
+async function leaveClashDates(env: Env, userId: number, dates: string[], window?: TimeWindow): Promise<string[]> {
   const days = [...new Set(dates)].filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
   if (!userId || days.length === 0) return [];
-  try {
     const { results } = await env.DB.prepare(
-      `SELECT start_date, end_date FROM leave_requests
+      `SELECT start_date, end_date, days, day_part, coverage_json FROM leave_requests
         WHERE user_id = ?1 AND status = 'approved'
-          AND start_date <= ?3 AND end_date >= ?2
+          AND start_date <= date(?3, '+1 day') AND end_date >= date(?2, '-1 day')
         ORDER BY start_date LIMIT 300`,
     ).bind(userId, days[0]!, days[days.length - 1]!)
-      .all<{ start_date: string; end_date: string }>();
-    return days.filter((d) => (results ?? []).some((l) => l.start_date <= d && d <= l.end_date));
-  } catch {
-    /* A query that cannot run must not become a rule that cannot be passed. */
-    return [];
-  }
+      .all<LeaveCoverage>();
+    return days.filter((d) => (results ?? []).some((l) => leaveOverlaps(l, d, window)));
 }
 
 /** `null` = go ahead. Anything else is the refusal, ready to return. */
 async function refuseIfOnLeave(
   env: Env, user: { id: number; role: string }, userId: number,
-  dates: string[], override: boolean,
+  dates: string[], override: boolean, window?: TimeWindow,
 ): Promise<Response | null> {
-  const clash = await leaveClashDates(env, userId, dates);
+  const clash = await leaveClashDates(env, userId, dates, window);
   if (clash.length === 0) return null;
   const who = (await env.DB.prepare(
     `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`,
@@ -1307,6 +1305,28 @@ async function refuseIfOnLeave(
   await audit(env, user.id, "roster.leave_override", "users", String(userId),
               { dates: clash, count: clash.length });
   return null;
+}
+
+async function leaveCoverageFor(env: Env, userId: number, start: string, end: string, days: number, part: unknown) {
+  if (!validDay(start) || !validDay(end) || end < start || !Number.isFinite(days) || days <= 0 || days > 60) {
+    return { error: "Choose valid dates and a positive number of days" };
+  }
+  const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
+  if (days > span) return { error: "Days cannot exceed the date range" };
+  if (days === 0.5) {
+    if (start !== end || (part !== "first_half" && part !== "second_half")) {
+      return { error: "Half-day leave needs one date and a first or second half" };
+    }
+    const assigned = await assignedResolver(env, start, start);
+    const role = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(userId).first<{ role: string }>();
+    const shift = withAssigned(await shiftOn(env, userId, start), assigned.list(userId, start), role?.role === "live_host");
+    const windows = halfDayWindows(shift.windows, part);
+    if (!windows.length) return { error: "No scheduled workday on that date. Ask management to confirm the schedule first" };
+    return { day_part: part, coverage_json: JSON.stringify(windows) };
+  }
+  if (!Number.isInteger(days)) return { error: "Submit half-day leave separately from full days" };
+  if (part && part !== "full") return { error: "A first or second half must be exactly 0.5 day" };
+  return { day_part: "full", coverage_json: null };
 }
 
 /* v1.9.1 — office geofence for clock in/out (replaces the selfie step).
@@ -1409,7 +1429,7 @@ export async function notify(
   // v1.6.0: web-push to the person's devices (best-effort, off when no VAPID).
   // v1.27.0: this one string is the title on every staff lock screen, for all
   // ~20 notification kinds — the portal is A2Z CREATIVE MARKETING's.
-  const tab = PUSH_TAB[kind];
+  const tab = kind === "attendance" && ref?.startsWith("shift_") ? "On Shift" : PUSH_TAB[kind];
   await pushToUser(env, userId, "A2Z CREATIVE MARKETING", message, ref,
     tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal");
 
@@ -2027,6 +2047,10 @@ export async function handleStaff(
     ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
+
+  if (path.startsWith("/companies/")) {
+    return handleCompanyReview(env, new URL(request.url), path.slice("/companies".length), method, body, user);
+  }
 
   /* ---- ERP modules (v1.18.0): orders, cash flow, reconciliation,
      commission, ads fund, purchasing, accounting — see erp.ts ---- */
@@ -3234,7 +3258,7 @@ export async function handleStaff(
     }
     /* v1.131.0 — door 1 of 5. A host on approved leave is not available. */
     {
-      const no = await refuseIfOnLeave(env, user, host, [d], body?.leave_override === true);
+      const no = await refuseIfOnLeave(env, user, host, [d], body?.leave_override === true, timeWindow(st, body?.end_time));
       if (no) return no;
     }
     const platform = ["tiktok", "shopee", "other"].includes(String(body?.platform)) ? String(body?.platform) : "tiktok";
@@ -3294,7 +3318,7 @@ export async function handleStaff(
         if (typeof body?.notes === "string") putLS("notes", body.notes.trim() ? body.notes.slice(0, 500) : null);
       }
       if (setsLS.length === 0) return err("invalid_input", "Nothing to update (status, session_date, start_time, end_time, host_user_id, client_name, platform, notes)", 400);
-      const before = await env.DB.prepare(`SELECT session_date, start_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; host_user_id: number }>();
+      const before = await env.DB.prepare(`SELECT session_date, start_time, end_time, host_user_id FROM live_sessions WHERE id = ?1`).bind(mLS[1]).first<{ session_date: string; start_time: string; end_time: string | null; host_user_id: number }>();
       /* v1.131.0 — door 2 of 5: the reschedule and the reassignment. Checked
          against the row AS IT WILL BE, because either half can move on its
          own: dragging a session to Thursday, or handing Thursday's session to
@@ -3302,12 +3326,13 @@ export async function handleStaff(
          Gated on the two fields, not on the row's current state — a session
          that already clashes must stay cancellable, and cancelling it is the
          press that fixes the clash. */
-      if (body?.session_date !== undefined || body?.host_user_id !== undefined) {
+      if (st !== "cancelled" && (body?.session_date !== undefined || body?.host_user_id !== undefined || body?.start_time !== undefined || body?.end_time !== undefined)) {
         const nextDate = typeof body?.session_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.session_date)
           ? body.session_date : before?.session_date;
         const nextHost = Number(body?.host_user_id) || before?.host_user_id;
         if (nextDate && nextHost) {
-          const no = await refuseIfOnLeave(env, user, nextHost, [nextDate], body?.leave_override === true);
+          const no = await refuseIfOnLeave(env, user, nextHost, [nextDate], body?.leave_override === true,
+            timeWindow(body?.start_time ?? before?.start_time, body?.end_time === undefined ? before?.end_time : body.end_time));
           if (no) return no;
         }
       }
@@ -3398,7 +3423,7 @@ export async function handleStaff(
       return err("invalid_input", `${u.name} is not in a selling role - sales duty is for Sales & Marketing and Live Host staff, the people the Sales Performance register measures`, 400);
     }
     {
-      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true);
+      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true, timeWindow(st, et));
       if (no) return no;
     }
     let made = 0;
@@ -3464,8 +3489,8 @@ export async function handleStaff(
         return err("invalid_input", `${u.name} is not in a selling role - sales duty is for Sales & Marketing and Live Host staff, the people the Sales Performance register measures`, 400);
       }
     }
-    if (who !== row.user_id || day !== row.shift_date) {
-      const no = await refuseIfOnLeave(env, user, who, [day], body?.leave_override === true);
+    if (who !== row.user_id || day !== row.shift_date || st !== row.start_time || et !== row.end_time) {
+      const no = await refuseIfOnLeave(env, user, who, [day], body?.leave_override === true, timeWindow(st, et));
       if (no) return no;
       const clash = await env.DB.prepare(`SELECT id FROM sales_shifts WHERE user_id = ?1 AND shift_date = ?2 AND id != ?3`)
         .bind(who, day, id).first();
@@ -3525,10 +3550,10 @@ export async function handleStaff(
       try {
         onLeave = (await env.DB.prepare(
           mgrR
-            ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+            ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json
                FROM leave_requests l JOIN users u ON u.id = l.user_id
                WHERE l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1`
-            : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+            : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json
                FROM leave_requests l JOIN users u ON u.id = l.user_id
                WHERE l.user_id = ?3 AND l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1`,
         ).bind(...(mgrR ? [start, end] : [start, end, user.id])).all()).results;
@@ -3549,9 +3574,9 @@ export async function handleStaff(
           }
         }
       }
-      const leaveRows = onLeave as { user_id: number; start_date: string; end_date: string }[];
+      const leaveRows = onLeave as (LeaveCoverage & { user_id: number })[];
       for (const sess of live) {
-        if (leaveRows.some((l) => l.user_id === sess.host_user_id && l.start_date <= sess.session_date && l.end_date >= sess.session_date)) {
+        if (leaveRows.some((l) => l.user_id === sess.host_user_id && leaveOverlaps(l, sess.session_date, timeWindow(sess.start_time, sess.end_time)))) {
           conflicts.push({ kind: "host_on_leave", session_ids: [sess.id], host_user_id: sess.host_user_id, date: sess.session_date });
         }
       }
@@ -3638,7 +3663,7 @@ export async function handleStaff(
 
         /* 2. Work booked on an approved leave day. Red: the person is not
               there. Same rule the live sessions already obey. */
-        if (leaveRows.some((l) => l.user_id === b.user_id && l.start_date <= b.block_date && l.end_date >= b.block_date)) {
+        if (leaveRows.some((l) => l.user_id === b.user_id && leaveOverlaps(l, b.block_date, timeWindow(b.start_time, b.end_time)))) {
           conflicts.push({ kind: "task_on_leave", session_ids: [], task_block_ids: [b.id],
                            host_user_id: b.user_id, date: b.block_date });
         }
@@ -4210,6 +4235,7 @@ export async function handleStaff(
       kind: string; label: string; windows: { start: string; end: string }[];
       slots: { start: string; end: string; what: string | null; claimed: boolean }[];
       slots_label: string; can_clock_in: boolean; why_not: string | null; can_ot: boolean;
+      entry?: ReturnType<typeof shiftEntry>;
     } | null = null;
     try {
       const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -4227,6 +4253,18 @@ export async function handleStaff(
       const claimedT = claimedSlots(slotsT, sessT);
       const nowT = new Date(Date.now() + 8 * 3600 * 1000);
       const verdictT = canClockIn(slotsT, sessT, nowT.getUTCHours() * 60 + nowT.getUTCMinutes());
+      const previous = new Date(Date.parse(`${tdy}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+      const priorAssigned = (await assignedResolver(env, previous, previous)).list(forUser, previous);
+      const priorShift = withAssigned(await shiftOn(env, forUser, previous), priorAssigned, roleT === "live_host");
+      const priorSlots = daySlots(priorShift.windows, priorAssigned.map(a => ({ start: a.start, end: a.end, what: a.what })));
+      const leaveT = (await env.DB.prepare(`SELECT start_date, end_date, days, day_part, coverage_json FROM leave_requests
+        WHERE user_id = ?1 AND status = 'approved' AND start_date <= date(?2, '+1 day') AND end_date >= date(?3, '-1 day')`)
+        .bind(forUser, tdy, previous).all<LeaveCoverage>()).results;
+      const remaining = remainingWindows(slotsT, leaveT, tdy);
+      const priorRemaining = remainingWindows(priorSlots, leaveT, previous);
+      const recent = (await env.DB.prepare(`SELECT type, created_at, pending_approval FROM attendance_records
+        WHERE user_id = ?1 AND date(created_at, '+8 hours') BETWEEN ?2 AND ?3 ORDER BY created_at`)
+        .bind(forUser, previous, tdy).all<{ type: string; created_at: string; pending_approval: number }>()).results;
       today_shift = {
         kind: shT.kind, label: shiftLabel(shT),
         windows: shT.windows.map((w) => ({ start: hhmm(w.start), end: hhmm(w.end) })),
@@ -4237,9 +4275,10 @@ export async function handleStaff(
         /* v1.134.0 - OT in / OT out open only AFTER the schedule: nothing
            open, nothing left to clock in for. The same gate the route runs. */
         can_ot: !verdictT.ok && !isOpen(sessT) && slotsT.length > 0,
+        entry: shiftEntry(new Date(), tdy, remaining ?? slotsT, priorRemaining ?? priorSlots, recent, remaining === null),
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
-    return json({ month, records: results, ot, ot_eligible, today_shift });
+    return json({ month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records: results, ot, ot_eligible, today_shift });
   }
 
   if (path === "/attendance/monitor" && method === "GET") {
@@ -4351,12 +4390,12 @@ export async function handleStaff(
 
     /* Approved leave overlapping the month, by OVERLAP for the same reason
        the register uses it: a leave from 29 August covers 1 September too. */
-    let leaveRows: { user_id: number; type: string; start_date: string; end_date: string; days: number | null }[] = [];
+    let leaveRows: (LeaveCoverage & { user_id: number; type: string })[] = [];
     try {
       leaveRows = ((await env.DB.prepare(
-        `SELECT user_id, type, start_date, end_date, days FROM leave_requests
+        `SELECT user_id, type, start_date, end_date, days, day_part, coverage_json FROM leave_requests
           WHERE status = 'approved' AND start_date <= ?1 AND end_date >= ?2`,
-      ).bind(`${monthV}-${lastV}`, `${monthV}-01`).all<{ user_id: number; type: string; start_date: string; end_date: string; days: number | null }>()).results) ?? [];
+      ).bind(`${monthV}-${lastV}`, `${monthV}-01`).all<LeaveCoverage & { user_id: number; type: string }>()).results) ?? [];
     } catch { /* pre-leave_requests */ }
 
     /* v1.159.1 - per person: a replacement holiday counts only for those
@@ -4378,6 +4417,7 @@ export async function handleStaff(
       let schedMins = 0, workedMins = 0;
       const absentDates: string[] = [];
       const leaveDates: { d: string; type: string }[] = [];
+      const partialReviewDates: string[] = [];
       /* v1.84.1 - a day clocked IN and never OUT counts as a day worked and
          contributes NO hours, which is how a row reads "19 worked" beside
          "46h34 of 131h" and looks like a mystery. It is not a mystery and it
@@ -4386,12 +4426,24 @@ export async function handleStaff(
 
       for (const d of mine) {
         const sh = shiftAtV(u.id, d);
-        const lv = leaveRows.find((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        const dayLeave = leaveRows.filter((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        const lv = dayLeave[0];
         if (sh.kind === "rest_day") { restDays++; continue; }
         if (holForV(d, u.joined_on)) { publicHols++; continue; }
         scheduled++;
         schedMins += workMinutes(sh);
         if (lv) {
+          if (dayLeave.some(isPartialLeave)) {
+            for (const item of dayLeave) {
+              const credit = item.days === 0.5 && item.start_date === item.end_date ? 0.5 : !isPartialLeave(item) ? 1 : 0;
+              byType[item.type] = (byType[item.type] ?? 0) + credit;
+            }
+            partialReviewDates.push(d);
+            const sessions = clockMap.get(`${u.id}|${d}`) ?? [];
+            workedMins += dayMinutesInSchedule(sh, sessions).counted;
+            if (isOpen(sessions)) { noClockOut++; openDates.push(d); }
+            continue;
+          }
           byType[lv.type] = (byType[lv.type] ?? 0) + 1;
           leaveDates.push({ d, type: lv.type });
           continue;
@@ -4433,10 +4485,11 @@ export async function handleStaff(
         no_clock_out: noClockOut, open_dates: openDates,
         scheduled_minutes: schedMins, worked_minutes: workedMins,
         absent_dates: absentDates, leave_dates: leaveDates,
+        partial_review_dates: partialReviewDates,
         /* THE RECONCILIATION. If this is false the row has a question in it,
            and the report says so rather than leaving it to be found against a
            payslip three weeks later. */
-        balances: worked + leaveTotal + absent === scheduled,
+        balances: partialReviewDates.length === 0 && worked + leaveTotal + absent === scheduled,
       });
     }
     return json({ month: monthV, days: daysV.length, staff: out });
@@ -4617,13 +4670,16 @@ export async function handleStaff(
     ) {
       return err("invalid_input", "type, start_date, end_date, and days are required", 400);
     }
+    const coverage = await leaveCoverageFor(env, user.id, String(body.start_date), String(body.end_date), body.days, body.day_part);
+    if (coverage.error) return err("invalid_input", coverage.error, 400);
     const res = await env.DB.prepare(
-      `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+      `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
     ).bind(
       user.id, body.type, body.start_date, body.end_date, body.days,
       str(body.reason, 1000) ? body.reason : null,
       typeof body.mc_media_id === "number" ? body.mc_media_id : null,
+      coverage.day_part, coverage.coverage_json,
     ).first<{ id: number }>();
     await stampIssuer(env, "leave_requests", res?.id);
     await audit(env, user.id, "leave.apply", "leave_requests", String(res?.id));
@@ -4687,11 +4743,11 @@ export async function handleStaff(
     try {
       const { results } = await env.DB.prepare(
         mgrL
-          ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+          ? `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json
              FROM leave_requests l JOIN users u ON u.id = l.user_id
              WHERE l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1
              ORDER BY l.start_date LIMIT 500`
-          : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date
+          : `SELECT l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json
              FROM leave_requests l JOIN users u ON u.id = l.user_id
              WHERE l.user_id = ?3 AND l.status = 'approved' AND l.start_date <= ?2 AND l.end_date >= ?1
              ORDER BY l.start_date LIMIT 200`,
@@ -4772,7 +4828,7 @@ export async function handleStaff(
     }
     const idE = Number(leaveEdit[1]);
     const before = await env.DB.prepare(
-      `SELECT id, user_id, type, start_date, end_date, days, reason, status, stage
+      `SELECT id, user_id, type, start_date, end_date, days, reason, status, stage, day_part, coverage_json
          FROM leave_requests WHERE id = ?1`,
     ).bind(idE).first<Record<string, unknown>>();
     if (!before) return err("not_found", "Leave request not found", 404);
@@ -4802,20 +4858,26 @@ export async function handleStaff(
     if (daysE > spanE) {
       return err("invalid_input", `Those dates are ${spanE} day(s) - the leave cannot be ${daysE}`, 400);
     }
-    if (spanE > 1 && daysE % 1 !== 0) daysE = Math.round(daysE);
+    const partE = body?.day_part ?? (daysE === 0.5 ? before.day_part : "full");
+    const coverageChanged = startE !== before.start_date || endE !== before.end_date || daysE !== before.days || partE !== before.day_part;
+    const coverage = coverageChanged
+      ? await leaveCoverageFor(env, Number(before.user_id), startE, endE, daysE, partE)
+      : { day_part: before.day_part as string | null, coverage_json: before.coverage_json as string | null, error: undefined };
+    if (coverage.error) return err("invalid_input", coverage.error, 400);
     const reasonE = body && "reason" in body
       ? (str(body.reason, 500) ? String(body.reason) : null)
       : (before.reason as string | null);
 
     await env.DB.prepare(
-      `UPDATE leave_requests SET type = ?1, start_date = ?2, end_date = ?3, days = ?4, reason = ?5
+      `UPDATE leave_requests SET type = ?1, start_date = ?2, end_date = ?3, days = ?4, reason = ?5,
+         day_part = ?7, coverage_json = ?8
         WHERE id = ?6`,
-    ).bind(typeE, startE, endE, daysE, reasonE, idE).run();
+    ).bind(typeE, startE, endE, daysE, reasonE, idE, coverage.day_part, coverage.coverage_json).run();
     await notify(env, before.user_id as number, "leave",
       `Your ${typeE} leave has been amended to ${startE}${endE !== startE ? ` to ${endE}` : ""} (${daysE === 1 ? "1 day" : `${daysE} days`}). Check the Leave tab.`,
       `leave:amend:${idE}`);
     await audit(env, user.id, "leave.amend", "leave_requests", String(idE), {
-      before, after: { type: typeE, start_date: startE, end_date: endE, days: daysE, reason: reasonE },
+      before, after: { type: typeE, start_date: startE, end_date: endE, days: daysE, reason: reasonE, ...coverage },
     });
     return json({ ok: true, id: idE, days: daysE });
   }
@@ -4849,9 +4911,9 @@ export async function handleStaff(
   if (leaveMatch && method === "PATCH") {
     const id = leaveMatch[1]!;
     const row = await env.DB.prepare(
-      `SELECT l.user_id, l.stage, u.role AS applicant_role
+      `SELECT l.user_id, l.stage, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json, u.role AS applicant_role
        FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`,
-    ).bind(id).first<{ user_id: number; stage: string; applicant_role: string }>();
+    ).bind(id).first<LeaveCoverage & { user_id: number; stage: string; applicant_role: string }>();
     if (!row) return err("not_found", "Leave request not found", 404);
 
     const action = body?.action;
@@ -4913,6 +4975,9 @@ export async function handleStaff(
 
     // Approve advances one stage along the applicant's chain.
     if (action === "approve") {
+      if (isPartialLeave(row) && !savedCoverage(row)) {
+        return err("coverage_review", "Management must confirm the half-day coverage before this request can be approved", 409);
+      }
       /* v1.127.0 — the step-up guards the SIGNATURE, so it applies to the two
          approvals that attach the CEO chop: the override (straight to
          approved) and the last stage of the normal chain. HR review and
@@ -6466,7 +6531,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Cards", "Users"]; // v1.40.0 (AUDIT M11): Web Orders joined; v1.43.0: ELFIA Traffic; v1.79.0: reordered to match ALL_TABS — tests/registry-parity.mjs fails the build when this list and the registry drift. v1.102.0: the CEO's own re-sort, and Stokis + Content are PARKED (lib/portal-tabs.ts PARKED_TABS) — dropping them here is what makes the API refuse to GRANT a tab the portal will never draw
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
@@ -6676,7 +6741,7 @@ export async function handleStaff(
     const bDate = bDates[0] ?? "";
     const bStart = typeof blk?.start_time === "string" ? blk.start_time : "";
     if (bDates.length > 0) {
-      const no = await refuseIfOnLeave(env, user, assignedTo, bDates, body?.leave_override === true);
+      const no = await refuseIfOnLeave(env, user, assignedTo, bDates, body?.leave_override === true, timeWindow(bStart, blk?.end_time));
       if (no) return no;
     }
     const prio = ["low", "normal", "high", "urgent"];
@@ -6805,7 +6870,7 @@ export async function handleStaff(
        whole, the same way the 62-day cap above treats it: half a standing
        duty landing is worse than none of it, because the gap is invisible. */
     {
-      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true);
+      const no = await refuseIfOnLeave(env, user, who, dates, body?.leave_override === true, timeWindow(st, et));
       if (no) return no;
     }
     let id: number | undefined;
@@ -6846,12 +6911,12 @@ export async function handleStaff(
     const mTB = path.match(/^\/task-blocks\/(\d+)$/);
     if (mTB && (method === "PATCH" || method === "DELETE")) {
       const bid = mTB[1]!;
-      let blk: { task_id: number; user_id: number; block_date: string; assigned_to: number; title: string } | null = null;
+      let blk: { task_id: number; user_id: number; block_date: string; start_time: string; end_time: string | null; assigned_to: number; title: string } | null = null;
       try {
         blk = await env.DB.prepare(
           /* block_date joins the list in v1.131.0: moving a block onto another
              person needs to know which day it is landing on. */
-          `SELECT b.task_id, b.user_id, b.block_date, t.assigned_to, t.title
+          `SELECT b.task_id, b.user_id, b.block_date, b.start_time, b.end_time, t.assigned_to, t.title
            FROM task_blocks b JOIN tasks t ON t.id = b.task_id WHERE b.id = ?1`,
         ).bind(bid).first();
       } catch (e) {
@@ -6928,10 +6993,10 @@ export async function handleStaff(
       /* v1.131.0 — door 4 of 5. Only when the press chooses a DAY or a
          PERSON: a time change and the done tick move nobody onto anything,
          and refusing those would make a badly-timed block uncorrectable. */
-      if (setsB.some((x) => /^(block_date|user_id) =/.test(x))) {
+      if (setsB.some((x) => /^(block_date|user_id|start_time|end_time) =/.test(x))) {
         const nextDay = /^\d{4}-\d{2}-\d{2}$/.test(bd) ? bd : blk.block_date;
         const no = await refuseIfOnLeave(env, user, bu || blk.user_id, [nextDay],
-                                         body?.leave_override === true);
+          body?.leave_override === true, timeWindow(bs || blk.start_time, body?.end_time === undefined ? blk.end_time : body.end_time));
         if (no) return no;
       }
 
@@ -6943,6 +7008,14 @@ export async function handleStaff(
       const wholeRun = body?.apply_to_run === true;
       const timeOnly = setsB.filter((x) => /^(start_time|end_time) =/.test(x));
       if (wholeRun && timeOnly.length > 0) {
+        const run = (await env.DB.prepare(`SELECT user_id, block_date, start_time, end_time FROM task_blocks WHERE task_id = ?1`)
+          .bind(blk.task_id).all<{ user_id: number; block_date: string; start_time: string; end_time: string | null }>()).results;
+        for (const block of run) {
+          if (!mgrB && block.user_id !== user.id) return err("forbidden", "Only management can change a run containing another person's work", 403);
+          const no = await refuseIfOnLeave(env, user, block.user_id, [block.block_date], body?.leave_override === true,
+            timeWindow(bs || block.start_time, body?.end_time === undefined ? block.end_time : body.end_time));
+          if (no) return no;
+        }
         /* Rebuild the placeholders for the narrower statement rather than
            reusing argsB, whose numbering belongs to the full SET list. */
         const runSets: string[] = [];
@@ -10509,9 +10582,9 @@ export async function handleStaff(
     /* Any approved leave covers the day - paid or unpaid. A day already
        covered is not a question. */
     const { results: lv } = await env.DB.prepare(
-      `SELECT user_id, type, start_date, end_date FROM leave_requests
+      `SELECT user_id, type, start_date, end_date, days, day_part, coverage_json FROM leave_requests
        WHERE status = 'approved' AND start_date <= ?1 || '-31' AND end_date >= ?1 || '-01'`,
-    ).bind(mA2).all<{ user_id: number; type: string; start_date: string; end_date: string }>();
+    ).bind(mA2).all<LeaveCoverage & { user_id: number; type: string }>();
 
     /* v1.145.0 - AND ANY LEAVE STILL WAITING ON A DECISION.
        The CEO, 09-09-2026: *"on payrolls, should check if there is any apply
@@ -10539,7 +10612,7 @@ export async function handleStaff(
     const assignedAtA = await assignedResolver(env, `${mA2}-01`, `${mA2}-31`);
     const shiftAtA = await shiftResolver(env, assignedAtA);
     const out: { user_id: number; name: string; missing: string[]; short: { d: string; hours: number }[];
-                 pending: { d: string; type: string }[] }[] = [];
+                 pending: { d: string; type: string }[]; partial_review: { d: string; unresolved: boolean }[] }[] = [];
     for (const u of staffA) {
       /* Hourly part-timers are paid by the clock already - a day they did not
          work is simply a day they are not paid for, not a deduction. */
@@ -10548,8 +10621,14 @@ export async function handleStaff(
       const missing: string[] = [];
       const short: { d: string; hours: number; of: number; break_minutes: number }[] = [];
       const pending: { d: string; type: string }[] = [];
+      const partial_review: { d: string; unresolved: boolean }[] = [];
       for (const d of mineDays) {
-        if (lv.some((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d)) continue;
+        const covered = lv.filter(l => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        if (covered.some(l => !isPartialLeave(l))) continue;
+        if (covered.length) {
+          partial_review.push({ d, unresolved: covered.some(l => !savedCoverage(l)) });
+          continue;
+        }
         /* v1.145.0 - a day with an undecided application is neither absent nor
            short: it is WAITING. It is reported on its own so the payroll screen
            can show it and refuse to deduct it, instead of quietly listing it
@@ -10595,8 +10674,8 @@ export async function handleStaff(
           });
         }
       }
-      if (missing.length || short.length || pending.length) {
-        out.push({ user_id: u.id, name: u.full_name || u.name, missing, short, pending });
+      if (missing.length || short.length || pending.length || partial_review.length) {
+        out.push({ user_id: u.id, name: u.full_name || u.name, missing, short, pending, partial_review });
       }
     }
     return json({ month: mA2, work_day_hours: WORK_DAY_MINUTES / 60, staff: out });

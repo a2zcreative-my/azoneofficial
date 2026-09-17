@@ -69,7 +69,7 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
    statically here again. What stays static above is what the Dashboard paints
    on first load. */
 import {
-  AccessReviewCard, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
+  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
   GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
@@ -125,6 +125,7 @@ export default function PortalPage() {
      if the saved tab isn't visible to this account (role change, 🔐 tab
      access change), the guard effect below falls back to Dashboard. */
   const [tab, setTab] = useState<TabName>("Dashboard");
+  const [entryReady, setEntryReady] = useState(false);
   const [salesStart, setSalesStart] = useState<"documents" | "create">("documents");
   const [salesCreateRequest, setSalesCreateRequest] = useState(0);
   useEffect(() => { if (tab !== "Sales") setSalesStart("documents"); }, [tab]);
@@ -147,6 +148,8 @@ export default function PortalPage() {
      visit (v1.22.7). Old localStorage keys from the retired scheme are
      cleaned up. */
   useEffect(() => {
+    let live = true;
+    const settle = () => { if (live) setEntryReady(true); };
     try {
       if (!user) return;
       window.localStorage.removeItem(`azone-tab:${user.id}`); // retired v1.4.231 scheme
@@ -161,23 +164,34 @@ export default function PortalPage() {
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
         window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
+        settle();
         return;
       }
       const saved = window.sessionStorage.getItem(`azone-tab:${user.id}`);
-      if (saved && (ALL_TABS as readonly string[]).includes(saved))
+      if (saved && (ALL_TABS as readonly string[]).includes(saved)) {
         setTab(saved as TabName);
+        settle();
+        return;
+      }
     } catch {
       /* private mode */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+    if (!user) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    void api<{ today_shift?: { entry?: { launch_shift: boolean } } }>("/staff/attendance", { signal: controller.signal })
+      .then(r => {
+        if (live && r.ok && r.data?.today_shift?.entry?.launch_shift) setTab(current => current === "Dashboard" ? "On Shift" : current);
+      }).catch(() => {}).finally(() => { window.clearTimeout(timeout); settle(); });
+    return () => { live = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [user]);
   useEffect(() => {
     try {
-      if (user) window.sessionStorage.setItem(`azone-tab:${user.id}`, tab);
+      if (user && entryReady) window.sessionStorage.setItem(`azone-tab:${user.id}`, tab);
     } catch {
       /* private mode */
     }
-  }, [tab, user?.id]);
+  }, [tab, user?.id, entryReady]);
   const [dark, setDark] = useState(false);
   // v1.9.0: Plum & Rose theme preset + EN/BM chrome language (per device)
   const [theme, setTheme] = useState<"navy" | "plum">("navy");
@@ -656,7 +670,7 @@ export default function PortalPage() {
      Staff saw a white screen through the whole JS download and the auth
      round-trip. The skeleton below ships inside portal.html and paints
      immediately, with zero JavaScript. */
-  if (!checked) return <PortalSkeleton />;
+  if (!checked || (user && !entryReady && !user.requires_2fa)) return <PortalSkeleton />;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
     return null;
@@ -1416,6 +1430,10 @@ export default function PortalPage() {
         )}
 
         <main key={tab} className="screen-enter mt-4 md:mt-6">
+          {activeTab === "Companies" && <CompaniesPanel />}
+          {activeTab === "On Shift" && (
+            <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} shiftOnly />
+          )}
           {activeTab === "Dashboard" && (
             <>
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put

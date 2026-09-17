@@ -280,7 +280,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0132_advisors_workstation";
+const LATEST_MIGRATION = "0134_company_review";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4595,6 +4595,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0130 (a replacement holiday remembers what it replaces)", `SELECT replaces_date FROM holidays LIMIT 1`],
       ["0131 (Advisors - retired in v1.162.0; the tables stay until a later migration drops them)", `SELECT fingerprint FROM ai_proposals LIMIT 1`],
       ["0132 (Advisors workstations - retired in v1.162.0)", `SELECT to_desk FROM ai_messages LIMIT 1`],
+      ["0133 (Half-day coverage)", `SELECT day_part, coverage_json FROM leave_requests LIMIT 1`],
+      ["0134 (Company review)", `SELECT record_id, proposed_company FROM company_review_decisions LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4746,6 +4748,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0130_holiday_replaces",
       "0131_advisors",
       "0132_advisors_workstation",
+      "0133_half_day_coverage",
+      "0134_company_review",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

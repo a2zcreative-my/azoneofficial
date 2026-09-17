@@ -22,7 +22,7 @@
  */
 
 import {
-  AtSign, Banknote, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
+  AtSign, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
   Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
@@ -39,6 +39,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   HR: UsersRound,
   "Staff Details": IdCard,
   Attendance: Timer,
+  "On Shift": CalendarClock,
   Leave: Palmtree,
   Tasks: ListChecks,
   Content: Clapperboard,
@@ -79,6 +80,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   "Ads Fund": Rocket,
   Purchasing: ShoppingBag,
   Accounting: ScrollText,
+  Companies: Building2,
   // ---- misc surfaces ----
   Events: CalendarClock,
   Banking: Banknote,

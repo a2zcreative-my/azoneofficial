@@ -172,7 +172,7 @@ const pkg = JSON.parse(read("package.json"));
   const route = staff.slice(staff.indexOf('path === "/sales-shifts" && method === "POST"'), staff.indexOf('path === "/roster" && method === "GET"'));
   ok("management only, all three ways: create, edit, remove", (route.match(/can\(user\.role, "team_manage"\)/g) ?? []).length === 3);
   ok("a run is validated as a whole, capped at 62 days", /dates\.length > 62/.test(route) && /Array\.isArray\(body\?\.dates\)/.test(route));
-  ok("approved leave refuses it, with the same override door", /refuseIfOnLeave\(env, user, who, dates, body\?\.leave_override === true\)/.test(route));
+  ok("approved leave refuses overlapping hours, with the same override door", /refuseIfOnLeave\(env, user, who, dates, body\?\.leave_override === true, timeWindow\(st, et\)\)/.test(route));
   ok("the end must follow the start", /if \(et <= st\) return err/.test(route));
   ok("a second assignment on the same day is the same duty, and the reply says how many landed", /INSERT OR IGNORE INTO sales_shifts/.test(route) && /skipped: dates\.length - made/.test(route));
   ok("audited in and out", /"roster\.sales_shift"/.test(route) && /"roster\.sales_shift_remove"/.test(route));

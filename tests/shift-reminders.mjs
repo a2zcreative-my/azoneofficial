@@ -76,7 +76,7 @@ const index = read("worker/src/index.ts");
 {
   ok("what was already sent is read before anything is sent", /SELECT user_id, ref FROM notifications[\s\S]*?shift_%/.test(cron) && cron.indexOf("sentRefs.has(") >= 0 && cron.indexOf("sentRefs.has(") < cron.indexOf("await notify("));
   ok("a sent ref is remembered inside the pass too", /sentRefs\.add\(`\$\{u\.id\}\|\$\{d\.ref\}`\)/.test(cron));
-  ok("approved leave is skipped", /status = 'approved' AND start_date <= \?1 AND end_date >= \?1/.test(cron) && /if \(onLeave\.has\(u\.id\)\) continue;/.test(cron));
+  ok("approved leave hours are removed and unresolved coverage is skipped", /status = 'approved'/.test(cron) && /remainingWindows\(scheduled, onLeave\.filter\(l => l\.user_id === u\.id\), iso\)/.test(cron) && /if \(!slots\?\.length\) continue/.test(cron));
   ok("a public holiday drops the PATTERN, keeps assignments", /const blocks = holiday \? \[\] : \(sh\?\.windows \?\? \[\]\);/.test(cron));
   ok("yesterday is evaluated with the clock past midnight", /\[yesterday, nowMin \+ 24 \* 60, holYesterday\]/.test(cron));
   ok("pending punches count as pressed (no pending filter)", !/pending_approval/.test(cron));

@@ -113,6 +113,7 @@ export function Dashboard({
   canOpen,
   onCreateQuotation,
   lang = "en",
+  shiftOnly = false,
 }: {
   user: User;
   go: (t: TabName) => void;
@@ -121,6 +122,7 @@ export function Dashboard({
      filter, overrides included). Absent = fall back to the role default. */
   canOpen?: (t: string) => boolean;
   lang?: Lang;
+  shiftOnly?: boolean;
 }) {
   /* v1.25.1: seeded from remembered data IN THE INITIALISER — seeding only
      the "known" flag left a single frame where the answer was declared known
@@ -179,8 +181,9 @@ export function Dashboard({
      skeleton-then-truth but truth immediately (own punches are personal and
      non-financial, so instant display is safe). */
   const [attKnown, setAttKnown] = useState(
-    () => cacheRead<DashCache>(DASH_ATT) !== null
+    () => cacheRead<DashCache>(DASH_ATT)?.as_of === mytToday()
   );
+  const [attendanceError, setAttendanceError] = useState(false);
   const [leaveKnown, setLeaveKnown] = useState(
     () => cacheRead<LeaveReq[]>(DASH_LEAVE) !== null
   );
@@ -193,14 +196,10 @@ export function Dashboard({
   const [busy, setBusy] = useState("");
   // v1.4.155: minute tick so the OT buttons appear at 18:00 MYT without a
   // manual refresh — the card is often left open on a phone all day.
-  const [nowMins, setNowMins] = useState(() => {
-    const m = new Date(Date.now() + 8 * 3600 * 1000);
-    return m.getUTCHours() * 60 + m.getUTCMinutes();
-  });
+  const [nowTick, setNowTick] = useState(Date.now);
   useEffect(() => {
     const t = window.setInterval(() => {
-      const m = new Date(Date.now() + 8 * 3600 * 1000);
-      setNowMins(m.getUTCHours() * 60 + m.getUTCMinutes());
+      setNowTick(Date.now());
     }, 60_000);
     return () => window.clearInterval(t);
   }, []);
@@ -217,6 +216,7 @@ export function Dashboard({
     setTodayOt((d.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     setOtEligible(d.ot_eligible === true);
     setAttKnown(true);
+    setAttendanceError(false);
   }, []);
   const applyTasks = useCallback((all: Task[]) => {
     setAllTasks(all);
@@ -229,13 +229,14 @@ export function Dashboard({
       .slice(0, 7);
     const [a, l, t] = await Promise.all([
       api<DashCache>(`/staff/attendance?month=${month}`),
-      api<{ leave: LeaveReq[] }>(`/staff/leave`),
-      api<{ tasks: Task[] }>(`/staff/tasks`),
+      shiftOnly ? Promise.resolve({ data: null }) : api<{ leave: LeaveReq[] }>(`/staff/leave`),
+      shiftOnly ? Promise.resolve({ data: null }) : api<{ tasks: Task[] }>(`/staff/tasks`),
     ]);
-    if (a.data) {
+    if (a.ok && a.data && Array.isArray(a.data.records)) {
       applyAtt(a.data);
       cacheWrite(DASH_ATT, a.data);
-    } else setAttKnown(true);
+    } else setAttendanceError(true);
+    if (shiftOnly) return;
     const pending = (l.data?.leave ?? []).filter((x) => x.status === "pending");
     setLeave(pending);
     setLeaveKnown(true);
@@ -249,7 +250,7 @@ export function Dashboard({
     if (n.data?.announcements)
       cacheWrite(DASH_ANNS, n.data.announcements.slice(0, 3));
     setAnns((n.data?.announcements ?? []).slice(0, 3));
-  }, []);
+  }, [applyAtt, applyTasks, shiftOnly]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -479,6 +480,7 @@ export function Dashboard({
   };
   const [mySessions, setMySessions] = useState<MySess[]>([]);
   useEffect(() => {
+    if (shiftOnly) return;
     void api<{ sessions?: MySess[] }>(`/staff/live-sessions`).then((r) => {
       if (!r.ok || !r.data?.sessions) return;
       const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
@@ -495,7 +497,7 @@ export function Dashboard({
           .slice(0, 5)
       );
     });
-  }, [user.id]);
+  }, [user.id, shiftOnly]);
 
   const punch = async (type: string, forgot = false) => {
     // v1.4.113: flow is clock IN → clock OUT. Trying to clock out before
@@ -506,7 +508,7 @@ export function Dashboard({
        at all and simply vanished from payroll. Now the first tap explains,
        and a second tap sends it to the CEO — recorded, but counting for
        nothing until it is approved and the real time set. */
-    if (type === "clock_out" && !today.some((r) => r.type === "clock_in") && !forgot) {
+    if (type === "clock_out" && !todayShift?.entry?.clocked_in && !today.some((r) => r.type === "clock_in") && !forgot) {
       setPunchToast({
         title: L("You have not clocked in today", "Anda belum daftar masuk hari ini"),
         sub: L(
@@ -541,7 +543,7 @@ export function Dashboard({
        shows it in red in the register and tells HR. We still say so plainly
        here so the person knows it was not a clean punch. */
     if (!gps && !likelyDup && gpsReason) {
-      const res0 = await api<{ error?: { message?: string } }>(
+      const res0 = await api<{ pending?: boolean; error?: { message?: string } }>(
         `/staff/attendance`,
         {
           method: "POST",
@@ -562,6 +564,7 @@ export function Dashboard({
         return;
       }
       if (res0.ok) {
+        if (shiftOnly && type === "clock_in" && !res0.data?.pending) { go("Dashboard"); return; }
         setPunchToast({
           title:
             type === "clock_in"
@@ -661,11 +664,12 @@ export function Dashboard({
       return;
     }
     if (res.ok && res.data?.flag) {
+      if (shiftOnly && type === "clock_in") { go("Dashboard"); return; }
       const label: Record<string, string> = {
         ok: L("On time", "Tepat masa"),
         late: L("Marked late", "Ditanda lewat"),
-        half_day: L("Half day (after 12:00)", "Separuh hari (selepas 12:00)"),
-        early_out: L("Early out (before 18:00)", "Keluar awal (sebelum 18:00)"),
+        half_day: L("Late arrival: review required", "Ketibaan lewat: perlu semakan"),
+        early_out: L("Early departure: leave approval is separate", "Keluar awal: kelulusan cuti berasingan"),
         completed: L("Shift completed", "Syif selesai"),
         /* v1.109.0 - a part-time host is paid by the clock; the punch says so
            instead of measuring her against hours that do not apply */
@@ -824,11 +828,13 @@ export function Dashboard({
      it lay outside the schedule, and that lands with the CEO as overtime by
      itself. */
   const latestPunch = today[0]?.type ?? null;
-  const openNow = latestPunch === "clock_in";
+  const openNow = todayShift?.entry?.clocked_in ?? (latestPunch === "clock_in");
   const shiftsToday = today.filter((r) => r.type === "clock_in").length;
   const hasIn = shiftsToday > 0;
   const hasOut = today.some((r) => r.type === "clock_out");
-  const openSince = openNow ? mytTime(today[0]!.created_at) : null;
+  const openSince = openNow ? mytTime(todayShift?.entry?.open_since ?? today[0]?.created_at ?? "") : null;
+  const clockOutAt = todayShift?.entry?.clock_out_at;
+  const clockOutDue = !attendanceError && openNow && !!clockOutAt && nowTick >= Date.parse(clockOutAt) - 30 * 60000;
   /* v1.133.2 — Clock in is offered only while there is a SHIFT to clock in
      for: a pattern block, a roster task or a live session not yet clocked.
      The worker decides (today_shift.can_clock_in); an older worker that does
@@ -901,16 +907,31 @@ export function Dashboard({
       <div className={card}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
         <PanelTitle icon="time">
-          {openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
+          {shiftOnly ? L("On Shift", "Syif Saya") : openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
         </PanelTitle>
+        <button type="button" className={btnQuick} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
+          <AppIcon name={shiftOnly ? "next" : "time"} className="mr-1 h-4 w-4" />
+          {shiftOnly ? L("Dashboard", "Papan Pemuka") : L("On Shift", "Syif Saya")}
+        </button>
+        </div>
+        {todayShift?.entry?.leave_review && <p role="status" className="mt-2 text-sm text-warning">{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. v1.10.0: the
             flip moved sm→md so the whole mobile shell (nav, hero, cards,
             buttons) switches at ONE breakpoint. */}
         {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
             a green "Clock in" for someone who already clocked in. */}
-        {!attKnown ? (
+        {attendanceError && (
+          <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-warning">
+            <span>{L("Attendance could not be refreshed. Check your connection and retry.", "Kehadiran tidak dapat dimuat semula. Semak sambungan dan cuba lagi.")}</span>
+            <button type="button" className={btnQuick} onClick={() => void load()}>
+              <AppIcon name="refresh" className="mr-1 h-4 w-4" />{L("Retry", "Cuba lagi")}
+            </button>
+          </div>
+        )}
+        {!attKnown ? !attendanceError && (
           <div
             className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap"
             aria-busy="true"
@@ -952,7 +973,7 @@ export function Dashboard({
             {/* v1.159.9 - a quick action into a tab this account cannot see
                 bounced to the Dashboard it was pressed on; the strip's own
                 answer decides, so an unticked Sales tab hides the button. */}
-            {(canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
+            {!shiftOnly && (canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
               <button
                 type="button"
                 className={btnQuick}
@@ -995,7 +1016,7 @@ export function Dashboard({
         )}
         {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
             from the cron, for the person who has the tab open right now. */}
-        {openNow && nowMins >= 18 * 60 + 30 && (
+        {clockOutDue && (
           <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
             <AppIcon name="time" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{tr("Don't forget to clock out", lang)}{" "}
             — {tr("tap Clock out before you leave.", lang)}
@@ -1011,7 +1032,9 @@ export function Dashboard({
             {/* v1.133.2 — the SHIFTS, including roster and live-board
                 assignments, not only the pattern. One clock-in per shift;
                 a day with none has nothing to clock in for. */}
-            {(todayShift.slots?.length ?? todayShift.windows.length) === 0
+            {shiftOnly ? (todayShift.entry?.work_label === "" ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
+                : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}`, `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}`))
+              : (todayShift.slots?.length ?? todayShift.windows.length) === 0
               ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
                   "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
               : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
@@ -1157,6 +1180,7 @@ export function Dashboard({
       </div>
 
       </section>
+      {!shiftOnly && <>
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
       {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
@@ -1573,6 +1597,7 @@ export function Dashboard({
         </div>
       </div>
       </section>
+      </>}
     </div>
   );
 }

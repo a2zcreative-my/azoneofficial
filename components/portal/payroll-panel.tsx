@@ -26,7 +26,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, card } from "@/lib/ui-styles";
+import { btnSm, card, chipNeutral } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
@@ -417,6 +417,7 @@ type AbsenceRow = {
      Reported separately by the server, and NOT pressable here: payroll follows
      the leave decision, it does not race it. */
   pending?: { d: string; type: string }[];
+  partial_review?: { d: string; unresolved: boolean }[];
 };
 
 /** v1.77.0 — the server's unpaid-leave deduction, and what it is made of. */
@@ -987,6 +988,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               <div key={a.user_id} className="text-xs">
                 <span className="font-medium">{a.name}</span>
                 <span className="mt-1 flex flex-wrap gap-1.5">
+                  {(a.partial_review ?? []).map((p) => (
+                    <span key={`partial-${p.d}`} className={chipNeutral}>
+                      {dmy(p.d)} · {p.unresolved ? L("Partial leave: coverage needs review", "Cuti separa: tempoh perlu disemak") : L("Half-day: review remaining attendance", "Separuh hari: semak baki kehadiran")}
+                    </span>
+                  ))}
                   {a.missing.map((d) => (
                     <button key={d} type="button" disabled={marking === `${a.user_id}|${d}`}
                       className="border-border hover:bg-secondary rounded-full border bg-white/60 px-2 py-0.5 disabled:opacity-50 dark:bg-transparent"

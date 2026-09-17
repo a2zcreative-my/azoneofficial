@@ -2,15 +2,23 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Documentation baseline reviewed on 16 September 2026: package version **1.164.0**.
-This is a source-code baseline, not confirmation of the deployed version.
+Documentation baseline reviewed on 17 September 2026: package version **1.164.0**.
+New attendance and company-review changes are local and unreleased; see the verification records below.
 
 ## Current Plan
 
-Start with [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---15-september-2026)
+Start with [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---17-september-2026)
 for the ERP review, phased implementation, two-company requirements, verified
 e-signatures, acceptance tests, and decisions. [ROADMAP.md](ROADMAP.md) summarizes
 the sequence. Proposed work is distinguished from existing functionality.
+
+[Attendance and ERP follow-through](docs/SHIFT-AND-ERP-IMPLEMENTATION.md) records the
+confirmed half-day and legacy-ownership decisions, local changes, tests, and remaining
+company-isolation/e-signature work.
+
+[Company reconciliation workspace](docs/COMPANY-REVIEW-IMPLEMENTATION.md) describes the
+new management queue and staff company setup. Ownership proposals and planned access
+do not yet restrict company data or change live balances.
 
 The current code already contains shared card variants, SVG navigation, One Desk,
 and a company/version signature vault. The next signing improvement is explicit

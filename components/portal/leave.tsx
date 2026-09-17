@@ -28,6 +28,15 @@ import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
 import { usePrompt } from "@/components/ui/prompt-dialog";
+import { isPartialLeave, savedCoverage } from "@/lib/leave-coverage";
+
+function coverageLabel(l: LeaveReq): string {
+  if (!isPartialLeave(l)) return "";
+  const windows = savedCoverage(l);
+  if (!windows) return L("Coverage needs management review", "Tempoh perlu disemak pihak pengurusan");
+  const time = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.floor(m % 60)).padStart(2, "0")}${m >= 1440 ? " (+1)" : ""}`;
+  return `${l.day_part === "first_half" ? L("First half", "Separuh pertama") : L("Second half", "Separuh kedua")} (${windows.map(w => `${time(w.start)} - ${time(w.end)}`).join(", ")})`;
+}
 
 /* ================= Leave ================= */
 
@@ -117,7 +126,7 @@ export function Sub({
 export async function sendLeavePdf(l: LeaveReq) {
   const dd = (l.created_at ?? "").slice(0, 10);
   const no = `LVE-AZOO${dd.slice(8, 10)}${dd.slice(5, 7)}${dd.slice(2, 4)}-${l.day_seq ?? l.id}`;
-  const blob = await buildLeavePdf(l, no);
+  const blob = await buildLeavePdf({ ...l, coverage_label: coverageLabel(l) }, no);
   await sharePdfFile(blob, `${no}.pdf`, `Leave form ${no}`);
 }
 
@@ -211,7 +220,7 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
     <tr><td class="k">Leave No.</td><td class="v">${esc(lvNo)}</td><td class="k">Date</td><td class="v">${myt(cA)}${cA.length > 10 ? " MYT" : ""}</td></tr>
     <tr><td class="k">Employee</td><td class="v">${esc(applicant)}</td><td class="k">Department</td><td class="v">${esc((l.user_department ?? "").toUpperCase())}</td></tr>
     <tr><td class="k">Position</td><td class="v">${esc((l.user_position ?? "").toUpperCase())}</td><td class="k">Leave type</td><td class="v" style="text-transform:uppercase">${esc(l.type)}</td></tr>
-    <tr><td class="k">Period</td><td class="v">${dmy(l.start_date)} → ${dmy(l.end_date)}</td><td class="k">Days</td><td class="v">${l.days}</td></tr>
+    <tr><td class="k">Period</td><td class="v">${dmy(l.start_date)} → ${dmy(l.end_date)} ${esc(coverageLabel(l))}</td><td class="k">Days</td><td class="v">${l.days}</td></tr>
     <tr><td class="k">Reason</td><td class="v" colspan="3">${esc(l.reason ?? "")}</td></tr>
   </table>
   <p class="status">System status: ${statusLine}</p>
@@ -272,7 +281,7 @@ export function LeaveDetail({ l, meName }: { l: LeaveReq; meName: string }) {
           { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
           { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
           { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
-          { label: L("Days", "Hari"), value: `${l.days}` },
+          { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
           { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
           { label: L("Status", "Status"), value: stageL(l.stage ?? l.status) },
           { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
@@ -714,6 +723,7 @@ export function Leave({ user }: { user: User }) {
     start_date: "",
     end_date: "",
     days: 1,
+    day_part: "full",
     reason: "",
   });
   const canApprove = [
@@ -737,7 +747,7 @@ export function Leave({ user }: { user: User }) {
   /* v1.91.0 — which company-board row is open. */
   const [openAll, setOpenAll] = useState<number | null>(null);
   const [editLeave, setEditLeave] = useState<{
-    id: number; type: string; start_date: string; end_date: string; days: number; reason: string;
+    id: number; type: string; start_date: string; end_date: string; days: number; reason: string; day_part: string;
   } | null>(null);
   const { confirm: askRemoveLeave, node: removeLeaveNode } = useConfirm();
   /* Amending a leave is the CEO's alone, exactly like recording an unpaid
@@ -796,6 +806,11 @@ export function Leave({ user }: { user: User }) {
       showLeaveToast(L("Not sent", "Tidak dihantar"), L("Days must be at least 0.5", "Hari mestilah sekurang-kurangnya 0.5"), "notice");
       return;
     }
+    if ((draft.days === 0.5 && (start !== end || !["first_half", "second_half"].includes(draft.day_part))) ||
+        (draft.days !== 0.5 && !Number.isInteger(draft.days))) {
+      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Half-day leave needs one date and a first or second half. Submit full days separately.", "Cuti separuh hari memerlukan satu tarikh dan separuh pertama atau kedua. Hantar hari penuh secara berasingan."), "notice");
+      return;
+    }
     const res = await api<{ id?: number; error?: { message?: string } }>(`/staff/leave`, {
       method: "POST",
       body: JSON.stringify({ ...draft, start_date: start, end_date: end }),
@@ -819,6 +834,7 @@ export function Leave({ user }: { user: User }) {
       start_date: "",
       end_date: "",
       days: 1,
+      day_part: "full",
       reason: "",
     });
     void load();
@@ -858,7 +874,7 @@ export function Leave({ user }: { user: User }) {
       method: "PUT",
       body: JSON.stringify({
         type: editLeave.type, start_date: editLeave.start_date, end_date: editLeave.end_date,
-        days: editLeave.days, reason: editLeave.reason,
+        days: editLeave.days, reason: editLeave.reason, day_part: editLeave.days === 0.5 ? editLeave.day_part : "full",
       }),
     });
     if (!res.ok) {
@@ -1089,10 +1105,19 @@ export function Leave({ user }: { user: User }) {
                 className={inputClass}
                 value={draft.days}
                 onChange={(e) =>
-                  setDraft((d) => ({ ...d, days: Number(e.target.value) }))
+                  setDraft((d) => ({ ...d, days: Number(e.target.value), day_part: Number(e.target.value) === 0.5 ? "" : "full" }))
                 }
               />
             </Sub>
+            {draft.days === 0.5 && (
+              <Sub t={L("Scheduled workday half", "Separuh hari bekerja berjadual")}>
+                <select className={inputClass} value={draft.day_part} onChange={e => setDraft(d => ({ ...d, day_part: e.target.value }))}>
+                  <option value="">{L("Select half", "Pilih separuh")}</option>
+                  <option value="first_half">{L("First half", "Separuh pertama")}</option>
+                  <option value="second_half">{L("Second half", "Separuh kedua")}</option>
+                </select>
+              </Sub>
+            )}
             <Sub t={L("Reason (optional)", "Sebab (pilihan)")}>
               <textarea
                 className={inputClass}
@@ -1221,7 +1246,7 @@ export function Leave({ user }: { user: User }) {
                           {who(l)}
                         </button> ·{" "}
                         {leaveTypeL(l.type)} · {dmy(l.start_date)} →{" "}
-                        {dmy(l.end_date)} ({l.days}d)
+                        {dmy(l.end_date)} ({l.days}d) {coverageLabel(l)}
                         <span
                           className={`ml-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${mine ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}
                         >
@@ -1321,7 +1346,7 @@ export function Leave({ user }: { user: User }) {
                             <span className="text-muted-foreground">
                               {" · "}<span className={l.type === "unpaid" ? "text-danger font-medium" : ""}>{leaveTypeL(l.type)}</span>
                               {" · "}{dmy(l.start_date)}{l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}
-                              {" · "}{l.days === 1 ? L("1 day", "1 hari") : l.days === 0.5 ? L("half day", "setengah hari") : `${l.days} ${L("days", "hari")}`}
+                              {" · "}{l.days === 1 ? L("1 day", "1 hari") : l.days === 0.5 ? L("half day", "setengah hari") : `${l.days} ${L("days", "hari")}`} {coverageLabel(l)}
                               {" · "}{stageL(l.stage ?? l.status)}
                             </span>
                           </p>
@@ -1331,7 +1356,7 @@ export function Leave({ user }: { user: User }) {
                                 title={L("Correct the type, the dates or the number of days", "Betulkan jenis, tarikh atau bilangan hari")}
                                 onClick={() => setEditLeave(editLeave?.id === l.id ? null : {
                                   id: l.id, type: l.type, start_date: l.start_date,
-                                  end_date: l.end_date, days: l.days, reason: l.reason ?? "",
+                                  end_date: l.end_date, days: l.days, reason: l.reason ?? "", day_part: l.day_part ?? "",
                                 })}>
                                 {editLeave?.id === l.id ? L("Close", "Tutup") : L("Edit", "Sunting")}
                               </button>
@@ -1372,6 +1397,15 @@ export function Leave({ user }: { user: User }) {
                                 value={editLeave.days}
                                 onChange={(e) => setEditLeave({ ...editLeave, days: Number(e.target.value) })} />
                             </SubR>
+                            {editLeave.days === 0.5 && (
+                              <SubR t={L("Scheduled workday half", "Separuh hari bekerja berjadual")}>
+                                <select className={inputClass} value={editLeave.day_part} onChange={e => setEditLeave({ ...editLeave, day_part: e.target.value })}>
+                                  <option value="">{L("Select half", "Pilih separuh")}</option>
+                                  <option value="first_half">{L("First half", "Separuh pertama")}</option>
+                                  <option value="second_half">{L("Second half", "Separuh kedua")}</option>
+                                </select>
+                              </SubR>
+                            )}
                             <SubR t={L("Reason", "Sebab")} className="sm:col-span-3">
                               <input className={inputClass} value={editLeave.reason}
                                 onChange={(e) => setEditLeave({ ...editLeave, reason: e.target.value })} />
@@ -1433,7 +1467,7 @@ export function Leave({ user }: { user: User }) {
                       {leaveNoOf(l)}
                     </RecordToggle>
                     {" · "}
-                    {l.days}d ·{" "}
+                    {l.days}d {coverageLabel(l)} ·{" "}
                     <span className="font-medium">
                       {stageL((l as LeaveReq).stage ?? l.status)}
                     </span>
@@ -1483,7 +1517,7 @@ export function Leave({ user }: { user: User }) {
                         label: L("Period", "Tempoh"),
                         value: `${dmy(l.start_date)} → ${dmy(l.end_date)}`,
                       },
-                      { label: L("Days", "Hari"), value: `${l.days}` },
+                      { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
                       {
                         label: L("Reason", "Sebab"),
                         wide: true,

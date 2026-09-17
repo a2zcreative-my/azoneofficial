@@ -28,6 +28,7 @@ import type { Env } from "./index";
 import { assignedResolver, notify, shiftsOn } from "./staff";
 import { daySlots, pairSessions, type Session } from "./clock-day";
 import { dueReminders } from "./shift-reminders";
+import { remainingWindows, type LeaveCoverage } from "../../lib/leave-coverage";
 
 const NOT_REMINDED = new Set(["super_admin", "admin"]);
 
@@ -49,13 +50,14 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
   const [shiftsToday, shiftsYesterday, assigned] = await Promise.all([
     shiftsOn(env, today), shiftsOn(env, yesterday), assignedResolver(env, yesterday, today),
   ]);
-  const onLeave = new Set<number>();
-  try {
+  let onLeave: (LeaveCoverage & { user_id: number })[] = [];
+  {
     const { results } = await env.DB.prepare(
-      `SELECT user_id FROM leave_requests WHERE status = 'approved' AND start_date <= ?1 AND end_date >= ?1`,
-    ).bind(today).all<{ user_id: number }>();
-    for (const r of results ?? []) onLeave.add(r.user_id);
-  } catch { /* pre-leave */ }
+      `SELECT user_id, start_date, end_date, days, day_part, coverage_json FROM leave_requests
+       WHERE status = 'approved' AND start_date <= date(?1, '+1 day') AND end_date >= date(?2, '-1 day')`,
+    ).bind(today, yesterday).all<LeaveCoverage & { user_id: number }>();
+    onLeave = results ?? [];
+  }
   const holidayOn = async (iso: string): Promise<boolean> => {
     try {
       const h = await env.DB.prepare(
@@ -74,14 +76,20 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
       `SELECT user_id, type, created_at, date(created_at, '+8 hours') AS d FROM attendance_records
         WHERE date(created_at, '+8 hours') IN (?1, ?2) ORDER BY created_at`,
     ).bind(today, yesterday).all<{ user_id: number; type: string; created_at: string; d: string }>();
-    const raw = new Map<string, { type: string; at: string }[]>();
+    const raw = new Map<number, { type: string; at: string }[]>();
     for (const r of results ?? []) {
-      const k = `${r.user_id}|${r.d}`;
-      const l = raw.get(k) ?? [];
+      const l = raw.get(r.user_id) ?? [];
       l.push({ type: r.type, at: r.created_at });
-      raw.set(k, l);
+      raw.set(r.user_id, l);
     }
-    for (const [k, l] of raw) punches.set(k, pairSessions(l));
+    // Pair before grouping by workday so today's out closes last night's in.
+    for (const [uid, list] of raw) {
+      for (const session of pairSessions(list)) {
+        const day = new Date(Date.parse(`${session.in.replace(" ", "T")}Z`) + 8 * 3600000).toISOString().slice(0, 10);
+        const key = `${uid}|${day}`;
+        punches.set(key, [...(punches.get(key) ?? []), session]);
+      }
+    }
   }
 
   /* already sent - one query for every ref this pass could produce */
@@ -96,13 +104,13 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
 
   let sent = 0, checked = 0;
   for (const u of people) {
-    if (onLeave.has(u.id)) continue;
     const days: [string, number, boolean][] = [[today, nowMin, holToday], [yesterday, nowMin + 24 * 60, holYesterday]];
     for (const [iso, clock, holiday] of days) {
       const sh = iso === today ? shiftsToday.get(u.id) : shiftsYesterday.get(u.id);
       const blocks = holiday ? [] : (sh?.windows ?? []);
-      const slots = daySlots(blocks, assigned.list(u.id, iso).map((a) => ({ start: a.start, end: a.end, what: a.what })));
-      if (slots.length === 0) continue;
+      const scheduled = daySlots(blocks, assigned.list(u.id, iso).map((a) => ({ start: a.start, end: a.end, what: a.what })));
+      const slots = remainingWindows(scheduled, onLeave.filter(l => l.user_id === u.id), iso);
+      if (!slots?.length) continue;
       checked += 1;
       const due = dueReminders(clock, iso, slots, punches.get(`${u.id}|${iso}`) ?? []);
       for (const d of due) {

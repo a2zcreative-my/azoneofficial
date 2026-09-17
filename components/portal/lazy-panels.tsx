@@ -56,6 +56,7 @@ const lazy = <P extends object>(load: () => Promise<React.ComponentType<P>>) =>
 
 /* ---- one line per panel, alphabetical by module ---- */
 export const AccessReviewCard = lazy(() => import("@/components/portal/access-review-card").then((m) => m.AccessReviewCard));
+export const CompaniesPanel = lazy(() => import("@/components/portal/companies-panel").then((m) => m.CompaniesPanel));
 export const HrAdminPanel = lazy(() => import("@/components/admin/hr-admin-panel").then((m) => m.HrAdminPanel));
 export const AssetsPanel = lazy(() => import("@/components/portal/assets-panel").then((m) => m.AssetsPanel));
 export const CommissionPanel = lazy(() => import("@/components/portal/commission-panels").then((m) => m.CommissionPanel));

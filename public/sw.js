@@ -13,7 +13,7 @@
    (/portal?tab=Leave), and an open portal window is NAVIGATED there rather
    than matched by substring and missed. Bumped so every installed shell picks
    up the new click handler on its next visit. */
-const SHELL = "azone-shell-v32";
+const SHELL = "azone-shell-v33";
 const SHELL_URLS = ["/portal", "/account", "/login", "/logo.png", "/icon-192.png", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -24,7 +24,7 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(Promise.all([
     self.clients.claim(),
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k)))),
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("azone-shell-") && k !== SHELL).map((k) => caches.delete(k)))),
   ]));
 });
 
@@ -32,17 +32,29 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // never serve API data stale
+  const shellPage = SHELL_URLS.includes(url.pathname.replace(/\/$/, ""));
+  const asset = url.pathname.startsWith("/_next/static/") || SHELL_URLS.includes(url.pathname);
   event.respondWith(
     fetch(req)
       .then((res) => {
-        if (res && res.ok && (req.mode === "navigate" || SHELL_URLS.includes(url.pathname))) {
+        if (res && res.ok && (shellPage || asset)) {
           const copy = res.clone();
-          caches.open(SHELL).then((c) => c.put(req, copy)).catch(() => {});
+          event.waitUntil(caches.open(SHELL).then((c) => c.put(req, copy)).catch(() => {}));
         }
         return res;
       })
-      .catch(() => caches.match(req).then((r) => r || caches.match("/portal")))
+      .catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        if (req.mode === "navigate" && shellPage) {
+          const page = await caches.match(url.pathname.replace(/\/$/, ""));
+          if (page) return page;
+        }
+        // Scripts, styles and images must never receive an HTML page.
+        return Response.error();
+      })
   );
 });
 

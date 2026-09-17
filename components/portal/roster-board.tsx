@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { makeApi } from "@/lib/api";
+import { leaveOverlaps, timeWindow, isPartialLeave, type LeaveCoverage } from "@/lib/leave-coverage";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
 import { dmy, fmtRM } from "@/lib/format";
@@ -165,7 +166,7 @@ function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }:
 /** v1.131.0 — a span of APPROVED leave. The board's own week (/roster) and the
     dialogs' wider window (/leave/calendar) return the same four fields, so one
     predicate can read both without caring which list a row came from. */
-interface LeaveSpan { user_id: number; name: string; start_date: string; end_date: string }
+interface LeaveSpan extends LeaveCoverage { user_id: number; name: string }
 
 /** v1.158.0 - a day of sales duty. A plan, never a claim: `evidence` is how
     many rows the person put on the Sales Performance register that day, read
@@ -300,11 +301,11 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
      nobody can un-approve it — so a rule with no way out would leave a day
      unbookable for ever when somebody comes in anyway. Off on every open. */
   const [leaveOverride, setLeaveOverride] = useState(false);
-  const onLeaveAt = useCallback((uid: number | string, d: string) => {
+  const onLeaveAt = useCallback((uid: number | string, d: string, start?: string, end?: string | null) => {
     const id = Number(uid);
     if (!id || !d) return false;
     return [...(data?.on_leave ?? []), ...spanLeave]
-      .some((l) => l.user_id === id && l.start_date <= d && d <= l.end_date);
+      .some((l) => l.user_id === id && leaveOverlaps(l, d, timeWindow(start, end)));
   }, [data, spanLeave]);
 
   const [notReady, setNotReady] = useState(false);
@@ -785,7 +786,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
     for (const dt of expandDates()) {
       for (const h of hostIds()) {
         const k = `${h}|${dt}`;
-        if (!onLeaveAt(h, dt) || seen.has(k)) continue;
+        if (!onLeaveAt(h, dt, draft.start_time, draft.end_time) || seen.has(k)) continue;
         seen.add(k);
         out.push({ key: k, name: hostShort(h), date: dt });
       }
@@ -800,7 +801,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
     const hosts = hostIds();
     if (hosts.length === 0) return 0;
     const all = expandDates().flatMap((dt) => hosts.map((h) => ({ dt, h })));
-    return Math.min(MAX_PER_PRESS, (leaveOverride ? all : all.filter((e) => !onLeaveAt(e.h, e.dt))).length);
+    return Math.min(MAX_PER_PRESS, (leaveOverride ? all : all.filter((e) => !onLeaveAt(e.h, e.dt, draft.start_time, draft.end_time))).length);
   };
 
   /** Validate the form + repeat rule; toast and return null when unusable. */
@@ -838,7 +839,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
        asked for. */
     const all = leaveOverride
       ? everything
-      : everything.filter((e) => !onLeaveAt(e.host_user_id, e.session_date));
+      : everything.filter((e) => !onLeaveAt(e.host_user_id, e.session_date, e.start_time, e.end_time));
     if (all.length === 0) {
       const first = everything[0];
       showToast(
@@ -1120,6 +1121,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                 <span className="min-w-0 truncate font-medium">{l.name}</span>
                 <span className="text-muted-foreground tabular-nums whitespace-nowrap">
                   {l.start_date === l.end_date ? dmy(l.start_date) : `${dmy(l.start_date)} → ${dmy(l.end_date)}`}
+                  {isPartialLeave(l) && ` · ${l.day_part === "first_half" ? L("First half", "Separuh pertama") : l.day_part === "second_half" ? L("Second half", "Separuh kedua") : L("Coverage needs review", "Tempoh perlu disemak")}`}
                 </span>
               </p>
             ))}
@@ -1301,6 +1303,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                               const cs = cellSessions(u.id, d);
                               const ts = cellTasks(u.id, d);
                               const leave = onLeaveAt(u.id, d);
+                              const partialLeave = data.on_leave.some(l => l.user_id === u.id && leaveOverlaps(l, d) && isPartialLeave(l));
                               /* While a task is armed, every cell the current
                                  user is allowed to fill becomes a target. A
                                  non-manager may only place work on their own
@@ -1323,7 +1326,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                   className={`border-border min-h-12 min-w-0 space-y-1 border-l p-1 ${d === todayS ? "bg-gold-soft/15" : holidayAt(d) ? "bg-danger-soft/20" : offOnly(u.id, d) ? "bg-secondary/60" : ""} ${canDrop ? "ring-gold cursor-copy ring-1 ring-inset" : ""} ${leave && armed != null ? "cursor-not-allowed opacity-60" : ""}`}
                                   onClick={canDrop ? () => void placeTask(armed!, d, u.id) : undefined}>
                                   {leave && (
-                                    <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{L("On leave", "Bercuti")}</div>
+                                    <div className="bg-danger-soft text-danger rounded-md px-1.5 py-1 text-center text-[10px] font-semibold">{partialLeave ? L("Partial leave", "Cuti separa") : L("On leave", "Bercuti")}</div>
                                   )}
                                   {/* v1.158.4 - the person's own rest day, from
                                       their working-hours pattern. Shown, never
@@ -1606,14 +1609,6 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                          accident. Refused here rather than in the confirm bar:
                          a bar that appears only to say no is a bar that wasted
                          the gesture. */
-                      if (onLeaveAt(sess.host_user_id, d)) {
-                        setDrag(null);
-                        showToast(L("Not available", "Tidak tersedia"),
-                          L(`${sess.host_name.split(" ").slice(0, 2).join(" ")} is on approved leave on ${dmy(d)}.`,
-                            `${sess.host_name.split(" ").slice(0, 2).join(" ")} bercuti (diluluskan) pada ${dmy(d)}.`),
-                          "notice");
-                        return;
-                      }
                       const rect = (e.currentTarget as unknown as { getBoundingClientRect(): { top: number } }).getBoundingClientRect();
                       // review fix: subtract the grab offset so the block's TOP
                       // edge (not the cursor) decides the new slot.
@@ -1622,6 +1617,11 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                       const slot = Math.round(((y / HOUR_PX) * 60 + DAY_START * 60) / 30) * 30;
                       const startM = Math.max(DAY_START * 60, Math.min((DAY_END - 1) * 60 + 30, slot));
                       const durM = (sess.end_time ? mins(sess.end_time) : mins(sess.start_time) + 60) - mins(sess.start_time);
+                      if (onLeaveAt(sess.host_user_id, d, toHHMM(startM), durM > 0 ? toHHMM(startM + durM) : null)) {
+                        setDrag(null);
+                        showToast(L("Not available", "Tidak tersedia"), L("That time overlaps approved leave.", "Masa tersebut bertindih dengan cuti diluluskan."), "notice");
+                        return;
+                      }
                       setPendingMove({
                         s: sess, date: d,
                         start: toHHMM(startM),
@@ -2448,7 +2448,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                   server. */}
               {(() => {
                 if (!tDraft.assigned_to) return null;
-                const away = tDates().filter((d) => onLeaveAt(tDraft.assigned_to, d));
+                const away = tDates().filter((d) => onLeaveAt(tDraft.assigned_to, d, tDraft.start_time, tDraft.end_time));
                 if (away.length === 0) return null;
                 const who = staff.find((u) => String(u.id) === tDraft.assigned_to)?.name.split(" ").slice(0, 2).join(" ") ?? "";
                 return (
@@ -2482,7 +2482,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                      sent. The server refuses a run containing one AS A WHOLE
                      (half a standing duty landing is worse than none), so
                      filtering here is what lets the usable days through. */
-                  const days = hasSlot ? tDates().filter((d) => !onLeaveAt(tDraft.assigned_to, d)) : [];
+                  const days = hasSlot ? tDates().filter((d) => !onLeaveAt(tDraft.assigned_to, d, tDraft.start_time, tDraft.end_time)) : [];
                   if (hasSlot && days.length === 0) {
                     showToast(L("Not available", "Tidak tersedia"),
                       L("Every day in this run is approved leave for that person. Pick another day, or another person.",
@@ -2592,7 +2592,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
               {/* approved leave, named before the press - the live card's box */}
               {(() => {
                 if (!sDraft.user_id) return null;
-                const away = sDates().filter((d) => onLeaveAt(sDraft.user_id, d));
+                const away = sDates().filter((d) => onLeaveAt(sDraft.user_id, d, sDraft.start_time, sDraft.end_time));
                 if (away.length === 0) return null;
                 const who = staff.find((u) => String(u.id) === sDraft.user_id)?.name.split(" ").slice(0, 2).join(" ") ?? "";
                 return (
@@ -2665,7 +2665,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                 const dtList = dts.length <= 7
                   ? dts.map((d) => `${wd(d)} ${dmy(d).slice(0, 5)}`).join(", ")
                   : `${wd(dts[0]!)} ${dmy(dts[0]!)} → ${wd(dts[dts.length - 1]!)} ${dmy(dts[dts.length - 1]!)}`;
-                const skipped = sDraft.user_id ? dts.filter((d) => onLeaveAt(sDraft.user_id, d)).length : 0;
+                const skipped = sDraft.user_id ? dts.filter((d) => onLeaveAt(sDraft.user_id, d, sDraft.start_time, sDraft.end_time)).length : 0;
                 return (
                   <p className={`mt-1.5 text-[11px] font-medium ${dts.length > 0 ? "text-success" : "text-warning"}`}>
                     {dts.length > 0 && skipped > 0 && (
@@ -2704,12 +2704,12 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button type="button" className={btnClass}
-                disabled={savingSales || (!!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d)))}
+                disabled={savingSales || (!!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d, sDraft.start_time, sDraft.end_time)))}
                 onClick={async () => {
                   if (!sDraft.user_id) { showToast(L("Pick a sales person", "Pilih orang jualan"), L("The sales person is missing.", "Orang jualan belum dipilih."), "notice"); return; }
                   if (!/^\d{4}-\d{2}-\d{2}$/.test(sDraft.shift_date)) { showToast(L("Pick a date", "Pilih tarikh"), L("The date is missing.", "Tarikh belum dipilih."), "notice"); return; }
                   if (!sDraft.end_time || sDraft.end_time <= sDraft.start_time) { showToast(L("Check the hours", "Semak waktu"), L("The end must be after the start.", "Tamat mesti selepas mula."), "notice"); return; }
-                  const days = sDates().filter((d) => !onLeaveAt(sDraft.user_id, d));
+                  const days = sDates().filter((d) => !onLeaveAt(sDraft.user_id, d, sDraft.start_time, sDraft.end_time));
                   if (days.length === 0) {
                     showToast(L("Nothing to schedule", "Tiada apa untuk dijadualkan"),
                       sRepeat !== "once" && sDates().length === 0
@@ -2769,7 +2769,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                   void load(week);
                 }}>
                 {savingSales ? (editingShift != null ? L("Saving…", "Menyimpan…") : L("Scheduling…", "Menjadualkan…"))
-                  : !!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d))
+                  : !!sDraft.user_id && sDates().length > 0 && sDates().every((d) => onLeaveAt(sDraft.user_id, d, sDraft.start_time, sDraft.end_time))
                     ? L("On leave — not available", "Bercuti — tidak tersedia")
                     : editingShift != null ? L("Save changes", "Simpan perubahan") : L("Schedule", "Jadualkan")}
               </button>

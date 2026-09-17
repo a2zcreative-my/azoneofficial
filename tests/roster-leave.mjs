@@ -78,13 +78,13 @@ ok("only APPROVED leave closes a day",
    /WHERE user_id = \?1 AND status = 'approved'/.test(staff),
    "blocking on a pending application would let anybody freeze their own roster by filing a form");
 ok("a day inside the span counts, both ends included",
-   /start_date <= d && d <= l\.end_date/.test(staff),
+   /leaveOverlaps\(l, d, window\)/.test(staff),
    "a leave row is a range; the grid already paints every day of it");
 ok("the refusal names the person and the days",
    /is on approved leave on \$\{when\}/.test(staff) && /clash\.slice\(0, 4\)\.map\(dmyMsg\)/.test(staff),
    "\"they are on leave\" sends somebody back to the calendar to work out which day");
-ok("a query that cannot run does not become a rule that cannot be passed",
-   /\} catch \{[\s\S]{0,140}return \[\];/.test(staff));
+ok("failed leave reads cannot silently authorize a booking",
+   !/catch/.test(staff.slice(staff.indexOf("async function leaveClashDates"), staff.indexOf("async function refuseIfOnLeave"))));
 
 /* ---- 2. every door that CHOOSES A DAY, asked the right question ------- */
 /* Door 1 — creating a live session. */
@@ -99,7 +99,7 @@ ok("a query that cannot run does not become a rule that cannot be passed",
 }
 /* Door 2 — moving one, or handing it to somebody else. */
 {
-  const door = region(`if (mLS && method === "PATCH")`, 4200);
+  const door = region(`if (mLS && method === "PATCH")`, 6000);
   ok("PATCH /live-sessions/:id checks before it updates",
      door.includes("refuseIfOnLeave")
      && door.indexOf("refuseIfOnLeave") < door.indexOf("UPDATE live_sessions SET"));
@@ -120,7 +120,7 @@ ok("a query that cannot run does not become a rule that cannot be passed",
 }
 /* Door 4 — dragging a block to another day or another row. */
 {
-  const door = region(`const mTB = path.match(/^\\/task-blocks\\/(\\d+)$/)`, 7000);
+  const door = region(`const mTB = path.match(/^\\/task-blocks\\/(\\d+)$/)`, 10000);
   /* Anchored on the RESCHEDULE update specifically — the done-tick update
      sits earlier in the same handler and is deliberately not gated. */
   ok("PATCH /task-blocks/:id checks before it updates",
@@ -166,16 +166,15 @@ ok("only the roles that may already amend a session are offered it",
 /* ---- 4. the presses that must NOT be refused ------------------------- */
 /* The mirror image, and the half that keeps the rule usable. */
 {
-  const door = region(`if (mLS && method === "PATCH")`, 4200);
-  ok("a status-only change is never checked",
-     /if \(body\?\.session_date !== undefined \|\| body\?\.host_user_id !== undefined\) \{/.test(door),
+  const door = region(`if (mLS && method === "PATCH")`, 6000);
+  ok("cancellation is allowed while time changes are checked",
+     /st !== "cancelled"/.test(door) && /body\?\.start_time !== undefined \|\| body\?\.end_time !== undefined/.test(door),
      "a session that already clashes must stay cancellable — that press IS the fix");
 }
 {
   const door = region(`const mTB = path.match(/^\\/task-blocks\\/(\\d+)$/)`, 7000);
-  ok("a time-only edit and the done tick are never checked",
-     /if \(setsB\.some\(\(x\) => \/\^\(block_date\|user_id\) =\/\.test\(x\)\)\) \{/.test(door),
-     "refusing those would make a badly-timed block on a leave day uncorrectable");
+  ok("time-only edits are checked without blocking the done tick",
+     /block_date\|user_id\|start_time\|end_time/.test(door) && door.indexOf('typeof body?.done === "boolean"') < door.indexOf("refuseIfOnLeave"));
 }
 ok("approving leave over existing work is still allowed, and still reported",
    /kind: "host_on_leave"/.test(staff) && !/refuseIfOnLeave[\s\S]{0,200}leave\/\d/.test(staff),
@@ -194,10 +193,10 @@ ok("the dialogs fetch the span they are about to write into",
 ok("a leave cell stops being a drop target for an armed task",
    /const canDrop = armed != null && !placing && !leave/.test(board));
 ok("dragging a session onto a leave day is refused at the drop",
-   /if \(onLeaveAt\(sess\.host_user_id, d\)\)/.test(board),
+   /if \(onLeaveAt\(sess\.host_user_id, d, toHHMM\(startM\)/.test(board),
    "a confirm bar that appears only to say no is a bar that wasted the gesture");
 ok("the planner drops leave entries PER HOST",
-   /everything\.filter\(\(e\) => !onLeaveAt\(e\.host_user_id, e\.session_date\)\)/.test(board),
+   /everything\.filter\(\(e\) => !onLeaveAt\(e\.host_user_id, e\.session_date, e\.start_time, e\.end_time\)\)/.test(board),
    "dropping the whole date would cancel a colleague's session over somebody else's holiday");
 ok("a run with nothing left refuses instead of creating nothing",
    /if \(all\.length === 0\) \{/.test(board) && /Not available/.test(board));
@@ -210,7 +209,7 @@ ok("the run preview says how many days it gave back",
 ok("the clash is named — who, and which day — not just flagged",
    /On approved leave — not available/.test(board) && /Bercuti diluluskan — tidak tersedia/.test(board));
 ok("the task dialog applies the same rule to its own run",
-   /tDates\(\)\.filter\(\(d\) => !onLeaveAt\(tDraft\.assigned_to, d\)\)/.test(board));
+   /tDates\(\)\.filter\(\(d\) => !onLeaveAt\(tDraft\.assigned_to, d, tDraft\.start_time, tDraft\.end_time\)\)/.test(board));
 
 /* ---- 6. PDPA: the picker learns THAT a day is closed, never why ------ */
 /* The same stance /roster already takes. Half of "why" is medical data. */

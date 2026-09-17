@@ -1,12 +1,18 @@
 # ERP Workflow Baseline
 
-**Reviewed:** 15 September 2026  
-**Source baseline:** v1.162.3
+**Reviewed:** 17 September 2026
+
+**Source baseline:** v1.164.0 plus local attendance and company-review changes
 **Phase:** 0 - source mapping in progress
 
 This file records what the current source proves before broader ERP changes begin.
 It is not yet a team-approved SOP. Production data, timings, and real user behavior
 still require walkthroughs with HR, Finance, Operations, and the CEO.
+
+Decision update: legacy operational ownership is mixed/uncertain and must go through
+management review without automatic company assignment. Half-day leave covers the
+first/second half of total scheduled blocks. Implementation status and follow-through
+are in [SHIFT-AND-ERP-IMPLEMENTATION.md](SHIFT-AND-ERP-IMPLEMENTATION.md).
 
 ## Reading the status
 
@@ -24,8 +30,8 @@ still require walkthroughs with HR, Finance, Operations, and the CEO.
 | Legal issuers | `lib/issuers.ts` defines `a2z` and `azoo` identities | Source verified | Keep this registry as the identity source. |
 | Issued documents | Migration 0073 adds `issuer_code` to sales documents, receipts, credit notes, claims, leave requests, and payslip releases | Source verified | Preserve a document's issuer permanently. Reject unknown issuer values on new writes. |
 | Signature assets | Migration 0118 keys immutable signature versions by issuer and role; admin UI manages both companies | Source verified | Extend this vault with signing events; do not create another signature store. |
-| User company membership | No employer/company membership column or relation was found on `users` | Confirmed gap | Decide whether each user belongs to A2Z, AZ ONE, or both, separately from their role. |
-| Operational ownership | No issuer/company ownership field was found on customers, suppliers, inventory items, purchase orders, or reconciliations | Confirmed gap | Decide which records are shared and which balances/transactions belong to one company. |
+| User company membership | Migration 0134 adds independent employer setup and planned memberships, editable in Companies | Implemented locally, enforcement pending | Management assigns each employee explicitly; existing role authorization is unchanged until the isolation phase. |
+| Operational ownership | Companies records snapshot-bound proposals for nine operational registers without changing their source tables | Review foundation implemented locally | Reconcile proposals and dependencies, then promote verified ownership atomically. Contacts remain shared reference data until explicitly decided. |
 | Authorization | `worker/src/permissions.ts` grants module actions by role | Source verified, incomplete for two companies | Add server-side company scope after the membership decision. UI filtering alone is insufficient. |
 | Reporting | Document renderers retain issuer; combined operational reporting was not proven to isolate entities | Needs walkthrough | Define separate company reports and explicitly labeled consolidated management views. |
 

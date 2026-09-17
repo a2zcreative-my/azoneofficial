@@ -64,6 +64,7 @@ export const ALL_TABS = [
   "ELFIA Traffic",
   "HR",
   "Attendance",
+  "On Shift",
   "Tasks",
   "Announcements",
   "Staff Details",
@@ -76,6 +77,7 @@ export const ALL_TABS = [
   "Ads Fund",
   "Purchasing",
   "Accounting",
+  "Companies",
   /* v1.129.0 - the three officers' digital business cards, to share with a
      client. Placed HERE, next to Profile, for two reasons and neither is
      taste: the phone bottom bar shows the first FOUR tabs a role can see, so
@@ -93,7 +95,7 @@ export type TabName = (typeof ALL_TABS)[number];
 
 /** Home and identity. Never hidden, never overridable — clocking in and
     reading your own payslip are not permissions. */
-export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Profile"];
+export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Profile", "On Shift"];
 
 /**
  * PARKED — built, kept, and shown to nobody.
@@ -255,6 +257,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
   ],
   Purchasing: ["super_admin", "admin", "ceo", "coo"],
   Accounting: ["super_admin", "admin", "ceo"],
+  Companies: ["super_admin", "ceo"],
   // v1.7.0: Content is open to the team that makes it.
   Content: [
     "super_admin", "admin", "ceo", "coo", "cco", "hr_admin",
@@ -269,6 +272,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
 /** One line saying what a tab is for, shown under its name in the 🔐 card.
     Tabs whose name says it all are absent rather than padded. */
 export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
+  Companies: { en: "ownership review - CEO", ms: "semakan pemilikan - CEO" },
   Attendance: { en: "punches + roster", ms: "rekod kehadiran + roster" },
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },

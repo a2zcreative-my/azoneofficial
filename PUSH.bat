@@ -1,11 +1,14 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+set "PORTALGUARDS="
+set "GITFAILED="
+set "HEALTHFAILED="
 title ELFIA + PORTAL - deploy everything
 REM ============================================================
 REM  ONE FILE. DOUBLE-CLICK IT. IT PUTS EVERYTHING LIVE.
 REM
-REM  There is an identical copy of this file in the other folder;
-REM  it does not matter which one you run.
+REM  Run this portal copy for the current verification checks.
+REM  Synchronize the store copy before treating it as equivalent.
 REM
 REM  WHY THIS FILE EXISTS (the mistake that wasted 25-08):
 REM  each project publishes TWO SEPARATE THINGS, and deploying
@@ -333,14 +336,12 @@ if exist ".githooks\pre-commit" git config core.hooksPath .githooks >nul 2>&1
 if defined PORTALGUARDS (
   echo   Portal code NOT saved to GitHub - a rule is broken; fix it first.
 ) else (
-  git add -A >nul 2>&1
-  git commit -m "portal deploy" >nul 2>&1
-  git push >nul 2>&1
+call node "%PORTAL%\scripts\verify-release.mjs" save "%PORTAL%\." "portal deploy"
+  if errorlevel 1 set GITFAILED=1
 )
 cd /d "%STORE%"
-git add -A >nul 2>&1
-git commit -m "store deploy" >nul 2>&1
-git push >nul 2>&1
+call node "%PORTAL%\scripts\verify-release.mjs" save "%STORE%\." "store deploy"
+if errorlevel 1 set GITFAILED=1
 
 REM ============================================================
 REM  CHECK THE LIVE SYSTEMS
@@ -349,11 +350,13 @@ echo.
 echo   Checking both live systems...
 echo.
 echo     --- https://a2zcreative.my/api/v1/health
-curl.exe -s -m 20 https://a2zcreative.my/api/v1/health
+call node "%PORTAL%\scripts\verify-release.mjs" health https://a2zcreative.my/api/v1/health
+if errorlevel 1 set HEALTHFAILED=1
 echo.
 echo.
 echo     --- https://elfiaofficialstore.my/api/v1/health
-curl.exe -s -m 20 https://elfiaofficialstore.my/api/v1/health
+call node "%PORTAL%\scripts\verify-release.mjs" health https://elfiaofficialstore.my/api/v1/health
+if errorlevel 1 set HEALTHFAILED=1
 echo.
 echo.
 REM  v1.139.0 - the website step used to EXIT here, so a refusal on the
@@ -362,6 +365,9 @@ REM  deployed at all, and neither health check ran. A refusal is reported at
 REM  the end now, after everything that CAN be published has been.
 if defined SITEREFUSED goto :sitefailed
 if defined STOREREFUSED goto :sitefailed
+if defined PORTALGUARDS goto :verificationfailed
+if defined GITFAILED goto :verificationfailed
+if defined HEALTHFAILED goto :verificationfailed
 echo   ============================================
 echo    DONE - engines AND websites are published.
 echo   ============================================
@@ -377,6 +383,14 @@ exit /b 0
 REM ------------------------------------------------------------
 REM  helpers
 REM ------------------------------------------------------------
+
+:verificationfailed
+echo.
+echo   [X] RELEASE INCOMPLETE - inspect the errors above.
+echo       Deployments that succeeded are live. A guard, GitHub sync,
+echo       or health check failed; this run is not a verified release.
+pause
+exit /b 1
 
 :askvapid
 REM  Runs INSIDE worker\. Generates a fresh key pair on this PC and shows it

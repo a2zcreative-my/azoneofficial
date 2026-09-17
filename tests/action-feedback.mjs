@@ -246,7 +246,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     /* v1.91.0 — the unscheduled-work card's editor on the roster. */
     ["updating a task from the roster rail", roster, /showToast\(status \? L\("Task completed", "Tugasan selesai"\) : L\("Task updated"/],
     ["a task update the server refused", roster, /const saveUnsched = async[\s\S]{0,1200}?if \(!r\.ok\) \{\s*\n?\s*showToast\(L\("Not saved"/],
-    ["a leave request the server refused", page, /const apply = async[\s\S]{0,1200}?if \(!res\.ok\) \{\s*\n?\s*showLeaveToast\(L\("Not sent"/],
+    ["a leave request the server refused", page.slice(page.indexOf("const apply = async"), page.indexOf("const act = async", page.indexOf("const apply = async"))), /if \(!res\.ok\) \{\s*\n?\s*showLeaveToast\(L\("Not sent"/],
     ["a leave request with no date says so instead of doing nothing", page, /const apply = async[\s\S]{0,400}?if \(!start\) \{\s*\n?\s*showLeaveToast\(/],
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],
     ["an overtime decision", page, /showOtToast\(\s*\n?\s*decision === "approved"/],

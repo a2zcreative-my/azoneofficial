@@ -4,13 +4,13 @@
 **Reviewed:** 16 September 2026
 **Target:** the portal, admin, account, and document related screens
 
-## Card-order rollout - local
+## Card-order rollout - published
 
 The approved work-first card-order plan is tracked in
 [CARD-ORDER-IMPLEMENTATION.md](CARD-ORDER-IMPLEMENTATION.md). Dashboard, Ecommerce,
 Inventory, Sales, Attendance and Users were accepted by the user. The approved
 extension changes 15 further tabs and retains eight already-correct layouts.
-Publishing through PUSH.bat remains a separate step. See the linked record for
+The user subsequently authorized publication through PUSH.bat and it completed. See the linked record for
 verification results and remaining device/production-data acceptance.
 
 ## Video reference implementation - 16 September 2026

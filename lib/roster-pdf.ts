@@ -100,7 +100,7 @@ export interface RosterPdfBlock {
   start_time: string; end_time?: string | null;
   title: string; priority?: string; done_at?: string | null;
 }
-export interface RosterPdfLeave { user_id: number; start_date: string; end_date: string }
+export interface RosterPdfLeave { user_id: number; start_date: string; end_date: string; days?: number; day_part?: string | null }
 /* v1.158.3 - a day of sales duty, and a public holiday. Optional and last in
    the call, so a caller on the old build prints yesterday's sheet. */
 export interface RosterPdfShift {
@@ -330,7 +330,8 @@ export function drawRosterGrid(
       let cy = y + M.pad;
       if (leaveOn(u.id, d)) {
         c.rect(x + 2.5, cy, dayW - 5, M.leaveH, LV_FILL);
-        c.text("ON LEAVE", x + dayW / 2, cy + M.leaveH * 0.7, M.leaveText, { bold: true, colour: LV_TEXT, align: "c", spacing: 0.6 });
+        const partial = onLeave.some(l => l.user_id === u.id && l.start_date <= d && d <= l.end_date && typeof l.days === "number" && l.days % 1 !== 0);
+        c.text(partial ? "PARTIAL LEAVE" : "ON LEAVE", x + dayW / 2, cy + M.leaveH * 0.7, M.leaveText, { bold: true, colour: LV_TEXT, align: "c", spacing: 0.6 });
         cy += M.leaveH + M.gap;
       } else if (offOn(u.id, d)) {
         /* v1.158.4 - the person's own rest day, from their pattern */

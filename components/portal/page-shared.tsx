@@ -9,12 +9,14 @@ import { Lang, getLang } from "@/lib/i18n";
 
 /* v1.25.1 — remembered-data keys for the Dashboard's own four requests. */
 export type DashCache = {
+  as_of?: string;
   records: { type: string; created_at: string }[];
   ot?: { type: string; created_at: string }[];
   ot_eligible?: boolean;
   /* v1.133.0 — every block of today's pattern, so the card can say which
      shifts to clock for. null when the schedule cannot be read. */
   today_shift?: {
+    entry?: { clocked_in: boolean; open_since: string | null; clock_out_at: string | null; launch_shift: boolean; leave_review: boolean; work_label?: string | null };
     kind: string; label: string; windows: { start: string; end: string }[];
     /* v1.133.2 — the SHIFTS (blocks + roster + live board), which are
        already clocked in for, and whether a clock-in is possible right now. */
@@ -247,6 +249,8 @@ export interface LeaveReq {
   start_date: string;
   end_date: string;
   days: number;
+  day_part?: "full" | "first_half" | "second_half" | null;
+  coverage_json?: string | null;
   status: string;
   stage?: string;
   applicant_role?: string;

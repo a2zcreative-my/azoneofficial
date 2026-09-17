@@ -242,7 +242,7 @@ ok("the refusal names the shifts", /every shift today \(\$\{slotsLabel\(slotsTod
 ok("the phone is told whether a clock-in is possible, and why not",
    /can_clock_in: verdictT\.ok/.test(staff) && /why_not: verdictT\.ok \? null : verdictT\.reason/.test(staff));
 ok("...and disables Clock in on that answer",
-   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash) && /All shifts clocked/.test(dash) && /No shift to clock in for/.test(dash));
+   /disabled=\{[^}]*openNow \|\| !canClockIn\}/.test(dash) && /All shifts clocked/.test(dash) && /No shift to clock in for/.test(dash));
 ok("a clock-out is refused only with nothing open, and says what to do next",
    /if \(body\.type === "clock_out" && !openNow\) \{/.test(staff) && /Clock in again when your next shift starts/.test(staff));
 ok("the forgotten-punch flow survives: a clock-out on a day with NO session is still taken as pending",
@@ -380,10 +380,10 @@ ok("the punches endpoint ships today's shifts, every block",
    /today_shift = \{[\s\S]{0,200}?windows: shT\.windows\.map/.test(staff));
 
 /* The phone. */
-ok("the dashboard reads 'clocked in now' off the LATEST punch",
-   /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = latestPunch === "clock_in";/.test(dash),
+ok("the dashboard uses server session state, with the latest punch as legacy fallback",
+   /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = todayShift\?\.entry\?\.clocked_in \?\? \(latestPunch === "clock_in"\);/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
-ok("Clock in is offered whenever nothing is open AND a shift is left", /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash) && /Clock in · next shift/.test(dash));
+ok("Clock in is offered whenever nothing is open AND a shift is left", /disabled=\{[^}]*openNow \|\| !canClockIn\}/.test(dash) && /Clock in · next shift/.test(dash));
 ok("the OT buttons are back, and disabled once the day's pair is done",
    /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
 ok("the card names today's shifts - pattern, roster and live board - and says the rule",

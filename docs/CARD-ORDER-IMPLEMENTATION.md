@@ -2,7 +2,7 @@
 
 Date: 16 September 2026
 Baseline: deployed v1.164.0
-Status: six-tab pilot accepted by the user; remaining active tabs reviewed and work-first rollout implemented locally. Local automated verification passed. PUSH.bat is not authorized by this layout approval.
+Status: pilot and extension accepted, verified and subsequently published through the explicitly authorized PUSH.bat run. Portal commit: 6d6fafb3d38e0874b796f36832afef68486eafe2. That deployment authorization is fulfilled; new attendance/ERP changes are separate.
 
 ## Contract
 

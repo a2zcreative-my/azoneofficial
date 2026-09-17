@@ -258,6 +258,7 @@ export async function buildClaimPdf(c: ClaimLike, claimNo: string): Promise<Blob
 
 /* ------------------------------------------------------------- leave form */
 export interface LeaveLike {
+  coverage_label?: string;
   id: number; type: string; start_date: string; end_date: string; days: number;
   reason?: string | null; status?: string | null; stage?: string | null; created_at?: string | null;
   user_name?: string | null; user_full?: string | null; user_role?: string | null;
@@ -283,7 +284,7 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
     ["Leave No.", lvNo, "Date", myt(l.created_at)],
     ["Employee", applicant, "Department", (l.user_department ?? "").toUpperCase()],
     ["Position", (l.user_position ?? "").toUpperCase(), "Leave type", (l.type ?? "").toUpperCase()],
-    ["Period", `${dmy(l.start_date)} - ${dmy(l.end_date)}`, "Days", String(l.days)],
+    ["Period", `${dmy(l.start_date)} - ${dmy(l.end_date)} ${l.coverage_label ?? ""}`, "Days", String(l.days)],
     ["Reason", l.reason ?? "", "", ""],
   ], true);
 

@@ -1,5 +1,13 @@
 # Admin Guide
 
+## Local Company Review - Unreleased
+
+The Companies tab in the staff portal is available to CEO and super-admin after
+migration 0134. It records proposed owners, deferred decisions and staff company
+setup. It does not yet enforce company isolation, change balances or replace issued
+document identities. See [Company reconciliation workspace](COMPANY-REVIEW-IMPLEMENTATION.md)
+for review steps, audit guarantees and the remaining rollout gates.
+
 > **First-time sign-in:** create your super admin account via the one-time bootstrap curl in `worker/README.md` (uses your SETUP_TOKEN secret; nothing is hardcoded). After that, sign in normally at `/login` with email/password or Continue with Google.
 
 > The admin v0 is LIVE at `/admin` (after Worker deploy + first super admin creation — see worker/README.md).
@@ -353,7 +361,9 @@ is audit-logged with the actor. CEO's other surfaces remain read-only.
 
 
 ## v1.4.29 notes
-- One clock-in and one clock-out per person per day, enforced by the API.
+- Historical rule, superseded by v1.133.0: attendance now supports multiple
+  scheduled blocks and sessions per day. See [current attendance rollout](SHIFT-AND-ERP-IMPLEMENTATION.md)
+  for the local On Shift and half-day changes. This is not a one-pair-per-day system.
 - Punching shows an animated confirmation card (result + MYT time); errors
   (e.g. already punched) show inline.
 

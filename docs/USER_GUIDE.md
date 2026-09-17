@@ -30,9 +30,13 @@ Sign in at /login, then open /portal. Everyone: clock in/out and breaks, attenda
 Sign in at /login with your @azoneofficial.com Google account. You land in the
 staff portal (/portal); your role decides which tabs you see.
 
-**Everyone:** clock in and out in *Attendance* (shift is 10:00am–6:00pm MYT,
-Monday–Friday — late clock-ins and early clock-outs are flagged for HR
-automatically), apply for Annual / Medical / Emergency leave in *Leave*, and
+**Everyone:** clock in and out using Dashboard; the local, unreleased update adds
+*On Shift*. Attendance follows your assigned schedule, including split shifts,
+not one fixed company-wide time. Each scheduled block has its own clock-in/out.
+Early departure is recorded, not automatically converted to half-day leave.
+Apply for leave in *Leave*; the update requires first/second-half selection for a
+0.5-day request and follows the existing approval chain. See
+[rollout status](SHIFT-AND-ERP-IMPLEMENTATION.md). You can also
 change your password in *Profile* (Google accounts manage theirs with Google).
 
 **HR & Administrative:** the *HR* tab shows the attendance verification table
