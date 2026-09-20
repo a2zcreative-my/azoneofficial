@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.168.0] - 2026-09-20 - A calmer staff portal on phone and web
+
+- Stabilised the phone bar around Dashboard, On Shift, Tasks and Profile, while keeping every other authorised module in a grouped More sheet.
+- Kept the existing colour system and authentication flow while improving PWA safe-area behaviour, modal scroll locking and the visual priority of shift actions.
+- Moved per-person portal access into the User-account workflow and kept the existing audited permission API as the single source of truth.
+- Made Staff Details roster-first with search and compact identity rows; the organisation chart and team map remain available as secondary views.
+- Reworked Profile into a clearer employee identity summary without changing which personal fields staff may edit.
+
 ## [1.167.0] - 2026-09-20 - Claims, advances and overtime close the payroll loop
 
 - Parked the Threads tab for every role and personal override while preserving its integration data and code for a future return.

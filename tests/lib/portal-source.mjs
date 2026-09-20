@@ -27,5 +27,5 @@ export const PORTAL_SOURCE_FILES = [
 
 /** Everything the portal page is made of, as one string. */
 export function readPortalSource(root) {
-  return PORTAL_SOURCE_FILES.map((f) => readFileSync(join(root, f), "utf8")).join("\n");
+  return PORTAL_SOURCE_FILES.map((f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n")).join("\n");
 }

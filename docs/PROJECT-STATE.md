@@ -2,9 +2,9 @@
 
 **Last reviewed:** 20 September 2026  
 **Workspace:** `a2zcreative-official`  
-**Production:** `a2zcreative.my` confirmed at `v1.166.0`
-**Local package metadata:** `1.167.0`
-**Release status:** owner approved deployment via `PUSH.bat allow-dirty` on 20 September 2026
+**Production:** `a2zcreative.my` confirmed at `v1.167.0`
+**Local package metadata:** `1.168.0`
+**Release status:** `v1.167.0` deployed and health-checked via `PUSH.bat allow-dirty` on 20 September 2026; the owner explicitly approved deploying local `v1.168.0` via `PUSH.bat` for live Production review on 20 September 2026
 
 ## Read First
 
@@ -12,19 +12,20 @@ This is the current coordination record for Claude, Codex, and any other contrib
 
 ## Current Local Work
 
-The local worktree contains the `v1.167.0` workforce-flow update. Threads is parked without deleting its data. Claims gain double-submit and replay protection plus a salary-advance type whose paid amount is recovered from an explicit payroll month. After-hours OT can be paid or converted to half-day/full-day replacement leave. Attendance continues to classify real punches against effective-dated shift and roster assignments; it never creates attendance from a schedule alone.
+The deployed `v1.167.0` workforce-flow release parks Threads without deleting its data, protects claims against duplicate submission and replay, adds salary advances with an explicit payroll recovery month, and lets approved after-hours OT become pay or replacement leave. Attendance classifies real punches against effective-dated shift and roster assignments; it never creates attendance from a schedule alone.
+
+The local `v1.168.0` change reorganises `/portal` for a calmer responsive PWA and web workspace while preserving the existing colour tokens. Mobile navigation prioritises Dashboard, On Shift, Tasks and Profile and exposes every other authorised module through a grouped menu. Per-person tab access is managed in the User-account workflow using the existing audited access API. Staff Details is roster-first with search; the organisation chart and team map remain secondary views. Profile has a clearer employee identity summary. No auth, HR data, permission API or database schema changed.
 
 Current verification status:
 
-- Portal `npm run typecheck` - passed.
-- Worker `npm run typecheck` - passed after one nullable-date correction.
-- Full guard and production build - pending.
+- `v1.167.0`: portal and worker type checks, all 87 guards, production Next.js build, deployment and production health check passed.
+- `v1.168.0`: portal type check, all 88 guards and the production Next.js build passed. Local unauthenticated responsive smoke check passed; authenticated panels still require owner review with a real session. Not deployed.
 
 The simulator is offline only. It does not send Telegram messages, call a bot, or create production orders.
 
 ## Release Decision
 
-The Hankeis release was successfully deployed and production health confirmed `v1.166.0`. The present `v1.167.0` changes introduce migration `0136_claim_advances`. Portal TypeScript, worker TypeScript, all 87 guards, and the production Next.js build passed. The owner explicitly requested deployment, authorizing the dirty-worktree release path because `PUSH.bat` creates the release commit after its own gates pass.
+The workforce-flow release was successfully deployed and production health confirmed `v1.167.0`. The local `v1.168.0` portal UI update has no database migration. Portal type check, all guards and the production build passed; the owner explicitly authorised `PUSH.bat allow-dirty` on 20 September 2026 so the authenticated responsive review can be completed on live Production.
 
 ## Telegram Readiness
 

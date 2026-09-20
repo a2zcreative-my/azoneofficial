@@ -42,7 +42,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const read = (p) => readFileSync(join(root, p), "utf8");
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const has = (p) => existsSync(join(root, p));
 
 let passed = 0, failed = 0;

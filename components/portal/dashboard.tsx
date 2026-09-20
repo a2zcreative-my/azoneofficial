@@ -904,7 +904,7 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
-      <div className={card}>
+      <div className={`${card} ${shiftOnly ? "md:mx-auto md:max-w-3xl" : ""}`}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -941,10 +941,10 @@ export function Dashboard({
             ))}
           </div>
         ) : (
-          <div className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap">
+          <div className={shiftOnly ? "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" : "mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap"}>
             <button
               type="button"
-              className={btnQuickPrimary}
+              className={shiftOnly ? `${btnQuickPrimary} min-h-16 text-base` : btnQuickPrimary}
               disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
@@ -957,7 +957,7 @@ export function Dashboard({
             </button>
             <button
               type="button"
-              className={btnQuick}
+              className={shiftOnly ? `${btnQuick} min-h-16 text-base` : btnQuick}
               disabled={!!busy}
               onClick={() => void punch("clock_out", forgotArmed)}
             >

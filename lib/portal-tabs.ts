@@ -27,9 +27,9 @@
  * one.
  */
 
-/** Tab order IS the product. v1.22.0, the CEO's own sequence: the phone
-    bottom bar shows the first FOUR tabs a role can see, so this list decides
-    every role's thumb row. Do not reorder without asking him.
+/** Tab order IS the product. It controls the desktop rail and the phone's
+    full module menu. The phone thumb row has its own daily-work priority in
+    MOBILE_PRIMARY_TABS below. Do not reorder this registry casually.
  *
  *  v1.102.0 - he re-sorted it himself, 05-09-2026, writing the whole list out
  *  in the order he wants to read it. It now runs: home, then what the company
@@ -54,11 +54,11 @@ export const ALL_TABS = [
      the evidence holds. Enquiries keeps its v1.112.0 place one after Sales
      (tests/enquiries.mjs). One tab, one page - the CEO was explicit that it
      is not a sub-tab of Sales and not a page of sub-tabs. Sixth, so no
-     role's phone thumb row (the first four) moves. */
+     role's fixed phone thumb row moves. */
   "Sales Performance",
   /* v1.163.0 - Hankei's Commerce: the seaweed brand's orders and its MANUAL
      Maybank verification queue. Seventh, behind the Sales trio, so no
-     role's phone thumb row (the first four) moves. */
+     role's fixed phone thumb row moves. */
   "Hankeis",
   "Assets",
   "Hotels",
@@ -84,8 +84,8 @@ export const ALL_TABS = [
   "Companies",
   /* v1.129.0 - the three officers' digital business cards, to share with a
      client. Placed HERE, next to Profile, for two reasons and neither is
-     taste: the phone bottom bar shows the first FOUR tabs a role can see, so
-     a tab this far down can never displace anybody's thumb row; and it is an
+     taste: the phone bottom bar uses a fixed primary set, so a tab this far
+     down can never displace anybody's thumb row; and it is an
      identity tab, which is what Profile is. Adding rather than reordering -
      the CEO's own sequence above is untouched. */
   "Cards",
@@ -96,6 +96,21 @@ export const ALL_TABS = [
 ] as const;
 
 export type TabName = (typeof ALL_TABS)[number];
+
+/** Stable daily-work destinations for the phone bar. The caller passes the
+    permission-filtered list, so this helper cannot reveal a forbidden tab. */
+export const MOBILE_PRIMARY_TABS: readonly TabName[] = [
+  "Dashboard", "On Shift", "Tasks", "Profile",
+];
+
+export function mobilePrimaryTabs(visible: readonly TabName[]): TabName[] {
+  const chosen = MOBILE_PRIMARY_TABS.filter((tab) => visible.includes(tab));
+  for (const tab of visible) {
+    if (chosen.length >= 4) break;
+    if (!chosen.includes(tab)) chosen.push(tab);
+  }
+  return chosen;
+}
 
 /** Home and identity. Never hidden, never overridable — clocking in and
     reading your own payslip are not permissions. */
@@ -368,7 +383,7 @@ export function canSeeTab(
  *
  * So a person may carry a list of tabs granted to them and a list refused,
  * kept in system_meta under tab_access_people, keyed by user id. Deny beats
- * allow; both beat the role. Dashboard and Profile cannot be refused, and
+ * allow; both beat the role. Dashboard, On Shift and Profile cannot be refused, and
  * super_admin cannot be governed — the same two rails as the role rule.
  *
  * This decides what is DRAWN. The data inside a tab is still gated by the

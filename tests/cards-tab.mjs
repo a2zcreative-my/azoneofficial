@@ -64,7 +64,7 @@ ok("Cards can be granted and revoked from the access card",
    counting places in ALL_TABS would answer a slightly different question than
    the one that matters. */
 const thumbRow = (role) =>
-  tabs.ALL_TABS.filter((x) => tabs.canSeeTab(role, x)).slice(0, 4);
+  tabs.mobilePrimaryTabs(tabs.ALL_TABS.filter((x) => tabs.canSeeTab(role, x)));
 const displaced = [...tabs.ASSIGNABLE_ROLES.map(([r]) => r), "super_admin"]
   .filter((r) => thumbRow(r).includes("Cards"));
 ok("Cards is in nobody's phone thumb row", displaced.length === 0,

@@ -30,6 +30,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ALL_TABS,
   canSeeTab,
+  mobilePrimaryTabs,
   type PersonAccess,
   type TabName,
 } from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
@@ -43,7 +44,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
 import { setCacheScope, clearApiCache } from "@/lib/cached-api";
 
-import { SideNav } from "@/components/layout/side-nav";
+import { SECTIONS, SideNav } from "@/components/layout/side-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import {
@@ -98,8 +99,8 @@ import { syncThemeColor } from "@/lib/theme-color";
    had drifted: the 🔐 card listed the tabs in a different order and had the
    Users default down as CEO + COO when this file has allowed `admin` since
    v1.40.0. Both now read the one module. Tab ORDER is still the CEO's own
-   v1.22.0 sequence — the phone bottom bar is the first four tabs a role can
-   see, so the list decides every role's thumb row. */
+   v1.22.0 sequence. The phone bottom bar uses MOBILE_PRIMARY_TABS and the
+   remaining permitted tabs are grouped in More. */
 
 // No staff role's home is /admin any more (only super_admin/admin live there,
 // and they deep-link into portal modules via the admin Staff bridge). Kept as
@@ -233,6 +234,17 @@ export default function PortalPage() {
   }, []);
   const [showNotifs, setShowNotifs] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMoreOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", close);
+    };
+  }, [moreOpen]);
   // v1.8.0: global search (Ctrl/Cmd+K)
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
@@ -521,7 +533,7 @@ export default function PortalPage() {
   const unread = notifs.filter((n) => !n.is_read).length;
   /* v1.4.219 (CEO tab access control): server-side overrides from the 🔐
      card on the Users tab. Absent tab = the built-in default below.
-     Rails: Dashboard + Profile always visible; super_admin ignores
+     Rails: Dashboard + On Shift + Profile always visible; super_admin ignores
      overrides entirely (the escape hatch); fetch failure (old worker) =
      defaults, so a split deploy can never blank the tab strip. */
   const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides, myTabAccess));
@@ -757,6 +769,12 @@ export default function PortalPage() {
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
+  const mobilePrimary = mobilePrimaryTabs(tabs);
+  const mobileMore = tabs.filter((t) => !mobilePrimary.includes(t));
+  const mobileGroups = SECTIONS.map((section) => ({
+    ...section,
+    tabs: section.tabs.filter((name): name is TabName => mobileMore.includes(name as TabName)),
+  })).filter((section) => section.tabs.length > 0);
   return (
     /* Navigation receives the already permission-filtered registry. */
     <AppShell
@@ -1141,8 +1159,8 @@ export default function PortalPage() {
         {/* v1.8.0: the desktop tab-pill grid is replaced by the icon sidebar
           (SidebarNav). Phones keep the bottom navigation below. */}
 
-        {/* App-style bottom navigation (v1.4.49) — phones only. The first four
-          of this person's tabs are one thumb-tap away; the rest are in More. */}
+        {/* App-style bottom navigation (v1.168.0) — phones only. The fixed
+          primary tabs stay predictable; the remaining permitted tabs use More. */}
         <nav
           className={mobileBottomNav}
           aria-label={L(
@@ -1153,7 +1171,7 @@ export default function PortalPage() {
           {/* v1.10.0 (reference design): each tab shows its sidebar icon; the
             active one sits in a filled navy rounded square — same visual
             language as the desktop sidebar's gold square. */}
-          {tabs.slice(0, 4).map((t) => {
+          {mobilePrimary.map((t) => {
             const active = tab === t && !moreOpen;
             return (
               <button
@@ -1191,7 +1209,7 @@ export default function PortalPage() {
             Preferences (sound/push/language/theme) live in its sheet, and a
             role trimmed to ≤4 tabs would otherwise lose them entirely. */}
           {(() => {
-            const active = moreOpen || tabs.indexOf(tab) >= 4;
+            const active = moreOpen || mobileMore.includes(activeTab);
             return (
               <button
                 type="button"
@@ -1248,9 +1266,13 @@ export default function PortalPage() {
                   <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
                 </button>
               </div>
-              {tabs.length > 4 && (
-                <div className="grid grid-cols-3 gap-2.5">
-                  {tabs.slice(4).map((t) => (
+              {mobileGroups.map((section) => (
+                <section key={section.title} className="mb-4 last:mb-0">
+                  <p className="text-muted-foreground mb-1.5 text-[10px] font-semibold tracking-wider uppercase">
+                    {lang === "ms" ? ({ Business: "Perniagaan", People: "Kakitangan", Finance: "Kewangan", Account: "Akaun", Overview: "Ringkasan" } as Record<string, string>)[section.title] ?? section.title : section.title}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2.5">
+                  {section.tabs.map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -1271,8 +1293,9 @@ export default function PortalPage() {
                       {tr(t, lang)}
                     </button>
                   ))}
-                </div>
-              )}
+                  </div>
+                </section>
+              ))}
               {/* v1.10.0: the set-once switches displaced from the app bar —
                 sound, push alerts, language, colour theme. Same handlers as
                 the desktop header buttons. */}
@@ -1673,8 +1696,10 @@ export default function PortalPage() {
           {activeTab === "Cards" && <CardsPanel role={user.role} />}
           {activeTab === "Users" && (
             <div className="space-y-4 md:space-y-6">
-              <UsersPanel role={user.role} />
-              {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard />}
+              <div className={card}>
+                <UsersPanel role={user.role} embedded />
+                {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard embedded />}
+              </div>
               {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
               {["super_admin", "ceo", "coo"].includes(user.role) && (
                 <GeofenceCard />

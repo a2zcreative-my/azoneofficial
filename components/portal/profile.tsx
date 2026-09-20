@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
+import { AppIcon } from "@/components/ui/app-icon";
 
 /* ================= Profile ================= */
 
@@ -64,18 +65,26 @@ export function Profile() {
   return (
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
-        <p className="text-sm font-semibold">
-          {L("My profile", "Profil saya")}
-        </p>
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div className="border-border flex items-center gap-3 border-b pb-4">
+          {loaded && profile.photo_key ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={`/api/v1/media/file/${encodeURIComponent(profile.photo_key)}`} alt="" className="ring-gold h-16 w-16 shrink-0 rounded-full object-cover ring-2" />
+          ) : (
+            <span className="bg-primary text-primary-foreground ring-gold grid h-16 w-16 shrink-0 place-items-center rounded-full text-xl font-semibold ring-2">
+              {(profile.name ?? "?").trim().charAt(0).toUpperCase() || "?"}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-lg font-semibold">{loaded ? profile.name ?? L("My profile", "Profil saya") : L("My profile", "Profil saya")}</p>
+            <p className="text-muted-foreground truncate text-sm">{[profile.position, profile.department].filter(Boolean).join(" · ") || profile.email || ""}</p>
+            {profile.employment_status && <span className="bg-success-soft text-success mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"><AppIcon name="success" className="mr-1 h-3 w-3" />{profile.employment_status.replace(/_/g, " ")}</span>}
+          </div>
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           {[
-            "name",
             "email",
             "role",
             "employee_id",
-            "position",
-            "department",
-            "employment_status",
           ].map((k) => (
             <div key={k}>
               <dt className="text-muted-foreground text-[11px] capitalize">

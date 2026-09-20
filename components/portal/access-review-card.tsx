@@ -15,10 +15,9 @@
  * Pick a person. Two rows of chips: what they see, what they do not. Press
  * a chip to move it to the other row. A chip that sits where it does because
  * of a personal grant or refusal is marked; pressing it again returns the tab
- * to the role's rule. Dashboard and Profile are shown but cannot be moved
- * (always visible — same rail as the role card). The first four tabs a
- * person sees are their phone bottom bar, and the card says which four,
- * because that is what the screenshot was of.
+ * to the role's rule. Dashboard, On Shift, and Profile are shown but cannot
+ * be moved (always visible — same rail as the role card). The card previews
+ * the same fixed primary phone navigation that the employee will see.
  *
  * Every press reports (guard #25). Every press is audited on the worker.
  *
@@ -37,7 +36,7 @@ import { rowBtn } from "@/components/ui/row-button";
 import { properName } from "@/lib/names";
 import { bySeniority, isCurrentStaff, isStaffRole } from "@/lib/staff-order";
 import { getLang, t } from "@/lib/i18n";
-import { accessOf, type PersonAccess, type TabReason } from "@/lib/portal-tabs";
+import { accessOf, mobilePrimaryTabs, type PersonAccess, type TabName, type TabReason } from "@/lib/portal-tabs";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const roleLabel = (r: string) => r.replace("_", " ");
@@ -74,7 +73,7 @@ function TabChip({ tab, reason, onPress }: { tab: string; reason: TabReason; onP
   );
 }
 
-export function AccessReviewCard() {
+export function AccessReviewCard({ embedded = false }: { embedded?: boolean }) {
   const { show: toast, node: toastNode } = useSaveToast();
   const [people, setPeople] = useState<Person[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string[]>>({});
@@ -103,6 +102,7 @@ export function AccessReviewCard() {
   const rows = person ? accessOf(person.role, overrides, mine) : [];
   const sees = rows.filter((r) => r.sees);
   const hidden = rows.filter((r) => !r.sees);
+  const phoneTabs = mobilePrimaryTabs(sees.map((r) => r.tab as TabName));
   const hasPersonal = Boolean(mine && (mine.allow.length || mine.deny.length));
   const name = person ? properName(person.full_name || person.name) : "";
 
@@ -142,7 +142,7 @@ export function AccessReviewCard() {
   };
 
   return (
-    <div className={card}>
+    <section className={embedded ? "border-border mt-4 border-t pt-4" : card}>
       {toastNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -168,7 +168,7 @@ export function AccessReviewCard() {
           <p className="text-muted-foreground text-xs">
             <span className="text-foreground font-medium">{name}</span> · {roleLabel(person.role)}
             {person.position ? ` · ${person.position}` : ""}
-            {" · "}{L("phone bar", "bar telefon")}: {sees.slice(0, 4).map((r) => t(r.tab, getLang())).join(", ")}
+            {" · "}{L("phone bar", "bar telefon")}: {phoneTabs.map((tab) => t(tab, getLang())).join(", ")}
           </p>
           <div>
             <p className="mb-1.5 text-xs font-medium">{L("Can see", "Boleh lihat")} <span className="text-muted-foreground">({sees.length})</span></p>
@@ -200,6 +200,6 @@ export function AccessReviewCard() {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

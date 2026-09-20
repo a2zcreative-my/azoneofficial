@@ -621,7 +621,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
      PERMS.org_assign in the worker, so the button and the door agree. The
      server refuses regardless of what this says. */
   const canAssign = ORG_ASSIGN_ROLES.includes(role);
-  const [view, setView] = useState<"circle" | "org">("circle");
+  const [view, setView] = useState<"list" | "circle" | "org">("list");
   const [orgSaving, setOrgSaving] = useState<number | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
@@ -634,6 +634,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
   // v1.4.74 minimalist view: records are COLLAPSED by default — one line each.
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [sortBy, setSortBy] = useState<"rank" | "az" | "za">("rank");
+  const [query, setQuery] = useState("");
   /* v1.92.0 — pressing a circle opens the record, or ticks it for printing. */
   const [selectMode, setSelectMode] = useState(false);
   /* v1.99.2 — who the orbit is naming right now (hover or keyboard focus).
@@ -792,25 +793,19 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
   return (
     <div className="space-y-3">
       {toastNode}{promptNode}
-      <div className="rounded-lg border border-border bg-secondary/40 px-4 py-2.5">
-        <p className="text-sm font-medium">{L("Staff directory & ID badges", "Direktori kakitangan & lencana ID")}</p>
-        <p className="text-muted-foreground text-xs">
-          {L(
-            "Fill each record (dates as DD-MM-YYYY), preview the badge live, then print the portrait card (54 × 85.6 mm). Saved fields lock — amendments are made by an admin in /admin → Staff.",
-            "Isi setiap rekod (tarikh sebagai DD-MM-YYYY), pratonton lencana secara langsung, kemudian cetak kad potret (54 × 85.6 mm). Medan yang disimpan akan dikunci — pindaan dibuat oleh admin di /admin → Staff.",
-          )}
-        </p>
+      <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+        <div>
+          <p className="text-sm font-semibold">{L("Staff directory", "Direktori kakitangan")}</p>
+          <p className="text-muted-foreground text-xs">{staff.length} {L("staff records", "rekod kakitangan")}</p>
+        </div>
+        {!readOnly && !showCreate && (
+          <button type="button" className="bg-primary text-primary-foreground inline-flex min-h-9 items-center rounded-lg px-3 text-xs font-medium"
+            onClick={() => setShowCreate(true)}>
+            <AppIcon name="add" className="mr-1.5 h-4 w-4" />{L("Add staff", "Tambah kakitangan")}
+          </button>
+        )}
       </div>
 
-      {!readOnly && !showCreate && (
-        <div className={card}>
-          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
-            onClick={() => setShowCreate(true)}>
-            {L("+ New staff record — show details", "+ Rekod kakitangan baharu — tunjukkan butiran")}
-          </button>
-          <p className="text-muted-foreground mt-1 text-xs">{L("The creation form stays hidden until needed — minimalist by request.", "Borang penciptaan kekal tersembunyi sehingga diperlukan — minimalis atas permintaan.")}</p>
-        </div>
-      )}
       {!readOnly && showCreate && (
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1000,7 +995,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             card the circle does. */}
         <span className="border-border inline-flex h-8 items-center rounded-lg border p-0.5" role="group"
           aria-label={L("How to show the staff", "Cara memaparkan kakitangan")}>
-          {([["circle", L("Circle", "Bulatan")], ["org", L("Organisation", "Organisasi")]] as const).map(([v, label]) => (
+          {([["list", L("Directory", "Direktori")], ["org", L("Organisation", "Organisasi")], ["circle", L("Team map", "Peta pasukan")]] as const).map(([v, label]) => (
             <button key={v} type="button" aria-pressed={view === v}
               className={`inline-flex h-7 items-center rounded-[7px] px-2.5 text-xs font-medium transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
               onClick={() => setView(v)}>
@@ -1008,6 +1003,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             </button>
           ))}
         </span>
+        {view === "list" && (
+          <label className="relative min-w-[12rem] flex-1 sm:max-w-72">
+            <AppIcon name="search" className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)}
+              className="border-input bg-background h-9 w-full rounded-lg border pr-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-ring"
+              placeholder={L("Find staff", "Cari kakitangan")} aria-label={L("Find staff", "Cari kakitangan")} />
+          </label>
+        )}
         {/* v1.94.0 — a disabled full-width button reading "Print selected
             badges (0)" was the first thing on the phone, every time. It
             appears when there is something to print. */}
@@ -1081,6 +1084,43 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
           onOpen={(u) => setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])))}
         />
       )}
+      {view === "list" && (() => {
+        const needle = query.trim().toLowerCase();
+        const ordered = (sortBy === "rank"
+          ? staff
+          : [...staff].sort((a, b) => sortBy === "az" ? displayName(a).localeCompare(displayName(b)) : displayName(b).localeCompare(displayName(a))))
+          .filter((u) => !needle || [displayName(u), u.email, u.employee_id, u.position, u.department, u.role]
+            .some((value) => (value ?? "").toLowerCase().includes(needle)));
+        return (
+          <div className="border-border divide-border divide-y overflow-hidden rounded-lg border bg-card">
+            {!loaded && Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-3"><Skel className="h-10 w-10 rounded-full" /><div className="flex-1"><Skel className="h-3 w-36" /><Skel className="mt-2 h-2.5 w-52" /></div></div>
+            ))}
+            {loaded && ordered.length === 0 && (
+              <p className="text-muted-foreground px-4 py-8 text-center text-sm">{query ? L("No staff matches that search.", "Tiada kakitangan sepadan dengan carian itu.") : L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
+            )}
+            {loaded && ordered.map((u) => {
+              const gone = ["resigned", "terminated"].includes(u.employment_status ?? "");
+              const active = open.has(u.id);
+              return (
+                <button key={u.id} type="button" aria-expanded={active}
+                  onClick={() => selectMode ? toggleSelect(u.id) : setOpen(active ? new Set() : new Set([u.id]))}
+                  className={`flex min-h-16 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-secondary/60 ${active ? "bg-secondary/50" : ""} ${gone ? "opacity-60" : ""}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {u.photo_key ? <img src={`/api/v1/media/file/${encodeURIComponent(u.photo_key)}`} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                    : <span className="bg-secondary text-foreground grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-semibold">{displayName(u).charAt(0).toUpperCase()}</span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{displayName(u)}</span>
+                    <span className="text-muted-foreground block truncate text-xs">{[u.position || roleLabel(u.role), u.department, u.employee_id].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  {selectMode && <span className={`grid h-5 w-5 shrink-0 place-items-center rounded border text-xs ${selected.has(u.id) ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{selected.has(u.id) ? "✓" : ""}</span>}
+                  {!selectMode && <AppIcon name={active ? "expand" : "next"} className={`text-muted-foreground h-4 w-4 shrink-0 ${active ? "rotate-180" : ""}`} />}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
       {view === "circle" && (() => {
         const ordered = sortBy === "rank"
           ? staff

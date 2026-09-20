@@ -55,7 +55,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
    A forward slash is a legal absolute path on Windows and is an escape in
    nothing, so the same string is correct on both machines. */
 const importPath = (p) => p.replace(/\\/g, "/");
-const read = (p) => readFileSync(join(root, p), "utf8");
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const cache = read("lib/cached-api.ts");
 
 let failed = 0, passed = 0;

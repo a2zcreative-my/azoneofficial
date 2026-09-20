@@ -76,7 +76,7 @@ const statusLabel = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.t
 
 interface AuthEvent { action: string; created_at: string; name?: string | null; email?: string | null }
 
-export function UsersPanel({ role }: { role: string }) {
+export function UsersPanel({ role, embedded = false }: { role: string; embedded?: boolean }) {
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
   // v1.4.153: user log (recent sign-ins + account events) for monitoring
@@ -273,7 +273,7 @@ export function UsersPanel({ role }: { role: string }) {
   }, [editing, canEdit]);
 
   return (
-    <div className={card}>
+    <section className={embedded ? "" : card}>
       {toastNode}
       <p className="text-sm font-semibold">{L("User accounts", "Akaun pengguna")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">
@@ -426,6 +426,6 @@ export function UsersPanel({ role }: { role: string }) {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

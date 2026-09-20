@@ -6,7 +6,7 @@ import { csrfFetch } from "@/lib/api";
    assigned to the roles … which users need to access the tabs"): the
    manager card. Per tab, click role chips on/off and Save; "Reset to
    default" removes the override. Safety rails mirrored from the worker:
-   Dashboard + Profile are not listed (always visible to everyone), and
+   Dashboard + On Shift + Profile are not listed (always visible to everyone), and
    super_admin ignores overrides — shown as a locked ✓ so the CEO knows
    the escape hatch exists. */
 
@@ -96,8 +96,8 @@ export function TabAccessCard() {
     <div className={card}>
       <PanelTitle icon="access">{L("Tab access control", "Kawalan akses tab")}</PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        {L("Choose which roles see each tab, listed in the order they appear in the portal. Everyone always keeps Dashboard and Profile (clock-in and payslips), and super_admin always sees every tab — the safety net if an assignment goes wrong. Changes apply on each person's next page refresh.",
-          "Pilih peranan yang boleh melihat setiap tab, disenaraikan mengikut susunan dalam portal. Semua orang sentiasa mengekalkan Papan Pemuka dan Profil (daftar masuk dan slip gaji), dan super_admin sentiasa melihat semua tab — jaring keselamatan jika penetapan tersilap. Perubahan berkuat kuasa pada muat semula halaman seterusnya setiap orang.")}
+        {L("Choose which roles see each tab, listed in portal order. Everyone keeps Dashboard, On Shift and Profile; super_admin keeps every tab as the recovery path. Changes apply on each person's next refresh.",
+          "Pilih peranan yang melihat setiap tab mengikut susunan portal. Semua orang mengekalkan Papan Pemuka, Syif Saya dan Profil; super_admin mengekalkan semua tab sebagai laluan pemulihan. Perubahan berkuat kuasa pada muat semula seterusnya.")}
       </p>
       {/* divide-y instead of a border per row: 24 boxes stacked read as 24
           things to deal with, one ruled list reads as one list. */}

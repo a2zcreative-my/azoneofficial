@@ -44,7 +44,7 @@ import {
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
-  RefreshCw, Save, ExternalLink, ChevronLeft, type LucideIcon,
+  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, type LucideIcon,
 } from "lucide-react";
 import type React from "react";
 
@@ -58,6 +58,7 @@ export const APP_ICON = {
   celebrate: PartyPopper,
   /* actions */
   edit: Pencil,
+  add: Plus,
   search: Search,
   refresh: RefreshCw,
   save: Save,
