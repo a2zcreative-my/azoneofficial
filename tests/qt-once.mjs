@@ -74,7 +74,7 @@ const rp = read("components/portal/role-panels.tsx");
 
 /* ---- 4. approve asks first; the modal says when it is clear ---- */
 {
-  const decide = live.slice(live.indexOf("const decide = async (p: Pend"), live.indexOf("const decide = async (p: Pend") + 3000);
+  const decide = live.slice(live.indexOf("const decide = async (p: Pend"), live.indexOf("const decide = async (p: Pend") + 5000);
   ok("approving overtime asks first", /decision === "approved" &&\s*!\(await otConfirm\(\{\s*title: L\("Approve this overtime\?"/.test(decide));
   ok("and still toasts after", /showOtToast\(\s*decision === "approved" \? L\("OT approved"/.test(decide));
   ok("the dialog says it is a payroll figure", /Approved overtime goes straight to the payroll/.test(decide));

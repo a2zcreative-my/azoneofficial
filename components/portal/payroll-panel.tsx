@@ -161,6 +161,7 @@ export type SlipExtras = { working_day: number; public_holiday: number; annual_l
   unpaid_rest_days?: number; unpaid_capped?: boolean; clocked_beyond_employment?: boolean;
   /* v1.77.0 — the public-holiday premium, from the server. */
   ph_worked?: number; ph_worked_dates?: string[]; ph_worked_minutes?: number; ph_worked_cents?: number;
+  salary_advance_cents?: number;
   joined_on?: string | null; left_on?: string | null } | null;
 
 /* v1.28.0: issuerCode is the month's payslip_releases.issuer_code — NULL or
@@ -182,7 +183,8 @@ export function payslipData(
   const gross = e.basic_cents + phCents + e.commission_cents + e.allowance_cents + otCents;
   const unpaidDed = hourlySlip ? 0 : (x?.unpaid_deduction_cents ?? 0);
   const incompAdj = hourlySlip ? 0 : (x?.incomplete_deduction_cents ?? 0);
-  const totalDed = e.deduction_cents + unpaidDed + incompAdj;
+  const salaryAdvance = x?.salary_advance_cents ?? 0;
+  const totalDed = e.deduction_cents + unpaidDed + incompAdj + salaryAdvance;
   const n2v = (v: number) => rmBare(Math.round(v * 100)); // v1.4.272: routed through the global
   const hrs = e.hourly_minutes != null ? `${Math.floor(e.hourly_minutes / 60)}H ${String(e.hourly_minutes % 60).padStart(2, "0")}M` : "";
 
@@ -205,6 +207,7 @@ export function payslipData(
 
   const deductions: [string, number][] = [];
   if (e.deduction_cents > 0) deductions.push(["LATE / OTHER DEDUCTION", e.deduction_cents]);
+  if (salaryAdvance > 0) deductions.push([`SALARY ADVANCE (${month})`, salaryAdvance]);
   if (unpaidDed > 0) {
     /* v1.75.0: fractions are real now — half a day, or the hours somebody
        was short of eight. n2v already prints two decimals.
@@ -438,6 +441,7 @@ type UnpaidDetail = {
   ph_worked: number;
   ph_worked_dates: string[];
   ph_worked_cents: number;
+  salary_advance_cents: number;
 };
 
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
@@ -555,14 +559,16 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       // − deduction. The server recomputes authoritatively on save anyway.
       const hourly = e.hourly_pay_live ?? e.basic_cents;
       const phH = unpaidInfo[id]?.ph_worked_cents ?? 0; // v1.77.0: 2nd RM15/h on a public holiday
-      return Math.max(0, hourly + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
+      const advance = unpaidInfo[id]?.salary_advance_cents ?? 0;
+      return Math.max(0, hourly + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advance);
     }
     /* v1.77.0 — the server's figure, not a second copy of the formula. */
     const ulDed = unpaidInfo[id]?.cents ?? 0;
     const adj = incompleteMonthAdj(e.basic_cents, payableDays[id] ?? monthDays, monthDays);
     const ot = otPay(e.basic_cents, e.ot_hours);
     const phW = unpaidInfo[id]?.ph_worked_cents ?? 0; // v1.77.0: 2 days' ORP per public holiday worked
-    return Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
+    const advance = unpaidInfo[id]?.salary_advance_cents ?? 0;
+    return Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj - advance);
   };
 
   /* v1.148.0 — CHANGING A MONTH WHOSE PAYSLIPS ARE OUT.
@@ -611,6 +617,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         worked_days: hasDays ? d : null,
         month_working_days: hasDays ? monthDays : null,
         net_cents: netFor(u.id),
+        salary_advance_cents: unpaidInfo[u.id]?.salary_advance_cents ?? 0,
       }, true);
       if (res.ok) n += 1;
     }
@@ -840,6 +847,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       worked_days: typeof d === "number" && !Number.isNaN(d) ? d : null,
       month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
       net_cents: netFor(id),
+      salary_advance_cents: unpaidInfo[id]?.salary_advance_cents ?? 0,
     });
     if (res.ok) showToast(L("Saved", "Disimpan"), name ?? L("Payroll entry saved", "Entri gaji disimpan"));
     else setMsg(res.data?.error?.message ?? L("Save failed", "Simpan gagal"));
@@ -1108,6 +1116,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const ul = hourlyRow ? 0 : (unpaidDays[u.id] ?? 0);
               const ud = unpaidInfo[u.id];
               const ulDed = hourlyRow ? 0 : (ud?.cents ?? 0);
+              const advance = ud?.salary_advance_cents ?? 0;
               const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
               const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
               const net = netFor(u.id);
@@ -1252,6 +1261,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         )}
                       </span>
                     )}
+                    {advance > 0 && <span className="mt-0.5 block text-[10px] leading-snug text-danger">−{rm(advance)} · {L("salary advance", "pendahuluan gaji")}</span>}
                     {/* Employment dates and the clock disagreeing is not a
                         deduction question — it is a wrong date somewhere, and
                         it is money either way. */}
@@ -1352,18 +1362,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     // v1.4.183: hourly rows — clocked pay, no UL/proration/OT
                     const hp = e.hourly_pay_live ?? e.basic_cents;
                     const phH = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+                    const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
                     a.basic += hp; a.ph += phH; a.comm += e.commission_cents; a.allow += e.allowance_cents;
-                    a.ded += e.deduction_cents;
-                    a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
+                    a.ded += e.deduction_cents + advance;
+                    a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advance);
                     return a;
                   }
                   const ulDed = unpaidInfo[u.id]?.cents ?? 0;
                   const adj = incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
                   const ot = otPay(e.basic_cents, e.ot_hours);
                   const phW = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+                  const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
                   a.basic += e.basic_cents; a.ph += phW; a.comm += e.commission_cents;
-                  a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj;
-                  a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj);
+                  a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj + advance;
+                  a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj - advance);
                   return a;
                 },
                 { basic: 0, ph: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
@@ -1593,6 +1605,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     worked_days: hasDays ? d : null,
                     month_working_days: hasDays ? monthDays : null,
                     net_cents: netFor(u.id, next),
+                    salary_advance_cents: unpaidInfo[u.id]?.salary_advance_cents ?? 0,
                   }),
                 });
                 if (r2.ok) carried.push(`${u.name} (${fmtRM(cur.basic_cents)} → ${fmtRM(newBase)})`);
@@ -1717,7 +1730,7 @@ export function MyPayslip() {
   const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
 
   const autoDed = entry
-    ? (extras?.unpaid_deduction_cents ?? 0) + (extras?.incomplete_deduction_cents ?? 0)
+    ? (extras?.unpaid_deduction_cents ?? 0) + (extras?.incomplete_deduction_cents ?? 0) + (extras?.salary_advance_cents ?? 0)
     : 0;
   const otC = entry ? (entry.ot_cents ?? otPay(entry.basic_cents, entry.ot_hours)) : 0;
   const net = entry

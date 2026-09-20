@@ -53,13 +53,15 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     assigned?: string | null;
   }
   const [pending, setPending] = useState<Pend[]>([]);
+  const [canReplace, setCanReplace] = useState(false);
+  const [busy, setBusy] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [note, setNote] = useState<Record<string, string>>({});
   const { confirm: otConfirm, node: otConfirmNode } = useConfirm();
   const { show: showOtToast, node: otToastNode } = useSaveToast();
   const load = useCallback(async () => {
-    const r = await api<{ pending?: Pend[] }>(`/staff/attendance/ot/pending`);
-    if (r.ok) setPending(r.data?.pending ?? []);
+    const r = await api<{ pending?: Pend[]; can_replace?: boolean }>(`/staff/attendance/ot/pending`);
+    if (r.ok) { setPending(r.data?.pending ?? []); setCanReplace(Boolean(r.data?.can_replace)); }
     setLoaded(true);
   }, []);
   useEffect(() => {
@@ -71,7 +73,7 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
      here, and none of them reached it - so Approve could be pressed on a
      record that no longer existed and answer "No pending OT punches". */
   useLiveRefresh(["attendance", "rest-day-ot"], load);
-  const decide = async (p: Pend, decision: "approved" | "rejected") => {
+  const decide = async (p: Pend, decision: "approved" | "replacement" | "rejected", replacementDays?: 0.5 | 1) => {
     /* v1.154.0 (CEO: "when I approve the OT, it doesnt appear the popup box
        which is supposed to implement globally"): an approval is a payroll
        figure, so it asks first - the same dialog every other decision in the
@@ -89,6 +91,18 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
     )
       return;
     if (
+      decision === "replacement" &&
+      !(await otConfirm({
+        title: L("Convert overtime to replacement leave?", "Tukar OT kepada cuti gantian?"),
+        message: L(
+          `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}${dur(p)}. This time will not be paid as OT; ${replacementDays === 1 ? "one full day" : "half a day"} is added to their replacement-leave balance instead.`,
+          `${properName(p.name)} — ${dmy(p.d)} ${p.ot_in ?? "?"}–${p.ot_out ?? "?"}${dur(p)}. Masa ini tidak dibayar sebagai OT; ${replacementDays === 1 ? "sehari penuh" : "setengah hari"} ditambah kepada baki cuti gantian mereka.`
+        ),
+        confirmLabel: L("Credit replacement leave", "Kredit cuti gantian"),
+      }))
+    )
+      return;
+    if (
       decision === "rejected" &&
       !(await otConfirm({
         title: L("Reject this overtime?", "Tolak OT ini?"),
@@ -101,15 +115,20 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
       }))
     )
       return;
+    const key = `${p.user_id}:${p.d}`;
+    if (busy === key) return;
+    setBusy(key);
     const res = await api<{ error?: { message?: string } }>(`/staff/attendance/ot/decide`, {
       method: "POST",
       body: JSON.stringify({
         user_id: p.user_id,
         date: p.d,
         decision,
+        ...(decision === "replacement" ? { replacement_days: replacementDays } : {}),
         note: note[`${p.user_id}:${p.d}`] || undefined,
       }),
     });
+    setBusy("");
     /* v1.77.0 — an OT decision is money. It says so now. */
     if (!res.ok) {
       showOtToast(L("Not changed", "Tidak diubah"),
@@ -117,10 +136,10 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
       return;
     }
     showOtToast(
-      decision === "approved" ? L("OT approved", "OT diluluskan") : L("OT rejected", "OT ditolak"),
+      decision === "approved" ? L("OT approved", "OT diluluskan") : decision === "replacement" ? L("Replacement leave credited", "Cuti gantian dikreditkan") : L("OT rejected", "OT ditolak"),
       L(`${properName(p.name)} · ${dmy(p.d)} — they have been notified.`,
         `${properName(p.name)} · ${dmy(p.d)} — mereka telah dimaklumkan.`),
-      decision === "approved" ? undefined : "notice",
+      decision === "rejected" ? "notice" : undefined,
     );
     void load();
   };
@@ -149,8 +168,8 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
         </PanelTitle>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
-            "Time clocked outside each person's scheduled shifts, read off their clock-in and clock-out. Only APPROVED overtime will count when OT feeds payroll. The staff member is notified of every decision.",
-            "Masa yang didaftarkan di luar syif berjadual setiap orang, dibaca daripada daftar masuk dan keluar mereka. Hanya OT yang DILULUSKAN dikira apabila OT masuk ke gaji. Kakitangan dimaklumkan bagi setiap keputusan."
+            "Time clocked outside each person's effective schedule. Choose paid OT, replacement leave, or reject it; only paid OT feeds payroll, and replacement leave goes to the leave balance.",
+            "Masa yang didaftarkan di luar jadual berkuat kuasa setiap orang. Pilih bayaran OT, cuti gantian atau tolak; hanya OT berbayar masuk ke gaji, manakala cuti gantian masuk ke baki cuti."
           )}
         </p>
         <div className="mt-3 space-y-0">{node}</div>
@@ -224,13 +243,25 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
                 />
                 <button
                   type="button"
+                  disabled={busy === `${p.user_id}:${p.d}`}
                   className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs font-medium"
                   onClick={() => void decide(p, "approved")}
                 >
                   {L("Approve", "Luluskan")}
                 </button>
+                {canReplace && (
+                  <>
+                    <button type="button" disabled={busy === `${p.user_id}:${p.d}`}
+                      className="border-border rounded border px-2 py-0.5 text-xs"
+                      onClick={() => void decide(p, "replacement", 0.5)}>{L("Half-day leave", "Cuti setengah hari")}</button>
+                    <button type="button" disabled={busy === `${p.user_id}:${p.d}`}
+                      className="border-border rounded border px-2 py-0.5 text-xs"
+                      onClick={() => void decide(p, "replacement", 1)}>{L("Full-day leave", "Cuti sehari")}</button>
+                  </>
+                )}
                 <button
                   type="button"
+                  disabled={busy === `${p.user_id}:${p.d}`}
                   className="text-destructive border-border rounded border px-2 py-0.5 text-xs"
                   onClick={() => void decide(p, "rejected")}
                 >

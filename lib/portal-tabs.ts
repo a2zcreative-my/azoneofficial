@@ -120,7 +120,7 @@ export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Profile", "On Sh
  * Their panels, routes, roles and hints all stay exactly where they are -
  * un-parking is deleting a name from this list.
  */
-export const PARKED_TABS: readonly string[] = ["Stokis", "Content"];
+export const PARKED_TABS: readonly string[] = ["Stokis", "Content", "Threads"];
 
 /** Every tab the 🔐 card governs, in the portal's own order. A parked tab is
     not offered: a checkbox that cannot change what anyone sees is worse than

@@ -3063,8 +3063,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                         </td>
                         <td className="py-1.5 pr-3 tabular-nums">{mins > 0 ? hm : (o.open ? L("open", "terbuka") : "—")}</td>
                         <td className="py-1.5 pr-3">
-                          <span className={o.status === "approved" ? chipSuccess : o.status === "rejected" ? chipNeutral : chipWarn}>
-                            {o.status === "approved" ? L("approved", "diluluskan") : o.status === "rejected" ? L("rejected", "ditolak") : L("pending", "menunggu")}
+                          <span className={o.status === "approved" ? chipSuccess : ["rejected", "replacement"].includes(o.status) ? chipNeutral : chipWarn}>
+                            {o.status === "approved" ? L("paid OT", "OT berbayar") : o.status === "replacement" ? L("replacement leave", "cuti gantian") : o.status === "rejected" ? L("rejected", "ditolak") : L("pending", "menunggu")}
                           </span>
                           {o.amended && <span className="text-muted-foreground ml-1 text-[10px]">{L("amended by CEO", "dipinda oleh CEO")}</span>}
                         </td>
@@ -4049,6 +4049,8 @@ interface Claim {
   pre_approved_by_name?: string | null;
   day_seq?: number | null; // v1.4.118: running number within the creation day
   payment_proof_key?: string | null; // v1.4.118: CEO's payout proof (bank slip)
+  claim_type?: "reimbursement" | "salary_advance";
+  payroll_month?: string | null;
   created_at: string;
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
@@ -4268,6 +4270,12 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const emptyItem = { claim_date: "", category: "travel", description: "", amount: "", km: "" };
   const [purpose, setPurpose] = useState("");
   const [items, setItems] = useState([{ ...emptyItem }]);
+  const currentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+  const [claimType, setClaimType] = useState<"reimbursement" | "salary_advance">("reimbursement");
+  const [payrollMonth, setPayrollMonth] = useState(currentMonth);
+  const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
+  const submissionKey = useRef(crypto.randomUUID());
   /* v1.150.0 (CEO: "if travel they will claim for Mileage which is I set
      0.70cent / km ... insert their KM based on Google maps km to their
      destination and back to the HQ"): a travel line with km is MILEAGE -
@@ -4327,10 +4335,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     const filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
     if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
     if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
+    if (claimType === "salary_advance" && !/^\d{4}-\d{2}$/.test(payrollMonth)) { setMsg(L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.")); return; }
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setSubmitting(true);
     setMsg("");
+    try {
     const payloadC = {
       purpose: purpose || undefined,
       items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: lineCents(i) / 100, ...(isMileage(i) ? { km: Math.round(Number(i.km) * 10) / 10 } : {}) })),
+      claim_type: claimType,
+      ...(claimType === "salary_advance" ? { payroll_month: payrollMonth } : {}),
       // v1.4.173: 0 on edit explicitly clears the remark; undefined on create = none
       ...(canPayee ? { payee_user_id: editingClaim ? payeeId : (payeeId > 0 ? payeeId : undefined) } : {}),
     };
@@ -4353,13 +4368,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         }
       }
       showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
-      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0);
+      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
       void load();
       return;
     }
     const res = await api<{ id?: number; error?: { message?: string } }>(`/claims`, {
       method: "POST",
-      body: JSON.stringify(payloadC),
+      body: JSON.stringify({ ...payloadC, submission_key: submissionKey.current }),
     });
     /* v1.105.0 - no signal: the claim is kept on the phone (lib/outbox.ts)
        and sent when the network is back. A receipt needs the claim's id,
@@ -4372,6 +4387,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           : L("The claim is saved on this phone and will be sent when you are back online.", "Tuntutan disimpan pada telefon ini dan akan dihantar apabila anda kembali dalam talian."),
         "notice");
       setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
+      setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
       setReceipt(null);
       return;
     }
@@ -4390,9 +4406,14 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       }
     }
     setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
+    setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
     setReceipt(null);
     showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
+    } finally {
+      submitLock.current = false;
+      setSubmitting(false);
+    }
   };
 
   const decide = async (id: number, action: "approve" | "reject") => {
@@ -4494,6 +4515,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {claimItems(c).length > 1
             ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} {L("items", "item")}</span>
             : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(c.category)}</span>}{" "}
+          {c.claim_type === "salary_advance" && <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">{L("Salary advance", "Pendahuluan gaji")} · {c.payroll_month}</span>}{" "}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
             <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info"
@@ -4567,6 +4589,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 onClick={() => {
                   setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
                   setPayeeId(c.payee_user_id ?? 0); // v1.4.173
+                  setClaimType(c.claim_type === "salary_advance" ? "salary_advance" : "reimbursement");
+                  setPayrollMonth(c.payroll_month ?? currentMonth);
                   setPurpose(c.description ?? "");
                   setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
                   setReceipt(null);
@@ -4761,12 +4785,30 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div id="claim-form" className={`${card} scroll-mt-36`}>
         <p className="text-sm font-semibold">
           {editingClaim
-            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); }}>{L("cancel", "batal")}</button></>
+            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
             : L("Submit a claim", "Hantar tuntutan")}
         </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Expense claims from CEO, COO, CCO and HR — every claim is approved or rejected by the CEO, who is notified the moment you submit.", "Tuntutan perbelanjaan daripada CEO, COO, CCO dan HR — setiap tuntutan diluluskan atau ditolak oleh CEO, yang dimaklumkan sebaik sahaja anda hantar.")}
+          {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
         </p>
+        <div className="border-input bg-secondary mt-3 inline-flex rounded-lg border p-0.5" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
+          {(["reimbursement", "salary_advance"] as const).map((t) => (
+            <button key={t} type="button" aria-pressed={claimType === t}
+              className={`h-8 rounded-md px-3 text-xs font-medium ${claimType === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
+              onClick={() => setClaimType(t)}>
+              {t === "reimbursement" ? L("Reimbursement", "Bayaran balik") : L("Salary advance", "Pendahuluan gaji")}
+            </button>
+          ))}
+        </div>
+        {claimType === "salary_advance" && (
+          <label className="mt-2 block sm:max-w-xs">
+            <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
+            <input type="month" min={items.find((i) => i.claim_date)?.claim_date.slice(0, 7) || currentMonth}
+              className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payrollMonth}
+              onChange={(e) => setPayrollMonth(e.target.value)} />
+            <span className="text-muted-foreground mt-1 block text-[11px]">{L("The deduction starts only after this advance is approved and marked paid.", "Potongan bermula hanya selepas pendahuluan diluluskan dan ditanda dibayar.")}</span>
+          </label>
+        )}
         <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
         <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
@@ -4896,8 +4938,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setReceipt(f);
               }} />
           </label>
-          <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:justify-start"
-            onClick={() => void submit()}>{editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : L("Submit claim", "Hantar tuntutan")}</button>
+          <button type="button" disabled={submitting} className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 sm:justify-start"
+            onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       </div>

@@ -133,6 +133,7 @@ const GUARDS = [
   ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
   ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
   ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
+  ["workforce-flow", "Threads stays retired; claims submit once; paid advances reach payroll; OT becomes pay or replacement leave"],
   ["shift-entry-coverage", "shift launch, overnight clocking, and saved half-day coverage"],
   ["release-offline", "release failures stay failures and offline assets never receive portal HTML"],
   ["audit-0909", "the findings of the 09-09 audit stay fixed - the payslip cannot call a day paid and deduct it, a released month is protected everywhere pay is set, and the commit gate is real"],

@@ -70,6 +70,29 @@ export interface StaffUser {
 const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
 const BD_STATUSES = ["open", "pending", "kiv", "closed_won", "closed_lost"];
 
+/** Salary advances are recovered only after the money was both approved and
+    paid. The payee is the employee when HR raised the request on their behalf. */
+async function salaryAdvanceCents(env: Env, userId: number, month: string): Promise<number> {
+  const row = await env.DB.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS cents FROM claims
+      WHERE COALESCE(payee_user_id, user_id) = ?1
+        AND claim_type = 'salary_advance' AND payroll_month = ?2
+        AND status = 'approved' AND paid_at IS NOT NULL`,
+  ).bind(userId, month).first<{ cents: number }>();
+  return row?.cents ?? 0;
+}
+
+async function salaryAdvanceResolver(env: Env, month: string) {
+  const { results } = await env.DB.prepare(
+    `SELECT COALESCE(payee_user_id, user_id) AS user_id, COALESCE(SUM(amount_cents), 0) AS cents
+       FROM claims WHERE claim_type = 'salary_advance' AND payroll_month = ?1
+        AND status = 'approved' AND paid_at IS NOT NULL
+      GROUP BY COALESCE(payee_user_id, user_id)`,
+  ).bind(month).all<{ user_id: number; cents: number }>();
+  const byUser = new Map(results.map((r) => [r.user_id, r.cents]));
+  return (userId: number) => byUser.get(userId) ?? 0;
+}
+
 /** v1.8.0: "HH:MM" + n minutes → "HH:MM" (same day, clamped). */
 function addMinutes(hhmm: string, mins: number): string {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
@@ -3150,7 +3173,7 @@ export async function handleStaff(
         });
       }
       pending.sort((a, b) => String(b.d).localeCompare(String(a.d)));
-      return json({ pending: pending.slice(0, 100) });
+      return json({ pending: pending.slice(0, 100), can_replace: can(user.role, "leave_entitlement") });
     } catch (e) {
       if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0054_ot_approval)", 500);
       throw e;
@@ -3161,11 +3184,16 @@ export async function handleStaff(
       return err("forbidden", "OT approvals are for the CEO/COO", 403);
     }
     const uid = Number(body?.user_id); const day = typeof body?.date === "string" ? body.date : "";
-    const decision = body?.decision === "approved" ? "approved" : body?.decision === "rejected" ? "rejected" : null;
+    const decision = body?.decision === "approved" ? "approved"
+      : body?.decision === "replacement" ? "replacement"
+        : body?.decision === "rejected" ? "rejected" : null;
     if (!uid || !validDay(day) || !decision) {
-      return err("invalid_input", "user_id, date (YYYY-MM-DD) and decision (approved/rejected) required", 400);
+      return err("invalid_input", "user_id, date (YYYY-MM-DD) and decision (approved/replacement/rejected) required", 400);
     }
     if (uid === user.id) return err("forbidden", "You cannot decide your own OT", 403);
+    if (decision === "replacement" && !can(user.role, "leave_entitlement")) {
+      return err("forbidden", "Only the CEO can convert overtime to replacement leave", 403);
+    }
     const relD = await releasedMonthBlock(env, day, body?.force_released);
     if (relD) return relD;
     const note = typeof body?.note === "string" ? body.note.slice(0, 300) : null;
@@ -3190,6 +3218,50 @@ export async function handleStaff(
       return err("not_found", (rowsD ?? []).length > 0
         ? "That overtime has no OT out yet, so there is nothing to decide. Amend it to set the times, or remove it."
         : "No pending OT punches for that day", 404);
+    }
+    if (decision === "replacement") {
+      const replacementDays = Number(body?.replacement_days);
+      if (replacementDays !== 0.5 && replacementDays !== 1) {
+        return err("invalid_input", "replacement_days must be 0.5 (half day) or 1 (full day)", 400);
+      }
+      const whoD = await env.DB.prepare(`SELECT role, employment_status FROM users WHERE id = ?1`)
+        .bind(uid).first<{ role: string; employment_status: string | null }>();
+      if (!whoD) return err("not_found", "No such staff member", 404);
+      if (isHourlyUser(whoD.role, whoD.employment_status)) {
+        return err("not_eligible", "This person is already paid for every clocked minute and cannot receive replacement leave for the same time", 400);
+      }
+      const minutesD = sessionMinutes(pairSessions(rowsD.map((r) => ({
+        type: r.type === "ot_in" ? "clock_in" as const : "clock_out" as const,
+        at: r.created_at,
+      }))));
+      const yearD = Number(day.slice(0, 4));
+      const balD = await leaveBalanceRow(env, uid, yearD, "replacement");
+      const nextAdjD = Math.round(((balD.adjust ?? 0) + replacementDays) * 100) / 100;
+      try {
+        await env.DB.batch([
+          env.DB.prepare(
+            `INSERT INTO replacement_credits (user_id, work_date, days, minutes, credited_by)
+             VALUES (?1, ?2, ?3, ?4, ?5)`,
+          ).bind(uid, day, replacementDays, minutesD, user.id),
+          env.DB.prepare(
+            `INSERT INTO leave_balances (user_id, year, type, entitled, adjust)
+             VALUES (?1, ?2, 'replacement', ?3, ?4)
+             ON CONFLICT(user_id, year, type) DO UPDATE SET adjust = ?4`,
+          ).bind(uid, yearD, balD.entitled ?? 0, nextAdjD),
+          env.DB.prepare(
+            `UPDATE ot_records SET status = 'replacement', decided_by = ?1, decided_at = datetime('now'), decision_note = ?2
+             WHERE id IN (${closedIds.map((_, i) => `?${i + 3}`).join(", ")})`,
+          ).bind(user.id, note, ...closedIds),
+        ]);
+      } catch (eD) {
+        const msgD = eD instanceof Error ? eD.message : String(eD);
+        if (/UNIQUE|constraint/i.test(msgD)) return err("already_credited", `${day} has already been credited as replacement leave for this staff member`, 409);
+        throw eD;
+      }
+      const labelD = replacementDays === 1 ? "a full day" : "half a day";
+      await notify(env, uid, "ot", `Your overtime on ${day.split("-").reverse().join("-")} was converted to ${labelD} of replacement leave${note ? ` — ${note}` : ""}`, `ot:${day}`);
+      await audit(env, user.id, "ot.replacement_leave", "users", String(uid), { date: day, days: replacementDays, minutes: minutesD });
+      return json({ ok: true, replacement_days: replacementDays });
     }
     const r = await env.DB.prepare(
       `UPDATE ot_records SET status = ?1, decided_by = ?2, decided_at = datetime('now'), decision_note = ?3
@@ -5575,13 +5647,25 @@ export async function handleStaff(
     if (!pE.ok) return err("invalid_input", pE.msg, 400);
     const parsedE = pE.items;
     const centsE = parsedE.reduce((a, i) => a + i.amount_cents, 0);
+    const editClaimDate = parsedE[0]?.claim_date;
+    if (!editClaimDate) return err("invalid_input", "Every claim item needs a date", 400);
     const purposeE = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000) : null;
+    const claimTypeE = body?.claim_type === "salary_advance" ? "salary_advance" : "reimbursement";
+    const payrollMonthE = claimTypeE === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
+      ? body.payroll_month : null;
+    if (claimTypeE === "salary_advance" && !payrollMonthE) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);
+    if (payrollMonthE && payrollMonthE < editClaimDate.slice(0, 7)) return err("invalid_input", "A salary advance cannot be recovered from a month before it was requested", 400);
+    if (payrollMonthE) {
+      const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(payrollMonthE).first();
+      if (released) return err("month_released", "That payroll month has already been released. Choose a later month.", 409);
+    }
     const wasRejected = cur.status === "rejected";
     await env.DB.prepare(
       `UPDATE claims SET claim_date = ?1, category = ?2, amount_cents = ?3, description = ?4, items = ?5,
+       claim_type = ?7, payroll_month = ?8,
        status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = NULL,
        hr_reviewed_by = NULL, hr_reviewed_at = NULL, pre_approved_by = NULL, pre_approved_at = NULL WHERE id = ?6`,
-    ).bind(parsedE[0]!.claim_date, parsedE[0]!.category, centsE, purposeE, JSON.stringify(parsedE), claimEdit[1]).run();
+    ).bind(editClaimDate, parsedE[0]!.category, centsE, purposeE, JSON.stringify(parsedE), claimEdit[1], claimTypeE, payrollMonthE).run();
     // v1.4.173: payee remark travels with the edit (undefined = unchanged; 0 clears).
     if (typeof body?.payee_user_id === "number") {
       try {
@@ -5600,7 +5684,7 @@ export async function handleStaff(
     } catch { /* pre-0051 */ }
     await notifyClaimFirstStage(user.role, user.name, claimEdit[1]!, centsE,
       wasRejected ? "Resubmitted after rejection" : "Updated claim", payeeRoleE);
-    await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE });
+    await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE, claim_type: claimTypeE, payroll_month: payrollMonthE });
     return json({ ok: true, resubmitted: wasRejected });
   }
   const claimDel = path.match(/^\/claims\/(\d+)\/delete$/);
@@ -5653,17 +5737,36 @@ export async function handleStaff(
     // v1.4.101: after approval the CEO records the actual payment — the
     // claimant sees PAID and the date on their submission.
     if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO marks claims paid", 403);
-    const cRow = await env.DB.prepare(`SELECT user_id, status, amount_cents FROM claims WHERE id = ?1`)
-      .bind(claimPaid[1]).first<{ user_id: number; status: string; amount_cents: number }>();
+    const cRow = await env.DB.prepare(`SELECT user_id, COALESCE(payee_user_id, user_id) AS recipient_id, status, amount_cents, paid_at, claim_type, payroll_month FROM claims WHERE id = ?1`)
+      .bind(claimPaid[1]).first<{ user_id: number; recipient_id: number; status: string; amount_cents: number; paid_at: string | null; claim_type: string; payroll_month: string | null }>();
     if (!cRow) return err("not_found", "Claim not found", 404);
     if (cRow.status !== "approved") return err("invalid_input", "Only approved claims can be marked paid", 400);
-    await env.DB.prepare(`UPDATE claims SET paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?1`)
+    if (cRow.paid_at) return json({ ok: true, already_paid: true });
+    if (cRow.claim_type === "salary_advance") {
+      if (!cRow.payroll_month) return err("invalid_state", "This salary advance has no payroll month", 400);
+      const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(cRow.payroll_month).first();
+      if (released) return err("month_released", "That payroll month has already been released. Edit the advance to a later month before paying it.", 409);
+    }
+    const paid = await env.DB.prepare(`UPDATE claims SET paid_at = datetime('now') WHERE id = ?1 AND paid_at IS NULL`)
       .bind(claimPaid[1]).run();
-    // v1.19.0 C2: the reimbursement becomes a bank movement, once.
-    await recordBankMovement(env, user.id, `CLM-${claimPaid[1]}`, cRow.amount_cents, "claims", "Staff claim reimbursement");
-    await notify(env, cRow.user_id, "claim", `Your claim (RM ${(cRow.amount_cents / 100).toFixed(2)}) has been PAID`, `claim:${claimPaid[1]}`);
-    await audit(env, user.id, "claim.paid", "claims", claimPaid[1]!);
-    return json({ ok: true });
+    if ((paid.meta?.changes ?? 0) === 0) return json({ ok: true, already_paid: true });
+    if (cRow.claim_type === "salary_advance" && cRow.payroll_month) {
+      await env.DB.prepare(
+        `UPDATE payroll_entries SET net_cents = CASE WHEN net_cents IS NULL THEN NULL ELSE MAX(0, net_cents - ?1) END,
+           updated_at = datetime('now') WHERE user_id = ?2 AND month = ?3`,
+      ).bind(cRow.amount_cents, cRow.recipient_id, cRow.payroll_month).run();
+    }
+    const isAdvance = cRow.claim_type === "salary_advance";
+    await recordBankMovement(env, user.id, `CLM-${claimPaid[1]}`, cRow.amount_cents,
+      isAdvance ? "salary_advances" : "claims", isAdvance ? "Staff salary advance" : "Staff claim reimbursement");
+    await notify(env, cRow.user_id, "claim", isAdvance
+      ? `Your salary advance (RM ${(cRow.amount_cents / 100).toFixed(2)}) has been PAID and will be recovered from ${cRow.payroll_month} payroll`
+      : `Your claim (RM ${(cRow.amount_cents / 100).toFixed(2)}) has been PAID`, `claim:${claimPaid[1]}`);
+    if (isAdvance && cRow.recipient_id !== cRow.user_id) {
+      await notify(env, cRow.recipient_id, "claim", `A salary advance of RM ${(cRow.amount_cents / 100).toFixed(2)} paid to you will be recovered from ${cRow.payroll_month} payroll`, `claim:${claimPaid[1]}`);
+    }
+    await audit(env, user.id, "claim.paid", "claims", claimPaid[1]!, { claim_type: cRow.claim_type, payroll_month: cRow.payroll_month, recipient_id: cRow.recipient_id });
+    return json({ ok: true, payroll_updated: isAdvance });
   }
   if (path === "/claims" && method === "POST") {
     if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
@@ -5693,6 +5796,18 @@ export async function handleStaff(
     }
     const purpose = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000)
       : typeof body?.description === "string" ? body.description.slice(0, 1000) : null;
+    const claimType = body?.claim_type === "salary_advance" ? "salary_advance" : "reimbursement";
+    const payrollMonth = claimType === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
+      ? body.payroll_month : null;
+    if (claimType === "salary_advance" && !payrollMonth) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);
+    if (payrollMonth && payrollMonth < claimDate.slice(0, 7)) return err("invalid_input", "A salary advance cannot be recovered from a month before it was requested", 400);
+    if (payrollMonth) {
+      const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(payrollMonth).first();
+      if (released) return err("month_released", "That payroll month has already been released. Choose a later month.", 409);
+    }
+    const submissionKey = typeof body?.submission_key === "string" && /^[A-Za-z0-9_-]{16,80}$/.test(body.submission_key)
+      ? body.submission_key : null;
+    if (!submissionKey) return err("invalid_input", "A valid submission key is required. Refresh the portal and try again.", 400);
     /* v1.4.173 (CEO): the PAYEE — who the claim money actually goes to when
        HR raises a claim on behalf of someone. Internal remark only: never
        printed on the form; surfaced to the CEO/admin tier + hr_admin. */
@@ -5706,24 +5821,20 @@ export async function handleStaff(
       payeeId = pu.id;
       payeeRole = pu.role;
     }
-    let res: { id: number } | null = null;
-    try {
-      res = await env.DB.prepare(
-        `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
-      ).bind(user.id, claimDate, category, cents, purpose, itemsJson, payeeId).first<{ id: number }>();
-    } catch (e) {
-      if (!String(e).includes("no such column")) throw e;
-      if (payeeId !== null) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0051_claim_payee)", 500);
-      res = await env.DB.prepare(
-        `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, items)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
-      ).bind(user.id, claimDate, category, cents, purpose, itemsJson).first<{ id: number }>();
+    let res = await env.DB.prepare(
+      `INSERT OR IGNORE INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id, claim_type, payroll_month, submission_key)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+    ).bind(user.id, claimDate, category, cents, purpose, itemsJson, payeeId, claimType, payrollMonth, submissionKey).first<{ id: number }>();
+    if (!res) {
+      res = await env.DB.prepare(`SELECT id FROM claims WHERE user_id = ?1 AND submission_key = ?2`)
+        .bind(user.id, submissionKey).first<{ id: number }>();
+      if (!res) return err("conflict", "The claim could not be created", 409);
+      return json({ id: res.id, duplicate: true });
     }
     // v1.4.106: tell the FIRST stage of this claimant's chain.
     await stampIssuer(env, "claims", res?.id);
     await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim", payeeRole);
-    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, ...(payeeId ? { payee_user_id: payeeId } : {}) });
+    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, claim_type: claimType, payroll_month: payrollMonth, ...(payeeId ? { payee_user_id: payeeId } : {}) });
     return json({ id: res?.id }, 201);
   }
   const clMatch = path.match(/^\/claims\/(\d+)(\/receipt|\/decide)?$/);
@@ -5917,7 +6028,7 @@ export async function handleStaff(
     try {
       const { results } = await env.DB.prepare(
         `SELECT substr(claim_date, 1, 7) AS m, COALESCE(SUM(amount_cents), 0) AS cents
-         FROM claims WHERE status = 'approved' GROUP BY m`,
+         FROM claims WHERE status = 'approved' AND claim_type = 'reimbursement' GROUP BY m`,
       ).all<{ m: string; cents: number }>();
       for (const r of results) clm[r.m] = r.cents;
     } catch { /* pre-claims */ }
@@ -6039,19 +6150,19 @@ export async function handleStaff(
       ({ results: claimsInMonth } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, c.claim_date, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
-       WHERE c.status = 'approved' AND strftime('%Y-%m', c.claim_date) = ?1
+       WHERE c.status = 'approved' AND c.claim_type = 'reimbursement' AND strftime('%Y-%m', c.claim_date) = ?1
        ORDER BY c.claim_date ASC`,
     ).bind(mE).all()); // v1.5.0 fix: was `month` (undefined here) — every Expenses load 500'd
     ({ results: claimsPaid } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.paid_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
-       WHERE c.paid_at IS NOT NULL AND strftime('%Y-%m', c.paid_at) = ?1
+       WHERE c.claim_type = 'reimbursement' AND c.paid_at IS NOT NULL AND strftime('%Y-%m', c.paid_at) = ?1
        ORDER BY c.paid_at DESC`,
     ).bind(mE).all()); // v1.5.0 fix: was `month` (undefined here)
     ({ results: claimsDue } = await env.DB.prepare(
       `SELECT c.id, c.amount_cents, c.decided_at, u.name AS claimant FROM claims c
        LEFT JOIN users u ON u.id = c.user_id
-       WHERE c.status = 'approved' AND c.paid_at IS NULL ORDER BY c.decided_at ASC`,
+       WHERE c.claim_type = 'reimbursement' AND c.status = 'approved' AND c.paid_at IS NULL ORDER BY c.decided_at ASC`,
     ).all());
     } catch (e) {
       // claims.paid_at arrives with migration 0037 — degrade, don't die.
@@ -6490,7 +6601,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
@@ -10021,6 +10132,7 @@ export async function handleStaff(
       orpBase,
       hourly: who?.role === "live_host" && who?.employment_status === "part_time",
     });
+    const salaryAdvance = await salaryAdvanceCents(env, uid, month);
     return {
       working_day: wd?.n ?? 0,
       /* v1.75.0: what the month owed them, and what it owes a mid-month
@@ -10056,6 +10168,7 @@ export async function handleStaff(
       unpaid_type_leave: unpaidTypeDays,
       unpaid_leave: ub.days,
       unpaid_deduction_cents: unpaidDeduction,
+      salary_advance_cents: salaryAdvance,
       annual_bal: await bal("annual"),
       sick_bal: await bal("medical"),
     };
@@ -10472,6 +10585,7 @@ export async function handleStaff(
     const baseMapA = new Map(basesA.map((b) => [b.id, b.base_salary_cents ?? 0]));
     const hourlyA = new Set(basesA.filter((b) => b.role === "live_host" && b.employment_status === "part_time").map((b) => b.id));
     const clockedA = new Map(results.map((r) => [r.user_id, r.days]));
+    const advanceAtA = await salaryAdvanceResolver(env, mA);
     const unpaidDetail = peopleA.map((u) => {
       const payable = employedDays(dayListA, u.joined_on, u.left_on, u.rejoined_on).length;
       const basic = baseMapA.get(u.id) ?? 0;
@@ -10493,6 +10607,7 @@ export async function handleStaff(
         user_id: u.id, days: b.days, rest_days: b.rest_days,
         cents: b.cents, capped: b.capped,
         ph_worked: pw.days, ph_worked_dates: pw.dates, ph_worked_cents: pw.cents,
+        salary_advance_cents: advanceAtA(u.id),
         /* The contradiction the CEO found: more days clocked than the
            person was employed for. Nothing can make both true. */
         /* v1.139.0 - a rest day or a public holiday WORKED is a clocked day
@@ -10504,7 +10619,7 @@ export async function handleStaff(
         clocked_days: clockedA.get(u.id) ?? 0,
         payable_days: payable,
       };
-    }).filter((r) => r.days > 0 || r.clocked_beyond_employment || r.ph_worked > 0);
+    }).filter((r) => r.days > 0 || r.clocked_beyond_employment || r.ph_worked > 0 || r.salary_advance_cents > 0);
 
     return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed, ot_approved: otApproved });
   }
@@ -10906,6 +11021,7 @@ export async function handleStaff(
     const phInSpan = (joined?: string | null, left?: string | null) =>
       holDatesR.filter((h) =>
         (!joined || h >= joined.slice(0, 10)) && (!left || h <= left.slice(0, 10))).length;
+    const advanceAtR = await salaryAdvanceResolver(env, monthR);
     let fixed = 0;
     for (const e of ents) {
       /* v1.4.183: hourly (part-time live host) rows re-derive from the
@@ -10916,7 +11032,7 @@ export async function handleStaff(
         /* v1.77.0 — a part-timer's hours on a public holiday earn a second
            RM15/h (Part-Time Employees Regulations 2010). */
         const phH = phAtR(e.user_id, { joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on, orpBase: 0, hourly: true }).cents;
-        const netHR = Math.max(0, basicR + phH + e.commission_cents + e.allowance_cents - e.deduction_cents);
+        const netHR = Math.max(0, basicR + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advanceAtR(e.user_id));
         try {
           await env.DB.prepare(
             `UPDATE payroll_entries SET basic_cents = ?1, ot_hours = NULL, ot_cents = 0,
@@ -10949,7 +11065,7 @@ export async function handleStaff(
         joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on,
         orpBase: e.base_salary_cents || e.basic_cents, hourly: false,
       }).cents;
-      const net = Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj);
+      const net = Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj - advanceAtR(e.user_id));
       try {
         await env.DB.prepare(
           `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
@@ -10986,6 +11102,12 @@ export async function handleStaff(
     // v1.4.124: the panel sends the net it computed with THE shared formula —
     // stored so /expenses can sum identical figures (no re-derivation drift).
     const netCents = typeof body.net_cents === "number" && body.net_cents >= 0 ? Math.round(body.net_cents) : null;
+    const advanceP = await salaryAdvanceCents(env, body.user_id, month);
+    /* New clients include the advance in net_cents and name the amount they
+       used. Old clients name zero. Add the named amount back, then apply the
+       database truth, so both save the same authoritative recovery. */
+    const clientAdvance = cents(body.salary_advance_cents);
+    const storedNet = netCents === null ? null : Math.max(0, netCents + clientAdvance - advanceP);
     /* v1.4.183: hourly (part-time live host) entries are computed by the
        SERVER from attendance, whatever the client sent — basic = minutes ×
        RM15/60, OT forced 0, no worked-days proration, net = hourly +
@@ -11002,7 +11124,7 @@ export async function handleStaff(
       const phH = (await phWorkResolver(month))(body.user_id as number, {
         joined: whoH?.joined_on, left: whoH?.left_on, rejoined: whoH?.rejoined_on, orpBase: 0, hourly: true,
       }).cents;
-      const netH = Math.max(0, basicH + phH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents));
+      const netH = Math.max(0, basicH + phH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents) - advanceP);
       try {
         await env.DB.prepare(
           `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, hourly_minutes, hourly_rate_cents, note, created_by)
@@ -11039,7 +11161,7 @@ export async function handleStaff(
       cents(body.allowance_cents), otHours, cents(body.ot_cents),
       cents(body.deduction_cents),
       intOrNull(body.worked_days), intOrNull(body.month_working_days),
-      str(body.note, 300) ? body.note : null, user.id, netCents,
+      str(body.note, 300) ? body.note : null, user.id, storedNet,
     ).run();
     await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month });
     return json({ ok: true });

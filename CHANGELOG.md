@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.167.0] - 2026-09-20 - Claims, advances and overtime close the payroll loop
+
+- Parked the Threads tab for every role and personal override while preserving its integration data and code for a future return.
+- Made claim submission idempotent in both layers: the form locks on the first press and the database accepts a per-user submission key only once, including offline replays.
+- Added salary advances to the claim approval flow. The recovery month is explicit; only an approved advance that was actually paid becomes a payroll deduction.
+- Kept salary advances out of operating-expense claim totals, updated existing payroll rows when an advance is paid, and included the deduction in payroll save, recompute, employee totals, and printed payslips.
+- Extended after-hours OT decisions to paid OT, half-day replacement leave, full-day replacement leave, or rejection. Replacement leave updates the leave balance atomically and never enters paid-OT payroll hours.
+- Preserved the effective-dated attendance rule: actual punches are classified against the shift and roster in force on that date; the system does not fabricate attendance for a missing punch.
+- Added migration `0136_claim_advances` and guard `workforce-flow`.
+
 ## [1.166.0] - 2026-09-20 - Hankeis integration and release reconciliation
 
 - Added `CLAUDE.md` and `docs/PROJECT-STATE.md` as mandatory pre-implementation handoff documents.

@@ -25,7 +25,7 @@ Read this file before making any implementation change in this repository.
 - `PUSH.bat` performs a strict clean-worktree preflight before installing, cleaning, migrating, committing, or deploying. Do not bypass it by calling Wrangler directly.
 - If a dirty-tree release is genuinely approved, use `PUSH.bat allow-dirty` and record the approval in `docs/PROJECT-STATE.md` first.
 - A failed guard, type check, migration check, or health check means the release is not verified. Never claim deployment from a partial run.
-- Do not deploy the current Hankeis changes until the API typecheck and registry-parity failures are resolved.
+- Production already includes the reviewed Hankeis release at `v1.166.0`. The local `v1.167.0` workforce-flow changes are not deployed until `PUSH.bat` completes all gates and the production health check.
 
 ## Before handoff
 

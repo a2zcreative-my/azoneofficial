@@ -40,12 +40,12 @@ interface NavItem { name: string; label: string }
  * Orders and ELFIA Traffic all landed after v1.13.0 and fell through to
  * "Other" at the bottom of the rail. That is what the CEO was looking at.
  *
- * Stokis and Content are absent because they are PARKED, and a parked tab
+ * Stokis, Content and Threads are absent because they are PARKED, and a parked tab
  * never reaches this component: it is filtered out of `items` upstream.
  */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Overview", tabs: ["Dashboard"] },
-  { title: "Business", tabs: ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "Threads"] },
+  { title: "Business", tabs: ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },
   /* v1.149.0 - the second product line gets its own heading, the way ELFIA
      has one: a reader scanning the rail sees two brands, not one brand and
