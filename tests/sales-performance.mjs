@@ -151,7 +151,35 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   ok("revenue is the invoice's total, by salesperson, from sales_documents", /SUM\(d\.total_cents\)[\s\S]*?FROM sales_documents d\s+WHERE d\.doc_type = 'INV' AND d\.salesperson_id IN/.test(sp));
   /* the CEO, 11-09-2026: "Sales Performance need to include with their sales TikTok" */
   ok("TikTok Shop sales are credited by the leaderboard's own rules: the host's live-session windows...", /JOIN live_sessions s[\s\S]*?s\.host_user_id IN \(\$\{inIds\}\)/.test(sp) && /s\.session_date = date\(p\.created_at, '\+8 hours'\)/.test(sp));
-  ok("...and the clocked-in sales_marketing shift, split equally, through the same pure function", /import \{ shiftSalesSplit, type ShiftPunch, type ShiftOrder \} from "\.\/shift-sales"/.test(sp) && /role = 'sales_marketing' AND id IN \(\$\{inIds\}\)/.test(sp) && /shiftSalesSplit\(punches, \[\{ created_at: o\.created_at, cents: o\.cents \} as ShiftOrder\], nowUtc\)/.test(sp));
+  ok("...and the sales_marketing shift, split equally, through the same pure function", /import \{ shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder \} from "\.\/shift-sales"/.test(sp) && /role = 'sales_marketing' AND id IN \(\$\{inIds\}\)/.test(sp) && /shiftSalesSplit\(punches, \[\{ created_at: o\.created_at, cents: o\.cents \} as ShiftOrder\], nowUtc, \{ duties, lives \}\)/.test(sp));
+  /* v1.171.0 - the CEO, 20-09-2026, on two orders credited to somebody whose
+     sales duty had ended and who was simply still clocked in: "Sales
+     performance is incorrect ... the other staff that was clock out late she
+     was the one make the sales! not this staff making the sales!". His rule:
+     the live host owns an order that lands inside their live, and outside a
+     live a person earns only inside their PLANNED selling hours. It has to
+     hold in all three places that credit a sale, from ONE definition -
+     otherwise this page, the leaderboard and commission pay three different
+     answers for the same order. tests/shift-sales-split.mjs runs the rule
+     itself on his exact two orders. */
+  ok("the planned selling hours (sales duty) and the live windows govern the credit, on this page",
+     /FROM sales_shifts WHERE shift_date >= date\(\?1, '-1 day'\)/.test(sp)
+     && /FROM live_sessions\s+WHERE status != 'cancelled' AND end_time IS NOT NULL/.test(sp));
+  {
+    const staffSrc = read("worker/src/staff.ts");
+    const pure = read("worker/src/shift-sales.ts");
+    ok("...and identically on the leaderboard and commission (attributedSalesByUser)",
+       /FROM sales_shifts\s+WHERE shift_date >= date\(\?1 \|\| '-01', '-1 day'\)/.test(staffSrc)
+       && /shiftSalesSplit\(punches, orders, nowUtc, \{ duties, lives \}\)/.test(staffSrc));
+    ok("an order inside a live is skipped by the shift split - the host owns it alone",
+       /if \(lives\.length > 0 && inAnyLive\(o\.created_at, lives\)\) continue;/.test(pure));
+    ok("a punched shift is cut down to the planned hours, and no plan means no credit",
+       /if \(opts\.duties\) shifts = clipToDuty\(shifts, opts\.duties\);/.test(pure)
+       && /export function clipToDuty\(/.test(pure));
+    ok("the rule lives in ONE file - neither caller re-implements the window arithmetic",
+       !/inAnyLive|clipToDuty/.test(sp.replace(/type LiveWindow|type DutyWindow/g, ""))
+       && !/function clipToDuty/.test(staffSrc));
+  }
   ok("a person's sales = invoices + TikTok; a TikTok order is verified activity by definition", /f\.sales_cents = f\.invoice_cents \+ f\.tiktok_cents;/.test(sp) && /f\.verified_activities \+= f\.orders \+ f\.tiktok_orders;/.test(sp));
   ok("the team's TikTok line counts each order ONCE, whoever shares the credit", /team_tiktok\.cents \+= o\.cents; team_tiktok\.orders \+= 1;/.test(sp) && /team\.sales_cents = team\.invoice_cents \+ team\.tiktok_cents;/.test(sp) && /team\.activities_total -= overTT; team\.verified_activities -= overTT;/.test(sp));
   ok("returned TikTok orders never count", (sp.match(/order_ref LIKE 'TT-%' AND (p\.)?status != 'returned'/g) ?? []).length >= 2);

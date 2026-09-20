@@ -156,18 +156,7 @@ export function DataTable<T extends { id: number | string }>({
                   ))}
                 </tr>
               ))
-            ) : slice.length === 0 ? (
-              <tr><td colSpan={columns.length} className="p-0">
-                {q ? (
-                  <EmptyState icon="search"
-                    title={L("Nothing matches that search.", "Tiada padanan untuk carian itu.")}
-                    hint={L("Try fewer words, or clear the search to see every row again.", "Cuba kurangkan perkataan, atau kosongkan carian untuk melihat semua baris semula.")}
-                    action={<button type="button" className={btnSm} onClick={() => { setQ(""); setPage(1); }}>{L("Clear search", "Kosongkan carian")}</button>} />
-                ) : (
-                  <EmptyState title={empty ?? L("No records yet.", "Tiada rekod lagi.")} hint={emptyHint} action={emptyAction} />
-                )}
-              </td></tr>
-            ) : slice.map((r) => (
+            ) : slice.length === 0 ? null : slice.map((r) => (
               <tr key={r.id} className="transition-colors">
                 {columns.map((c) => (
                   <td key={c.key} className={c.numeric ? tdR2 : td}>
@@ -178,6 +167,22 @@ export function DataTable<T extends { id: number | string }>({
             ))}
           </tbody>
         </table>
+        {/* v1.171.0 - the empty state sits UNDER the table, in the frame's own
+            width, not in a cell spanning a 640 px table: inside the cell it
+            centred on the table and a phone saw "No cash flow entries yet —
+            paid" cut at the frame's edge, the rest a sideways scroll away. */}
+        {!loading && slice.length === 0 && (
+          <div className="border-border border-t">
+            {q ? (
+              <EmptyState icon="search"
+                title={L("Nothing matches that search.", "Tiada padanan untuk carian itu.")}
+                hint={L("Try fewer words, or clear the search to see every row again.", "Cuba kurangkan perkataan, atau kosongkan carian untuk melihat semua baris semula.")}
+                action={<button type="button" className={btnSm} onClick={() => { setQ(""); setPage(1); }}>{L("Clear search", "Kosongkan carian")}</button>} />
+            ) : (
+              <EmptyState title={empty ?? L("No records yet.", "Tiada rekod lagi.")} hint={emptyHint} action={emptyAction} />
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">

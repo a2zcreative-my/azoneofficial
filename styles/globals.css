@@ -157,19 +157,10 @@
     background: rgba(255, 255, 255, 0.14);
   }
 
-  .erp-dashboard-stats {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: var(--surface-radius, 8px);
-    background: var(--border);
-  }
-  .erp-dashboard-stat { min-width: 0; background: var(--card); padding: 1rem; }
+  /* v1.171.0 - the Dashboard's four-tile stats strip is gone (the month
+     card carries those figures), and so are its two classes. */
   @media (min-width: 1280px) {
     .erp-shift-hero { padding: 1.25rem; }
-    .erp-dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
 
   /* v1.170.0 - ONE TABLE CONTRACT. Operational tables are read by scanning:

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { makeApi } from "@/lib/api";
 import { leaveOverlaps, timeWindow, isPartialLeave, type LeaveCoverage } from "@/lib/leave-coverage";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { btnClass, btnSm, btnSmInverse, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, iconBtnInverse, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
 import { dmy, fmtRM } from "@/lib/format";
 import { bySeniority } from "@/lib/staff-order";
@@ -127,13 +128,16 @@ interface UnschedDraft { id: number; title: string; assigned_to: string; priorit
    same stored language. */
 const Lm = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }: {
+function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onDelete, onCancel }: {
   draft: UnschedDraft;
   staff: { id: number; name: string }[];
   busy: boolean;
   onChange: (d: UnschedDraft) => void;
   onSave: () => void;
   onDone: () => void;
+  /* v1.171.0 - the CEO only (task_delete). Absent for everybody else, so the
+     button is not offered where the server would refuse it. */
+  onDelete?: () => void;
   onCancel: () => void;
 }) {
   return (
@@ -157,6 +161,11 @@ function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onCancel }:
       <div className="flex flex-wrap items-center gap-1.5">
         <button type="button" className={btnSm + " bg-primary text-primary-foreground border-primary"} disabled={busy} onClick={onSave}>{Lm("Save", "Simpan")}</button>
         <button type="button" className={btnSm} disabled={busy} onClick={onDone}>{Lm("Mark done", "Tanda selesai")}</button>
+        {onDelete && (
+          <button type="button" className="erp-button erp-button-danger h-8 min-h-8 px-3 text-xs" disabled={busy} onClick={onDelete}>
+            {Lm("Delete", "Padam")}
+          </button>
+        )}
         <button type="button" className="text-muted-foreground ml-auto text-xs underline" onClick={onCancel}>{Lm("Cancel", "Batal")}</button>
       </div>
     </div>
@@ -180,6 +189,17 @@ interface SalesShift {
    register measures (worker MEASURED_ROLES; tests/roster-week.mjs compares). */
 const SALES_DUTY_ROLES: readonly string[] = ["sales_marketing", "live_host"];
 
+/** v1.171.0 - a company event in the week. The CEO, 20-09-2026: *"it is
+    should be able to sync with the calendar and the event should be appear
+    on it also! which is there is any event assigned to the staff, it will
+    show there"*. `attendees` EMPTY MEANS EVERYONE - migration 0122's rule -
+    so those are drawn against the DAY, not repeated down every row. */
+interface RosterEvent {
+  id: number; title: string; category: string; event_date: string;
+  start_time: string | null; end_time: string | null; location: string | null;
+  attendees: number[];
+}
+
 interface RosterData {
   week_start: string; days: string[]; manager: boolean;
   sessions: RosterSession[];
@@ -193,6 +213,8 @@ interface RosterData {
   sales_shifts?: SalesShift[];
   /* v1.158.4 - each person's own rest days, from their working-hours pattern. */
   rest_days?: { user_id: number; date: string; pattern: string }[];
+  /* v1.171.0 - the week's company events, with who they were assigned to. */
+  events?: RosterEvent[];
   requests: { id: number; name: string; company: string | null; category: string | null; created_at: string }[];
   available_today: { id: number; name: string; role: string; photo_key: string | null }[];
 }
@@ -235,9 +257,14 @@ function toHHMM(minsTotal: number): string {
    prefilled, in EDIT mode (no repeat/plan tooling), and Save changes
    PATCHes the one session. canManage alone (hr_admin) still schedules,
    drags, completes and cancels exactly as before. */
-export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
+export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false, onOpenRegister }: {
   canManage: boolean;
   canEdit?: boolean;
+  /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task should be able
+     to delete!") - mirrors task_delete in worker/src/permissions.ts: the CEO
+     and super_admin. Unscheduling a block only takes the work off the day;
+     this removes the task itself, which the server allows nobody else. */
+  canDeleteTask?: boolean;
   /* v1.159.9 (CEO: "check the sales all link to all the tabs") - a Sales-duty
      note names the register three times and offered no way to it. The page
      passes this only when the account has the Sales Performance tab; it
@@ -245,6 +272,9 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
   onOpenRegister?: (staffId: number, day: string) => void;
 }) {
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.171.0 - deleting a task is the one thing on this board that cannot be
+     undone, so it asks first (the branded dialog, not window.confirm). */
+  const { confirm, node: confirmNode } = useConfirm();
   /* v1.23.2 (CEO: "Why some doesn't change to BM?"): the board's READ
      surfaces — title, chips, week bar, agenda — follow the language toggle.
      getLang() re-reads on every render; the toggle re-renders the portal
@@ -553,6 +583,36 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
             `${t.title} — ${dmy(date)} 10:00-12:00. Seret blok untuk menukar masa.`), "success");
     void load(week);
   }, [load, week, showToast]);
+
+  /* v1.171.0 — DELETE THE TASK. The CEO, 20-09-2026: *"on the attendance,
+     the Task should be able to delete!"*. The board could only ever
+     UNSCHEDULE (take the block off the day and leave the task waiting in
+     Unscheduled work), so a task created by mistake could be moved around
+     the week forever but never got rid of — from here. The server route has
+     existed since v1.4.x and is CEO-only; this is the button it never had.
+     It removes the task AND every block of it across every week, which is
+     why it names the count and asks first. */
+  const deleteTask = useCallback(async (taskId: number, title: string, spread: number) => {
+    const ok = await confirm({
+      title: L("Delete this task?", "Padam tugasan ini?"),
+      message: L(
+        `"${title}"${spread > 0 ? ` and ${spread === 1 ? "its block on the board" : `all ${spread} of its blocks on the board`}` : ""} will be removed for everyone. Its comments and checklist go with it. This cannot be undone.`,
+        `"${title}"${spread > 0 ? ` dan ${spread === 1 ? "bloknya pada papan" : `kesemua ${spread} bloknya pada papan`}` : ""} akan dibuang untuk semua orang. Komen dan senarai semaknya turut dibuang. Ini tidak boleh dibatalkan.`),
+      confirmLabel: L("Delete task", "Padam tugasan"),
+      cancelLabel: L("Keep it", "Kekalkan"),
+      variant: "danger",
+    });
+    if (!ok) return;
+    const r = await api<{ error?: { message?: string } }>(`/tasks/${taskId}`, { method: "DELETE" });
+    if (!r.ok) {
+      showToast(L("Not deleted", "Tidak dipadam"),
+        r.data?.error?.message ?? L("The server refused it — only the CEO may delete a task", "Pelayan menolaknya — hanya CEO boleh memadam tugasan"), "notice");
+      return;
+    }
+    setOpenBlock(null); setNoteAt(null);
+    showToast(L("Task deleted", "Tugasan dipadam"), title);
+    void load(week);
+  }, [confirm, load, week, showToast]);
 
   const unscheduleBlock = useCallback(async (b: RosterTaskBlock) => {
     const r = await api(`/task-blocks/${b.id}`, { method: "DELETE" });
@@ -977,6 +1037,16 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
   const unsched: UnscheduledTask[] = data.unscheduled ?? [];
   /* v1.158.0 - sales duty, the third thing on the board. */
   const shifts: SalesShift[] = data.sales_shifts ?? [];
+  /* v1.171.0 - the calendar, the fourth. `evFor` is what the CEO asked for -
+     an event assigned to a person, on that person's row; `evAll` is the
+     whole-floor kind, which belongs to the day. */
+  const events: RosterEvent[] = data.events ?? [];
+  const evTime = (e: RosterEvent) => (e.start_time ? `${e.start_time}${e.end_time ? `–${e.end_time}` : ""}` : L("all day", "sepanjang hari"));
+  const evFor = (uid: number, d: string) =>
+    events.filter((e) => e.event_date === d && e.attendees.includes(uid));
+  const evAll = (d: string) => events.filter((e) => e.event_date === d && e.attendees.length === 0);
+  const evTitle = (e: RosterEvent) =>
+    `${e.title} · ${evTime(e)}${e.location ? ` · ${e.location}` : ""} · ${e.attendees.length === 0 ? L("everyone", "semua") : L(`${e.attendees.length} assigned`, `${e.attendees.length} ditugaskan`)}`;
   const shiftMins = (sh: SalesShift) => spanMins(sh.start_time, sh.end_time);
   /* the chip is 90px wide: "RM 2,000.00" does not fit beside SALES, "RM2,000" does */
   const rmShort = (cents: number) => `RM${Math.round(cents / 100).toLocaleString("en-MY")}`;
@@ -1035,6 +1105,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
        past the screen edge again. */
     <div className={`${card} max-md:overflow-x-clip`}>
       {toastNode}
+      {confirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <PanelTitle icon="date">{L("Schedule & Roster", "Jadual & Roster")}</PanelTitle>
@@ -1091,6 +1162,9 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
         {chip(L("tasks", "tugasan"), blocks.length,
               "border border-plan bg-plan-soft")}
         {shifts.length > 0 && chip(L("sales duty", "tugas jualan"), shifts.length, "border border-info bg-info-soft")}
+        {/* v1.171.0 - the calendar's own count, so a week with a training in
+            it says so before anybody books over the training. */}
+        {events.length > 0 && chip(L("events", "acara"), events.length, "border border-gold bg-gold-soft/50")}
         {data.manager && chip(L("available today", "tersedia hari ini"), data.available_today.length, chipSuccess)}
         {/* v1.157.0 - the week's public holidays, named, so the plan is read
             with the non-working day in view before anything is booked on it. */}
@@ -1271,6 +1345,14 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                   ? (hol ? L("holiday", "cuti umum") : "—")
                                   : `${dayS.length + dayB.length + daySh.length} · ${hrs(dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0) + daySh.reduce((a, x) => a + shiftMins(x), 0))}`}
                               </p>
+                              {/* v1.171.0 - an event for the WHOLE FLOOR sits
+                                  on the day, once, rather than in nine rows. */}
+                              {evAll(d).map((e) => (
+                                <p key={`ea${e.id}`} className="border-gold bg-gold-soft/60 text-gold-deep mt-1 truncate rounded-md border px-1 py-0.5 text-[9px] leading-tight font-semibold"
+                                  title={evTitle(e)}>
+                                  <AppIcon name="date" className="mr-0.5 -mt-0.5 h-2.5 w-2.5" />{e.title}
+                                </p>
+                              ))}
                             </div>
                           );
                         })}
@@ -1336,6 +1418,23 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                     <div className="text-muted-foreground rounded-md border border-dashed border-border px-1.5 py-1 text-center text-[10px] font-semibold"
                                       title={L(`Rest day on ${offAt(u.id, d)!.pattern}`, `Hari rehat pada ${offAt(u.id, d)!.pattern}`)}>{L("Off day", "Hari cuti")}</div>
                                   )}
+                                  {/* v1.171.0 - EVENTS ASSIGNED TO THIS
+                                      PERSON, above the work: a training they
+                                      have to attend is the fixed point the
+                                      rest of the day is planned around. Read
+                                      only here - events are created and
+                                      edited on the Events card. */}
+                                  {evFor(u.id, d).map((e) => (
+                                    <div key={`e${e.id}`} title={evTitle(e)}
+                                      className="border-gold bg-gold-soft/60 block w-full rounded-md border px-1.5 py-1 text-left">
+                                      <span className="text-gold-deep block truncate text-[10px] leading-tight font-semibold">
+                                        <AppIcon name="date" className="mr-0.5 -mt-0.5 h-2.5 w-2.5" />{e.title}
+                                      </span>
+                                      <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
+                                        {evTime(e)} · {L("event", "acara")}
+                                      </span>
+                                    </div>
+                                  ))}
                                   {cs.map((s) => (
                                     <button key={s.id} type="button"
                                       title={`${s.client ?? "Live"} · ${s.start_time}${s.end_time ? `–${s.end_time}` : ""} · ${s.host_name}${s.notes ? ` — ${s.notes}` : ""}${offAt(u.id, d) ? ` · ${L("booked on their rest day", "ditempah pada hari rehat mereka")}` : ""}`}
@@ -1489,6 +1588,21 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                   onClick={() => openEditBlock(b)}>
                                   {L("Edit details", "Sunting butiran")}
                                 </button>
+                                {/* v1.171.0 (CEO: "on the attendance, the Task
+                                    should be able to delete!") — the grid's own
+                                    note, where he was pressing. Unschedule takes
+                                    the work off the day and keeps the task;
+                                    these two are deliberately different words. */}
+                                <button type="button" className={btnSmInverse}
+                                  onClick={() => void unscheduleBlock(b)}>
+                                  {L("Unschedule", "Nyahjadual")}
+                                </button>
+                                {canDeleteTask && (
+                                  <button type="button" className="erp-button erp-button-danger h-8 min-h-8 px-3 text-xs"
+                                    onClick={() => void deleteTask(b.task_id, b.title, blocks.filter((x) => x.task_id === b.task_id).length)}>
+                                    {L("Delete task", "Padam tugasan")}
+                                  </button>
+                                )}
                               </div>
                             )}
                           </StickyNote>
@@ -1558,6 +1672,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                         <span className="inline-flex items-center gap-1"><span className="bg-danger-soft/40 border-danger/40 h-2.5 w-2.5 rounded-sm border" />{L("Public holiday", "Cuti umum")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-border bg-secondary/60 h-2.5 w-2.5 rounded-sm border border-dashed" />{L("Off day", "Hari cuti")}</span>
                         <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-plan bg-plan-soft" />{L("Task", "Tugasan")}</span>
+                        <span className="inline-flex items-center gap-1"><span className="border-gold bg-gold-soft/60 h-2.5 w-2.5 rounded-sm border" />{L("Event", "Acara")}</span>
                         <span className="inline-flex items-center gap-1"><span className="border-info bg-info-soft h-2.5 w-2.5 rounded-sm border" />{L("Sales duty", "Tugas jualan")}</span>
                       </div>
                     </>
@@ -1741,9 +1856,10 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                       {isToday && <span className="bg-gold-solid ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white">{L("TODAY", "HARI INI")}</span>}
                       {hol && <span className="bg-danger-soft text-danger ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold">{hol.name}</span>}
                     </p>
-                    {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length > 0 && (
+                    {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length + events.filter((e) => e.event_date === d).length > 0 && (
                       <span className="text-muted-foreground text-[10px] tabular-nums">
                         {[
+                          events.filter((e) => e.event_date === d).length > 0 ? `${events.filter((e) => e.event_date === d).length} ${L("events", "acara")}` : "",
                           dayS.length > 0 ? (lang === "ms" ? `${dayS.length} sesi` : `${dayS.length} live`) : "",
                           dayB.length > 0 ? `${dayB.length} ${L("tasks", "tugasan")}` : "",
                           shifts.filter((x) => x.shift_date === d).length > 0 ? `${shifts.filter((x) => x.shift_date === d).length} ${L("sales", "jualan")}` : "",
@@ -1751,7 +1867,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                       </span>
                     )}
                   </div>
-                  {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length === 0 ? (
+                  {dayS.length + dayB.length + shifts.filter((x) => x.shift_date === d).length + events.filter((e) => e.event_date === d).length === 0 ? (
                     <p className="text-muted-foreground/60 mt-0.5 text-[11px]">—</p>
                   ) : dayS.map((s) => {
                     const isOpen = openSession === s.id;
@@ -1804,6 +1920,27 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                       </div>
                     );
                   })}
+                  {/* v1.171.0 - the day's EVENTS. First in the day, because a
+                      training everybody has to attend is what the rest of the
+                      day is planned around. Whole-floor events say "everyone";
+                      an assigned one names its people. */}
+                  {events.filter((e) => e.event_date === d).map((e) => (
+                    <div key={`me${e.id}`} title={evTitle(e)}
+                      className="border-gold bg-gold-soft/60 mt-1 flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left">
+                      <span className="text-gold-deep w-20 shrink-0 text-[11px] font-semibold tabular-nums">{evTime(e)}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          <AppIcon name="date" className="mr-1 -mt-0.5 h-3 w-3" />{e.title}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-[10px]">
+                          {e.attendees.length === 0
+                            ? L("everyone", "semua")
+                            : e.attendees.map((id) => (staff.find((u) => u.id === id)?.name ?? "").split(" ").slice(0, 2).join(" ")).filter(Boolean).join(", ")}
+                          {e.location ? ` · ${e.location}` : ""}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
                   {/* v1.66.0 — the day's task blocks, under its live
                       sessions, in the same order the desktop grid uses. */}
                   {dayB.map((b) => (
@@ -1954,6 +2091,14 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                     onClick={() => void unscheduleBlock(b)}>
                     {L("Unschedule", "Nyahjadual")}
                   </button>
+                  {/* v1.171.0 (CEO: "the Task should be able to delete!") -
+                      Unschedule takes it off the day; this ends the task. */}
+                  {canDeleteTask && (
+                    <button type="button" className="text-danger text-xs underline"
+                      onClick={() => void deleteTask(b.task_id, b.title, blocks.filter((x) => x.task_id === b.task_id).length)}>
+                      {L("Delete task", "Padam tugasan")}
+                    </button>
+                  )}
                   <button type="button" className="text-muted-foreground text-xs underline"
                     onClick={() => setOpenBlock(null)}>{L("Close", "Tutup")}</button>
                 </span>
@@ -2057,6 +2202,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                           onChange={setEditTask}
                           onSave={() => void saveUnsched()}
                           onDone={() => void saveUnsched("completed")}
+                          onDelete={canDeleteTask ? () => void deleteTask(t.id, t.title, 0) : undefined}
                           onCancel={() => setEditTask(null)} />
                       )}
                     </div>

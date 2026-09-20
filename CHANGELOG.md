@@ -2,6 +2,34 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.171.0] - 2026-09-20 - One Dashboard, one month, one rule for a sale
+
+The CEO, 20-09-2026: *"my dashboard on PWA seem sooooooooo much messy!!! I think you need to clean off my dashboard and resort it based on it own function and properly put in on their own tabs!"*, and later the same day on the roster, Sales Performance and tasks: *"I am fucking tired with this flow of you!"*.
+
+**The Dashboard is five cards, sorted by function.** My day (the shift hero) · Waiting on me · My month · The company · Around me. What moved, and where to:
+
+- **My month is ONE card.** The four-tile strip said today's clock-in, days present, hours and open tasks; the month card counted verdicts; a bar chart behind a pill drew the same punches a third way. Days present and hours now sit inside "Attendance this month" beside on time / late / half day / streak, and the strip, the chart and `.erp-dashboard-stats` are gone. When the worker sends no verdicts the card still shows the punch figures and says the verdicts are unavailable, rather than guessing.
+- **The company is ONE card.** Four stat cards, a six-tile pulse strip, the Sales floor, an attendance donut, an assignments table and a month-by-month chart were eight blocks; the company is now revenue as three lines, the live counters as tiles (anything needing attention only when it is non-zero), and two links to the tabs that own the detail.
+- **The Sales floor moved to Ecommerce**, under "This month", as the third pill beside Sales revenue and Sales by hour - the KPI target, the pace marker, market targets, the boost suggestions and the month bars, beside the revenue they measure.
+- **Attendance today and Assignments today moved to the Attendance tab**, under the monitor and above the roster they summarise, for the management tier. "Open roster" scrolls to the board instead of leaving the tab.
+- **One Desk and Watchers share one frame** for the executive tier; everyone else keeps the desk alone. The events joined the work overview as its fourth pill (Tasks | Leave | News | Events), with "My schedule" above the company calendar, and the phone-only next-event hero is gone - a second navy band under the shift hero was the mess he named.
+
+**The roster board is synced with the calendar.** *"it is should be able to sync with the calendar and the event should be appear on it also! which is there is any event assigned to the staff, it will show there!!!!!!!"* - `GET /staff/roster` now returns the week's events with the people each was assigned to. An event assigned to somebody is drawn on THEIR row on the day; a whole-floor event (no attendee list, which has always meant everyone) is drawn once against the day instead of nine times down the column. The phone agenda gets them too, there is an events counter and a legend entry, and the board only ever reads them - Events still owns creating and editing. No migration; a database older than the events tables returns the board it returned yesterday.
+
+**A task can be deleted from the roster.** *"on the attendance, the Task should be able to delete!"* - the board could only Unschedule, which takes the work off the day and leaves the task in the Unscheduled rail forever. Delete task now sits beside it on the grid note, the detail bar and the unscheduled card's editor, for the CEO alone (the server route and `task_delete` are unchanged), behind a confirmation that names how many blocks across the board go with it.
+
+**A TikTok sale is credited to whoever actually sold it.** *"Sales performance is incorrect which is the other staff that was clock out late she was the one make the sales! not this staff making the sales!"* - two orders at 18:53 and 19:30 had been credited to a person whose sales duty ended at 18:00 and who was simply still clocked in, because the rule was "everyone clocked in, capped at 23:59". The rule he chose on 20-09-2026:
+
+- an order landing inside a live session belongs to that live's **host alone**;
+- outside a live, a person earns only inside their **planned selling hours** - the sales duty on the roster - intersected with the hours they actually punched. Clocking out late earns nothing after the planned end, clocking in early nothing before the planned start;
+- a day with neither a duty nor a live credits **nobody**.
+
+One definition (`worker/src/shift-sales.ts`), used by Sales Performance, the leaderboard and commission, so the three can never pay three different answers for the same order. `tests/shift-sales-split.mjs` runs it on his exact two orders; a database without the sales-duty table keeps the older rule rather than silently zeroing the page.
+
+- Fixed "Claims · 10 of 9 roles" in Tab access control: the count included `super_admin`, which is not one of the assignable chips.
+- Interface: a `DataTable` empty state is drawn under the table in the frame's own width instead of inside a cell spanning a 640px table (its message was cut off on a phone with the rest a sideways scroll away); form fields, compact inputs and the TikTok/traffic range pills no longer push past a narrow phone; the "Monthly recurring" label wraps instead of overlapping "Due day"; watcher findings wrap to two lines instead of truncating mid-name.
+- Verification: all 90 guards, portal and worker type checks, lint on the changed files and the production build pass. Every tab was rendered in Chromium at 375px - and again at 375px with text at 115% - against fixtures with long Malaysian names, long titles and large amounts, plus the four touched tabs at 390, 430, 768, 1280 and 1440px in both themes: no page overflow, no clipped or escaped controls, no overlaps, no page errors. Guards updated: `one-desk`, `interface-system`, `desk-tabs`, `tab-zones`, `roster-week` (+11 checks), `sales-performance` (+5 checks), `shift-sales-split` (+11 scenarios).
+
 ## [1.170.0] - 2026-09-20 - The month, judged: attendance breakdown on the Dashboard
 
 - Added an "Attendance this month" card to the Dashboard: on time, late, half day and the current on-time streak, with the month drawn as a Monday-first calendar of verdicts in the validated attendance colours. Every figure is a count of verdicts the worker reached; nothing is computed from raw punches on the client.

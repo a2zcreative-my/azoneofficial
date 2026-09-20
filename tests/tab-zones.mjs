@@ -207,11 +207,18 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
     const positions = labels.map(label => source.indexOf(label));
     return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
   };
+  /* v1.171.0 - five cards, same order: hero, desk (+ watchers), my month,
+     the company, around me. NextEventCard left the Dashboard. */
   ok("Dashboard actions and queue precede metrics and company reporting",
-    ordered(dash, ['<PanelTitle icon="time"', '<OneDesk', '<WatchersCard', '<NextEventCard', 'L("My summary"', '<TradingDesk']));
+    ordered(dash, ['<PanelTitle icon="time"', '<OneDesk', '<WatchersCard', 'L("My month"', '<TradingDesk', 'L("Around me"']));
   const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Reconciliation"'));
+  /* v1.171.0 - the company's attendance today (donut + assignments, from the
+     Dashboard) follows the records/monitor and precedes the decisions. */
   ok("Attendance records and decisions precede scheduling and setup",
-    ordered(attendance, ['<Attendance user=', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));
+    ordered(attendance, ['<Attendance user=', '<CompanyAttendanceToday', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));
+  ok("the assignments card's Open roster scrolls to the board on the same tab",
+    /<div id="roster-board" className="scroll-mt-16">\s*<RosterBoard/.test(attendance)
+    && /onOpenRoster=\{\(\) => revealAnchor\("roster-board"\)\}/.test(read("components/portal/dashboard-cards.tsx")));
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
   ok("Users starts with accounts, then review, permissions and locations",
     ordered(users, ['<UsersPanel', '<AccessReviewCard', '<TabAccessCard', '<GeofenceCard']));

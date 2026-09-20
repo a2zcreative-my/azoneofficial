@@ -161,7 +161,7 @@ export function ElfiaTrafficPanel() {
              "Dari mana pelawat kedai ELFIA melayari dan apa yang mereka lihat — tanpa nama secara reka bentuk: lokasi dan bilangan sahaja, bukan identiti.")}
         </p>
       </div>
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         {SPANS.map((s) => (
           <button key={s.days} type="button" onClick={() => setSpan(s.days)}
             className={`${btnSm} ${span === s.days ? "!bg-primary !text-primary-foreground" : ""}`}>

@@ -128,7 +128,9 @@ export function TikTokAnalyticsCard() {
                   "GMV, pesanan, unit dan CTR — mengikut video, siaran langsung dan kad produk.")}
           </p>
         </div>
-        <div className="flex gap-1">
+        {/* v1.171.0 - wraps: Today · 7 days · 30 days · Refresh ran off a
+            375 px phone with larger text, the fourth pill half outside. */}
+        <div className="flex flex-wrap gap-1">
           {([1, 7, 30] as const).map((d) => (
             <button key={d} type="button" disabled={busy}
               className={`${btnSm} ${days === d ? "!bg-primary !text-primary-foreground" : ""}`}

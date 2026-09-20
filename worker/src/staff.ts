@@ -30,7 +30,7 @@ import { logError as sharedLogError, postJournal, readVersions } from "./shared"
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce } from "./index"; // v1.127.0 - step-up before a signature is attached
 import { sendPush, type PushKeys } from "./webpush";
-import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales";
+import { shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
 import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, computed in JS and bound as a value (AUDIT M8)
 
@@ -2085,11 +2085,12 @@ async function attributedSalesByUser(env: Env, month: string): Promise<Map<numbe
     for (const r of results) add(r.uid, r.cents);
   } catch { /* pre-0048 */ }
   /* v1.25.6 (CEO): "sales marketing when clock in then it is supposed to
-     capture their sales." Every TikTok order landing while a sales_marketing
-     person is clocked in is theirs — ALL orders during the shift (his call:
-     the live host keeps their live-session credit too), split equally when
-     several sales_marketing staff are on shift at once. Only sales_marketing:
-     "Marketing doesnt make any sales on TikTok!" */
+     capture their sales." Only sales_marketing: "Marketing doesnt make any
+     sales on TikTok!"
+     v1.171.0 (CEO, 20-09-2026): an order inside a live belongs to the HOST
+     alone, and outside a live a person earns only inside their planned
+     selling hours - the sales duty on the roster - however late they clock
+     out. One definition, in shift-sales.ts, shared with Sales Performance. */
   try {
     const { results: sm } = await env.DB.prepare(
       `SELECT id FROM users WHERE is_active = 1 AND role = 'sales_marketing'`,
@@ -2112,8 +2113,30 @@ async function attributedSalesByUser(env: Env, month: string): Promise<Map<numbe
             AND order_amount_cents IS NOT NULL
             AND strftime('%Y-%m', created_at, '+8 hours') = ?1`,
       ).bind(month).all<ShiftOrder>();
+      /* the plan and the lives, same window as the punches. `undefined`
+         duties = no sales-duty table at all (pre-0128), which keeps the old
+         rule rather than silently crediting nobody. */
+      let duties: DutyWindow[] | undefined;
+      try {
+        duties = ((await env.DB.prepare(
+          `SELECT user_id, shift_date AS date, start_time AS start, end_time AS end
+             FROM sales_shifts
+            WHERE shift_date >= date(?1 || '-01', '-1 day')
+              AND shift_date <= date(?1 || '-01', '+1 month')`,
+        ).bind(month).all<DutyWindow>()).results) ?? [];
+      } catch { duties = undefined; /* pre-0128 */ }
+      let lives: LiveWindow[] = [];
+      try {
+        lives = ((await env.DB.prepare(
+          `SELECT session_date AS date, start_time AS start, end_time AS end
+             FROM live_sessions
+            WHERE status != 'cancelled' AND end_time IS NOT NULL
+              AND session_date >= date(?1 || '-01', '-1 day')
+              AND session_date <= date(?1 || '-01', '+1 month')`,
+        ).bind(month).all<LiveWindow>()).results) ?? [];
+      } catch { /* pre-live_sessions */ }
       const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
-      for (const [uid, cents] of shiftSalesSplit(punches, orders, nowUtc)) add(uid, cents);
+      for (const [uid, cents] of shiftSalesSplit(punches, orders, nowUtc, { duties, lives })) add(uid, cents);
     }
   } catch { /* pre-attendance / pre-postage schemas */ }
   return out;
@@ -3966,6 +3989,40 @@ export async function handleStaff(
         }
       } catch { /* pre-0099 - no patterns, no rest days to show */ }
 
+      /* v1.171.0 — THE CALENDAR ON THE BOARD. The CEO, 20-09-2026: *"it is
+         should be able to sync with the calendar and the event should be
+         appear on it also! which is there is any event assigned to the
+         staff, it will show there"*. A training booked in Events used to be
+         invisible to whoever planned the week, so work was rostered straight
+         over it. The events of the week come back BESIDE the sessions, each
+         with the people it was assigned to; an EMPTY `attendees` means
+         EVERYONE (migration 0122's rule, kept here rather than re-decided),
+         which the board shows against the day instead of nine times over.
+         No new permission: company events are already visible to every staff
+         member on the Events card, and the attendee list is names the portal
+         shows there too. */
+      let events: unknown[] = [];
+      try {
+        const evs = ((await env.DB.prepare(
+          `SELECT id, title, category, event_date, start_time, end_time, location
+             FROM events WHERE event_date BETWEEN ?1 AND ?2
+            ORDER BY event_date, COALESCE(start_time, '00:00') LIMIT 200`,
+        ).bind(start, end).all<{ id: number }>()).results) ?? [];
+        const ids = evs.map((e) => Number(e.id)).filter(Number.isFinite);
+        const att = new Map<number, number[]>();
+        if (ids.length > 0) {
+          try {
+            for (const r of ((await env.DB.prepare(
+              `SELECT event_id, user_id FROM event_attendees WHERE event_id IN (${ids.join(",")})`,
+            ).all<{ event_id: number; user_id: number }>()).results) ?? []) {
+              const list = att.get(r.event_id);
+              if (list) list.push(r.user_id); else att.set(r.event_id, [r.user_id]);
+            }
+          } catch { /* pre-0122 - every event is everyone's, as it was */ }
+        }
+        events = evs.map((e) => ({ ...e, attendees: att.get(Number(e.id)) ?? [] }));
+      } catch { /* pre-0025 */ }
+
       return json({
         week_start: start, days, manager: mgrR,
         sessions, on_leave: onLeave, conflicts, requests, available_today: available,
@@ -3973,6 +4030,7 @@ export async function handleStaff(
         task_blocks: taskBlocks, unscheduled,
         sales_shifts: salesShifts,
         rest_days: restDays,
+        events,
       });
     } catch (e) {
       if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0056 (live sessions) first", 409);

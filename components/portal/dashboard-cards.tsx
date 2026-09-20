@@ -16,6 +16,8 @@ import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { givenNames } from "@/lib/names";
 import { AppIcon } from "@/components/ui/app-icon";
+import { revealAnchor } from "@/components/portal/page-shared";
+import type { DashSummary } from "@/components/portal/dashboard";
 
 const api = makeApi("/staff");
 /* EN/BM at the display point only — getLang() re-reads per call, and the
@@ -47,6 +49,35 @@ export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
         />
       </div>
     </button>
+  );
+}
+
+/* ---- v1.171.0: the company's attendance today, on the ATTENDANCE tab ----
+   The CEO, 20-09-2026: *"clean off my dashboard and resort it based on it
+   own function and properly put in on their own tabs!"*. The donut and the
+   assignments list used to be the Dashboard's row three; they are the
+   Attendance tab's now, for the management tier, under the monitor and
+   above the roster they summarise. Same figures (the dashboard summary the
+   pulse card also reads - remembered on the device, one request), same
+   cards; "Open roster" scrolls to the board below instead of leaving the
+   tab. Skeleton until the summary is known; the donut is not drawn from
+   zeros while the answer is still in flight. */
+export function CompanyAttendanceToday({ canManage = false }: { canManage?: boolean }) {
+  const sum = useCachedApi<DashSummary>("/staff/dashboard/summary");
+  const s = sum.data;
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-4">
+      {!s ? (
+        <div className={card} aria-busy="true"><SkelRows rows={3} /></div>
+      ) : (
+        <AttendanceDonutCard
+          onTime={s.attendance_on_time ?? 0}
+          late={s.attendance_late ?? 0}
+          staffTotal={s.staff_total ?? 0}
+        />
+      )}
+      <TodayAssignmentsCard canManage={canManage} onOpenRoster={() => revealAnchor("roster-board")} />
+    </div>
   );
 }
 
@@ -181,12 +212,15 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
 }
 
 /* ---- Month-by-month bars (this year, all channels) ---- */
-export function MonthlyBarsCard({ months }: { months: { month: string; cents: number }[] }) {
+/* v1.171.0 - `bare`: drawn inside the Sales floor pill on Ecommerce, under a
+   rule, with no card of its own (a card inside a card is what the CEO called
+   messy). */
+export function MonthlyBarsCard({ months, bare = false }: { months: { month: string; cents: number }[]; bare?: boolean }) {
   if (months.length === 0) return null;
   const max = Math.max(...months.map((m) => m.cents), 1);
   const best = months.reduce((a, m) => (m.cents > a.cents ? m : a), months[0]!);
   return (
-    <div className={card}>
+    <div className={bare ? "border-border mt-4 border-t pt-4" : card}>
       <p className="text-sm font-semibold">{L("Sales by month", "Jualan mengikut bulan")}</p>
       <p className="text-muted-foreground mt-0.5 text-xs">{L("Every channel · bar vs your best month.", "Semua saluran · bar berbanding bulan terbaik anda.")}</p>
       <div className="mt-3 flex items-end gap-1.5" style={{ height: 84 }} aria-hidden>

@@ -3,8 +3,8 @@
 **Last reviewed:** 20 September 2026  
 **Workspace:** `a2zcreative-official`  
 **Production:** `a2zcreative.my` — the owner's phone showed `v1.169.0` in the More sheet on 20 September 2026 (commit `8580913`, "portal deploy", pushed 20:31 MYT). Not re-verified with a health check by the v1.170.0 author.
-**Local package metadata:** `1.170.0`
-**Release status:** local `v1.170.0` passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it.
+**Local package metadata:** `1.171.0`
+**Release status:** `v1.170.0` was released by the owner on 20 September 2026 (`PUSH.bat allow-dirty`, commit `ed417d0`, pushed 22:52 MYT). Local `v1.171.0` passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it.
 
 ## Read First
 
@@ -12,7 +12,33 @@ This is the current coordination record for Claude, Codex, and any other contrib
 
 **A stash exists** (`refs/stash`, 19:27 MYT on 20 September, "reset: moving to HEAD" in the reflog beside it). It is another contributor's parked work. v1.170.0 did not touch, apply or drop it.
 
-## Current Local Work — v1.170.0
+## Current Local Work — v1.171.0
+
+Two sittings on 20 September, both from the owner's own screens.
+
+**1. "my dashboard on PWA seem sooooooooo much messy!!! ... clean off my dashboard and resort it based on it own function and properly put in on their own tabs!"** He was asked how to split it and chose *"Me first, company as one card"* and *"Not sure — stress-test everything"*.
+
+The Dashboard is five cards: My day (shift hero) · Waiting on me (One Desk + Watchers in one frame for the executive tier) · My month (one card) · The company (one card) · Around me (Tasks | Leave | News | Events). The month had been shown three ways and the company six; the Sales floor went to Ecommerce as the third pill under "This month", the attendance donut and today's assignments to the Attendance tab under the monitor, the month-by-month bars with the Sales floor, and the phone-only `NextEventCard` was dropped. `.erp-dashboard-stats` / `.erp-dashboard-stat` are gone from `globals.css` with the strip they styled.
+
+**2. "check the flow of this attendance roster! ... I am fucking tired with this flow of you!"** Three defects, all real:
+
+- **The roster could not see the calendar.** `GET /staff/roster` now returns the week's `events` with each one's `attendees`; the board draws an assigned event on that person's row and a whole-floor event (empty attendee list = everyone, migration 0122's rule) once against the day. Phone agenda, counter chip and legend included. Read-only on the board - Events still owns creating and editing. No migration.
+- **A task could not be deleted from the board.** Only Unschedule existed (block off the day, task back to the Unscheduled rail). `Delete task` now sits on the grid note, the detail bar and the unscheduled editor, CEO-only (`canDeleteTask` mirrors `task_delete`), behind a confirmation naming the blocks it will take with it. The server route is unchanged and was always CEO-only.
+- **Sales Performance credited the wrong person.** Two TikTok orders (17-09, 18:53 and 19:30) went to a `sales_marketing` person whose sales duty ended at 18:00 and who was still clocked in, because the v1.25.6 rule credited everyone clocked in, capped only at 23:59. **The owner chose the replacement on 20-09-2026: "live host wins, shift capped".** An order inside a live belongs to that host alone; outside a live a person earns only inside their planned selling hours (the `sales_shifts` duty) intersected with their punches; a day with neither credits nobody. One definition in `worker/src/shift-sales.ts` (`clipToDuty`, `inAnyLive`, `shiftSalesSplit(..., { duties, lives })`), used by Sales Performance, the leaderboard and commission. **Known consequence, stated to the owner:** a TikTok order outside a live on a day with no sales duty on the roster is now credited to nobody. If sales duty stops being planned, TikTok credit stops. `duties: undefined` (no `sales_shifts` table at all) keeps the old rule; an empty list credits nobody.
+
+Also fixed: "Claims · 10 of 9 roles" in Tab access control (the count included `super_admin`, which is not an assignable chip); a `DataTable` empty state cut off inside its scrolling frame on a phone; date/number inputs and two range-pill rows overflowing a 375px phone; "Monthly recurring" overlapping "Due day"; watcher findings truncating mid-name.
+
+Verification for `v1.171.0` (all offline, in a Linux sandbox):
+
+- portal `tsc --noEmit`: clean; worker `tsc --noEmit`: clean.
+- `node scripts/run-guards.mjs`: **all 90 guards passed**. Updated: `one-desk`, `interface-system`, `desk-tabs`, `tab-zones`, `roster-week` (+11), `sales-performance` (+5), `shift-sales-split` (+11 scenarios, including the owner's exact two orders).
+- `next build` static export: compiled and exported; `next lint` on the changed files: clean.
+- **The stress test he asked for:** every tab rendered in Chromium at 375px, and again at 375px with text at 115%, against fixtures with long Malaysian names, long titles and large amounts; plus Dashboard, Ecommerce, Attendance and Users at 390/430/768/1280/1440px in both themes. No page overflow, no clipped or escaped controls, no overlaps, no page errors. The only measured flags are by design and predate this release: table headers inside their own scroll frame, and the password eye button over its input.
+- The roster board was rendered against a week shaped like his screenshot (sessions, task blocks, sales duty, leave, rest days + three events): the assigned events land on their rows, the whole-floor event on the day, and a task block offers Unschedule and Delete task.
+- Line endings: every edited file keeps the exact original ending on every untouched line.
+- The four browser-only guards are still unverified against any recent version - see below.
+
+## Previous Local Work — v1.170.0
 
 The owner asked for the "Kehadiran Bulan Ini" idea from a reference attendance app to be brought into the Dashboard, and chose the month breakdown only (no identity strip, no live clock, no PIN, no blue palette — the last two are excluded by `CLAUDE.md`).
 
@@ -41,7 +67,11 @@ Verification for `v1.170.0` (all offline, in a Linux sandbox):
 - Adopting `EmptyState` and the table contract across the other panels — one by one, as the button contract was.
 - The streak counts within the current month only; a cross-month streak would need a second month of verdicts.
 
-## Release Decision
+## Release Decision — v1.171.0
+
+No database migration. No permission change. The attribution change is the one to watch in production: open Sales Performance for a past week and confirm the credit now sits with the person who was rostered or hosting. `PUSH.bat` will run typecheck, the 90 guards and the build again on the office PC. The v1.171.0 files are in the worktree without a commit, so a plain `PUSH.bat` will refuse; either commit them first or run `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.171.0: not yet given.**
+
+## Release Decision — v1.170.0 (released)
 
 `v1.170.0` has no database migration. Before `PUSH.bat`: the owner should open the Dashboard on the phone and confirm the month card reads correctly against his own punches (it draws from live verdicts; the sandbox only saw fixtures), and glance at the More sheet footer and the hero inset. `PUSH.bat` will run typecheck, the 90 guards and the build again on the office PC. The v1.170.0 files were written to the worktree by the author without a commit, so the strict preflight will refuse a plain `PUSH.bat`; either commit them first (`git add -A && git commit -m "v1.170.0"`) or run `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.170.0: given by the owner on 20 September 2026** (asked to release in the session that produced the files); release via `PUSH.bat allow-dirty`.
 

@@ -47,12 +47,17 @@ ok("high-use operational actions no longer own compact button geometry",
 ok("Dashboard has one focused shift hero",
   /className=\{`erp-shift-hero/.test(dashboard)
   && /btnHeroPrimary/.test(dashboard) && /btnHero/.test(dashboard));
-ok("Dashboard summary has stable responsive tracks",
-  /className="erp-dashboard-stats"/.test(dashboard)
-  && (dashboard.match(/className="erp-dashboard-stat"/g) ?? []).length === 4);
-ok("Tasks, leave and news share one work overview",
-  /useState<"tasks" \| "leave" \| "news">\("tasks"\)/.test(dashboard)
+/* v1.171.0 (the CEO: "clean off my dashboard and resort it based on it own
+   function"): the four-tile strip is gone - its figures live in the month
+   card - and the events are the work overview's fourth pill. */
+ok("Dashboard's month is one card, not a strip plus a card plus a chart",
+  !/erp-dashboard-stat/.test(dashboard) && !/erp-dashboard-stat/.test(css)
+  && (dashboard.match(/<MonthAttendanceCard /g) ?? []).length === 1
+  && /daysPresent=\{daysPresent\} hours=\{monthHours\}/.test(dashboard));
+ok("Tasks, leave, news and events share one work overview",
+  /useState<"tasks" \| "leave" \| "news" \| "events">\("tasks"\)/.test(dashboard)
   && /<SectionTabs value=\{aroundTab\}/.test(dashboard)
+  && /<div hidden=\{aroundTab !== "events"\}/.test(dashboard)
   && !/\ballTasks\b/.test(dashboard));
 ok("the company palette remains unchanged",
   /--brand-primary: #1a2946;/.test(css)

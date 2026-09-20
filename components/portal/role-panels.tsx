@@ -5234,8 +5234,10 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
           <label className="col-span-2 block min-w-0 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Description (optional)", "Keterangan (pilihan)")}</span>
           <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("What was this for?", "Untuk apa perbelanjaan ini?")}
             value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
-          <label className="flex h-9 items-center gap-1.5 text-sm whitespace-nowrap" title={L("A recurring expense reappears every month as due until you record it", "Perbelanjaan berulang muncul semula setiap bulan sebagai perlu dibayar sehingga anda merekodkannya")}>
-            <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
+          {/* v1.171.0 - the label may wrap: at 375 px with larger text the
+              nowrap "Monthly recurring" ran under "Due day". */}
+          <label className="flex min-h-9 min-w-0 items-center gap-1.5 text-sm" title={L("A recurring expense reappears every month as due until you record it", "Perbelanjaan berulang muncul semula setiap bulan sebagai perlu dibayar sehingga anda merekodkannya")}>
+            <input type="checkbox" className="shrink-0" checked={draft.recurring} onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
             {L("Monthly recurring", "Berulang bulanan")}
           </label>
           <label className="flex h-9 items-center justify-end gap-1.5 text-sm whitespace-nowrap sm:justify-start" title={L("Day of the month the payment must be made by", "Hari dalam bulan bayaran mesti dibuat")}>

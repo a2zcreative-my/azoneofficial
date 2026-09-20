@@ -132,14 +132,32 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      Dashboard reads in four zones: MY DAY (quick actions, then the KPI tiles
      that explain them) - WAITING ON ME (the desk, first in its zone, then the
      watchers) - THE COMPANY (the sales floor) - AROUND ME. The desk is the
-     first thing after "my day" and stays above the company and the feeds. */
+     first thing after "my day" and stays above the company and the feeds.
+     v1.171.0 - the CEO, 20-09-2026: *"my dashboard on PWA seem sooooo much
+     messy!!! ... clean off my dashboard and resort it based on it own
+     function"*. Same order, five cards: the hero - the desk and the watchers
+     in ONE frame for the executive tier (his choice: "One Desk + Watchers
+     merged") - MY MONTH, one card - THE COMPANY, one card - the work
+     overview. */
   const at = (needle) => ret.indexOf(needle);
-  const order = [at('tr("Quick actions", lang)'), at("<OneDesk"), at("<WatchersCard"), at('L("My summary"'), at("<TradingDesk"), at('tr("Pending leave", lang)')];
-  ok("the Dashboard reads: quick actions, desk, watchers, metrics, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
+  const order = [at('tr("Quick actions", lang)'), at("<OneDesk"), at("<WatchersCard"), at('L("My month"'), at("<TradingDesk"), at('tr("Pending leave", lang)')];
+  ok("the Dashboard reads: quick actions, desk, watchers, my month, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
      `positions ${order.join(" < ")} - approved work-first order on web and phone`);
   ok("the zones are captioned, and the company caption lives inside the desk it captions",
-     ["My day", "Waiting on me", "My summary", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
+     ["My day", "Waiting on me", "My month", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
      "a caption for a zone a role cannot see would be a heading over nothing");
+  ok("the executive tier sees the desk and the watchers in one frame; everyone else the desk alone",
+     /WATCHER_ROLES\.includes\(user\.role\) \? \(\s*<div className=\{card\}>\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<WatchersCard role=\{user\.role\} go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<\/div>\s*\) : \(\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} \/>/.test(ret)
+     && /export const WATCHER_ROLES = \["ceo", "coo", "cco", "super_admin", "admin"\];/.test(read("components/portal/watchers-card.tsx")),
+     "one list of who sees the watchers, used by the card and by the frame around it");
+  ok("bare drops only the frame - the desk's quiet line, list and order are untouched",
+     /bare \? "" : `\$\{card\} border-l-4`/.test(card) && /if \(items\.length === 0\) \{\s*return \(\s*<p className="text-muted-foreground flex items-center gap-2 px-1 text-xs" role="status">/.test(card));
+  ok("the Dashboard shows the month ONCE (no four-tile strip, no bar chart behind a pill)",
+     !/erp-dashboard-stats/.test(ret) && !/deskTab/.test(dash) && /<MonthAttendanceCard days=\{monthDays\} month=\{mytToday\(\)\.slice\(0, 7\)\} lang=\{lang\} daysPresent=\{daysPresent\} hours=\{monthHours\} \/>/.test(ret));
+  ok("the company is one card on the Dashboard (pulse); the Sales floor lives on Ecommerce",
+     /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(ret) && !/<NextEventCard/.test(ret)
+     && /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="floor" \/>/.test(read("components/portal/trading-desk.tsx"))
+     && /<RevenueAndHoursCard user=\{user\} go=\{setTab\} lang=\{lang\} \/>/.test(read("app/portal/page.tsx")));
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));
   ok("a missing table costs its bucket, not the desk", /if \(String\(e\)\.includes\("no such"\)\) missing\.push\(bucket\); else throw e;/.test(deskSrc));

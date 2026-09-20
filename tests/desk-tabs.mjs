@@ -46,19 +46,31 @@ const ok = (label, cond, why = "") => {
 const dash = read("components/portal/dashboard.tsx");
 const events = read("components/portal/events.tsx");
 
-/* ---- 1 + 3. one card, events first, anchor kept ---- */
+/* ---- 1 + 3. one card, anchor kept ----
+   v1.171.0 - the CEO, 20-09-2026: *"clean off my dashboard and resort it
+   based on it own function and properly put in on their own tabs!"*, and
+   his choice for the bottom of the page: "Tasks | Leave | News | Events".
+   The v1.152.0 events/attendance card is folded away: the events are the
+   FOURTH pill of the one work-overview card (tasks first - the v1.116.0
+   order the CEO approved for that card), the personal month lives in the
+   month card above, and the #upcoming-events anchor sits on the work card
+   so anything that still scrolls to it lands on the events. The mobile hero
+   (NextEventCard) that used to scroll there is gone from the Dashboard - a
+   second navy band under the shift hero was the mess he described. */
 {
   const cardStart = dash.indexOf('id="upcoming-events"');
-  ok("the anchor the mobile hero scrolls to still exists", cardStart > 0);
+  ok("the events anchor still exists", cardStart > 0);
   const cardBlock = dash.slice(cardStart, cardStart + 2500);
   ok("the anchor is on a card with a pill row", /className=\{`\$\{card\} scroll-mt-16`\}/.test(cardBlock) && /<SectionTabs/.test(cardBlock));
-  const tabs = cardBlock.match(/tabs=\{\[\s*\["(\w+)"/);
-  ok("the events pill is first", !!tabs && tabs[1] === "events", tabs ? `first pill is ${tabs[1]}` : "no tabs literal");
-  ok("the card opens on events", /useState<"events" \| "attendance">\("events"\)/.test(dash));
-  ok("the pill row names attendance with the month", /"attendance", `\$\{lang === "ms" \? "Kehadiran saya" : "My attendance"\} — \$\{MONTH_NAMES/.test(dash));
-  ok("bodies are hidden, not unmounted (SectionTabs' rule)", /<div hidden=\{deskTab !== "events"\}/.test(dash) && /<div hidden=\{deskTab !== "attendance"\}/.test(dash));
-  ok("the old side-by-side grid is gone", !/lg:grid-cols-2" : ""\}`\}>/.test(dash) && !/\$\{card\} hidden md:block`\}>\s*<div className="mb-3 flex items-center justify-between">\s*<p className="text-sm font-semibold">\s*\{lang === "ms" \? "Kehadiran saya"/.test(dash));
-  ok("the month chart is still drawn (behind its pill)", /bg-bar-high/.test(dash) && /bg-gold-solid/.test(dash));
+  const pills = [...cardBlock.matchAll(/\["(tasks|leave|news|events)", /g)].map((m) => m[1]);
+  ok("the pills read tasks, leave, news, events", pills.join(",") === "tasks,leave,news,events", `pills: ${pills.join(",") || "none"}`);
+  ok("the card opens on tasks", /useState<"tasks" \| "leave" \| "news" \| "events">\("tasks"\)/.test(dash));
+  ok("bodies are hidden, not unmounted (SectionTabs' rule)", ["tasks", "leave", "news", "events"].every((k) => new RegExp(`<div hidden=\\{aroundTab !== "${k}"\\}`).test(dash)));
+  ok("the separate events/attendance card is gone", !/deskTab/.test(dash) && !/useState<"events" \| "attendance">/.test(dash));
+  ok("the personal month bar chart is gone with it (the month card draws the month once)", !/bg-bar-high/.test(dash) && (dash.match(/<MonthAttendanceCard /g) ?? []).length === 1);
+  ok("the mobile hero is off the Dashboard", !/NextEventCard/.test(dash));
+  ok("my schedule (own roster sessions) sits under the events pill, above the company calendar",
+     /<div hidden=\{aroundTab !== "events"\} className="mt-4">[\s\S]{0,400}\{mySessions\.length > 0 && \([\s\S]*?<UpcomingEventsCard role=\{user\.role\} embedded \/>\s*<\/div>/.test(dash));
 }
 
 /* ---- 2. the embedded events body has no frame and no title ---- */

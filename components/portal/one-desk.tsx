@@ -68,7 +68,11 @@ function waited(since: string | null): string {
 
 const SHOW_FIRST = 8;
 
-export function OneDesk({ go }: { go: (tab: string) => void }) {
+/* v1.171.0 - `bare`: drawn inside a frame the Dashboard owns (the executive
+   tier's "Waiting on me" card, shared with the watchers), so the desk brings
+   no card of its own. Everything else - the quiet line, the list, the
+   order - is the same. */
+export function OneDesk({ go, bare = false }: { go: (tab: string) => void; bare?: boolean }) {
   /* the topics every bucket can move on - a write anywhere here refetches */
   const desk = useCachedApi<DeskData>("/staff/desk", true,
     ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries"]);
@@ -79,7 +83,7 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
 
   if (desk.loading) {
     return (
-      <div className={card} aria-busy="true">
+      <div className={bare ? "" : card} aria-busy="true">
         <Skel className="h-4 w-44" />
         <div className="mt-3 space-y-2">
           <Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" />
@@ -90,7 +94,7 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
 
   if (desk.failed && !desk.data) {
     return (
-      <div className={card} role="alert">
+      <div className={bare ? "" : card} role="alert">
         <p className="text-danger text-sm font-semibold">
           {L("Your work queue could not be loaded.", "Senarai kerja anda tidak dapat dimuatkan.")}
         </p>
@@ -116,7 +120,7 @@ export function OneDesk({ go }: { go: (tab: string) => void }) {
 
   const overdue = items.filter((i) => i.overdue).length;
   return (
-    <div className={`${card} border-l-4`} style={{ borderLeftColor: overdue ? "var(--warning)" : "var(--gold-solid)" }}>
+    <div className={bare ? "" : `${card} border-l-4`} style={bare ? undefined : { borderLeftColor: overdue ? "var(--warning)" : "var(--gold-solid)" }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <PanelTitle icon="orders" className="flex-wrap">

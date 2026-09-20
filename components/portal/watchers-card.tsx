@@ -52,8 +52,15 @@ function since(sqlite: string): string {
   return h < 24 ? `${h}${L("h", "j")}` : `${Math.round(h / 24)}${L("d", "h")}`;
 }
 
-export function WatchersCard({ role, go }: { role: string; go: (tab: string) => void }) {
-  const exec = ["ceo", "coo", "cco", "super_admin", "admin"].includes(role);
+/* v1.171.0 - the tier that sees the watchers, exported so the Dashboard can
+   decide whether to frame the desk and the watchers together (the CEO chose
+   "One Desk + Watchers merged") without keeping a second copy of this list. */
+export const WATCHER_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
+
+/* v1.171.0 - `bare`: drawn under the desk inside the Dashboard's own frame;
+   a rule separates the two, and the card brings no frame of its own. */
+export function WatchersCard({ role, go, bare = false }: { role: string; go: (tab: string) => void; bare?: boolean }) {
+  const exec = WATCHER_ROLES.includes(role);
   const canEdit = role === "ceo" || role === "super_admin";
   const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
   const { show: toast, node: toastNode } = useSaveToast();
@@ -77,14 +84,14 @@ export function WatchersCard({ role, go }: { role: string; go: (tab: string) => 
   };
 
   if (view.loading) {
-    return <div className={card} aria-busy="true"><Skel className="h-4 w-36" /><Skel className="mt-3 h-9 rounded-lg" /></div>;
+    return <div className={bare ? "border-border mt-4 border-t pt-4" : card} aria-busy="true"><Skel className="h-4 w-36" /><Skel className="mt-3 h-9 rounded-lg" /></div>;
   }
   const open = view.data?.open ?? [];
   const watchers = view.data?.watchers ?? [];
   const tabOf = (f: Finding) => watchers.find((w) => w.key === f.watcher)?.tab ?? "Dashboard";
 
   return (
-    <div className={card}>
+    <div className={bare ? "border-border mt-4 border-t pt-4" : card}>
       {toastNode}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -113,7 +120,9 @@ export function WatchersCard({ role, go }: { role: string; go: (tab: string) => 
               <button type="button" onClick={() => go(tabOf(f))}
                 className="hover:bg-secondary/50 flex w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors">
                 <span aria-hidden className="bg-warning h-2 w-2 shrink-0 rounded-full" />
-                <span className="min-w-0 flex-1 truncate text-sm">{f.title}</span>
+                {/* v1.171.0 - wraps (two lines at most) instead of truncating:
+                    "ELFIA Bawal Premium Extra Long —…" told the CEO nothing. */}
+                <span className="min-w-0 flex-1 text-sm break-words [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{f.title}</span>
                 <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{since(f.first_seen)}</span>
                 <span className="text-muted-foreground shrink-0 text-xs" aria-hidden>›</span>
               </button>

@@ -91,6 +91,7 @@ import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } fr
 import { Tasks } from "@/components/portal/tasks";
 import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
 import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
+import { CompanyAttendanceToday } from "@/components/portal/dashboard-cards";
 import { UsersPanel } from "@/components/portal/users-panel";
 import { syncThemeColor } from "@/lib/theme-color";
 
@@ -1489,6 +1490,14 @@ export default function PortalPage() {
           {activeTab === "Attendance" && (
             <div className="space-y-4 md:space-y-6">
               <Attendance user={user} />
+              {/* v1.171.0 (CEO, 20-09-2026: "resort it based on it own
+                  function and properly put in on their own tabs") — the
+                  attendance donut and today's assignments, from the Dashboard.
+                  Same tier as the monitor above; status chips act for the
+                  roles that may edit the roster. */}
+              {MANAGE_ROLES.includes(user.role) && (
+                <CompanyAttendanceToday canManage={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)} />
+              )}
               {/* v1.84.0 (CEO: "attendance verification should move to
                   Attendance ... full report is require and a must!") — it was
                   on the HR tab, printing every punch in the month with no
@@ -1503,7 +1512,9 @@ export default function PortalPage() {
                   title={L("OT Approvals", "Kelulusan OT")}
                 />
               )}
-              {/* Scheduling follows attendance review and OT decisions. */}
+              {/* Scheduling follows attendance review and OT decisions.
+                  v1.171.0: the anchor "Open roster" (assignments card) scrolls to. */}
+              <div id="roster-board" className="scroll-mt-16">
               <RosterBoard
                 canManage={[
                   "ceo",
@@ -1516,10 +1527,15 @@ export default function PortalPage() {
                 canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(
                   user.role
                 )}
+                /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task
+                   should be able to delete!") - mirrors task_delete in
+                   worker/src/permissions.ts, which is the CEO alone. */
+                canDeleteTask={["ceo", "super_admin"].includes(user.role)}
                 /* v1.159.9 - a Sales-duty note opens the register on that
                    person and day; offered only when this account has the tab. */
                 onOpenRegister={canOpen("Sales Performance") ? (staff, day) => { setSpPreset({ staff, day }); setTab("Sales Performance"); } : undefined}
               />
+              </div>
               {/* v1.91.0 — mirrors attendance_correct in the worker. */}
               {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) ? (
                 <AttendanceAdminPanel role={user.role} />
@@ -1661,7 +1677,10 @@ export default function PortalPage() {
               {REVENUE_ROLES.includes(user.role) && (
                 <section className="space-y-3 md:space-y-4">
                   <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
-                  <RevenueAndHoursCard />
+                  {/* v1.171.0: the Sales floor (KPI target, pace, markets,
+                      month bars) is the card's third pill - moved here from
+                      the Dashboard, beside the revenue it measures. */}
+                  <RevenueAndHoursCard user={user} go={setTab} lang={lang} />
                 </section>
               )}
               <section className="space-y-3 md:space-y-4">

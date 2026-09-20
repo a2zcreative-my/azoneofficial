@@ -6,13 +6,12 @@
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
-import { NextEventCard } from "@/components/portal/next-event-card";
 import { OneDesk } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
-import { WatchersCard } from "@/components/portal/watchers-card";
-import { Skel, SkelRows, SkelStat, SkelText } from "@/components/ui/skeleton";
+import { WATCHER_ROLES, WatchersCard } from "@/components/portal/watchers-card";
+import { Skel, SkelRows, SkelText } from "@/components/ui/skeleton";
 import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
@@ -85,10 +84,21 @@ const dayStatusL = (s: MonthDay["status"], lang: Lang): string => {
 
 /** The month card. Counts on the left, the month as a small calendar of
     verdicts on the right — one cell per day, Monday first, the same
-    validated ring colours the attendance donut uses. */
-export function MonthAttendanceCard({ days, month, lang }: { days: MonthDay[]; month: string; lang: Lang }) {
-  const s = summariseMonth(days);
-  const byDate = new Map(days.map((d) => [d.date, d]));
+    validated ring colours the attendance donut uses.
+    v1.171.0 — the CEO, 20-09-2026: *"clean off my dashboard and resort it
+    based on it own function"*. The month was on the Dashboard three ways
+    (the four-tile strip, this card, a bar chart behind a pill). It is ONE
+    card now: the punches' own figures (days present, hours - `daysPresent`,
+    `hours`) sit beside the verdicts. `days` may be null - an older worker,
+    or a classifier that could not run - and the card then shows the
+    punch figures alone and says the verdicts are not available, rather
+    than guessing. */
+export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
+  days: MonthDay[] | null; month: string; lang: Lang; daysPresent?: number; hours?: number;
+}) {
+  const has = !!days && days.length > 0;
+  const s = summariseMonth(days ?? []);
+  const byDate = new Map((days ?? []).map((d) => [d.date, d]));
   const [y, m] = month.split("-").map(Number) as [number, number];
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   /* Monday-first offset of the 1st: JS Sunday=0 → 6, Monday=1 → 0 */
@@ -116,20 +126,41 @@ export function MonthAttendanceCard({ days, month, lang }: { days: MonthDay[]; m
       <div className="flex flex-wrap items-start justify-between gap-2">
         <PanelTitle icon="date">{L("Attendance this month", "Kehadiran bulan ini")}</PanelTitle>
         <p className="text-muted-foreground text-xs tabular-nums">
-          {L(`${s.present} of ${s.scheduled} scheduled days · ${monthName}`, `${s.present} daripada ${s.scheduled} hari berjadual · ${monthName}`)}
+          {has
+            ? L(`${s.present} of ${s.scheduled} scheduled days · ${monthName}`, `${s.present} daripada ${s.scheduled} hari berjadual · ${monthName}`)
+            : monthName}
         </p>
       </div>
       <div className="mt-4 md:flex md:items-start md:justify-between md:gap-8">
-        <div className="grid grid-cols-4 gap-3 md:max-w-2xl md:flex-1">
-          {stat(L("On time", "Tepat waktu"), s.onTime, "text-ring-ontime")}
-          {stat(L("Late", "Lewat"), s.late, s.late > 0 ? "text-warning" : "")}
-          {stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? "text-danger" : "")}
-          <div className="min-w-0" title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Streak", "Rentetan")}</p>
-            <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{s.streak}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
-          </div>
+        <div className={`grid gap-3 md:flex-1 ${has ? "grid-cols-3 sm:grid-cols-6 md:max-w-3xl" : "grid-cols-2 sm:grid-cols-4"}`}>
+          {has && stat(L("On time", "Tepat waktu"), s.onTime, "text-ring-ontime")}
+          {has && stat(L("Late", "Lewat"), s.late, s.late > 0 ? "text-warning" : "")}
+          {has && stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? "text-danger" : "")}
+          {/* v1.171.0 — the punches' own figures, from the four-tile strip
+              this card replaced: days with a punch, and the day's shifts
+              added up (v1.133.0 pairing rule - the hours between two shifts
+              are not worked hours). */}
+          {daysPresent !== undefined && (
+            <div className="min-w-0" title={L("Days this month with attendance recorded", "Hari bulan ini dengan kehadiran direkodkan")}>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Present", "Hadir")}</p>
+              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{daysPresent}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
+            </div>
+          )}
+          {hours !== undefined && (
+            <div className="min-w-0" title={L("Your shifts added up, per day", "Syif anda dijumlahkan, setiap hari")}>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Hours", "Jam")}</p>
+              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{hours.toFixed(1)}<span className="text-muted-foreground ml-0.5 text-sm font-medium">h</span></p>
+            </div>
+          )}
+          {has && (
+            <div className="min-w-0" title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Streak", "Rentetan")}</p>
+              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{s.streak}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
+            </div>
+          )}
         </div>
         {/* the month, as it happened — Monday-first, one cell per day */}
+        {has && (
         <div className="mt-4 w-full md:mt-0 md:w-[16.5rem] md:shrink-0" aria-label={L("Day by day", "Hari demi hari")}>
           <div className="text-muted-foreground grid grid-cols-7 gap-1 text-center text-[9px] font-semibold tracking-wider uppercase">
             {(lang === "ms" ? ["I", "S", "R", "K", "J", "S", "A"] : ["M", "T", "W", "T", "F", "S", "S"]).map((d, i) => <span key={i}>{d}</span>)}
@@ -151,7 +182,13 @@ export function MonthAttendanceCard({ days, month, lang }: { days: MonthDay[]; m
             <span className="flex items-center gap-1"><i className="bg-tint-navy inline-block h-2 w-2 rounded-sm" />{L("off", "cuti/rehat")}</span>
           </div>
         </div>
+        )}
       </div>
+      {!has && (
+        <p className="text-muted-foreground mt-3 text-xs" role="status">
+          {L("Day-by-day verdicts (on time, late, half day) are not available right now — the figures above count your punches.", "Keputusan hari demi hari (tepat waktu, lewat, separuh hari) tidak tersedia sekarang — angka di atas mengira punch anda.")}
+        </p>
+      )}
       {notes.length > 0 && (
         <p className="text-muted-foreground mt-3 text-xs">{notes.join(" · ")}</p>
       )}
@@ -286,11 +323,12 @@ export function Dashboard({
   const [monthDays, setMonthDays] = useState<MonthDay[] | null>(
     () => cacheRead<DashCache>(DASH_ATT)?.days ?? null
   );
-  /* v1.152.0 (CEO: "My attendance and Upcoming events into minimalist
-     interface which is tabs. but Upcoming events should be 1st"): one card,
-     one pill row, events first. Bodies stay mounted (SectionTabs' rule). */
-  const [deskTab, setDeskTab] = useState<"events" | "attendance">("events");
-  const [aroundTab, setAroundTab] = useState<"tasks" | "leave" | "news">("tasks");
+  /* v1.169.0: tasks, leave and news are one work panel. v1.171.0 (the CEO:
+     "clean off my dashboard and resort it based on it own function"): the
+     events join it as the fourth pill - the separate events/attendance card
+     (v1.152.0) is gone, its attendance half folded into the month card.
+     Bodies stay mounted (SectionTabs' rule). */
+  const [aroundTab, setAroundTab] = useState<"tasks" | "leave" | "news" | "events">("tasks");
   const [leave, setLeave] = useState<LeaveReq[]>(
     () => cacheRead<LeaveReq[]>(DASH_LEAVE) ?? []
   );
@@ -962,7 +1000,8 @@ export function Dashboard({
   const latestPunch = today[0]?.type ?? null;
   const openNow = todayShift?.entry?.clocked_in ?? (latestPunch === "clock_in");
   const shiftsToday = today.filter((r) => r.type === "clock_in").length;
-  const hasIn = shiftsToday > 0;
+  /* v1.171.0 - hasIn went with the four-tile strip (its "Today" tile); the
+     hero's own line already says when the day's punches happened. */
   const hasOut = today.some((r) => r.type === "clock_out");
   const openSince = openNow ? mytTime(todayShift?.entry?.open_since ?? today[0]?.created_at ?? "") : null;
   const clockOutAt = todayShift?.entry?.clock_out_at;
@@ -1317,198 +1356,52 @@ export function Dashboard({
           person, from every module. One quiet line when there is nothing.
           v1.115.0: it follows the Quick actions card - the CEO put the
           clock-in first - and stays above everything else. */}
-      <OneDesk go={(t) => go(t as TabName)} />
-      {/* v1.108.0 — WATCHERS, executive tier: what the company's rules find
-          true right now, and (CEO) the rules themselves. One quiet line when
-          nothing is. */}
-      <WatchersCard role={user.role} go={(t) => go(t as TabName)} />
-      {/* v1.10.0: the hero card — phones only, the desktop keeps its layout */}
-      <NextEventCard lang={lang} />
-      {/* v1.21.6 — My schedule: the person's own upcoming roster/live
-          sessions, on the Dashboard where the phone actually opens. */}
-      {mySessions.length > 0 && (
+      {/* v1.171.0 — ONE FRAME for the executive tier (the CEO, 20-09-2026,
+          chose "One Desk + Watchers merged"): the desk first, the watchers'
+          findings under a rule in the same card. Everyone else sees the desk
+          alone, as before - its own card when it has work, one quiet line
+          when it has none. */}
+      {WATCHER_ROLES.includes(user.role) ? (
         <div className={card}>
-          <p className="text-[15px] font-semibold md:text-sm">
-            {lang === "ms" ? "Jadual saya" : "My schedule"}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {lang === "ms"
-              ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
-              : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
-          </p>
-          <div className="mt-1.5">
-            {mySessions.map((s) => {
-              const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
-                .toISOString()
-                .slice(0, 10);
-              const isToday = s.session_date === todayIso;
-              return (
-                <div
-                  key={s.id}
-                  className="border-border border-b py-2 text-sm last:border-0 last:pb-0"
-                >
-                  <p className="flex flex-wrap items-baseline gap-x-1.5">
-                    <span
-                      className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}
-                    >
-                      {isToday
-                        ? lang === "ms"
-                          ? "HARI INI"
-                          : "TODAY"
-                        : dmy(s.session_date)}
-                    </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {s.start_time}
-                      {s.end_time ? `–${s.end_time}` : ""}
-                    </span>
-                    <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
-                      {s.platform}
-                    </span>
-                  </p>
-                  <p className="mt-0.5 truncate text-[13px] font-medium">
-                    {s.client_company ??
-                      s.client_name ??
-                      L("Live session", "Sesi LIVE")}
-                    {s.notes ? (
-                      <span className="text-muted-foreground font-normal">
-                        {" "}
-                        — {s.notes}
-                      </span>
-                    ) : null}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      </section>
-      {/* v1.5.0: the hero band became the Sales Floor — a trading-desk view
-          of today, the KPI target (auto-computed from history), product vs
-          service market targets, motivation and boost suggestions. */}
-      <section className="space-y-3 md:space-y-4">
-        <ZoneLabel>{L("My summary", "Ringkasan saya")}</ZoneLabel>
-      {/* Personal metrics follow the work queue and upcoming schedule. */}
-      {/* v1.25.1: the KPI tiles derive from the SAME punches — while those are
-          unknown they would read "—", "Not clocked in yet" and 0 days, which
-          is the same false answer as the button bug. Skeletons until known. */}
-      {!attKnown ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-busy="true">
-          {[0, 1, 2, 3].map((i) => (
-            <SkelStat key={i} />
-          ))}
+          <OneDesk go={(t) => go(t as TabName)} bare />
+          <WatchersCard role={user.role} go={(t) => go(t as TabName)} bare />
         </div>
       ) : (
-        <div className="erp-dashboard-stats">
-          <div className="erp-dashboard-stat">
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
-              {tr("Today", lang)}
-            </p>
-            <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">
-              {hasIn
-                ? mytTime(
-                    today.filter((r) => r.type === "clock_in").slice(-1)[0]
-                      ?.created_at ?? ""
-                  )
-                : "—"}
-            </p>
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
-              {hasOut
-                ? L("Shift completed", "Syif selesai")
-                : hasIn
-                  ? L("On shift", "Sedang bertugas")
-                  : L("Not clocked in yet", "Belum daftar masuk")}
-            </p>
-            <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
-              <i
-                className={`block h-full rounded-full ${hasOut ? "bg-ring-ontime w-full" : hasIn ? "bg-gold-solid w-1/2" : "w-0"}`}
-              />
-            </div>
-          </div>
-          <div className="erp-dashboard-stat">
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
-              {L("Days present · month", "Hari hadir · bulan")}
-            </p>
-            <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">
-              {daysPresent}
-            </p>
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
-              {L("attendance recorded", "kehadiran direkodkan")}
-            </p>
-            <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
-              <i
-                className="bg-bar-high block h-full rounded-full"
-                style={{ width: `${Math.min(100, (daysPresent / 22) * 100)}%` }}
-              />
-            </div>
-          </div>
-          <div className="erp-dashboard-stat">
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
-              {L("Hours · month", "Jam · bulan")}
-            </p>
-            <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">
-              {monthHours.toFixed(1)}
-            </p>
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
-              {/* v1.133.0 — shifts add up; the hours between them do not. */}
-              {L(
-                "your shifts added up, per day",
-                "syif anda dijumlahkan, setiap hari"
-              )}
-            </p>
-            <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
-              <i
-                className="bg-gold-solid block h-full rounded-full"
-                style={{ width: `${Math.min(100, (monthHours / 176) * 100)}%` }}
-              />
-            </div>
-          </div>
-          <div className="erp-dashboard-stat">
-            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
-              {L("Open tasks", "Tugasan terbuka")}
-            </p>
-            <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight tabular-nums">
-              {tasks.length}
-            </p>
-            <p className="text-muted-foreground mt-2 text-[11.5px]">
-              {leave.length > 0
-                ? L(
-                    `+ ${leave.length} leave pending`,
-                    `+ ${leave.length} cuti menunggu`
-                  )
-                : L("no leave pending", "tiada cuti menunggu")}
-            </p>
-            <div className="bg-tint-navy mt-3 h-1 overflow-hidden rounded-full">
-              <i
-                className={`block h-full rounded-full ${tasks.length > 0 ? "bg-bar-mid w-2/3" : "bg-ring-ontime w-full"}`}
-              />
-            </div>
-          </div>
-        </div>
+        <OneDesk go={(t) => go(t as TabName)} />
       )}
-      {/* v1.170.0 — the month, judged. "Days present" above counts punches;
-          this card counts VERDICTS: on time, late, half day, and the streak,
-          each from the worker's own classifier. Skeleton until the answer is
-          known; not drawn at all when the worker sent no verdicts, because a
-          card that guesses would be worse than none. */}
+      </section>
+      <section className="space-y-3 md:space-y-4">
+        <ZoneLabel>{L("My month", "Bulan saya")}</ZoneLabel>
+      {/* v1.171.0 — ONE card for the month. The four-tile strip (today's
+          clock-in, days present, hours, open tasks) said what the hero and
+          the Work overview already say; the bar chart behind a pill drew the
+          same punches a third way. Days present and hours now sit inside the
+          month card beside the verdicts. v1.25.1's rule still holds: the
+          figures derive from the punches, so a skeleton until those are
+          KNOWN - never "0 days" for someone whose month has not loaded. */}
       {!attKnown ? (
         <div className={card} aria-busy="true"><SkelText lines={3} /></div>
-      ) : monthDays && monthDays.length > 0 ? (
-        <MonthAttendanceCard days={monthDays} month={mytToday().slice(0, 7)} lang={lang} />
-      ) : null}
+      ) : (
+        <MonthAttendanceCard days={monthDays} month={mytToday().slice(0, 7)} lang={lang} daysPresent={daysPresent} hours={monthHours} />
+      )}
       </section>
-      <TradingDesk user={user} go={go} lang={lang} />
+      {/* v1.171.0 — THE COMPANY, one card (mode="pulse"). The Sales floor
+          moved to Ecommerce, the attendance donut and today's assignments to
+          Attendance, the bars with the floor. See trading-desk.tsx. */}
+      <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>
       {/* v1.169.0: Tasks, leave and news are one work panel. The previous
           mobile checklist plus three desktop cards repeated the same records
-          and made the bottom half of the Dashboard read as six destinations. */}
-      <div className={card}>
+          and made the bottom half of the Dashboard read as six destinations.
+          v1.171.0: the events are the fourth pill (the CEO chose "Tasks |
+          Leave | News | Events"); the #upcoming-events anchor moves here. */}
+      <div id="upcoming-events" className={`${card} scroll-mt-16`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <PanelTitle icon="orders">{L("Work overview", "Ringkasan kerja")}</PanelTitle>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Your current tasks, leave requests and company updates.", "Tugasan, permohonan cuti dan kemas kini syarikat anda.")}
+              {L("Your tasks, leave requests, company updates and upcoming events.", "Tugasan, permohonan cuti, kemas kini syarikat dan acara akan datang anda.")}
             </p>
           </div>
           <SectionTabs value={aroundTab} onChange={setAroundTab}
@@ -1516,6 +1409,7 @@ export function Dashboard({
               ["tasks", `${tr("My open tasks", lang)}${tasks.length ? ` (${tasks.length})` : ""}`],
               ["leave", `${tr("Pending leave", lang)}${leave.length ? ` (${leave.length})` : ""}`],
               ["news", tr("News", lang)],
+              ["events", L("Events", "Acara")],
             ] as const} />
         </div>
         <div hidden={aroundTab !== "tasks"} className="mt-4">
@@ -1527,7 +1421,7 @@ export function Dashboard({
                 <li key={t.id}>
                   <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Tasks")}>
                     <span className="bg-tint-gold text-gold-deep grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="orders" className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{t.title}</span><span className="text-muted-foreground block text-xs">{priorityL(t.priority)}{t.deadline ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`) : ""}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{t.title}</span><span className="text-muted-foreground block text-xs">{priorityL(t.priority)}{t.deadline ? L(` · due ${dmy(t.deadline)}`, ` · sebelum ${dmy(t.deadline)}`) : ""}</span></span>
                     <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
                   </button>
                 </li>
@@ -1569,92 +1463,68 @@ export function Dashboard({
             </ul>
           )}
         </div>
-      </div>
-      {/* v1.152.0 (CEO, 11-09-2026: "My attendance — September and Upcoming
-          events into minimalist interface which is tabs. but Upcoming events
-          should be 1st tabs first"): the two reference cards become ONE card
-          with a pill row. Events lead; the personal month chart sits behind
-          the second pill. The id anchor stays — the mobile hero scrolls here. */}
-      <div id="upcoming-events" className={`${card} scroll-mt-16`}>
-        <SectionTabs value={deskTab} onChange={setDeskTab}
-          tabs={[
-            ["events", L("Upcoming events", "Acara akan datang")],
-            ["attendance", `${lang === "ms" ? "Kehadiran saya" : "My attendance"} — ${MONTH_NAMES[lang][Number(mytToday().slice(5, 7)) - 1]}`],
-          ] as const} />
-        <div hidden={deskTab !== "events"} className="mt-3">
-          <UpcomingEventsCard role={user.role} embedded />
-        </div>
-        <div hidden={deskTab !== "attendance"} className="mt-3">
-          {/* v1.15.0 — my attendance, day by day. First-in → last-out hours;
-              today in navy; a gold half-bar marks a day still in progress
-              (in, no out yet) rather than pretending the hours are known. */}
-          {monthRecs.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              {L("No attendance recorded this month yet.", "Tiada kehadiran direkodkan bulan ini lagi.")}
-            </p>
-          ) : (
-            <>
-              <p className="text-muted-foreground mb-3 text-[11.5px]">
-                {daysPresent} {lang === "ms" ? "hari" : "days"} ·{" "}
-                {monthHours.toFixed(1)} h
+        <div hidden={aroundTab !== "events"} className="mt-4">
+          {/* v1.21.6 — My schedule: the person's own upcoming roster/live
+              sessions, on the Dashboard where the phone actually opens.
+              v1.171.0: under the Events pill, above the company calendar - what
+              is coming up, mine first. */}
+          {mySessions.length > 0 && (
+            <div className="border-border mb-4 border-b pb-4">
+              <p className="text-[15px] font-semibold md:text-sm">
+                {lang === "ms" ? "Jadual saya" : "My schedule"}
               </p>
-              <div className="flex h-28 items-end gap-[3px]">
-                {(() => {
-                  const todayS = mytToday();
-                  const [yy, mm] = [
-                    Number(todayS.slice(0, 4)),
-                    Number(todayS.slice(5, 7)),
-                  ];
-                  const daysIn = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-                  return Array.from({ length: daysIn }, (_, i) => {
-                    const d = `${todayS.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
-                    const e = dayPairs.get(d);
-                    const hrs = e?.hours ?? 0;
-                    const open = e?.open ?? false;
-                    const pct = Math.max(
-                      hrs > 0 ? 8 : 0,
-                      Math.round((hrs / 12) * 100)
-                    );
-                    return (
-                      <div
-                        key={d}
-                        className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1"
-                        role="img"
-                        aria-label={`${d}: ${open ? L("on shift, in progress", "sedang bertugas") : `${hrs.toFixed(1)} ${L("hours", "jam")}`}`}
-                      >
-                        <div
-                          className={`w-full rounded-t-[3px] ${d === todayS ? "bg-bar-high" : open ? "bg-gold-solid" : hrs > 0 ? "bg-bar-low group-hover:bg-bar-mid" : "bg-tint-navy"}`}
-                          style={{
-                            height: open && hrs === 0 ? "40%" : `${pct}%`,
-                            minHeight: "2px",
-                          }}
-                        />
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {lang === "ms"
+                  ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
+                  : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
+              </p>
+              <div className="mt-1.5">
+                {mySessions.map((s) => {
+                  const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
+                    .toISOString()
+                    .slice(0, 10);
+                  const isToday = s.session_date === todayIso;
+                  return (
+                    <div
+                      key={s.id}
+                      className="border-border border-b py-2 text-sm last:border-0 last:pb-0"
+                    >
+                      <p className="flex flex-wrap items-baseline gap-x-1.5">
                         <span
-                          className={`text-[9px] tabular-nums ${d === todayS ? "text-foreground font-semibold" : "text-muted-foreground"} ${(i + 1) % 5 === 0 || i === 0 || d === todayS ? "" : "invisible"}`}
+                          className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}
                         >
-                          {i + 1}
+                          {isToday
+                            ? lang === "ms"
+                              ? "HARI INI"
+                              : "TODAY"
+                            : dmy(s.session_date)}
                         </span>
-                      </div>
-                    );
-                  });
-                })()}
+                        <span className="text-muted-foreground tabular-nums">
+                          {s.start_time}
+                          {s.end_time ? `–${s.end_time}` : ""}
+                        </span>
+                        <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                          {s.platform}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 truncate text-[13px] font-medium">
+                        {s.client_company ??
+                          s.client_name ??
+                          L("Live session", "Sesi LIVE")}
+                        {s.notes ? (
+                          <span className="text-muted-foreground font-normal">
+                            {" "}
+                            — {s.notes}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="text-muted-foreground mt-2 flex gap-4 text-[11px]">
-                <span>
-                  <i className="bg-bar-low mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-                  {L("Worked", "Bekerja")}
-                </span>
-                <span>
-                  <i className="bg-gold-solid mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-                  {L("In progress", "Sedang berlangsung")}
-                </span>
-                <span>
-                  <i className="bg-bar-high mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle" />
-                  {L("Today", "Hari ini")}
-                </span>
-              </div>
-            </>
+            </div>
           )}
+          <UpcomingEventsCard role={user.role} embedded />
         </div>
       </div>
       </section>

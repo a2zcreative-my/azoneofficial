@@ -41,7 +41,7 @@ import type { StaffUser } from "./staff";
 import { STAFF_ORDER_SQL, currentStaffSql } from "./staff";
 import { json, err, audit, str } from "./shared";
 import { can } from "./permissions";
-import { shiftSalesSplit, type ShiftPunch, type ShiftOrder } from "./shift-sales"; // v1.155.0 - the CEO's TikTok attribution rules, reused
+import { shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder } from "./shift-sales"; // v1.155.0 - the CEO's TikTok attribution rules, reused
 import {
   readSocialUrl, normalizeHandle, customerKey, spScore, spBand, ratio, spBusyVsProductive,
   SP_PLATFORMS, SP_CHANNELS, SP_INTERACTIONS, SP_INQUIRY_TYPES, SP_PROMO_TYPES, SP_TRACKING_REQUIRED, SP_POST_STATUSES,
@@ -175,13 +175,15 @@ async function figuresFor(env: Env, ids: number[], from: string, to: string, set
   }
   /* TIKTOK SALES (the CEO, 11-09-2026: "Sales Performance need to include
      with their sales TikTok"). The attribution is the one the leaderboard
-     and commission already use (staff.ts attributedSalesByUser, v1.25.6):
+     and commission already use (staff.ts attributedSalesByUser):
        - a live host is credited every TT- order that landed inside one of
-         their live_sessions windows (returned orders excluded);
-       - a sales_marketing person is credited every TT- order that landed
-         while they were clocked in, split equally when several were on
-         shift at once, a forgotten clock-out capped at the day's end
-         (shift-sales.ts, the same pure function).
+         their live_sessions windows (returned orders excluded), and that
+         order is THEIRS ALONE (v1.171.0);
+       - outside a live, a sales_marketing person is credited every TT-
+         order that landed while they were BOTH clocked in and inside their
+         planned selling hours (the sales duty on the roster), split equally
+         when several were on duty at once (shift-sales.ts, the same pure
+         function - one rule for the leaderboard, commission and this page).
      A TikTok order is a SYSTEM record - it arrives from the shop, nobody
      types it - so it is verified activity by definition. */
   const ttOrders = await q<{ id: number; created_at: string; cents: number }>(
@@ -212,9 +214,23 @@ async function figuresFor(env: Env, ids: number[], from: string, to: string, set
           WHERE type IN ('clock_in', 'clock_out') AND user_id IN (${sm.join(",")})
             AND ${MYT("created_at")} >= date(?1, '-1 day') AND ${MYT("created_at")} <= date(?2, '+1 day')
           ORDER BY user_id, created_at`, from, to);
+      /* v1.171.0 - the plan and the lives that govern the credit. Same
+         window as the punches; `undefined` duties means no sales-duty table
+         (pre-0128), which keeps the older rule rather than zeroing the page. */
+      let duties: DutyWindow[] | undefined;
+      try {
+        duties = ((await env.DB.prepare(
+          `SELECT user_id, shift_date AS date, start_time AS start, end_time AS end
+             FROM sales_shifts WHERE shift_date >= date(?1, '-1 day') AND shift_date <= date(?2, '+1 day')`,
+        ).bind(from, to).all<DutyWindow>()).results) ?? [];
+      } catch { duties = undefined; /* pre-0128 */ }
+      const lives = await q<LiveWindow>(
+        `SELECT session_date AS date, start_time AS start, end_time AS end FROM live_sessions
+          WHERE status != 'cancelled' AND end_time IS NOT NULL
+            AND session_date >= date(?1, '-1 day') AND session_date <= date(?2, '+1 day')`, from, to);
       const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
       for (const o of ttOrders) {
-        const split = shiftSalesSplit(punches, [{ created_at: o.created_at, cents: o.cents } as ShiftOrder], nowUtc);
+        const split = shiftSalesSplit(punches, [{ created_at: o.created_at, cents: o.cents } as ShiftOrder], nowUtc, { duties, lives });
         for (const [uid, cents] of split) { const f = g(uid); if (!f) continue; f.tiktok_cents += cents; f.tiktok_orders += 1; credit(o.id, uid); }
       }
     }

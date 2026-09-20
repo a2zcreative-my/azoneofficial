@@ -132,7 +132,11 @@ export const PORTAL_WIDTH = "mx-auto w-full max-w-none";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
-  "min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring md:min-h-9 md:text-sm";
+  /* v1.171.0 - min-w-0: a date input's built-in minimum width is wider than
+     half a 375 px phone with larger text, so the second column of a fieldRow
+     ran off the screen (Purchasing, Accounting). With min-w-0 the field takes
+     its column's width like every other input. */
+  "min-h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring md:min-h-9 md:text-sm";
 
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
@@ -157,7 +161,7 @@ export const btnClassBlock =
  *
  * This is the v1.4.154 width standard with a name. Give any field that needs
  * the full width on a phone `col-span-2 sm:col-span-1`. */
-export const fieldRow = "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end";
+export const fieldRow = "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end [&>label]:min-w-0";
 
 /* Table cells. v1.4.198 alignment standard: text left, numbers right.
    v1.4.253: numeric columns never wrap. */
@@ -223,7 +227,10 @@ export const fieldLabelSm = "text-muted-foreground mb-1 block text-xs";
 
 /** Compact inputs (the ad-hoc `border-input bg-background px-2 py-1 …` family). */
 export const inputClassSm =
-  "rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring";
+  /* v1.171.0 - max-w-full min-w-0: a compact number input keeps its own
+     width where it is given one (w-20 …) but can never grow past the column
+     it sits in - the PO line's "Unit (RM)" ran off a 375 px phone. */
+  "max-w-full min-w-0 rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring";
 
 /* v1.137.0 — THE SELECT, at last.
    `inputClass` has existed since v1.4.154 and every <select> in the app went

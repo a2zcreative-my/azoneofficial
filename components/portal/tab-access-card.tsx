@@ -116,11 +116,15 @@ export function TabAccessCard() {
           /* The audience as one short phrase. The full membership is the
              `title` — a row is for scanning, the chips below are for
              reading. */
+          /* v1.171.0 - count only the roles the chips can assign. A default
+             list may name super_admin (Claims does), which is not a chip:
+             counting it printed "10 of 9 roles" on the Users tab. */
+          const assignable = eff === null ? 0 : eff.filter((r) => ASSIGNABLE_ROLES.some(([k]) => k === r)).length;
           const audience = eff === null
             ? L("all staff", "semua kakitangan")
             : eff.length === 0
               ? L("nobody", "tiada sesiapa")
-              : L(`${eff.length} of ${ASSIGNABLE_ROLES.length} roles`, `${eff.length} daripada ${ASSIGNABLE_ROLES.length} peranan`);
+              : L(`${assignable} of ${ASSIGNABLE_ROLES.length} roles`, `${assignable} daripada ${ASSIGNABLE_ROLES.length} peranan`);
           const audienceTitle = eff === null
             ? L("Every staff role sees this tab.", "Semua peranan kakitangan melihat tab ini.")
             : eff.length === 0

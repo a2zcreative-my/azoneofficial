@@ -180,6 +180,56 @@ const pkg = JSON.parse(read("package.json"));
   ok("the target is bounded and in cents", /target > 100_000_000/.test(route) && /Math\.round\(Number\(sDraft\.target\) \* 100\)/.test(board));
 }
 
+/* ---- 7. v1.171.0 — THE CALENDAR IS ON THE BOARD, AND A TASK CAN BE ENDED.
+   The CEO, 20-09-2026: *"check the flow of this attendance roster! it is
+   should be able to sync with the calendar and the event should be appear on
+   it also! which is there is any event assigned to the staff, it will show
+   there!!!!!!!"* and *"on the attendance, the Task should be able to
+   delete!"*. A training booked in Events was invisible to whoever planned
+   the week, so work was rostered straight over it; and the board could only
+   UNSCHEDULE a task, which puts it back in the Unscheduled rail forever.
+
+   Negative-tested by: dropping `events` from the /roster reply; giving
+   whole-floor events a row per person instead of the day; offering Delete
+   task to a role the server refuses. ---- */
+{
+  ok("the week's events come back from /roster, with who they were assigned to",
+     /FROM events WHERE event_date BETWEEN \?1 AND \?2/.test(staff)
+     && /SELECT event_id, user_id FROM event_attendees WHERE event_id IN/.test(staff)
+     && /attendees: att\.get\(Number\(e\.id\)\) \?\? \[\]/.test(staff)
+     && /rest_days: restDays,\s*events,/.test(staff));
+  ok("a database older than the events tables still returns a board",
+     /catch \{ \/\* pre-0122 - every event is everyone's, as it was \*\/ \}/.test(staff)
+     && /catch \{ \/\* pre-0025 \*\/ \}/.test(staff));
+  ok("an event assigned to a person is drawn on THEIR row, on the day",
+     /const evFor = \(uid: number, d: string\) =>\s*events\.filter\(\(e\) => e\.event_date === d && e\.attendees\.includes\(uid\)\);/.test(board)
+     && /\{evFor\(u\.id, d\)\.map\(\(e\) => \(/.test(board));
+  ok("a whole-floor event (no attendees) is drawn ONCE, on the day, not nine times",
+     /const evAll = \(d: string\) => events\.filter\(\(e\) => e\.event_date === d && e\.attendees\.length === 0\);/.test(board)
+     && /\{evAll\(d\)\.map\(\(e\) => \(/.test(board));
+  ok("the phone agenda gets the events too, and an event-only day is not blank",
+     /\{events\.filter\(\(e\) => e\.event_date === d\)\.map\(\(e\) => \(/.test(board)
+     && /\+ events\.filter\(\(e\) => e\.event_date === d\)\.length === 0 \? \(/.test(board));
+  ok("the week's event count is a chip, and the legend names the colour",
+     /chip\(L\("events", "acara"\), events\.length/.test(board)
+     && /\{L\("Event", "Acara"\)\}<\/span>/.test(board));
+  ok("the board only READS events - it never writes one (Events owns that)",
+     !/\/staff\/events`?, \{ method/.test(board) && !/method: "(POST|PATCH|DELETE)" \}\)[^;]*events/.test(board));
+  ok("a task can be ended from the board, by the role the server allows",
+     /const deleteTask = useCallback\(async \(taskId: number, title: string, spread: number\) => \{/.test(board)
+     && /api<\{ error\?: \{ message\?: string \} \}>\(`\/tasks\/\$\{taskId\}`, \{ method: "DELETE" \}\)/.test(board)
+     && /canDeleteTask \?/.test(board));
+  ok("...and it asks first, because that one is not reversible",
+     /const ok = await confirm\(\{[\s\S]{0,900}?variant: "danger",/.test(board)
+     && /\{confirmNode\}/.test(board));
+  ok("the Attendance tab hands the board the same tier as task_delete",
+     /canDeleteTask=\{\["ceo", "super_admin"\]\.includes\(user\.role\)\}/.test(read("app/portal/page.tsx"))
+     && /task_delete: \["super_admin", "ceo"\]/.test(read("worker/src/permissions.ts")));
+  ok("Unschedule still means unschedule - the two are different buttons",
+     /\{L\("Unschedule", "Nyahjadual"\)\}/.test(board) && /\{L\("Delete task", "Padam tugasan"\)\}/.test(board)
+     && /The task itself is untouched\./.test(board));
+}
+
 /* ---- 6. triple-bumped ---- */
 {
   ok("package.json is 1.158.0 or later", /^1\.(158|159|1[6-9]\d|[2-9]\d\d)\./.test(pkg.version), pkg.version);

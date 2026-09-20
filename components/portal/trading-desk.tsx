@@ -4,31 +4,42 @@
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
 import { ActiveStokisSummary, DashSummary, HourBucket, InTodaySummary, LowStockSummary, OutstandingDocsSummary, PendingClaimsSummary, PendingLeaveSummary, REVENUE_ROLES, RevLineLite, RevenueData, autoTargetCents } from "@/components/portal/dashboard";
-import { AttendanceDonutCard, MonthlyBarsCard, TodayAssignmentsCard } from "@/components/portal/dashboard-cards";
+import { MonthlyBarsCard } from "@/components/portal/dashboard-cards";
 import { LiveScheduleCard, OtApprovalsCard } from "@/components/portal/live-cards";
 import { DAY_NAMES, L, SectionTabs, User } from "@/components/portal/page-shared";
 import { ClientsCard, PnlCard } from "@/components/portal/sales";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { Skel, SkelCard, SkelStat, SkelText, StaleHint } from "@/components/ui/skeleton";
-import { MiniBar, StatCard } from "@/components/ui/stat-card";
+import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
+import { MiniBar } from "@/components/ui/stat-card";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { Lang, t as tr } from "@/lib/i18n";
 import { TabName } from "@/lib/portal-tabs";
-import { accentCard, btnSmPrimary, card, tileCard } from "@/lib/ui-styles";
+import { btnSmPrimary, card, tileCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
-import { AppIcon, type AppIconName, PanelTitle } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 
 export function TradingDesk({
   user,
   go,
   lang = "en",
+  mode = "pulse",
 }: {
   user: User;
   go?: (t: TabName) => void;
   lang?: Lang;
+  /* v1.171.0 - the CEO, 20-09-2026: *"my dashboard on PWA seem sooooo much
+     messy!!! ... clean off my dashboard and resort it based on it own
+     function and properly put in on their own tabs!"*
+       "pulse" - the Dashboard's THE COMPANY zone: ONE card. Revenue as three
+               lines, the pulse counters, anything needing attention, and two
+               links to where the detail lives. Nothing else.
+       "floor" - the Sales floor: the month's KPI target, pace, markets,
+               tips and the month-by-month bars. Lives on Ecommerce under
+               "This month", beside Sales revenue - which is what it is. */
+  mode?: "pulse" | "floor";
 }) {
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [rev, setRev] = useState<RevenueData | null>(null);
@@ -134,159 +145,6 @@ export function TradingDesk({
   const expectedPct = Math.round((dayOfMonth / daysInMonth) * 100);
   const pct = target ? Math.round((monthTotal / target) * 100) : null;
   const onPace = pct !== null && pct >= expectedPct;
-
-  /* ---- ticker cards ---- */
-  const ticker: ReactNode[] = [];
-  if (canRevenue && rev?.today) {
-    const t = rev.today;
-    const todayTotal =
-      t.tiktok_cents +
-      t.invoiced_cents +
-      (t.other_cents ?? 0) +
-      (t.manual_cents ?? 0);
-    const y = rev.yesterday?.total_cents ?? 0;
-    const up = todayTotal >= y;
-    ticker.push(
-      <div key="today" className="bg-brand rounded-xl p-4 text-white shadow-sm">
-        <p className="text-[10px] font-semibold tracking-wider text-white/70 uppercase">
-          <AppIcon name="hot" className="h-3.5 w-3.5" /> {tr("Today's sales · LIVE", lang)}
-        </p>
-        <p className="mt-1 text-2xl leading-tight font-bold tabular-nums">
-          {fmtRM(todayTotal)}
-        </p>
-        {(todayTotal > 0 || y > 0) && (
-          <p
-            className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${up ?"bg-bull/25 text-success" :"bg-bear/25 text-danger"}`}
-          >
-            {up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))}{" "}
-            {tr("vs yesterday", lang)}
-          </p>
-        )}
-        <p className="mt-1 text-xs text-white/80">
-          {lang === "ms"
-            ? `${t.tiktok_orders} ${tr("TikTok orders", lang)}`
-            : `${t.tiktok_orders} TikTok order${t.tiktok_orders === 1 ? "" : "s"}`}
-          {t.invoiced_cents > 0
-            ? ` · ${lang === "ms" ? "invois" : "invoiced"} ${fmtRM(t.invoiced_cents)}`
-            : ""}
-        </p>
-      </div>
-    );
-  }
-  if (canRevenue && rev) {
-    ticker.push(
-      <StatCard
-        key="month"
-        label={`${tr("Revenue", lang)} — ${ym(rev.month)}`}
-        value={fmtRM(monthTotal)}
-        bar={
-          target
-            ? {
-                pct: (monthTotal / target) * 100,
-                label: `${Math.round((monthTotal / target) * 100)}% ${lang === "ms" ? "daripada" : "of"} ${fmtRM(target)} ${tr(targetIsAuto ? "auto-target" : "target", lang)}`,
-                tone: monthTotal >= target ? "green" : "gold",
-              }
-            : undefined
-        }
-        sub={
-          target
-            ? undefined
-            : lang === "ms"
-              ? "bulan pertama data — sasaran auto bermula bulan depan"
-              : "first month of data — the auto-target starts next month"
-        }
-      />
-    );
-    if (rev.overall && rev.overall.total_cents > 0) {
-      const ov = rev.overall;
-      const best = ov.best;
-      const thisMonthCents =
-        ov.months.find((m) => m.month === rev.month)?.cents ?? 0;
-      ticker.push(
-        <StatCard
-          key="overall"
-          label={tr("All-time — every channel", lang)}
-          value={fmtRM(ov.total_cents)}
-          bar={
-            best && best.cents > 0
-              ? {
-                  pct: (thisMonthCents / best.cents) * 100,
-                  label:
-                    best.month === rev.month
-                      ? tr("this month is your best yet", lang)
-                      : `${tr("vs best month", lang)} (${ym(best.month)} · ${fmtRM(best.cents)})`,
-                  tone: thisMonthCents >= best.cents ? "green" : "navy",
-                }
-              : undefined
-          }
-          sub={
-            lang === "ms"
-              ? `${ov.months.length} ${tr("months of business", lang)}`
-              : `${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`
-          }
-        />
-      );
-    }
-  }
-  // v1.6.1 (CEO): "Needs attention" sits in the top ticker row, right beside
-  // the All-time card (position 4), instead of a separate strip at the bottom.
-  if (canStatus && sum) {
-    const rows: [string, number | null, TabName][] = [
-      ["Leave pending", sum.pending_leave, "HR"],
-      ["Claims pending", sum.pending_claims, "Claims"],
-      ["OT pending", sum.pending_ot, "Attendance"],
-      ["Low stock", sum.low_stock, "Inventory"],
-      ["Quotations open", sum.open_quotations, "Sales"],
-    ];
-    const shown = rows.filter(([, v]) => v !== null && v > 0);
-    ticker.push(
-      <div
-        key="attention"
-        className={`${accentCard} border-t-brand`}
-      >
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-          {tr("Needs attention", lang)}
-        </p>
-        {shown.length === 0 ? (
-          <p className="flex items-center gap-2 mt-2 text-sm">
-            <AppIcon name="success" className="text-success" />{tr("Nothing waiting on you", lang)}
-          </p>
-        ) : (
-          <div className="mt-1.5 space-y-1">
-            {/* v1.23.2: translate ONLY the display — setDetailModal keeps
-                  the EN key, which the modal switch below compares against. */}
-            {shown.map(([label, v, _tabName]) => (
-              <button
-                type="button"
-                key={label}
-                onClick={() => setDetailModal(label)}
-                className="hover:text-primary flex w-full items-baseline justify-between text-sm hover:underline"
-              >
-                <span>{tr(label, lang)}</span>
-                <span className="font-bold tabular-nums">{v}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-  // Unpaid invoices card comes last (only when there are any) so it never
-  // pushes "Needs attention" out of the top row.
-  if (canRevenue && rev?.outstanding && rev.outstanding.docs > 0) {
-    ticker.push(
-      <StatCard
-        key="out"
-        accent="red"
-        label={L("Unpaid invoices", "Invois belum dibayar")}
-        value={fmtRM(rev.outstanding.cents)}
-        sub={L(
-          `${rev.outstanding.docs} invoice${rev.outstanding.docs === 1 ? "" : "s"} awaiting payment — collect first`,
-          `${rev.outstanding.docs} invois menunggu bayaran — kutip dahulu`
-        )}
-      />
-    );
-  }
 
   /* ---- market targets: product vs service ---- */
   const thisM = rev?.month ?? "";
@@ -402,22 +260,15 @@ export function TradingDesk({
     }
   }
 
-  /* v1.77.0 — skeleton until the first fetch lands. While the revenue and
-     summary requests are still in flight, the ticker holds stat-shaped
-     placeholders in the same slots (today · month · all-time · attention)
-     so the row does not jump when the figures arrive. */
+  /* v1.77.0 — skeleton until the first fetch lands. v1.171.0: the pulse card
+     draws its own stat-shaped placeholders below; the floor shows text
+     lines (it has no frame of its own). */
   const revLoading = canRevenue && rev === null;
   const sumLoading = canStatus && sum === null;
-  if (revLoading) {
-    ticker.push(
-      <SkelStat key="skel-today" />,
-      <SkelStat key="skel-month" />,
-      <SkelStat key="skel-overall" />
-    );
-  }
-  if (sumLoading) ticker.push(<SkelStat key="skel-attention" />);
 
-  if (ticker.length === 0 && !canStatus) return null;
+  /* v1.171.0 - nothing for this role in this mode: the pulse needs revenue
+     or status rights, the floor needs revenue rights. */
+  if (mode === "pulse" ? !canRevenue && !canStatus : !canRevenue) return null;
 
   // v1.8.0: peak selling hour (reference "Peak activity time") from the
   // by-hour data this component already loads.
@@ -434,6 +285,7 @@ export function TradingDesk({
           the header already greets, and the Dashboard now reads in zones.
           This is the THE COMPANY zone's caption, kept inside the desk so it
           disappears with it for roles that do not see the desk. */}
+      {mode === "pulse" && (
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-muted-foreground px-1 text-[10px] font-semibold tracking-widest uppercase">
           {L("The company", "Syarikat")}
@@ -445,14 +297,55 @@ export function TradingDesk({
           {WEEKDAYS[nowMY.getUTCDay()]}, {dmy(nowMY.toISOString().slice(0, 10))}
         </p>
       </div>
-      {/* Zone 1 — the ticker (Today · Revenue · All-time · Needs attention) */}
-      {ticker.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{ticker}</div>
       )}
-
+      {/* v1.171.0 - ONE CARD. The ticker used to be four StatCards, the pulse a
+          six-tile strip, then the Sales floor, the donut, the assignments and
+          the bars - eight blocks on a phone. The company is one card now:
+          revenue as lines, the counters as tiles, attention only when there
+          is some, and two links to the tabs that own the detail. */}
+      {mode === "pulse" && (canRevenue || canStatus) && (
+        <div className={card}>
+          {revLoading ? (
+            <div className="space-y-2" aria-hidden>
+              <Skel className="h-4 w-2/3" />
+              <Skel className="h-4 w-1/2" />
+              <Skel className="h-3 w-1/3" />
+            </div>
+          ) : canRevenue && rev ? (() => {
+            const t = rev.today;
+            const todayTotal = t ? t.tiktok_cents + t.invoiced_cents + (t.other_cents ?? 0) + (t.manual_cents ?? 0) : 0;
+            const y = rev.yesterday?.total_cents ?? 0;
+            const up = todayTotal >= y;
+            const ov = rev.overall;
+            return (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div>
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("Revenue", lang)} — {ym(rev.month)}</p>
+                  <p className="mt-1 text-xl leading-none font-semibold tracking-tight tabular-nums">{fmtRM(monthTotal)}</p>
+                  <p className="text-muted-foreground mt-1 text-[11px]">
+                    {target ? `${pct}% ${L("of target", "daripada sasaran")} · ${onPace ? L("on pace", "mengikut rentak") : L("behind pace", "ketinggalan rentak")}` : `${L("last month", "bulan lepas")} ${fmtRM(lastTotal)}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("Today's sales · LIVE", lang)}</p>
+                  <p className="mt-1 text-xl leading-none font-semibold tracking-tight tabular-nums">{fmtRM(todayTotal)}</p>
+                  {(todayTotal > 0 || y > 0) && (
+                    <p className={`mt-1 text-[11px] font-semibold ${up ? "text-success" : "text-danger"}`}>{up ? "▲" : "▼"} {fmtRM(Math.abs(todayTotal - y))} {tr("vs yesterday", lang)}</p>
+                  )}
+                </div>
+                {ov && (
+                  <div>
+                    <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("All-time — every channel", lang)}</p>
+                    <p className="mt-1 text-xl leading-none font-semibold tracking-tight tabular-nums">{fmtRM(ov.total_cents)}</p>
+                    <p className="text-muted-foreground mt-1 text-[11px]">{lang === "ms" ? `${ov.months.length} ${tr("months of business", lang)}` : `${ov.months.length} month${ov.months.length === 1 ? "" : "s"} of business`}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })() : null}
       {/* v1.77.0 — skeleton until the first fetch lands (pulse strip, six tiles). */}
       {sumLoading && (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6" aria-hidden>
+        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-hidden>
           {Array.from({ length: 6 }, (_, i) => (
             <div
               key={i}
@@ -537,9 +430,22 @@ export function TradingDesk({
                 ]
               : []),
           ];
+          /* v1.171.0 - what used to be the "Needs attention" ticker card:
+             the same five counters, as tiles in this grid, only when
+             non-zero. A zero is not news. */
+          const attention: [string, string, number | null, TabName][] = [
+            ["Leave pending", L("Leave pending", "Cuti menunggu"), sum.pending_leave, "HR"],
+            ["Claims pending", L("Claims pending", "Tuntutan menunggu"), sum.pending_claims, "Claims"],
+            ["OT pending", L("OT pending", "OT menunggu"), sum.pending_ot, "Attendance"],
+            ["Low stock", L("Low stock", "Stok rendah"), sum.low_stock, "Inventory"],
+            ["Quotations open", L("Quotations open", "Sebut harga terbuka"), sum.open_quotations, "Sales"],
+          ];
+          for (const [label, show, v, tab] of attention) {
+            if (v !== null && v > 0) tiles.push({ label, show, value: <span className="text-warning">{v}</span>, tab });
+          }
           return (
             <div
-              className={`grid grid-cols-3 gap-2 ${tiles.length > 6 ? "sm:grid-cols-4 lg:grid-cols-7" : "sm:grid-cols-6"}`}
+              className={`grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 ${canRevenue && rev ? "border-border mt-3 border-t pt-3" : ""}`}
             >
               {tiles.map((t) => (
                 <button
@@ -559,22 +465,40 @@ export function TradingDesk({
             </div>
           );
         })()}
+          {/* where the detail went (v1.171.0): the Sales floor to Ecommerce,
+              attendance today to Attendance. Links, not copies. */}
+          {go && (
+            <div className="border-border mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs">
+              {canRevenue && (
+                <button type="button" className="text-gold-deep font-medium underline-offset-2 hover:underline" onClick={() => go("Ecommerce")}>
+                  {L("Sales floor & KPI target", "Lantai jualan & sasaran KPI")} →
+                </button>
+              )}
+              {canStatus && (
+                <button type="button" className="text-gold-deep font-medium underline-offset-2 hover:underline" onClick={() => go("Attendance")}>
+                  {L("Attendance today & assignments", "Kehadiran hari ini & tugasan")} →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* v1.77.0 — skeleton until the first fetch lands (sales floor card). */}
-      {revLoading && <SkelCard lines={4} />}
+      {mode === "floor" && revLoading && <SkelText lines={4} />}
 
-      {/* Zone 2+3 — KPI + markets, one desk card */}
-      {canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
-        <div className={card}>
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <PanelTitle icon="chart">
-              {L("Sales floor", "Lantai jualan")} — {ym(rev.month)}
-            </PanelTitle>
-            <p className="text-muted-foreground text-xs tabular-nums">
-              {L("day", "hari")} {dayOfMonth}/{daysInMonth} ·{" "}
-              {L("pace", "rentak")} {expectedPct}%
-            </p>
-          </div>
+      {/* Zone 2+3 — KPI + markets, one desk card. v1.171.0: floor mode only -
+          on Ecommerce under "This month", where Sales revenue already is, as
+          the body of that card's third pill: no frame of its own. */}
+      {mode === "floor" && canRevenue && rev && (target || markets.length > 0 || canEditKpi) && (
+        <div>
+          {/* v1.171.0 - the pill above already says "Sales floor"; a title
+              repeating it under the pill is the card-in-a-card the CEO
+              called messy. One caption line: the month, the day, the pace. */}
+          <p className="text-muted-foreground text-xs tabular-nums">
+            <AppIcon name="chart" className="mr-1 h-3.5 w-3.5" />{ym(rev.month)} · {L("day", "hari")} {dayOfMonth}/{daysInMonth} ·{" "}
+            {L("pace", "rentak")} {expectedPct}%
+          </p>
 
           {/* v1.6.1: set/edit the monthly KPI target right here (CEO/COO/super). */}
           {editingKpi ? (
@@ -714,15 +638,24 @@ export function TradingDesk({
                   const mPct = m.target
                     ? Math.round((m.now / m.target) * 100)
                     : null;
+                  /* v1.171.0 - name and figures on one line, the bar under
+                     them: name + bar + "RM 37,845.12 / RM 35,500.00 (107%)"
+                     on one line ran past the edge of a 390 px phone. */
                   return (
-                    <div
-                      key={m.key}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <span className="w-24 shrink-0 capitalize md:w-32">
-                        {m.label}
-                      </span>
-                      <div className="flex-1">
+                    <div key={m.key} className="text-sm">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <span className="capitalize">{m.label}</span>
+                        <span className="text-right text-xs tabular-nums md:text-sm">
+                          <span className="font-semibold">{fmtRM(m.now)}</span>
+                          {m.target && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              / {fmtRM(m.target)} ({mPct}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="mt-1">
                         <MiniBar
                           pct={
                             m.target
@@ -740,15 +673,6 @@ export function TradingDesk({
                           }
                         />
                       </div>
-                      <span className="shrink-0 text-right text-xs tabular-nums md:text-sm">
-                        <span className="font-semibold">{fmtRM(m.now)}</span>
-                        {m.target && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            / {fmtRM(m.target)} ({mPct}%)
-                          </span>
-                        )}
-                      </span>
                     </div>
                   );
                 })}
@@ -781,39 +705,15 @@ export function TradingDesk({
         </div>
       )}
 
-      {/* v1.8.0 — reference-design cards: attendance donut · today's
-          assignments · month-by-month bars. */}
-      {canStatus && (
-        /* v1.23.3: [&>*]:min-w-0 — grid tracks are minmax(auto,1fr); one
-           wide child (the assignments table was 386px min) stretches the
-           track past the phone and pans the WHOLE page. Never again. */
-        <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-3 [&>*]:min-w-0">
-          {sum && (
-            <AttendanceDonutCard
-              onTime={sum.attendance_on_time ?? 0}
-              late={sum.attendance_late ?? 0}
-              staffTotal={sum.staff_total ?? 0}
-              onOpen={() => setDetailModal("In today")}
-            />
-          )}
-          <TodayAssignmentsCard
-            onOpenRoster={go ? () => go("Attendance") : undefined}
-            canManage={[
-              "ceo",
-              "coo",
-              "cco",
-              "hr_admin",
-              "super_admin",
-              "admin",
-            ].includes(user.role)}
-          />
-          {canRevenue && rev?.overall && rev.overall.months.length > 1 && (
-            <MonthlyBarsCard months={rev.overall.months} />
-          )}
-        </div>
+      {/* v1.8.0's reference-design row (attendance donut · today's
+          assignments · month-by-month bars) is split by function in
+          v1.171.0: the donut and the assignments live on the Attendance tab
+          (CompanyAttendanceToday), the bars stay with the Sales floor. */}
+      {mode === "floor" && canRevenue && rev?.overall && rev.overall.months.length > 1 && (
+        <MonthlyBarsCard months={rev.overall.months} bare />
       )}
 
-      {detailModal && (
+      {mode === "pulse" && detailModal && (
         <div
           className="animate-in fade-in fixed inset-0 z-[100] flex flex-col items-center justify-end overflow-hidden bg-black/60 backdrop-blur-sm transition-all sm:justify-center sm:p-6"
           onClick={() => setDetailModal(null)}
@@ -887,16 +787,37 @@ export function TradingDesk({
    are one card with the portal's own tab pills. Each keeps its own heading
    (they carry the month and the window), loses only its frame, and stays
    MOUNTED when the other is showing, so switching costs no refetch. */
-export function RevenueAndHoursCard() {
-  const [tab, setTab] = useState<"revenue" | "hours">("revenue");
+export function RevenueAndHoursCard({
+  user,
+  go,
+  lang = "en",
+}: {
+  /* v1.171.0 - the third pill, "Sales floor", is the KPI target / pace /
+     market-targets desk that used to sit on the Dashboard. It needs the
+     signed-in user (who may edit the target) and the tab switcher. Callers
+     that pass nothing get the two original pills. */
+  user?: User;
+  go?: (t: TabName) => void;
+  lang?: Lang;
+} = {}) {
+  type MonthTab = "revenue" | "hours" | "floor";
+  const [tab, setTab] = useState<MonthTab>("revenue");
+  const floor = !!user && REVENUE_ROLES.includes(user.role);
+  const tabs: readonly (readonly [MonthTab, string])[] = [
+    ["revenue", L("Sales revenue", "Hasil jualan")],
+    ["hours", L("Sales by hour", "Jualan mengikut jam")],
+    ...(floor ? [["floor", L("Sales floor", "Lantai jualan")] as const] : []),
+  ];
   return (
     <div className={card}>
-      <SectionTabs value={tab} onChange={setTab} tabs={[
-        ["revenue", L("Sales revenue", "Hasil jualan")],
-        ["hours", L("Sales by hour", "Jualan mengikut jam")],
-      ] as const} />
+      <SectionTabs value={tab} onChange={setTab} tabs={tabs} />
       <div className={tab === "revenue" ? "mt-3" : "hidden"}><SalesRevenueCard bare /></div>
       <div className={tab === "hours" ? "mt-3" : "hidden"}><SalesByHourCard bare /></div>
+      {floor && user && (
+        <div className={tab === "floor" ? "mt-3" : "hidden"}>
+          <TradingDesk user={user} go={go} lang={lang} mode="floor" />
+        </div>
+      )}
     </div>
   );
 }
