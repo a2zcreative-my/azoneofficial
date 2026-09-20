@@ -56,6 +56,10 @@ export const ALL_TABS = [
      is not a sub-tab of Sales and not a page of sub-tabs. Sixth, so no
      role's phone thumb row (the first four) moves. */
   "Sales Performance",
+  /* v1.163.0 - Hankei's Commerce: the seaweed brand's orders and its MANUAL
+     Maybank verification queue. Seventh, behind the Sales trio, so no
+     role's phone thumb row (the first four) moves. */
+  "Hankeis",
   "Assets",
   "Hotels",
   "Threads",
@@ -190,6 +194,12 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      should not perform any sales"): editor and marketing are off the tab;
      hr_admin was never on it. */
   "Sales Performance": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
+  /* v1.163.0 - Hankei's Commerce. Mirrors hankeis_view in
+     worker/src/permissions.ts. What a person may DO inside it - raise an
+     order, verify a payment, pack, change the QR - is four narrower
+     permissions the API enforces, gated in the tab by the `can` block it
+     returns rather than by this list. */
+  Hankeis: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
   /* v1.112.0 - the CEO, 05-09-2026: customer enquiries are staff work that
      must be answered, so they get their own tab instead of a card at the
      top of Sales. Mirrors enquiry_manage in worker/src/permissions.ts. */
@@ -280,6 +290,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
   Sales: { en: "documents + map", ms: "dokumen + peta" },
   "Sales Performance": { en: "evidence, not claims", ms: "bukti, bukan dakwaan" },
+  Hankeis: { en: "orders, receipts, manual payment checks", ms: "pesanan, resit, semakan bayaran manual" },
   Enquiries: { en: "customers waiting for an answer", ms: "pelanggan menunggu jawapan" },
   Announcements: { en: "feed + publish", ms: "suapan + terbit" },
   HR: { en: "docs, leave admin", ms: "dokumen, pentadbiran cuti" },

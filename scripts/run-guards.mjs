@@ -62,11 +62,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /* Order matters only for readability — each of these is independent. */
 const GUARDS = [
-  ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
-  ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
-  ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
-  ["shift-entry-coverage", "shift launch, overnight clocking, and saved half-day coverage"],
-  ["release-offline", "release failures stay failures and offline assets never receive portal HTML"],
   ["brands-guard", "brand registry, client-permission gate, no hardcoded domains"],
   ["csrf-guard", "every state-changing endpoint is CSRF-protected"],
   ["doc-issuer-render", "quotations/DOs/invoices render under the right letterhead"],
@@ -135,6 +130,11 @@ const GUARDS = [
   ["map-extrusion", "a raised state is still Malaysia - every wall belongs to its own state, nothing raised leaves the frame, and a state with no figure draws no wall"],
   ["movement-cost", "money on a stock movement says per unit AND line total, a correction is valued at cost, and an item with no cost is named rather than treated as free"],
   ["movement-purpose", "the REASON a movement happened decides whether it is a sale - a marketing loan is neither revenue nor a loss, and a return is not a revert"],
+  ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
+  ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
+  ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
+  ["shift-entry-coverage", "shift launch, overnight clocking, and saved half-day coverage"],
+  ["release-offline", "release failures stay failures and offline assets never receive portal HTML"],
   ["audit-0909", "the findings of the 09-09 audit stay fixed - the payslip cannot call a day paid and deduct it, a released month is protected everywhere pay is set, and the commit gate is real"],
   ["claim-mileage", "a travel line with km is priced by the worker at the company rate - a setting the CEO changes, audited - and the line remembers the rate it was paid at"],
   ["shift-reminders", "thirty minutes before a shift, thirty before its end, and at the end - per person, from the same shift list the clock accepts, once each, never on leave"],
@@ -148,6 +148,7 @@ const GUARDS = [
   ["role-assign", "the role on the staff record: the CEO and COO hand out the five working roles, never their own, never an executive's; the executive, customer and admin tiers stay with the super admin; every change audited with a reason"],
   ["roster-week", "the week, whole: public holidays from the one company calendar are named and tinted on every view of the roster but never lock a day; sales duty is the third thing a week is made of - its own table and routes, for the roles the register measures, a plan never a claim (the day's evidence is counted from the register), with the task rules (management, whole runs, 62 days, approved leave, audit)"],
   ["paper-one-page", "every A4 print window is laid out on the paper (794px viewport, 210mm body, print min-height from the printable page), so a phone prints the same one page as a desk; on a phone the PDF button opens the real one-page file"],
+  ["hankeis", "Hankei's ordering and MANUAL payment verification, run against a real SQLite database: a receipt or an OCR result never verifies a payment, only finance can approve, one bank transaction cannot pay for two orders, concurrent approvals produce one verification, retries produce one order, stock cannot be oversold, unverified orders cannot ship, a notification failure changes nothing"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],

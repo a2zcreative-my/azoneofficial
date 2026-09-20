@@ -30,6 +30,12 @@ Conventional Commits where practical: `feat:`, `fix:`, `docs:`, `refactor:`, `ch
 
 Whenever code changes (feature, UI, database, API, dependency, config, fix, security), update the matching file(s): README, CHANGELOG, FEATURES, ROADMAP, API, DATABASE, DEPLOYMENT, ADMIN_GUIDE, USER_GUIDE, SECURITY, CONTRIBUTING, ARCHITECTURE. Each update records date, version, summary, files changed, breaking changes, migration steps.
 
+## Agent handoff protocol
+
+Before implementation, every contributor must read `CLAUDE.md`, `docs/PROJECT-STATE.md`, and the latest `CHANGELOG.md` entry, then inspect `git status --short` and `git diff --stat`. Uncommitted files are active work until their owner explicitly hands them off; do not overwrite, delete, rename, or reformat them to resolve a conflict by assumption.
+
+`PUSH.bat` is the normal release entry point and now performs a strict clean-worktree preflight before it installs, cleans, migrates, commits, or deploys. A dirty-tree override is intentionally explicit: `PUSH.bat allow-dirty`. Record the approval and reason in `docs/PROJECT-STATE.md` before using it. A failed preflight or release gate means the release is not verified.
+
 ## House rules — learned in production (v1.22–v1.26, 2026-08)
 
 These are not style preferences; each one exists because its absence shipped a bug to staff.

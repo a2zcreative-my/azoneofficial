@@ -7,6 +7,8 @@ import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // 
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 - 30 minutes before a shift, 30 before its end, and at the end
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
+import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
+import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf } from "./shared";
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
@@ -257,7 +259,7 @@ export function primaryOrigin(env: Env): string {
 function corsHeaders(env: Env, request?: Request, allowPublicForm = false): HeadersInit {
   const origins = allowPublicForm ? [...allowedOrigins(env), ...publicFormOrigins(env)] : allowedOrigins(env);
   const reqOrigin = request?.headers.get("Origin");
-  const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : (origins[0] ?? "null");
+  const origin = reqOrigin && origins.includes(reqOrigin) ? reqOrigin : (origins[0] ?? primaryOrigin(env));
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -280,7 +282,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0134_company_review";
+const LATEST_MIGRATION = "0135_hankeis_commerce";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -333,9 +335,10 @@ async function totpAt(secret: string, counter: number): Promise<string> {
   view.setUint32(0, Math.floor(counter / 2 ** 32));
   view.setUint32(4, counter >>> 0);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg));
-  const signature = new DataView(sig.buffer, sig.byteOffset, sig.byteLength);
-  const offset = signature.getUint8(sig.length - 1) & 0x0f;
-  const bin = signature.getUint32(offset) & 0x7fffffff;
+  const offset = sig[sig.length - 1]! & 0x0f;
+  const bin =
+    ((sig[offset]! & 0x7f) << 24) | (sig[offset + 1]! << 16) |
+    (sig[offset + 2]! << 8) | sig[offset + 3]!;
   return String(bin % 1_000_000).padStart(6, "0");
 }
 
@@ -1967,6 +1970,15 @@ export default {
           await logError(env, "watchers", e instanceof Error ? e.message : String(e));
         }
       }
+      /* v1.163.0 - Hankei's reservations lapse on the five-minute tick.
+         The STATIC QR does not expire with them: a customer who pays late
+         still uploads a receipt, and it lands in review with the stock
+         re-checked before packing. Never fatal. */
+      try {
+        await expireOrders(env);
+      } catch (e) {
+        if (!String(e).includes("no such")) await logError(env, "hankeis_expiry", e instanceof Error ? e.message : String(e));
+      }
       /* v1.151.0 - SHIFT REMINDERS ride every five-minute tick: 30 minutes
          before a shift starts, 30 minutes before it ends, and at the end
          while still clocked in - per person, from the same shift list the
@@ -2396,7 +2408,7 @@ export default {
       const err = err0;
       if (!retried) console.error(err);
       const detail = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
-      const error_id = "ERR-" + crypto.randomUUID().slice(0, 8).toUpperCase();
+      const error_id = "ERR-" + crypto.randomUUID().split('-')[0]!.toUpperCase();
       // v1.7.2: the message stored in the log must NOT contain the random
       // error_id — including it gave every occurrence of the SAME exception a
       // unique message, which defeated the 6-hour de-dupe and produced the
@@ -2429,6 +2441,16 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   const method = request.method;
 
   /* ---- public ---- */
+
+  /* v1.163.0 - HANKEI'S INTEGRATION SURFACE, for Astra GPT's Telegram
+     adapter. Server-to-server: a scoped bearer token checked against a
+     SHA-256 hash, no cookie, no CSRF, no CORS. Mounted here, ahead of the
+     session machinery, because it must never see or need a session - and
+     because that is precisely what makes it unable to reach the staff-only
+     verification routes, which live behind /api/v1/staff/hankeis/*. */
+  if (path === "/api/v1/hankeis" || path.startsWith("/api/v1/hankeis/")) {
+    return handleHankeisApi(env, request, path.slice("/api/v1/hankeis".length) || "/");
+  }
 
   /* v1.5.0: this token-gated probe used to be registered at /api/v1/health,
      shadowing the public monitor endpoint further down (first match wins) —
@@ -4594,8 +4616,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0130 (a replacement holiday remembers what it replaces)", `SELECT replaces_date FROM holidays LIMIT 1`],
       ["0131 (Advisors - retired in v1.162.0; the tables stay until a later migration drops them)", `SELECT fingerprint FROM ai_proposals LIMIT 1`],
       ["0132 (Advisors workstations - retired in v1.162.0)", `SELECT to_desk FROM ai_messages LIMIT 1`],
-      ["0133 (Half-day coverage)", `SELECT day_part, coverage_json FROM leave_requests LIMIT 1`],
-      ["0134 (Company review)", `SELECT record_id, proposed_company FROM company_review_decisions LIMIT 1`],
+      ["0133 (half-day leave coverage)", `SELECT day_part, coverage_json FROM leave_requests LIMIT 1`],
+      ["0134 (company ownership review)", `SELECT proposed_company, source_json FROM company_review_decisions LIMIT 1`],
+      ["0135 (Hankeis Commerce - orders and manual payment verification)", `SELECT bank_reference FROM hk_bank_allocations LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4749,6 +4772,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0132_advisors_workstation",
       "0133_half_day_coverage",
       "0134_company_review",
+      "0135_hankeis_commerce",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

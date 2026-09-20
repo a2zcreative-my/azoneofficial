@@ -12,6 +12,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
+import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
@@ -1418,6 +1419,7 @@ const PUSH_TAB: Record<string, string> = {
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
   enquiry: "Enquiries", // v1.112.0 - a customer waiting for an answer
+  hankeis: "Hankeis",
 };
 
 export async function notify(
@@ -1503,7 +1505,7 @@ async function requireFreshTotp(
 }
 
 async function audit(
-  env: Env, userId: number, action: string, entity?: string, entityId?: string | null,
+  env: Env, userId: number, action: string, entity?: string | null, entityId?: string | null,
   detail?: Record<string, unknown>,
 ): Promise<void> {
   // detail lands in audit_log.detail as JSON — quantities, roles, reasons.
@@ -2052,6 +2054,10 @@ export async function handleStaff(
 
   if (path.startsWith("/companies/")) {
     return handleCompanyReview(env, new URL(request.url), path.slice("/companies".length), method, body, user);
+  }
+
+  if (path === "/hankeis" || path.startsWith("/hankeis/")) {
+    return handleHankeis(env, request, path.slice("/hankeis".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- ERP modules (v1.18.0): orders, cash flow, reconciliation,
@@ -6484,7 +6490,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "Threads", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

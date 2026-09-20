@@ -2,8 +2,10 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Documentation baseline reviewed on 17 September 2026: package version **1.164.0**.
-New attendance and company-review changes are local and unreleased; see the verification records below.
+Documentation baseline reviewed on 20 September 2026: release **1.166.0**; previous production **1.165.0**.
+The Hankeis/Telegram server and portal work passed the release gates; the external Telegram adapter remains separate work. See [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md) before editing or deploying.
+
+Claude and other contributors must read [CLAUDE.md](CLAUDE.md), [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md), and the latest [CHANGELOG.md](CHANGELOG.md) entry before implementation. `PUSH.bat` now refuses dirty worktrees by default so one contributor cannot silently clean, commit, or deploy another contributor's changes.
 
 ## Current Plan
 
@@ -83,6 +85,8 @@ scripts/      Build and release helpers
 | DEPLOYMENT.md | Build, deploy, rollback |
 | SECURITY.md | Security posture & Phase 3 requirements |
 | CONTRIBUTING.md | Branches, commits, PRs, standards |
+| CLAUDE.md | Mandatory implementation and handoff protocol for Claude and other agents |
+| docs/PROJECT-STATE.md | Current local/production state, blockers, Telegram readiness, and ownership handoff |
 | ADMIN_GUIDE.md | Admin CMS design & permissions |
 | USER_GUIDE.md | How to use & edit the site today |
 

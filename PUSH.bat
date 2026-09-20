@@ -3,6 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "PORTALGUARDS="
 set "GITFAILED="
 set "HEALTHFAILED="
+set "PREFLIGHT_ARG="
+set "SECRETS_MODE="
 title ELFIA + PORTAL - deploy everything
 REM ============================================================
 REM  ONE FILE. DOUBLE-CLICK IT. IT PUTS EVERYTHING LIVE.
@@ -33,6 +35,18 @@ REM  this file - (b) compiles each engine before publishing it, and
 REM  (c) retries an upload that lost its connection.
 REM ============================================================
 
+REM 2026-09-20 - RELEASE HANDOFF PREFLIGHT. Claude and other contributors
+REM may be editing this repository at the same time. A deploy that cleans,
+REM commits, or publishes a dirty tree can silently take ownership of work
+REM that has not been reviewed. The default is therefore strict. Use
+REM "PUSH.bat allow-dirty" only after explicitly approving the current diff.
+REM Secret rotation remains available as "PUSH.bat secrets" or
+REM "PUSH.bat secrets allow-dirty".
+if /I "%~1"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
+if /I "%~2"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
+if /I "%~1"=="secrets" set "SECRETS_MODE=1"
+if /I "%~2"=="secrets" set "SECRETS_MODE=1"
+
 REM  Which folder am I sitting in? The portal has a wrangler.toml at its
 REM  ROOT (its website is a worker); the store does not (its website is a
 REM  Pages project). That one file tells the two apart with no guessing.
@@ -44,7 +58,8 @@ if exist "%~dp0wrangler.toml" set "STORE=%~dp0..\elfiaofficialstore"
 echo.
 echo   DEPLOY EVERYTHING
 echo   =================
-if /I "%~1"=="secrets" echo   ^(secrets mode: the Threads credentials will be asked for again^)
+if defined SECRETS_MODE echo   ^(secrets mode: the Threads credentials will be asked for again^)
+if defined PREFLIGHT_ARG echo   ^(dirty worktree override explicitly requested^)
 echo   Portal: %PORTAL%
 echo   Store : %STORE%
 echo.
@@ -54,6 +69,12 @@ echo.
 
 if not exist "%PORTAL%\worker\wrangler.toml" goto :nofolders
 if not exist "%STORE%\worker\wrangler.toml"  goto :nofolders
+
+echo   [0/7] Reading the shared handoff and checking worktree ownership...
+call node "%PORTAL%\scripts\release-preflight.mjs" --root "%PORTAL%\." --role portal %PREFLIGHT_ARG%
+if errorlevel 1 goto :preflightfailed
+call node "%PORTAL%\scripts\release-preflight.mjs" --root "%STORE%\." --role store %PREFLIGHT_ARG%
+if errorlevel 1 goto :preflightfailed
 
 REM ============================================================
 REM  PORTAL
@@ -85,7 +106,7 @@ REM  rotation. Run this file as:   PUSH.bat secrets
 REM  and it prompts for both regardless, before deploying as usual.
 echo   [2/7] Threads app credentials on the ENGINE...
 cd worker
-if /I "%~1"=="secrets" (
+if defined SECRETS_MODE (
   echo         Replacing both - paste the CURRENT values from the Meta app
   echo         ^(Use cases - Threads API - Customize - Settings^).
   call :asksecret THREADS_APP_ID
@@ -129,7 +150,7 @@ REM  chat or email. PUSH.bat secrets replaces them as it does the Threads
 REM  ones.
 echo   [2b/7] Push notification keys on the ENGINE...
 cd worker
-if /I "%~1"=="secrets" (
+if defined SECRETS_MODE (
   call :askvapid
 ) else (
   call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
@@ -383,6 +404,19 @@ exit /b 0
 REM ------------------------------------------------------------
 REM  helpers
 REM ------------------------------------------------------------
+
+:preflightfailed
+echo.
+echo   ============================================
+echo    [X] RELEASE PREFLIGHT BLOCKED THE DEPLOY.
+echo   ============================================
+echo    The worktree is dirty or the shared handoff is incomplete.
+echo    Nothing was installed, cleaned, migrated, committed, or deployed.
+echo    Review the diff, then run PUSH.bat again when ownership is clear.
+echo    Use PUSH.bat allow-dirty only with explicit approval.
+echo.
+pause
+exit /b 1
 
 :verificationfailed
 echo.

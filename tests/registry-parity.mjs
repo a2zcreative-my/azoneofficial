@@ -45,9 +45,14 @@ const dict = readFileSync("lib/i18n.ts", "utf8");
 const allTabsM = registry.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/);
 if (!allTabsM) { fail("ALL_TABS not found in lib/portal-tabs.ts"); process.exit(1); }
 const ALL_TABS = [...allTabsM[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-/* Dashboard and Profile are every role's home and identity — always visible,
-   deliberately not overridable. Everything else must be governable. */
-const ALWAYS_VISIBLE = new Set([...registry.match(/const ALWAYS_VISIBLE[^=]*= \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]));
+/* Always-visible tabs are deliberately absent from the worker permission
+   registry. Read that list from the source registry so new mandatory tabs do
+   not become false parity failures. */
+const alwaysVisibleM = registry.match(/const ALWAYS_VISIBLE: readonly string\[\] = \[([^\]]*)\]/);
+if (!alwaysVisibleM) fail("ALWAYS_VISIBLE not found in lib/portal-tabs.ts");
+const ALWAYS_VISIBLE = new Set(
+  [...(alwaysVisibleM?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+);
 /* v1.102.0 — a PARKED tab (CEO: "Stokis - inactive this for future usage")
    is built and shown to nobody. It is still a real tab with a panel, a role
    default and a hint, so it stays in ALL_TABS; but it must NOT be in the

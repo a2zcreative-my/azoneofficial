@@ -142,6 +142,33 @@ export const PERMS: Record<string, readonly Role[]> = {
                             the handler refuses that regardless of role. */
   sales_perf_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
   sales_perf_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
+
+  /* === hankeis.ts (v1.163.0) - Hankei's ordering and MANUAL payment
+     verification. There is no bank API: a person opens Maybank, finds the
+     transaction and allocates it. So the permission that matters is
+     hankeis_verify, and it is deliberately NARROW.
+
+       hankeis_view     - the section at all: dashboard, orders, customers.
+       hankeis_orders   - sales and support: raise and amend an order, quote
+                          shipping, ask a customer for clarification, reject
+                          a receipt as unusable evidence. NOT verify.
+       hankeis_verify   - finance: allocate a bank transaction and mark a
+                          payment verified; correct an extraction; resolve an
+                          exception; request and confirm a refund. This is the
+                          only permission that can move money-state forward,
+                          and no integration credential can ever hold it -
+                          the API surface it would need does not exist.
+       hankeis_fulfil   - packing: see eligible orders and record a shipment.
+                          Gated on payment_state='verified' in code as well.
+       hankeis_settings - owner: the QR, the recipient name, the receiving
+                          account, prices, packages, integration credentials.
+                          Changing a payment DESTINATION is audited and the
+                          other officers are notified. */
+  hankeis_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
+  hankeis_orders: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
+  hankeis_verify: ["super_admin", "admin", "ceo", "coo"],
+  hankeis_fulfil: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing"],
+  hankeis_settings: ["super_admin", "ceo"],
 };
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {

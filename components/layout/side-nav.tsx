@@ -45,7 +45,7 @@ interface NavItem { name: string; label: string }
  */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Overview", tabs: ["Dashboard"] },
-  { title: "Business", tabs: ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Assets", "Hotels", "Threads"] },
+  { title: "Business", tabs: ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "Threads"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },
   /* v1.149.0 - the second product line gets its own heading, the way ELFIA
      has one: a reader scanning the rail sees two brands, not one brand and

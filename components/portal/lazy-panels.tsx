@@ -72,6 +72,7 @@ export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel")
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0
 export const EnquiriesPanel = lazy(() => import("@/components/portal/enquiries-panel").then((m) => m.EnquiriesPanel)); // v1.112.0
 export const SalesPerformancePanel = lazy(() => import("@/components/portal/sales-performance-panel").then((m) => m.SalesPerformancePanel)); // v1.155.0 - the accountability register
+export const HankeisPanel = lazy(() => import("@/components/portal/hankeis-panel").then((m) => m.HankeisPanel)); // v1.163.0 - Hankei's orders and manual payment verification
 export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));

@@ -2,144 +2,111 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
-## [1.165.0] - 2026-09-17 - PWA documents, calendar and production audit
+## [1.166.0] - 2026-09-20 - Hankeis integration and release reconciliation
 
-- Claims, receipts, payment proofs, evidence, invoices, payslips, leave forms,
-  statements and badges use a shared viewer with a visible Back control.
-  Closing retains the current page; PDF attachments render inside the app.
-- Calendar actions offer Google Calendar, Outlook and an ICS file export.
-  They no longer open an authenticated calendar file as a blank PWA window
-  or claim that an external calendar saved the event. UTC/MYT, overnight,
-  all-day and multilingual exports are covered by executable checks.
-- Repeated event-save taps are locked while saving; a failed save retains the
-  draft. Failed event loads show a retry action. Finance no longer announces
-  successful payment/removal for rejected requests. Cancelled PDF sharing
-  is distinct from success; unsupported sharing falls back to download.
-- Permission Matrix reads the real role policy. Page errors have recovery
-  controls, and portal recovery clears a failing deep link.
-- Cleared API strict type errors and made all future TypeScript errors block
-  release. Added regression tests for OTP, payroll exports, sharing and PWA
-  navigation. Service-worker shell cache advanced to v34.
-- No database migrations or approval/signature policy changes. Audit scope,
-  verification and device limitations: `docs/PWA-PRODUCTION-AUDIT-2026-09-17.md`.
+- Added `CLAUDE.md` and `docs/PROJECT-STATE.md` as mandatory pre-implementation handoff documents.
+- Added a release preflight that checks the shared handoff files and refuses dirty portal/store worktrees by default.
+- Updated `PUSH.bat` so it cannot silently clean, commit, migrate, or deploy another contributor's unreviewed work. An explicit `PUSH.bat allow-dirty` override remains available for an approved emergency release.
+- Reconciled the Hankeis work with the existing On Shift, Companies, PWA calendar, payroll, roster, navigation, and responsive-shell contracts.
+- Added bounded streaming request reads, content-aware receipt idempotency, atomic retry reservations, role-safe bank-account redaction, and transactional shipment/stock updates.
+- Retained migrations `0133_half_day_coverage` and `0134_company_review`, and assigned Hankeis migration `0135_hankeis_commerce`.
+- Verified TypeScript, all 86 release guards, 185 Hankeis checks, and the complete offline Telegram customer journey before release.
 
-## Unreleased - Work-first card-order rollout
+## [1.163.0] - 2026-09-20 - Hankei's: ordering, and a payment nobody can fake
 
-Reordered Dashboard, Ecommerce, Inventory, Sales, Attendance and Users around daily
-work. Summaries stay compact; maps, reports and configuration follow the work they
-support. Inventory bridge diagnostics move below movement history while failures
-retain a top warning. Sales defaults to Documents and Clients; creation shortcuts
-and editing open the correct mounted form without losing drafts between local views.
-The Ecommerce revenue total leads, with its complete breakdown available on expansion.
+A new tab, **Hankei's**, and behind it the thing the whole module exists for:
+**a receipt never verifies a payment.** A customer scans a static Maybank QR,
+uploads a receipt, and the order sits at `awaiting_review` until a person
+opens Maybank, finds the incoming transaction in the receiving account's own
+record, and allocates it. A matching amount, a convincing screenshot, a
+reference the customer typed, an OCR reading - none of them move money-state,
+and the code has no path by which they could.
 
-Updated order guards and browser fixtures. No API, permission, company-identity,
-financial calculation or signature changes. The user accepted the pilot and approved
-extending it to the remaining tabs. Fifteen further tabs now put existing work and
-decisions ahead of reporting/setup; eight already-correct layouts are retained.
-Completed tasks and acknowledged announcements remain in expandable archives.
-Payroll review precedes payment/release, and relocated forms keep working entry
-points. PUSH.bat has not been run. See `docs/CARD-ORDER-IMPLEMENTATION.md`.
-Browser verification also exposed and fixed a search-opening race that could clear
-the first typed query; reset and focus now happen before paint.
+The approval form asks for what is in the BANK, not what is on the receipt:
+the receiving account, the transaction reference, the amount, the time, and a
+tick that says *"I opened the receiving account's own Maybank record and found
+this transaction there. I am not relying on the customer's receipt."* The
+button stays dead until all five are there. The server then refuses the same
+request again on its own terms - the form only makes the honest path the easy
+one.
 
-## [1.164.0] - 2026-09-16 - Responsive ERP workspace
+Underneath, `hk_bank_allocations` carries `UNIQUE (receiving_account,
+bank_reference)`, so **one bank transaction cannot pay for two orders**. The
+whole verification is a single `env.DB.batch()` whose statements are
+conditional on the state they require, which is how two reviewers pressing
+approve in the same second produce exactly one verification, one event and one
+audit row - the loser is told it lost and writes nothing. D1 has no
+interactive transactions; this is the house pattern from `bridge.ts`, and it
+is proven by running the real handlers against real SQLite rather than
+asserted in a comment.
 
-Implemented the first interface slice from the video reference: labeled desktop
-navigation, collapsed tablet navigation, a full-width neutral workspace, and
-8px shared operational surfaces. Removed the duplicate desktop page heading;
-calendar/team panels now sit in a collapsed Dashboard section. Tablet toolbars
-wrap separately so long translated titles remain readable.
+Also in: server-side pricing by customer category (retail / agent / stockist -
+a client can never claim its own tier or its own price), stock reservation
+with expiry and no oversell, receipt uploads validated by **magic bytes**
+rather than the content-type header, unguessable R2 keys, duplicate-file
+detection, per-customer upload limits, exceptions for under- and over-payment,
+refunds that record an external transfer and never pretend to make one, and
+shipments gated on `payment_state='verified'` in SQL as well as in code.
 
-Dashboard metrics share a compact responsive surface. One Desk labels wrap and
-its filters use touch-sized controls. Phone navigation retains safe-area spacing;
-More now has keyboard focus containment and Escape handling. Shared inputs and
-buttons have larger phone targets, and Inventory search gets its own phone row.
+**The QR does not expire when the reservation does.** A customer who paid an
+hour late has still paid, and the Bahasa Melayu copy says exactly that.
+Rejecting a receipt says the EVIDENCE is unusable and makes no claim about
+whether the bank transfer happened - that sentence is in the reviewer's
+dialog, in the customer's message, and in the tests.
 
-Inventory records open in a desktop side sheet or full-screen mobile dialog,
-showing stock, category, price and the loaded manual movement history. Closing
-with Back preserves the mounted list and filters. Existing permissions, writes,
-issuer selection and signature assets are unchanged. This is not a native wrapper
-release, a full company-isolation implementation, or verified-signing delivery.
+**No OCR engine is configured, and nothing pretends otherwise.** There is a
+registration seam that returns null, receipts carry `ocr_state='unavailable'`,
+and the screen reads *"No OCR engine is configured, so no extraction was
+attempted. Read the receipt yourself - and then check the bank."* If an engine
+is ever added, its output is a reading aid beside the receipt; a confidence
+score is not evidence at any value.
 
-Added `scratch/interface-responsive.cjs` for isolated, mocked-API browser checks.
-Checked seven widths from 360 to 1920px in English/light and three widths in
-Malay/dark, including expanded tablet navigation, stock expansion, mobile control
-sizes, overflow, detail Back handling and menu Escape. Actual installed PWA and
-native WebView host testing remain outstanding. See the interface plan for scope
-and the remaining rollout gates.
+A second, separate surface at `/api/v1/hankeis/*` is where the Telegram
+adapter will connect: server-to-server, scoped bearer token stored as a
+SHA-256 hash, no cookies, no session, mounted before the session machinery in
+`route()`. It can create customers, quote, order, upload receipts, read one
+customer's own order and drain a notification outbox. **It cannot verify a
+payment** - not by permission, but because no such route exists on it, and the
+staff route that does verify lives behind a session an integration token
+cannot obtain. Customers are bound by their NUMERIC Telegram user id, never a
+mutable `@username`; a wrong owner gets the same 404 as a wrong order number,
+so the API cannot be used to enumerate orders. The outbox is honestly
+at-least-once: claim, send, acknowledge, with dead-lettering after ten
+attempts, and no promise of exactly-once delivery to Telegram.
 
-## [1.163.0] - 2026-09-15 - Modest ERP UI pilot
+Permissions are deliberately narrow: `hankeis_verify` is super_admin, admin,
+ceo, coo only - the sole permission that can move money-state - while
+`hankeis_settings` (the QR, the recipient, the receiving account) is
+super_admin and ceo. The receiving account is sent to the reviewer's form and
+to nobody else; the customer-facing payment snapshot records only that an
+account is *configured*.
 
-Started the visual pilot for the shared ERP interface. Dashboard quick actions
-now use named responsive button tokens; One Desk and Inventory use the shared
-chip vocabulary; repeated headings use AppIcon/PanelTitle; and decorative text
-arrows in the pilot surfaces use consistent Lucide chevrons. Existing card
-behavior, permissions, data fetching, and action handlers remain unchanged.
+Tests: `tests/hankeis.mjs`, 185 checks, bundling the real modules and running
+them against an in-memory SQLite database with migration 0135 applied verbatim
+behind a D1-shaped shim whose `batch()` is a genuine transaction. It caught
+two real bugs before they shipped: a placeholder collision that made the
+outbox guard compare the wrong id, and a race-loser that wrote a second event
+and audit row because its guard read the winner's state instead of its own
+allocation.
 
-Files: `lib/ui-styles.ts`, `components/ui/app-icon.tsx`,
-`components/portal/dashboard.tsx`, `components/portal/one-desk.tsx`,
-`components/portal/company-monitor.tsx`, `docs/UIUX-IMPLEMENTATION-PLAN.md`,
-`IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `CHANGELOG.md`,
-`package.json`.
+For Astra: `TELEGRAM_HANDOFF.md` is the full contract, and
+`scripts/hankeis-simulator.mjs` walks the entire customer journey offline -
+no token, no bot, no deployment - printing every request and response,
+including the refusal when it tries to verify a payment with an integration
+credential.
 
-## [1.162.3] - 2026-09-15 - Modest ERP interface plan
+Migration `0135_hankeis_commerce` adds 19 `hk_*` tables. Additive only;
+nothing existing is altered. Guard count is 81.
 
-Added the UI/UX design contract for the next visual implementation. It defines
-one restrained language for the portal, admin, account, and document screens:
-shared hierarchy, named surfaces, semantic state colors, consistent controls,
-reliable loading/error/empty states, responsive behavior, bilingual display,
-company context, and verification-backed signing screens.
-
-The rollout starts with shared primitives and a Dashboard/One Desk/Inventory
-pilot before moving through people, money, and admin workflows. This release is
-documentation-only for visual changes; it does not change application behavior,
-permissions, API routes, database schema, or document logic.
-
-Files: `docs/UIUX-IMPLEMENTATION-PLAN.md`, `IMPLEMENTATION-PLAN.md`,
-`README.md`, `CHANGELOG.md`, `package.json`.
-
-## [1.162.2] - 2026-09-15 - The queue tells the truth
-
-The first ERP implementation slice fixes two small screens with an important
-rule: a failed request must never look like completed work. One Desk previously
-showed "Nothing is waiting on you" when its first request failed. It now says
-that the queue could not be loaded and offers a bilingual retry without marking
-anything complete.
-
-The Inventory status card now reads its overview and expanded item details
-through the portal's existing remembered/live data system. Stock writes refresh
-the count and the open detail together; a failed first detail load offers retry
-instead of leaving an endless skeleton. The empty message now describes the live
-state instead of instructing staff to reload the whole page.
-
-Phase 0 also gains a source-backed workflow baseline for claims, leave, payroll,
-sales, purchasing, inventory, reconciliation, and One Desk. It records the main
-two-company gap: issuer-aware documents and signatures exist, while general user
-membership and operational record ownership are not yet modeled.
-
-Files: `components/portal/company-monitor.tsx`,
-`components/portal/one-desk.tsx`, `docs/ERP-WORKFLOW-BASELINE.md`,
-`IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `CHANGELOG.md`,
-`package.json`.
-
-## [1.162.1] - 2026-09-15 - One current plan for the ERP
-
-The ERP review now has one current entry point. It records what the platform
-already has, what still needs verification, and a phased plan for company
-boundaries, verification-backed e-signatures, One Desk, connected operations,
-performance, and team rollout. Each phase has an acceptance gate so a source
-change, a deployment, and a verified workflow are no longer described as the
-same thing.
-
-The README and root roadmap now reflect the present platform instead of calling
-payroll and inventory future work. The v1.7 workflow and duplicate roadmap are
-clearly marked as historical until their individual procedures are checked with
-the team. This release changes documentation and the displayed package version;
-it does not change application behavior, permissions, database schema, or API
-routes.
-
-Files: `IMPLEMENTATION-PLAN.md`, `README.md`, `ROADMAP.md`, `WORKFLOW.md`,
-`docs/ROADMAP.md`, `CHANGELOG.md`, `package.json`.
+Files: added `worker/migrations/0135_hankeis_commerce.sql`,
+`worker/src/hankeis.ts`, `worker/src/hankeis-core.ts`,
+`worker/src/hankeis-api.ts`, `components/portal/hankeis-panel.tsx`,
+`tests/hankeis.mjs`, `scripts/hankeis-simulator.mjs`, `TELEGRAM_HANDOFF.md`,
+`hankeis-bot.env.example`; edited `worker/src/index.ts`,
+`worker/src/staff.ts`, `worker/src/permissions.ts`, `scripts/run-guards.mjs`,
+`app/portal/page.tsx`, `lib/portal-tabs.ts`, `lib/i18n.ts`,
+`components/layout/side-nav.tsx`, `components/layout/nav-icons.tsx`,
+`components/portal/lazy-panels.tsx`, `package.json`.
 
 ## [1.162.0] - 2026-09-14 - The Advisors are retired
 

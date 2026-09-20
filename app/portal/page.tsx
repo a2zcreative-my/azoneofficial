@@ -71,7 +71,7 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 import {
   AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
-  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
+  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, HankeisPanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
@@ -1665,6 +1665,8 @@ export default function PortalPage() {
           {activeTab === "Hotels" && <HotelsPanel />}
           {/* v1.155.0 - the Sales Performance command centre: one page, evidence in, verified figures out. */}
           {activeTab === "Sales Performance" && <SalesPerformancePanel go={(t) => setTab(t as TabName)} canOpen={canOpen} preset={spPreset} />}
+          {/* Hankei's Commerce: orders, receipts and manual bank verification. */}
+          {activeTab === "Hankeis" && <HankeisPanel />}
           {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}
