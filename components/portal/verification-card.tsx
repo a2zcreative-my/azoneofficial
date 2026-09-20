@@ -34,7 +34,7 @@
 
 import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
-import { card, th, td } from "@/lib/ui-styles";
+import { btnSmPrimary, card, th, td } from "@/lib/ui-styles";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { properName } from "@/lib/names";
@@ -227,7 +227,7 @@ export function VerificationCard() {
           />
           <button
             type="button"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium disabled:opacity-50"
+            className={btnSmPrimary}
             disabled={shown().length === 0}
             title={L("The full report: every figure below, plus the absent and leave dates behind them", "Laporan penuh: setiap angka di bawah, campur tarikh tidak hadir dan cuti di sebaliknya")}
             onClick={exportCsv}

@@ -22,6 +22,137 @@
   .erp-workspace .animate-pulse { animation: none; }
 }
 
+/* v1.169.0 - one interaction language for the operational system.
+   Labelled commands are 44px pills on phone and desktop. Icon-only commands
+   are 44px circles. List rows, calendar cells and document surfaces do not
+   use these classes because they are navigation/data, not action buttons. */
+@layer components {
+  .erp-button {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease,
+      color 150ms ease, opacity 150ms ease, transform 150ms ease;
+  }
+  .erp-button:active:not(:disabled) { transform: translateY(1px); }
+  .erp-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .erp-button-primary {
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .erp-button-secondary {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--foreground);
+  }
+  .erp-button-danger {
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: transparent;
+    color: var(--danger);
+  }
+  .erp-button-positive {
+    border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+    background: transparent;
+    color: var(--success);
+  }
+  .erp-button-warning {
+    border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+    background: transparent;
+    color: var(--warning);
+  }
+  .erp-button-accent {
+    border: 1px solid var(--gold-solid);
+    background: var(--gold-solid);
+    color: var(--brand-primary);
+  }
+  .erp-button-inverse {
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .erp-button-compact {
+    padding-inline: 0.875rem;
+    font-size: 0.75rem;
+  }
+  .erp-button-block { width: 100%; }
+  .erp-icon-button {
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    background: var(--card);
+    color: var(--foreground);
+    transition: background-color 150ms ease, border-color 150ms ease,
+      color 150ms ease, transform 150ms ease;
+  }
+  .erp-icon-button:active:not(:disabled) { transform: translateY(1px); }
+  .erp-icon-button:disabled { cursor: not-allowed; opacity: 0.5; }
+  .erp-icon-button-inverse {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  @media (hover: hover) {
+    .erp-button-primary:hover { opacity: 0.88; }
+    .erp-button-secondary:hover, .erp-icon-button:hover { background: var(--secondary); }
+    .erp-button-danger:hover { background: var(--danger-soft); }
+    .erp-button-positive:hover { background: var(--success-soft); }
+    .erp-button-warning:hover { background: var(--warning-soft); }
+    .erp-button-accent:hover { filter: brightness(0.96); }
+    .erp-button-inverse:hover, .erp-icon-button-inverse:hover { background: rgba(255, 255, 255, 0.18); }
+  }
+
+  .erp-shift-hero {
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 82%, white);
+    border-radius: var(--surface-radius, 8px);
+    background: var(--brand-primary);
+    color: #fff;
+    padding: 1rem;
+  }
+  .erp-shift-hero .erp-button-secondary {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+  .erp-shift-hero .erp-button-secondary:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .erp-shift-hero .text-muted-foreground { color: rgba(255, 255, 255, 0.72); }
+  .erp-shift-hero .bg-secondary { background: rgba(255, 255, 255, 0.09); }
+  .erp-shift-hero .border-border { border-color: rgba(255, 255, 255, 0.2); }
+
+  .erp-dashboard-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--surface-radius, 8px);
+    background: var(--border);
+  }
+  .erp-dashboard-stat { min-width: 0; background: var(--card); padding: 1rem; }
+  @media (min-width: 1280px) {
+    .erp-shift-hero { padding: 1.25rem; }
+    .erp-dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+}
+
 /* ---------------------------------- */
 /* AZ ONE OFFICIAL — Design tokens    */
 /* ---------------------------------- */

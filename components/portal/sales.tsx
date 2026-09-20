@@ -10,7 +10,7 @@ import { L, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
-import { rowBtn } from "@/components/ui/row-button";
+import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowBtnWarning } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton";
 import { MiniBar } from "@/components/ui/stat-card";
@@ -23,7 +23,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -2548,7 +2548,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                         </span>
                         {phone ? (
                           <a
-                            className="inline-flex h-7 items-center rounded-lg bg-green-600 px-2.5 text-xs font-medium text-white"
+                            className={rowBtnGood}
                             target="_blank"
                             rel="noreferrer"
                             href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}
@@ -2731,7 +2731,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     canInvoice && (
                       <button
                         type="button"
-                        className="inline-flex h-7 items-center rounded-lg border border-warning/30 px-2.5 text-xs font-medium text-warning"
+                        className={rowBtnWarning}
                         title={L(
                           "Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched",
                           "Batalkan klik Sebut harga → Invois: memadam invois belum dibayar ini; sebut harga tidak disentuh"
@@ -2795,7 +2795,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   {d.doc_type === "QT" && !d.invoiced_as && canInvoice && (
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white"
+                      className={rowBtnPrimary}
                       title={L(
                         "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
                         "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
@@ -2840,7 +2840,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   )}
                   <button
                     type="button"
-                    className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                    className={rowBtn}
                     title={L(
                       "Fix a typo — loads the document into the form; the number never changes",
                       "Betulkan silap taip — memuatkan dokumen ke dalam borang; nombor tidak berubah"
@@ -2929,7 +2929,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   {canInvoice && (
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-danger/30 px-2.5 text-xs text-danger hover:bg-danger-soft"
+                      className={rowBtnDanger}
                       onClick={async () => {
                         if (
                           !(await askConfirm({
@@ -3235,7 +3235,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       />
                     ) : null;
                   })()}
-                  <label className="border-border hover:bg-secondary inline-flex h-8 cursor-pointer items-center rounded-lg border px-2.5 text-xs">
+                  <label className={`${btnSm} cursor-pointer`}>
                     {logoBusy === editingCust.id
                       ? L("Uploading…", "Memuat naik…")
                       : L("Upload logo", "Muat naik logo")}
@@ -3338,7 +3338,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     ) && (
                       <button
                         type="button"
-                        className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                        className={rowBtn}
                         title={L(
                           "Statement of Account — all invoices, paid + outstanding, printable",
                           "Penyata Akaun — semua invois, dibayar + tertunggak, boleh dicetak"
@@ -3352,7 +3352,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       delete is refused by the server while documents exist. */}
                     <button
                       type="button"
-                      className="border-border hover:bg-secondary inline-flex h-7 items-center rounded-lg border px-2.5 text-xs"
+                      className={rowBtn}
                       onClick={() => {
                         setEditingCust({ id: c.id, company: c.company });
                         setCust({
@@ -3372,7 +3372,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-lg border border-danger/30 px-2.5 text-xs text-danger hover:bg-danger-soft"
+                      className={rowBtnDanger}
                       onClick={async () => {
                         if (
                           !(await askConfirm({

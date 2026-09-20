@@ -20,7 +20,7 @@ import { cacheRead, cacheWrite } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnQuick, btnQuickPrimary, card, toastCard } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, card, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
@@ -154,11 +154,7 @@ export function Dashboard({
      interface which is tabs. but Upcoming events should be 1st"): one card,
      one pill row, events first. Bodies stay mounted (SectionTabs' rule). */
   const [deskTab, setDeskTab] = useState<"events" | "attendance">("events");
-  /* v1.15.0: the same tasks response, kept un-filtered — the mobile Today
-     checklist needs completed items too for its "2 of 4 done" count. */
-  const [allTasks, setAllTasks] = useState<Task[]>(
-    () => cacheRead<Task[]>(DASH_TASKS) ?? []
-  );
+  const [aroundTab, setAroundTab] = useState<"tasks" | "leave" | "news">("tasks");
   const [leave, setLeave] = useState<LeaveReq[]>(
     () => cacheRead<LeaveReq[]>(DASH_LEAVE) ?? []
   );
@@ -219,7 +215,6 @@ export function Dashboard({
     setAttendanceError(false);
   }, []);
   const applyTasks = useCallback((all: Task[]) => {
-    setAllTasks(all);
     setTasks(all.filter((x) => x.status !== "completed").slice(0, 5));
     setTasksKnown(true);
   }, []);
@@ -879,10 +874,8 @@ export function Dashboard({
   })();
   const daysPresent = dayPairs.size;
   const monthHours = Array.from(dayPairs.values()).reduce((a, e) => a + e.hours, 0);
-  const doneTasks = allTasks.filter((t) => t.status === "completed").length;
-
   return (
-    <div className="space-y-4 md:space-y-5">
+    <div className="space-y-6 pb-2">
       {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
           top of the reference's phone screen. Phones only; the desktop header
           already greets. */}
@@ -904,15 +897,15 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
-      <div className={`${card} ${shiftOnly ? "md:mx-auto md:max-w-3xl" : ""}`}>
+      <div className={`erp-shift-hero ${shiftOnly ? "md:mx-auto md:max-w-3xl" : ""}`}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-        <PanelTitle icon="time">
+        <PanelTitle icon="time" className="text-white" tone="inherit">
           {shiftOnly ? L("On Shift", "Syif Saya") : openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
         </PanelTitle>
-        <button type="button" className={btnQuick} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
-          <AppIcon name={shiftOnly ? "next" : "time"} className="mr-1 h-4 w-4" />
+        <button type="button" className={btnHero} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
+          <AppIcon name={shiftOnly ? "next" : "time"} className="h-4 w-4" />
           {shiftOnly ? L("Dashboard", "Papan Pemuka") : L("On Shift", "Syif Saya")}
         </button>
         </div>
@@ -926,8 +919,8 @@ export function Dashboard({
         {attendanceError && (
           <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-warning">
             <span>{L("Attendance could not be refreshed. Check your connection and retry.", "Kehadiran tidak dapat dimuat semula. Semak sambungan dan cuba lagi.")}</span>
-            <button type="button" className={btnQuick} onClick={() => void load()}>
-              <AppIcon name="refresh" className="mr-1 h-4 w-4" />{L("Retry", "Cuba lagi")}
+            <button type="button" className={btnHero} onClick={() => void load()}>
+              <AppIcon name="refresh" className="h-4 w-4" />{L("Retry", "Cuba lagi")}
             </button>
           </div>
         )}
@@ -937,14 +930,14 @@ export function Dashboard({
             aria-busy="true"
           >
             {[0, 1, 2, 3].map((i) => (
-              <Skel key={i} className="h-11 rounded-lg md:h-9 md:w-36" />
+              <Skel key={i} className="h-11 rounded-full md:w-36" />
             ))}
           </div>
         ) : (
           <div className={shiftOnly ? "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" : "mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap"}>
             <button
               type="button"
-              className={shiftOnly ? `${btnQuickPrimary} min-h-16 text-base` : btnQuickPrimary}
+              className={shiftOnly ? `${btnHeroPrimary} min-h-14 text-base` : btnHeroPrimary}
               disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
@@ -952,12 +945,12 @@ export function Dashboard({
                 ? `${tr("Clocked in ✓", lang)} ${openSince}`
                 : !canClockIn
                   ? L("All shifts clocked ✓", "Semua syif didaftar ✓")
-                : <><AppIcon name="place" className="mr-1 -mt-0.5" />
+                : <><AppIcon name="place" />
                     {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}</>}
             </button>
             <button
               type="button"
-              className={shiftOnly ? `${btnQuick} min-h-16 text-base` : btnQuick}
+              className={shiftOnly ? `${btnHero} min-h-14 text-base` : btnHero}
               disabled={!!busy}
               onClick={() => void punch("clock_out", forgotArmed)}
             >
@@ -965,7 +958,7 @@ export function Dashboard({
             </button>
             <button
               type="button"
-              className={btnQuick}
+              className={btnHero}
               onClick={() => go("Leave")}
             >
               {tr("Apply leave", lang)}
@@ -976,7 +969,7 @@ export function Dashboard({
             {!shiftOnly && (canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
               <button
                 type="button"
-                className={btnQuick}
+                className={btnHero}
                 onClick={() => onCreateQuotation ? onCreateQuotation() : go("Sales")}
               >
                 {tr("Create quotation", lang)}
@@ -984,11 +977,11 @@ export function Dashboard({
             )}
             {showOt && (
               <>
-                <button type="button" className={hasOtIn ? btnQuick : btnQuickPrimary} disabled={!!busy || hasOtIn}
+                <button type="button" className={hasOtIn ? btnHero : btnHeroPrimary} disabled={!!busy || hasOtIn}
                   onClick={() => void punchOt("ot_in")}>
                   {hasOtIn ? "OT in ✓" : "OT in"}
                 </button>
-                <button type="button" className={btnQuick} disabled={!!busy || !hasOtIn || hasOtOut}
+                <button type="button" className={btnHero} disabled={!!busy || !hasOtIn || hasOtOut}
                   onClick={() => void punchOt("ot_out")}>
                   {hasOtOut ? "OT out ✓" : "OT out"}
                 </button>
@@ -1048,7 +1041,7 @@ export function Dashboard({
                 would fire the browser's location prompt on every Dashboard
                 open, before the person asked to punch. The real check stays
                 where it belongs — server-side, at the punch. */}
-            <div className="bg-secondary mt-2.5 rounded-xl px-3 py-2.5 md:hidden">
+            <div className="bg-secondary mt-3 rounded-lg px-3 py-2.5 md:hidden">
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-[12px] font-medium">
                   <ShieldOk
@@ -1064,7 +1057,7 @@ export function Dashboard({
                   type="button"
                   onClick={() => void checkLocation()}
                   disabled={gpsCheck.state === "busy"}
-                  className="text-gold-deep rounded-full px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap disabled:opacity-50"
+                  className="erp-button erp-button-accent erp-button-compact"
                 >
                   {gpsCheck.state === "busy"
                     ? lang === "ms"
@@ -1102,7 +1095,7 @@ export function Dashboard({
                 </p>
               )}
             </div>
-            <p className="text-muted-foreground mt-2 hidden text-[11px] md:block">
+            <p className="mt-3 hidden text-[11px] text-white/70 md:block">
               {tr("Office check-in is on", lang)} —{" "}
               {GEOFENCE_EXEMPT_ROLES.includes(user.role)
                 ? lang === "ms"
@@ -1113,7 +1106,7 @@ export function Dashboard({
                   : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}{" "}
               <button
                 type="button"
-                className="text-gold-deep font-semibold underline-offset-2 hover:underline disabled:opacity-50"
+                className="ml-2 font-semibold text-gold underline-offset-2 hover:underline disabled:opacity-50"
                 onClick={() => void checkLocation()}
                 disabled={gpsCheck.state === "busy"}
               >
@@ -1157,7 +1150,7 @@ export function Dashboard({
         {!attKnown ? (
           <Skel className="mt-3 h-3 w-48" />
         ) : (
-          <p className="text-muted-foreground mt-3 text-xs">
+          <p className="mt-3 text-xs text-white/70">
             {today.length === 0 && todayOt.length === 0
               ? L(
                   "No attendance recorded today.",
@@ -1269,8 +1262,8 @@ export function Dashboard({
           ))}
         </div>
       ) : (
-        <div className={`${card} grid grid-cols-2 gap-4 xl:grid-cols-4`}>
-          <div className="min-w-0">
+        <div className="erp-dashboard-stats">
+          <div className="erp-dashboard-stat">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {tr("Today", lang)}
             </p>
@@ -1295,7 +1288,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className="min-w-0">
+          <div className="erp-dashboard-stat">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Days present · month", "Hari hadir · bulan")}
             </p>
@@ -1312,7 +1305,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className="min-w-0">
+          <div className="erp-dashboard-stat">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Hours · month", "Jam · bulan")}
             </p>
@@ -1333,7 +1326,7 @@ export function Dashboard({
               />
             </div>
           </div>
-          <div className="min-w-0">
+          <div className="erp-dashboard-stat">
             <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
               {L("Open tasks", "Tugasan terbuka")}
             </p>
@@ -1360,152 +1353,73 @@ export function Dashboard({
       <TradingDesk user={user} go={go} lang={lang} />
       <section className="space-y-3 md:space-y-4">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>
-      {/* v1.15.0 — mobile Today checklist: the reference's two-column card
-          grid with a progress count. Same tasks the desktop list shows; the
-          full response (incl. completed) so "2 of 4 done" is countable.
-          Tapping any card opens the Tasks tab — editing stays there. */}
-      {allTasks.length > 0 && (
-        <div className="md:hidden">
-          <div className="mb-2 flex items-baseline justify-between px-0.5">
-            <p className="text-[15px] font-semibold">
-              {lang === "ms" ? "Senarai semak hari ini" : "Today's checklist"}
-            </p>
-            <p className="text-muted-foreground text-[11.5px]">
-              {doneTasks} {lang === "ms" ? "daripada" : "of"} {allTasks.length}{" "}
-              {lang === "ms" ? "selesai" : "done"}
+      {/* v1.169.0: Tasks, leave and news are one work panel. The previous
+          mobile checklist plus three desktop cards repeated the same records
+          and made the bottom half of the Dashboard read as six destinations. */}
+      <div className={card}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <PanelTitle icon="orders">{L("Work overview", "Ringkasan kerja")}</PanelTitle>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Your current tasks, leave requests and company updates.", "Tugasan, permohonan cuti dan kemas kini syarikat anda.")}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {allTasks.slice(0, 6).map((t) => {
-              const done = t.status === "completed";
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => go("Tasks")}
-                  className={`border-border bg-card flex min-h-[64px] flex-col gap-1.5 rounded-2xl border p-3 text-left ${done ? "opacity-70" : ""}`}
-                >
-                  <span
-                    aria-hidden
-                    className={`grid h-5 w-5 place-items-center rounded-md text-[11px] ${
-                      done
-                        ? "bg-success-soft text-success"
-                        : "bg-tint-gold text-gold-deep"
-                    }`}
-                  >
-                    {done ? "✓" : "◷"}
-                  </span>
-                  <span
-                    className={`text-[12px] leading-snug font-medium ${done ? "line-through" : ""}`}
-                  >
-                    {t.title}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <SectionTabs value={aroundTab} onChange={setAroundTab}
+            tabs={[
+              ["tasks", `${tr("My open tasks", lang)}${tasks.length ? ` (${tasks.length})` : ""}`],
+              ["leave", `${tr("Pending leave", lang)}${leave.length ? ` (${leave.length})` : ""}`],
+              ["news", tr("News", lang)],
+            ] as const} />
         </div>
-      )}
-      {/* v1.4.214 (CEO reorg): LiveGmvCard + ConnectionStatusCard moved to
-          the new Ecommerce tab — the Dashboard is Quick actions → the
-          three-column day view → Upcoming events. */}
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
-        <div className={card}>
-          <p
-            className="cursor-pointer text-[15px] font-semibold md:text-sm"
-            role="button"
-            tabIndex={0}
-            onClick={() => go("Leave")}
-            onKeyDown={(e) => e.key === "Enter" && go("Leave")}
-          >
-            {tr("Pending leave", lang)}
-            {leave.length > 0 && (
-              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
-                {leave.length}
-              </span>
-            )}
-          </p>
-          {!leaveKnown ? (
-            <SkelText lines={2} className="mt-2.5" />
-          ) : leave.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">
-              {tr("None pending.", lang)}
-            </p>
+        <div hidden={aroundTab !== "tasks"} className="mt-4">
+          {!tasksKnown ? <SkelText lines={3} /> : tasks.length === 0 ? (
+            <p className="text-muted-foreground text-sm">{tr("Nothing assigned.", lang)}</p>
           ) : (
-            leave.map((l) => (
-              <p key={l.id} className="mt-2 text-sm">
-                {leaveTypeL(l.type)} · {dmy(l.start_date)} → {dmy(l.end_date)} (
-                {l.days}d)
-              </p>
-            ))
+            <ul className="divide-border divide-y">
+              {tasks.slice(0, 4).map((t) => (
+                <li key={t.id}>
+                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Tasks")}>
+                    <span className="bg-tint-gold text-gold-deep grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="orders" className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{t.title}</span><span className="text-muted-foreground block text-xs">{priorityL(t.priority)}{t.deadline ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`) : ""}</span></span>
+                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-        <div className={card}>
-          <p
-            className="cursor-pointer text-[15px] font-semibold md:text-sm"
-            role="button"
-            tabIndex={0}
-            onClick={() => go("Tasks")}
-            onKeyDown={(e) => e.key === "Enter" && go("Tasks")}
-          >
-            {tr("My open tasks", lang)}
-            {tasks.length > 0 && (
-              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
-                {tasks.length}
-              </span>
-            )}
-          </p>
-          {!tasksKnown ? (
-            <SkelText lines={2} className="mt-2.5" />
-          ) : tasks.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">
-              {tr("Nothing assigned.", lang)}
-            </p>
+        <div hidden={aroundTab !== "leave"} className="mt-4">
+          {!leaveKnown ? <SkelText lines={3} /> : leave.length === 0 ? (
+            <p className="text-muted-foreground text-sm">{tr("None pending.", lang)}</p>
           ) : (
-            tasks.map((t) => (
-              <p key={t.id} className="mt-2 text-sm">
-                {t.title}{" "}
-                <span className="text-muted-foreground">
-                  · {priorityL(t.priority)}
-                  {t.deadline
-                    ? L(` · due ${t.deadline}`, ` · sebelum ${t.deadline}`)
-                    : ""}
-                </span>
-              </p>
-            ))
+            <ul className="divide-border divide-y">
+              {leave.slice(0, 4).map((l) => (
+                <li key={l.id}>
+                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Leave")}>
+                    <span className="bg-secondary grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="date" className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{leaveTypeL(l.type)}</span><span className="text-muted-foreground block text-xs">{dmy(l.start_date)} → {dmy(l.end_date)} · {l.days}d</span></span>
+                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-        <div className={card}>
-          <p
-            className="cursor-pointer text-[15px] font-semibold md:text-sm"
-            role="button"
-            tabIndex={0}
-            onClick={() => go("Announcements")}
-            onKeyDown={(e) => e.key === "Enter" && go("Announcements")}
-          >
-            {tr("News", lang)}
-            {anns.length > 0 && (
-              <span
-                className="ml-2 inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500"
-                aria-hidden="true"
-              ></span>
-            )}
-          </p>
-          {!annsKnown ? (
-            <SkelText lines={2} className="mt-2.5" />
-          ) : anns.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-sm">
-              {tr("No announcements.", lang)}
-            </p>
+        <div hidden={aroundTab !== "news"} className="mt-4">
+          {!annsKnown ? <SkelText lines={3} /> : anns.length === 0 ? (
+            <p className="text-muted-foreground text-sm">{tr("No announcements.", lang)}</p>
           ) : (
-            anns.map((a) => (
-              <p key={a.id} className="mt-2 text-sm">
-                <span className="font-medium">{a.title}</span>{" "}
-                <span className="text-muted-foreground">
-                  · {annCatL(a.category)}
-                </span>
-              </p>
-            ))
+            <ul className="divide-border divide-y">
+              {anns.slice(0, 4).map((a) => (
+                <li key={a.id}>
+                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Announcements")}>
+                    <span className="bg-secondary grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="chat" className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{a.title}</span><span className="text-muted-foreground block text-xs">{annCatL(a.category)}</span></span>
+                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

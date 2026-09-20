@@ -33,7 +33,7 @@ import { properName, displayName, givenNames } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
-import { card } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
@@ -87,7 +87,7 @@ function Sub({ t, children }: { t: string; children: ReactNode }) {
     </label>
   );
 }
-const btn = "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors";
+const btn = "erp-button erp-button-secondary erp-button-compact";
 
 interface Staff {
   ic_number?: string | null;
@@ -799,7 +799,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
           <p className="text-muted-foreground text-xs">{staff.length} {L("staff records", "rekod kakitangan")}</p>
         </div>
         {!readOnly && !showCreate && (
-          <button type="button" className="bg-primary text-primary-foreground inline-flex min-h-9 items-center rounded-lg px-3 text-xs font-medium"
+          <button type="button" className={btnSmPrimary}
             onClick={() => setShowCreate(true)}>
             <AppIcon name="add" className="mr-1.5 h-4 w-4" />{L("Add staff", "Tambah kakitangan")}
           </button>
@@ -811,7 +811,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold">{L("Add a staff member", "Tambah kakitangan")}</p>
           <button type="button"
-            className="border-border hover:bg-secondary inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium"
+            className={btnSm}
             onClick={() => setShowCreate(false)}>
             {L("Hide form", "Sembunyikan borang")} <span aria-hidden="true">▲</span>
           </button>
@@ -899,7 +899,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         {existing && (
           <button
             type="button"
-            className="border-border mt-2 inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={`${btnSm} mt-2`}
             onClick={async () => {
               const patch: Record<string, string> = {};
               if (newStaff.employee_id.trim()) patch.employee_id = newStaff.employee_id.trim();
@@ -993,11 +993,11 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             than a second tab: it is the same people, the same fetch and the
             same permissions, and a box on the chart opens the same record
             card the circle does. */}
-        <span className="border-border inline-flex h-8 items-center rounded-lg border p-0.5" role="group"
+        <span className="border-border bg-secondary inline-flex min-h-11 items-center rounded-full border p-1" role="group"
           aria-label={L("How to show the staff", "Cara memaparkan kakitangan")}>
           {([["list", L("Directory", "Direktori")], ["org", L("Organisation", "Organisasi")], ["circle", L("Team map", "Peta pasukan")]] as const).map(([v, label]) => (
             <button key={v} type="button" aria-pressed={view === v}
-              className={`inline-flex h-7 items-center rounded-[7px] px-2.5 text-xs font-medium transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
+              className={`inline-flex min-h-9 items-center rounded-full px-3 text-xs font-medium transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-card"}`}
               onClick={() => setView(v)}>
               {label}
             </button>
@@ -1017,7 +1017,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         {selected.size > 0 && (
         <button
           type="button"
-          className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+          className={btnSmPrimary}
           onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
         >
           {L("Print badges", "Cetak lencana")} ({selected.size}) <span className="hidden sm:inline">&nbsp;— {L("up to 9 per A4", "sehingga 9 setiap A4")}</span>
@@ -1025,7 +1025,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         )}
         <button
           type="button"
-          className={`inline-flex h-8 items-center rounded-lg border px-3 text-xs ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"}`}
+          className={`${selectMode ? btnSmPrimary : btnSm}`}
           aria-pressed={selectMode}
           onClick={() => { setSelectMode((m) => !m); if (selectMode) setSelected(new Set()); }}
         >
@@ -1034,7 +1034,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         {selectMode && (
           <button
             type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs hover:bg-secondary"
+            className={btnSm}
             onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
           >
             {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}

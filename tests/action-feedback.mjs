@@ -267,13 +267,13 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
      The CEO, 08-09-2026, on the Overtime rows: *"when I clicked save there
      is no popup box appear as per globally style."* Nothing happened
      because the button was DISABLED until a time changed — and not one of
-     the four row-button tokens carried a `disabled:` class, so it was
+     the shared row-button tokens carried a `disabled:` class, so it was
      pixel-identical to a live one. Pressing a live-looking button and
      getting silence is the same uncertainty rules 1-3 exist to remove; it
      just arrives through CSS instead of a missing toast. */
   const rowBtns = readFileSync(path.join(root, "components/ui/row-button.tsx"), "utf8");
   ok("every row-button token shows when it is disabled",
-     (rowBtns.match(/export const rowBtn\w* =\s*\n?\s*`[^`]*\$\{OFF\}`/g) ?? []).length === 4
+     (rowBtns.match(/export const rowBtn\w* =\s*\n?\s*`[^`]*\$\{OFF\}`/g) ?? []).length === 5
      && /const OFF = "disabled:pointer-events-none disabled:opacity-50"/.test(rowBtns),
      "a button that looks pressable and does nothing is silence with extra steps");
 

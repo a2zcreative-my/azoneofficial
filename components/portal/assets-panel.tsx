@@ -11,7 +11,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { btnClass, card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { useConfirm } from "@/components/ui/confirm-dialog"; // v1.153.0 - the removal asks first
 import { Skel, StaleHint } from "@/components/ui/skeleton";
@@ -276,7 +276,7 @@ export function AssetsPanel() {
       </div>
 
       <div id="asset-form" className={`${card} scroll-mt-36`}>
-        <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium"
+        <button type="button" className={btnClass}
           onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
           {openForm ? (editId ? L("Cancel edit", "Batal sunting") : L("Hide form", "Sembunyi borang")) : L("+ New asset — show details", "+ Aset baharu — tunjuk butiran")}
         </button>
@@ -320,7 +320,7 @@ export function AssetsPanel() {
               <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
                 <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
             </div>
-            <button type="button" className="bg-primary text-primary-foreground mt-3 rounded-lg px-4 py-2 text-sm font-medium" onClick={() => void save()}>
+            <button type="button" className={`${btnClass} mt-3`} onClick={() => void save()}>
               {editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}
             </button>
           </div>

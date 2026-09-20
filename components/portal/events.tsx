@@ -676,7 +676,7 @@ export function EventsCalendar({
         <button
           type="button"
           aria-label={L("Previous month", "Bulan sebelumnya")}
-          className="border-border hover:bg-secondary inline-flex h-8 w-8 items-center justify-center rounded-lg border"
+          className="erp-icon-button"
           onClick={() => shift(-1)}
         >
           ‹
@@ -685,7 +685,7 @@ export function EventsCalendar({
         <button
           type="button"
           aria-label={L("Next month", "Bulan seterusnya")}
-          className="border-border hover:bg-secondary inline-flex h-8 w-8 items-center justify-center rounded-lg border"
+          className="erp-icon-button"
           onClick={() => shift(1)}
         >
           ›

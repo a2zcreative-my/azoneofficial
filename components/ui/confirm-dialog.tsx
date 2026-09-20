@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
-import { modalCard } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, modalCard } from "@/lib/ui-styles";
 
 interface ConfirmOpts {
   title: string;
@@ -67,7 +67,7 @@ export function useConfirm() {
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            className="border-border hover:bg-secondary inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium"
+            className={btnSm}
             onClick={() => close(false)}
           >
             {opts.cancelLabel ?? "Cancel"}
@@ -75,9 +75,7 @@ export function useConfirm() {
           <button
             type="button"
             autoFocus
-            className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white ${
-              opts.variant === "danger" ? "bg-destructive hover:opacity-90" : "bg-primary hover:opacity-90"
-            }`}
+            className={opts.variant === "danger" ? "erp-button erp-button-danger erp-button-compact" : btnSmPrimary}
             onClick={() => close(true)}
           >
             {opts.confirmLabel ?? "Confirm"}

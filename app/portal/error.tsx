@@ -14,7 +14,7 @@
    client, so there is no prerender to mismatch). */
 
 import { getLang } from "@/lib/i18n";
-import { card } from "@/lib/ui-styles";
+import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -53,14 +53,14 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
           <button
             type="button"
             onClick={backToDashboard}
-            className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90"
+            className={btnClass}
           >
             {L("Back to Dashboard", "Kembali ke Papan Pemuka")}
           </button>
           <button
             type="button"
             onClick={() => reset()}
-            className="border-border rounded-lg border px-4 py-2 text-sm font-medium hover:bg-secondary"
+            className={btnGhost}
           >
             {L("Try again", "Cuba lagi")}
           </button>

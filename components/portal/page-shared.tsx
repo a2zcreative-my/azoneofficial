@@ -284,7 +284,12 @@ export interface LeaveReq {
     chrome: the same small-caps the KPI tiles use for their own labels, so
     every tab teaches the same reading habit. Module scope (house rule #30). */
 export function ZoneLabel({ children }: { children: ReactNode }) {
-  return <p className="text-muted-foreground px-1 text-[10px] font-semibold tracking-widest uppercase">{children}</p>;
+  return (
+    <div className="flex items-center gap-3 px-0.5">
+      <p className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">{children}</p>
+      <span aria-hidden className="bg-border h-px flex-1" />
+    </div>
+  );
 }
 
 /** v1.121.0 - THE QUIET CARD. The CEO, 06-09-2026: "I want minimalist UI/UX

@@ -11,7 +11,7 @@ import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState } from "react";
 import { esc } from "@/lib/escape-html";
-import { card } from "@/lib/ui-styles";
+import { btnSm, card } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { rowBtnDanger } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -171,7 +171,7 @@ export function HrAdminPanel() {
               setPayslip(r.data);
             }}>{L("Generate", "Jana")}</button>
           {payslip && (
-            <button type="button" className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            <button type="button" className={btnSm}
               onClick={() => printPayslip(payslip)}>{L("Print", "Cetak")}</button>
           )}
         </div>

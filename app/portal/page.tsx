@@ -906,7 +906,7 @@ export default function PortalPage() {
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="border-border text-muted-foreground hover:bg-secondary hidden h-9 w-40 min-w-24 shrink items-center justify-between rounded-lg border px-3 text-sm transition-colors md:flex"
+              className="erp-button erp-button-secondary text-muted-foreground hidden w-44 min-w-28 shrink justify-between md:inline-flex"
               aria-label={L("Search the portal", "Cari dalam portal")}
             >
               <span className="flex items-center gap-2">
@@ -1260,7 +1260,7 @@ export default function PortalPage() {
                 <button
                   type="button"
                   aria-label={L("Close", "Tutup")}
-                  className="border-border text-muted-foreground flex h-11 w-11 items-center justify-center rounded-lg border text-base"
+                  className="erp-icon-button text-muted-foreground text-base"
                   onClick={() => setMoreOpen(false)}
                 >
                   <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />

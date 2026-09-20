@@ -27,6 +27,7 @@ Read this file before making any implementation change in this repository.
 - A failed guard, type check, migration check, or health check means the release is not verified. Never claim deployment from a partial run.
 - Production includes the responsive portal release at `v1.168.0`; `PUSH.bat allow-dirty` completed every gate and the production health check on 20 September 2026.
 - The `v1.168.0` portal reorganises `/portal` for responsive PWA/web use without changing the existing colour palette. Preserve the existing `canSeeTab`/`accessOf` permission source and the audited `/staff/tabs/access/person` API; do not create a second permission model. Treat the reference screenshots as information-hierarchy inspiration only, not as an instruction to copy their blue palette or replace the existing authenticated login with a PIN.
+- Local `v1.169.0` is an unreleased interface-system pass: portal action buttons use the global `.erp-button` 44px pill contract on both breakpoints, icon-only actions use `.erp-icon-button`, and the Dashboard uses one shift hero plus one tabbed Tasks/Leave/News overview. Extend these shared classes instead of adding another hand-written button shape.
 
 ## Before handoff
 

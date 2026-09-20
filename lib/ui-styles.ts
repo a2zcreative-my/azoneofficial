@@ -141,11 +141,11 @@ export const inputClassLg =
 
 /** Standard primary button. */
 export const btnClass =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-1 text-sm font-medium transition-colors disabled:opacity-50 md:min-h-9";
+  "erp-button erp-button-primary";
 
 /** Full-width variant — sign-in and other single-action forms. */
 export const btnClassBlock =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors disabled:opacity-50";
+  "erp-button erp-button-primary erp-button-block";
 
 /** A row of labelled fields.
  *
@@ -173,13 +173,13 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 
 /** Secondary (outline) button — was duplicated in 4 files. */
 export const btnGhost =
-  "inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 py-1 text-sm font-medium transition-colors hover:bg-secondary md:min-h-9";
+  "erp-button erp-button-secondary";
 
 /** Compact header control (phones share one row).
     v1.10.0: phones get the reference design's soft rounded square (h-9,
     rounded-xl); desktop keeps its previous look. */
 export const btnHdr =
-  "inline-flex h-11 min-w-11 items-center justify-center rounded-lg border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:h-9 md:min-w-9 md:px-2.5";
+  "erp-icon-button";
 
 /** Header control that exists ONLY from `md` up (sound, push, theme, EN/BM).
  *
@@ -193,19 +193,29 @@ export const btnHdr =
  * fix is the standard Tailwind pattern — `hidden` as the ONLY base display
  * class, the visible display arriving with the `md:` variant. */
 export const btnHdrDesktop =
-  "hidden h-9 min-w-9 items-center justify-center rounded-xl border border-border px-2 text-sm font-medium transition-colors hover:bg-secondary md:inline-flex md:rounded-lg md:px-2.5";
+  "erp-icon-button hidden md:inline-flex";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
-  "border-border inline-flex min-h-11 items-center justify-center rounded-lg border px-3 py-1 text-xs font-medium hover:bg-secondary md:min-h-8";
+  "erp-button erp-button-secondary erp-button-compact";
 export const btnSmPrimary =
-  "bg-primary text-primary-foreground inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-1 text-xs font-medium disabled:opacity-50 md:min-h-8";
+  "erp-button erp-button-primary erp-button-compact";
+export const btnSmWarning =
+  "erp-button erp-button-warning erp-button-compact";
+export const btnSmInverse =
+  "erp-button erp-button-inverse erp-button-compact";
+export const iconBtnInverse =
+  "erp-icon-button erp-icon-button-inverse";
 
 /** Quick actions — full-width touch targets on phones, compact row actions on desktop. */
 export const btnQuick =
-  "border-border inline-flex min-h-11 items-center justify-center rounded-lg border px-3 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50 md:min-h-9 md:justify-start";
+  "erp-button erp-button-secondary w-full md:w-auto";
 export const btnQuickPrimary =
-  "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-50 md:min-h-9 md:justify-start";
+  "erp-button erp-button-primary w-full md:w-auto";
+export const btnHero =
+  "erp-button erp-button-secondary w-full md:w-auto";
+export const btnHeroPrimary =
+  "erp-button erp-button-accent w-full md:w-auto";
 
 /** Field labels — the two spellings that existed are now named. */
 export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";
@@ -275,7 +285,7 @@ export const listBox = "border-border divide-border divide-y overflow-y-auto ove
    and only then relaxes to the desk's 28px. Always give it an aria-label:
    a glyph is not a name. */
 export const iconBtn =
-  "text-muted-foreground hover:text-foreground hover:bg-secondary inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-base transition-colors sm:h-7 sm:w-7 sm:text-sm";
+  "erp-icon-button text-muted-foreground hover:text-foreground";
 
 /** Dashboard tile styling. */
 export const tile = card;
@@ -288,6 +298,6 @@ export const tile = card;
    draws it. A card with more than one thing to show uses that, so a pill
    means the same thing on every tab of the portal. */
 export const tabPill =
-  "border-border text-muted-foreground hover:bg-secondary/70 inline-flex min-h-11 items-center justify-center rounded-lg border px-3 py-1 text-xs md:min-h-8";
+  "erp-button erp-button-secondary erp-button-compact text-muted-foreground";
 export const tabPillOn =
-  "bg-primary text-primary-foreground inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-1 text-xs font-medium md:min-h-8";
+  "erp-button erp-button-primary erp-button-compact";

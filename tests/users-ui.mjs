@@ -76,9 +76,9 @@ ok("chipSm is the base its five variants compose from, and those are used",
 ok("each one says why it exists, where the next person will read it",
    /THE SELECT, at last/.test(styles) && /THE LIST BOX/.test(styles) && /THE ROW ACTION/.test(styles)
    && /the DENSE chip/.test(styles));
-ok("the row action is a real tap target on a phone before it is a small one on a desk",
-   /export const iconBtn =[\s\S]{0,300}?h-11 w-11[\s\S]{0,120}?sm:h-7 sm:w-7/.test(styles),
-   "44px is the platform minimum; the old ✎ was about 12x14");
+ok("the row action uses the global 44px icon-button on phone and desk",
+   /export const iconBtn =[\s\S]{0,180}?erp-icon-button/.test(styles),
+   "one target size avoids the old 12x14 edit glyph and desktop/mobile drift");
 
 /* ---- 2. nothing in the panel spells out a look that has a name -------- */
 ok("no hand-rolled chip", !/rounded-full px-[\d.]+ py-(px|[\d.]+) text-\[10px\]/.test(src),

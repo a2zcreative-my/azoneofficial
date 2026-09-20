@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getLang } from "@/lib/i18n";
-import { modalCard } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, modalCard } from "@/lib/ui-styles";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -117,12 +117,10 @@ export function usePrompt() {
           </label>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="border-border hover:bg-secondary inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium"
+          <button type="button" className={btnSm}
             onClick={() => close(null)}>{opts.cancelLabel ?? L("Cancel", "Batal")}</button>
           <button type="button"
-            className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white disabled:opacity-40 ${
-              opts.variant === "danger" ? "bg-destructive hover:opacity-90" : "bg-primary hover:opacity-90"
-            }`}
+            className={opts.variant === "danger" ? "erp-button erp-button-danger erp-button-compact" : btnSmPrimary}
             disabled={incomplete} onClick={submit}>
             {opts.confirmLabel ?? L("Save", "Simpan")}
           </button>

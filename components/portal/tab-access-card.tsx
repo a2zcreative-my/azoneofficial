@@ -31,7 +31,7 @@ import { csrfFetch } from "@/lib/api";
 
 import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card } from "@/lib/ui-styles";
+import { btnSmPrimary, card } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { getLang, t } from "@/lib/i18n";
@@ -167,7 +167,7 @@ export function TabAccessCard() {
                     })}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <button type="button" className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium" onClick={() => void save(name, draft)}>{L("Save", "Simpan")}</button>
+                    <button type="button" className={btnSmPrimary} onClick={() => void save(name, draft)}>{L("Save", "Simpan")}</button>
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft(ASSIGNABLE_ROLES.map(([r]) => r))}>{L("Select all", "Pilih semua")}</button>
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft([])}>{L("Clear", "Kosongkan")}</button>
                     {overridden && (

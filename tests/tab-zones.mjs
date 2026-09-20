@@ -208,7 +208,7 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
     return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
   };
   ok("Dashboard actions and queue precede metrics and company reporting",
-    ordered(dash, ['<PanelTitle icon="time">', '<OneDesk', '<WatchersCard', '<NextEventCard', 'L("My summary"', '<TradingDesk']));
+    ordered(dash, ['<PanelTitle icon="time"', '<OneDesk', '<WatchersCard', '<NextEventCard', 'L("My summary"', '<TradingDesk']));
   const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Reconciliation"'));
   ok("Attendance records and decisions precede scheduling and setup",
     ordered(attendance, ['<Attendance user=', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));

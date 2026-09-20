@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
-import { card } from "@/lib/ui-styles";
+import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 import { AppIcon } from "@/components/ui/app-icon";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -124,7 +124,7 @@ export function SystemHealthCard() {
           <button
             type="button"
             disabled={busy}
-            className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+            className={btnGhost}
             onClick={() => void backupNow()}
           >
             {L("Back up now", "Buat sandaran sekarang")}
@@ -133,7 +133,7 @@ export function SystemHealthCard() {
               newest backup and keep it OUTSIDE this Cloudflare account
               (ransomware / account-loss insurance). Quarterly nag below. */}
           <a
-            className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+            className={btnClass}
             href={`${API}/system/backup/download`}
             title={L("Downloads the newest backup file — store it on a drive or another cloud, outside Cloudflare", "Muat turun fail sandaran terbaru — simpan pada pemacu atau awan lain, di luar Cloudflare")}
           >

@@ -9,7 +9,7 @@
    altered. All staff may view (the route already allows any non-customer). */
 
 import { useEffect, useState } from "react";
-import { card } from "@/lib/ui-styles";
+import { btnSmWarning, card } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
@@ -116,7 +116,7 @@ export function ConnectionStatusCard() {
                 {/* v1.4.220: stop guessing — replay the newest failed event
                     against the secret the worker holds RIGHT NOW. */}
                 {!dbg && !dbgDenied && (
-                  <button type="button" className="mt-1.5 rounded-lg border border-warning/30 px-2.5 py-1 text-xs font-medium text-warning"
+                  <button type="button" className={`${btnSmWarning} mt-1.5`}
                     disabled={dbgBusy} onClick={() => void runDebug()}>
                     {dbgBusy ? L("Checking…", "Menyemak…") : <><AppIcon name="verify" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Test the current secret against the last failed event", "Uji rahsia semasa terhadap acara gagal yang terakhir")}</>}
                   </button>

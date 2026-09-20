@@ -27,7 +27,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, card, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipNeutral } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
@@ -904,7 +904,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           />
           <button
             type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={btnSm}
             title={L("Fixed monthly basic per staff — auto-fills every month; adjust here on increment", "Gaji pokok bulanan tetap bagi setiap kakitangan — terisi automatik setiap bulan; laraskan di sini apabila ada kenaikan")}
             onClick={() => setShowBase((v) => !v)}
           >
@@ -912,7 +912,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </button>
           <button
             type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={btnSm}
             title={L("Days already auto-fill from attendance on load — this re-fills every box from clock-ins, overwriting manual edits", "Hari sudah terisi automatik daripada kehadiran semasa dimuat — ini mengisi semula setiap kotak daripada rekod daftar masuk, menulis ganti suntingan manual")}
             onClick={autoFillDays}
           >
@@ -920,7 +920,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </button>
           <button
             type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={btnSm}
             title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri yang disimpan — guna selepas sebarang perubahan kalendar")}
             onClick={async () => {
               const r = await postPay(`/payroll/recompute`, { month });
@@ -1405,21 +1405,21 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2"><button
             type="button"
-            className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            className={btnSmPrimary}
             onClick={() => void saveAll()}
           >
             {L("Save all", "Simpan semua")}
           </button>
 <button
             type="button"
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={btnSm}
             title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
             onClick={() => void downloadM2e()}
           >
             <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
           </button>
 <a
-            className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            className={btnSm}
             title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
             href={`${API}/payroll/payment-file?month=${month}`}
             download
@@ -1548,7 +1548,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </div>
           <button
             type="button"
-            className="bg-primary text-primary-foreground mt-3 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            className={`${btnSmPrimary} mt-3`}
             onClick={async () => {
               /* v1.97.1 (CEO: "Base salaries was not sync with staff table
                  Basic! then Net why didnt correcly count? this is something
@@ -1659,14 +1659,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 <input className="border-border mt-0.5 h-8 w-full rounded-lg border px-2 sm:w-44" value={m2eAcc}
                   inputMode="numeric" placeholder={L("Maybank account", "Akaun Maybank")} onChange={(e) => setM2eAcc(e.target.value)} />
               </label>
-              <button type="button" className="border-border col-span-2 inline-flex h-8 items-center justify-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1"
+          <button type="button" className={`${btnSm} col-span-2 sm:col-span-1`}
                 onClick={() => void saveM2eSettings()}>
                 {L("Save", "Simpan")}
               </button>
             </div>
             <div className="grid grid-cols-2 items-center gap-2 sm:flex">
               <span className="text-muted-foreground">{L("Blank template (.xlsm): ", "Templat kosong (.xlsm): ")}{m2eHasTpl ? L("✔ stored", "✔ disimpan") : L("not uploaded yet", "belum dimuat naik")}</span>
-              <label className="border-border col-span-2 inline-flex h-8 w-fit cursor-pointer items-center rounded-lg border px-3 font-medium hover:bg-secondary sm:col-span-1">
+              <label className={`${btnSm} col-span-2 w-fit cursor-pointer sm:col-span-1`}>
                 {m2eHasTpl ? L("Replace template", "Ganti templat") : L("Upload template", "Muat naik templat")}
                 <input type="file" accept=".xlsm" className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadM2eTemplate(f); e.target.value = ""; }} />
@@ -1783,7 +1783,7 @@ export function MyPayslip() {
           <button
             type="button"
             disabled
-            className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
+            className={`${btnSm} cursor-not-allowed`}
           >
             {L("Print payslip", "Cetak slip gaji")}
           </button>
@@ -1798,7 +1798,7 @@ export function MyPayslip() {
           <button
             type="button"
             disabled
-            className="inline-flex h-8 cursor-not-allowed items-center rounded-lg bg-gray-300 px-3 text-xs font-medium text-gray-500"
+            className={`${btnSm} cursor-not-allowed`}
           >
             {L("Print payslip", "Cetak slip gaji")}
           </button>

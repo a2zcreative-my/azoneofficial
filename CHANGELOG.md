@@ -2,6 +2,14 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.169.0] - 2026-09-20 - One interface system for daily work
+
+- Introduced one global 44px pill-button contract for labelled portal commands on PWA and web, with matching primary, secondary, accent, positive, warning and destructive states plus circular icon-only controls.
+- Migrated the high-use Dashboard, Claims, Sales, Payroll, Inventory, Staff, admin, confirmation and prompt actions to that contract; navigation rows, data cells and document surfaces keep their purpose-specific geometry.
+- Rebuilt the Dashboard shift area as a focused brand-colour hero while preserving the existing attendance, geofence, overtime and leave behaviour.
+- Consolidated Tasks, Leave and News into one tabbed work-overview card, removed the duplicated mobile task grid, and stabilised the monthly summary as a single responsive statistic grid.
+- Kept the established navy, gold and semantic status palette; this release changes hierarchy, sizing and interaction consistency rather than company colours.
+
 ## [1.168.0] - 2026-09-20 - A calmer staff portal on phone and web
 
 - Stabilised the phone bar around Dashboard, On Shift, Tasks and Profile, while keeping every other authorised module in a grouped More sheet.

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { makeApi } from "@/lib/api";
 import { leaveOverlaps, timeWindow, isPartialLeave, type LeaveCoverage } from "@/lib/leave-coverage";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
+import { btnClass, btnSm, btnSmInverse, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, iconBtnInverse, inputClass, inputClassSm, modalCard } from "@/lib/ui-styles";
 import { dmy, fmtRM } from "@/lib/format";
 import { bySeniority } from "@/lib/staff-order";
 import { getLang } from "@/lib/i18n";
@@ -1414,7 +1414,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                             <p className="text-sm font-semibold">{sel.client ?? L("Live session", "Sesi LIVE")}
                               <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{statusLabel(sel.status)}</span>
                             </p>
-                            <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenSession(null); setNoteAt(null); }} aria-label="Close">✕</button>
+                            <button type="button" className={iconBtnInverse} onClick={() => { setOpenSession(null); setNoteAt(null); }} aria-label="Close">✕</button>
                           </div>
                           <p className="mt-1.5 text-xs text-white/85">{sel.host_name}</p>
                           <p className="mt-0.5 text-xs text-white/85 tabular-nums">{dmy(sel.session_date)} · {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
@@ -1422,19 +1422,19 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                           {canManage && (
                             <div className="mt-2 flex flex-wrap gap-2">
                               {canEdit && sel.status !== "cancelled" && (
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => openEdit(sel)}>
                                   {L("Edit details", "Sunting butiran")}
                                 </button>
                               )}
                               {sel.status === "scheduled" && (
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => void setSessionStatus(sel, "completed")}>
                                   {L("✓ Mark completed", "✓ Tanda selesai")}
                                 </button>
                               )}
                               {sel.status !== "cancelled" && (
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => void setSessionStatus(sel, "cancelled")}>
                                   {L("✕ Cancel session", "✕ Batalkan sesi")}
                                 </button>
@@ -1460,7 +1460,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                   {b.done_at ? L("done today", "selesai hari ini") : L("task", "tugasan")}
                                 </span>
                               </p>
-                              <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenBlock(null); setNoteAt(null); }} aria-label="Close">✕</button>
+                              <button type="button" className={iconBtnInverse} onClick={() => { setOpenBlock(null); setNoteAt(null); }} aria-label="Close">✕</button>
                             </div>
                             <p className="mt-1.5 text-xs text-white/85">{b.user_name}</p>
                             <p className="mt-0.5 text-xs text-white/85 tabular-nums">
@@ -1481,11 +1481,11 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                             )}
                             {canManage && (
                               <div className="mt-2 flex flex-wrap gap-2">
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => void setBlockDone(b, !b.done_at)}>
                                   {b.done_at ? L("↺ Not done after all", "↺ Belum selesai") : L("✓ Done today", "✓ Selesai hari ini")}
                                 </button>
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => openEditBlock(b)}>
                                   {L("Edit details", "Sunting butiran")}
                                 </button>
@@ -1509,7 +1509,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                                   {!past ? L("planned", "dirancang") : sh.evidence === 0 ? L("no evidence", "tiada bukti") : L(`${sh.evidence} on the register`, `${sh.evidence} dalam daftar`)}
                                 </span>
                               </p>
-                              <button type="button" className="text-white/70 hover:text-white" onClick={() => { setOpenShift(null); setNoteAt(null); }} aria-label="Close">✕</button>
+                              <button type="button" className={iconBtnInverse} onClick={() => { setOpenShift(null); setNoteAt(null); }} aria-label="Close">✕</button>
                             </div>
                             <p className="mt-1.5 text-xs text-white/85">{sh.user_name}</p>
                             <p className="mt-0.5 text-xs text-white/85 tabular-nums">
@@ -1527,17 +1527,17 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                             {(canManage || onOpenRegister) && (
                               <div className="mt-2 flex flex-wrap gap-2">
                                 {onOpenRegister && (
-                                  <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                  <button type="button" className={btnSmInverse}
                                     onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>
                                     {L("Open the register", "Buka daftar")}
                                   </button>
                                 )}
                                 {canManage && (<>
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => openEditShift(sh)}>
                                   {L("Edit details", "Sunting butiran")}
                                 </button>
-                                <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                                <button type="button" className={btnSmInverse}
                                   onClick={() => void removeShift(sh)}>
                                   {L("✕ Remove from the plan", "✕ Buang dari rancangan")}
                                 </button>
@@ -1680,7 +1680,7 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                       <p className="text-sm font-semibold">{sel.client ?? L("Live session", "Sesi LIVE")}
                         <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${sel.status === "completed" ? "bg-bull/30" : sel.status === "cancelled" ? "bg-bear/30" : "bg-white/15"}`}>{statusLabel(sel.status)}</span>
                       </p>
-                      <button type="button" className="text-white/70 hover:text-white" onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
+                      <button type="button" className={iconBtnInverse} onClick={() => setOpenSession(null)} aria-label="Close">✕</button>
                     </div>
                     <p className="mt-1.5 text-xs text-white/85">{sel.host_name}</p>
                     <p className="mt-0.5 text-xs text-white/85 tabular-nums">{dmy(sel.session_date)} · {sel.start_time}{sel.end_time ? `–${sel.end_time}` : ""} · {sel.platform}</p>
@@ -1688,19 +1688,19 @@ export function RosterBoard({ canManage, canEdit = false, onOpenRegister }: {
                     {canManage && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {canEdit && sel.status !== "cancelled" && (
-                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                          <button type="button" className={btnSmInverse}
                             onClick={() => openEdit(sel)}>
                             {L("Edit details", "Sunting butiran")}
                           </button>
                         )}
                         {sel.status === "scheduled" && (
-                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                          <button type="button" className={btnSmInverse}
                             onClick={() => void setSessionStatus(sel, "completed")}>
                             {L("✓ Mark completed", "✓ Tanda selesai")}
                           </button>
                         )}
                         {sel.status !== "cancelled" && (
-                          <button type="button" className="rounded-lg bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                          <button type="button" className={btnSmInverse}
                             onClick={() => void setSessionStatus(sel, "cancelled")}>
                             {L("✕ Cancel session", "✕ Batalkan sesi")}
                           </button>

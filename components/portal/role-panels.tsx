@@ -44,7 +44,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -497,7 +497,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
         {canSync && (
           <button
             type="button"
-            className="border-border inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium hover:bg-secondary"
+            className={btnSm}
             onClick={() => void syncTikTok()}
           >
             {L("Sync from TikTok", "Segerak dari TikTok")}
@@ -990,7 +990,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   onChange={(e) => setOutModal((m) => m && ({ ...m, remark: e.target.value }))} />
               </SubR>
               <div className="flex items-center gap-2">
-                <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium"
+                <button type="button" className={btnClass}
                   onClick={async () => {
                     const qtyN = Math.floor(Number(outModal.qty));
                     if (!qtyN || qtyN <= 0) { invToast(L("Not saved", "Tidak disimpan"), L("Quantity must be at least 1", "Kuantiti mesti sekurang-kurangnya 1"), "notice"); return; }
@@ -1792,7 +1792,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     <input className={inputClass} value={retEditDraft.reason}
                       onChange={(e) => setRetEditDraft((d) => ({ ...d, reason: e.target.value }))} />
                   </SubR>
-                  <button type="button" className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium"
+                  <button type="button" className={btnClass}
                     onClick={async () => {
                       const qtyN = Math.floor(Number(retEditDraft.qty));
                       const costN = Number(retEditDraft.unit_cost);
@@ -3781,7 +3781,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             surprises anyone. Built in the browser from data already loaded,
             so it is instant and needs no round trip. */}
         <button type="button"
-          className="border-border hover:bg-secondary inline-flex h-9 items-center justify-center self-end rounded-lg border px-3 text-xs font-medium disabled:opacity-50 sm:col-span-2 lg:col-span-1"
+          className={`${btnSm} self-end sm:col-span-2 lg:col-span-1`}
           disabled={exportRows().length + visibleLeave().length === 0}
           title={L("Download these rows as a CSV for Excel", "Muat turun baris ini sebagai CSV untuk Excel")}
           onClick={() => {
@@ -4622,7 +4622,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 <option value={0}>{`${L("— pay the submitter", "— bayar penghantar")} (${properName(c.claimant_full || c.claimant || "")}) —`}</option>
                 {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
               </select>
-              <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+              <button type="button" className={rowBtnPrimary}
                 onClick={async () => {
                   const res = await api<{ ok?: boolean; unchanged?: boolean; error?: { message?: string } }>(`/claims/${c.id}/payee`, {
                     method: "POST", body: JSON.stringify({ payee_user_id: payeeEdit.value }),
@@ -4681,7 +4681,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </p>
           )}
           {canDecide && c.paid_at && !c.payment_proof_key && (
-            <label className="border-border mt-2 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+            <label className={`${rowBtn} mt-2 cursor-pointer`}
               title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
               <><AppIcon name="attach" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
               <input type="file" accept="image/*,application/pdf" className="hidden"
@@ -4707,7 +4707,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </p>
           )}
           {canDecide && c.status === "approved" && !c.paid_at && (
-            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            <button type="button" className={`${rowBtnPrimary} mt-2`}
               onClick={async () => {
                 const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
                 if (res.ok) { showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan")); void load(); }
@@ -4721,10 +4721,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
             value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
-          <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+          <button type="button" className={rowBtnPrimary}
             title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? L("Chain (HR → COO) not finished — approving now is a recorded CEO override", "Rantaian (HR → COO) belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? L("CCO pre-approval not done — approving now is a recorded CEO override", "Pra-kelulusan CCO belum dibuat — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
             onClick={() => void decide(c.id, "approve")}>{L("Approve", "Luluskan")}</button>
-          <button type="button" className="border-border text-destructive inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+          <button type="button" className={rowBtnDanger}
             onClick={() => void decide(c.id, "reject")}>{L("Reject", "Tolak")}</button>
         </div>
       )}
@@ -4740,15 +4740,15 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
         <>
           {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
-            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            <button type="button" className={`${rowBtnPrimary} mt-2`}
               onClick={() => void hrReview(c.id)}>{L("✔ HR review OK — pass to COO", "✔ Semakan HR OK — serah kepada COO")}</button>
           )}
           {(role === "coo" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "staff" && c.hr_reviewed_at && !c.pre_approved_at && (
-            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            <button type="button" className={`${rowBtnPrimary} mt-2`}
               onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
           {(role === "cco" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at && (
-            <button type="button" className="bg-primary text-primary-foreground mt-2 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+            <button type="button" className={`${rowBtnPrimary} mt-2`}
               onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
         </>
@@ -4915,7 +4915,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           </p>
         </div>
         <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <label className="border-border inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border px-3 text-sm hover:bg-secondary sm:justify-start">
+          <label className={`${btnSm} cursor-pointer sm:justify-start`}>
             {receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}
             <input type="file" accept="image/*,application/pdf" className="hidden"
               onChange={(e) => {
@@ -4938,7 +4938,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setReceipt(f);
               }} />
           </label>
-          <button type="button" disabled={submitting} className="bg-primary text-primary-foreground inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 sm:justify-start"
+          <button type="button" disabled={submitting} className={`${btnClass} sm:justify-start`}
             onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
         {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
@@ -5243,7 +5243,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
             <input type="number" min={1} max={31} className="border-input bg-background h-9 w-16 rounded-lg border px-2 text-sm" placeholder="—"
               value={draft.due_day} onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value }))} />
           </label>
-          <button type="button" className="bg-primary text-primary-foreground col-span-2 inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-medium sm:col-span-1"
+          <button type="button" className={`${btnClass} col-span-2 sm:col-span-1`}
             onClick={() => void addExpense()}>{L("Record expense", "Rekod perbelanjaan")}</button>
         </div>
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
@@ -5284,7 +5284,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                         ))}
                       </ul>
                       <button type="button"
-                        className="border-border mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+                        className={`${btnSm} mt-1.5`}
                         title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every entry's net — no Save all needed", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri — tiada Simpan semua diperlukan")}
                         onClick={async () => {
                           const r = await api<{ working_days?: number; rows?: number; error?: { message?: string } }>(`/payroll/recompute`, {
@@ -5296,7 +5296,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                         <><AppIcon name="fix" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Fix discrepancy now (recompute on server)", "Betulkan percanggahan sekarang (kira semula di pelayan)")}</>
                       </button>
                       <button type="button"
-                        className="border-border ml-2 mt-1.5 inline-flex h-7 items-center rounded-lg border px-2.5 text-xs font-medium hover:bg-secondary"
+                        className={`${btnSm} ml-2 mt-1.5`}
                         title={L("Downloads the official Maybank2E template ALREADY FILLED (Home sheet + salary rows). Needs the one-time M2E setup in the Payroll tab. Open → enable macros → generate → upload → approve → Mark paid here", "Muat turun templat rasmi Maybank2E yang SUDAH DIISI (helaian Home + baris gaji). Perlukan tetapan M2E sekali sahaja dalam tab Gaji. Buka → benarkan makro → jana → muat naik → lulus → Tanda dibayar di sini")}
                         onClick={async () => {
                           const res = await fetch(`/api/v1/staff/payroll/m2e-file?month=${staffPayroll!.month}`, { credentials: "include" });
@@ -5368,7 +5368,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                       {r.description ? ` · ${r.description}` : ""}{L(" · last recorded ", " · terakhir direkod ")}{dmy(r.expense_date)}
                     </p>
                   </div>
-                  <button type="button" className="border-border inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-secondary"
+                  <button type="button" className={rowBtn}
                     onClick={async () => {
                       const res = await api(`/expenses`, { method: "POST", body: JSON.stringify({
                         expense_date: dueISO, category: r.category, amount: r.amount_cents / 100,
@@ -5402,7 +5402,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                       </span>
                     </p>
                   </div>
-                  <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+                  <button type="button" className={rowBtnGood}
                     onClick={async () => { const result = await api(`/expenses/${r.id}/paid`, { method: "POST" }); if (!result.ok) { showToast(L("Not saved", "Tidak disimpan"), L("Payment status was not changed. Try again.", "Status bayaran tidak berubah. Cuba lagi."), "notice"); return; } showToast(L("Saved", "Disimpan"), `${rmc(r.amount_cents)} ${L("marked paid", "ditanda dibayar")}`); void load(); }}>
                     {L("Mark paid", "Tanda dibayar")}
                   </button>
@@ -5576,7 +5576,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input className="border-input bg-background h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder={L("Description", "Keterangan")}
                   value={edit.description} onChange={(e) => setEdit((d) => ({ ...d, description: e.target.value }))} />
-                <button type="button" className="bg-primary text-primary-foreground inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+                <button type="button" className={btnSmPrimary}
                   onClick={async () => {
                     const unchanged = edit.expense_date === r.expense_date && edit.category === r.category
                       && Math.round(Number(edit.amount) * 100) === r.amount_cents

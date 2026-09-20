@@ -10,7 +10,8 @@ import { makeApi } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { Donut } from "@/components/ui/donut";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, card, th, td, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { rowBtn, rowBtnDanger, rowBtnGood } from "@/components/ui/row-button";
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { givenNames } from "@/lib/names";
@@ -95,13 +96,13 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
     <div className="mt-1.5 flex flex-wrap gap-2">
       {s.status === "scheduled" ? (
         <>
-          <button type="button" disabled={busy} className="border-success text-success rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-success-soft"
+          <button type="button" disabled={busy} className={rowBtnGood}
             onClick={() => void setStatus(s.id, "completed")}>{L("✓ Mark done", "✓ Tanda selesai")}</button>
-          <button type="button" disabled={busy} className="border-danger text-danger rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-danger-soft"
+          <button type="button" disabled={busy} className={rowBtnDanger}
             onClick={() => void setStatus(s.id, "cancelled")}>{L("✕ Cancel session", "✕ Batal sesi")}</button>
         </>
       ) : (
-        <button type="button" disabled={busy} className="border-border rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+        <button type="button" disabled={busy} className={rowBtn}
           onClick={() => void setStatus(s.id, "scheduled")}>{L("Back to scheduled", "Kembali kepada dijadualkan")}</button>
       )}
     </div>
@@ -112,7 +113,7 @@ export function TodayAssignmentsCard({ onOpenRoster, canManage = false }: { onOp
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">{L("Assignments today", "Tugasan hari ini")}</p>
         {onOpenRoster && (
-          <button type="button" className="text-gold-deep text-xs font-medium underline" onClick={onOpenRoster}>
+          <button type="button" className={btnSm} onClick={onOpenRoster}>
             {L("Open roster ↗", "Buka jadual bertugas ↗")}
           </button>
         )}
