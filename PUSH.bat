@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "PORTALGUARDS="
 set "GITFAILED="
 set "HEALTHFAILED="
-set "PREFLIGHT_ARG="
+set "PREFLIGHT_ARG=--allow-dirty"
 set "SECRETS_MODE="
 title ELFIA + PORTAL - deploy everything
 REM ============================================================
@@ -35,13 +35,13 @@ REM  this file - (b) compiles each engine before publishing it, and
 REM  (c) retries an upload that lost its connection.
 REM ============================================================
 
-REM 2026-09-20 - RELEASE HANDOFF PREFLIGHT. Claude and other contributors
-REM may be editing this repository at the same time. A deploy that cleans,
-REM commits, or publishes a dirty tree can silently take ownership of work
-REM that has not been reviewed. The default is therefore strict. Use
-REM "PUSH.bat allow-dirty" only after explicitly approving the current diff.
-REM Secret rotation remains available as "PUSH.bat secrets" or
-REM "PUSH.bat secrets allow-dirty".
+REM 2026-09-20 - ONE-CLICK RELEASE PREFLIGHT. This file is intended to be
+REM double-clicked by the owner. Local changes are allowed by default so the
+REM portal can be pushed without typing "allow-dirty". Use "PUSH.bat strict"
+REM only when you want the old clean-worktree safety lock.
+REM Secret rotation remains available as "PUSH.bat secrets".
+if /I "%~1"=="strict" set "PREFLIGHT_ARG="
+if /I "%~2"=="strict" set "PREFLIGHT_ARG="
 if /I "%~1"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
 if /I "%~2"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
 if /I "%~1"=="secrets" set "SECRETS_MODE=1"

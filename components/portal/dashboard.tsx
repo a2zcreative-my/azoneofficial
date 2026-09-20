@@ -8,7 +8,7 @@ import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
 import { NextEventCard } from "@/components/portal/next-event-card";
 import { OneDesk } from "@/components/portal/one-desk";
-import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WatchersCard } from "@/components/portal/watchers-card";
@@ -28,6 +28,136 @@ import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
  * check draw, brand navy, auto-dismisses. Pure CSS keyframes — no library.
  */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v1.170.0 — ATTENDANCE THIS MONTH (the CEO's reference: "Kehadiran Bulan
+   Ini" — present, on time, late, streak — on the employee's own home
+   screen). Every figure here is a COUNT of verdicts the worker reached with
+   the same functions payroll uses (myMonthDays); nothing is computed from
+   raw punches on the client, so this card and the HR report can never
+   disagree about the same day.
+   ═══════════════════════════════════════════════════════════════════════ */
+export function summariseMonth(days: MonthDay[]) {
+  let onTime = 0, late = 0, halfDay = 0, absent = 0, awaiting = 0, leave = 0, holiday = 0, restWorked = 0, scheduled = 0;
+  for (const d of days) {
+    if (d.status === "ok" || d.status === "assigned") onTime++;
+    else if (d.status === "late") late++;
+    else if (d.status === "half_day") halfDay++;
+    else if (d.status === "absent") absent++;
+    else if (d.status === "awaiting_approval") awaiting++;
+    else if (d.status === "leave") leave++;
+    else if (d.status === "holiday") holiday++;
+    if (d.status === "rest_day" && d.worked) restWorked++;
+    /* a scheduled day that is over — today still open does not count yet */
+    if (d.scheduled && d.status !== "pending" && d.status !== "leave" && d.status !== "holiday") scheduled++;
+  }
+  /* the streak: consecutive scheduled days on time, walking back from the
+     most recent day that is settled. Off days, leave, holidays and a punch
+     still awaiting the CEO neither extend nor break it. Today, if it has no
+     verdict yet, is skipped — the streak is what has been PROVEN. */
+  let streak = 0;
+  for (const d of [...days].sort((a, b) => b.date.localeCompare(a.date))) {
+    if (d.status === "ok" || d.status === "assigned") streak++;
+    else if (d.status === "late" || d.status === "half_day" || d.status === "absent") break;
+  }
+  return { onTime, late, halfDay, absent, awaiting, leave, holiday, restWorked, scheduled, streak, present: onTime + late + halfDay + restWorked };
+}
+
+const DAY_FILL: Record<MonthDay["status"], string> = {
+  ok: "bg-ring-ontime", assigned: "bg-ring-ontime",
+  late: "bg-ring-late",
+  half_day: "bg-ring-absent", absent: "bg-ring-absent",
+  awaiting_approval: "bg-warning-soft ring-1 ring-warning ring-inset",
+  pending: "bg-transparent ring-1 ring-border ring-inset",
+  rest_day: "bg-tint-navy", holiday: "bg-tint-navy", leave: "bg-info-soft",
+};
+const dayStatusL = (s: MonthDay["status"], lang: Lang): string => {
+  const en: Record<MonthDay["status"], string> = {
+    ok: "On time", assigned: "Assigned work", late: "Late", half_day: "Half day", absent: "Absent",
+    awaiting_approval: "Punch awaiting approval", pending: "Today — no punch yet", rest_day: "Rest day", holiday: "Public holiday", leave: "Leave",
+  };
+  const ms: Record<MonthDay["status"], string> = {
+    ok: "Tepat waktu", assigned: "Kerja ditugaskan", late: "Lewat", half_day: "Separuh hari", absent: "Tidak hadir",
+    awaiting_approval: "Punch menunggu kelulusan", pending: "Hari ini — belum punch", rest_day: "Hari rehat", holiday: "Cuti umum", leave: "Cuti",
+  };
+  return (lang === "ms" ? ms : en)[s];
+};
+
+/** The month card. Counts on the left, the month as a small calendar of
+    verdicts on the right — one cell per day, Monday first, the same
+    validated ring colours the attendance donut uses. */
+export function MonthAttendanceCard({ days, month, lang }: { days: MonthDay[]; month: string; lang: Lang }) {
+  const s = summariseMonth(days);
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  /* Monday-first offset of the 1st: JS Sunday=0 → 6, Monday=1 → 0 */
+  const offset = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+  const cells: (MonthDay | { date: string; status: "future" })[] = [];
+  for (let d = 1; d <= last; d++) {
+    const iso = `${month}-${String(d).padStart(2, "0")}`;
+    cells.push(byDate.get(iso) ?? { date: iso, status: "future" });
+  }
+  const monthName = MONTH_NAMES[lang === "ms" ? "ms" : "en"][m - 1] ?? month;
+  const stat = (label: string, value: string | number, tone: string) => (
+    <div className="min-w-0">
+      <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{label}</p>
+      <p className={`mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums ${tone}`}>{value}</p>
+    </div>
+  );
+  const notes: string[] = [];
+  if (s.absent > 0) notes.push(L(`${s.absent} absent`, `${s.absent} tidak hadir`));
+  if (s.awaiting > 0) notes.push(L(`${s.awaiting} awaiting the CEO's approval`, `${s.awaiting} menunggu kelulusan CEO`));
+  if (s.leave > 0) notes.push(L(`${s.leave} on leave`, `${s.leave} cuti`));
+  if (s.holiday > 0) notes.push(L(`${s.holiday} public holiday${s.holiday === 1 ? "" : "s"}`, `${s.holiday} cuti umum`));
+  if (s.restWorked > 0) notes.push(L(`${s.restWorked} rest day${s.restWorked === 1 ? "" : "s"} worked`, `${s.restWorked} hari rehat bekerja`));
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <PanelTitle icon="date">{L("Attendance this month", "Kehadiran bulan ini")}</PanelTitle>
+        <p className="text-muted-foreground text-xs tabular-nums">
+          {L(`${s.present} of ${s.scheduled} scheduled days · ${monthName}`, `${s.present} daripada ${s.scheduled} hari berjadual · ${monthName}`)}
+        </p>
+      </div>
+      <div className="mt-4 md:flex md:items-start md:justify-between md:gap-8">
+        <div className="grid grid-cols-4 gap-3 md:max-w-2xl md:flex-1">
+          {stat(L("On time", "Tepat waktu"), s.onTime, "text-ring-ontime")}
+          {stat(L("Late", "Lewat"), s.late, s.late > 0 ? "text-warning" : "")}
+          {stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? "text-danger" : "")}
+          <div className="min-w-0" title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Streak", "Rentetan")}</p>
+            <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{s.streak}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
+          </div>
+        </div>
+        {/* the month, as it happened — Monday-first, one cell per day */}
+        <div className="mt-4 w-full md:mt-0 md:w-[16.5rem] md:shrink-0" aria-label={L("Day by day", "Hari demi hari")}>
+          <div className="text-muted-foreground grid grid-cols-7 gap-1 text-center text-[9px] font-semibold tracking-wider uppercase">
+            {(lang === "ms" ? ["I", "S", "R", "K", "J", "S", "A"] : ["M", "T", "W", "T", "F", "S", "S"]).map((d, i) => <span key={i}>{d}</span>)}
+          </div>
+          <div className="mt-1 grid grid-cols-7 gap-1">
+            {Array.from({ length: offset }, (_, i) => <span key={`o${i}`} aria-hidden />)}
+            {cells.map((c) => (
+              <span
+                key={c.date}
+                title={`${dmy(c.date)} · ${c.status === "future" ? L("Upcoming", "Akan datang") : dayStatusL(c.status, lang)}${"in" in c && c.in ? ` · ${c.in}${c.out ? `–${c.out}` : ""}` : ""}`}
+                className={`block h-2.5 rounded-sm ${c.status === "future" ? "bg-tint-navy opacity-40" : DAY_FILL[c.status]}`}
+              />
+            ))}
+          </div>
+          <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+            <span className="flex items-center gap-1"><i className="bg-ring-ontime inline-block h-2 w-2 rounded-sm" />{L("on time", "tepat")}</span>
+            <span className="flex items-center gap-1"><i className="bg-ring-late inline-block h-2 w-2 rounded-sm" />{L("late", "lewat")}</span>
+            <span className="flex items-center gap-1"><i className="bg-ring-absent inline-block h-2 w-2 rounded-sm" />{L("half day / absent", "separuh / tidak hadir")}</span>
+            <span className="flex items-center gap-1"><i className="bg-tint-navy inline-block h-2 w-2 rounded-sm" />{L("off", "cuti/rehat")}</span>
+          </div>
+        </div>
+      </div>
+      {notes.length > 0 && (
+        <p className="text-muted-foreground mt-3 text-xs">{notes.join(" · ")}</p>
+      )}
+    </div>
+  );
+}
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
 
@@ -150,6 +280,12 @@ export function Dashboard({
   const [monthRecs, setMonthRecs] = useState<
     { type: string; created_at: string }[]
   >(() => cacheRead<DashCache>(DASH_ATT)?.records ?? []);
+  /* v1.170.0 — the month's verdicts, from the same response. null = the
+     worker did not send them (an older build, or the classifier could not
+     run); the card is then simply not drawn rather than drawn wrong. */
+  const [monthDays, setMonthDays] = useState<MonthDay[] | null>(
+    () => cacheRead<DashCache>(DASH_ATT)?.days ?? null
+  );
   /* v1.152.0 (CEO: "My attendance and Upcoming events into minimalist
      interface which is tabs. but Upcoming events should be 1st"): one card,
      one pill row, events first. Bodies stay mounted (SectionTabs' rule). */
@@ -205,6 +341,7 @@ export function Dashboard({
      stacked end to end on a phone; they now go together. */
   const applyAtt = useCallback((d: DashCache) => {
     setMonthRecs(d.records ?? []);
+    setMonthDays(Array.isArray(d.days) ? d.days : null);
     setToday(
       (d.records ?? []).filter((r) => mytDateOf(r.created_at) === mytToday())
     );
@@ -1349,6 +1486,16 @@ export function Dashboard({
           </div>
         </div>
       )}
+      {/* v1.170.0 — the month, judged. "Days present" above counts punches;
+          this card counts VERDICTS: on time, late, half day, and the streak,
+          each from the worker's own classifier. Skeleton until the answer is
+          known; not drawn at all when the worker sent no verdicts, because a
+          card that guesses would be worse than none. */}
+      {!attKnown ? (
+        <div className={card} aria-busy="true"><SkelText lines={3} /></div>
+      ) : monthDays && monthDays.length > 0 ? (
+        <MonthAttendanceCard days={monthDays} month={mytToday().slice(0, 7)} lang={lang} />
+      ) : null}
       </section>
       <TradingDesk user={user} go={go} lang={lang} />
       <section className="space-y-3 md:space-y-4">

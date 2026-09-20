@@ -21,6 +21,8 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skel } from "@/components/ui/skeleton";
 import { btnSm, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
@@ -41,7 +43,7 @@ export interface DataColumn<T> {
 
 export function DataTable<T extends { id: number | string }>({
   columns, rows, searchText, defaultSort, defaultDir = "desc",
-  pageSizes = [10, 25, 50], empty, footer,
+  pageSizes = [10, 25, 50], empty, emptyHint, emptyAction, loading = false, footer,
 }: {
   columns: DataColumn<T>[];
   rows: T[];
@@ -51,7 +53,16 @@ export function DataTable<T extends { id: number | string }>({
   defaultSort?: string;
   defaultDir?: "asc" | "desc";
   pageSizes?: number[];
+  /** WHAT is empty (v1.170.0: rendered through the shared EmptyState). */
   empty?: string;
+  /** WHY it is likely empty and what fills it. */
+  emptyHint?: string;
+  /** The one thing they can do about it. */
+  emptyAction?: ReactNode;
+  /** v1.170.0 - the answer is not known yet: skeleton rows in the table's own
+      shape, so the chrome does not jump when the data lands. Never render a
+      confident "No records yet." while a request is still in flight. */
+  loading?: boolean;
   /** Left slot of the footer row (e.g. a total). */
   footer?: ReactNode;
 }) {
@@ -106,9 +117,12 @@ export function DataTable<T extends { id: number | string }>({
       </div>
 
       {/* min-w + overflow: ERP tables have 8+ columns; phones scroll the table
-          sideways instead of crushing every cell to one word per line. */}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px]">
+          sideways instead of crushing every cell to one word per line.
+          v1.170.0 - the frame owns the scroll in BOTH directions and the header
+          stays put (styles/globals.css .erp-table), so a long list is read
+          against its column names rather than from memory. */}
+      <div className="erp-table-wrap" aria-busy={loading || undefined}>
+        <table className="erp-table min-w-[640px]">
           <thead>
             <tr>
               {columns.map((c) => {
@@ -132,12 +146,29 @@ export function DataTable<T extends { id: number | string }>({
             </tr>
           </thead>
           <tbody>
-            {slice.length === 0 ? (
-              <tr><td colSpan={columns.length} className="text-muted-foreground px-3 py-8 text-center text-sm">
-                {q ? L("Nothing matches that search.", "Tiada padanan untuk carian itu.") : (empty ?? L("No records yet.", "Tiada rekod lagi."))}
+            {loading ? (
+              Array.from({ length: Math.min(per, 6) }, (_, i) => (
+                <tr key={`skel-${i}`} aria-hidden>
+                  {columns.map((c) => (
+                    <td key={c.key} className={c.numeric ? tdR2 : td}>
+                      <Skel className={`h-3.5 ${c.numeric ? "ml-auto w-14" : i % 2 ? "w-2/3" : "w-1/2"}`} />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : slice.length === 0 ? (
+              <tr><td colSpan={columns.length} className="p-0">
+                {q ? (
+                  <EmptyState icon="search"
+                    title={L("Nothing matches that search.", "Tiada padanan untuk carian itu.")}
+                    hint={L("Try fewer words, or clear the search to see every row again.", "Cuba kurangkan perkataan, atau kosongkan carian untuk melihat semua baris semula.")}
+                    action={<button type="button" className={btnSm} onClick={() => { setQ(""); setPage(1); }}>{L("Clear search", "Kosongkan carian")}</button>} />
+                ) : (
+                  <EmptyState title={empty ?? L("No records yet.", "Tiada rekod lagi.")} hint={emptyHint} action={emptyAction} />
+                )}
               </td></tr>
             ) : slice.map((r) => (
-              <tr key={r.id} className="border-border hover:bg-secondary/50 border-t transition-colors">
+              <tr key={r.id} className="transition-colors">
                 {columns.map((c) => (
                   <td key={c.key} className={c.numeric ? tdR2 : td}>
                     {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
@@ -151,7 +182,8 @@ export function DataTable<T extends { id: number | string }>({
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">
-          {footer ?? (shaped.length === 0 ? L("Showing 0 entries", "Memaparkan 0 entri")
+          {/* the house rule (tests/skeleton-loading.mjs): a shape, never a word about waiting */}
+          {footer ?? (loading ? <Skel className="inline-block h-3 w-40 align-middle" /> : shaped.length === 0 ? L("Showing 0 entries", "Memaparkan 0 entri")
             : L(`Showing ${(cur - 1) * per + 1} to ${Math.min(cur * per, shaped.length)} of ${shaped.length} entries`,
               `Memaparkan ${(cur - 1) * per + 1} hingga ${Math.min(cur * per, shaped.length)} daripada ${shaped.length} entri`))}
         </span>

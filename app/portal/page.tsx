@@ -77,7 +77,7 @@ import {
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
-import { PORTAL_WIDTH, btnClass, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
+import { PORTAL_WIDTH, btnClass, btnGhost, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { dmy } from "@/lib/format";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
@@ -1421,12 +1421,20 @@ export default function PortalPage() {
                       : "Navy"}
                 </button>
               </div>
-              <div className="border-border mt-4 flex flex-wrap gap-2 border-t pt-3">
-                <button type="button" className={`${btnHdr} gap-2`} onClick={() => setDark((v) => !v)}>
+              {/* v1.170.0 - these two carry LABELS, so they are pills, not
+                  the 44px icon circles btnHdr became in v1.169.0: on the
+                  CEO's phone the words "Toggle dark mode" and "Sign out"
+                  spilled out of two little rings. Dark mode is a setting
+                  and sits with the other settings' geometry; signing out is
+                  the one consequential action on this sheet and wears the
+                  contract's destructive outline so it is never pressed by
+                  reflex. */}
+              <div className="border-border mt-4 grid grid-cols-2 gap-2 border-t pt-3">
+                <button type="button" className={btnGhost} aria-pressed={dark} onClick={() => setDark((v) => !v)}>
                   {dark ? <Sun aria-hidden className="h-4 w-4" /> : <Moon aria-hidden className="h-4 w-4" />}
-                  {L("Toggle dark mode", "Togol mod gelap")}
+                  {dark ? L("Light mode", "Mod cerah") : L("Dark mode", "Mod gelap")}
                 </button>
-                <button type="button" className={`${btnHdr} gap-2`} onClick={() =>
+                <button type="button" className="erp-button erp-button-danger" onClick={() =>
                   void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => {
                     clearApiCache(); setUser(null); setMoreOpen(false);
                   })}>

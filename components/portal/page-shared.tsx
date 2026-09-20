@@ -25,7 +25,22 @@ export type DashCache = {
     /* v1.134.0 - OT in / OT out open only after the schedule. */
     can_ot?: boolean;
   } | null;
+  /* v1.170.0 - the month, one verdict per day up to today, from the worker's
+     own classifier (the same one payroll and the HR report use). Optional:
+     a response from an older worker simply has none, and the card says so. */
+  days?: MonthDay[];
 };
+export type MonthDayStatus =
+  | "ok" | "late" | "half_day" | "assigned" | "rest_day" | "holiday" | "leave" | "absent" | "awaiting_approval" | "pending";
+export interface MonthDay {
+  date: string;
+  status: MonthDayStatus;
+  in: string | null;
+  out: string | null;
+  open: boolean;
+  scheduled: boolean;
+  worked: boolean;
+}
 export const DASH_ATT = "dash:attendance";
 export const DASH_LEAVE = "dash:leave";
 export const DASH_TASKS = "dash:tasks";

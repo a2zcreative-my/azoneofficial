@@ -124,6 +124,29 @@
     background: var(--brand-primary);
     color: #fff;
     padding: 1rem;
+    /* v1.170.0 - THE HERO IS ITS OWN SURFACE, so it carries its own tokens.
+       v1.169.0 tried `.erp-shift-hero .bg-secondary { ... }` and friends,
+       which never applied: Tailwind v4 puts utilities in a cascade LAYER
+       declared after `components`, and a later layer wins whatever the
+       selector says. On the CEO's phone the location strip therefore
+       rendered as a white box with white text - "Office location check is
+       on" was invisible - and the rest-day note sat grey on navy. Redefining
+       the tokens on the surface is the design-system answer: every utility
+       inside (bg-secondary, text-muted-foreground, border-border, and the
+       ring/danger/success chips) resolves against these, in both themes, with
+       no rule fighting another. */
+    --secondary: rgba(255, 255, 255, 0.09);
+    --secondary-foreground: #fff;
+    --muted-foreground: rgba(255, 255, 255, 0.72);
+    --border: rgba(255, 255, 255, 0.2);
+    --card: rgba(255, 255, 255, 0.06);
+    --card-foreground: #fff;
+    --foreground: #fff;
+    /* status ink reads against navy: the light (dark-mode) values, which
+       were validated on a dark surface */
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
   }
   .erp-shift-hero .erp-button-secondary {
     border-color: rgba(255, 255, 255, 0.24);
@@ -133,9 +156,6 @@
   .erp-shift-hero .erp-button-secondary:hover {
     background: rgba(255, 255, 255, 0.14);
   }
-  .erp-shift-hero .text-muted-foreground { color: rgba(255, 255, 255, 0.72); }
-  .erp-shift-hero .bg-secondary { background: rgba(255, 255, 255, 0.09); }
-  .erp-shift-hero .border-border { border-color: rgba(255, 255, 255, 0.2); }
 
   .erp-dashboard-stats {
     display: grid;
@@ -151,6 +171,56 @@
     .erp-shift-hero { padding: 1.25rem; }
     .erp-dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
+
+  /* v1.170.0 - ONE TABLE CONTRACT. Operational tables are read by scanning:
+     the header must stay put while the rows move, the table scrolls sideways
+     inside its own frame rather than dragging the page, and a row you are
+     over is visibly the row you are over. components/ui/data-table.tsx wears
+     these; panels that still hand-roll a <table> migrate to them one by one,
+     exactly as the button contract did. */
+  .erp-table-wrap {
+    overflow: auto;
+    max-height: min(70vh, 40rem);
+    border: 1px solid var(--border);
+    border-radius: var(--surface-radius, 8px);
+    background: var(--card);
+    overscroll-behavior: contain;
+  }
+  .erp-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .erp-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--card);
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
+  .erp-table tbody tr + tr td { border-top: 1px solid var(--border); }
+  .erp-table tbody tr:hover td { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
+  .erp-table tbody tr:focus-within td { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
+
+  /* v1.170.0 - ONE EMPTY STATE. "No data." tells nobody anything. An empty
+     surface says WHAT is empty, WHY it is likely empty and WHAT to do next -
+     components/ui/empty-state.tsx renders it; this is its geometry. */
+  .erp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--muted-foreground);
+  }
+  .erp-empty-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 9999px;
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+  .erp-empty-title { color: var(--foreground); font-size: 0.875rem; font-weight: 600; }
+  .erp-empty-hint { max-width: 32rem; font-size: 0.75rem; line-height: 1.5; }
 }
 
 /* ---------------------------------- */

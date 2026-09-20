@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Skel, SkelRows, StaleHint } from "@/components/ui/skeleton";
 import { StatTile } from "@/components/ui/stat-tile";
+import { EmptyState } from "@/components/ui/empty-state";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { mytDateTime } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
@@ -545,7 +546,9 @@ export function HankeisPanel() {
               : L("You can read this queue and ask for clarification. Verifying a payment is a finance permission.", "Anda boleh membaca barisan ini dan meminta penjelasan. Mengesahkan bayaran ialah kebenaran kewangan.")}
           </p>
           {!review.data ? <SkelRows rows={3} className="mt-3" /> : review.data.queue.length === 0 ? (
-            <p className="text-muted-foreground mt-3 text-sm">{L("Nothing waiting. Receipts land here the moment a customer uploads one.", "Tiada yang menunggu. Resit sampai di sini sebaik pelanggan memuat naiknya.")}</p>
+            <EmptyState icon="verify" className="mt-2"
+              title={L("Nothing waiting for review.", "Tiada yang menunggu semakan.")}
+              hint={L("A receipt lands here the moment a customer uploads one. Verifying it still means finding the transaction in Maybank first.", "Resit sampai di sini sebaik pelanggan memuat naiknya. Mengesahkannya tetap bermakna mencari transaksi dalam Maybank dahulu.")} />
           ) : (
             <ul className="divide-border mt-3 divide-y">
               {review.data.queue.map((o) => (
@@ -604,7 +607,9 @@ export function HankeisPanel() {
           <PanelTitle icon="package">{L("Packing queue", "Barisan pembungkusan")}</PanelTitle>
           <p className="text-muted-foreground mt-1 text-xs">{L("Only orders whose payment a person has verified in the bank appear here. An order with an open exception is held.", "Hanya pesanan yang bayarannya telah disahkan oleh seseorang dalam bank muncul di sini. Pesanan dengan pengecualian terbuka ditahan.")}</p>
           {!packing.data ? <SkelRows rows={3} className="mt-3" /> : packing.data.queue.length === 0 ? (
-            <p className="text-muted-foreground mt-3 text-sm">{L("Nothing to pack.", "Tiada untuk dibungkus.")}</p>
+            <EmptyState icon="package" className="mt-2"
+              title={L("Nothing to pack.", "Tiada untuk dibungkus.")}
+              hint={L("An order appears here only after a reviewer has verified its payment in the bank.", "Pesanan muncul di sini hanya selepas penyemak mengesahkan bayarannya dalam bank.")} />
           ) : (
             <ul className="divide-border mt-3 divide-y">
               {packing.data.queue.map((o) => (

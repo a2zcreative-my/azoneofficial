@@ -1069,6 +1069,113 @@ async function clockedSessions(
   return out;
 }
 
+/* ====================================================================
+   v1.170.0 - ONE PERSON'S MONTH, CLASSIFIED (the Dashboard's month card)
+   ==================================================================== */
+export type MyMonthStatus =
+  /** clocked in on or before the block he was due at */
+  | "ok"
+  /** clocked in after the block started, before the half-day line */
+  | "late"
+  /** clocked in past the half-day line */
+  | "half_day"
+  /** scheduled by name (roster / live board) - judged present, never late */
+  | "assigned"
+  /** a rest day on his pattern; with punches it is a day worked, not a lateness */
+  | "rest_day"
+  | "holiday"
+  | "leave"
+  /** a scheduled day that is over and has no punch */
+  | "absent"
+  /** the only punches that day are waiting for the CEO (a forgotten punch
+      sent later) - not absent, not present, not yet decided */
+  | "awaiting_approval"
+  /** today, scheduled, nothing yet - the day is not over */
+  | "pending";
+
+export interface MyMonthDay {
+  date: string;
+  status: MyMonthStatus;
+  /** first clock-in / last clock-out as HH:MM MYT; null when none */
+  in: string | null;
+  out: string | null;
+  /** clocked in right now, no clock-out yet */
+  open: boolean;
+  /** the pattern or roster said this was a working day */
+  scheduled: boolean;
+  /** true when punches exist on the day, whatever the status */
+  worked: boolean;
+}
+
+/**
+ * The same verdict per day that the verification report and payroll reach,
+ * for one user and one month, up to today. Three reads (patterns +
+ * assignments, the roster/live board, the month's punches) plus leave and
+ * holidays - not one query per day.
+ *
+ * What it will not do: call today absent before it is over, call a rest-day
+ * worker late, or count a day the person was not yet employed.
+ */
+export async function myMonthDays(env: Env, userId: number, month: string): Promise<MyMonthDay[]> {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const all: string[] = [];
+  for (let d = 1; d <= last; d++) all.push(`${month}-${String(d).padStart(2, "0")}`);
+  const me = await env.DB.prepare(`SELECT role, joined_on, left_on, rejoined_on FROM users WHERE id = ?1`)
+    .bind(userId).first<{ role: string; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
+  const mine = employedDays(all, me?.joined_on, me?.left_on, me?.rejoined_on).filter((d) => d <= today);
+  if (mine.length === 0) return [];
+
+  const assignedAt = await assignedResolver(env, `${month}-01`, `${month}-${String(last).padStart(2, "0")}`);
+  const shiftAt = await shiftResolver(env, assignedAt);
+  const sessions = await clockedSessions(env, { month, userId });
+  let leave: LeaveCoverage[] = [];
+  try {
+    leave = ((await env.DB.prepare(
+      `SELECT start_date, end_date, days, day_part, coverage_json FROM leave_requests
+        WHERE user_id = ?1 AND status = 'approved' AND start_date <= ?2 AND end_date >= ?3`,
+    ).bind(userId, `${month}-${String(last).padStart(2, "0")}`, `${month}-01`).all<LeaveCoverage>()).results) ?? [];
+  } catch { /* pre-leave_requests */ }
+  const hols = await holidaysAround(env, month);
+  /* clockedSessions (rightly) leaves out punches the CEO has not approved.
+     A day whose only punches are pending is not an absence - it is a
+     decision somebody else still owes this person, and the card says so. */
+  const awaiting = new Set<string>();
+  try {
+    for (const r of (await env.DB.prepare(
+      `SELECT DISTINCT date(created_at, '+8 hours') AS d FROM attendance_records
+        WHERE user_id = ?1 AND pending_approval = 1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2`,
+    ).bind(userId, month).all<{ d: string }>()).results ?? []) awaiting.add(r.d);
+  } catch { /* pre-0100 */ }
+  const hhmmAt = (at: string | null) => (at === null ? null : hhmm(mytMinutes(at)));
+
+  const out: MyMonthDay[] = [];
+  for (const d of mine) {
+    const sh = shiftAt(userId, d);
+    const sess = sessions.get(`${userId}|${d}`) ?? [];
+    const cIn = firstIn(sess);
+    const base = { date: d, in: hhmmAt(cIn), out: hhmmAt(lastOut(sess)), open: isOpen(sess), worked: sess.length > 0 };
+    const scheduled = sh.kind !== "rest_day";
+    const h = hols.find((x) => x.holiday_date === d);
+    if (h && holidayEntitles(h, hols, me?.joined_on)) { out.push({ ...base, scheduled: false, status: "holiday" }); continue; }
+    if (!scheduled) { out.push({ ...base, scheduled: false, status: "rest_day" }); continue; }
+    /* a FULL day of approved leave is leave; a half day is judged on the half
+       he was due in for, which is what the remaining windows express */
+    const dayLeave = leave.filter((l) => l.start_date <= d && l.end_date >= d);
+    if (dayLeave.length > 0 && !dayLeave.some(isPartialLeave)) { out.push({ ...base, scheduled: true, status: "leave" }); continue; }
+    if (!cIn) {
+      out.push({ ...base, scheduled: true, status: d === today ? "pending" : awaiting.has(d) ? "awaiting_approval" : "absent" });
+      continue;
+    }
+    const inMin = mytMinutes(cIn);
+    if (assignedAt(userId, d, inMin) && !windowAt(sh, inMin)) { out.push({ ...base, scheduled: true, status: "assigned" }); continue; }
+    const due = lateAgainst(sh, inMin) ?? 0;
+    out.push({ ...base, scheduled: true, status: inMin <= due ? "ok" : inMin <= sh.halfDay ? "late" : "half_day" });
+  }
+  return out;
+}
+
 /** v1.139.0 - DERIVE ONE DAY'S OVERTIME, from wherever the day was settled.
  *
  * The rule lived inline in the punch route, so it only ever ran at the
@@ -4358,7 +4465,22 @@ export async function handleStaff(
         entry: shiftEntry(new Date(), tdy, remaining ?? slotsT, priorRemaining ?? priorSlots, recent, remaining === null),
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
-    return json({ month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records: results, ot, ot_eligible, today_shift });
+    /* v1.170.0 - THE PERSON'S OWN MONTH, DAY BY DAY. The Dashboard has shown
+       "days present" and "hours" since v1.15.0, both counted from raw
+       punches. It could not say "on time" or "late", because a punch is only
+       classified at the moment it is made (the flag in the toast) and in the
+       HR report, which this person may not open. So the same classification
+       the report and payroll run - the shift in force on that date, the
+       block the punch was FOR (lateAgainst), roster and live-board
+       assignments, approved leave, public holidays - is run here for one
+       user and one month, and the Dashboard draws it. Nothing is invented:
+       a day with no punch is "absent" only once it is over; today without a
+       punch is "pending"; a rest day worked is "rest_day", never "late".
+       Additive and optional - a client that does not read `days` sees the
+       response it always did. */
+    let days: MyMonthDay[] | undefined;
+    try { days = await myMonthDays(env, forUser, month); } catch { /* the punches still answer */ }
+    return json({ month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records: results, ot, ot_eligible, today_shift, days });
   }
 
   if (path === "/attendance/monitor" && method === "GET") {

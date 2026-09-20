@@ -2,6 +2,16 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.170.0] - 2026-09-20 - The month, judged: attendance breakdown on the Dashboard
+
+- Added an "Attendance this month" card to the Dashboard: on time, late, half day and the current on-time streak, with the month drawn as a Monday-first calendar of verdicts in the validated attendance colours. Every figure is a count of verdicts the worker reached; nothing is computed from raw punches on the client.
+- `GET /staff/attendance` now also returns `days[]`, one verdict per day up to today for the signed-in person, classified with the same functions payroll and the verification report use (the shift in force, the block the punch was for, roster and live-board assignments, approved leave, public holidays). Additive and optional; a rest day worked is never late, today is never absent before it is over, and a punch awaiting the CEO is "awaiting approval", neither present nor absent. No migration, no permission change.
+- Fixed the shift hero's unreadable inset: the v1.169.0 class overrides (`.erp-shift-hero .bg-secondary` and friends) never applied because Tailwind v4 puts utilities in a later cascade layer, so "Office location check is on" rendered white on white and the rest-day note grey on navy. The hero now redefines its own tokens on the surface, which every utility inside resolves against in both themes.
+- Fixed the More sheet footer: "Toggle dark mode" and "Sign out" had inherited the 44px icon-circle geometry from v1.169.0 and their labels spilled out of the rings. They are labelled pills now - Dark/Light mode as a secondary command, Sign out in the contract's destructive outline.
+- Added a table contract (`.erp-table-wrap` / `.erp-table`: sticky header, framed two-axis scroll, row hover) and an empty-state contract (`.erp-empty`, `components/ui/empty-state.tsx`: what is empty, why, and what to do). `DataTable` wears both and gains `loading` (skeleton rows in the table's own shape) and structured empty copy with a clear-search action; Hankei's review and packing queues adopt the empty state.
+- Guard `month-days` (#90) runs the classifier against a real SQLite database with the real migration schemas: 22 checks. All 90 guards, portal and worker type checks, and the production Next.js build pass; the Dashboard, More sheet and Inventory were rendered in Chromium at 390, 430, 768, 1280 and 1440 px in both themes with no overflow and no page errors.
+- Audit for the wider interface programme recorded in `docs/PROJECT-STATE.md`: the stack (Next 15.5 / React 19 / Tailwind v4 / TypeScript 5.7 / lucide / framer-motion) already supports the target, so nothing was installed or upgraded.
+
 ## [1.169.0] - 2026-09-20 - One interface system for daily work
 
 - Introduced one global 44px pill-button contract for labelled portal commands on PWA and web, with matching primary, secondary, accent, positive, warning and destructive states plus circular icon-only controls.
