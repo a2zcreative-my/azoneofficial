@@ -119,7 +119,10 @@ const pkg = JSON.parse(read("package.json"));
    cant see there is a Public Holiday!") ---- */
 {
   const pdf = read("lib/roster-pdf.ts");
-  ok("the board hands the sheet the week's holidays and the sales duty", /shareRosterPdf\([\s\S]{0,400}\{ holidays: data\.days\.filter\(\(d\) => holidayAt\(d\)\)\.map\(\(d\) => \(\{ date: d, name: holidayAt\(d\)!\.name \}\)\), shifts[,} ]/.test(board));
+  /* v1.171.0 - whitespace-tolerant: the extras object is written over several
+     lines now that the events ride in it too. The property is the same one -
+     the board hands the sheet the holidays and the sales duty. */
+  ok("the board hands the sheet the week's holidays and the sales duty", /shareRosterPdf\([\s\S]{0,600}holidays: data\.days\.filter\(\(d\) => holidayAt\(d\)\)\.map\(\(d\) => \(\{ date: d, name: holidayAt\(d\)!\.name \}\)\),\s*shifts\s*[,}]/.test(board));
   ok("...as an optional last argument, so an older caller still prints", /extras: RosterPdfExtras = \{\},\n\): string/.test(pdf) && /extras: RosterPdfExtras = \{\},\n\): Promise/.test(pdf));
   ok("the holiday is named in the day header and tints the column", /hol\.name\.toUpperCase\(\)/.test(pdf) && /holidayOf\(d\)\) c\.rect\(x \+ 0\.5, y \+ 0\.5, dayW - 1, rowH - 1, HD_CELL\)/.test(pdf));
   ok("sales duty prints as its own chip, under the tasks, counted in every total", /for \(const v of mineS\.filter\(\(w\) => w\.shift_date === d\)\)/.test(pdf) && /mineS\.length > 0 \? `\$\{mineS\.length\} sales`/.test(pdf) && /shifts\.length > 0 \? ` · \$\{shifts\.length\} sales`/.test(pdf));

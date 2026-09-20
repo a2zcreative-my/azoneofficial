@@ -128,6 +128,7 @@ const GUARDS = [
   ["users-ui", "the Users tab draws from the shared vocabulary, one filtered list feeds the desk and the phone, and a row action is a real tap target with a real name"],
   ["interface-system", "portal commands share one 44px pill system on phone and desktop, while the Dashboard keeps one shift hero and one tabbed work overview"],
   ["portal-experience", "the responsive portal keeps daily phone actions stable, groups authorised modules, and opens Staff as a searchable directory"],
+  ["roster-pdf-events", "the shared roster PDF carries the calendar: an event assigned to somebody prints on their row and only theirs, a whole-floor event prints once in its own band, the times survive the column, the legend names the colour and it is not the Shopee colour - built here and read back out of the content stream, so a builder that takes the events and ignores them fails"],
   ["month-days", "the Dashboard's month is the payroll's month, run against a real SQLite database: on time, late and half day are judged against the block the punch was for, a rest day worked is never late, today is never absent before it is over, and a punch awaiting the CEO is neither present nor absent"],
   ["event-attendees", "an event can name who has to be there - only they are told, an empty list still means everyone, and the whole floor still sees the event"],
   ["map-extrusion", "a raised state is still Malaysia - every wall belongs to its own state, nothing raised leaves the frame, and a state with no figure draws no wall"],

@@ -1250,11 +1250,19 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                     data.days, data.sessions, staff, data.on_leave,
                     data.conflicts.flatMap((cf) => cf.session_ids), "AZ ONE staff portal",
                     blocks, [...hardBlockIds, ...softBlockIds],
-                    { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })), shifts, restDays: (data.rest_days ?? []).filter((r) => !bookedAt(r.user_id, r.date)) });
+                    { holidays: data.days.filter((d) => holidayAt(d)).map((d) => ({ date: d, name: holidayAt(d)!.name })),
+                      shifts,
+                      restDays: (data.rest_days ?? []).filter((r) => !bookedAt(r.user_id, r.date)),
+                      /* v1.171.0 (CEO: "pdf not extract the event also!") - the
+                         sheet goes to the whole floor, so the calendar goes
+                         with it: assigned events on their person's row, the
+                         whole-floor ones in a band across the day. */
+                      events });
                   if (how === "cancelled") return;
                   showToast(how === "shared" ? L("Shared", "Dikongsi") : L("Downloaded", "Dimuat turun"),
                     `${L("Week roster PDF", "PDF roster minggu")} · ${dmy(data.days[0]!)} – ${dmy(data.days[6]!)}`
-                    + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : ""));
+                    + (blocks.length > 0 ? ` · ${data.sessions.length} ${L("live", "LIVE")} + ${blocks.length} ${L("tasks", "tugasan")}` : "")
+                    + (events.length > 0 ? ` + ${events.length} ${L("events", "acara")}` : ""));
                 }}>
                 {L("PDF — share plan", "PDF — kongsi pelan")}
               </button>

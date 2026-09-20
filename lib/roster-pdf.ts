@@ -55,6 +55,11 @@ const HD_CELL = "0.996 0.975 0.975";
 const HD_TEXT = LV_TEXT;
 const SD_FILL = "0.906 0.945 0.988";   // sales duty (the on-screen info blue)
 const SD_EDGE = "0.267 0.529 0.816";
+/* v1.171.0 - company events. The print twin of the on-screen gold event
+   chip, a shade deeper than Shopee's pale gold so the two never read as one
+   thing on a sheet that carries both. */
+const EV_FILL = "0.976 0.918 0.773";
+const EV_EDGE = "0.784 0.639 0.153";
 const SD_WARN_FILL = CF_FILL;          // a planned day that passed with nothing logged
 const SD_WARN_EDGE = CF_EDGE;
 const TODAY_FILL = "0.984 0.969 0.929";
@@ -107,11 +112,22 @@ export interface RosterPdfShift {
   id: number; user_id: number; shift_date: string; start_time: string; end_time: string;
   target_cents?: number | null; focus?: string | null; evidence?: number;
 }
+/* v1.171.0 - a company event in the week. The CEO, 20-09-2026, after the
+   board learned to show them: *"pdf not extract the event also!"*. The sheet
+   goes out to the whole floor, so an event missing from it is an event the
+   floor plans over. `attendees` EMPTY MEANS EVERYONE (migration 0122), which
+   prints as a band across the day rather than in nine staff rows. */
+export interface RosterPdfEvent {
+  id: number; title: string; event_date: string;
+  start_time?: string | null; end_time?: string | null;
+  location?: string | null; attendees?: number[];
+}
 export interface RosterPdfExtras {
   holidays?: { date: string; name: string }[];
   shifts?: RosterPdfShift[];
   /* v1.158.4 - each person's own rest days, from their working-hours pattern */
   restDays?: { user_id: number; date: string }[];
+  events?: RosterPdfEvent[];
 }
 export interface RosterPdfStaff { id: number; name: string }
 
@@ -149,6 +165,16 @@ export function drawRosterGrid(
   const durOfS = (x: RosterPdfShift) => { let d = minsOf(x.end_time) - minsOf(x.start_time); if (d <= 0) d += 24 * 60; return Math.max(30, d); };
   const rmShort = (cents: number) => `RM${Math.round(cents / 100).toLocaleString("en-MY")}`;
   const offOn = (uid: number, d: string) => (extras.restDays ?? []).some((r) => r.user_id === uid && r.date === d);
+  /* v1.171.0 - the calendar. `evFor` is an event somebody was assigned to and
+     prints on their row; `evAll` is the whole-floor kind and prints once, in
+     a band under the day headers. */
+  const events = [...(extras.events ?? [])]
+    .filter((e) => days.includes(e.event_date))
+    .sort((a, b) => `${a.event_date}${a.start_time ?? "00:00"}`.localeCompare(`${b.event_date}${b.start_time ?? "00:00"}`));
+  const evTime = (e: RosterPdfEvent) => (e.start_time ? `${e.start_time}${e.end_time ? `-${e.end_time}` : ""}` : "all day");
+  const evFor = (uid: number, d: string) => events.filter((e) => e.event_date === d && (e.attendees ?? []).includes(uid));
+  const evAll = (d: string) => events.filter((e) => e.event_date === d && (e.attendees ?? []).length === 0);
+  const floorEvents = events.filter((e) => (e.attendees ?? []).length === 0);
   const OFF_FILL = BAND_GREY;
   const OFF_TEXT = GREY;
   const active = sessions
@@ -189,8 +215,16 @@ export function drawRosterGrid(
   /* Committed hours, both kinds. A total that counts only live sessions
      understates the week on paper exactly as it did on screen. */
   const totalMins = active.reduce((a, s) => a + durOf(s), 0) + work.reduce((a, b) => a + durOfB(b), 0) + shifts.reduce((a, x) => a + durOfS(x), 0);
-  c.text(`${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""}${shifts.length > 0 ? ` · ${shifts.length} sales` : ""} · ${hrs(totalMins)}`,
-    FM + 5, y + 22, 8, { bold: true, colour: WHITE });
+  /* v1.171.0 - the summary line is one line in a fixed 150pt column, and it
+     gained a fourth count. Rather than let it run under the column border
+     (which is what "... 3 events - 52." was), it is set at the largest size
+     between 8 and 6 that actually fits, and only clipped if even 6 will not
+     do. A total that is cut in half is worse than a total set a point
+     smaller. */
+  const summary = `${active.length} live${work.length > 0 ? ` · ${work.length} task${work.length === 1 ? "" : "s"}` : ""}${shifts.length > 0 ? ` · ${shifts.length} sales` : ""}${events.length > 0 ? ` · ${events.length} event${events.length === 1 ? "" : "s"}` : ""} · ${hrs(totalMins)}`;
+  let sumSize = 8;
+  while (sumSize > 6 && widthOf(summary, sumSize, true) > STAFF_W - 10) sumSize -= 0.25;
+  c.text(clip(summary, sumSize, STAFF_W - 10, true), FM + 5, y + 22, sumSize, { bold: true, colour: WHITE });
   days.forEach((d, i) => {
     const x = edgeX(i);
     const dayS = active.filter((s) => s.session_date === d);
@@ -201,7 +235,7 @@ export function drawRosterGrid(
     c.rect(x + 0.5, y + 0.5, dayW - 1, HEAD_H - 1, d === todayIso ? TODAY_FILL : hol ? HD_FILL : BAND_GREY);
     c.text(`${dayLabel(d)} ${dmy(d).slice(0, 5)}`, x + dayW / 2, y + 12, 9.5, { bold: true, align: "c", ...(hol ? { colour: HD_TEXT } : {}) });
     const dayMins = dayS.reduce((a, s) => a + durOf(s), 0) + dayB.reduce((a, b) => a + durOfB(b), 0) + daySh.reduce((a, v) => a + durOfS(v), 0);
-    const n = dayS.length + dayB.length + daySh.length;
+    const n = dayS.length + dayB.length + daySh.length + events.filter((e) => e.event_date === d).length;
     /* the holiday is NAMED in the header - "-" under a red day says nothing;
        its count, if any, goes after the name only when the column has room */
     const holLine = hol ? clip(`${hol.name.toUpperCase()}${n > 0 && widthOf(`${hol.name.toUpperCase()} · ${n} · ${hrs(dayMins)}`, 6.5, true) <= dayW - 6 ? ` · ${n} · ${hrs(dayMins)}` : ""}`, 6.5, dayW - 6, true) : "";
@@ -209,6 +243,27 @@ export function drawRosterGrid(
       x + dayW / 2, y + 23, hol ? 6.5 : 7.5, { colour: hol ? HD_TEXT : GREY, align: "c", ...(hol ? { bold: true } : {}) });
   });
   y += HEAD_H;
+
+  /* v1.171.0 - EVERYONE'S EVENTS, ONCE. A townhall is not nine bookings, so
+     it prints as a gold band across the day it falls on instead of being
+     repeated down every staff row. Drawn before the rows are sized, so the
+     space it takes is space the rows never assume they have. */
+  const FLOOR_H = floorEvents.length > 0 ? 14 : 0;
+  if (FLOOR_H > 0) {
+    c.box(FM, y, STAFF_W, FLOOR_H, HAIR, 0.5);
+    c.rect(FM + 0.5, y + 0.5, STAFF_W - 1, FLOOR_H - 1, EV_FILL);
+    c.text("EVERYONE", FM + 5, y + FLOOR_H * 0.7, 7, { bold: true, colour: EV_EDGE, spacing: 0.6 });
+    days.forEach((d, i) => {
+      const x = edgeX(i);
+      c.box(x, y, dayW, FLOOR_H, HAIR, 0.5);
+      const mine = evAll(d);
+      if (mine.length === 0) return;
+      c.rect(x + 0.5, y + 0.5, dayW - 1, FLOOR_H - 1, EV_FILL);
+      const label = mine.map((e) => `${e.title.trim()}${e.start_time ? ` ${evTime(e)}` : ""}`).join(" · ");
+      c.text(clip(label, 7, dayW - 8, true), x + 4, y + FLOOR_H * 0.7, 7, { bold: true });
+    });
+    y += FLOOR_H;
+  }
 
   /* v1.143.0 — THE SHEET SIZES ITSELF TO THE WEEK.
      The CEO, 09-09-2026: *"this pdf for the Schedule & Roster too small which
@@ -233,7 +288,7 @@ export function drawRosterGrid(
      colour means completed and which means on leave - so its band is reserved
      BEFORE the rows are sized, not squeezed out after them. */
   const LEGEND_H = 26;
-  const AVAIL = (footerY - LEGEND_H) - y;
+  const AVAIL = (footerY - LEGEND_H) - y; // y already past the EVERYONE band
   const BASE = {
     nameSize: 8.2, nameLead: 9.4, totals: 7,
     chipH: 22, chipTitle: 8, chipTime: 6.5, gap: 2,
@@ -247,7 +302,7 @@ export function drawRosterGrid(
     minRow: BASE.minRow * k, pad: BASE.pad * k,
   });
 
-  interface Row { u: RosterPdfStaff; mine: RosterPdfSession[]; mineB: RosterPdfBlock[]; mineS: RosterPdfShift[]; h: number }
+  interface Row { u: RosterPdfStaff; mine: RosterPdfSession[]; mineB: RosterPdfBlock[]; mineS: RosterPdfShift[]; mineE: RosterPdfEvent[]; h: number }
   const planAt = (k: number): { m: Metrics; rows: Row[]; total: number } => {
     const m = metricsAt(k);
     let total = 0;
@@ -255,10 +310,12 @@ export function drawRosterGrid(
       const mine = active.filter((s) => s.host_user_id === u.id);
       const mineB = work.filter((b) => b.user_id === u.id);
       const mineS = shifts.filter((v) => v.user_id === u.id);
+      const mineE = events.filter((e) => (e.attendees ?? []).includes(u.id));
       const maxChips = Math.max(1, ...days.map((d) =>
         mine.filter((s) => s.session_date === d).length
         + mineB.filter((b) => b.block_date === d).length
         + mineS.filter((v) => v.shift_date === d).length
+        + mineE.filter((e) => e.event_date === d).length
         + (leaveOn(u.id, d) || offOn(u.id, d) ? 1 : 0)));
       /* The row is as tall as its busiest cell OR its longest name, whichever
          needs more. Sizing on chips alone would print a three-line name over
@@ -267,7 +324,7 @@ export function drawRosterGrid(
       const nameH = m.nameLead + nameLines * m.nameLead + m.totals;
       const h = Math.max(m.minRow, nameH, m.pad * 2 + maxChips * (m.chipH + m.gap) - m.gap);
       total += h;
-      return { u, mine, mineB, mineS, h };
+      return { u, mine, mineB, mineS, mineE, h };
     });
     return { m, rows, total };
   };
@@ -287,6 +344,7 @@ export function drawRosterGrid(
     ...active.map((s2) => `${s2.start_time}${s2.end_time ? `-${s2.end_time}` : ""} · ${durOf(s2)} min`),
     ...work.map((b) => `${b.start_time}${b.end_time ? `-${b.end_time}` : ""} · task${b.done_at ? " · done" : ""}`),
     ...shifts.map((v) => `${v.start_time}-${v.end_time} · ${v.shift_date <= todayIso ? `${v.evidence ?? 0} logged` : "sales"}`),
+    ...events.map((e) => `${evTime(e)} · event`),
   ];
   const widest = Math.max(0, ...subLines.map((t) => widthOf(t, BASE.chipTime, false)));
   const fitK = widest > 0 ? Math.max(1, (dayW - 12) / widest) : MAX_K;
@@ -304,7 +362,7 @@ export function drawRosterGrid(
   let skippedStaff = 0;
 
   for (const row of plan.rows) {
-    const { u, mine, mineB, mineS } = row;
+    const { u, mine, mineB, mineS, mineE } = row;
     const rowH = row.h;
     if (y + rowH > footerY - LEGEND_H) { skippedStaff++; continue; }
 
@@ -313,11 +371,12 @@ export function drawRosterGrid(
     const nameEnd = c.wrap(u.name.trim(), FM + 5, y + M.nameLead, STAFF_W - 10, M.nameSize, M.nameLead, { bold: true });
     const myMins = mine.reduce((a, s) => a + durOf(s), 0) + mineB.reduce((a, b) => a + durOfB(b), 0) + mineS.reduce((a, v) => a + durOfS(v), 0);
     c.text(
-      mine.length + mineB.length + mineS.length === 0
+      mine.length + mineB.length + mineS.length + mineE.length === 0
         ? "nothing booked"
         : [mine.length > 0 ? `${mine.length} live` : "",
            mineB.length > 0 ? `${mineB.length} task${mineB.length === 1 ? "" : "s"}` : "",
            mineS.length > 0 ? `${mineS.length} sales` : "",
+           mineE.length > 0 ? `${mineE.length} event${mineE.length === 1 ? "" : "s"}` : "",
            hrs(myMins)].filter(Boolean).join(" · "),
       FM + 5, nameEnd + M.totals * 0.6, M.totals, { colour: GREY });
 
@@ -349,6 +408,16 @@ export function drawRosterGrid(
         c.text(clip(sub, M.chipTime, dayW - 12), x + 5.5, cy + M.chipH * 0.78, M.chipTime, { colour: SLATE });
         cy += M.chipH + M.gap;
       };
+      /* v1.171.0 - an event assigned to this person leads the cell: a class
+         they have to attend is the fixed point the day is planned around,
+         and on the sheet it has to be visible before the work it displaces. */
+      for (const e of evFor(u.id, d)) {
+        /* The second line is the time and the WORD - no location. A day
+           column is about 90pt: adding the place pushed "event" off the end
+           of its own chip, and the word is the one thing on it a reader
+           cannot guess. The place is on the event in the portal. */
+        chip(EV_FILL, EV_EDGE, e.title.trim() || "Event", `${evTime(e)} · event`);
+      }
       for (const s of mine.filter((v) => v.session_date === d)) {
         const [fill, edge] = conflictSet.has(s.id) ? [CF_FILL, CF_EDGE]
           : s.status === "completed" ? [OK_FILL, OK_EDGE]
@@ -398,7 +467,7 @@ export function drawRosterGrid(
   const legend: [string, string, string][] = [
     ["TikTok", TT_FILL, TT_EDGE], ["Shopee", SP_FILL, SP_EDGE], ["Other", OT_FILL, OT_EDGE],
     ["Task", TK_FILL, TK_EDGE],
-    ["Sales duty", SD_FILL, SD_EDGE],
+    ["Sales duty", SD_FILL, SD_EDGE], ["Event", EV_FILL, EV_EDGE],
     ["Completed", OK_FILL, OK_EDGE], ["Conflict", CF_FILL, CF_EDGE], ["On leave", LV_FILL, LV_TEXT],
     ["Public holiday", HD_FILL, HD_TEXT], ["Off day", OFF_FILL, OFF_TEXT],
   ];
