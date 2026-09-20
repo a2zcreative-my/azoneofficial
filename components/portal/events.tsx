@@ -64,6 +64,15 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
   const [events, setEvents] = useState<CompanyEvent[]>([]);
   const [msg, setMsg] = useState("");
   const [showForm, setShowForm] = useState(false);
+  /* v1.171.0 - the CEO, 20-09-2026: *"The company events calendar I want to
+     edit the details event and the assigned person!"*. The card could create
+     an event and remove one, and nothing in between: a wrong time or a fifth
+     person meant deleting the event (which un-notifies nobody) and building
+     it again. The SAME form does both - null = creating, an id = editing
+     that event - because two forms drift apart and one of them ends up
+     missing the attendee picker. PATCH /staff/events/{id} has accepted every
+     field including the list since v1.144.0. */
+  const [editingId, setEditingId] = useState<number | null>(null);
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -172,7 +181,34 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
     return n === 0 ? "TODAY" : n === 1 ? "Tomorrow" : `in ${n} days`;
   };
 
-  const createEvent = async () => {
+  const BLANK = {
+    title: "", category: "training", event_date: "", start_time: "",
+    end_time: "", location: "", details: "", attendees: [] as number[],
+  };
+  const closeForm = () => { setShowForm(false); setEditingId(null); setDraft(BLANK); setMsg(""); };
+  /* Prefill from the event as it stands, attendee list included, so "the
+     assigned person" is edited by adding and removing chips rather than
+     remembered and retyped. */
+  const openEditEvent = (ev: CompanyEvent) => {
+    setDraft({
+      title: ev.title,
+      category: ev.category,
+      event_date: ev.event_date,
+      start_time: ev.start_time ?? "",
+      end_time: ev.end_time ?? "",
+      location: ev.location ?? "",
+      details: ev.details ?? "",
+      attendees: (ev.attendees ?? []).map((a) => a.id),
+    });
+    setEditingId(ev.id);
+    setShowForm(true);
+    setMsg("");
+    if (typeof document !== "undefined") {
+      window.setTimeout(() => document.getElementById("event-form")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    }
+  };
+
+  const saveEvent = async () => {
     if (savingRef.current) return;
     if (!draft.title.trim() || !draft.event_date) {
       setMsg(L("Title and date are required.", "Tajuk dan tarikh diperlukan."));
@@ -182,41 +218,41 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
     savingRef.current = true;
     setSaving(true);
     try {
-    const res = await api<{ error?: { message?: string } }>(`/staff/events`, {
-      method: "POST",
-      body: JSON.stringify({
-        ...draft,
-        start_time: draft.start_time || undefined,
-        end_time: draft.end_time || undefined,
-        location: draft.location || undefined,
-        details: draft.details || undefined,
-        attendees: draft.attendees,
-      }),
-    });
+    /* Editing sends the empty string where the create path sends undefined:
+       on PATCH, "" is how a time or a location is CLEARED, and undefined
+       would silently leave the old value in place. */
+    const editing = editingId !== null;
+    const res = await api<{ error?: { message?: string } }>(
+      editing ? `/staff/events/${editingId}` : `/staff/events`,
+      {
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify({
+          ...draft,
+          start_time: editing ? draft.start_time : draft.start_time || undefined,
+          end_time: editing ? draft.end_time : draft.end_time || undefined,
+          location: editing ? draft.location : draft.location || undefined,
+          details: editing ? draft.details : draft.details || undefined,
+          attendees: draft.attendees,
+        }),
+      });
     if (!res.ok) {
       setMsg(
         res.data?.error?.message ??
-          L("Could not create the event", "Tidak dapat membuat acara")
+          (editing
+            ? L("Could not save the changes", "Tidak dapat menyimpan perubahan")
+            : L("Could not create the event", "Tidak dapat membuat acara"))
       );
       return;
     }
-    setDraft({
-      title: "",
-      category: "training",
-      event_date: "",
-      start_time: "",
-      end_time: "",
-      location: "",
-      details: "",
-      attendees: [],
-    });
-    setShowForm(false);
+    const title = draft.title;
+    closeForm();
     showToast(
       L("Saved", "Disimpan"),
-      L(
-        "Event created — all staff notified",
-        "Acara dibuat — semua kakitangan dimaklumkan"
-      )
+      editing
+        ? L(`${title} updated — only newly added people are notified`,
+            `${title} dikemas kini — hanya orang yang baharu ditambah dimaklumkan`)
+        : L("Event created — all staff notified",
+            "Acara dibuat — semua kakitangan dimaklumkan")
     );
     void loadEvents();
     } finally { savingRef.current = false; setSaving(false); }
@@ -279,7 +315,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
             <button
               type="button"
               className={btnGhost}
-              onClick={() => setShowForm((v) => !v)}
+              onClick={() => (showForm ? closeForm() : setShowForm(true))}
             >
               {showForm
                 ? L("Close", "Tutup")
@@ -289,7 +325,21 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
         </span>
       </div>
       {canManage && showForm && (
-        <div className="border-border mt-3 space-y-2 rounded-lg border p-3">
+        <div id="event-form" className="border-border mt-3 space-y-2 rounded-lg border p-3 scroll-mt-16">
+          {/* v1.171.0 - one form, two jobs. It says which one it is doing, and
+              offers the way back out of the one that was not asked for. */}
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold">
+              {editingId === null
+                ? L("New event", "Acara baharu")
+                : L("Editing event", "Menyunting acara")}
+            </p>
+            {editingId !== null && (
+              <button type="button" className="text-muted-foreground text-xs underline" onClick={closeForm}>
+                {L("Cancel — leave it as it was", "Batal — kekalkan seperti asal")}
+              </button>
+            )}
+          </div>
           <Sub t={L("Event title", "Tajuk acara")}>
             <input
               className={inputClass}
@@ -394,7 +444,15 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
               as it was before. Everyone still SEES the event on the calendar;
               only the bell is aimed. */}
           {staffOptions.length > 0 && (
-            <Sub t={L("Who must attend (optional)", "Siapa perlu hadir (pilihan)")}>
+            /* v1.171.0 - a <div>, NOT <Sub>. Sub is a <label>, and a label
+               wrapped around a list of labelled checkboxes is nested-label
+               HTML: pressing the caption toggled the FIRST person in the
+               list - whoever opened the form usually adding themselves to
+               the event without noticing. Same caption, no label. */
+            <div className="block">
+              <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">
+                {L("Who must attend (optional)", "Siapa perlu hadir (pilihan)")}
+              </span>
               <div className="border-border max-h-56 space-y-0.5 overflow-y-auto rounded-xl border p-1.5">
                 {staffOptions.map((p) => {
                   const on = draft.attendees.includes(p.id);
@@ -424,19 +482,21 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
                   </button>
                 )}
               </p>
-            </Sub>
+            </div>
           )}
           {msg && <p className="text-destructive text-xs font-medium">{msg}</p>}
           <button
             type="button"
             className={btnClass}
-            onClick={() => void createEvent()}
+            onClick={() => void saveEvent()}
             disabled={saving}
           >
-            {draft.attendees.length === 0
-              ? L("Save event — notifies all staff", "Simpan acara — memaklumkan semua kakitangan")
-              : L(`Save event — notifies ${draft.attendees.length} staff`,
-                  `Simpan acara — memaklumkan ${draft.attendees.length} kakitangan`)}
+            {editingId !== null
+              ? L("Save changes", "Simpan perubahan")
+              : draft.attendees.length === 0
+                ? L("Save event — notifies all staff", "Simpan acara — memaklumkan semua kakitangan")
+                : L(`Save event — notifies ${draft.attendees.length} staff`,
+                    `Simpan acara — memaklumkan ${draft.attendees.length} kakitangan`)}
           </button>
         </div>
       )}
@@ -499,6 +559,7 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
           onSelect={setSelectedDay}
           canManage={canManage}
           onRemove={(id) => void removeEvent(id)}
+          onEdit={openEditEvent}
         />
       )}
       {loaded && view === "list" && (
@@ -573,6 +634,15 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
                 {canManage && (
                   <button
                     type="button"
+                    className={rowBtn}
+                    onClick={() => openEditEvent(ev)}
+                  >
+                    {L("Edit", "Sunting")}
+                  </button>
+                )}
+                {canManage && (
+                  <button
+                    type="button"
                     className={rowBtnDanger}
                     onClick={() => void removeEvent(ev.id)}
                   >
@@ -618,6 +688,7 @@ export function EventsCalendar({
   onSelect,
   canManage,
   onRemove,
+  onEdit,
 }: {
   events: CompanyEvent[];
   holidays: { holiday_date: string; name: string; kind: string }[];
@@ -630,6 +701,9 @@ export function EventsCalendar({
   onSelect: (d: string | null) => void;
   canManage: boolean;
   onRemove: (id: number) => void;
+  /* v1.171.0 - the day's agenda is where an event is actually looked at, so
+     it is where Edit belongs too. */
+  onEdit?: (ev: CompanyEvent) => void;
 }) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -926,6 +1000,15 @@ export function EventsCalendar({
                   >
                     <AppIcon name="calendarAdd" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Add to my calendar", "Tambah ke kalendar saya")}
                   </button>
+                  {canManage && onEdit && (
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      onClick={() => onEdit(ev)}
+                    >
+                      {L("Edit", "Sunting")}
+                    </button>
+                  )}
                   {canManage && (
                     <button
                       type="button"

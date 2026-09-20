@@ -169,6 +169,50 @@ ok("the three event routes were found", postEvents.length > 0 && patchEvents.len
   ok("a health probe can name it", /event_attendees LIMIT 1/.test(index));
 }
 
+/* ---- 8. v1.171.0 — THE CARD CAN EDIT WHAT IT CREATED.
+   The CEO, 20-09-2026: *"The company events calendar I want to edit the
+   details event and the assigned person!"*. The route has taken every field
+   including the list since v1.144.0 (property 3 above); the CARD could only
+   create and remove, so a wrong time or a fifth person meant deleting the
+   event - which un-notifies nobody - and building it again.
+
+   ONE form does both. Two forms drift apart, and the one that drifts is
+   always the one with the attendee picker in it.
+
+   Negative-tested by: pointing the edit at POST; dropping `attendees` from
+   the edit body; leaving the picker inside <Sub>. ---- */
+{
+  ok("the card holds an editing id, and one form serves both jobs",
+     /const \[editingId, setEditingId\] = useState<number \| null>\(null\);/.test(panel)
+     && (panel.match(/id="event-form"/g) ?? []).length === 1);
+  ok("Edit prefills every field the route accepts, the attendee list included",
+     /const openEditEvent = \(ev: CompanyEvent\) => \{[\s\S]*?attendees: \(ev\.attendees \?\? \[\]\)\.map\(\(a\) => a\.id\),/.test(panel));
+  ok("editing PATCHes that event; creating still POSTs",
+     /editing \? `\/staff\/events\/\$\{editingId\}` : `\/staff\/events`/.test(panel)
+     && /method: editing \? "PATCH" : "POST"/.test(panel));
+  ok("an emptied field is CLEARED on edit, not silently left behind",
+     /start_time: editing \? draft\.start_time : draft\.start_time \|\| undefined/.test(panel)
+     && /location: editing \? draft\.location : draft\.location \|\| undefined/.test(panel));
+  ok("the attendee list always rides with the save",
+     /attendees: draft\.attendees,/.test(panel));
+  ok("the form says which job it is doing and offers the way out",
+     /L\("Editing event", "Menyunting acara"\)/.test(panel)
+     && /L\("Cancel — leave it as it was", "Batal — kekalkan seperti asal"\)/.test(panel)
+     && /L\("Save changes", "Simpan perubahan"\)/.test(panel));
+  ok("...and it does not promise a bell it will not ring (only the newly added are told)",
+     /only newly added people are notified/.test(panel));
+  ok("Edit is offered wherever an event is read - the list and the day's agenda",
+     (panel.match(/\{L\("Edit", "Sunting"\)\}/g) ?? []).length === 2
+     && /onEdit\?: \(ev: CompanyEvent\) => void;/.test(panel)
+     && /onEdit=\{openEditEvent\}/.test(panel));
+  /* v1.171.0 - Sub is a <label>; wrapping the checkbox list in one made
+     pressing the caption tick the FIRST person in the list, which is how the
+     person opening the form quietly added themselves to the event. */
+  ok("the attendee picker is not wrapped in a label",
+     !/<Sub t=\{L\("Who must attend/.test(panel)
+     && /\{L\("Who must attend \(optional\)", "Siapa perlu hadir \(pilihan\)"\)\}\s*<\/span>/.test(panel));
+}
+
 console.log(failed === 0
   ? `event-attendees: ${passed} checks passed.`
   : `\n${failed} event-attendees check(s) failed.`);
