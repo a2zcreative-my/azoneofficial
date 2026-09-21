@@ -5,10 +5,12 @@
 
 .lines {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.375rem;
 }
 .stack2 {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
 }
 .row {
@@ -25,6 +27,7 @@
   min-width: 0;
   flex: 1 1 0%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.375rem;
 }
 .cells {
@@ -44,6 +47,7 @@
   min-width: 0;
   flex: 1 1 0%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
 }
 .bars {

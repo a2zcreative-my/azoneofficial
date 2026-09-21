@@ -100,6 +100,7 @@
 .items {
   margin-top: 0.25rem;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.125rem;
 }
 .record {
@@ -261,7 +262,7 @@
   .gridHead {
     margin-top: 0.5rem;
     display: grid;
-    grid-template-columns: 8.5rem 7rem 1fr 6.5rem auto;
+    grid-template-columns: 8.5rem 7rem minmax(0, 1fr) 6.5rem auto;
     gap: 0.5rem;
     font-size: 0.75rem;
     line-height: 1rem;
@@ -269,7 +270,7 @@
   }
   .item {
     margin-top: 0.25rem;
-    grid-template-columns: 8.5rem 7rem 1fr 6.5rem auto;
+    grid-template-columns: 8.5rem 7rem minmax(0, 1fr) 6.5rem auto;
     border: 0;
     border-radius: 0;
     padding: 0;

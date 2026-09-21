@@ -41,6 +41,13 @@
   .scroll {
     overflow-x: clip;
   }
+  /* v1.174.1 - the backdrop reaches the bottom of the screen on a short
+     tab (the CEO's Enquiries screenshot showed the body's white below the
+     inbox card); the page's own bottom clearance still keeps the last card
+     above the bar. */
+  .workspace {
+    min-height: 100dvh;
+  }
 }
 
 @media (min-width: 768px) {

@@ -75,6 +75,14 @@
      collapses into the gap instead of adding to it, so the panels that
      were laid out against space-y keep their exact rhythm. :where() keeps
      the rule at zero specificity, so a child's own class still wins. */
+  /* v1.174.1 - a stack or a zone is often a grid or flex ITEM (a two-up
+     zone, a page that a module laid out as a grid). Its automatic minimum
+     would otherwise be the widest thing inside it - a 560px table in a
+     scroller is enough - and an `auto` / `1fr` track grows to that and
+     takes every sibling past the phone with it (the CEO's Ecommerce
+     screenshot, 21-09-2026). min-width: 0 makes the item shrinkable; the
+     wide thing then scrolls or spills inside its own card only. */
+  .erp-stack, .erp-stack-tight { min-width: 0; }
   .erp-stack > :where(:not(:last-child)) { margin-bottom: 1rem; }
   @media (min-width: 768px) { .erp-stack > :where(:not(:last-child)) { margin-bottom: 1.5rem; } }
   .erp-stack-tight > :where(:not(:last-child)) { margin-bottom: 0.75rem; }
@@ -107,6 +115,12 @@
     padding: var(--erp-card-pad, 1rem);
     box-shadow: var(--erp-shadow-card, none);
     min-width: 0;
+    /* v1.174.1: an unbreakable run (an 18-digit order number, a URL, an
+       email) wraps inside the card instead of running past the phone.
+       `anywhere`, not `break-word`: only `anywhere` lets a flex or grid
+       item's minimum shrink below the run, so a long word in a wrapped row
+       breaks instead of pushing the row out of the card. */
+    overflow-wrap: anywhere;
   }
   .erp-card-compact { padding: 0.75rem; }
   .erp-card-accent { border-top-width: 2px; }
@@ -262,6 +276,59 @@
     padding: 1.5rem 2rem;
     text-align: center;
     box-shadow: var(--erp-shadow-lift);
+    /* v1.174.2 - a card in the middle of the screen, never a band across
+       it: a long sentence wraps inside the card instead of stretching it to
+       the viewport (the CEO's phone, 21-09-2026). */
+    box-sizing: border-box;
+    max-width: min(24rem, calc(100% - 3rem));
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- elevated surfaces sit on the PAGE ----------
+     v1.174.2 - a sheet, modal, menu or toast floats above whatever opened
+     it, so it reads with the PAGE's tokens - never with the tokens of the
+     surface it happens to be rendered inside. Two surfaces carry their own
+     tokens for the controls on them: the navy shift hero (globals.css) and
+     the action bar (below). Custom properties inherit through the DOM, not
+     through the stacking order, so a position: fixed toast rendered from
+     inside the hero inherited --card = 6% white and --card-foreground =
+     white, and came out as a ghost band with white text across the grey
+     page (the CEO's "Already clocked out", 21-09-2026). The page's values
+     are captured on :root - the one element no surface sits above - and
+     every elevated surface re-anchors to them. The themes stay the owner
+     of the values: light, dark and Plum all declare their tokens on the
+     root element, so the capture follows the active theme. */
+  :root {
+    --erp-page-card: var(--card);
+    --erp-page-card-foreground: var(--card-foreground);
+    --erp-page-foreground: var(--foreground);
+    --erp-page-muted-foreground: var(--muted-foreground);
+    --erp-page-border: var(--border);
+    --erp-page-secondary: var(--secondary);
+    --erp-page-secondary-foreground: var(--secondary-foreground);
+    --erp-page-primary: var(--primary);
+    --erp-page-success: var(--success);
+    --erp-page-warning: var(--warning);
+    --erp-page-danger: var(--danger);
+    --erp-page-success-soft: var(--success-soft);
+    --erp-page-warning-soft: var(--warning-soft);
+    --erp-page-danger-soft: var(--danger-soft);
+  }
+  .erp-sheet, .erp-modal, .erp-menu, .erp-toast {
+    --card: var(--erp-page-card);
+    --card-foreground: var(--erp-page-card-foreground);
+    --foreground: var(--erp-page-foreground);
+    --muted-foreground: var(--erp-page-muted-foreground);
+    --border: var(--erp-page-border);
+    --secondary: var(--erp-page-secondary);
+    --secondary-foreground: var(--erp-page-secondary-foreground);
+    --primary: var(--erp-page-primary);
+    --success: var(--erp-page-success);
+    --warning: var(--erp-page-warning);
+    --danger: var(--erp-page-danger);
+    --success-soft: var(--erp-page-success-soft);
+    --warning-soft: var(--erp-page-warning-soft);
+    --danger-soft: var(--erp-page-danger-soft);
   }
 
   /* ---------- forms ---------- */
@@ -979,6 +1046,11 @@
     .erp-zone-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .erp-zone-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
+  /* v1.174.1 - the frozen sheet's arbitrary grids (sm:grid-cols-[1fr_1fr_auto]
+     and friends) have bare 1fr tracks, which are minmax(auto, 1fr): an item's
+     content can grow the track past the card. Their items are shrinkable
+     here (components layer - a legacy min-w-* on the item still wins). */
+  .erp-workspace [class*="grid-cols-["] > * { min-width: 0; }
   /* the summary tier: 2 across on a phone, 3 from 640px, 4 from 1024px */
   .erp-tiles { display: grid; gap: 0.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .erp-tiles > * { min-width: 0; }

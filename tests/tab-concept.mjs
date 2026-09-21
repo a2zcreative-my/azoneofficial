@@ -184,6 +184,37 @@ ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay",
 ok("Finance: THIS MONTH (cash) then the expense zones from the panel", /label=\{L\("This month", "Bulan ini"\)\}>\s*(?:\{\/\*[\s\S]*?\*\/\}\s*)?<CashFlowPanel \/>/.test(blockOf("Finance")) && /<ExpensesPanel reporting=\{<PnlCard \/>\} \/>/.test(blockOf("Finance")));
 ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab === "[^"]+" && \(\s*<div className="erp-stack">/.test(page));
 
+/* ---- 7. no grid blowout on a phone (v1.174.1) ----
+   The CEO's Ecommerce screenshot, 21-09-2026: every card ran off the right
+   of the phone. Cause, reproduced in WebKit and Chromium: the tab root was a
+   grid with an implicit `auto` track (v1.172.2's .ecomStack), whose items -
+   the zones - had min-width:auto, so one 560px table inside one card grew
+   the track to 594px on a 447px screen and every zone with it. A bare `1fr`
+   is minmax(auto, 1fr) and does the same. These checks hold the guarantees:
+   every module grid names its tracks with minmax(0, ...) or a fixed length,
+   zones and stacks are shrinkable, the Ecommerce root is a TabPage, and the
+   phone shell fills the screen. */
+{
+  const modules = ["app/portal/portal.module.css", "components/layout/app-shell.module.css", "components/portal/dashboard.module.css", "components/portal/attendance.module.css", "components/portal/claims.module.css", "components/portal/web-orders-panel.module.css", "components/portal/portal-skeleton.module.css", "components/ui/data-table.module.css", "components/ui/skeleton.module.css", "components/staff/responsibilities.module.css"];
+  for (const m of modules) {
+    const src = read(m).replace(/\/\*[\s\S]*?\*\//g, "");
+    const blocks = [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, , body]) => /display:\s*grid/.test(body));
+    const implicit = blocks.filter(([, , body]) => !/grid-template-columns/.test(body)).map(([sel]) => sel.trim().split(/\s*,\s*/)[0]);
+    /* a track list may contain auto only as the LAST column of a fixed row (label auto); never a bare 1fr */
+    const bare = [...src.matchAll(/grid-template-columns:\s*([^;]+);/g)].map((m2) => m2[1]).filter((t) => /(^|\s)1fr(\s|$)/.test(t) || /(^|\s)auto(\s|$)/.test(t.replace(/^\s*auto\s*$/, "")) && !/repeat\(|minmax\(/.test(t) && !/^\s*(?:\d|minmax)/.test(t));
+    ok(`${m}: every grid names its tracks (no implicit auto track)`, implicit.length === 0, implicit.join(", "));
+    ok(`${m}: no bare 1fr track (minmax(0, 1fr) or a length)`, bare.length === 0, bare.join(" | "));
+  }
+  ok("stacks and zones are shrinkable grid/flex items", /\.erp-stack, \.erp-stack-tight \{ min-width: 0; \}/.test(v3) && /\.erp-tab-zone \{ min-width: 0;/.test(v3));
+  ok("the frozen sheet's arbitrary grids have shrinkable items", /\.erp-workspace \[class\*="grid-cols-\["\] > \* \{ min-width: 0; \}/.test(v3));
+  ok("the Ecommerce root is a TabPage, not a grid", /{activeTab === "Ecommerce" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<TabPage>/.test(page) && !/ecomStack \{/.test(read("app/portal/portal.module.css").replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("every erp grid track is minmax(0, ...)", !/grid-template-columns:[^;]*(?<![\w(,\s]minmax\([^)]*)(?:^|\s)1fr(?![^;]*\))/.test(v3.replace(/minmax\([^)]*\)/g, "M")));
+  const shell = read("components/layout/app-shell.module.css");
+  ok("the phone workspace fills the screen (no white band under a short tab)", /@media \(max-width: 767px\) \{[\s\S]*?\.workspace \{\s*min-height: 100dvh;/.test(shell));
+  ok("the document behind the workspace is the workspace grey", /body:has\(\.erp-workspace\) \{\s*background-color: var\(--secondary\);/.test(read("styles/globals.css")));
+  ok("a card breaks an unbreakable run inside itself (anywhere: the minimum shrinks too)", /\.erp-card \{[\s\S]*?overflow-wrap: anywhere;/.test(v3));
+}
+
 /* ---- registration ---- */
 const runner = read("scripts/run-guards.mjs");
 ok("tab-concept is registered in the guard runner", /\["tab-concept", "/.test(runner));

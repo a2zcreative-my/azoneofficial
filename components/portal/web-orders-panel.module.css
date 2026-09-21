@@ -67,6 +67,7 @@
 .lines {
   margin-top: 0.25rem;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.125rem;
   font-size: 0.875rem;
   line-height: 1.25rem;

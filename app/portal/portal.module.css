@@ -358,6 +358,9 @@
 }
 .overviewGrid {
   display: grid;
+  /* v1.174.1: an explicit minmax(0, 1fr) track - an implicit auto track
+     grows to its widest child and takes the page past the phone with it */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   padding-bottom: 1rem;
 }
@@ -377,19 +380,16 @@
 }
 /* v1.173.0: the Sales long view's two-up grid is TabZone cols={2}
    (.erp-zone-grid-2 in styles/erp-v3.css) - the same widths this file gave it. */
-.ecomStack {
-  display: grid;
-  gap: 0.75rem;
-}
+/* v1.174.1: .ecomStack (a grid with an implicit auto track) is gone - the
+   Ecommerce body is a TabPage like every other tab. A grid track is sized
+   by its widest item, so one card with an unbreakable line made every zone
+   wider than the phone; block flow contains the spill to that card. */
 .ecomWork {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 @media (min-width: 768px) {
-  .ecomStack {
-    gap: 1.5rem;
-  }
   .ecomWork {
     gap: 1rem;
   }

@@ -34,6 +34,15 @@
 .erp-workspace {
   --surface-radius: 12px;
 }
+/* v1.174.1 - while the portal workspace is on screen the document behind it
+   is the workspace grey, not the page white: a short tab no longer shows a
+   white band under its last card, and the rubber-band area a phone reveals
+   when it overscrolls is the same grey (the CEO's Enquiries screenshot,
+   21-09-2026). The login gate and the public site have no .erp-workspace
+   and keep their white. */
+body:has(.erp-workspace) {
+  background-color: var(--secondary);
+}
 .erp-workspace :where(h1, h2, h3, p, button, label, th) {
   letter-spacing: 0;
 }

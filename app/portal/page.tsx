@@ -1689,7 +1689,12 @@ export default function PortalPage() {
             <ElfiaTrafficPanel />
           )}
           {activeTab === "Ecommerce" && (
-            <div className={css.ecomStack}>
+            /* v1.174.1 - TabPage (block flow), not the .ecomStack grid: a grid
+               with an implicit auto track is sized by its widest card, so ONE
+               card with an unbreakable line widened every zone past the phone
+               (the CEO's screenshot, 21-09-2026). In block flow a wide line
+               spills out of its own card only. */
+            <TabPage>
               {REVENUE_ROLES.includes(user.role) && (
                 <section className="erp-stack-tight">
                   <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
@@ -1723,7 +1728,7 @@ export default function PortalPage() {
                 <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
                 <ConnectionStatusCard />
               </section>
-            </div>
+            </TabPage>
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
           {activeTab === "Assets" && <AssetsPanel />}

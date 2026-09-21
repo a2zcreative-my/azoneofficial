@@ -77,6 +77,37 @@ ok("the 44px button contract still lives in globals.css (tests/interface-system.
 ok("the busy state is a real state, not a prop somebody has to remember", /\.erp-button\[aria-busy="true"\]/.test(v3) && /erp-spin/.test(v3));
 ok("an input reads 16px on a phone (iOS does not zoom it) and 14px on the desk", /\.erp-input \{[\s\S]*?font-size: 1rem;/.test(v3) && /@media \(min-width: 768px\) \{ \.erp-input \{ font-size: 0\.875rem; \} \}/.test(v3));
 
+/* ---- 1b. elevated surfaces sit on the PAGE (v1.174.2) ------------------
+   A surface that carries its own tokens (.erp-shift-hero, .erp-action-bar)
+   redefines --card and friends for everything in its DOM subtree - and a
+   position: fixed toast rendered from inside it is in that subtree. The
+   CEO's phone showed "Already clocked out" as a 6%-white ghost band with
+   white text across the grey page. The page's values are captured on :root
+   and every elevated surface re-anchors to them. */
+const pageCapture = v3Body.match(/:root \{([^}]*)\}/);
+const captured = [...(pageCapture?.[1] ?? "").matchAll(/--erp-page-([a-z-]+): var\(--([a-z-]+)\);/g)].map((m) => [m[1], m[2]]);
+ok(":root captures the page's surface tokens as --erp-page-*", captured.length >= 12 && captured.every(([a, b]) => a === b), captured.map(([a, b]) => `${a}<-${b}`).join(", "));
+for (const t of ["card", "card-foreground", "foreground", "muted-foreground", "border", "secondary", "primary", "success", "warning", "danger"]) {
+  ok(`--erp-page-${t} is captured from --${t}`, captured.some(([a, b]) => a === t && b === t));
+}
+/* Every captured token must be DECLARED on the light theme's :root in
+   globals.css - a var() to a token that does not exist there would make the
+   capture guaranteed-invalid, and the elevated surface would lose that
+   token entirely instead of inheriting it. */
+const lightRoot = stripComments(globals).match(/^:root \{([\s\S]*?)^\}/m)?.[1] ?? "";
+const missing = captured.map(([, b]) => b).filter((b) => !new RegExp(`^\\s*--${b.replace(/-/g, "\\-")}:`, "m").test(lightRoot));
+ok("every captured token is declared on the light theme's :root (the capture can never be guaranteed-invalid)", missing.length === 0, missing.join(", "));
+const elevated = v3Body.match(/\.erp-sheet, \.erp-modal, \.erp-menu, \.erp-toast \{([^}]*)\}/);
+ok("the sheet, modal, menu and toast re-anchor to the page's tokens in ONE rule", Boolean(elevated));
+for (const [a] of captured) {
+  ok(`the elevated surfaces re-anchor --${a} to --erp-page-${a}`, new RegExp(`--${a.replace(/-/g, "\\-")}: var\\(--erp-page-${a.replace(/-/g, "\\-")}\\);`).test(elevated?.[1] ?? ""));
+}
+const toastRule = v3Body.match(/\.erp-toast \{([^}]*)\}/)?.[1] ?? "";
+ok("the toast is a card in the middle of the screen, never a band across it (max-width, wrapping text)", /max-width: min\(2\drem, calc\(100% - \drem\)\);/.test(toastRule) && /overflow-wrap: anywhere;/.test(toastRule) && /box-sizing: border-box;/.test(toastRule));
+/* The reason the rule exists must still be true - the hero keeps its own
+   tokens (v1.170.0); nobody "fixes" the toast by flattening the hero. */
+ok("the shift hero still carries its own surface tokens (the toast rule does not take them away)", /\.erp-shift-hero \{[^}]*--card: rgba\(255, 255, 255, 0\.06\);[^}]*--card-foreground: #fff;/.test(stripComments(globals)));
+
 /* ---- 2. the vocabulary resolves to the system ------------------------- */
 const styles = read("lib/ui-styles.ts");
 const MAP = {

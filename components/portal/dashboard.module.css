@@ -19,6 +19,7 @@
   color: var(--muted-foreground);
 }
 .greetingTitle {
+  overflow-wrap: anywhere;
   margin-top: 0.125rem;
   font-size: 1.25rem;
   line-height: 1.75rem;

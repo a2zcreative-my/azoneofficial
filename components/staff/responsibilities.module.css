@@ -37,6 +37,7 @@
   list-style: none;
   counter-reset: duty;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.375rem;
 }
 .item {
@@ -72,6 +73,7 @@
 .editor {
   margin-top: 0.5rem;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
 }
 .textarea {

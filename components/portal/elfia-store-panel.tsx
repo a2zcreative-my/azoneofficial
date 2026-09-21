@@ -1619,9 +1619,13 @@ export function ElfiaStorePanel() {
                           Type a new one and the shop grows a shelf; clear it
                           and the item falls back to Bawal. Saves on blur,
                           same as the description. */}
-                      <label className="flex items-center gap-1.5">
+                      {/* v1.174.1 - the label wraps onto its own line when
+                          the row is narrow (14rem basis, erp-row-lead) and the
+                          box fills it; a fixed 9rem box ran past the card on a
+                          360px phone */}
+                      <label className="flex items-center gap-1.5 erp-row-lead">
                         {L("Collection", "Koleksi")}
-                        <input className={`${inputClassSm} w-36`}
+                        <input className={`${inputClassSm} erp-grow`}
                           list="elfia-collections"
                           key={`collection:${it.elfia_category ?? ""}`}
                           defaultValue={it.elfia_category ?? ""}

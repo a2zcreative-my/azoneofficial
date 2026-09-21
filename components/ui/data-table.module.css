@@ -9,6 +9,11 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* v1.174.1 - a flex item that can shrink: the search box below used to
+     hold this label at its intrinsic ~270px and push the toolbar past a
+     360px card */
+  min-width: 0;
+  max-width: 100%;
   font-size: 0.75rem;
   line-height: 1rem;
   color: var(--muted-foreground);
@@ -156,4 +161,11 @@
   padding-inline: 0.375rem;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
+}
+/* v1.174.1 - the search box: a small intrinsic width, then it grows into
+   whatever the toolbar group has left */
+.toolLabel > input[type="search"] {
+  width: 7rem;
+  flex: 1 1 7rem;
+  min-width: 0;
 }
