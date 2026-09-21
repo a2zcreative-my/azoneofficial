@@ -282,7 +282,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0136_claim_advances";
+const LATEST_MIGRATION = "0137_staff_responsibilities";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4620,6 +4620,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0134 (company ownership review)", `SELECT proposed_company, source_json FROM company_review_decisions LIMIT 1`],
       ["0135 (Hankeis Commerce - orders and manual payment verification)", `SELECT bank_reference FROM hk_bank_allocations LIMIT 1`],
       ["0136 (claim advances and submission idempotency)", `SELECT claim_type, payroll_month, submission_key FROM claims LIMIT 1`],
+      ["0137 (roles and responsibilities on the staff record)", `SELECT role_title, responsibilities, responsibilities_updated_at, responsibilities_updated_by FROM users LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4775,6 +4776,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0134_company_review",
       "0135_hankeis_commerce",
       "0136_claim_advances",
+      "0137_staff_responsibilities",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

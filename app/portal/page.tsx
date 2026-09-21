@@ -1660,6 +1660,11 @@ export default function PortalPage() {
                    CCO may not amend those, and may set reporting lines - so
                    the two cannot be folded into one flag. */
                 role={user.role}
+                /* v1.174.0 - who writes roles and responsibilities: the CEO
+                   and the HR tier, mirroring PERMS.responsibilities_edit in
+                   worker/src/permissions.ts (tests/staff-responsibilities.mjs
+                   holds the two lists equal). */
+                canEditResponsibilities={["super_admin", "admin", "hr_admin", "ceo"].includes(user.role)}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and

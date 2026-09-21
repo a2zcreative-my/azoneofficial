@@ -192,7 +192,7 @@ for (const g of ["interface-system", "card-vocabulary", "status-tokens", "users-
   ok(`guard ${g} is still registered`, names.includes(g));
 }
 ok("every registered guard still has its file", names.every((n) => existsSync(join(root, `tests/${n}.mjs`))), names.filter((n) => !existsSync(join(root, `tests/${n}.mjs`))).join(", "));
-ok("the registry grew to at least 94 (v1.172.2 added tailwind-retired, v1.173.0 tab-concept)", names.length >= 94, String(names.length));
+ok("the registry grew to at least 95 (v1.172.2 added tailwind-retired, v1.173.0 tab-concept, v1.174.0 staff-responsibilities)", names.length >= 95, String(names.length));
 
 console.log(`interface-v3: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

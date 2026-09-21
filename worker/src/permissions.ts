@@ -100,6 +100,17 @@ export const PERMS: Record<string, readonly Role[]> = {
      Staff tab SEES the chart, because a chart nobody may look at organises
      nothing. Every change is audited with both names. */
   org_assign: ["ceo", "coo", "cco"],
+  /* v1.174.0 (CEO, 21-09-2026: "I want to add Roles and Responsibilities of
+     the staff that currently working for me. I need to make sure that I can
+     edit the roles and responsibilities in staff tabs") - who may write a
+     person's role title and responsibilities. The CEO chose the HR tier:
+     the same four roles as hr_manage, so whoever maintains the record can
+     write what the person is answerable for. Its own name, not hr_manage,
+     because it is its own door (PUT /users/:id/responsibilities, no
+     fill-once lock - a job description is meant to change) and so a later
+     narrowing does not have to touch every other staff field. NOT coo / cco:
+     they read; they set reporting lines (org_assign), not duties. */
+  responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"],
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.

@@ -35,6 +35,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { btnSm, btnSmPrimary, card, inputClass, selectClassSm } from "@/lib/ui-styles";
 import { SummaryStat, SummaryStrip, TabZone } from "@/components/portal/tab-concept";
+import { ResponsibilitiesBlock, responsibilityLines } from "@/components/staff/responsibilities"; // v1.174.0
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
@@ -124,6 +125,13 @@ interface Staff {
   /* v1.101.0 - who this person answers to (users.reports_to, migration 0113).
      null means not placed on the organisation chart yet. */
   reports_to?: number | null;
+  /* v1.174.0 - roles and responsibilities (migration 0137): the role title,
+     the list (one per line), who wrote it and when. Written on this tab by
+     the CEO / HR tier (PERMS.responsibilities_edit); read on the Profile. */
+  role_title?: string | null;
+  responsibilities?: string | null;
+  responsibilities_updated_at?: string | null;
+  responsibilities_updated_by_name?: string | null;
 }
 
 interface ErrShape { error?: { message?: string } }
@@ -617,7 +625,13 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
   );
 }
 
-export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }: { canAmend?: boolean; readOnly?: boolean; role?: string }) {
+export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false }: {
+  canAmend?: boolean;
+  readOnly?: boolean;
+  role?: string;
+  /** v1.174.0 - may write role titles and responsibilities; mirrors PERMS.responsibilities_edit in the worker. */
+  canEditResponsibilities?: boolean;
+}) {
   /* v1.101.0 - only the three the CEO named may set a reporting line. The
      list lives in org-chart.tsx and tests/org-chart.mjs holds it against
      PERMS.org_assign in the worker, so the button and the door agree. The
@@ -796,6 +810,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
      loaded: headcount, active, departments. No second request. */
   const activeCount = staff.filter((u) => u.is_active).length;
   const departments = new Set(staff.map((u) => (u.department ?? "").trim()).filter(Boolean)).size;
+  /* v1.174.0 - how many working staff have their roles and responsibilities
+     written (a title or at least one line) - the CEO's own to-do figure. */
+  const writtenCount = staff.filter((u) => u.is_active && ((u.role_title ?? "").trim() || responsibilityLines(u.responsibilities).length > 0)).length;
 
   return (
     /* The page's TabPage is the stack; these are its zones: AT A GLANCE,
@@ -804,10 +821,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
     <>
       {toastNode}{promptNode}
       <TabZone label={L("At a glance", "Sepintas lalu")}>
-        <SummaryStrip cols={3} ariaLabel={L("Staff summary", "Ringkasan kakitangan")}>
+        <SummaryStrip cols={4} ariaLabel={L("Staff summary", "Ringkasan kakitangan")}>
           <SummaryStat label={L("Staff records", "Rekod kakitangan")} value={staff.length} busy={!loaded} />
           <SummaryStat label={L("Active", "Aktif")} value={activeCount} tone="success" busy={!loaded} />
           <SummaryStat label={L("Departments", "Jabatan")} value={departments} busy={!loaded} />
+          <SummaryStat label={L("Roles written", "Peranan ditulis")} value={writtenCount} hint={L(`of ${activeCount} working`, `daripada ${activeCount} bekerja`)}
+            tone={activeCount > 0 && writtenCount < activeCount ? "warning" : "success"} busy={!loaded}
+            title={L("Working staff whose roles and responsibilities are written", "Kakitangan bekerja yang peranan dan tanggungjawabnya telah ditulis")} />
         </SummaryStrip>
       </TabZone>
       <TabZone label={L("The directory", "Direktori")}>
@@ -1560,6 +1580,19 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             </div>
             </div>
             ))}
+            {/* v1.174.0 - what this person is answerable for. Working staff
+                only (the CEO: "staff that currently working for me"); a
+                leaver's text stays readable if it was written. */}
+            {open.has(u.id) && (u.is_active || u.role_title || u.responsibilities) && (
+              <ResponsibilitiesBlock userId={u.id} personName={displayName(u)}
+                value={{ role_title: u.role_title, responsibilities: u.responsibilities, responsibilities_updated_at: u.responsibilities_updated_at, responsibilities_updated_by_name: u.responsibilities_updated_by_name }}
+                canEdit={canEditResponsibilities && Boolean(u.is_active)}
+                onSaved={(next) => {
+                  /* the saved record shows at once; the cached view refetches behind it */
+                  const merge = (list: Staff[]) => list.map((x) => (x.id === u.id ? { ...x, ...next } : x));
+                  setStaff(merge); setAllStaff(merge); void load();
+                }} />
+            )}
             {open.has(u.id) && <StaffVault userId={u.id} name={displayName(u)} />}
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">

@@ -2268,10 +2268,24 @@ export async function handleStaff(
   /* ---- me / profile ---- */
 
   if (path === "/profile" && method === "GET") {
-    const row = await env.DB.prepare(
-      `SELECT id, email, name, role, employee_id, position, department, phone, employment_status
-       FROM users WHERE id = ?1`,
-    ).bind(user.id).first();
+    /* v1.174.0 - the person's own role title and responsibilities (0137),
+       read-only here: what is expected of them, as the Staff tab wrote it.
+       Skew armor as GET /users: before 0137 applies the profile still loads. */
+    let row: Record<string, unknown> | null;
+    try {
+      row = await env.DB.prepare(
+        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status,
+                role_title, responsibilities, responsibilities_updated_at
+         FROM users WHERE id = ?1`,
+      ).bind(user.id).first();
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+      await logError(env, "migration_skew", "GET /profile: 0137 responsibilities columns missing - run wrangler d1 migrations apply");
+      row = await env.DB.prepare(
+        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status
+         FROM users WHERE id = ?1`,
+      ).bind(user.id).first();
+    }
     return json({ profile: row });
   }
   if (path === "/profile" && method === "PATCH") {
@@ -2628,6 +2642,18 @@ export async function handleStaff(
     const CORE = `u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
                 u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
                 CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled`;
+    /* v1.174.0 - the roles-and-responsibilities columns (0137) get the top
+       rung: the full list with them, then the 0113 list, then the older ones.
+       The person who wrote them is joined by name so the card can say so. */
+    try {
+      ({ results } = await env.DB.prepare(
+        `SELECT ${CORE}, u.reports_to, u.role_title, u.responsibilities, u.responsibilities_updated_at,
+                (SELECT w.name FROM users w WHERE w.id = u.responsibilities_updated_by) AS responsibilities_updated_by_name
+         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+      ).all());
+    } catch (eR) {
+      if (!(eR instanceof Error && eR.message.includes("no such column"))) throw eR;
+      await logError(env, "migration_skew", "GET /users: 0137 responsibilities columns missing - run wrangler d1 migrations apply");
     try {
       ({ results } = await env.DB.prepare(
         `SELECT ${CORE}, u.reports_to FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
@@ -2648,6 +2674,7 @@ export async function handleStaff(
            FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
         ).all());
       }
+    }
     }
     return json({ users: results, staff: results });
   }
@@ -2744,6 +2771,67 @@ export async function handleStaff(
      picture, it is a page that never finishes. It cannot be checked by
      looking at the two people involved, so the walk is done here, on the
      database, before the write. */
+  /* ---- roles and responsibilities (v1.174.0) ----
+     The CEO, 21-09-2026: *"On the staff tabs, I want to add Roles and
+     Responsibilities of the staff that currently working for me. I need to
+     make sure that I can edit the roles and responsibilities in staff tabs."*
+
+     Its own route, for the same two reasons reports_to has one. PATCH
+     /users/:id is the HR tier's fill-once form - a value saved there locks
+     and an admin is needed to change it - and a job description is the
+     opposite kind of fact: it is rewritten every time the work changes. And
+     its fields are longer than that form's 200 characters. So: one title,
+     one list, written whole each time, by responsibilities_edit (the CEO and
+     the HR tier), for WORKING staff only - what a leaver was answerable for
+     stays readable, but nobody writes duties for somebody who is not here.
+     The old and new text go to the audit log, as the leave entitlement's do. */
+  const respRoute = path.match(/^\/users\/(\d+)\/responsibilities$/);
+  if (respRoute && (method === "PUT" || method === "PATCH")) {
+    if (!can(user.role, "responsibilities_edit")) {
+      return err("forbidden", "Only the CEO and the HR tier write roles and responsibilities", 403);
+    }
+    const id = Number(respRoute[1]);
+    const b = (body ?? {}) as Record<string, unknown>;
+    const rawTitle = b.role_title;
+    if (rawTitle !== undefined && rawTitle !== null && typeof rawTitle !== "string") {
+      return err("invalid_input", "role_title must be text", 400);
+    }
+    const title = typeof rawTitle === "string" ? rawTitle.trim().slice(0, 120) : "";
+    /* the list arrives as an array of lines or as one text with newlines;
+       blank lines drop, each line is capped, and thirty is plenty for a job */
+    const rawLines: unknown[] | null = Array.isArray(b.responsibilities)
+      ? b.responsibilities
+      : typeof b.responsibilities === "string" ? b.responsibilities.split(/\r?\n/) : b.responsibilities == null ? [] : null;
+    if (rawLines === null || rawLines.some((l) => typeof l !== "string")) {
+      return err("invalid_input", "responsibilities must be lines of text", 400);
+    }
+    const lines = (rawLines as string[]).map((l) => l.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean);
+    if (lines.length > 30) return err("invalid_input", "At most 30 responsibilities - write the job, not the manual", 400);
+    if (lines.some((l) => l.length > 200)) return err("invalid_input", "Each responsibility is one line of at most 200 characters", 400);
+    let person: { id: number; name: string; is_active: number; role_title: string | null; responsibilities: string | null } | null;
+    try {
+      person = await env.DB.prepare(
+        `SELECT id, name, is_active, role_title, responsibilities FROM users WHERE id = ?1 AND role <> 'customer'`,
+      ).bind(id).first();
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+      await logError(env, "migration_skew", "PUT /users/:id/responsibilities: 0137 not applied - run wrangler d1 migrations apply");
+      return err("migration_pending", "Roles and responsibilities need migration 0137 - run the deploy, then try again", 503);
+    }
+    if (!person) return err("not_found", "Staff not found", 404);
+    if (!person.is_active) return err("inactive", "Roles and responsibilities are kept for working staff - this record is not active", 409);
+    const text = lines.join("\n");
+    await env.DB.prepare(
+      `UPDATE users SET role_title = ?1, responsibilities = ?2, responsibilities_updated_at = datetime('now'), responsibilities_updated_by = ?3 WHERE id = ?4`,
+    ).bind(title || null, text || null, user.id, id).run();
+    await audit(env, user.id, "staff.responsibilities_update", "users", String(id), {
+      person: person.name,
+      role_title_before: person.role_title, role_title_after: title || null,
+      responsibilities_before: person.responsibilities, responsibilities_after: text || null,
+    });
+    return json({ ok: true, role_title: title || null, responsibilities: lines, updated_by_name: user.name ?? null });
+  }
+
   const reportsTo = path.match(/^\/users\/(\d+)\/reports-to$/);
   if (reportsTo && (method === "PUT" || method === "PATCH")) {
     if (!can(user.role, "org_assign")) {

@@ -12,6 +12,7 @@ import { getLang } from "@/lib/i18n";
 import { btnClass, card, inputClass } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
+import { ResponsibilitiesView } from "@/components/staff/responsibilities"; // v1.174.0
 
 /* ================= Profile ================= */
 
@@ -143,6 +144,21 @@ export function Profile() {
               ? L("Saved!", "Disimpan!")
               : L("Save", "Simpan")}
         </button>
+      </div>
+
+      {/* v1.174.0 - what is expected of me, as the CEO / HR wrote it on the
+          Staff tab (PUT /staff/users/:id/responsibilities). Read-only here:
+          the person reads their duties, they do not write them. */}
+      <div className={card}>
+        <p className="text-sm font-semibold">
+          <AppIcon name="target" className="erp-icon-sm erp-muted" /> {L("My roles and responsibilities", "Peranan dan tanggungjawab saya")}
+        </p>
+        <p className="text-muted-foreground mt-1 text-xs">
+          {L("Written by the CEO or HR on the Staff tab. Ask them if something here is out of date.", "Ditulis oleh CEO atau HR di tab Kakitangan. Hubungi mereka jika ada yang tidak terkini.")}
+        </p>
+        <ResponsibilitiesView loaded={loaded}
+          value={{ role_title: profile.role_title, responsibilities: profile.responsibilities, responsibilities_updated_at: profile.responsibilities_updated_at }}
+          emptyText={L("Nothing written for you yet.", "Belum ada yang ditulis untuk anda.")} />
       </div>
 
       <div className={card}>
