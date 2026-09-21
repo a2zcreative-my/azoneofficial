@@ -9,7 +9,7 @@ import { SkelCard, SkelTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { dmy, mytDateOf } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
-import { btnGhost, card } from "@/lib/ui-styles";
+import { btnGhost, card, inputClass, selectClass, chipNeutral, chipSuccess, chipWarn, chipInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmInfo } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
@@ -126,13 +126,13 @@ export function Attendance({ user }: { user: User }) {
                   : ""}
               </p>
               {notIn.length > 0 && !isWeekend && (
-                <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
+                <p className="erp-note erp-note-warning mt-2 font-semibold">
                   <AppIcon name="warning" className="mr-1 h-3.5 w-3.5" />{L("Not clocked in:", "Belum daftar masuk:")}{" "}
                   {notIn.map((s) => firstName(s.name)).join(", ")}
                 </p>
               )}
               {stillIn.length > 0 && afterShift && (
-                <p className="mt-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-xs font-semibold text-info">
+                <p className="erp-note erp-note-info mt-2 font-semibold">
                   <AppIcon name="pending" className="mr-1 h-3.5 w-3.5" />
                   {L(
                     "Past 18:00 with no clock-out yet:",
@@ -170,17 +170,17 @@ export function Attendance({ user }: { user: User }) {
                         </span>
                         <span className="flex flex-wrap items-center justify-end gap-1">
                           {st.in_at ? (
-                            <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                            <span className={chipSmSuccess}>
                               {L("In", "Masuk")} {hm(st.in_at)}
                             </span>
                           ) : (
-                            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
+                            <span className={chipSmWarn}>
                               <AppIcon name="warning" className="mr-0.5 h-3 w-3" />{L("not clocked in", "belum daftar masuk")}
                             </span>
                           )}
                           {st.in_at &&
                             (!inNow(st) && st.out_at ? (
-                              <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                              <span className={chipSmNeutral}>
                                 {L("Out", "Keluar")} {hm(st.out_at)}
                                 {(st.shifts ?? 1) > 1 ? ` · ${st.shifts} ${L("shifts", "syif")}` : ""}
                               </span>
@@ -189,7 +189,7 @@ export function Attendance({ user }: { user: User }) {
                                  the day at 20:30 is not "no clock-out"; they
                                  are on shift, and the warning would be noise. */
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${afterShift && (st.shifts ?? 1) <= 1 ? "bg-warning-soft text-warning" : "bg-info-soft text-info"}`}
+                                className={afterShift && (st.shifts ?? 1) <= 1 ? chipSmWarn : chipSmInfo}
                               >
                                 {(st.shifts ?? 1) > 1
                                   ? L(`on shift ${st.shifts}`, `syif ke-${st.shifts}`)
@@ -229,7 +229,7 @@ export function Attendance({ user }: { user: User }) {
           <div className="flex flex-wrap items-center gap-2">
             {reportMode && canReport && records.length > 0 && (
               <select
-                className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-44"
+                className={`${selectClass} sm:w-auto sm:max-w-44`}
                 value={filterName}
                 title={L(
                   "Show one staff member only",
@@ -252,7 +252,7 @@ export function Attendance({ user }: { user: User }) {
 
             <input
               type="month"
-              className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+              className={`${inputClass} sm:w-auto`}
               value={month}
               onChange={(e) => setMonth(e.target.value)}
             />
@@ -350,7 +350,7 @@ export function Attendance({ user }: { user: User }) {
                           </td>
                           <td className="px-2 py-1.5 whitespace-nowrap">
                             {firstIn ? (
-                              <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
+                              <span className={chipSuccess}>
                                 {mytTime(firstIn)}
                               </span>
                             ) : (
@@ -361,15 +361,15 @@ export function Attendance({ user }: { user: User }) {
                           </td>
                           <td className="px-2 py-1.5 whitespace-nowrap">
                             {lastOut ? (
-                              <span className="bg-secondary rounded-full px-2 py-0.5 text-xs font-medium">
+                              <span className={chipNeutral}>
                                 {mytTime(lastOut)}
                               </span>
                             ) : firstIn ? (
-                              <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
+                              <span className={chipInfo}>
                                 {L("still in", "belum keluar")}
                               </span>
                             ) : (
-                              <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+                              <span className={chipWarn}>
                                 {L("missing", "tiada")}
                               </span>
                             )}
@@ -461,7 +461,7 @@ export function Attendance({ user }: { user: User }) {
                     </td>
                     <td className="px-2 py-1.5">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.type ==="clock_in" ?"bg-success-soft text-success" :"bg-secondary"}`}
+                        className={r.type === "clock_in" ? chipSuccess : chipNeutral}
                       >
                         {r.type === "clock_in"
                           ? L("In", "Masuk")

@@ -3,8 +3,8 @@
 **Last reviewed:** 21 September 2026  
 **Workspace:** `a2zcreative-official`  
 **Production:** `a2zcreative.my` — the owner's phone showed `v1.169.0` in the More sheet on 20 September 2026 (commit `8580913`, "portal deploy", pushed 20:31 MYT). Not re-verified with a health check by the v1.170.0 author.
-**Local package metadata:** `1.172.0`
-**Release status:** `v1.171.0` was committed by the owner on 21 September 2026 (commit `ad066a5`, "portal deploy", 00:53 MYT). Local `v1.172.0` passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it. **It carries a framework major (Next.js 16) and a dependency-lock change**: the office PC must `pnpm install` before anything else (`PUSH.bat` does this in step 3).
+**Local package metadata:** `1.172.1`
+**Release status:** `v1.172.0` was committed by the owner on 21 September 2026 (commit `2c00419`, "portal deploy", 10:53 MYT). Local `v1.172.1` (Portal Interface System V3) passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it. v1.172.0's framework major (Next.js 16) and lockfile are already in the committed tree.
 
 ## Read First
 
@@ -12,7 +12,13 @@ This is the current coordination record for Claude, Codex, and any other contrib
 
 **A stash exists** (`refs/stash`, 19:27 MYT on 20 September, "reset: moving to HEAD" in the reflog beside it). It is another contributor's parked work. v1.170.0 did not touch, apply or drop it.
 
-## Current Local Work — v1.172.0
+## Current Local Work — v1.172.1 — Portal Interface System V3
+
+The owner, 21 September, on the v1.172.0 interface: still messy, inconsistent, crowded, "too much like a generic Tailwind dashboard". The answer is an in-house ERP design system as named CSS classes (`styles/erp-v3.css`) that `lib/ui-styles.ts` now resolves to, so the existing vocabulary carried ~330 field sites and every card, chip, table cell and sheet onto the system without an edit; plus the priority screens rebuilt on the names: portal shell (topbar, bottom nav with gold active hairline and safe-area padding, badge, More sheet), sidebar, Dashboard / On Shift hero (state-of-day chip, one 44px button height), Attendance chips and notes, the Claims flow (pill CTA, segmented type switch, V3 fields at one height, chips, return-to-list after submit), DataTable toolbar / chips / action bar / density, the drawer. 82 hand-rolled controls and ~40 hand-rolled chips across fourteen panels rewritten onto the vocabulary. Nothing installed. Tailwind stays as a compatibility layer - what remains on it, what must not be removed yet, and the next retirement phase are in `docs/INTERFACE-SYSTEM-V3.md`. Guard `interface-v3` (#92, 213 checks) holds the migration boundary and keeps the three retired tabs retired; `inventory-category` updated to read the shared chip. Registry: 92.
+
+Verification for `v1.172.1` (all offline, in a Linux sandbox): portal + worker `tsc` clean; ESLint 0 errors (warnings unchanged from v1.172.0); **92/92 guards**; `next build` on 16.3.5 exports 31 routes; Chromium against fixtures at 375 / 390 / 430 / 768 / 1280 / 1440 px, light and dark - portal shell, Dashboard, On Shift, Claims (form → submit → list), Web Orders (table, drawer, CSV), Finance, Attendance, Users - no horizontal overflow, no page errors, bottom nav clear of content, no retired tab reachable. Line endings preserved per file. **`PUSH.bat` was not run. Nothing was deployed.** The worktree is dirty until the owner commits; **dirty-tree approval for v1.172.1: not yet given.**
+
+## Previous Local Work — v1.172.0
 
 One brief from the owner on 21 September, three objectives, executed as controlled migrations in order and recorded in full in `CHANGELOG.md` under 1.172.0. Baseline first: v1.171.0 at `ad066a5` was proven green on every offline gate (portal + worker `tsc`, 91 guards, ESLint, `next build` + export) before a line changed.
 
@@ -92,7 +98,11 @@ Verification for `v1.170.0` (all offline, in a Linux sandbox):
 - Adopting `EmptyState` and the table contract across the other panels — one by one, as the button contract was.
 - The streak counts within the current month only; a cross-month streak would need a second month of verdicts.
 
-## Release Decision — v1.172.0
+## Release Decision — v1.172.1
+
+No database migration, no permission change, no worker change. It is CSS, the style vocabulary, component markup and one new guard. What to watch after `PUSH.bat`: the phone bottom nav sits above the home indicator with a gold hairline under the active stop; the Claims form's fields are all the same height on a 375px phone and a submitted claim lands you on the list; the Web Orders table toolbar and drawer read as before. Rollback is a plain `git revert`. Commit first or `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.172.1: not yet given.**
+
+## Release Decision — v1.172.0 (committed by the owner, `2c00419`)
 
 No database migration. No permission-matrix change (three tab names left the worker whitelist; the `*_manage` permissions behind their dormant routes are untouched). What to watch in production after `PUSH.bat`: the More sheet shows `v1.172.0`; every tab still opens; Web Orders opens an order in the drawer and "Mark shipped" still reaches the store; Cash Flow's "auto" rows are intact. Rollback is `git revert` of the release commit plus `pnpm install` - the lockfile is part of the change. The v1.172.0 files are in the worktree without a commit, so a plain `PUSH.bat` will refuse; either commit them first or run `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.172.0: not yet given.**
 
@@ -122,6 +132,7 @@ Recorded so the next contributor does not repeat it:
 - Stack (updated 21 September 2026, v1.172.0): Next.js 16.3.5 App Router (static export, Turbopack) · React 19.3 · TypeScript 5.9 (`^5.7`) · ESLint 9 flat config · Tailwind v4 via `@tailwindcss/postcss` with CSS-first `@theme inline` tokens and a `.dark` class variant · `lucide-react` 0.469 · `framer-motion` 12 · `cva` / `clsx` / `tailwind-merge` · hand-built `components/ui` (no shadcn) · pnpm 9.15 · Cloudflare Workers + D1 + R2.
 - Already present and not to be duplicated: semantic tokens (`--background … --ring`, `--success/--warning/--danger/--info` and `-soft`, validated tile and chart tokens), the `.erp-button` / `.erp-icon-button` contract, `.skel` shimmer, `screen-enter`, global `:focus-visible`, reduced-motion handling, the command palette (Ctrl/Cmd-K, `components/layout/command-palette.tsx`), the collapsible grouped sidebar, `DataTable`, `SaveToast`, confirm/prompt dialogs, `PermissionPlaceholder`, `app/portal/error.tsx`.
 - Decision (20 September): **nothing installed or upgraded**. The existing stack supports every item in the modernisation brief; the work is hierarchy, states and consistency, delivered as slices behind guards.
+- 21 September, v1.172.1: **Portal Interface System V3** - `styles/erp-v3.css` is the design system as named classes; `lib/ui-styles.ts` resolves to it; `tests/interface-v3.mjs` (#92) holds the migration boundary. New UI reaches for a name from `lib/ui-styles.ts` or a class from `erp-v3.css`, never a fresh utility string. See `docs/INTERFACE-SYSTEM-V3.md`.
 - 21 September, v1.172.0: the framework moved to Next.js 16 on the owner's instruction (coupled dependencies only, see the changelog); the interface work (Portal UI V2) still installed nothing. `components/ui` gained `side-drawer.tsx`; `data-table.tsx` grew the opt-in filter / selection / density / columns / row-click surface; `lib/ui-styles.ts` gained `menuCard`; `components/layout/side-nav.tsx` exports `SECTIONS`, `SECTION_LABEL_MS`, `sectionTitle`, `NAV_COLLAPSED_KEY`. Device-local preference keys: `azone-nav-collapsed`, `azone-palette-recents`, `azone-table:<id>:density`, `azone-table:<id>:hidden`.
 
 ## Collaboration Protocol

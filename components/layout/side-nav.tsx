@@ -136,15 +136,19 @@ export function SideNav({
 
   return (
     <aside
-      className={`border-border bg-background hidden h-full shrink-0 flex-col border-r md:flex ${collapsed ? "w-16" : "w-56"}`}
+      className="erp-rail"
+      data-collapsed={collapsed || undefined}
       aria-label={ms ? "Navigasi utama" : "Main navigation"}
     >
+      {/* v1.172.1 (Interface System V3): the rail, its brand row, groups,
+          items, tooltip and footer are named classes in styles/erp-v3.css;
+          nothing here spells a look out by hand any more. */}
       {/* Brand + collapse toggle */}
-      <div className={`flex min-h-16 shrink-0 items-center gap-2 border-b border-border ${collapsed ? "justify-center px-2" : "px-3"}`}>
+      <div className="erp-rail-brand">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {!collapsed && <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg bg-white object-contain p-1" />}
         {!collapsed && (
-          <span className="min-w-0 flex-1 text-xs font-semibold leading-relaxed">
+          <span className="erp-rail-brand-name">
             A2Z CREATIVE MARKETING
           </span>
         )}
@@ -154,22 +158,22 @@ export function SideNav({
           aria-label={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
           title={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
           aria-expanded={!collapsed}
-          className="text-muted-foreground hover:bg-secondary grid h-11 w-11 shrink-0 place-items-center rounded-lg"
+          className="erp-icon-button erp-icon-button-ghost"
         >
           {collapsed ? <PanelLeftOpen aria-hidden className="h-4 w-4" /> : <PanelLeftClose aria-hidden className="h-4 w-4" />}
         </button>
       </div>
 
-      <nav ref={navRef} onKeyDown={onNavKey} className="scrollbar-none min-h-0 flex-1 overflow-y-auto py-2">
+      <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav">
         {grouped.map((section) => (
-          <div key={section.title} className="mb-1">
+          <div key={section.title} className="erp-rail-group">
             {/* The section header is decorative; the list below is what is
                 announced. Collapsed mode replaces it with a hairline so the
                 grouping is still legible without text. */}
             {collapsed ? (
-              <div className="border-border mx-3 my-2 border-t" aria-hidden />
+              <div className="erp-rail-group-rule" aria-hidden />
             ) : (
-              <p className="text-muted-foreground px-4 pt-3 pb-1 text-[10px] font-semibold tracking-wider uppercase">
+              <p className="erp-rail-group-label">
                 {sectionTitle(section.title, lang)}
               </p>
             )}
@@ -189,14 +193,11 @@ export function SideNav({
                       aria-current={on ? "page" : undefined}
                       title={collapsed ? it.label : undefined}
                       aria-label={it.label}
-                      className={`group relative flex min-h-11 w-full items-center gap-2.5 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
-                        collapsed ? "justify-center px-0" : "px-3"
-                      } ${on ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                      className="erp-rail-item"
                     >
-                      {/* gold active marker — the same cue the rail used */}
-                      {on && <span aria-hidden className="bg-gold absolute inset-y-0 left-0 w-1" />}
-                      <span className="grid w-5 shrink-0 place-items-center"><TabIcon name={it.name} className="h-4 w-4" /></span>
-                      {!collapsed && <span className="min-w-0 flex-1 text-left break-words">{it.label}</span>}
+                      {/* the gold active marker is drawn by .erp-rail-item[aria-current] */}
+                      <span className="erp-rail-icon"><TabIcon name={it.name} className="h-4 w-4" /></span>
+                      {!collapsed && <span className="erp-rail-item-label">{it.label}</span>}
                     </button>
                   </li>
                 );
@@ -207,18 +208,17 @@ export function SideNav({
       </nav>
 
       {tip && collapsed && (
-        <span aria-hidden style={{ top: tip.top, left: tip.left }}
-          className="bg-foreground text-background pointer-events-none fixed z-40 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium shadow-md">
+        <span aria-hidden style={{ top: tip.top, left: tip.left }} className="erp-rail-tip">
           {tip.label}
         </span>
       )}
 
       {/* Signed-in identity + sign out */}
-      <div className="border-border shrink-0 border-t p-2">
+      <div className="erp-rail-foot">
         {!collapsed && (
-          <div className="px-1 pb-2">
-            <p className="truncate text-sm font-medium">{userName}</p>
-            <p className="text-muted-foreground truncate text-xs capitalize">{userRole.replace(/_/g, " ")}</p>
+          <div className="erp-rail-user">
+            <p className="erp-rail-user-name">{userName}</p>
+            <p className="erp-rail-user-role">{userRole.replace(/_/g, " ")}</p>
           </div>
         )}
         <button
@@ -226,12 +226,10 @@ export function SideNav({
           onClick={onSignOut}
           title={ms ? "Log keluar" : "Sign out"}
           aria-label={ms ? "Log keluar" : "Sign out"}
-          className={`text-muted-foreground hover:bg-secondary hover:text-foreground flex min-h-11 w-full items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-colors ${
-            collapsed ? "justify-center px-0" : "px-2"
-          }`}
+          className="erp-rail-item rounded-lg"
         >
-          <span className="grid w-5 shrink-0 place-items-center"><LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} /></span>
-          {!collapsed && <span>{ms ? "Log keluar" : "Sign out"}</span>}
+          <span className="erp-rail-icon"><LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} /></span>
+          {!collapsed && <span className="erp-rail-item-label">{ms ? "Log keluar" : "Sign out"}</span>}
         </button>
       </div>
     </aside>

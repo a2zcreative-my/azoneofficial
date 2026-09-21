@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { SITE_CONFIG } from "@/constants/site";
-import { btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -191,7 +191,7 @@ export function GeofenceCard() {
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <label className="block">
           <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Latitude", "Latitud")}</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" inputMode="decimal"
+          <input className={inputClass} inputMode="decimal"
             placeholder="1.4927" value={lat}
             onChange={(e) => {
               // Pasting "1.4927, 103.7414" straight from Google Maps fills both boxes.
@@ -201,17 +201,17 @@ export function GeofenceCard() {
         </label>
         <label className="block">
           <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Longitude", "Longitud")}</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" inputMode="decimal"
+          <input className={inputClass} inputMode="decimal"
             placeholder="103.7414" value={lng} onChange={(e) => setLng(e.target.value)} />
         </label>
         <label className="block">
           <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Radius (m)</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" inputMode="numeric"
+          <input className={inputClass} inputMode="numeric"
             value={radius} onChange={(e) => setRadius(e.target.value)} />
         </label>
         <label className="block">
           <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">Label</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" maxLength={60}
+          <input className={inputClass} maxLength={60}
             value={label} onChange={(e) => setLabel(e.target.value)} />
         </label>
       </div>

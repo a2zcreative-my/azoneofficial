@@ -19,7 +19,7 @@ import { cacheRead, cacheWrite } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnHero, btnHeroPrimary, card, toastCard } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, btnSm, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
@@ -1077,10 +1077,25 @@ export function Dashboard({
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
         <PanelTitle icon="time" className="text-white" tone="inherit">
           {shiftOnly ? L("On Shift", "Syif Saya") : openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
         </PanelTitle>
-        <button type="button" className={btnHero} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
+        {/* v1.172.1 (Interface System V3): the state of the day, said once
+            as a chip a member of staff can read at arm's length - on shift
+            since when, clocked out, or not yet in. Drawn only once the
+            punches are KNOWN (v1.25.1). */}
+        {attKnown && !attendanceError && (
+          <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
+            {openNow
+              ? L(`On shift since ${openSince}`, `Dalam syif sejak ${openSince}`)
+              : hasOut ? L("Clocked out", "Sudah daftar keluar") : L("Not clocked in yet", "Belum daftar masuk")}
+          </span>
+        )}
+        </div>
+        {/* v1.172.1: a compact link beside the title on every width - as a
+            full-width pill it read as the first action on a phone. */}
+        <button type="button" className={btnSm} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
           <AppIcon name={shiftOnly ? "next" : "time"} className="h-4 w-4" />
           {shiftOnly ? L("Dashboard", "Papan Pemuka") : L("On Shift", "Syif Saya")}
         </button>
@@ -1110,10 +1125,12 @@ export function Dashboard({
             ))}
           </div>
         ) : (
-          <div className={shiftOnly ? "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" : "mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap"}>
+          <div className={shiftOnly ? "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" : "mt-3 grid grid-cols-2 gap-2 md:flex md:flex-wrap"}>
+            {/* v1.172.1: one button height everywhere (the 44px contract) -
+                the On Shift tab used to grow its two buttons to 56px. */}
             <button
               type="button"
-              className={shiftOnly ? `${btnHeroPrimary} min-h-14 text-base` : btnHeroPrimary}
+              className={btnHeroPrimary}
               disabled={!!busy || openNow || !canClockIn}
               onClick={() => void punch("clock_in")}
             >
@@ -1126,7 +1143,7 @@ export function Dashboard({
             </button>
             <button
               type="button"
-              className={shiftOnly ? `${btnHero} min-h-14 text-base` : btnHero}
+              className={btnHero}
               disabled={!!busy}
               onClick={() => void punch("clock_out", forgotArmed)}
             >
@@ -1166,7 +1183,7 @@ export function Dashboard({
           </div>
         )}
         {showOt && !hasOtOut && (
-          <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
+          <p className="erp-note erp-note-warning mt-2">
             {L("Working on after your schedule? Tap OT in when overtime starts and OT out when you finish — it goes to the CEO to approve, and approved overtime is paid on your payslip.",
                "Bekerja selepas jadual anda? Tekan OT in apabila OT bermula dan OT out apabila selesai — ia dihantar kepada CEO untuk kelulusan, dan OT yang diluluskan dibayar pada slip gaji anda.")}
           </p>
@@ -1186,7 +1203,7 @@ export function Dashboard({
         {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
             from the cron, for the person who has the tab open right now. */}
         {clockOutDue && (
-          <p className="mt-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
+          <p className="erp-note erp-note-warning mt-2">
             <AppIcon name="time" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{tr("Don't forget to clock out", lang)}{" "}
             — {tr("tap Clock out before you leave.", lang)}
           </p>
@@ -1217,7 +1234,7 @@ export function Dashboard({
                 would fire the browser's location prompt on every Dashboard
                 open, before the person asked to punch. The real check stays
                 where it belongs — server-side, at the punch. */}
-            <div className="bg-secondary mt-3 rounded-lg px-3 py-2.5 md:hidden">
+            <div className="erp-note mt-3 md:hidden">
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-[12px] font-medium">
                   <ShieldOk
@@ -1503,7 +1520,7 @@ export function Dashboard({
                           {s.start_time}
                           {s.end_time ? `–${s.end_time}` : ""}
                         </span>
-                        <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                        <span className={chipSmNeutral}>
                           {s.platform}
                         </span>
                       </p>

@@ -27,7 +27,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, btnSmPrimary, card, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipNeutral, inputClassSm } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
@@ -37,8 +37,8 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const API = "/api/v1/staff";
 
 
-const inputSm =
-  "rounded-lg border border-input bg-background px-2 py-1 text-xs w-24";
+/* v1.172.1 - the V3 dense control, at this table's width. */
+const inputSm = `${inputClassSm} w-24`;
 
 /* v1.28.0: the old _COMPANY constant is gone — company identity lives in
    lib/issuers.ts only, resolved per payslip from the release row's issuer. */
@@ -891,14 +891,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             {L("Working days (auto)", "Hari bekerja (auto)")}{" "}
             <input
               type="number" min={1} max={31}
-              className="border-input bg-background w-16 rounded-lg border px-2 py-1 text-sm"
+              className={`${inputClassSm} w-16`}
               value={monthDays}
               onChange={(e) => setMonthDays(Math.max(1, Number(e.target.value)))}
             />
           </label>
           <input
             type="month"
-            className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
+            className={inputClassSm}
             value={month}
             onChange={(e) => setMonth(e.target.value)}
           />
@@ -1281,7 +1281,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       <>
                         <input
                           type="number" min={0} max={31}
-                          className="border-input bg-background w-12 rounded border px-1 py-0.5 text-xs"
+                          className={`${inputClassSm} w-12`}
                           placeholder={L("d", "h")}
                           title={L(`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`, `Hari bekerja (daripada ${monthDays}) — kehadiran merekod ${attDays[u.id] ?? 0} hari daftar masuk bulan ini; sunting bebas untuk membetulkan ketukan yang salah atau tidak jujur`)}
                           value={workedDays[u.id] ?? ""}
@@ -1537,7 +1537,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   RM
                   <input
                     type="number" min={0} step="0.01"
-                    className="border-input bg-background w-24 rounded-lg border px-2 py-1 text-sm"
+                    className={`${inputClassSm} w-24`}
                     value={baseDraft[u.id] ? ((baseDraft[u.id] || 0) / 100).toString() : ""}
                     placeholder="0.00"
                     onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
@@ -1751,7 +1751,7 @@ export function MyPayslip() {
         </div>
         <input
           type="month"
-          className="border-input bg-background rounded-lg border px-2 py-1 text-sm"
+          className={inputClassSm}
           value={month}
           min={joinedOn ? joinedOn.slice(0, 7) : undefined}
           max={nowMonth}

@@ -104,7 +104,9 @@ ok("the category is typed once and picked thereafter",
    /<datalist id="inv-categories">/.test(rp) && /list="inv-categories"[\s\S]{0,400}?key=\{`cat:\$\{it\.category \?\? ""\}`\}/.test(rp),
    "keyed on the SAVED value - the v1.132.0 rule: a box shows what the database holds");
 ok("the find box also searches the family", /catOf\(it\)\.toLowerCase\(\)\.includes\(needle\)/.test(rp));
-ok("the phone card shows the family it is in", /className="bg-secondary text-muted-foreground mt-1 inline-block rounded-full[\s\S]{0,120}?\{catOf\(it\)\}/.test(rp));
+/* v1.172.1 - the family chip is the shared dense chip (Interface System V3),
+   not a hand-rolled pill; the check is that the phone card still names it. */
+ok("the phone card shows the family it is in", /className=\{`\$\{chipSmNeutral\} text-muted-foreground mt-1`\}>\{catOf\(it\)\}/.test(rp));
 ok("the column can be sorted, and unfiled items sort last either way",
    /case "category": \{[\s\S]{0,200}?if \(!ca !== !cb\) return ca \? -1 : 1;/.test(rp));
 

@@ -35,7 +35,7 @@ import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
 import { compressImage } from "@/lib/compress-image";
-import { btnSm, card, chipNeutral, chipSuccess, chipWarn, inputClass, insetCard } from "@/lib/ui-styles";
+import { btnSm, card, chipNeutral, chipSuccess, chipWarn, inputClass, insetCard, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { QuietCard, ZoneLabel } from "@/components/portal/page-shared"; // v1.122.0
@@ -1280,7 +1280,7 @@ export function ElfiaStorePanel() {
             </span>
             <label className="flex items-center gap-1.5 text-xs">
               <select value={bulkMode} onChange={(e) => setBulkMode(e.target.value as "amount" | "percent")}
-                className="border-input bg-background rounded border px-1.5 py-1"
+                className={selectClassSm}
                 aria-label={L("Discount type", "Jenis diskaun")}>
                 <option value="percent">{L("% off", "% diskaun")}</option>
                 <option value="amount">{L("RM off", "RM diskaun")}</option>
@@ -1319,7 +1319,7 @@ export function ElfiaStorePanel() {
                 </span>
                 <label className="flex items-center gap-1.5 text-xs">
                   <select value={priceMode} onChange={(e) => setPriceMode(e.target.value as "set" | "percent" | "amount")}
-                    className="border-input bg-background rounded border px-1.5 py-1"
+                    className={selectClassSm}
                     aria-label={L("Price change type", "Jenis perubahan harga")}>
                     <option value="set">{L("set to RM", "tetapkan RM")}</option>
                     <option value="percent">{L("by %", "mengikut %")}</option>
@@ -1327,7 +1327,7 @@ export function ElfiaStorePanel() {
                   </select>
                   {priceMode !== "set" && (
                     <select value={priceDir} onChange={(e) => setPriceDir(Number(e.target.value) === 1 ? 1 : -1)}
-                      className="border-input bg-background rounded border px-1.5 py-1"
+                      className={selectClassSm}
                       aria-label={L("Up or down", "Naik atau turun")}>
                       <option value={-1}>{L("down", "turun")}</option>
                       <option value={1}>{L("up", "naik")}</option>
@@ -1506,7 +1506,7 @@ export function ElfiaStorePanel() {
                         {L("Web price RM", "Harga web RM")}
                         <input type="number" min={0} step="0.01"
                           key={`webprice:${it.elfia_price_cents ?? ""}`}
-                          className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right"
+                          className={`${inputClassSm} w-20 text-right`}
                           placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
                           defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
                           title={L("Empty = the list price. What the ELFIA customer pays.", "Kosong = harga senarai. Yang dibayar pelanggan ELFIA.")}
@@ -1528,7 +1528,7 @@ export function ElfiaStorePanel() {
                       <label className="flex items-center gap-1.5">
                         {L("Discount RM", "Diskaun RM")}
                         <input type="number" min={0} step="0.01"
-                          className="border-input bg-background w-16 rounded border px-1.5 py-0.5 text-right"
+                          className={`${inputClassSm} w-16 text-right`}
                           placeholder="0"
                           key={`discount:${it.elfia_discount_cents ?? ""}`}
                           defaultValue={it.elfia_discount_cents ? rmBare(it.elfia_discount_cents) : ""}
@@ -1618,7 +1618,7 @@ export function ElfiaStorePanel() {
                           same as the description. */}
                       <label className="flex items-center gap-1.5">
                         {L("Collection", "Koleksi")}
-                        <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5"
+                        <input className={`${inputClassSm} w-36`}
                           list="elfia-collections"
                           key={`collection:${it.elfia_category ?? ""}`}
                           defaultValue={it.elfia_category ?? ""}
@@ -1867,10 +1867,10 @@ export function ElfiaStorePanel() {
                     </>
                   )}
                 </div>
-                <input className="border-input bg-background mt-2 w-full rounded border px-2 py-1 text-xs font-medium"
+                <input className={`${inputClass} mt-2 font-medium`}
                   placeholder={L("Big line (optional)", "Baris besar (pilihan)")} key={`title:${sl.title ?? ""}`} defaultValue={sl.title ?? ""} maxLength={120}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.title ?? "")) void patchSlide(sl.id, { title: v }, L("caption saved", "kapsyen disimpan")); }} />
-                <input className="border-input bg-background mt-1 w-full rounded border px-2 py-1 text-xs"
+                <input className={`${inputClass} mt-1`}
                   placeholder={L("Small line (optional)", "Baris kecil (pilihan)")} key={`subtitle:${sl.subtitle ?? ""}`} defaultValue={sl.subtitle ?? ""} maxLength={200}
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sl.subtitle ?? "")) void patchSlide(sl.id, { subtitle: v }, L("caption saved", "kapsyen disimpan")); }} />
                 <div className="mt-1.5 flex items-center gap-2 text-xs">

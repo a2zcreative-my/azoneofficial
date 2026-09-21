@@ -33,7 +33,7 @@ import { properName, displayName, givenNames } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
-import { btnSm, btnSmPrimary, card } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, inputClass, selectClassSm } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
@@ -75,7 +75,8 @@ const API = "/api/v1/staff";
 const todayIso = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
 
-const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-secondary/60 disabled:text-muted-foreground disabled:cursor-not-allowed";
+/* v1.172.1 - the V3 control; its disabled state is the class's own. */
+const input = inputClass;
 
 /** v1.4.135: subhead label above a placeholder field — the field's purpose
     stays visible after the placeholder disappears. */
@@ -1007,7 +1008,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
           <label className="relative min-w-[12rem] flex-1 sm:max-w-72">
             <AppIcon name="search" className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
             <input value={query} onChange={(e) => setQuery(e.target.value)}
-              className="border-input bg-background h-9 w-full rounded-lg border pr-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-ring"
+              className={`${inputClass} pr-3 pl-8`}
               placeholder={L("Find staff", "Cari kakitangan")} aria-label={L("Find staff", "Cari kakitangan")} />
           </label>
         )}
@@ -1046,7 +1047,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             : L("Press a face to open the record.", "Tekan wajah untuk buka rekod.")}
         </span>
         <select
-          className="border-input bg-background h-8 rounded-lg border px-2 text-xs sm:ml-auto"
+          className={`${selectClassSm} sm:ml-auto`}
           value={sortBy}
           title={L("Sort staff records", "Susun rekod kakitangan")}
           onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
@@ -1672,7 +1673,7 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
       {vaultToastNode}
       <p className="flex items-center gap-1.5 text-xs font-semibold"><AppIcon name="folder" className="h-3.5 w-3.5" />{L("Documents & onboarding", "Dokumen & onboarding")} — {name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <select className="border-input bg-background rounded border px-2 py-1 text-xs" value={kind} onChange={(e) => setKind(e.target.value)}>
+        <select className={selectClassSm} value={kind} onChange={(e) => setKind(e.target.value)}>
           {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-secondary"

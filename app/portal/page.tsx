@@ -875,7 +875,12 @@ export default function PortalPage() {
             sticky, keeps clearing it as the page scrolls. The bottom bar has
             done the same for its inset since v1.10.0; the top simply never
             had to until phones started drawing under it. */}
-        <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex items-center justify-between gap-2 border-b px-4 pb-2 backdrop-blur [--hdr-pt:0.5rem] md:-mx-5 md:mb-4 md:flex-wrap md:gap-3 md:px-5 md:pb-3 md:backdrop-blur-none md:[--hdr-pt:0.75rem] lg:flex-nowrap"
+        {/* v1.172.1 (Interface System V3): the header is the named
+            .erp-topbar (styles/erp-v3.css) - one blur on phones, a plain bar
+            on desktop. The sticky position and the status-bar inset stay
+            written here, where tests/shell-scroll.mjs reads them: the inset
+            is ADDED to the bar's own top padding, never swapped for it. */}
+        <header className="erp-topbar sticky top-0 [--hdr-pt:0.5rem] md:[--hdr-pt:0.75rem]"
           style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
           <div className="flex min-w-0 flex-1 items-center gap-2 md:basis-full md:gap-3 lg:basis-auto">
             {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
@@ -896,17 +901,17 @@ export default function PortalPage() {
               </span>
             )}
             <div className="min-w-0">
-              <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
+              <p className="erp-topbar-eyebrow hidden md:block">
                 {tr("Staff Portal short", lang)}
               </p>
               {/* Tablet tools use a second row so translated titles remain readable. */}
-              <h1 className="hidden text-lg font-semibold break-words md:block">
+              <h1 className="erp-topbar-title hidden md:block">
                 {tr(activeTab, lang)}
               </h1>
               {/* On phones the header reads like an app screen title.
                 v1.10.0: the Dashboard says "Today" (the reference design's
                 home title); every other tab keeps its own name. */}
-              <h1 className="text-lg font-semibold break-words md:hidden">
+              <h1 className="erp-topbar-title md:hidden">
                 {activeTab === "Dashboard"
                   ? tr("Today", lang)
                   : tr(activeTab, lang)}
@@ -1054,7 +1059,7 @@ export default function PortalPage() {
             >
               <Bell aria-hidden className="h-4 w-4" strokeWidth={1.75} />
               {unread > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-bold text-white shadow">
+                <span className="erp-badge animate-pulse">
                   {unread > 9 ? "9+" : unread}
                 </span>
               )}
@@ -1174,7 +1179,7 @@ export default function PortalPage() {
         {/* App-style bottom navigation (v1.168.0) — phones only. The fixed
           primary tabs stay predictable; the remaining permitted tabs use More. */}
         <nav
-          className={mobileBottomNav}
+          className={`${mobileBottomNav} erp-bottom-nav`}
           aria-label={L(
             "Portal sections (mobile)",
             "Bahagian portal (mudah alih)"
@@ -1195,23 +1200,18 @@ export default function PortalPage() {
                   window.scrollTo({ top: 0 });
                 }}
                 aria-current={active ? "page" : undefined}
-                className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+                className="erp-bottom-nav-item"
               >
-                <span
-                  aria-hidden
-                  className={`grid h-9 w-9 place-items-center rounded-lg text-base transition-colors ${
-                    active
-                      ? "bg-secondary text-primary"
-                      : "text-muted-foreground"
-                  }`}
-                >
+                {/* v1.172.1 (Interface System V3): the item, its icon well
+                    and its label are named classes in styles/erp-v3.css;
+                    the active stop is marked twice - a tinted well and a
+                    gold hairline - so it reads without colour. */}
+                <span aria-hidden className="erp-bottom-nav-icon">
                   <TabIcon name={t} />
                 </span>
-                {/* truncate: BM labels ("Papan Pemuka") must not wrap and
-                  unbalance the row on narrow phones */}
-                <span
-                  className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}
-                >
+                {/* the label ellipsises: BM labels ("Papan Pemuka") must not
+                  wrap and unbalance the row on narrow phones */}
+                <span className="erp-bottom-nav-label">
                   {tr(t, lang)}
                 </span>
               </button>
@@ -1228,25 +1228,17 @@ export default function PortalPage() {
                 onClick={() => setMoreOpen((v) => !v)}
                 aria-expanded={moreOpen}
                 aria-controls="portal-more-menu"
-                className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
+                data-active={active || undefined}
+                className="erp-bottom-nav-item"
               >
-                <span
-                  aria-hidden
-                  className={`grid h-9 w-9 place-items-center rounded-lg text-base transition-colors ${
-                    active
-                      ? "bg-secondary text-primary"
-                      : "text-muted-foreground"
-                  }`}
-                >
+                <span aria-hidden className="erp-bottom-nav-icon">
                   <Ellipsis
                     aria-hidden
                     className="h-[18px] w-[18px]"
                     strokeWidth={1.75}
                   />
                 </span>
-                <span
-                  className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}
-                >
+                <span className="erp-bottom-nav-label">
                   {tr("More", lang)}
                 </span>
               </button>

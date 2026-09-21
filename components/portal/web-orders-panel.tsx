@@ -18,7 +18,7 @@ import { useCallback, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn, tabPill, tabPillOn, selectClassSm } from "@/lib/ui-styles";
 import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { dmyMYT, fmtRM } from "@/lib/format";
@@ -373,7 +373,7 @@ export function WebOrdersPanel() {
             <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
               <label className="flex flex-col gap-1">
                 <span className="text-muted-foreground">{L("Courier", "Kurier")}</span>
-                <select className="border-input bg-background rounded border px-1.5 py-1"
+                <select className={selectClassSm}
                   value={courier} onChange={(e) => setCourier(e.target.value)}>
                   {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                 </select>
@@ -420,7 +420,7 @@ export function WebOrdersPanel() {
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex flex-col gap-1">
                   <span className="text-muted-foreground">{L("Correct the courier", "Betulkan kurier")}</span>
-                  <select className="border-input bg-background rounded border px-1.5 py-1"
+                  <select className={selectClassSm}
                     value={courier} onChange={(e) => setCourier(e.target.value)}>
                     {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>

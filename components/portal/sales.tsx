@@ -23,7 +23,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -2651,7 +2651,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                 <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                   {d.doc_type === "INV" && canInvoice && (
                     <select
-                      className="border-input bg-background h-7 rounded-lg border px-2 text-xs"
+                      className={selectClassSm}
                       value={d.payment_status ?? "unpaid"}
                       title={L(
                         "Mark paid when the bank transfer lands — revenue counts payments received",
@@ -2710,7 +2710,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   )}
                   {d.doc_type === "DO" && (
                     <select
-                      className="border-input bg-background h-7 rounded-lg border px-2 text-xs"
+                      className={selectClassSm}
                       value={d.delivery_status ?? "pending"}
                       onChange={(e) => void setStatus(d, e.target.value)}
                     >

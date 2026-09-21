@@ -11,7 +11,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
-import { card, inputClass, btnClass, fieldRow, fieldLabel } from "@/lib/ui-styles";
+import { card, inputClass, btnClass, fieldRow, fieldLabel, selectClassSm } from "@/lib/ui-styles";
 import { MiniBar } from "@/components/ui/stat-card";
 import { Skel } from "@/components/ui/skeleton";
 import { dmy } from "@/lib/format";
@@ -204,7 +204,7 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
               </span>
               <span className={rowActions}>
                 {canManage && (
-                  <select className="rounded-lg border border-input bg-background px-2 py-1 text-xs capitalize" value={c.stage}
+                  <select className={`${selectClassSm} capitalize`} value={c.stage}
                     onChange={(e) => void setStage(c, e.target.value)}>
                     {STAGES.map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
                   </select>

@@ -10,7 +10,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
-import { btnClass, card, inputClass } from "@/lib/ui-styles";
+import { btnClass, card, inputClass, selectClassSm } from "@/lib/ui-styles";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 /* ================= Tasks ================= */
@@ -246,7 +246,7 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
               </span>
               <span className="flex items-center gap-2">
                 <select
-                  className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                  className={selectClassSm}
                   value={t.status}
                   onChange={(e) =>
                     void update(t.id, {

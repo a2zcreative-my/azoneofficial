@@ -22,7 +22,7 @@ import { dmy, dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
-import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -1308,7 +1308,7 @@ export function Leave({ user }: { user: User }) {
                   <span className="flex items-center gap-2">
                     <input
                       type="month"
-                      className="border-input bg-background h-8 rounded-lg border px-2 text-xs"
+                      className={inputClassSm}
                       value={leaveMonth}
                       aria-label={L("Filter by month", "Tapis ikut bulan")}
                       title={L("Show every leave taken in this month. A leave spanning two months appears under both.", "Tunjuk setiap cuti yang diambil dalam bulan ini. Cuti merentasi dua bulan muncul pada kedua-duanya.")}

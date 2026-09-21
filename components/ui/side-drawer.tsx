@@ -99,14 +99,14 @@ export function SideDrawer({
       {open && (
         <motion.div
           key="drawer"
-          className="fixed inset-0 z-50 flex items-end justify-end md:items-stretch"
+          className="erp-drawer-backdrop"
           initial={reduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={reduceMotion ? undefined : { opacity: 0 }}
           transition={{ duration: 0.15 }}
         >
           <button type="button" aria-label={L("Close", "Tutup")} tabIndex={-1} onClick={onClose}
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            className="erp-drawer-scrim" />
           <motion.div
             ref={panelRef}
             role="dialog" aria-modal="true" aria-labelledby={titleId}
@@ -114,20 +114,22 @@ export function SideDrawer({
             animate={{ x: 0, y: 0 }}
             exit={reduceMotion ? undefined : offscreen}
             transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.8 }}
-            className={`bg-card text-foreground border-border relative flex max-h-[92dvh] w-full flex-col rounded-t-2xl border shadow-2xl md:h-full md:max-h-none md:rounded-none md:rounded-l-2xl md:border-y-0 md:border-r-0 ${wide ? "md:w-[min(44rem,92vw)]" : "md:w-[min(32rem,92vw)]"}`}
+            className={`erp-drawer ${wide ? "erp-drawer-wide" : ""}`}
           >
-            <div className="border-border flex items-start gap-3 border-b px-4 py-3 md:px-5">
+            {/* v1.172.1 (Interface System V3): the panel, head, body and foot
+                are named classes in styles/erp-v3.css. */}
+            <div className="erp-drawer-head">
               <div className="min-w-0 flex-1">
-                <h2 id={titleId} className="truncate text-base font-semibold">{title}</h2>
-                {subtitle && <p className="text-muted-foreground mt-0.5 truncate text-xs">{subtitle}</p>}
+                <h2 id={titleId} className="erp-drawer-title">{title}</h2>
+                {subtitle && <p className="erp-drawer-sub">{subtitle}</p>}
               </div>
               <button type="button" data-drawer-close onClick={onClose} aria-label={L("Close", "Tutup")}
                 className="erp-icon-button text-muted-foreground -mr-2 shrink-0">
                 <X aria-hidden className="h-4 w-4" strokeWidth={1.75} />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">{children}</div>
-            {footer && <div className="border-border border-t px-4 py-3 md:px-5">{footer}</div>}
+            <div className="erp-drawer-body">{children}</div>
+            {footer && <div className="erp-drawer-foot">{footer}</div>}
           </motion.div>
         </motion.div>
       )}

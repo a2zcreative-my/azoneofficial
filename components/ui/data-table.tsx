@@ -41,7 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skel } from "@/components/ui/skeleton";
 import { downloadCsv } from "@/lib/csv";
-import { btnSm, inputClassSm, menuCard, tabPill, tabPillOn, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { btnSm, btnSmDanger, inputClassSm, menuCard, selectClassSm, tabPill, tabPillOn, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -240,29 +240,32 @@ export function DataTable<T extends { id: number | string }>({
   }, [onRowClick]);
 
   const hasTools = filters.length > 0 || !!id || !!csvExport || !!toolbar;
-  const chipBtn = "bg-secondary inline-flex min-h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium";
-  const barBtn = `${btnSm} border-white/30 bg-white/10 text-white hover:bg-white/20`;
+  /* v1.172.1 (Interface System V3): the toolbar, the filter chips and the
+     action bar are named classes in styles/erp-v3.css; the bar redefines
+     the button tokens on itself, so the same btnSm reads on navy. */
+  const chipBtn = "erp-filter-chip";
+  const barBtn = btnSm;
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="erp-toolbar">
         <label className="text-muted-foreground flex items-center gap-2 text-xs">
-          <select className={inputClassSm} value={per}
+          <select className={selectClassSm} value={per}
             onChange={(e) => { setPer(Number(e.target.value)); setPage(1); }} aria-label={L("Entries per page", "Entri setiap halaman")}>
             {pageSizes.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
           {L("entries per page", "entri setiap halaman")}
         </label>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="erp-toolbar-group">
           {searchText && (
             <label className="text-muted-foreground flex items-center gap-2 text-xs">
               {L("Search:", "Cari:")}
-              <input className={inputClassSm} value={q}
+              <input type="search" className={inputClassSm} value={q}
                 onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
             </label>
           )}
           {hasTools && (
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="erp-toolbar-group">
               {toolbar}
               {csvExport && (
                 <button type="button" className={btnSm} onClick={exportCsv} disabled={loading || shaped.length === 0}
@@ -289,7 +292,7 @@ export function DataTable<T extends { id: number | string }>({
                           return (
                             <label key={c.key} role="menuitemcheckbox" aria-checked={!hidden.has(c.key)}
                               className={`flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm ${locked ? "text-muted-foreground" : "hover:bg-secondary cursor-pointer"}`}>
-                              <input type="checkbox" className="accent-primary" checked={!hidden.has(c.key)} disabled={locked} onChange={() => toggleColumn(c.key)} />
+                              <input type="checkbox" className="erp-check" checked={!hidden.has(c.key)} disabled={locked} onChange={() => toggleColumn(c.key)} />
                               <span className="min-w-0 flex-1 truncate">{c.label}</span>
                             </label>
                           );
@@ -326,7 +329,7 @@ export function DataTable<T extends { id: number | string }>({
                   ))}
                 </>
               ) : (
-                <select className={inputClassSm} value={active[f.key] ?? ""} aria-label={f.label}
+                <select className={selectClassSm} value={active[f.key] ?? ""} aria-label={f.label}
                   onChange={(e) => { const v = e.target.value; setActive((a) => { const n = { ...a }; if (v) n[f.key] = v; else delete n[f.key]; return n; }); setPage(1); }}>
                   <option value="">{L("All", "Semua")}</option>
                   {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -360,14 +363,14 @@ export function DataTable<T extends { id: number | string }>({
           is selected, offering only what the caller can really do. */}
       {selectable && selectedRows.length > 0 && (
         <div role="region" aria-label={L("Selected rows", "Baris dipilih")} aria-live="polite"
-          className="bg-primary text-primary-foreground mb-2 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm shadow-sm">
+          className="erp-action-bar text-sm">
           <span className="font-semibold tabular-nums">{selectedRows.length}</span>
           <span className="opacity-90">{L("selected", "dipilih")}</span>
           <span className="mx-1 h-4 w-px bg-white/30" aria-hidden />
           {csvExport && <button type="button" className={barBtn} onClick={exportCsv}>{L("Export CSV", "Eksport CSV")}</button>}
           {bulkActions.map((a) => (
             <button key={a.label} type="button"
-              className={a.tone === "danger" ? `${btnSm} border-transparent bg-danger text-white hover:opacity-90` : barBtn}
+              className={a.tone === "danger" ? btnSmDanger : barBtn}
               onClick={() => void a.run(selectedRows)}>
               {a.label}
             </button>
@@ -387,7 +390,7 @@ export function DataTable<T extends { id: number | string }>({
             <tr>
               {selectable && (
                 <th className={`${th} w-10`}>
-                  <input ref={headCheck} type="checkbox" className="accent-primary" checked={allOnPage} onChange={togglePage}
+                  <input ref={headCheck} type="checkbox" className="erp-check" checked={allOnPage} onChange={togglePage}
                     aria-label={allOnPage ? L("Deselect every row on this page", "Nyahpilih setiap baris di halaman ini") : L("Select every row on this page", "Pilih setiap baris di halaman ini")} />
                 </th>
               )}
@@ -435,7 +438,7 @@ export function DataTable<T extends { id: number | string }>({
                   className={`transition-colors ${onRowClick ? "erp-row-click" : ""}`}>
                   {selectable && (
                     <td className={td} onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" className="accent-primary" checked={!!isSel} onChange={() => toggleRow(r.id)}
+                      <input type="checkbox" className="erp-check" checked={!!isSel} onChange={() => toggleRow(r.id)}
                         aria-label={L("Select row", "Pilih baris")} />
                     </td>
                   )}

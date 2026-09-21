@@ -44,11 +44,11 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, fieldRow, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, thR2, tdR2, selectClass, selectClassSm, tabPill, tabPillOn, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { SectionTabs, ZoneLabel, withStepUp } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
+import { SectionTabs, ZoneLabel, revealAnchor, withStepUp } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -239,7 +239,7 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
           </p>
           <div className="mt-3 flex gap-2">
             <select
-              className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+              className={selectClass}
               value={draft.period}
               onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))}
             >
@@ -249,7 +249,7 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
             </select>
             <input
               type="date"
-              className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+              className={`${inputClass} sm:w-auto`}
               value={draft.report_date}
               onChange={(e) => setDraft((d) => ({ ...d, report_date: e.target.value }))}
             />
@@ -513,9 +513,8 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
               key={v}
               type="button"
               onClick={() => setTtFilter(v)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                ttFilter === v ? "border-transparent bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
-              }`}
+              aria-pressed={ttFilter === v}
+              className={ttFilter === v ? tabPillOn : tabPill}
             >
               {label} ({n})
             </button>
@@ -552,7 +551,7 @@ export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged:
               )}
               {o.note && <span className="text-muted-foreground block text-xs">{o.note}</span>}
             </span>
-            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{statusLabel(o.status)}</span>
+            <span className={`${chipNeutral} capitalize`}>{statusLabel(o.status)}</span>
           </div>
         ))}
       </div>
@@ -1220,7 +1219,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       the strip above is how a phone narrows to one family,
                       and filing an item is desk work like the price edits. */}
                   {catOf(it) && (
-                    <span className="bg-secondary text-muted-foreground mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium">{catOf(it)}</span>
+                    <span className={`${chipSmNeutral} text-muted-foreground mt-1`}>{catOf(it)}</span>
                   )}
                 </div>
                 <div className="shrink-0 text-right">
@@ -1304,14 +1303,14 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 <tr key={it.id} className={`border-border border-b last:border-0 ${it.stock <= 5 ? accentRowDanger : ""}`}>
                   <td className={`${td} font-mono text-xs ${it.stock <= 5 ? accentCellDanger : ""}`}>
                     {invEditId === it.id
-                      ? <input className="border-input bg-background w-24 rounded border px-1.5 py-0.5 font-mono text-xs" value={invEditDraft.sku}
+                      ? <input className={`${inputClassSm} w-24 font-mono`} value={invEditDraft.sku}
                           title={L("SKU — must match TikTok (or the item name will be used to match)", "SKU — mesti sepadan dengan TikTok (atau nama barang akan digunakan untuk padanan)")}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, sku: e.target.value }))} />
                       : it.sku}
                   </td>
                   <td className={`${td} font-medium`}>
                     {invEditId === it.id
-                      ? <input className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs" value={invEditDraft.name}
+                      ? <input className={`${inputClassSm} w-36`} value={invEditDraft.name}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, name: e.target.value }))} />
                       : <button type="button" className="min-h-9 text-left hover:underline" onClick={() => setDetailId(it.id)}>{it.name}<AppIcon name="next" className="ml-1" /></button>}
                   </td>
@@ -1321,7 +1320,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       what the database holds, never a stale keystroke. */}
                   <td className={td}>
                     <input list="inv-categories" maxLength={40}
-                      className="border-input bg-background w-28 rounded border px-1.5 py-0.5 text-xs"
+                      className={`${inputClassSm} w-28`}
                       title={L("Category — Bawal, Shawl, … saves when you leave the box; empty clears it", "Kategori — Bawal, Shawl, … disimpan apabila keluar kotak; kosong membuangnya")}
                       placeholder={L("—", "—")}
                       key={`cat:${it.category ?? ""}`}
@@ -1330,7 +1329,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       onBlur={(e) => { const el = e.target; void saveInvCategory(it, el.value, () => { el.value = it.category ?? ""; }); }} />
                   </td>
                   <td className={tdR2}>
-                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
+                    <input type="number" min={0} step="0.01" className={`${inputClassSm} w-20 text-right`}
                       title={L("Price per unit (RM) — saves on change", "Harga seunit (RM) — disimpan apabila diubah")}
                       key={`unitprice:${it.unit_price_cents ?? ""}`}
                       defaultValue={it.unit_price_cents ? rmBare(it.unit_price_cents) : ""}
@@ -1351,7 +1350,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       Emptying the box clears the cost back to "not said",
                       which the totals then report rather than treat as free. */}
                   <td className={tdR2}>
-                    <input type="number" min={0} step="0.01" className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
+                    <input type="number" min={0} step="0.01" className={`${inputClassSm} w-20 text-right`}
                       title={L("What one piece cost you (RM) — saves on change. Leave empty if you do not know it yet.", "Kos satu unit (RM) — disimpan apabila diubah. Biarkan kosong jika belum tahu.")}
                       placeholder={L("not set", "belum")}
                       key={`unitcost:${it.unit_cost_cents ?? ""}`}
@@ -1401,7 +1400,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                         }} />
                       {(it.bridge_enabled ?? 0) === 1 && (
                         <input type="number" min={0} step="0.01"
-                          className="border-input bg-background w-20 rounded border px-1.5 py-0.5 text-right text-xs"
+                          className={`${inputClassSm} w-20 text-right`}
                           placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
                           title={L("Web price (RM) — what the ELFIA store charges. Empty = the list price/unit. The live rebate never applies online.", "Harga web (RM) — yang dicaj oleh kedai ELFIA. Kosong = harga senarai/unit. Rebat live tidak sekali-kali terpakai dalam talian.")}
                           key={`webprice:${it.elfia_price_cents ?? ""}`}
@@ -1440,7 +1439,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   <td className={td}><Badge value={it.status} /></td>
                   <td className={td}>
                     <span className="flex items-center gap-1">
-                      <input type="number" min={1} className="border-input bg-background w-14 rounded border px-1.5 py-0.5 text-xs"
+                      <input type="number" min={1} className={`${inputClassSm} w-14`}
                         value={adjQty[it.id] ?? 1}
                         onChange={(e) => setAdjQty((q) => ({ ...q, [it.id]: Math.max(1, Number(e.target.value)) }))} />
                       {/* v1.4.251: an IN is a movement like any other — same
@@ -1585,7 +1584,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           {L("Record rejected/defective items sent back to the supplier. Stock is deducted on record. The supplier settles either way: mark the row credited when money comes back, or replaced when replacement goods arrive (stock returns automatically) — the outstanding figure is what the supplier still owes the company.", "Rekod barang ditolak/cacat yang dihantar semula kepada pembekal. Stok ditolak semasa direkod. Pembekal menyelesaikan sama ada cara: tanda baris sebagai dikredit apabila wang kembali, atau diganti apabila barang gantian tiba (stok kembali secara automatik) — angka tertunggak ialah apa yang pembekal masih berhutang kepada syarikat.")}
         </p>
         {retTotals && retTotals.total_cents > 0 && (
-          <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
+          <div className="erp-card-inset mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <span className="font-semibold">{L("Returned", "Dipulangkan")} {rmR(retTotals.total_cents)}</span>
             <span className="text-success">{L("Credited back","Dikredit semula")} {rmR(retTotals.credited_cents)}</span>
             {(retTotals.replaced_cents ?? 0) > 0 && <span className="text-info">{L("Replaced in goods","Diganti dalam barangan")} {rmR(retTotals.replaced_cents ?? 0)}</span>}
@@ -1665,16 +1664,16 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </span>
               <span className="flex flex-wrap items-center justify-end gap-2">
                 {r.status === "credited" ? (
-                  <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
+                  <span className={chipSuccess}>
                     {L("Credited", "Dikredit")} {rmR(r.credited_cents ?? r.total_cents)}
                   </span>
                 ) : r.status === "replaced" ? (
-                  <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
+                  <span className={chipInfo}>
                     {L("Replaced", "Diganti")} {r.qty} pcs
                   </span>
                 ) : (
                   <>
-                    <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+                    <span className={chipWarn}>
                       {L("Outstanding", "Tertunggak")}{(r.replaced_qty ?? 0) > 0 ? ` (${r.replaced_qty}/${r.qty} ${L("replaced", "diganti")})` : ""}
                     </span>
                     {creditingId === r.id ? (
@@ -1933,7 +1932,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   </span>
                 </span>
                 <select
-                  className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                  className={selectClassSm}
                   value={r.status}
                   onChange={async (e) => {
                     await api(`/postage/${r.id}`, { method: "PATCH", body: JSON.stringify({ status: e.target.value }) });
@@ -1981,7 +1980,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               <li key={m.id} className="border-border flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
                 <span className="font-medium">{m.title}</span>
                 <select
-                  className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                  className={selectClassSm}
                   value={m.status}
                   onChange={async (e) => {
                     await api(`/materials/${m.id}`, { method: "PATCH", body: JSON.stringify({ status: e.target.value }) });
@@ -2053,7 +2052,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                     <td className={`${td} font-medium`}>{t.name}</td>
                     <td className={tdR2}>
                       {t.today_qty > 0
-                        ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success"><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{t.today_qty}</span>
+                        ? <span className={`${chipSuccess} inline-block font-bold whitespace-nowrap`}><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{t.today_qty}</span>
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className={tdR2}>{t.month_qty}</td>
@@ -2091,7 +2090,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   return (
                     <tr className="border-border border-t-2 font-semibold">
                       <td className={td} colSpan={2}>{L("TOTAL", "JUMLAH")}</td>
-                      <td className={tdR2}>{today > 0 ? <span className="inline-block rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold whitespace-nowrap text-success"><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{today}</span> :"—"}</td>
+                      <td className={tdR2}>{today > 0 ? <span className={`${chipSuccess} inline-block font-bold whitespace-nowrap`}><AppIcon name="hot" className="mr-0.5 -mt-0.5 h-3 w-3" />{today}</span> :"—"}</td>
                       <td className={tdR2}>{month}</td>
                       <td className={tdR2}>{all}</td>
                       <td className={tdR2} title={L("Weighted by units sold (Σ price × qty ÷ Σ qty)", "Wajaran mengikut unit dijual (Σ harga × kuantiti ÷ Σ kuantiti)")}>{wAvg != null ? `RM ${rmBare(wAvg)}` : "—"}</td>
@@ -2360,19 +2359,19 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-1.5">
                   {o.reverted ? (
-                    <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
+                    <span className={chipSmInfo}>{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
                   ) : o.returned_at ? (
                     /* v1.148.0: a loan that closed. Deliberately NOT the same
                        chip as reverted — one says the record was wrong, this
                        says marketing brought the stock back as planned. */
-                    <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                    <span className={chipSmSuccess}>
                       {L("✓ returned — back on the shelf","✓ dipulangkan — kembali ke rak")}
                     </span>
                   ) : isLoanRow ? (
                     /* Out on loan and not back yet — the one chip on this
                        screen that is about money he has NOT lost and has NOT
                        earned, only lent. */
-                    <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-medium text-info">
+                    <span className={chipSmInfo}>
                       {L("out with","bersama")} {L(...(PURPOSE_LABEL[o.purpose ?? ""] ?? ["", ""]))}
                       {o.item_cost_cents != null ? ` · RM ${rmBare(o.item_cost_cents * o.qty)} ${L("at cost","pada kos")}` : ""}
                     </span>
@@ -2385,16 +2384,16 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                        v1.148.0 — and it only says "Sold" when the REASON says
                        it was sold. A price on an internal-use movement is the
                        value of the pieces, not income. */
-                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                    ? <span className={chipSmSuccess}>
                         {L("Sold @ RM","Dijual @ RM")} {rmBare(o.unit_sale_cents!)}{L("/unit","/unit")} · RM {rmBare(o.unit_sale_cents! * o.qty)}
                       </span>
                     /* And a movement that is NOT a sale still costs the
                        company something. It used to say only "correction". */
                     : o.item_cost_cents != null
-                      ? <span className="bg-secondary rounded-full px-2 py-0.5 text-[10px]">
+                      ? <span className={chipSmNeutral}>
                           {L("correction", "pembetulan")} · {L("cost", "kos")} RM {rmBare(o.item_cost_cents)}{L("/unit","/unit")} · RM {rmBare(o.item_cost_cents * o.qty)}
                         </span>
-                      : <span className="bg-secondary text-muted-foreground rounded-full px-2 py-0.5 text-[10px]">
+                      : <span className={`${chipSmNeutral} text-muted-foreground`}>
                           {L("correction", "pembetulan")} · {L("cost not set", "kos belum ditetapkan")}
                         </span>}
                   {o.created_by_name && <span className="text-muted-foreground text-[10px]">{L("by", "oleh")} {o.created_by_name.split(" ")[0]}</span>}
@@ -3190,13 +3189,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                       approver sees when it was PRESSED and when it ARRIVED,
                       which is what separates it from one typed in after. */}
                   {pp.offline_sent_at && (
-                    <span className="bg-secondary text-foreground/80 ml-1.5 rounded-full px-1.5 py-px text-[10px]"
+                    <span className={`${chipSmNeutral} ml-1.5`}
                       title={L("Kept on the phone with no signal and sent when it came back", "Disimpan pada telefon tanpa isyarat dan dihantar apabila ia kembali")}>
                       {L("sent late from offline", "dihantar lewat dari luar talian")} · {L("arrived", "tiba")} {utcToMytLocal(pp.offline_sent_at).slice(11, 16)}
                     </span>
                   )}
                 </span>
-                <input type="datetime-local" className="border-input bg-background rounded border px-1.5 py-1"
+                <input type="datetime-local" className={inputClassSm}
                   value={fixTime[pp.id] ?? utcToMytLocal(pp.created_at)}
                   title={L("The real time — this is what gets recorded", "Masa sebenar — ini yang akan direkodkan")}
                   onChange={(e) => setFixTime((f) => ({ ...f, [pp.id]: e.target.value }))} />
@@ -3400,8 +3399,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                     return (
                       <button key={k} type="button"
                         className={on
-                          ? "bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-[11px] font-medium"
-                          : "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[11px]"}
+                          ? `${chipSm} bg-primary text-primary-foreground`
+                          : `${chipSm} border-border text-muted-foreground border`}
                         onClick={() => setBulkDays((d) => (on ? d.filter((x) => x !== k) : [...d, k]))}>
                         {label}
                       </button>
@@ -3937,7 +3936,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 <td className={td}>
                   <input
                     type="datetime-local"
-                    className="border-input bg-background rounded-lg border px-2 py-1 text-xs"
+                    className={inputClassSm}
                     value={edit[r.id] ?? utcToMytLocal(r.created_at)}
                     onChange={(e) => setEdit((s) => ({ ...s, [r.id]: e.target.value }))}
                   />
@@ -4370,6 +4369,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
       setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
       void load();
+      revealAnchor("claims-list"); // v1.172.1 - back to the list
       return;
     }
     const res = await api<{ id?: number; error?: { message?: string } }>(`/claims`, {
@@ -4410,6 +4410,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     setReceipt(null);
     showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
+    revealAnchor("claims-list"); // v1.172.1 - back to the list, where the new claim now sits
     } finally {
       submitLock.current = false;
       setSubmitting(false);
@@ -4480,9 +4481,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   };
 
   const badgeCls: Record<string, string> = {
-    pending:"bg-warning-soft text-warning",
-    approved:"bg-success-soft text-success",
-    rejected:"bg-danger-soft text-danger",
+    pending: "erp-chip-warning",
+    approved: "erp-chip-success",
+    rejected: "erp-chip-danger",
   };
   const pending = claims.filter((c) => c.status === "pending");
   const decided = claims.filter((c) => c.status !== "pending");
@@ -4513,24 +4514,24 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {c.claimant && <span className="font-medium">{properName(c.claimant)} · </span>}
           <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
           {claimItems(c).length > 1
-            ? <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{claimItems(c).length} {L("items", "item")}</span>
-            : <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(c.category)}</span>}{" "}
-          {c.claim_type === "salary_advance" && <span className="rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">{L("Salary advance", "Pendahuluan gaji")} · {c.payroll_month}</span>}{" "}
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badgeCls[c.status] ?? "bg-secondary"}`}>{statusLabel(c.status)}</span>
+            ? <span className={chipNeutral}>{claimItems(c).length} {L("items", "item")}</span>
+            : <span className={`${chipNeutral} capitalize`}>{catLabel(c.category)}</span>}{" "}
+          {c.claim_type === "salary_advance" && <span className={chipInfo}>{L("Salary advance", "Pendahuluan gaji")} · {c.payroll_month}</span>}{" "}
+          <span className={`${chip} capitalize ${badgeCls[c.status] ?? "erp-chip-neutral"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
-            <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info"
+            <span className={`${chipSmInfo} ml-1`}
               title={L("Chain: HR review → COO pre-approval → CEO final approval", "Rantaian: semakan HR → pra-kelulusan COO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("HR ✓ · COO ✓ — CEO next", "HR ✓ · COO ✓ — CEO seterusnya") : c.hr_reviewed_at ? L("HR ✓ — awaiting COO", "HR ✓ — menunggu COO") : L("awaiting HR review", "menunggu semakan HR")}
             </span>
           )}
           {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
-            <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info"
+            <span className={`${chipSmInfo} ml-1`}
               title={L("Chain: CCO pre-approval → CEO final approval", "Rantaian: pra-kelulusan CCO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("CCO ✓ — CEO next", "CCO ✓ — CEO seterusnya") : L("awaiting CCO", "menunggu CCO")}
             </span>
           )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
-            <span className="ml-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
+            <span className={`${chipSuccess} ml-1 font-semibold`}
               title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
@@ -4602,8 +4603,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
-            ? <span className="rounded-full bg-success-soft px-1.5 py-px text-[10px] font-medium text-success" title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("pays to you","dibayar kepada anda")}</></span>
-            : c.payee_name ? <span className="rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium text-warning" title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />→ {firstName(c.payee_name)}</span> : null}
+            ? <span className={chipSmSuccess} title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("pays to you","dibayar kepada anda")}</></span>
+            : c.payee_name ? <span className={chipSmWarn} title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />→ {firstName(c.payee_name)}</span> : null}
         </div>
       </div>
       {expanded === c.id && (
@@ -4617,7 +4618,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               them set/change it on any claim, incl. pre-payee approved ones. */}
           {canPayee && payeeEdit?.claimId === c.id ? (
             <span className="mt-1 flex flex-wrap items-center gap-1.5">
-              <select className="border-input bg-background h-8 rounded-lg border px-2 text-xs" value={payeeEdit.value}
+              <select className={selectClassSm} value={payeeEdit.value}
                 onChange={(e) => setPayeeEdit({ claimId: c.id, value: Number(e.target.value) })}>
                 <option value={0}>{`${L("— pay the submitter", "— bayar penghantar")} (${properName(c.claimant_full || c.claimant || "")}) —`}</option>
                 {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
@@ -4719,7 +4720,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       )}
       {actions && canDecide && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input className="border-input bg-background h-8 flex-1 rounded-lg border px-2 text-xs" placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
+          <input className={`${inputClass} flex-1`} placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
             value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
           <button type="button" className={rowBtnPrimary}
             title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? L("Chain (HR → COO) not finished — approving now is a recorded CEO override", "Rantaian (HR → COO) belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? L("CCO pre-approval not done — approving now is a recorded CEO override", "Pra-kelulusan CCO belum dibuat — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
@@ -4761,16 +4762,19 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       {toastNode}
       {stepUpNode}
       {confirmNode}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* v1.172.1 (Interface System V3): the screen opens with what a member
+          of staff came for - a pill that jumps to the form - and returns
+          them to their list after a submit (revealAnchor below). */}
+      <div className={rowHead}>
         <p className="text-sm font-semibold">{L("Claims", "Tuntutan")}</p>
-        <a href="#claim-form" className="min-h-11 py-3 text-sm underline">{L("Claim form", "Borang tuntutan")}</a>
+        <a href="#claim-form" className={btnSmPrimary}>{L("Claim form", "Borang tuntutan")}</a>
       </div>
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
         <div id="claims-pending" className={`${card} scroll-mt-16`}>
           <p className="text-sm font-semibold">
             {L("Pending approvals", "Kelulusan menunggu")}
             {pending.length > 0 && (
-              <span className="ml-2 inline-flex h-5 min-w-5 animate-pulse items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">{pending.length}</span>
+              <span className={`${chipSmWarn} ml-2 font-bold`}>{pending.length}</span>
             )}
           </p>
           <div className="mt-3 space-y-2">
@@ -4791,10 +4795,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
         </p>
-        <div className="border-input bg-secondary mt-3 inline-flex rounded-lg border p-0.5" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
+        <div className="erp-segmented mt-3" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
           {(["reimbursement", "salary_advance"] as const).map((t) => (
             <button key={t} type="button" aria-pressed={claimType === t}
-              className={`h-8 rounded-md px-3 text-xs font-medium ${claimType === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
               onClick={() => setClaimType(t)}>
               {t === "reimbursement" ? L("Reimbursement", "Bayaran balik") : L("Salary advance", "Pendahuluan gaji")}
             </button>
@@ -4804,13 +4807,13 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <label className="mt-2 block sm:max-w-xs">
             <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
             <input type="month" min={items.find((i) => i.claim_date)?.claim_date.slice(0, 7) || currentMonth}
-              className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payrollMonth}
+              className={inputClass} value={payrollMonth}
               onChange={(e) => setPayrollMonth(e.target.value)} />
             <span className="text-muted-foreground mt-1 block text-[11px]">{L("The deduction starts only after this advance is approved and marked paid.", "Potongan bermula hanya selepas pendahuluan diluluskan dan ditanda dibayar.")}</span>
           </label>
         )}
         <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
-        <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
+        <input className={inputClass} placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
         {/* v1.4.173 (CEO): who the payment actually goes to when this claim
             is raised on behalf of someone. Internal remark — CEO pays by it,
@@ -4818,7 +4821,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         {canPayee && (
           <label className="mt-2 block sm:max-w-md">
             <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
-            <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" value={payeeId}
+            <select className={selectClass} value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
               <option value={0}>{L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
               {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
@@ -4838,7 +4841,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             <span className="inline-flex flex-wrap items-center gap-2">
               <AppIcon name="place" className="h-3.5 w-3.5" />
               <span>{L("New rate RM", "Kadar baharu RM")}</span>
-              <input type="number" min={0.01} max={100} step="0.01" inputMode="decimal" className="border-input bg-background h-8 w-20 rounded-lg border px-2 text-sm" value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} />
+              <input type="number" min={0.01} max={100} step="0.01" inputMode="decimal" className={`${inputClass} w-24`} value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} />
               <span>/km</span>
               <button type="button" className={rowBtnPrimary} onClick={async () => {
                 const r = await api<{ ok?: boolean; cents_per_km?: number; error?: { message?: string } }>(`/claims/mileage-rate`, { method: "POST", body: JSON.stringify({ rate_rm: Number(rateDraft) }) });
@@ -4857,36 +4860,36 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         {items.map((it, i) => (
           <div key={i} className="border-border mt-2 grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:mt-1 sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] sm:rounded-none sm:border-0 sm:p-0">
             <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Date", "Tarikh")}
-              <input type="date" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm"
+              <input type="date" className={`${inputClass} mt-0.5`}
                 value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             </label>
-            <input type="date" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block"
+            <input type="date" className={`${inputClass} hidden sm:block`}
               value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Category", "Kategori")}
-              <select className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm capitalize" value={it.category}
+              <select className={`${selectClass} mt-0.5 capitalize`} value={it.category}
                 onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
                 {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
               </select>
             </label>
-            <select className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm capitalize sm:block" value={it.category}
+            <select className={`${selectClass} hidden capitalize sm:block`} value={it.category}
               onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
               {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
             </select>
             <label className="text-muted-foreground col-span-2 block text-[11px] sm:hidden">{L("Description", "Keterangan")}
-              <input className="border-input bg-background mt-0.5 h-9 w-full min-w-0 rounded-lg border px-2 text-sm" placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
+              <input className={`${inputClass} mt-0.5`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
                 value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
             </label>
-            <input className="border-input bg-background hidden h-9 min-w-0 rounded-lg border px-2 text-sm sm:block" placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
+            <input className={`${inputClass} hidden sm:block`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
               value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
             <label className="text-muted-foreground block text-[11px] sm:hidden">{isMileage(it) ? L("Amount (RM, from km)", "Amaun (RM, dari km)") : L("Amount (RM)", "Amaun (RM)")}
               {isMileage(it)
-                ? <input readOnly className="border-input bg-secondary mt-0.5 h-9 w-full rounded-lg border px-2 text-sm tabular-nums" value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
-                : <input type="number" min={0} step="0.01" className="border-input bg-background mt-0.5 h-9 w-full rounded-lg border px-2 text-sm" placeholder="0.00"
+                ? <input readOnly className={`${inputClass} mt-0.5 tabular-nums`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+                : <input type="number" min={0} step="0.01" className={`${inputClass} mt-0.5`} placeholder="0.00"
                     value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             </label>
             {isMileage(it)
-              ? <input readOnly className="border-input bg-secondary hidden h-9 rounded-lg border px-2 text-sm tabular-nums sm:block" value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
-              : <input type="number" min={0} step="0.01" className="border-input bg-background hidden h-9 rounded-lg border px-2 text-sm sm:block" placeholder="0.00"
+              ? <input readOnly className={`${inputClass} hidden tabular-nums sm:block`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+              : <input type="number" min={0} step="0.01" className={`${inputClass} hidden sm:block`} placeholder="0.00"
                   value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             {items.length > 1
               ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>{L("✕ Remove", "✕ Buang")}</button>
@@ -4896,7 +4899,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-5 sm:pb-1">
                 <label className="text-muted-foreground inline-flex items-center gap-1.5 text-[11px]">
                   <AppIcon name="place" className="h-3.5 w-3.5" />{L("Mileage (km, round trip)", "Perbatuan (km, pergi balik)")}
-                  <input type="number" min={0} step="0.1" inputMode="decimal" className="border-input bg-background h-8 w-24 rounded-lg border px-2 text-sm" placeholder="0.0"
+                  <input type="number" min={0} step="0.1" inputMode="decimal" className={`${inputClass} w-28`} placeholder="0.0"
                     value={it.km} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, km: e.target.value } : x))} />
                 </label>
                 <span className="text-muted-foreground text-[11px]">
@@ -4909,7 +4912,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           </div>
         ))}
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <button type="button" className="text-xs underline" onClick={() => setItems((a) => [...a, { ...emptyItem }])}>{L("+ Add item", "+ Tambah item")}</button>
+          <button type="button" className={btnSm} onClick={() => setItems((a) => [...a, { ...emptyItem }])}>{L("+ Add item", "+ Tambah item")}</button>
           <p className="text-sm font-semibold">
             {L("Total: RM", "Jumlah: RM")} {rmBare(items.reduce((a, i) => a + lineCents(i), 0))}
           </p>
@@ -4944,7 +4947,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
       </div>
 
-      <div className={card}>
+      <div id="claims-list" className={`${card} scroll-mt-16`}>
         <p className="text-sm font-semibold">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
         {(() => {
           // v1.4.147: overall of the present month, by CLAIM DATE (the same
@@ -4960,7 +4963,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           const pending = mine.filter((c) => c.status === "pending");
           const rejected = mine.filter((c) => c.status === "rejected");
           return (
-            <div className="border-border bg-secondary/40 mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs">
+            <div className="erp-card-inset mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <span className="font-semibold">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
               {/* v1.88.0 (CEO: "clickable data without me need to open another
                   new tabs") — these were four figures you could read and not
@@ -5009,8 +5012,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   <span className="font-medium">{claimNoOf(c)}</span>
                   <span className="text-muted-foreground"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
                   {c.paid_at
-                    ? <span className="ml-1.5 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">{L("PAID","DIBAYAR")} {dmy(c.paid_at)}</span>
-                    : <span className="ml-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">{L("payment due","bayaran perlu dibuat")}</span>}
+                    ? <span className={`${chipSuccess} ml-1.5`}>{L("PAID","DIBAYAR")} {dmy(c.paid_at)}</span>
+                    : <span className={`${chipWarn} ml-1.5`}>{L("payment due","bayaran perlu dibuat")}</span>}
                 </span>
                 <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
                   <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
@@ -5203,7 +5206,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
               {L("Operating costs the company pays — rent, software, ads, logistics. Staff reimbursements belong in Claims (approved by the CEO), not here.", "Kos operasi yang dibayar syarikat — sewa, perisian, iklan, logistik. Pembayaran balik kakitangan tergolong dalam Tuntutan (diluluskan oleh CEO), bukan di sini.")}
             </p>
           </div>
-          <input type="month" className="border-input bg-background h-9 rounded-lg border px-2 text-sm"
+          <input type="month" className={`${inputClass} sm:w-auto`}
             value={month} max={new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)}
             onChange={(e) => setMonth(e.target.value)} />
         </div>
@@ -5211,18 +5214,18 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
             inline row from sm: (portal-wide pattern). */}
         <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Expense date", "Tarikh perbelanjaan")}</span>
-          <input type="date" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-44" title={L("Expense date", "Tarikh perbelanjaan")}
+          <input type="date" className={`${inputClass} sm:max-w-44`} title={L("Expense date", "Tarikh perbelanjaan")}
             value={draft.expense_date} onChange={(e) => setDraft((d) => ({ ...d, expense_date: e.target.value }))} /></label>
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Category", "Kategori")}</span>
-          <select className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm capitalize sm:max-w-40" value={draft.category}
+          <select className={`${selectClass} capitalize sm:max-w-40`} value={draft.category}
             onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}>
             {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
           </select></label>
           <label className="block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Amount (RM)", "Amaun (RM)")}</span>
-          <input type="number" min={0} step="0.01" className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm sm:max-w-36" placeholder="0.00"
+          <input type="number" min={0} step="0.01" className={`${inputClass} sm:max-w-36`} placeholder="0.00"
             value={draft.amount} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
           <label className="block sm:max-w-52 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Vendor (optional)", "Vendor (pilihan)")}</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("e.g. TNB, Shopee", "cth. TNB, Shopee")}
+          <input className={inputClass} placeholder={L("e.g. TNB, Shopee", "cth. TNB, Shopee")}
             value={draft.vendor} onChange={(e) => setDraft((d) => ({ ...d, vendor: e.target.value }))} /></label>
         </div>
         {/* v1.4.186 mobile audit: on phones the description was squeezed to a
@@ -5232,7 +5235,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
             the original single inline row returns. */}
         <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
           <label className="col-span-2 block min-w-0 sm:flex-1"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Description (optional)", "Keterangan (pilihan)")}</span>
-          <input className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm" placeholder={L("What was this for?", "Untuk apa perbelanjaan ini?")}
+          <input className={inputClass} placeholder={L("What was this for?", "Untuk apa perbelanjaan ini?")}
             value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} /></label>
           {/* v1.171.0 - the label may wrap: at 375 px with larger text the
               nowrap "Monthly recurring" ran under "Due day". */}
@@ -5242,7 +5245,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
           </label>
           <label className="flex h-9 items-center justify-end gap-1.5 text-sm whitespace-nowrap sm:justify-start" title={L("Day of the month the payment must be made by", "Hari dalam bulan bayaran mesti dibuat")}>
             {L("Due day", "Hari akhir bayaran")}
-            <input type="number" min={1} max={31} className="border-input bg-background h-9 w-16 rounded-lg border px-2 text-sm" placeholder="—"
+            <input type="number" min={1} max={31} className={`${inputClass} w-16`} placeholder="—"
               value={draft.due_day} onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value }))} />
           </label>
           <button type="button" className={`${btnClass} col-span-2 sm:col-span-1`}
@@ -5321,13 +5324,13 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                 </div>
                 <span className="flex items-center gap-1.5">
                   {staffPayroll?.paid_at
-                    ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success"
+                    ? <span className={`${chipSuccess} font-semibold`}
                         title={`${L("Payment recorded", "Bayaran direkodkan")} ${dmy(staffPayroll.paid_at.slice(0, 10))}`}><><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("PAID", "DIBAYAR")}</></span>
                     : (
                       <>
                         {payrollDue.released
-                          ? <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success">{L("RELEASED","DILEPASKAN")}</span>
-                          : <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")}</span>}
+                          ? <span className={`${chipSuccess} font-semibold`}>{L("RELEASED","DILEPASKAN")}</span>
+                          : <span className={`${chipWarn} font-semibold`}>{L("DUE","PERLU DIBAYAR")}</span>}
                         <button type="button" className={rowBtnPrimary}
                           title={L("Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed", "Rekodkan bahawa bayaran gaji bank telah dibuat — pil PERLU DIBAYAR hilang dan bayaran berpindah ke Bayaran selesai")}
                           onClick={async () => {
@@ -5344,12 +5347,12 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                 <div className="min-w-0">
                   <p className="text-sm">
                     <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{L("staff claim", "tuntutan kakitangan")}</span>
+                    <span className={chipNeutral}>{L("staff claim", "tuntutan kakitangan")}</span>
                     {c.claimant && <span className="text-muted-foreground"> · {properName(c.claimant)}</span>}
                   </p>
                   <p className="text-muted-foreground text-xs">{L("Approved", "Diluluskan")}{c.decided_at ? ` ${dmy(c.decided_at.slice(0, 10))}` : ""}{L(" — pay the claimant, then press Mark paid on the Claims tab", " — bayar penuntut, kemudian tekan Tanda dibayar pada tab Tuntutan")}</p>
                 </div>
-                <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")}</span>
+                <span className={`${chipWarn} font-semibold`}>{L("DUE","PERLU DIBAYAR")}</span>
               </div>
             ))}
             {upcoming.map((r) => {
@@ -5361,9 +5364,9 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                   <div className="min-w-0">
                     <p className="text-sm">
                       <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
+                      <span className={`${chipNeutral} capitalize`}>{catLabel(r.category)}</span>
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
-                      <span className="ml-1 rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">{L("↻ recurring","↻ berulang")}</span>
+                      <span className={`${chipInfo} ml-1`}>{L("↻ recurring","↻ berulang")}</span>
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs">
                       {r.due_day ? `${L("Due", "Perlu dibayar")} ${dmy(dueISO)}` : L("No due day set", "Tiada hari akhir ditetapkan")}
@@ -5395,11 +5398,11 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                   <div className="min-w-0">
                     <p className="text-sm">
                       <span className="font-semibold">{rmc(r.amount_cents)}</span>{" "}
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
+                      <span className={`${chipNeutral} capitalize`}>{catLabel(r.category)}</span>
                       {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                     </p>
                     <p className="mt-0.5 text-xs">
-                      <span className={`rounded-full px-2 py-0.5 font-semibold ${overdue ?"bg-danger-soft text-danger" :"bg-warning-soft text-warning"}`}>
+                      <span className={`${overdue ? chipDanger : chipWarn} font-semibold`}>
                         {overdue ? L("OVERDUE", "TERTUNGGAK") : L("DUE", "PERLU DIBAYAR")} {dmy(dueISO)}
                       </span>
                     </p>
@@ -5510,8 +5513,8 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                         <span>{r.vendor || r.description || "—"}</span>
                         <span className="text-muted-foreground">{dmy(r.expense_date)}</span>
                         {r.paid_at
-                          ? <span className="rounded-full bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold text-success">{L("PAID","DIBAYAR")}</span>
-                          : <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">{L("outstanding","tertunggak")}</span>}
+                          ? <span className={`${chipSmSuccess} font-semibold`}>{L("PAID","DIBAYAR")}</span>
+                          : <span className={`${chipSmWarn} font-semibold`}>{L("outstanding","tertunggak")}</span>}
                       </div>
                     ))}
                   </div>
@@ -5564,19 +5567,19 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
           {rows.map((r) => editId === r.id ? (
             <div key={r.id} className="border-border rounded-lg border px-3 py-2">
               <div className="flex flex-wrap gap-2">
-                <input type="date" className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-40"
+                <input type="date" className={`${inputClass} sm:w-auto sm:max-w-40`}
                   value={edit.expense_date} onChange={(e) => setEdit((d) => ({ ...d, expense_date: e.target.value }))} />
-                <select className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm capitalize sm:w-auto sm:max-w-36"
+                <select className={`${selectClass} capitalize sm:w-auto sm:max-w-36`}
                   value={edit.category} onChange={(e) => setEdit((d) => ({ ...d, category: e.target.value }))}>
                   {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
                 </select>
-                <input type="number" min={0} step="0.01" className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:w-auto sm:max-w-32"
+                <input type="number" min={0} step="0.01" className={`${inputClass} sm:w-auto sm:max-w-32`}
                   placeholder={L("Amount (RM)", "Amaun (RM)")} value={edit.amount} onChange={(e) => setEdit((d) => ({ ...d, amount: e.target.value }))} />
-                <input className="border-input bg-background h-8 w-full rounded-lg border px-2 text-sm sm:max-w-48 sm:flex-1" placeholder={L("Vendor", "Vendor")}
+                <input className={`${inputClass} sm:max-w-48 sm:flex-1`} placeholder={L("Vendor", "Vendor")}
                   value={edit.vendor} onChange={(e) => setEdit((d) => ({ ...d, vendor: e.target.value }))} />
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <input className="border-input bg-background h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm" placeholder={L("Description", "Keterangan")}
+                <input className={`${inputClassSm} flex-1`} placeholder={L("Description", "Keterangan")}
                   value={edit.description} onChange={(e) => setEdit((d) => ({ ...d, description: e.target.value }))} />
                 <button type="button" className={btnSmPrimary}
                   onClick={async () => {
@@ -5604,12 +5607,12 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                       being tracked (v1.4.208). */}
                   <RecordToggle open={openExp === r.id} title={L("Date, description and who recorded it", "Tarikh, keterangan dan siapa yang merekodkannya")}
                     className="font-semibold" onToggle={() => setOpenExp(openExp === r.id ? null : r.id)}>{rmc(r.amount_cents)}</RecordToggle>{" "}
-                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs capitalize">{catLabel(r.category)}</span>
+                  <span className={`${chipNeutral} capitalize`}>{catLabel(r.category)}</span>
                   {r.vendor && <span className="text-muted-foreground"> · {r.vendor}</span>}
                   {r.paid_at
-                    ? <span className="ml-1 rounded-full bg-success-soft px-1.5 py-0.5 text-xs font-semibold text-success">{L("✓ PAID","✓ DIBAYAR")} {dmy(r.paid_at.slice(0, 10))}</span>
+                    ? <span className={`${chipSuccess} ml-1 font-semibold`}>{L("✓ PAID","✓ DIBAYAR")} {dmy(r.paid_at.slice(0, 10))}</span>
                     : r.due_day
-                      ? <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-0.5 text-xs font-semibold text-warning">{L("DUE","PERLU DIBAYAR")} {String(r.due_day).padStart(2,"0")}-{month.split("-")[1]}</span>
+                      ? <span className={`${chipWarn} ml-1 font-semibold`}>{L("DUE","PERLU DIBAYAR")} {String(r.due_day).padStart(2,"0")}-{month.split("-")[1]}</span>
                       : null}
                 </p>
               </div>

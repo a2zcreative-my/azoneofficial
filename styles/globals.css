@@ -1,4 +1,10 @@
 @import "tailwindcss";
+/* v1.172.1 - PORTAL INTERFACE SYSTEM V3: the named-class design system.
+   Surfaces, forms, chips, table cells, the shell and the drawer live in
+   styles/erp-v3.css; lib/ui-styles.ts maps the TypeScript vocabulary onto
+   those names. The 44px button contract and the table frame stay below in
+   this file. Read the header of erp-v3.css before adding a class anywhere. */
+@import "./erp-v3.css";
 
 /* v1.18.0 (CODE-AUDIT): bind the `dark:` variant to the app's own toggle.
    Without this declaration Tailwind v4 keys `dark:` off the OPERATING
@@ -7,9 +13,12 @@
    The app sets .dark on <html>; now dark: follows it, like everything else. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Operational workspace: scoped so document and public-site surfaces stay independent. */
+/* Operational workspace: scoped so document and public-site surfaces stay independent.
+   v1.172.1 - one 12px card radius for the whole workspace (was 8px): the V3
+   card, panel and control radii are one family, read by rounded-card and
+   rounded-panel utilities as well as by the .erp-* surfaces. */
 .erp-workspace {
-  --surface-radius: 8px;
+  --surface-radius: 12px;
 }
 .erp-workspace :where(h1, h2, h3, p, button, label, th) {
   letter-spacing: 0;
@@ -143,10 +152,15 @@
     --card-foreground: #fff;
     --foreground: #fff;
     /* status ink reads against navy: the light (dark-mode) values, which
-       were validated on a dark surface */
-    --success: #4ade80;
-    --warning: #fbbf24;
-    --danger: #f87171;
+       were validated on a dark surface (v1.172.1: named tokens) */
+    --success: var(--ink-on-navy-success);
+    --warning: var(--ink-on-navy-warning);
+    --danger: var(--ink-on-navy-danger);
+    /* v1.172.1 - and their soft fills, as translucent tints (the dark-mode
+       values): a pale amber strip under amber ink was unreadable on navy. */
+    --success-soft: rgba(34, 197, 94, 0.18);
+    --warning-soft: rgba(245, 158, 11, 0.2);
+    --danger-soft: rgba(239, 68, 68, 0.18);
   }
   .erp-shift-hero .erp-button-secondary {
     border-color: rgba(255, 255, 255, 0.24);
@@ -156,6 +170,11 @@
   .erp-shift-hero .erp-button-secondary:hover {
     background: rgba(255, 255, 255, 0.14);
   }
+  /* v1.172.1 - a chip on the hero reads as ink on navy: translucent white
+     fill, the status ink already validated for a dark surface above. */
+  .erp-shift-hero .erp-chip { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .erp-shift-hero .erp-chip-success { color: var(--success); }
+  .erp-shift-hero .erp-chip-warning { color: var(--warning); }
 
   /* v1.171.0 - the Dashboard's four-tile stats strip is gone (the month
      card carries those figures), and so are its two classes. */
@@ -296,6 +315,13 @@
   /* v1.5.0 — trading-desk accents (market green/red, used by the dashboard). */
   --bull: #16a34a;
   --bear: #dc2626;
+  /* v1.172.1 — status ink for a NAVY surface (the shift hero, the table's
+     action bar), the same in both themes: the light dark-mode values, which
+     were validated on a dark ground. One owner for the numbers; the V3
+     layer only ever references them. */
+  --ink-on-navy-success: #4ade80;
+  --ink-on-navy-warning: #fbbf24;
+  --ink-on-navy-danger: #f87171;
 
   /* ============ v1.12.0 — app-shell foundations (UI-REDESIGN-PLAN Phase 0) ==
      The reference design puts the whole app on a dark band as a large rounded

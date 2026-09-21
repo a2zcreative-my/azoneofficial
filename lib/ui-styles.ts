@@ -23,7 +23,19 @@
     restyles every card in the portal, admin and account — which is the
     whole reason it lives here. v1.164.0: the ERP workspace scopes this
     radius to 8px; legacy surfaces retain their existing defaults. */
-export const card = "rounded-card border border-border bg-card p-4 md:p-5";
+export const card = "erp-card";
+
+/* ============ v1.172.1 — PORTAL INTERFACE SYSTEM V3 =====================
+   Every name in this file now resolves to a NAMED CLASS from
+   styles/erp-v3.css (`card` → "erp-card", `inputClass` → "erp-input",
+   `chipSuccess` → "erp-chip erp-chip-success"). The vocabulary is
+   unchanged - three hundred call sites kept their imports - but the look
+   is defined once, in CSS, in the semantic tokens, and a Tailwind utility
+   appended by a caller (`${inputClass} sm:max-w-56`) still wins, so a
+   screen can adjust a width without inventing a control. Tailwind is a
+   compatibility layer from here on: new surfaces take a name from this
+   file or a class from erp-v3.css, never a fresh utility string
+   (tests/interface-v3.mjs). */
 
 /* ============ v1.125.0 — THE CARD VOCABULARY ===========================
    The CEO, 06-09-2026: *"Some card-like inner rows use borders and rounded
@@ -69,30 +81,30 @@ export const card = "rounded-card border border-border bg-card p-4 md:p-5";
    bg-card rounded-* p-*` in app/ or components/ fails the build. */
 
 /** The page card, at rail density. Same border, same radius, tighter inside. */
-export const compactCard = "rounded-card border border-border bg-card p-3";
+export const compactCard = "erp-card erp-card-compact";
 
 /** A bordered box inside a card. Smaller radius: contained, not competing. */
-export const insetCard = "rounded-panel border border-border bg-card p-3";
+export const insetCard = "erp-card-inset";
 
 /** A card with a coloured top edge, for a figure that carries a status.
     The caller supplies the edge colour (`border-t-success`, `border-t-brand`);
     everything else is the card. */
-export const accentCard = "rounded-panel border border-border bg-card border-t-2 p-4 shadow-sm";
+export const accentCard = "erp-card erp-card-accent";
 
 /** One figure, one label, centred — in a grid of siblings. */
-export const tileCard = "rounded-lg border border-border bg-card p-2.5 flex flex-col items-center justify-center";
+export const tileCard = "erp-stat";
 
 /** The panel a dialog draws. Callers add their own max-height/scrolling. */
-export const modalCard = "bg-card border-border w-full max-w-md rounded-2xl border p-5 shadow-2xl md:p-6";
+export const modalCard = "erp-modal";
 
 /** The phone's bottom sheet — pinned to the bottom edge, so only the top corners round. */
-export const sheetCard = "border-border bg-card absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto overscroll-contain rounded-t-2xl border-t p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]";
+export const sheetCard = "erp-sheet";
 
 /** The centred confirmation card that pops and fades. */
-export const toastCard = "bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl";
+export const toastCard = "erp-toast";
 
 /** v1.172.0 - a floating menu beside its button. The caller positions it. */
-export const menuCard = "bg-card border-border rounded-xl border p-1.5 shadow-lg";
+export const menuCard = "erp-menu";
 
 /* v1.164.1 — PWA bottom chrome has one measurement now.
 
@@ -138,11 +150,11 @@ export const PORTAL_WIDTH = "mx-auto w-full max-w-none";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
-  /* v1.171.0 - min-w-0: a date input's built-in minimum width is wider than
-     half a 375 px phone with larger text, so the second column of a fieldRow
-     ran off the screen (Purchasing, Accounting). With min-w-0 the field takes
-     its column's width like every other input. */
-  "min-h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring md:min-h-9 md:text-sm";
+  /* v1.172.1 - the V3 control: 44px on every breakpoint (it sits beside 44px
+     pills in the same row), 16px type on a phone so iOS does not zoom, one
+     radius, one focus ring, min-w-0 (v1.171.0) so a date field never widens
+     its column. Append a width utility to narrow it; never restate it. */
+  "erp-input";
 
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
@@ -167,14 +179,14 @@ export const btnClassBlock =
  *
  * This is the v1.4.154 width standard with a name. Give any field that needs
  * the full width on a phone `col-span-2 sm:col-span-1`. */
-export const fieldRow = "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end [&>label]:min-w-0";
+export const fieldRow = "erp-field-row";
 
 /* Table cells. v1.4.198 alignment standard: text left, numbers right.
    v1.4.253: numeric columns never wrap. */
-export const th = "px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase text-muted-foreground";
-export const td = "px-3 py-2 text-sm";
-export const thR2 = "px-3 py-2 text-right text-xs font-semibold tracking-wide uppercase whitespace-nowrap text-muted-foreground";
-export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap";
+export const th = "erp-th";
+export const td = "erp-td";
+export const thR2 = "erp-th erp-th-num";
+export const tdR2 = "erp-td erp-td-num";
 
 /* ===================== v1.5.0 — global style consolidation =====================
    These strings existed as copy-pasted literals across the portal, admin and
@@ -184,6 +196,17 @@ export const tdR2 = "px-3 py-2 text-right text-sm tabular-nums whitespace-nowrap
 /** Secondary (outline) button — was duplicated in 4 files. */
 export const btnGhost =
   "erp-button erp-button-secondary";
+
+/** v1.172.1 - the quiet command: borderless, muted until hovered, for the
+    third action in a row that must not compete with the first two. */
+export const btnQuiet = "erp-button erp-button-ghost";
+export const btnSmQuiet = "erp-button erp-button-ghost erp-button-compact";
+/** v1.172.1 - the positive outline under the brief's name. */
+export const btnSuccess = "erp-button erp-button-success";
+export const btnSmSuccess = "erp-button erp-button-success erp-button-compact";
+export const btnSmDanger = "erp-button erp-button-danger erp-button-compact";
+/** v1.172.1 - the quiet icon command: no border until hovered. */
+export const iconBtnQuiet = "erp-icon-button erp-icon-button-ghost";
 
 /** Compact header control (phones share one row).
     v1.10.0: phones get the reference design's soft rounded square (h-9,
@@ -228,15 +251,14 @@ export const btnHeroPrimary =
   "erp-button erp-button-accent w-full md:w-auto";
 
 /** Field labels — the two spellings that existed are now named. */
-export const fieldLabel = "text-muted-foreground mb-0.5 block text-[11px] font-medium";
-export const fieldLabelSm = "text-muted-foreground mb-1 block text-xs";
+export const fieldLabel = "erp-label";
+export const fieldLabelSm = "erp-label";
 
 /** Compact inputs (the ad-hoc `border-input bg-background px-2 py-1 …` family). */
 export const inputClassSm =
-  /* v1.171.0 - max-w-full min-w-0: a compact number input keeps its own
-     width where it is given one (w-20 …) but can never grow past the column
-     it sits in - the PO line's "Unit (RM)" ran off a 375 px phone. */
-  "max-w-full min-w-0 rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring";
+  /* v1.172.1 - the dense control for a table cell or a toolbar: 36px, the
+     same border, radius and ring as the full field. Width is the caller's. */
+  "erp-input erp-input-sm";
 
 /* v1.137.0 — THE SELECT, at last.
    `inputClass` has existed since v1.4.154 and every <select> in the app went
@@ -248,37 +270,43 @@ export const inputClassSm =
    rather than py-2/py-1. Everything else matches the input it stands next
    to, deliberately. */
 export const selectClass =
-  "h-11 w-full rounded-lg border border-input bg-background px-2 text-base outline-none focus:ring-2 focus:ring-ring sm:w-auto md:h-9 md:text-sm";
+  /* v1.172.1 - the V3 select: the input plus its own chevron. */
+  "erp-input erp-select sm:w-auto";
+/** v1.172.1 - the V3 textarea; append `rows` on the element, not a height. */
+export const textareaClass = "erp-input erp-textarea";
+/** v1.172.1 - the V3 dense select, for toolbars and table cells. */
+export const selectClassSm = "erp-input erp-input-sm erp-select";
 
 /** Card-header row: title left, actions right, wraps politely on phones. */
-export const rowHead = "flex flex-wrap items-center justify-between gap-2";
+export const rowHead = "erp-card-head";
 
 /** Bordered list row (the 5× duplicated `border-b py-2 last:border-0` row). */
-export const listRow =
-  "border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0";
+export const listRow = "erp-row";
 
 /** Status chips — semantic tokens instead of the six hand-mixed palettes. */
-export const chip = "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
-export const chipNeutral = `${chip} bg-secondary`;
-export const chipSuccess = `${chip} bg-success-soft text-success`;
-export const chipWarn = `${chip} bg-warning-soft text-warning`;
-export const chipDanger = `${chip} bg-danger-soft text-danger`;
-export const chipInfo = `${chip} bg-info-soft text-info`;
+export const chip = "erp-chip";
+export const chipNeutral = `${chip} erp-chip-neutral`;
+export const chipSuccess = `${chip} erp-chip-success`;
+export const chipWarn = `${chip} erp-chip-warning`;
+export const chipDanger = `${chip} erp-chip-danger`;
+export const chipInfo = `${chip} erp-chip-info`;
+/** v1.172.1 - the gold chip, for the house's own accent (an event, a live). */
+export const chipGold = `${chip} erp-chip-gold`;
 
 /** Interactive chips keep a full touch target without enlarging display-only badges. */
-export const chipAction = "min-h-11 gap-1.5 cursor-pointer justify-center transition-colors md:min-h-8";
+export const chipAction = "erp-chip-action";
 
 /* v1.137.0 — the DENSE chip, for a chip that sits in a list row rather than
    in a card. Users had eight of these hand-rolled at `px-1.5 py-px
    text-[10px]`, which is why the same "part time" chip read smaller on Users
    than on Attendance. One size for rows, one for cards, and no third size
    invented per panel. */
-export const chipSm = "inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium";
-export const chipSmNeutral = `${chipSm} bg-secondary`;
-export const chipSmSuccess = `${chipSm} bg-success-soft text-success`;
-export const chipSmWarn = `${chipSm} bg-warning-soft text-warning`;
-export const chipSmDanger = `${chipSm} bg-danger-soft text-danger`;
-export const chipSmInfo = `${chipSm} bg-info-soft text-info`;
+export const chipSm = "erp-chip erp-chip-sm";
+export const chipSmNeutral = `${chipSm} erp-chip-neutral`;
+export const chipSmSuccess = `${chipSm} erp-chip-success`;
+export const chipSmWarn = `${chipSm} erp-chip-warning`;
+export const chipSmDanger = `${chipSm} erp-chip-danger`;
+export const chipSmInfo = `${chipSm} erp-chip-info`;
 
 /* v1.137.0 — THE LIST BOX. A bordered, hairline-divided, scrollable list
    INSIDE a card: the staff list, the customer list, an events log. It is not
@@ -286,7 +314,7 @@ export const chipSmInfo = `${chipSm} bg-info-soft text-info`;
    bring their own — and spelling it out by hand is how one list ended up
    `max-h-80` while the one beside it was `max-h-96`. The caller sets the
    height; everything else is here. */
-export const listBox = "border-border divide-border divide-y overflow-y-auto overscroll-contain rounded-lg border";
+export const listBox = "erp-listbox";
 
 /* v1.137.0 — THE ROW ACTION. A square, labelled tap target for the ✎ / ✕ that
    sit at the end of a list row.

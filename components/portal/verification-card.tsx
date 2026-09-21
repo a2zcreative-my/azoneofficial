@@ -34,7 +34,7 @@
 
 import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
-import { btnSmPrimary, card, th, td } from "@/lib/ui-styles";
+import { btnSmPrimary, card, th, td, inputClass } from "@/lib/ui-styles";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { properName } from "@/lib/names";
@@ -220,7 +220,7 @@ export function VerificationCard() {
         <div className="flex shrink-0 items-center gap-2">
           <input
             type="month"
-            className="border-input bg-background h-9 rounded-lg border px-3 text-sm"
+            className={`${inputClass} sm:w-auto`}
             value={month}
             aria-label={L("Month", "Bulan")}
             onChange={(e) => setMonth(e.target.value)}

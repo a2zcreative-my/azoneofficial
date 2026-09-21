@@ -12,7 +12,7 @@ import { SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { dmy } from "@/lib/format";
 import { properName } from "@/lib/names";
-import { btnClass, card, inputClass } from "@/lib/ui-styles";
+import { btnClass, card, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { useCallback, ReactNode, useEffect, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 
@@ -231,7 +231,7 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
               </span>
               <span className="flex items-center gap-1.5">
                 <input
-                  className="border-input bg-background w-36 rounded border px-1.5 py-0.5 text-xs"
+                  className={`${inputClassSm} w-36`}
                   placeholder={L("Note (optional)", "Catatan (pilihan)")}
                   value={note[`${p.user_id}:${p.d}`] ?? ""}
                   onChange={(e) =>
@@ -613,7 +613,7 @@ export function LiveScheduleCard({
               </span>
               {manager ? (
                 <select
-                  className="border-input bg-background rounded border px-1.5 py-0.5 text-[11px]"
+                  className={`${selectClassSm} text-[11px]`}
                   value={sn.status}
                   onChange={(e) => void setStatus(sn.id, e.target.value)}
                 >

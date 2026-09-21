@@ -17,7 +17,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { Lang, t as tr } from "@/lib/i18n";
 import { TabName } from "@/lib/portal-tabs";
-import { btnSmPrimary, card, tileCard } from "@/lib/ui-styles";
+import { btnSmPrimary, card, tileCard, inputClass } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 
@@ -452,12 +452,15 @@ export function TradingDesk({
                   key={t.label}
                   type="button"
                   onClick={() => setDetailModal(t.label)}
-                  className={`${tileCard} hover:border-primary text-center transition-colors`}
+                  className={`${tileCard} hover:border-primary transition-colors`}
                 >
-                  <p className="text-lg leading-tight font-bold tabular-nums">
+                  {/* v1.172.1 (Interface System V3): the stat tile's own
+                      value/label classes - one figure, one caption, the same
+                      on every tile of the portal. */}
+                  <p className="erp-stat-value">
                     {t.value}
                   </p>
-                  <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+                  <p className="erp-stat-label">
                     {t.show ?? t.label}
                   </p>
                 </button>
@@ -513,7 +516,7 @@ export function TradingDesk({
                   min={0}
                   step="0.01"
                   autoFocus
-                  className="border-input bg-background h-9 w-36 rounded-lg border px-2 text-sm"
+                  className={`${inputClass} w-36`}
                   placeholder={L("e.g. 35000", "cth. 35000")}
                   value={kpiDraft}
                   onChange={(e) => setKpiDraft(e.target.value)}

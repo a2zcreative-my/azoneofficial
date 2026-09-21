@@ -299,10 +299,11 @@ export interface LeaveReq {
     chrome: the same small-caps the KPI tiles use for their own labels, so
     every tab teaches the same reading habit. Module scope (house rule #30). */
 export function ZoneLabel({ children }: { children: ReactNode }) {
+  /* v1.172.1 (Interface System V3): the zone eyebrow and its rule are one
+     named class; the rule is drawn by ::after. */
   return (
-    <div className="flex items-center gap-3 px-0.5">
-      <p className="text-muted-foreground shrink-0 text-[11px] font-semibold uppercase">{children}</p>
-      <span aria-hidden className="bg-border h-px flex-1" />
+    <div className="erp-zone">
+      <p className="erp-zone-label">{children}</p>
     </div>
   );
 }
