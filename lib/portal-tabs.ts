@@ -42,24 +42,33 @@
  *
  *  components/layout/side-nav.tsx cuts this same sequence into labelled
  *  sections without resequencing it, so the desktop rail and the phone bar
- *  read in one order. */
+ *  read in one order. v1.172.0 re-cut it into the CEO's Portal UI V2
+ *  groups (Overview, Sales, Operations, ELFIA, People, Finance, Account,
+ *  System); see the note at Inventory for the one move that took. */
 export const ALL_TABS = [
   "Dashboard",
   "Ecommerce",
-  "Inventory",
+  /* v1.172.0 (Portal UI V2 - the CEO's target navigation: OVERVIEW, SALES,
+     OPERATIONS, PEOPLE, FINANCE, ACCOUNT, SYSTEM): Inventory moved from third
+     to eighth, behind Hankei's, so the SALES cut (what is sold and to whom)
+     and the OPERATIONS cut (Inventory, Assets, Hotels - what the company
+     holds) are each one contiguous run of this list. The one move the new
+     grouping needed; the phone thumb row (MOBILE_PRIMARY_TABS) is untouched. */
   "Sales",
   "Enquiries",
   /* v1.155.0 - Sales Performance, behind the Sales pair: Sales is WHAT was
      sold, Enquiries is who is asking, this is WHO worked to sell and whether
      the evidence holds. Enquiries keeps its v1.112.0 place one after Sales
      (tests/enquiries.mjs). One tab, one page - the CEO was explicit that it
-     is not a sub-tab of Sales and not a page of sub-tabs. Sixth, so no
-     role's fixed phone thumb row moves. */
+     is not a sub-tab of Sales and not a page of sub-tabs. Sixth at v1.155.0,
+     fifth since v1.172.0 (Inventory moved behind it); either way no role's
+     fixed phone thumb row moves. */
   "Sales Performance",
   /* v1.163.0 - Hankei's Commerce: the seaweed brand's orders and its MANUAL
-     Maybank verification queue. Seventh, behind the Sales trio, so no
-     role's fixed phone thumb row moves. */
+     Maybank verification queue. Behind the Sales trio, so no role's fixed
+     phone thumb row moves. */
   "Hankeis",
+  "Inventory",
   "Assets",
   "Hotels",
   "Threads",
@@ -76,10 +85,18 @@ export const ALL_TABS = [
   "Claims",
   "Payroll",
   "Finance",
-  "Reconciliation",
+  /* v1.172.0 - Reconciliation, Ads Fund and Purchasing are RETIRED, not
+     parked: the CEO took the three modules off the product, so their names,
+     panels, role defaults, hints and icons are gone from the portal. A saved
+     override or per-person grant still naming one of them is ignored - the
+     card renders from this list and accessOf() walks this list - and the
+     worker's whitelist no longer accepts the names, so nothing can bring one
+     back through the API. Their worker routes (/erp/reconciliation,
+     /erp/adsfund, /erp/suppliers, /erp/purchase-orders, /erp/stock-items)
+     and their D1 tables are untouched: dormant, nothing calls them, nothing
+     is dropped. The Companies review still lists purchase orders and
+     reconciliations as reviewable records, without a tab to open. */
   "Commission",
-  "Ads Fund",
-  "Purchasing",
   "Accounting",
   "Companies",
   /* v1.129.0 - the three officers' digital business cards, to share with a
@@ -275,12 +292,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
     "super_admin", "admin", "ceo", "coo", "cco",
     "hr_admin", "sales_marketing", "marketing",
   ],
-  Reconciliation: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
-  "Ads Fund": [
-    "super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing",
-  ],
-  Purchasing: ["super_admin", "admin", "ceo", "coo"],
   Accounting: ["super_admin", "admin", "ceo"],
   Companies: ["super_admin", "ceo"],
   // v1.7.0: Content is open to the team that makes it.
@@ -315,8 +327,6 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Content: { en: "production pipeline", ms: "saluran produksi" },
   Threads: { en: "posts + insights", ms: "hantaran + analisis" },
   Hotels: { en: "review outreach by state", ms: "capaian ulasan ikut negeri" },
-  Reconciliation: { en: "channel settlements", ms: "penyelesaian saluran" },
-  Purchasing: { en: "suppliers + POs", ms: "pembekal + PO" },
   Accounting: { en: "GL — keep tight", ms: "GL — kawal ketat" },
   /* v1.102.0 - Content and Stokis are PARKED, not gone. Their hints stay so
      that un-parking is one deletion from PARKED_TABS and nothing else. */

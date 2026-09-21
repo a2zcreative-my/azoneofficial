@@ -211,7 +211,7 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
      the company, around me. NextEventCard left the Dashboard. */
   ok("Dashboard actions and queue precede metrics and company reporting",
     ordered(dash, ['<PanelTitle icon="time"', '<OneDesk', '<WatchersCard', 'L("My month"', '<TradingDesk', 'L("Around me"']));
-  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Reconciliation"'));
+  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Commission"'));
   /* v1.171.0 - the company's attendance today (donut + assignments, from the
      Dashboard) follows the records/monitor and precedes the decisions. */
   ok("Attendance records and decisions precede scheduling and setup",
@@ -230,9 +230,10 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
     const positions = labels.map(label => source.indexOf(label));
     return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
   };
-  const purchase = read("components/portal/purchasing-panels.tsx");
+  /* v1.172.0 - Reconciliation, Ads Fund and Purchasing are retired; their
+     order checks went with them. Accounting moved to its own file. */
+  const accounting = read("components/portal/accounting-panel.tsx");
   const funds = read("components/portal/commission-panels.tsx");
-  const finance = read("components/portal/finance-panels.tsx");
   const assets = read("components/portal/assets-panel.tsx");
   const hotels = read("components/portal/hotels-panel.tsx");
   const payroll = read("components/portal/payroll-panel.tsx");
@@ -240,12 +241,8 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   const tasks = read("components/portal/tasks.tsx");
   const announcements = read("components/portal/announcements.tsx");
   const sp = read("components/portal/sales-performance-panel.tsx");
-  ok("Purchasing: register, creation, suppliers", ordered(purchase, ['rows={openOnly ? open : pos}', 'L("New purchase order"', 'id="purchasing-suppliers"']));
-  ok("Accounting: balance before adjustment", ordered(purchase, ['L("Trial balance"', 'L("New journal entry"']));
+  ok("Accounting: balance before adjustment", ordered(accounting, ['L("Trial balance"', 'L("New journal entry"']));
   ok("Commission: decisions, calculation, rates", ordered(funds, ['rows={entries}', 'value={draft.basis}', 'id="commission-rates"']));
-  ok("Ads Fund: spending before allocation and entry forms", ordered(funds, ['rows={claims}', 'value={allocDraft.period}', 'value={claimDraft.allocation_id}']));
-  const reconciliation = finance.slice(finance.indexOf("export function ReconciliationPanel"));
-  ok("Reconciliation: pull period, summary, register, manual entry", ordered(reconciliation, ['value={draft.period}', '<StatStrip>', 'rows={rows}', 'value={draft.order_no}']));
   ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
   ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
   ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'THE MAP']));

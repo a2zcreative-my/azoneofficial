@@ -2,6 +2,69 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.172.0] - 2026-09-21 - Three retirements, Next.js 16, Portal UI V2
+
+The CEO, 21-09-2026, one brief with three objectives on the EXISTING portal - *"DO NOT rebuild the application from scratch"* - as controlled migrations, in order: retire what nobody uses, move the framework to the current major, then evolve the interface. Each landed behind the full gate (typecheck, ESLint, 91 guards, production build, static export, Chromium against fixtures) before the next began. Baseline recorded first: v1.171.0 at commit `ad066a5` was green on every gate before a line changed.
+
+### 1. Reconciliation, Ads Fund and Purchasing are retired
+
+Not parked - retired, the way Criscikee and the Advisors were: their names, panels, role defaults, hints, icons, strings and guard checks are gone from the portal; nothing about their data is.
+
+**Dependency audit** (every reference in the repository was read; nothing was assumed):
+
+| Category | What | Decision |
+| --- | --- | --- |
+| REMOVE | `ReconciliationPanel` + `ReconRow` (finance-panels.tsx); `AdsFundPanel` + `Allocation`/`Claim` (commission-panels.tsx); `PurchasingPanel` + `Supplier`/`StockItem`/`Po` (purchasing-panels.tsx, file deleted); the three `ALL_TABS` entries, `TAB_ROLES`, `TAB_HINTS`, `lib/i18n.ts` labels, `nav-icons` glyphs (`Scale`, `Rocket`, `ShoppingBag`), lazy-panel entries, the three render blocks in `app/portal/page.tsx`, the sidebar cut, the worker's `TAB_ACCESS_TABS` names | removed |
+| KEEP-DORMANT | worker routes `/erp/reconciliation`, `/erp/reconciliation/pull`, `/erp/adsfund`, `/erp/adsfund/:id/claims`, `/erp/suppliers`, `/erp/purchase-orders`, `/erp/stock-items`; permissions `reconcile_manage`, `adsfund_manage`, `adsfund_claim`, `purchasing_manage`; tables `reconciliations`, `ads_fund_*`, `suppliers`, `purchase_orders`; migrations 0042/0043/0071 | untouched - nothing calls them, nothing is dropped, no migration |
+| SHARED | `AccountingPanel` (shared a file with Purchasing) → moved whole to `components/portal/accounting-panel.tsx`; `CashFlowPanel` and `CommissionPanel` (shared files) → stay; Inventory's **supplier returns** (a different feature, `role-panels.tsx`) → stays; the Companies ownership review still lists `purchase_orders` and `reconciliations` as reviewable historical records - `REVIEW_KINDS[...].tab` is `null` for them and the panel draws no "open register" link; the Cash Flow help text no longer sends anyone to "Reconciliation → Pull" | kept, edited only where a link pointed at a tab that no longer exists |
+
+A saved tab-access override or per-person grant that still names one of the three is ignored by the client (the card and `accessOf()` walk `ALL_TABS`) and refused by the worker whitelist - the same rail parked tabs sit behind. `PUSH.bat [3c/7]` deletes `components/portal/purchasing-panels.tsx` on the next release. Guards updated to the new shape: `tab-zones` (three order checks removed, Accounting re-pointed), `clickable-data` (two Purchasing checks removed), `app-icons` (comment). `scratch/interface-responsive.cjs` no longer clicks the three tabs and expects the v1.171.0 "My month" label.
+
+### 2. Next.js 15.5.21 → 16.3.5
+
+Verified from the registry, not memory: `latest` = `16.3.5` (published 2026-09-11; 16.4 is canary only). Followed the official upgrade guide and ran the official codemod on a mirror, then reviewed every line it produced.
+
+| Package | Before | After | Why |
+| --- | --- | --- | --- |
+| `next` | 15.5.21 | **16.3.5** | the objective |
+| `react`, `react-dom` | ^19.0.0 (19.2.8) | **19.3.0** exact | what the codemod pins for 16.3.5; within its `^19.0.0` peer |
+| `@types/react`, `@types/react-dom` | ^19.0.0 | **19.3.0** exact + `pnpm.overrides` | the codemod's duplicate-types guard |
+| `eslint-config-next` | ^15.3.0 | **16.3.5** | coupled to `next` |
+| `eslint` | ^9.17.0 (9.39.5) | **^9.17.0 (unchanged)** | the codemod wrote `10.11.0`; reverted - `eslint-config-next@16` needs only `>=9`, and an ESLint major is not part of this upgrade |
+| `@eslint/eslintrc` | ^3.2.0 | **removed** | `FlatCompat` is gone from `eslint.config.mjs`: `eslint-config-next@16` exports flat-config arrays, imported directly |
+| `@cloudflare/next-on-pages` | ^1.13.16 | **removed** (+ its `pages:build` script) | deprecated by Cloudflare ("use OpenNext"), peer `next <=15.5.2` (already violated), referenced nowhere; the portal is a static export served by Workers assets |
+| `typescript`, `tailwindcss`, `wrangler`, everything else | | unchanged | not coupled |
+
+`pnpm-lock.yaml` regenerated with the pinned `pnpm@9.15.0`; `pnpm install --frozen-lockfile` passes. Node `>=22.18.0` / `.nvmrc 22` satisfy Next 16's `>=20.9.0`; TypeScript 5.9 satisfies `>=5.1`.
+
+Migration changes, each reviewed against the guide:
+
+- **Turbopack is the build.** No custom webpack, no `--turbo` flags anywhere, so `next build` simply runs on Turbopack. `app/favicon.ico` had to be re-encoded: Turbopack's image decoder refuses an ICO whose embedded PNGs are RGB rather than RGBA (`"The PNG is not in RGBA format!"`). Same four frames, same pixels, RGBA - verified pixel-for-pixel.
+- **`next lint` is gone from the framework.** `"lint"` is now `eslint app components lib hooks constants types` (the directories `next lint` covered, plus three that were always clean). `next build` no longer lints, so **`npm run ci`** (the Cloudflare build command) and **`PUSH.bat [8/8]`** run `lint` as their own step before the build - the gate the build used to give for free is kept, explicitly.
+- **`eslint.config.mjs`** imports `eslint-config-next/core-web-vitals`, `eslint-config-next/typescript` and `eslint-config-prettier` directly; the house rules (`no-console: error`, `no-unused-vars` with `^_`) and ignores are unchanged. `eslint-config-next@16` brings `eslint-plugin-react-hooks@7`, whose recommended set adds the React Compiler's checks (`set-state-in-effect`, `purity`, `refs`, `immutability`, `preserve-manual-memoization`) as errors; they flagged 123 places in working business screens on the day. This project does not enable the compiler, and a framework migration must not rewrite payroll and attendance code to satisfy a new rule, so those **five new rules report as warnings** (not off) - every pre-upgrade rule keeps its severity, and the 123 findings stay on screen for the pass that adopts the compiler. Result: 0 errors, 147 warnings (all pre-existing or the new rules).
+- **`tsconfig.json`**: `jsx: "react-jsx"` and `.next/dev/types/**/*.ts` in `include` - Next 16's mandatory edits, made here so `next build` never rewrites a tracked file under `PUSH.bat`'s clean-worktree preflight.
+- **`next.config.ts`**: `agentRules: false`. Next 16.3's `next dev` otherwise writes an `AGENTS.md` and upserts a managed block into **`CLAUDE.md`** - this repository's binding contract - on every start. `output: "export"`, `outputFileTracingRoot`, `images.formats`, `reactStrictMode` are unchanged and valid on 16.
+- **`app/layout.tsx`**: `<html data-scroll-behavior="smooth">`. `styles/globals.css` sets `html { scroll-behavior: smooth }`; Next 16 no longer overrides that during a route change unless the element opts in, so without the attribute every navigation would glide to the top instead of landing there.
+- Async request APIs: already awaited (`[card]/page.tsx`, `blog/[slug]/page.tsx`); no `middleware.ts`; no Server Actions, no runtime endpoints, no Node runtime dependencies; `robots.ts`/`sitemap.ts` unchanged. `@cloudflare/workers-types`, `wrangler.toml`, the API worker, D1, R2, bindings and secrets untouched.
+- Export shape on 16: the same 27 HTML pages plus per-route `__next.*.txt` segment-prefetch files and `_not-found.html`; 312 files, `wrangler deploy --dry-run` reads them cleanly. The `next build` output no longer prints bundle sizes (removed upstream).
+
+Docs: `README.md` stack line, `AUTO-DEPLOY.md` (the ci steps), `PUSH.bat` comments.
+
+### 3. Portal UI V2 - evolved, not redesigned
+
+Tailwind v4, the hand-built `components/ui`, the `.erp-*` contract, `lib/ui-styles.ts`, the locked palette and the semantic tokens are the whole vocabulary; nothing was installed. Every slice passed the 91 guards as they stand.
+
+- **Navigation.** The sidebar is cut into the CEO's target architecture, exposing only modules that exist: **Overview** (Dashboard) · **Sales** (Ecommerce, Sales, Enquiries, Sales Performance, Hankei's) · **Operations** (Inventory, Assets, Hotels) · **ELFIA** (the client store keeps its heading) · **People** (HR … Payroll) · **Finance** (Finance, Commission, Accounting, Companies) · **Account** (Cards, Profile) · **System** (Users). AUTOMATION and INTELLIGENCE have no modules yet and are not drawn. One registry move made the cuts contiguous - Inventory from third to eighth, behind Hankei's - so `tests/registry-parity.mjs` still reads the rail as `ALL_TABS` in order; `tests/sales-performance.mjs` records Sales Performance as fifth (the phone thumb row never depended on it). The phone's More sheet uses the same groups and the same one BM label map (`sectionTitle`), so the two surfaces cannot disagree.
+- **Sidebar.** Collapse is remembered (`azone-nav-collapsed`; nothing saved = open at 1280px+, icons below); the icon-only rail names each destination in a floating label on hover and keyboard focus; Up/Down/Home/End walk the rail; group headings in the portal's uppercase eyebrow. Lucide only.
+- **Command palette.** Ctrl/Cmd-K as before, plus **Recent** (the last five tabs opened from it, device-local, filtered against the tabs this person may see right now so a revoked tab is never offered back), each row with its tab's icon, a real `dialog` + `combobox` + `listbox`/`option` for screen readers, Home/End, the highlighted row kept in view, a footer naming the keys, and a 160ms entrance that stops under reduced motion. The v1.107.0 search contract is untouched (`tests/search-everything.mjs`: 128 checks).
+- **DataTable v2** (`components/ui/data-table.tsx`, all opt-in, no new table library): quick filters as chips (a select past six options) with removable active-filter chips and Clear all; a checkbox column with a contextual action bar that offers only the `bulkActions` a caller passes; CSV export of the selected rows, else exactly the rows on screen (the v1.74.0 rule); `onRowClick` rows as keyboard stops (Up/Down/Enter/Space); density (comfortable/compact) and a Columns menu, both remembered per table `id`; a trailing `rowActions` cell. Sticky header, skeleton and empty states as before. New vocabulary entry `menuCard` for the floating menu (`tests/card-vocabulary.mjs`).
+- **Contextual drawer** (`components/ui/side-drawer.tsx`, new): a right-hand panel on tablet/desktop, a bottom sheet on a phone; real dialog semantics, focus in on open and back to the opener on close, Tab cycles inside, Escape and the backdrop close, page scroll locked; framer-motion spring that stops under reduced motion.
+- **Web Orders** is the first adopter: the shared DataTable (sortable, CSV, remembered density/columns) and the order's detail and next legal move in the drawer instead of an expanding row inside a 720px table. Every rule and action - confirm paid, ship, correct tracking, WhatsApp the tracking, complete, cancel - is the same code; the store still decides what is legal (`tests/web-order-tracking.mjs`: 20 checks). The status chips are the shared 44px pill now, not a private chip shape.
+- **Cash Flow** and **Commission** gain real quick filters (direction and bank; status and host) and CSV export. Approving and paying a commission stay one row at a time, on purpose.
+- Not built, on purpose: an advanced filter drawer (no table here has more filters than fit in a row), saved views (no store for them), and any bulk money action.
+
+Verified: 91/91 guards; portal and worker `tsc` clean; ESLint 0 errors; `next build` on 16.3.5 exports; `wrangler deploy --dry-run` reads the export; Chromium against fixtures at **375 / 390 / 430 / 768 / 1024 / 1280 / 1440 px**, light and dark - every public page, the portal shell, eight tabs, the new sidebar groups and tooltip, keyboard walking, palette Recent, the Web Orders table/drawer/CSV, density and hidden columns remembered, quick filters - no horizontal overflow, no runtime errors, no retired tab reachable anywhere.
+
 ## [1.171.0] - 2026-09-20 - One Dashboard, one month, one rule for a sale
 
 The CEO, 20-09-2026: *"my dashboard on PWA seem sooooooooo much messy!!! I think you need to clean off my dashboard and resort it based on it own function and properly put in on their own tabs!"*, and later the same day on the roster, Sales Performance and tasks: *"I am fucking tired with this flow of you!"*.

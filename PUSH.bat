@@ -209,8 +209,10 @@ REM  retired feature are removed here, on this machine, before anything is
 REM  checked. Idempotent: once they are gone this loop touches nothing.
 REM  Migration 0125 stays: a migration that has run is history, and the two
 REM  tables it made sit unused until a later migration drops them.
+REM  v1.172.0 - purchasing-panels.tsx: Purchasing is retired and the
+REM  Accounting half of that file now lives in accounting-panel.tsx.
 echo   [3c/7] Removing the files of retired features...
-for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs") do (
+for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx") do (
   if exist %%F del /f /q %%F
 )
 
@@ -263,6 +265,11 @@ cd ..
 
 echo   [8/8] Building and publishing the WEBSITE (azoneofficial)...
 echo         ^(this is the half that was missing^)
+REM  v1.172.0 - Next.js 16: `next build` no longer runs ESLint, so the lint
+REM  gate the build used to give for free is its own step here, exactly as
+REM  it is in `npm run ci` (the Cloudflare build command).
+call pnpm lint
+if errorlevel 1 goto :failed
 call pnpm build
 if errorlevel 1 goto :failed
 if not exist "out\index.html" goto :nobuild

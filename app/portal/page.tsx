@@ -44,7 +44,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
 import { setCacheScope, clearApiCache } from "@/lib/cached-api";
 
-import { SECTIONS, SideNav } from "@/components/layout/side-nav";
+import { NAV_COLLAPSED_KEY, SECTIONS, SideNav, sectionTitle } from "@/components/layout/side-nav";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
 import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import {
@@ -70,9 +70,9 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
    statically here again. What stays static above is what the Dashboard paints
    on first load. */
 import {
-  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, AdsFundPanel, ContentPanel,
-  DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel, ReconciliationPanel,
-  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, HankeisPanel, SalesMap, PayrollPanel, MyPayslip, PurchasingPanel, AccountingPanel,
+  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, ContentPanel,
+  DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
+  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, HankeisPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
   StaffDirectory,
@@ -114,12 +114,23 @@ export default function PortalPage() {
   const [checked, setChecked] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(true);
   useEffect(() => {
+    /* v1.172.0 - the rail remembers. A saved choice wins on any width that
+       draws the rail; with nothing saved, the rail opens on wide desktops
+       and folds to icons below 1280px, as before. */
     const desktop = window.matchMedia("(min-width: 1280px)");
-    const fit = () => setNavCollapsed(!desktop.matches);
+    const fit = () => {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(NAV_COLLAPSED_KEY); } catch { /* storage denied: fall back to width */ }
+      setNavCollapsed(saved === null ? !desktop.matches : saved === "1");
+    };
     fit();
     desktop.addEventListener("change", fit);
     return () => desktop.removeEventListener("change", fit);
   }, []);
+  const toggleNavCollapsed = () => setNavCollapsed((v) => {
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, v ? "0" : "1"); } catch { /* preference is a convenience, not state */ }
+    return !v;
+  });
   /* v1.4.231 (CEO: "when I refresh the tabs back to Dashboard instead of
      last tab that I open"): the active tab was plain useState — a refresh
      rebuilds the page and lands on the default. Now the last tab persists
@@ -784,7 +795,7 @@ export default function PortalPage() {
           items={navItems}
           active={activeTab}
           collapsed={navCollapsed}
-          onToggleCollapsed={() => setNavCollapsed((v) => !v)}
+          onToggleCollapsed={toggleNavCollapsed}
           userName={user.name}
           userRole={user.role}
           onSelect={(t) => setTab(t as TabName)}
@@ -1270,7 +1281,7 @@ export default function PortalPage() {
               {mobileGroups.map((section) => (
                 <section key={section.title} className="mb-4 last:mb-0">
                   <p className="text-muted-foreground mb-1.5 text-[10px] font-semibold tracking-wider uppercase">
-                    {lang === "ms" ? ({ Business: "Perniagaan", People: "Kakitangan", Finance: "Kewangan", Account: "Akaun", Overview: "Ringkasan" } as Record<string, string>)[section.title] ?? section.title : section.title}
+                    {sectionTitle(section.title, lang)}
                   </p>
                   <div className="grid grid-cols-3 gap-2.5">
                   {section.tabs.map((t) => (
@@ -1546,20 +1557,13 @@ export default function PortalPage() {
               )}
             </div>
           )}
-          {activeTab === "Reconciliation" && <ReconciliationPanel />}
+          {/* v1.172.0 - Reconciliation, Ads Fund and Purchasing retired: no
+             block here, no tab in the registry, no panel in the bundle. */}
           {activeTab === "Commission" && (
             <CommissionPanel
               canDecide={["super_admin", "ceo"].includes(user.role)}
             />
           )}
-          {activeTab === "Ads Fund" && (
-            <AdsFundPanel
-              canManage={["super_admin", "admin", "ceo", "coo"].includes(
-                user.role
-              )}
-            />
-          )}
-          {activeTab === "Purchasing" && <PurchasingPanel />}
           {activeTab === "Accounting" && <AccountingPanel />}
           {activeTab === "Leave" && <Leave user={user} />}
           {activeTab === "Tasks" && (

@@ -7,12 +7,17 @@ export const COMPANY_NAMES: Record<CompanyCode, string> = {
   a2z: A2Z_CREATIVE.name,
 };
 
+/* `tab` is the portal tab that holds the record's own register, for the
+   "open source register" link. v1.172.0 - Purchasing and Reconciliation are
+   retired, so purchase orders and reconciliations are still reviewable (the
+   rows are historical company data and stay in D1) but have no register to
+   open: `tab: null` and the panel draws no link. */
 export const REVIEW_KINDS = {
   expenses: { en: "Expenses", ms: "Perbelanjaan", tab: "Finance" },
-  purchase_orders: { en: "Purchase orders", ms: "Pesanan belian", tab: "Purchasing" },
+  purchase_orders: { en: "Purchase orders", ms: "Pesanan belian", tab: null },
   bank_accounts: { en: "Bank accounts", ms: "Akaun bank", tab: "Finance" },
   cashflow_entries: { en: "Bank movements", ms: "Pergerakan bank", tab: "Finance" },
-  reconciliations: { en: "Reconciliations", ms: "Penyesuaian", tab: "Reconciliation" },
+  reconciliations: { en: "Reconciliations", ms: "Penyesuaian", tab: null },
   inventory_items: { en: "Stock items", ms: "Item stok", tab: "Inventory" },
   manual_stockouts: { en: "Stock movements", ms: "Pergerakan stok", tab: "Inventory" },
   stock_ledger: { en: "Stock ledger", ms: "Lejar stok", tab: "Inventory" },

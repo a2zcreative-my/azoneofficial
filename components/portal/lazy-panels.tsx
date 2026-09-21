@@ -60,13 +60,11 @@ export const CompaniesPanel = lazy(() => import("@/components/portal/companies-p
 export const HrAdminPanel = lazy(() => import("@/components/admin/hr-admin-panel").then((m) => m.HrAdminPanel));
 export const AssetsPanel = lazy(() => import("@/components/portal/assets-panel").then((m) => m.AssetsPanel));
 export const CommissionPanel = lazy(() => import("@/components/portal/commission-panels").then((m) => m.CommissionPanel));
-export const AdsFundPanel = lazy(() => import("@/components/portal/commission-panels").then((m) => m.AdsFundPanel));
 export const ContentPanel = lazy(() => import("@/components/portal/content-panel").then((m) => m.ContentPanel));
 export const DocumentsPanel = lazy(() => import("@/components/portal/documents-panel").then((m) => m.DocumentsPanel));
 export const ElfiaStorePanel = lazy(() => import("@/components/portal/elfia-store-panel").then((m) => m.ElfiaStorePanel));
 export const ElfiaTrafficPanel = lazy(() => import("@/components/portal/elfia-traffic-panel").then((m) => m.ElfiaTrafficPanel));
 export const CashFlowPanel = lazy(() => import("@/components/portal/finance-panels").then((m) => m.CashFlowPanel));
-export const ReconciliationPanel = lazy(() => import("@/components/portal/finance-panels").then((m) => m.ReconciliationPanel));
 export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card").then((m) => m.GeofenceCard));
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0
@@ -76,8 +74,7 @@ export const HankeisPanel = lazy(() => import("@/components/portal/hankeis-panel
 export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));
-export const PurchasingPanel = lazy(() => import("@/components/portal/purchasing-panels").then((m) => m.PurchasingPanel));
-export const AccountingPanel = lazy(() => import("@/components/portal/purchasing-panels").then((m) => m.AccountingPanel));
+export const AccountingPanel = lazy(() => import("@/components/portal/accounting-panel").then((m) => m.AccountingPanel)); // v1.172.0 - was purchasing-panels.tsx; Purchasing retired
 export const AttendanceAdminPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.AttendanceAdminPanel));
 export const HrPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.HrPanel));
 export const InventoryPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.InventoryPanel));

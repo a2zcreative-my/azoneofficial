@@ -25,7 +25,7 @@ import {
   AtSign, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, ScanLine, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
-  Receipt, Rocket, Scale, ScrollText, Settings2, ShieldCheck, ShoppingBag,
+  Receipt, ScrollText, Settings2, ShieldCheck,
   ShoppingCart, SquarePen, Square, Store, Target, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet,
   type LucideIcon,
@@ -49,9 +49,9 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Sales: FileText,
   "Sales Performance": Target, // v1.155.0 - the accountability register: did they sell, and can they prove it
   Hankeis: ScanLine, // v1.163.0 - the static QR a customer scans, and the receipt a human checks against the bank
-  "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule); ShoppingBag would have duplicated Purchasing on the SAME rail.
+  "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule).
   "ELFIA Traffic": Map, // v1.43.0: the visitor map tab — Map is unused on every rail, and the tab IS a map.
-  "ELFIA Store": Shirt, // v1.45.0: the store's catalogue — what ELFIA sells is wear, and Shirt is unused on every rail (ShoppingBag is Purchasing's, on this same rail; Store is Stokis's).
+  "ELFIA Store": Shirt, // v1.45.0: the store's catalogue — what ELFIA sells is wear, and Shirt is unused on every rail (Store is Stokis's).
   Inventory: Package,
   Stokis: Store,
   Ecommerce: ShoppingCart,
@@ -74,12 +74,10 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Advanced: Settings2,
   // ---- account + portal Orders (the unified recorder) ----
   Orders: ClipboardList,
-  // ---- ERP modules (v1.18.0; consolidated v1.19.0) ----
+  // ---- ERP modules (v1.18.0; consolidated v1.19.0; v1.172.0 - Reconciliation,
+  //      Ads Fund and Purchasing retired, their glyphs with them) ----
   Finance: Banknote,
-  Reconciliation: Scale,
   Commission: Percent,
-  "Ads Fund": Rocket,
-  Purchasing: ShoppingBag,
   Accounting: ScrollText,
   Companies: Building2,
   // ---- misc surfaces ----

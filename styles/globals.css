@@ -188,6 +188,14 @@
   .erp-table tbody tr + tr td { border-top: 1px solid var(--border); }
   .erp-table tbody tr:hover td { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
   .erp-table tbody tr:focus-within td { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
+  /* v1.172.0 (Portal UI V2) - the same table, three more states, all from the
+     semantic tokens: a compact density for long registers, a selected row
+     (the checkbox column), and a row that opens something - it is a keyboard
+     stop, so its focus ring is drawn on the row itself. */
+  .erp-table-compact thead th, .erp-table-compact tbody td { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+  .erp-table tbody tr[data-selected] td { background: var(--tint-gold); }
+  .erp-table tbody tr.erp-row-click { cursor: pointer; }
+  .erp-table tbody tr.erp-row-click:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 
   /* v1.170.0 - ONE EMPTY STATE. "No data." tells nobody anything. An empty
      surface says WHAT is empty, WHY it is likely empty and WHAT to do next -

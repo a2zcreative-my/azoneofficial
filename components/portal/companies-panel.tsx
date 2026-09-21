@@ -66,7 +66,7 @@ function RecordReview({ detail, onSaved, onRelated }: { detail: ReviewDetail; on
     {node}
     <div className="flex items-start justify-between gap-3">
       <h2 className="break-words text-base font-semibold">{detail.title}</h2>
-      <a href={`/portal?tab=${encodeURIComponent(REVIEW_KINDS[detail.kind].tab)}`} target="_blank" rel="noopener noreferrer" title={L("Open source register", "Buka daftar sumber")} aria-label={L("Open source register", "Buka daftar sumber")} className={`${btnSm} shrink-0`}><AppIcon name="external" /></a>
+      {REVIEW_KINDS[detail.kind].tab && <a href={`/portal?tab=${encodeURIComponent(REVIEW_KINDS[detail.kind].tab ?? "")}`} target="_blank" rel="noopener noreferrer" title={L("Open source register", "Buka daftar sumber")} aria-label={L("Open source register", "Buka daftar sumber")} className={`${btnSm} shrink-0`}><AppIcon name="external" /></a>}
     </div>
     <p className="text-muted-foreground text-xs">#{detail.id} <span className={detail.state === "stale" ? chipWarn : chipNeutral}>{stateLabel(detail.state)}</span></p>
     <details className="border-border border-b pb-3">

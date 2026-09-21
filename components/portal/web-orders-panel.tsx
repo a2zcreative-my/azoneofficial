@@ -6,13 +6,21 @@
    touches stock (the movements feed already did that). The detail drawer
    shows the frozen prices actually charged at purchase AND the portal-side
    stock movements the order caused, so "what did this order do to my count"
-   is one click. */
+   is one click.
 
-import { Fragment, useCallback, useMemo, useState } from "react";
+   v1.172.0 (Portal UI V2) - the list is the shared DataTable (sortable,
+   keyboard-walkable rows, CSV of what is on screen, remembered density and
+   columns) and the detail is the shared SideDrawer beside it, instead of a
+   hand-rolled table with an expanding row. Every rule and action is as it
+   was: the shop still decides what is legal from each status. */
+
+import { useCallback, useMemo, useState } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
+import { card, inputClass, btnSm, chipSuccess, chipNeutral, chipWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { DataTable, type DataColumn } from "@/components/ui/data-table";
+import { SideDrawer } from "@/components/ui/side-drawer";
 import { dmyMYT, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 /* The shop's address comes from the brand registry, never typed here:
@@ -180,8 +188,33 @@ export function WebOrdersPanel() {
     void load();
   };
 
-  const th = "px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground";
-  const td = "px-2 py-1.5 text-sm";
+  /* Column objects are written label-first: tests/web-order-tracking.mjs reads
+     the courier contract above with /{ key: "…", label:/ and must not find a
+     table column in it. */
+  const columns: DataColumn<WebOrder>[] = [
+    { label: L("Order", "Pesanan"), key: "order_number", hideable: false, render: (o) => <span className="font-mono text-xs">{o.order_number}</span> },
+    { label: "Status", key: "status", render: (o) => <span className={statusChip(o.status)}>{statusLabel(o.status)}</span>, sortValue: (o) => STATUSES.indexOf(o.status as typeof STATUSES[number]) },
+    { label: L("Customer", "Pelanggan"), key: "customer", render: (o) => <>{o.customer_name ?? "—"}<span className="text-muted-foreground ml-1 text-xs">{o.phone ?? ""}</span></>, sortValue: (o) => o.customer_name ?? "" },
+    { label: L("Total", "Jumlah"), key: "total", numeric: true, render: (o) => <span className="font-medium">{fmtRM(o.total_cents)}</span>, sortValue: (o) => o.total_cents },
+    { label: L("Placed", "Dibuat"), key: "placed", render: (o) => <span className="text-xs">{dmyMYT(o.placed_at)}</span>, sortValue: (o) => o.placed_at ?? "" },
+    { label: L("Tracking", "Penjejakan"), key: "tracking", sortable: false, render: (o) => (
+      <span className="text-xs">
+        {o.tracking_no ? (
+          o.tracking_url ? (
+            /* The link is the shop's, not one built here. */
+            <a href={o.tracking_url} target="_blank" rel="noopener noreferrer"
+              className="underline" onClick={(e) => e.stopPropagation()}
+              title={L("Open the courier's tracking page", "Buka halaman penjejakan kurier")}>
+              {COURIERS.find((c) => c.key === o.tracking_courier)?.label ?? o.tracking_courier} {o.tracking_no}
+            </a>
+          ) : (
+            `${o.tracking_courier ?? ""} ${o.tracking_no}`
+          )
+        ) : "—"}
+      </span>
+    ) },
+  ];
+  const o = open === null ? null : orders.find((x) => x.id === open) ?? null;
 
   return (
     <div className={card}>
@@ -199,269 +232,224 @@ export function WebOrdersPanel() {
           {L("Waiting for migration 0081 — run the deploy and this fills by itself.", "Menunggu migrasi 0081 — jalankan deploy dan senarai ini terisi sendiri.")}
         </p>
       )}
+      {/* The status chips and the search box are the STORE's filters - each
+          change is a new request, remembered per pair (v1.104.0). They are the
+          shared 44px pill (v1.172.0), not a private chip shape. */}
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <button type="button"
-          className={`rounded-full border px-2.5 py-0.5 text-xs ${statusF === "" ? "border-primary bg-primary/10 font-medium" : "border-border hover:bg-secondary"}`}
+        <button type="button" className={statusF === "" ? tabPillOn : tabPill} aria-pressed={statusF === ""}
           onClick={() => setStatusF("")}>{L("All", "Semua")}</button>
         {STATUSES.map((s) => (
-          <button key={s} type="button"
-            className={`rounded-full border px-2.5 py-0.5 text-xs ${statusF === s ? "border-primary bg-primary/10 font-medium" : "border-border hover:bg-secondary"}`}
+          <button key={s} type="button" className={statusF === s ? tabPillOn : tabPill} aria-pressed={statusF === s}
             onClick={() => setStatusF(s)}>{statusLabel(s)}</button>
         ))}
         <input className={`${inputClass} sm:max-w-56`} placeholder={L("Order no / phone / name", "No pesanan / telefon / nama")}
-          value={q} onChange={(e) => setQ(e.target.value)} />
+          value={q} onChange={(e) => setQ(e.target.value)} aria-label={L("Search orders", "Cari pesanan")} />
       </div>
-      {/* v1.77.0 — skeleton until the first fetch lands: the real table
-          header over six shimmering columns, same min width as the table. */}
-      {!loaded && (
-        <div className="mt-3 overflow-x-auto" aria-hidden>
-          <table className="w-full min-w-[720px] border-collapse">
-            <thead>
-              <tr className="border-border border-b">
-                <th className={th}>{L("Order", "Pesanan")}</th>
-                <th className={th}>Status</th>
-                <th className={th}>{L("Customer", "Pelanggan")}</th>
-                <th className={`${th} text-right`}>{L("Total", "Jumlah")}</th>
-                <th className={th}>{L("Placed", "Dibuat")}</th>
-                <th className={th}>{L("Tracking", "Penjejakan")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 5 }, (_, i) => (
-                <tr key={i} className="border-border border-b last:border-0">
-                  <td className={td}><Skel className="h-4 w-24" /></td>
-                  <td className={td}><Skel className="h-5 w-20 rounded-full" /></td>
-                  <td className={td}><Skel className="h-4 w-32" /></td>
-                  <td className={td}><Skel className="ml-auto h-4 w-16" /></td>
-                  <td className={td}><Skel className="h-4 w-24" /></td>
-                  <td className={td}><Skel className="h-4 w-28" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {loaded && orders.length === 0 && !pending && (
-        <p className="text-muted-foreground mt-3 text-sm">
-          {L("No web orders yet — they appear here within 5 minutes of being placed in the store.", "Tiada pesanan web lagi — ia muncul di sini dalam 5 minit selepas dibuat di kedai.")}
-        </p>
-      )}
-      {orders.length > 0 && (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse">
-            <thead>
-              <tr className="border-border border-b">
-                <th className={th}>{L("Order", "Pesanan")}</th>
-                <th className={th}>Status</th>
-                <th className={th}>{L("Customer", "Pelanggan")}</th>
-                <th className={`${th} text-right`}>{L("Total", "Jumlah")}</th>
-                <th className={th}>{L("Placed", "Dibuat")}</th>
-                <th className={th}>{L("Tracking", "Penjejakan")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => (
-                <Fragment key={o.id}>
-                  <tr className="border-border cursor-pointer border-b last:border-0 hover:bg-secondary/40"
-                    onClick={() => void openDetail(o.id)}>
-                    <td className={`${td} font-mono text-xs`}>{o.order_number}</td>
-                    <td className={td}><span className={statusChip(o.status)}>{statusLabel(o.status)}</span></td>
-                    <td className={td}>{o.customer_name ?? "—"}<span className="text-muted-foreground ml-1 text-xs">{o.phone ?? ""}</span></td>
-                    <td className={`${td} text-right font-medium`}>{fmtRM(o.total_cents)}</td>
-                    <td className={`${td} text-xs`}>{dmyMYT(o.placed_at)}</td>
-                    <td className={`${td} text-xs`}>
-                      {o.tracking_no ? (
-                        o.tracking_url ? (
-                          /* The link is the shop's, not one built here. */
-                          <a href={o.tracking_url} target="_blank" rel="noopener noreferrer"
-                            className="underline" onClick={(e) => e.stopPropagation()}
-                            title={L("Open the courier's tracking page", "Buka halaman penjejakan kurier")}>
-                            {COURIERS.find((c) => c.key === o.tracking_courier)?.label ?? o.tracking_courier} {o.tracking_no}
-                          </a>
-                        ) : (
-                          `${o.tracking_courier ?? ""} ${o.tracking_no}`
-                        )
-                      ) : "—"}
-                    </td>
-                  </tr>
-                  {open === o.id && (
-                    <tr className="border-border border-b last:border-0">
-                      <td className={td} colSpan={6}>
-                        {/* v1.77.0 — skeleton until the detail lands, in the
-                            detail's own two-column grid. */}
-                        {!detail && (
-                          <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2" aria-hidden>
-                            <div>
-                              <Skel className="h-3 w-44" />
-                              <SkelText lines={3} className="mt-2" />
-                            </div>
-                            <div>
-                              <Skel className="h-3 w-40" />
-                              <SkelText lines={2} className="mt-2" />
-                            </div>
-                            <div className="md:col-span-2 border-border border-t pt-3">
-                              <Skel className="h-3 w-32" />
-                              <Skel className="mt-2 h-7 w-36" />
-                            </div>
-                          </div>
-                        )}
-                        {detail && (
-                          <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2">
-                            <div>
-                              <p className="text-xs font-semibold">{L("Items — price actually charged", "Barangan — harga sebenar dicaj")}</p>
-                              <ul className="mt-1 space-y-0.5 text-sm">
-                                {detail.lines.map((l) => (
-                                  <li key={l.id} className="flex justify-between gap-2">
-                                    <span>{l.qty}× {l.name ?? l.sku ?? "?"}{l.sku ? <span className="text-muted-foreground ml-1 font-mono text-xs">{l.sku}</span> : null}</span>
-                                    <span>{fmtRM(l.price_cents * l.qty)}</span>
-                                  </li>
-                                ))}
-                                <li className="text-muted-foreground flex justify-between gap-2 text-xs">
-                                  <span>{L("Shipping", "Penghantaran")}</span><span>{fmtRM(o.shipping_cents)}</span>
-                                </li>
-                              </ul>
-                              {o.address && <p className="text-muted-foreground mt-2 text-xs whitespace-pre-line">{o.address}</p>}
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold">{L("What it did to the stock count", "Kesannya pada kiraan stok")}</p>
-                              {detail.movements.length === 0
-                                ? <p className="text-muted-foreground mt-1 text-xs">{L("No movements recorded for this order (yet).", "Tiada pergerakan direkod untuk pesanan ini (buat masa ini).")}</p>
-                                : (
-                                  <ul className="mt-1 space-y-0.5 text-sm">
-                                    {detail.movements.map((m, i) => (
-                                      <li key={i} className="flex justify-between gap-2">
-                                        <span className="font-mono text-xs">{m.sku}</span>
-                                        <span className={m.delta < 0 ?"text-warning" :"text-success"}>
-                                          {m.delta > 0 ? `+${m.delta}` : m.delta}
-                                          {m.outcome !== "applied" && <span className="text-muted-foreground ml-1 text-xs">({m.outcome})</span>}
-                                        </span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              {o.paid_seen_at && <p className="text-muted-foreground mt-2 text-xs">{L("Booked as revenue on", "Ditempah sebagai hasil pada")} {dmyMYT(o.paid_seen_at)}</p>}
-                            </div>
+      {/* v1.172.0 - the shared table: sortable, keyboard-walkable rows that
+          open the order in a drawer, a CSV of what is on screen, remembered
+          density and columns. Until the first EVER response the body is a
+          skeleton, never "No web orders yet" (v1.77.0). */}
+      <div className="mt-3">
+        <DataTable<WebOrder>
+          id="web-orders"
+          columns={columns}
+          rows={orders}
+          loading={!loaded}
+          onRowClick={(row) => void openDetail(row.id)}
+          csvExport={{
+            name: "web-orders",
+            headers: [L("Order", "Pesanan"), "Status", L("Customer", "Pelanggan"), L("Phone", "Telefon"), L("Total (RM)", "Jumlah (RM)"), L("Placed", "Dibuat"), L("Courier", "Kurier"), L("Tracking", "Penjejakan")],
+            row: (r) => [r.order_number, statusLabel(r.status), r.customer_name ?? "", r.phone ?? "", (r.total_cents / 100).toFixed(2), dmyMYT(r.placed_at), COURIERS.find((c) => c.key === r.tracking_courier)?.label ?? r.tracking_courier ?? "", r.tracking_no ?? ""],
+          }}
+          empty={L("No web orders yet", "Tiada pesanan web lagi")}
+          emptyHint={statusF || q.trim()
+            ? L("Nothing in the store matches this status and search. Try another status or clear the search.", "Tiada apa di kedai sepadan dengan status dan carian ini. Cuba status lain atau kosongkan carian.")
+            : L("Orders appear here within 5 minutes of being placed in the store.", "Pesanan muncul di sini dalam 5 minit selepas dibuat di kedai.")}
+        />
+      </div>
 
-                            {/* v1.51.0 — the CEO: "elfia web order should be
-                                able to update the tracking number so that
-                                customer can track the order". This panel used
-                                to be read-only, which left confirming a
-                                payment and entering a tracking number stuck
-                                in the store's own admin. The store still owns
-                                the rules — forward-only, and cancelling puts
-                                the stock back — so only the moves that are
-                                legal from THIS status are offered. */}
-                            <div className="md:col-span-2 border-border border-t pt-3">
-                              <p className="text-xs font-semibold">{L("Move this order forward", "Gerakkan pesanan ini")}</p>
-                              {["pending_payment", "payment_review"].includes(o.status) && (
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                                  <button type="button" className={btnSm} disabled={acting}
-                                    onClick={() => void act(o, "confirm_paid")}>
-                                    {L("Payment received", "Bayaran diterima")}
-                                  </button>
-                                  <button type="button" className={btnSm} disabled={acting}
-                                    onClick={() => void (async () => {
-                                      if (!(await confirm({
-                                        title: L("Cancel this order?", "Batalkan pesanan ini?"),
-                                        message: L(`${o.order_number} will be cancelled and the stock put back.`,
-                                                   `${o.order_number} akan dibatalkan dan stok dipulangkan.`),
-                                        confirmLabel: L("Cancel order", "Batalkan pesanan"),
-                                        cancelLabel: L("Keep it", "Kekalkan"),
-                                        variant: "danger",
-                                      }))) return;
-                                      await act(o, "cancel");
-                                    })()}>
-                                    {L("Cancel order", "Batalkan pesanan")}
-                                  </button>
-                                </div>
-                              )}
-                              {o.status === "paid" && (
-                                <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
-                                  <label className="flex flex-col gap-1">
-                                    <span className="text-muted-foreground">{L("Courier", "Kurier")}</span>
-                                    <select className="border-input bg-background rounded border px-1.5 py-1"
-                                      value={courier} onChange={(e) => setCourier(e.target.value)}>
-                                      {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-                                    </select>
-                                  </label>
-                                  <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
-                                    <span className="text-muted-foreground">{L("Tracking number", "Nombor penjejakan")}</span>
-                                    <input className={inputClass} value={tracking} maxLength={60}
-                                      placeholder={L("as printed on the parcel", "seperti tercetak pada bungkusan")}
-                                      onChange={(e) => setTracking(e.target.value)} />
-                                  </label>
-                                  <button type="button" className={btnSm} disabled={acting || tracking.trim() === ""}
-                                    title={tracking.trim() === "" ? L("Enter the tracking number first", "Masukkan nombor penjejakan dahulu") : ""}
-                                    onClick={() => void act(o, "ship", { tracking_no: tracking.trim(), tracking_courier: courier })}>
-                                    {L("Mark shipped", "Tanda dihantar")}
-                                  </button>
-                                </div>
-                              )}
-                              {o.status === "shipped" && (
-                                <div className="mt-2 space-y-2 text-xs">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-muted-foreground">
-                                      {o.tracking_no
-                                        ? L(`Customer is tracking ${o.tracking_no}`, `Pelanggan menjejak ${o.tracking_no}`)
-                                        : L("No tracking number was entered", "Tiada nombor penjejakan dimasukkan")}
-                                    </span>
-                                    {/* v1.73.0 — one tap sends it. Nothing reaches a
-                                        customer on its own: the shop's page updates,
-                                        but only if they go and look. */}
-                                    {o.tracking_no && o.phone && (
-                                      <a className={btnSm} target="_blank" rel="noopener noreferrer"
-                                        href={waTrack(o, freshUrl[o.order_number])}
-                                        onClick={(e) => e.stopPropagation()}>
-                                        {L("WhatsApp the tracking", "WhatsApp penjejakan")}
-                                      </a>
-                                    )}
-                                    <button type="button" className={btnSm} disabled={acting}
-                                      onClick={() => void act(o, "complete")}>
-                                      {L("Mark delivered", "Tanda sampai")}
-                                    </button>
-                                  </div>
-                                  {/* A tracking number is typed off a label by hand.
-                                      Until now a typo was permanent and the customer
-                                      followed somebody else's parcel. */}
-                                  <div className="flex flex-wrap items-end gap-2">
-                                    <label className="flex flex-col gap-1">
-                                      <span className="text-muted-foreground">{L("Correct the courier", "Betulkan kurier")}</span>
-                                      <select className="border-input bg-background rounded border px-1.5 py-1"
-                                        value={courier} onChange={(e) => setCourier(e.target.value)}>
-                                        {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-                                      </select>
-                                    </label>
-                                    <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
-                                      <span className="text-muted-foreground">{L("Correct the number", "Betulkan nombor")}</span>
-                                      <input className={inputClass} value={tracking} maxLength={60}
-                                        placeholder={o.tracking_no ?? ""}
-                                        onChange={(e) => setTracking(e.target.value)} />
-                                    </label>
-                                    <button type="button" className={btnSm}
-                                      disabled={acting || tracking.trim() === "" || tracking.trim() === o.tracking_no}
-                                      onClick={() => void act(o, "update_tracking", { tracking_no: tracking.trim(), tracking_courier: courier })}>
-                                      {L("Update tracking", "Kemas kini penjejakan")}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                              {["completed", "cancelled"].includes(o.status) && (
-                                <p className="text-muted-foreground mt-1 text-xs">
-                                  {L("This order is finished — nothing left to do here.", "Pesanan ini selesai — tiada apa lagi di sini.")}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+      {/* v1.172.0 - the order's detail and its next legal move, in the
+          contextual drawer beside the list. The content is the v1.37.0 /
+          v1.51.0 / v1.73.0 detail unchanged - only the container moved out of
+          an expanded table row that fought a 720px table on every tablet. */}
+      <SideDrawer
+        open={o !== null}
+        onClose={() => { setOpen(null); setDetail(null); }}
+        title={o ? <span className="font-mono">{o.order_number}</span> : ""}
+        subtitle={o ? <>{statusLabel(o.status)} · {o.customer_name ?? "—"} {o.phone ?? ""} · {fmtRM(o.total_cents)}</> : undefined}
+        wide
+      >
+        {o && (
+          <>
+    {/* v1.77.0 — skeleton until the detail lands, in the
+        detail's own two-column grid. */}
+    {!detail && (
+      <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2" aria-hidden>
+        <div>
+          <Skel className="h-3 w-44" />
+          <SkelText lines={3} className="mt-2" />
         </div>
-      )}
+        <div>
+          <Skel className="h-3 w-40" />
+          <SkelText lines={2} className="mt-2" />
+        </div>
+        <div className="md:col-span-2 border-border border-t pt-3">
+          <Skel className="h-3 w-32" />
+          <Skel className="mt-2 h-7 w-36" />
+        </div>
+      </div>
+    )}
+    {detail && (
+      <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold">{L("Items — price actually charged", "Barangan — harga sebenar dicaj")}</p>
+          <ul className="mt-1 space-y-0.5 text-sm">
+            {detail.lines.map((l) => (
+              <li key={l.id} className="flex justify-between gap-2">
+                <span>{l.qty}× {l.name ?? l.sku ?? "?"}{l.sku ? <span className="text-muted-foreground ml-1 font-mono text-xs">{l.sku}</span> : null}</span>
+                <span>{fmtRM(l.price_cents * l.qty)}</span>
+              </li>
+            ))}
+            <li className="text-muted-foreground flex justify-between gap-2 text-xs">
+              <span>{L("Shipping", "Penghantaran")}</span><span>{fmtRM(o.shipping_cents)}</span>
+            </li>
+          </ul>
+          {o.address && <p className="text-muted-foreground mt-2 text-xs whitespace-pre-line">{o.address}</p>}
+        </div>
+        <div>
+          <p className="text-xs font-semibold">{L("What it did to the stock count", "Kesannya pada kiraan stok")}</p>
+          {detail.movements.length === 0
+            ? <p className="text-muted-foreground mt-1 text-xs">{L("No movements recorded for this order (yet).", "Tiada pergerakan direkod untuk pesanan ini (buat masa ini).")}</p>
+            : (
+              <ul className="mt-1 space-y-0.5 text-sm">
+                {detail.movements.map((m, i) => (
+                  <li key={i} className="flex justify-between gap-2">
+                    <span className="font-mono text-xs">{m.sku}</span>
+                    <span className={m.delta < 0 ?"text-warning" :"text-success"}>
+                      {m.delta > 0 ? `+${m.delta}` : m.delta}
+                      {m.outcome !== "applied" && <span className="text-muted-foreground ml-1 text-xs">({m.outcome})</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          {o.paid_seen_at && <p className="text-muted-foreground mt-2 text-xs">{L("Booked as revenue on", "Ditempah sebagai hasil pada")} {dmyMYT(o.paid_seen_at)}</p>}
+        </div>
+
+        {/* v1.51.0 — the CEO: "elfia web order should be
+            able to update the tracking number so that
+            customer can track the order". This panel used
+            to be read-only, which left confirming a
+            payment and entering a tracking number stuck
+            in the store's own admin. The store still owns
+            the rules — forward-only, and cancelling puts
+            the stock back — so only the moves that are
+            legal from THIS status are offered. */}
+        <div className="md:col-span-2 border-border border-t pt-3">
+          <p className="text-xs font-semibold">{L("Move this order forward", "Gerakkan pesanan ini")}</p>
+          {["pending_payment", "payment_review"].includes(o.status) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <button type="button" className={btnSm} disabled={acting}
+                onClick={() => void act(o, "confirm_paid")}>
+                {L("Payment received", "Bayaran diterima")}
+              </button>
+              <button type="button" className={btnSm} disabled={acting}
+                onClick={() => void (async () => {
+                  if (!(await confirm({
+                    title: L("Cancel this order?", "Batalkan pesanan ini?"),
+                    message: L(`${o.order_number} will be cancelled and the stock put back.`,
+                               `${o.order_number} akan dibatalkan dan stok dipulangkan.`),
+                    confirmLabel: L("Cancel order", "Batalkan pesanan"),
+                    cancelLabel: L("Keep it", "Kekalkan"),
+                    variant: "danger",
+                  }))) return;
+                  await act(o, "cancel");
+                })()}>
+                {L("Cancel order", "Batalkan pesanan")}
+              </button>
+            </div>
+          )}
+          {o.status === "paid" && (
+            <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">{L("Courier", "Kurier")}</span>
+                <select className="border-input bg-background rounded border px-1.5 py-1"
+                  value={courier} onChange={(e) => setCourier(e.target.value)}>
+                  {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
+                <span className="text-muted-foreground">{L("Tracking number", "Nombor penjejakan")}</span>
+                <input className={inputClass} value={tracking} maxLength={60}
+                  placeholder={L("as printed on the parcel", "seperti tercetak pada bungkusan")}
+                  onChange={(e) => setTracking(e.target.value)} />
+              </label>
+              <button type="button" className={btnSm} disabled={acting || tracking.trim() === ""}
+                title={tracking.trim() === "" ? L("Enter the tracking number first", "Masukkan nombor penjejakan dahulu") : ""}
+                onClick={() => void act(o, "ship", { tracking_no: tracking.trim(), tracking_courier: courier })}>
+                {L("Mark shipped", "Tanda dihantar")}
+              </button>
+            </div>
+          )}
+          {o.status === "shipped" && (
+            <div className="mt-2 space-y-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">
+                  {o.tracking_no
+                    ? L(`Customer is tracking ${o.tracking_no}`, `Pelanggan menjejak ${o.tracking_no}`)
+                    : L("No tracking number was entered", "Tiada nombor penjejakan dimasukkan")}
+                </span>
+                {/* v1.73.0 — one tap sends it. Nothing reaches a
+                    customer on its own: the shop's page updates,
+                    but only if they go and look. */}
+                {o.tracking_no && o.phone && (
+                  <a className={btnSm} target="_blank" rel="noopener noreferrer"
+                    href={waTrack(o, freshUrl[o.order_number])}
+                    onClick={(e) => e.stopPropagation()}>
+                    {L("WhatsApp the tracking", "WhatsApp penjejakan")}
+                  </a>
+                )}
+                <button type="button" className={btnSm} disabled={acting}
+                  onClick={() => void act(o, "complete")}>
+                  {L("Mark delivered", "Tanda sampai")}
+                </button>
+              </div>
+              {/* A tracking number is typed off a label by hand.
+                  Until now a typo was permanent and the customer
+                  followed somebody else's parcel. */}
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">{L("Correct the courier", "Betulkan kurier")}</span>
+                  <select className="border-input bg-background rounded border px-1.5 py-1"
+                    value={courier} onChange={(e) => setCourier(e.target.value)}>
+                    {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                  </select>
+                </label>
+                <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
+                  <span className="text-muted-foreground">{L("Correct the number", "Betulkan nombor")}</span>
+                  <input className={inputClass} value={tracking} maxLength={60}
+                    placeholder={o.tracking_no ?? ""}
+                    onChange={(e) => setTracking(e.target.value)} />
+                </label>
+                <button type="button" className={btnSm}
+                  disabled={acting || tracking.trim() === "" || tracking.trim() === o.tracking_no}
+                  onClick={() => void act(o, "update_tracking", { tracking_no: tracking.trim(), tracking_courier: courier })}>
+                  {L("Update tracking", "Kemas kini penjejakan")}
+                </button>
+              </div>
+            </div>
+          )}
+          {["completed", "cancelled"].includes(o.status) && (
+            <p className="text-muted-foreground mt-1 text-xs">
+              {L("This order is finished — nothing left to do here.", "Pesanan ini selesai — tiada apa lagi di sini.")}
+            </p>
+          )}
+        </div>
+      </div>
+    )}
+          </>
+        )}
+      </SideDrawer>
     </div>
   );
 }

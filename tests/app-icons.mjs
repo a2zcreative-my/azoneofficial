@@ -37,7 +37,7 @@
  *                                          window; they are the content.
  *   role-panels.tsx (printed claim form)   `☑ Yes` inside a document written
  *                                          into a print window — no React.
- *   purchasing-panels StatTile icon=""     a set of typographic tile marks
+ *   accounting-panel StatTile icon=""      a set of typographic tile marks
  *                                          (≡ ◷ $ ⚖) that read as one set.
  *   sales.tsx stock-note builder           returns a STRING joined into other
  *                                          text; there is no element to hang

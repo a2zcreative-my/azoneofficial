@@ -82,10 +82,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
      inconsistent change") — tabs added since v1.9 that never got entries,
      plus every Dashboard card and the Schedule & Roster read surfaces. */
   "Finance": { en: "Finance", ms: "Kewangan" },
-  "Reconciliation": { en: "Reconciliation", ms: "Penyelarasan" },
   "Commission": { en: "Commission", ms: "Komisen" },
-  "Ads Fund": { en: "Ads Fund", ms: "Dana Iklan" },
-  "Purchasing": { en: "Purchasing", ms: "Pembelian" },
   "Accounting": { en: "Accounting", ms: "Perakaunan" },
   "Companies": { en: "Companies", ms: "Syarikat" },
   // dashboard cards

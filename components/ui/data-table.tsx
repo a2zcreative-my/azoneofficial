@@ -17,13 +17,31 @@
  * No generics gymnastics: columns access their row through `render`, sorting
  * through `sortValue`. Both receive the raw row; the table never inspects
  * row shape beyond `id`.
+ *
+ * v1.172.0 (Portal UI V2) — the same table, more of it, all opt-in:
+ *   filters       quick-filter chips over the loaded rows, active-filter
+ *                 chips with ✕ and one Clear all; every filter is a real
+ *                 predicate the caller supplies - nothing here pretends
+ *   selectable    a checkbox column; the selection is announced above the
+ *                 table in a contextual action bar that offers ONLY the
+ *                 bulkActions the caller passes (and the built-in CSV export
+ *                 when csvExport is given: selected rows if any, else the
+ *                 rows on screen - the v1.74.0 rule, tests/csv-export.mjs)
+ *   onRowClick    the row opens something (a drawer, a detail); rows become
+ *                 keyboard stops - Up/Down walk them, Enter/Space open
+ *   density       comfortable or compact, remembered per table `id`
+ *   columns menu  hide and show columns, remembered per table `id`
+ *   rowActions    a trailing cell of per-row commands, never sorted
+ * Sticky header, framed scroll, skeleton and empty states are as before
+ * (styles/globals.css .erp-table*).
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skel } from "@/components/ui/skeleton";
-import { btnSm, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { downloadCsv } from "@/lib/csv";
+import { btnSm, inputClassSm, menuCard, tabPill, tabPillOn, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -39,11 +57,57 @@ export interface DataColumn<T> {
   sortValue?: (row: T) => string | number;
   /** Set false for action columns. Default true. */
   sortable?: boolean;
+  /** v1.172.0 - set false to keep a column out of the Columns menu (an
+      identifier the row makes no sense without). Default true. */
+  hideable?: boolean;
 }
+
+/** v1.172.0 - one quick filter: a label, its options and the predicate that
+    decides whether a row matches a chosen option. */
+export interface TableFilter<T> {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+  test: (row: T, value: string) => boolean;
+}
+
+/** v1.172.0 - a command over the selected rows. Only what the caller can
+    really do belongs here; the bar draws nothing on its own. */
+export interface BulkAction<T> {
+  label: string;
+  run: (rows: T[]) => void | Promise<void>;
+  tone?: "default" | "danger";
+}
+
+/** v1.172.0 - a CSV of the table: selected rows if any are selected,
+    otherwise the rows on screen after search, filters and sort. */
+export interface CsvExport<T> {
+  /** File name without the extension; the MYT stamp is appended by lib/csv. */
+  name: string;
+  headers: string[];
+  row: (r: T) => (string | number | null | undefined)[];
+}
+
+type Density = "comfortable" | "compact";
+
+const storageKey = (id: string | undefined, what: string) => (id ? `azone-table:${id}:${what}` : null);
+function readPref<V>(key: string | null, parse: (raw: string) => V | null): V | null {
+  if (!key) return null;
+  try { const raw = localStorage.getItem(key); return raw === null ? null : parse(raw); } catch { return null; }
+}
+function writePref(key: string | null, value: string): void {
+  if (!key) return;
+  try { localStorage.setItem(key, value); } catch { /* a convenience, not state */ }
+}
+const parseHidden = (raw: string): string[] | null => {
+  try { const a: unknown = JSON.parse(raw); return Array.isArray(a) ? a.filter((x): x is string => typeof x === "string") : null; } catch { return null; }
+};
 
 export function DataTable<T extends { id: number | string }>({
   columns, rows, searchText, defaultSort, defaultDir = "desc",
   pageSizes = [10, 25, 50], empty, emptyHint, emptyAction, loading = false, footer,
+  id, filters = [], selectable = false, bulkActions = [], csvExport, onRowClick, rowActions, rowActionsLabel,
+  toolbar,
 }: {
   columns: DataColumn<T>[];
   rows: T[];
@@ -65,18 +129,57 @@ export function DataTable<T extends { id: number | string }>({
   loading?: boolean;
   /** Left slot of the footer row (e.g. a total). */
   footer?: ReactNode;
+  /** v1.172.0 - a stable name for this table; density and hidden columns are
+      remembered under it on this device. Omit and nothing is remembered. */
+  id?: string;
+  /** v1.172.0 - quick filters over the loaded rows. */
+  filters?: TableFilter<T>[];
+  /** v1.172.0 - a checkbox column and the contextual action bar. */
+  selectable?: boolean;
+  bulkActions?: BulkAction<T>[];
+  csvExport?: CsvExport<T>;
+  /** v1.172.0 - the row opens something. Rows become keyboard stops. */
+  onRowClick?: (row: T) => void;
+  /** v1.172.0 - per-row commands in a trailing, unsorted cell. */
+  rowActions?: (row: T) => ReactNode;
+  rowActionsLabel?: string;
+  /** v1.172.0 - extra controls at the right of the toolbar (module-specific). */
+  toolbar?: ReactNode;
 }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<string | null>(defaultSort ?? null);
   const [dir, setDir] = useState<"asc" | "desc">(defaultDir);
   const [per, setPer] = useState(pageSizes[0] ?? 10);
   const [page, setPage] = useState(1);
+  const [active, setActive] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<number | string>>(() => new Set());
+  const [density, setDensity] = useState<Density>(() => readPref(storageKey(id, "density"), (r) => (r === "compact" ? "compact" : "comfortable")) ?? "comfortable");
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(readPref(storageKey(id, "hidden"), parseHidden) ?? []));
+  const [colsOpen, setColsOpen] = useState(false);
+  const colsRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null);
+
+  /* The Columns menu closes on an outside press or Escape, like any menu. */
+  useEffect(() => {
+    if (!colsOpen) return;
+    const away = (e: MouseEvent) => { if (!colsRef.current?.contains(e.target as Node)) setColsOpen(false); };
+    const esc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") setColsOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [colsOpen]);
+
+  const shown = useMemo(() => columns.filter((c) => !hidden.has(c.key)), [columns, hidden]);
 
   const shaped = useMemo(() => {
     let out = rows;
     if (q && searchText) {
       const needle = q.toLowerCase();
       out = out.filter((r) => searchText(r).toLowerCase().includes(needle));
+    }
+    for (const f of filters) {
+      const v = active[f.key];
+      if (v) out = out.filter((r) => f.test(r, v));
     }
     if (sort) {
       const col = columns.find((c) => c.key === sort);
@@ -90,12 +193,55 @@ export function DataTable<T extends { id: number | string }>({
       }
     }
     return out;
-  }, [rows, q, sort, dir, columns, searchText]);
+  }, [rows, q, sort, dir, columns, searchText, filters, active]);
 
   const pages = Math.max(1, Math.ceil(shaped.length / per));
   const cur = Math.min(page, pages); // deleting the last row of the last page must not strand you
   const slice = shaped.slice((cur - 1) * per, cur * per);
   const arrow = (key: string) => (sort === key ? (dir === "asc" ? " ↑" : " ↓") : "");
+
+  /* Selection lives on ids; rows that left the list (a filter, a refetch)
+     drop out of the count silently rather than being acted on unseen. */
+  const selectedRows = useMemo(() => (selectable ? shaped.filter((r) => selected.has(r.id)) : []), [selectable, shaped, selected]);
+  const allOnPage = slice.length > 0 && slice.every((r) => selected.has(r.id));
+  const someOnPage = slice.some((r) => selected.has(r.id));
+  const toggleRow = (rid: number | string) => setSelected((s) => { const n = new Set(s); if (n.has(rid)) n.delete(rid); else n.add(rid); return n; });
+  const togglePage = () => setSelected((s) => { const n = new Set(s); if (allOnPage) slice.forEach((r) => n.delete(r.id)); else slice.forEach((r) => n.add(r.id)); return n; });
+  const clearSelection = () => setSelected(new Set());
+  const headCheck = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (headCheck.current) headCheck.current.indeterminate = someOnPage && !allOnPage; }, [someOnPage, allOnPage]);
+
+  const activeChips = filters.flatMap((f) => (active[f.key] ? [{ key: f.key, label: f.label, value: f.options.find((o) => o.value === active[f.key])?.label ?? active[f.key] }] : []));
+  const clearAll = () => { setActive({}); setQ(""); setPage(1); };
+
+  const exportCsv = () => {
+    if (!csvExport) return;
+    const src = selectedRows.length > 0 ? selectedRows : shaped;
+    downloadCsv(csvExport.name, [csvExport.headers, ...src.map((r) => csvExport.row(r))]);
+  };
+
+  const setDensityPref = (d: Density) => { setDensity(d); writePref(storageKey(id, "density"), d); };
+  const toggleColumn = (key: string) => setHidden((h) => {
+    const n = new Set(h); if (n.has(key)) n.delete(key); else n.add(key);
+    writePref(storageKey(id, "hidden"), JSON.stringify([...n]));
+    return n;
+  });
+
+  /* Rows as keyboard stops when they open something. */
+  const onRowKey = useCallback((e: KeyboardEvent<HTMLTableRowElement>, r: T) => {
+    if (!onRowClick) return;
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(r); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const trs = Array.from(bodyRef.current?.querySelectorAll<HTMLTableRowElement>("tr[data-row]") ?? []);
+      const at = trs.indexOf(e.currentTarget);
+      trs[e.key === "ArrowDown" ? Math.min(at + 1, trs.length - 1) : Math.max(at - 1, 0)]?.focus();
+    }
+  }, [onRowClick]);
+
+  const hasTools = filters.length > 0 || !!id || !!csvExport || !!toolbar;
+  const chipBtn = "bg-secondary inline-flex min-h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium";
+  const barBtn = `${btnSm} border-white/30 bg-white/10 text-white hover:bg-white/20`;
 
   return (
     <div>
@@ -107,14 +253,128 @@ export function DataTable<T extends { id: number | string }>({
           </select>
           {L("entries per page", "entri setiap halaman")}
         </label>
-        {searchText && (
-          <label className="text-muted-foreground flex items-center gap-2 text-xs">
-            {L("Search:", "Cari:")}
-            <input className={inputClassSm} value={q}
-              onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
-          </label>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {searchText && (
+            <label className="text-muted-foreground flex items-center gap-2 text-xs">
+              {L("Search:", "Cari:")}
+              <input className={inputClassSm} value={q}
+                onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
+            </label>
+          )}
+          {hasTools && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {toolbar}
+              {csvExport && (
+                <button type="button" className={btnSm} onClick={exportCsv} disabled={loading || shaped.length === 0}
+                  title={L("Download these rows as a CSV file", "Muat turun baris ini sebagai fail CSV")}>
+                  {L("Export CSV", "Eksport CSV")}
+                </button>
+              )}
+              {id && (
+                <>
+                  <button type="button" className={btnSm} aria-pressed={density === "compact"}
+                    onClick={() => setDensityPref(density === "compact" ? "comfortable" : "compact")}
+                    title={L("Row density", "Ketumpatan baris")}>
+                    {density === "compact" ? L("Compact", "Padat") : L("Comfortable", "Selesa")}
+                  </button>
+                  <div ref={colsRef} className="relative">
+                    <button type="button" className={btnSm} aria-haspopup="menu" aria-expanded={colsOpen} onClick={() => setColsOpen((v) => !v)}>
+                      {L("Columns", "Lajur")}{hidden.size > 0 ? ` (${shown.length}/${columns.length})` : ""}
+                    </button>
+                    {colsOpen && (
+                      <div role="menu" aria-label={L("Show or hide columns", "Tunjuk atau sembunyi lajur")}
+                        className={`${menuCard} absolute right-0 z-20 mt-1 w-52`}>
+                        {columns.map((c) => {
+                          const locked = c.hideable === false;
+                          return (
+                            <label key={c.key} role="menuitemcheckbox" aria-checked={!hidden.has(c.key)}
+                              className={`flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm ${locked ? "text-muted-foreground" : "hover:bg-secondary cursor-pointer"}`}>
+                              <input type="checkbox" className="accent-primary" checked={!hidden.has(c.key)} disabled={locked} onChange={() => toggleColumn(c.key)} />
+                              <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* v1.172.0 - quick filters. Chips when a filter has a handful of
+          options, a select when it has many; the chosen values repeat below
+          as removable chips so the table is never quietly narrowed. */}
+      {filters.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {filters.map((f) => (
+            <div key={f.key} className="flex flex-wrap items-center gap-1.5">
+              <span className="text-muted-foreground mr-1 text-xs font-medium">{f.label}</span>
+              {f.options.length <= 6 ? (
+                <>
+                  <button type="button" className={active[f.key] ? tabPill : tabPillOn} aria-pressed={!active[f.key]}
+                    onClick={() => { setActive((a) => { const n = { ...a }; delete n[f.key]; return n; }); setPage(1); }}>
+                    {L("All", "Semua")}
+                  </button>
+                  {f.options.map((o) => (
+                    <button key={o.value} type="button" className={active[f.key] === o.value ? tabPillOn : tabPill} aria-pressed={active[f.key] === o.value}
+                      onClick={() => { setActive((a) => ({ ...a, [f.key]: o.value })); setPage(1); }}>
+                      {o.label}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <select className={inputClassSm} value={active[f.key] ?? ""} aria-label={f.label}
+                  onChange={(e) => { const v = e.target.value; setActive((a) => { const n = { ...a }; if (v) n[f.key] = v; else delete n[f.key]; return n; }); setPage(1); }}>
+                  <option value="">{L("All", "Semua")}</option>
+                  {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              )}
+            </div>
+          ))}
+          {(activeChips.length > 0 || q) && (
+            <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
+              <span className="text-muted-foreground text-xs">{L("Filtered by", "Ditapis mengikut")}</span>
+              {q && (
+                <button type="button" className={chipBtn} onClick={() => { setQ(""); setPage(1); }}
+                  aria-label={L(`Clear search "${q}"`, `Kosongkan carian "${q}"`)}>
+                  “{q}” <span aria-hidden>×</span>
+                </button>
+              )}
+              {activeChips.map((c) => (
+                <button key={c.key} type="button" className={chipBtn}
+                  onClick={() => { setActive((a) => { const n = { ...a }; delete n[c.key]; return n; }); setPage(1); }}
+                  aria-label={L(`Remove filter ${c.label}: ${c.value}`, `Buang tapisan ${c.label}: ${c.value}`)}>
+                  {c.label}: {c.value} <span aria-hidden>×</span>
+                </button>
+              ))}
+              <button type="button" className="text-gold-deep text-xs font-semibold underline-offset-2 hover:underline" onClick={clearAll}>{L("Clear all", "Kosongkan semua")}</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* v1.172.0 - the contextual action bar: present only while something
+          is selected, offering only what the caller can really do. */}
+      {selectable && selectedRows.length > 0 && (
+        <div role="region" aria-label={L("Selected rows", "Baris dipilih")} aria-live="polite"
+          className="bg-primary text-primary-foreground mb-2 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm shadow-sm">
+          <span className="font-semibold tabular-nums">{selectedRows.length}</span>
+          <span className="opacity-90">{L("selected", "dipilih")}</span>
+          <span className="mx-1 h-4 w-px bg-white/30" aria-hidden />
+          {csvExport && <button type="button" className={barBtn} onClick={exportCsv}>{L("Export CSV", "Eksport CSV")}</button>}
+          {bulkActions.map((a) => (
+            <button key={a.label} type="button"
+              className={a.tone === "danger" ? `${btnSm} border-transparent bg-danger text-white hover:opacity-90` : barBtn}
+              onClick={() => void a.run(selectedRows)}>
+              {a.label}
+            </button>
+          ))}
+          <button type="button" className="ml-auto text-xs font-medium underline-offset-2 hover:underline" onClick={clearSelection}>{L("Clear selection", "Kosongkan pilihan")}</button>
+        </div>
+      )}
 
       {/* min-w + overflow: ERP tables have 8+ columns; phones scroll the table
           sideways instead of crushing every cell to one word per line.
@@ -122,10 +382,16 @@ export function DataTable<T extends { id: number | string }>({
           stays put (styles/globals.css .erp-table), so a long list is read
           against its column names rather than from memory. */}
       <div className="erp-table-wrap" aria-busy={loading || undefined}>
-        <table className="erp-table min-w-[640px]">
+        <table className={`erp-table min-w-[640px] ${density === "compact" ? "erp-table-compact" : ""}`}>
           <thead>
             <tr>
-              {columns.map((c) => {
+              {selectable && (
+                <th className={`${th} w-10`}>
+                  <input ref={headCheck} type="checkbox" className="accent-primary" checked={allOnPage} onChange={togglePage}
+                    aria-label={allOnPage ? L("Deselect every row on this page", "Nyahpilih setiap baris di halaman ini") : L("Select every row on this page", "Pilih setiap baris di halaman ini")} />
+                </th>
+              )}
+              {shown.map((c) => {
                 const sortable = c.sortable !== false;
                 return (
                   <th key={c.key} className={c.numeric ? thR2 : th}
@@ -143,28 +409,45 @@ export function DataTable<T extends { id: number | string }>({
                   </th>
                 );
               })}
+              {rowActions && <th className={`${thR2} w-px`}>{rowActionsLabel ?? <span className="sr-only">{L("Actions", "Tindakan")}</span>}</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {loading ? (
               Array.from({ length: Math.min(per, 6) }, (_, i) => (
                 <tr key={`skel-${i}`} aria-hidden>
-                  {columns.map((c) => (
+                  {selectable && <td className={td}><Skel className="h-3.5 w-3.5" /></td>}
+                  {shown.map((c) => (
                     <td key={c.key} className={c.numeric ? tdR2 : td}>
                       <Skel className={`h-3.5 ${c.numeric ? "ml-auto w-14" : i % 2 ? "w-2/3" : "w-1/2"}`} />
                     </td>
                   ))}
+                  {rowActions && <td className={tdR2}><Skel className="ml-auto h-3.5 w-10" /></td>}
                 </tr>
               ))
-            ) : slice.length === 0 ? null : slice.map((r) => (
-              <tr key={r.id} className="transition-colors">
-                {columns.map((c) => (
-                  <td key={c.key} className={c.numeric ? tdR2 : td}>
-                    {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            ) : slice.length === 0 ? null : slice.map((r) => {
+              const isSel = selectable && selected.has(r.id);
+              return (
+                <tr key={r.id} data-row data-selected={isSel || undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  onKeyDown={onRowClick ? (e) => onRowKey(e, r) : undefined}
+                  className={`transition-colors ${onRowClick ? "erp-row-click" : ""}`}>
+                  {selectable && (
+                    <td className={td} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="accent-primary" checked={!!isSel} onChange={() => toggleRow(r.id)}
+                        aria-label={L("Select row", "Pilih baris")} />
+                    </td>
+                  )}
+                  {shown.map((c) => (
+                    <td key={c.key} className={c.numeric ? tdR2 : td}>
+                      {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
+                    </td>
+                  ))}
+                  {rowActions && <td className={`${tdR2} whitespace-nowrap`} onClick={(e) => e.stopPropagation()}>{rowActions(r)}</td>}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {/* v1.171.0 - the empty state sits UNDER the table, in the frame's own
@@ -173,11 +456,11 @@ export function DataTable<T extends { id: number | string }>({
             paid" cut at the frame's edge, the rest a sideways scroll away. */}
         {!loading && slice.length === 0 && (
           <div className="border-border border-t">
-            {q ? (
+            {q || activeChips.length > 0 ? (
               <EmptyState icon="search"
                 title={L("Nothing matches that search.", "Tiada padanan untuk carian itu.")}
                 hint={L("Try fewer words, or clear the search to see every row again.", "Cuba kurangkan perkataan, atau kosongkan carian untuk melihat semua baris semula.")}
-                action={<button type="button" className={btnSm} onClick={() => { setQ(""); setPage(1); }}>{L("Clear search", "Kosongkan carian")}</button>} />
+                action={<button type="button" className={btnSm} onClick={clearAll}>{L("Clear search", "Kosongkan carian")}</button>} />
             ) : (
               <EmptyState title={empty ?? L("No records yet.", "Tiada rekod lagi.")} hint={emptyHint} action={emptyAction} />
             )}

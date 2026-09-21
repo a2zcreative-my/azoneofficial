@@ -14,7 +14,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -25,7 +25,8 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
+  "//jsx": "v1.172.0 - Next.js 16 requires jsx: react-jsx (the React automatic runtime) and reads dev-time route types from .next/dev/types; next build rewrites this file to say so if it does not already, and a build that edits a tracked file leaves PUSH.bat a dirty worktree. Both are set here on purpose.",
   "//": "v1.100.1 - 'Claude outputs' is where the desktop app drops files it could not place, and it is INSIDE this project. next build type-checks everything tsconfig includes, so one stray worker file in there (hotels.ts, whose imports resolve from worker/src) failed the whole website build after the API had already published. Excluded here so a copy of a file can never break the build again. The folder is safe to delete: everything in it is a duplicate of a file that lives somewhere else in this project.",
   "exclude": ["node_modules", "worker", "Claude outputs", "Claude outputs/**"]
 }

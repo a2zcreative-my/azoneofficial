@@ -149,9 +149,13 @@ export const viewport: Viewport = {
   themeColor: "#1a2946",
 };
 
+/* v1.172.0 (Next.js 16): the router no longer forces an instant jump past
+   `html { scroll-behavior: smooth }` on a route change unless the element
+   says so. `data-scroll-behavior="smooth"` keeps navigation landing at the
+   top instantly, as it did on 15. */
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en" className={poppins.variable}>
+    <html lang="en" className={poppins.variable} data-scroll-behavior="smooth">
       <body className={`${poppins.variable} bg-background text-foreground min-h-screen font-sans antialiased selection:bg-primary/20`}>
         <MsBoot />
         <OfflineBanner />

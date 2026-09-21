@@ -6781,7 +6781,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Reconciliation", "Commission", "Ads Fund", "Purchasing", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Commission", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

@@ -55,6 +55,9 @@ export const card = "rounded-card border border-border bg-card p-4 md:p-5";
      modalCard    the panel a dialog draws over the page.
      sheetCard    the phone's bottom sheet.
      toastCard    the centred confirmation card that fades.
+     menuCard     v1.172.0 - a floating menu that pops beside the button that
+                  owns it (the table's Columns menu). Tight padding, lifted by
+                  a shadow, positioned by the caller.
 
    And one rule that is not about size. A card's own expandable detail belongs
    INSIDE that card, under a rule — never as a sibling card. v1.125.0 fixed
@@ -87,6 +90,9 @@ export const sheetCard = "border-border bg-card absolute inset-x-0 bottom-0 max-
 
 /** The centred confirmation card that pops and fades. */
 export const toastCard = "bg-card border-border rounded-2xl border px-8 py-6 text-center shadow-2xl";
+
+/** v1.172.0 - a floating menu beside its button. The caller positions it. */
+export const menuCard = "bg-card border-border rounded-xl border p-1.5 shadow-lg";
 
 /* v1.164.1 — PWA bottom chrome has one measurement now.
 

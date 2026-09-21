@@ -28,7 +28,7 @@ approval evidence tied to a document revision and verified signer.
 
 ## Stack
 
-Next.js 15 static export · React 19 · TypeScript · Tailwind CSS v4 · Framer Motion · Lucide · React Hook Form · Zod. A separate Cloudflare Worker provides the API with D1 and R2 storage.
+Next.js 16 static export (Turbopack) · React 19 · TypeScript · Tailwind CSS v4 · Framer Motion · Lucide · React Hook Form · Zod. A separate Cloudflare Worker provides the API with D1 and R2 storage.
 
 ## Getting started
 

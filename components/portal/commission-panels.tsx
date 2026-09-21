@@ -1,10 +1,14 @@
 "use client";
 
-/* v1.18.0 — Commission + Ads Fund (programme phase 6).
+/* v1.18.0 — Commission (programme phase 6).
  * Commission amounts are computed SERVER-SIDE from the rate table — the form
  * here sends host + period + basis and shows what came back; a typo in a
- * form can never overpay a host. Ads Fund claims are budget-checked
- * server-side against the allocation the same way.
+ * form can never overpay a host.
+ *
+ * v1.172.0 — Ads Fund, which lived in the second half of this file, is
+ * retired: no tab, no panel, no role default, no icon, no strings. The
+ * worker's /erp/adsfund routes and the ads_fund tables stay, dormant -
+ * nothing calls them, nothing is dropped.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -16,7 +20,7 @@ import { Skel, SkelTable } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, card, chipDanger, chipNeutral, chipSuccess, chipWarn, fieldLabel, fieldRow, inputClass, rowHead } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipNeutral, chipSuccess, chipWarn, fieldLabel, fieldRow, inputClass, rowHead } from "@/lib/ui-styles";
 
 const api = makeApi("/staff/erp");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -143,9 +147,22 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
           the table below. */}
       {!loaded ? <SkelTable rows={5} cols={5} /> : (
       <DataTable
+        id="commission"
         rows={entries}
         searchText={(e) => `${e.host_name} ${e.period} ${e.note}`}
         defaultSort="id"
+        /* v1.172.0 - quick filters over the loaded entries (status, host),
+           and a CSV of exactly the rows on screen. Approving and paying stay
+           one row at a time, in the row: money moves singly, on purpose. */
+        filters={[
+          { key: "status", label: "Status", options: [{ value: "pending", label: L("pending", statusMs.pending ?? "pending") }, { value: "approved", label: L("approved", statusMs.approved ?? "approved") }, { value: "paid", label: L("paid", statusMs.paid ?? "paid") }], test: (e, v) => e.status === v },
+          { key: "host", label: L("Host", "Hos"), options: hosts.map((h) => ({ value: String(h.id), label: h.name })), test: (e, v) => String(e.host_id) === v },
+        ]}
+        csvExport={{
+          name: "commission",
+          headers: [L("Period", "Tempoh"), L("Host", "Hos"), L("Basis (RM)", "Asas (RM)"), L("Commission (RM)", "Komisen (RM)"), "Status", L("Note", "Nota")],
+          row: (e) => [e.period, e.host_name, (e.basis_cents / 100).toFixed(2), (e.amount_cents / 100).toFixed(2), e.status, e.note],
+        }}
         columns={[
           { key: "period", label: L("Period", "Tempoh"), render: (e) => <span className="tabular-nums">{ym(e.period)}</span> },
           { key: "host_name", label: L("Host", "Hos") },
@@ -214,141 +231,6 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
           )}
         </div>
       )}
-
-    </div>
-  );
-}
-
-/* ============================ Ads Fund ============================ */
-
-interface Allocation {
-  id: number; period: string; channel: string; amount_cents: number; notes: string;
-  approved_cents: number; pending_cents: number;
-}
-interface Claim {
-  id: number; allocation_id: number; amount_cents: number; description: string;
-  status: "pending" | "approved" | "rejected"; claimant: string;
-}
-
-export function AdsFundPanel({ canManage }: { canManage: boolean }) {
-  const { show: showToast, node: toastNode } = useSaveToast();
-  const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [claims, setClaims] = useState<Claim[]>([]);
-  const [pending, setPending] = useState(false);
-  const [allocDraft, setAllocDraft] = useState({ period: MYT_MONTH(), channel: "tiktok", amount: "", notes: "" });
-  const [claimDraft, setClaimDraft] = useState({ allocation_id: "", amount: "", description: "" });
-  /* v1.77.0 — true once the first load settles (ok or not); until then the
-     KPI strip and the table are skeletons, never "RM 0.00" and "No spend". */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    const r = await api<{ allocations: Allocation[]; claims: Claim[]; pending_migration?: boolean }>(`/adsfund`);
-    setAllocations(r.data?.allocations ?? []);
-    setClaims(r.data?.claims ?? []);
-    setPending(r.data?.pending_migration === true);
-    setLoaded(true);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const allocated = allocations.reduce((a, x) => a + x.amount_cents, 0);
-  const approved = allocations.reduce((a, x) => a + x.approved_cents, 0);
-
-  const addAllocation = async () => {
-    const r = await api(`/adsfund`, {
-      method: "POST",
-      body: JSON.stringify({ period: allocDraft.period, channel: allocDraft.channel, amount: allocDraft.amount ? Number(allocDraft.amount) : undefined, notes: allocDraft.notes }),
-    });
-    if (r.ok) { setAllocDraft((d) => ({ ...d, amount: "", notes: "" })); showToast(L("Saved", "Disimpan"), L("Allocation created", "Peruntukan dibuat")); void load(); }
-    else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
-  };
-
-  /* v1.20.0 C4: spend RECORD, not a claim — managers book spend directly
-     (born approved, budget cap enforced server-side). Staff who paid from
-     their own pocket use the Claims tab, the one reimbursement workflow. */
-  const addSpend = async () => {
-    const r = await api(`/adsfund/${claimDraft.allocation_id}/claims`, {
-      method: "POST",
-      body: JSON.stringify({ amount: claimDraft.amount ? Number(claimDraft.amount) : undefined, description: claimDraft.description }),
-    });
-    if (r.ok) { setClaimDraft({ allocation_id: "", amount: "", description: "" }); showToast(L("Saved", "Disimpan"), L("Spend recorded against the allocation", "Perbelanjaan direkodkan terhadap peruntukan")); void load(); }
-    else showToast(L("No changes", "Tiada perubahan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
-  };
-
-  return (
-    <div className={card}>
-      {toastNode}
-      {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
-      <p className="text-sm font-semibold">{L("Ads Fund", "Dana Iklan")}</p>
-
-      <div className="mt-3">
-        {/* v1.77.0 — skeleton until the first fetch lands. */}
-        {!loaded ? <SkelTileStrip /> : (
-          <StatStrip>
-            <StatTile tone="brand" label={L("Allocated", "Diperuntukkan")} value={fmtRM(allocated)} icon="◎" />
-            <StatTile tone="success" label={L("Approved spend", "Perbelanjaan diluluskan")} value={fmtRM(approved)} icon="✓" />
-            <StatTile tone="gold" label={L("Remaining", "Baki")} value={fmtRM(allocated - approved)} icon="~" />
-            <StatTile tone="muted" label={L("Spend entries", "Catatan perbelanjaan")} value={claims.length} icon="≡" />
-          </StatStrip>
-        )}
-      </div>
-
-      {/* v1.77.0 — skeleton until the first fetch lands: four columns, like
-          the table below. */}
-      {!loaded ? <SkelTable rows={5} cols={4} /> : (
-      <DataTable
-        rows={claims}
-        searchText={(c) => `${c.claimant} ${c.description}`}
-        defaultSort="id"
-        columns={[
-          { key: "claimant", label: L("By", "Oleh") },
-          { key: "description", label: L("Spent on", "Dibelanjakan untuk") },
-          { key: "amount_cents", label: L("Amount", "Amaun"), numeric: true, sortValue: (c) => c.amount_cents, render: (c) => fmtRM(c.amount_cents) },
-          {
-            key: "status", label: "Status", sortable: false,
-            // Legacy pending/rejected rows (pre-v1.20.0) still display; new
-            // entries are born approved.
-            render: (c) => <span className={c.status === "approved" ? chipSuccess : c.status === "rejected" ? chipDanger : chipWarn}>{L(c.status, statusMs[c.status] ?? c.status)}</span>,
-          },
-        ]}
-        empty={L("No spend recorded yet — allocate a budget, then record spend against it.", "Tiada perbelanjaan direkodkan lagi — peruntukkan bajet, kemudian rekod perbelanjaan terhadapnya.")}
-      />
-      )}
-
-      {canManage && (
-        <div className={`${fieldRow} mb-3`}>
-          <label><span className={fieldLabel}>{L("Period", "Tempoh")}</span>
-            <input type="month" className={inputClass} value={allocDraft.period} onChange={(e) => setAllocDraft((d) => ({ ...d, period: e.target.value }))} /></label>
-          <label><span className={fieldLabel}>{L("Channel", "Saluran")}</span>
-            <select className={inputClass} value={allocDraft.channel} onChange={(e) => setAllocDraft((d) => ({ ...d, channel: e.target.value }))}>
-              {["tiktok", "shopee", "lazada", "direct"].map((c) => <option key={c} value={c}>{c}</option>)}
-            </select></label>
-          <label><span className={fieldLabel}>{L("Budget (RM)", "Bajet (RM)")}</span>
-            <input type="number" min="0.01" step="0.01" className={inputClass} value={allocDraft.amount} onChange={(e) => setAllocDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-          <button type="button" className={btnClass} disabled={!allocDraft.amount} onClick={() => void addAllocation()}>{L("+ Allocate", "+ Peruntukkan")}</button>
-        </div>
-      )}
-
-      {canManage && (
-      <div className={`${fieldRow} mb-4`}>
-        <label><span className={fieldLabel}>{L("Spend against", "Belanja terhadap")}</span>
-          <select className={inputClass} value={claimDraft.allocation_id} onChange={(e) => setClaimDraft((d) => ({ ...d, allocation_id: e.target.value }))}>
-            <option value="">—</option>
-            {allocations.map((a) => (
-              <option key={a.id} value={a.id}>{ym(a.period)} · {a.channel} · {fmtRM(a.amount_cents - a.approved_cents - a.pending_cents)} {L("left", "baki")}</option>
-            ))}
-          </select></label>
-        <label><span className={fieldLabel}>{L("Amount (RM)", "Amaun (RM)")}</span>
-          <input type="number" min="0.01" step="0.01" className={inputClass} value={claimDraft.amount} onChange={(e) => setClaimDraft((d) => ({ ...d, amount: e.target.value }))} /></label>
-        <label className="col-span-2 min-w-40 flex-1 sm:col-span-1"><span className={fieldLabel}>{L("Spent on", "Dibelanjakan untuk")}</span>
-          <input className={inputClass} placeholder={L("TikTok ads top-up 12–14 Aug", "Tambah nilai iklan TikTok 12–14 Ogos")} value={claimDraft.description} onChange={(e) => setClaimDraft((d) => ({ ...d, description: e.target.value }))} /></label>
-        <button type="button" className={btnClass} disabled={!claimDraft.allocation_id || !claimDraft.amount || !claimDraft.description} onClick={() => void addSpend()}>
-          {L("Record spend", "Rekod perbelanjaan")}
-        </button>
-      </div>
-      )}
-      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">
-        {L("Paid for ads out of pocket? Submit it on the", "Bayar iklan dari poket sendiri? Hantarkannya pada tab")} <b>{L("Claims", "Tuntutan")}</b> {L("tab (receipt + approval chain) — this card is the budget book, not a reimbursement queue.", "(resit + rantaian kelulusan) — kad ini ialah buku bajet, bukan barisan bayaran balik.")}
-      </p>
 
     </div>
   );

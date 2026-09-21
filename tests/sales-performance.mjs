@@ -236,7 +236,11 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   const page = read("app/portal/page.tsx");
   const panel = read("components/portal/sales-performance-panel.tsx");
   const allTabs = [...(tabs.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  ok("ALL_TABS carries Sales Performance, behind the Sales pair, sixth (the phone thumb row is untouched)", allTabs.indexOf("Sales Performance") === 5 && allTabs[3] === "Sales" && allTabs[4] === "Enquiries");
+  /* v1.172.0 - fifth, not sixth: Inventory moved behind Hankei's so the
+     Portal UI V2 sidebar can cut ALL_TABS into SALES and OPERATIONS without
+     resequencing it (tests/registry-parity.mjs). Still directly behind the
+     Sales pair; the phone thumb row is still untouched. */
+  ok("ALL_TABS carries Sales Performance, behind the Sales pair, fifth (the phone thumb row is untouched)", allTabs.indexOf("Sales Performance") === 4 && allTabs[2] === "Sales" && allTabs[3] === "Enquiries");
   const roles = [...(tabs.match(/"Sales Performance": \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
   const view = [...(perms.match(/sales_perf_view: \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
   ok("TAB_ROLES mirrors sales_perf_view exactly", JSON.stringify(roles) === JSON.stringify(view), `${roles} vs ${view}`);

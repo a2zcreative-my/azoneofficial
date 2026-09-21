@@ -58,7 +58,7 @@ Cloudflare dashboard → **Workers & Pages** → **azoneofficial** → **Setting
 | Deploy command                           | `npx wrangler deploy`       |
 | Build previews / non-production branches | **ON**                      |
 
-`npm run ci` is typecheck → the full guard suite (13 at v1.40.1 — run-guards.mjs is the authoritative list) → build. If any guard fails the build
+`npm run ci` is typecheck → ESLint (v1.172.0: `next build` on Next.js 16 no longer lints, so `npm run lint` is its own step) → the full guard suite (13 at v1.40.1 — run-guards.mjs is the authoritative list) → build. If any guard fails the build
 stops with a non-zero exit code and **nothing is published** — the live site
 keeps running the previous version.
 

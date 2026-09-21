@@ -34,7 +34,7 @@ async function main() {
         if (p === '/staff/revenue') data = { month: '2026-09', last_month: '2026-08', tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 } };
         if (p === '/auth/me') data = { user: { id: 9001, name: 'Nur Aisyah Operations', role: process.env.REVIEW_ROLE || 'hr_admin', email: 'fixture@example.test', status: 'active' } };
         if (p === '/staff/tabs/access') data = { overrides: {}, mine: { allow: ['Inventory', 'Sales', 'Ecommerce', 'Attendance', 'Users'], deny: [] } };
-        if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tabs/access') data.mine.allow.push('Assets', 'Hotels', 'HR', 'Tasks', 'Announcements', 'Leave', 'Claims', 'Payroll', 'Finance', 'Reconciliation', 'Commission', 'Ads Fund', 'Purchasing', 'Accounting', 'Sales Performance');
+        if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tabs/access') data.mine.allow.push('Assets', 'Hotels', 'HR', 'Tasks', 'Announcements', 'Leave', 'Claims', 'Payroll', 'Finance', 'Commission', 'Accounting', 'Sales Performance');
         if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/sales-performance/overview') Object.assign(data, { me: 9001, can_manage: true, today: '2026-09-16', days: 1, tiktok_orders: [], range: { from: '2026-09-16', to: '2026-09-16', label: 'today' } });
         if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tasks') data = { tasks: [
           { id: 41, title: 'ROLLOUT active task', description: 'Check supporting documents', priority: 'normal', status: 'open', assigned_to: 9001, created_by: 9001 },
@@ -85,7 +85,7 @@ async function main() {
       assert(dashboard.mainWidth >= (width < 768 ? width - 20 : 480), 'Main content too narrow');
       if (width < 768) assert(dashboard.primaryTargets.every(b => b.height >= 44), 'Header touch targets too small');
       await page.screenshot({ path: path.join(output, `dashboard-${width}.png`) });
-      assert((await page.getByText('Check inventory delivery and verify the supporting documents', { exact: true }).boundingBox()).y < (await page.getByText(/^(My summary|Ringkasan saya)$/).boundingBox()).y, 'Queue must precede personal metrics');
+      assert((await page.getByText('Check inventory delivery and verify the supporting documents', { exact: true }).boundingBox()).y < (await page.getByText(/^(My month|Bulan saya)$/).boundingBox()).y, 'Queue must precede personal metrics');
       if (width < 768) {
         await page.getByRole('button', { name: /^(More|Lagi)$/ }).click();
         await page.getByRole('dialog', { name: /^(More|Lagi)$/ }).waitFor();
@@ -156,7 +156,7 @@ async function main() {
           assert.equal(errors.length, 0, errors.join('\n'));
         }
         if (process.env.REVIEW_ROLLOUT === '1') {
-          for (const [en, ms] of [['Assets', 'Aset'], ['Hotels', 'Hotel'], ['HR', 'HR'], ['Tasks', 'Tugasan'], ['Announcements', 'Pengumuman'], ['Leave', 'Cuti'], ['Claims', 'Tuntutan'], ['Payroll', 'Gaji'], ['Finance', 'Kewangan'], ['Reconciliation', 'Penyelarasan'], ['Commission', 'Komisen'], ['Ads Fund', 'Dana Iklan'], ['Purchasing', 'Pembelian'], ['Accounting', 'Perakaunan'], ['Sales Performance', 'Prestasi Jualan']]) {
+          for (const [en, ms] of [['Assets', 'Aset'], ['Hotels', 'Hotel'], ['HR', 'HR'], ['Tasks', 'Tugasan'], ['Announcements', 'Pengumuman'], ['Leave', 'Cuti'], ['Claims', 'Tuntutan'], ['Payroll', 'Gaji'], ['Finance', 'Kewangan'], ['Commission', 'Komisen'], ['Accounting', 'Perakaunan'], ['Sales Performance', 'Prestasi Jualan']]) {
             console.log(`Reviewing ${en} at ${width}`);
             await navigate(en, ms);
             if (en === 'Assets') {
@@ -203,11 +203,6 @@ async function main() {
               await before(page.locator('table').first(), page.getByRole('button', { name: /^(Save all|Simpan semua)$/ }));
               await page.getByRole('button', { name: /^(Base salaries|Gaji asas)$/ }).click();
               await page.locator('#payroll-base').waitFor();
-            }
-            if (en === 'Purchasing') {
-              await before(page.getByText(/No purchase orders yet|Tiada pesanan pembelian lagi/), page.getByText(/^(New purchase order|Pesanan pembelian baharu)$/));
-              await page.getByRole('button', { name: /^(Suppliers|Pembekal) \(/ }).click();
-              await page.locator('#purchasing-suppliers').waitFor();
             }
             if (en === 'Accounting') await before(page.getByText(/^(Trial balance|Imbangan duga)$/), page.getByText(/^(New journal entry|Catatan jurnal baharu)$/));
             if (en === 'Commission') {

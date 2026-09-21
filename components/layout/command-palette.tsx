@@ -12,18 +12,56 @@
    contact, the client and the order it belongs to; the worker strips both
    sides to digits so "017-476 1019" finds "0174761019". The directory
    preload (staff + clients, two fetches on every open) is gone: the server
-   answers in one. */
+   answers in one.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+   v1.172.0 (Portal UI V2) - RECENTS, ICONS, KEYS. With nothing typed the
+   palette opens on the tabs this person opened from it most recently (a
+   device-local list, filtered against the tabs they may see RIGHT NOW, so a
+   revoked tab is not offered back), then every destination; each row wears
+   its tab's icon; the results are a real listbox for a screen reader; the
+   footer names the keys. The search contract above is unchanged. */
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { makeApi } from "@/lib/api";
+import { TabIcon } from "@/components/layout/nav-icons";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
+
+/** Device-local list of the tab names most recently opened from here. Read
+    through useSyncExternalStore - localStorage is an external store, so the
+    component neither reads it during render nor copies it into state. */
+const RECENTS_KEY = "azone-palette-recents";
+const RECENTS_MAX = 5;
+const recentListeners = new Set<() => void>();
+const parseRecents = (raw: string): string[] => {
+  try {
+    const arr: unknown = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string").slice(0, RECENTS_MAX) : [];
+  } catch { return []; }
+};
+function recentsSnapshot(): string {
+  try { return localStorage.getItem(RECENTS_KEY) ?? "[]"; } catch { return "[]"; }
+}
+function subscribeRecents(cb: () => void): () => void {
+  recentListeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => { recentListeners.delete(cb); window.removeEventListener("storage", cb); };
+}
+function pushRecent(tab: string): void {
+  try {
+    const next = [tab, ...parseRecents(recentsSnapshot()).filter((t) => t !== tab)].slice(0, RECENTS_MAX);
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch { /* a convenience, not state */ }
+  recentListeners.forEach((cb) => cb());
+}
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /* Display-only BM group headers. The group strings themselves stay English —
    GROUP_ORDER and the lastGroup comparison key off them. */
 const GROUP_MS: Record<string, string> = {
+  Recent: "Terkini",
   "Go to": "Pergi ke",
   Actions: "Tindakan",
   Staff: "Kakitangan",
@@ -52,7 +90,7 @@ export interface PaletteAction {
   run: () => void;
 }
 
-interface Row extends PaletteAction { group: string }
+interface Row extends PaletteAction { group: string; icon?: string }
 
 function score(q: string, s: string): number {
   const t = s.toLowerCase();
@@ -79,6 +117,10 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const reduceMotion = useReducedMotion();
+  const recentsRaw = useSyncExternalStore(subscribeRecents, recentsSnapshot, () => "[]");
+  const recents = useMemo(() => parseRecents(recentsRaw), [recentsRaw]);
   /* v1.107.0 - the server's answer for the query as typed. `hits` is for
      `hitsFor`; a stale answer for an earlier query is never shown as the
      answer to a later one. `searching` is true from the first keystroke of a
@@ -112,11 +154,21 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
 
   const rows: Row[] = [];
   const query = q.trim();
-  const push = (group: string, label: string, run: () => void, hint?: string) => {
+  const push = (group: string, label: string, run: () => void, hint?: string, icon?: string) => {
     if (query && score(query, label) === 0) return;
-    rows.push({ group, label, hint, run });
+    rows.push({ group, label, hint, run, icon });
   };
-  for (const t of tabs) push("Go to", t.label, () => { onTab(t.name); onClose(); });
+  const goTo = (name: string) => { pushRecent(name); onTab(name); onClose(); };
+  /* Recents lead only while nothing is typed; a query ranks on merit. Each is
+     resolved against `tabs` - the permission-filtered strip - so a tab this
+     person can no longer see is silently dropped, never offered. */
+  if (!query) {
+    for (const name of recents) {
+      const t = tabs.find((x) => x.name === name);
+      if (t) push("Recent", t.label, () => goTo(t.name), undefined, t.name);
+    }
+  }
+  for (const t of tabs) push("Go to", t.label, () => goTo(t.name), undefined, t.name);
   for (const a of extraActions) {
     if (!query || score(query, a.label) > 0) rows.push({ group: "Actions", ...a });
   }
@@ -124,10 +176,10 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
      against the label (a phone-number hit has no digits in its title). */
   if (query && hitsFor === query) {
     for (const h of hits) {
-      rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, run: () => { onTab(h.tab); onClose(); } });
+      rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, icon: h.tab, run: () => goTo(h.tab) });
     }
   }
-  const GROUP_ORDER = ["Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
+  const GROUP_ORDER = ["Recent", "Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
   const ranked = (query
     ? rows.sort((a, b) => {
         const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
@@ -142,38 +194,55 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
     if (e.key === "Escape") { onClose(); return; }
     if (e.key === "ArrowDown") { e.preventDefault(); setSel((v) => Math.min(v + 1, ranked.length - 1)); }
     if (e.key === "ArrowUp") { e.preventDefault(); setSel((v) => Math.max(v - 1, 0)); }
+    if (e.key === "Home") { e.preventDefault(); setSel(0); }
+    if (e.key === "End") { e.preventDefault(); setSel(Math.max(0, ranked.length - 1)); }
     if (e.key === "Enter" && ranked[clampedSel]) { ranked[clampedSel].run(); }
   }, [ranked, clampedSel, onClose]);
+  /* The highlighted row follows the keyboard into view. */
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${clampedSel}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [clampedSel]);
 
   if (!open) return null;
   let lastGroup = "";
+  const optionId = (i: number) => `palette-option-${i}`;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh] backdrop-blur-[2px]" onClick={onClose}>
-      <div className="bg-card border-border w-full max-w-lg rounded-2xl border shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh] backdrop-blur-[2px]" onClick={onClose} role="presentation">
+      <motion.div
+        role="dialog" aria-modal="true" aria-label={L("Search everything", "Cari semua")}
+        initial={reduceMotion ? false : { opacity: 0, y: -8, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: "easeOut" }}
+        className="bg-card border-border w-full max-w-lg rounded-2xl border shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
+          role="combobox" aria-expanded aria-controls="palette-listbox" aria-autocomplete="list"
+          aria-activedescendant={ranked[clampedSel] ? optionId(clampedSel) : undefined}
           className="text-foreground placeholder:text-muted-foreground w-full rounded-t-2xl border-b border-border bg-transparent px-4 py-3 text-sm outline-none"
           placeholder={L("Search anything — a name, a hotel, a phone number, an order…  (Esc to close)", "Cari apa sahaja — nama, hotel, nombor telefon, pesanan…  (Esc untuk tutup)")}
           value={q}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}
           onKeyDown={onKey}
         />
-        <div className="max-h-72 overflow-y-auto p-1.5">
+        <div ref={listRef} id="palette-listbox" role="listbox" aria-label={L("Results", "Hasil")} className="max-h-72 overflow-y-auto p-1.5">
           {ranked.length === 0 && (dirLoaded || !query || query.length < 2) && <p className="text-muted-foreground px-3 py-4 text-sm">{L("No matches.", "Tiada padanan.")}</p>}
           {ranked.map((r, i) => {
             const header = r.group !== lastGroup ? r.group : null;
             lastGroup = r.group;
             return (
-              <div key={`${r.group}-${r.label}-${i}`}>
-                {header && <p className="text-muted-foreground px-3 pt-2 pb-0.5 text-[10px] font-semibold tracking-wider uppercase">{L(header, GROUP_MS[header] ?? header)}</p>}
+              <div key={`${r.group}-${r.label}-${i}`} role="presentation">
+                {header && <p role="presentation" className="text-muted-foreground px-3 pt-2 pb-0.5 text-[10px] font-semibold tracking-wider uppercase">{L(header, GROUP_MS[header] ?? header)}</p>}
                 <button
                   type="button"
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm ${i === clampedSel ? "bg-secondary" : "hover:bg-secondary/60"}`}
+                  id={optionId(i)} data-index={i}
+                  role="option" aria-selected={i === clampedSel}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${i === clampedSel ? "bg-secondary" : "hover:bg-secondary/60"}`}
                   onMouseEnter={() => setSel(i)}
                   onClick={() => r.run()}
                 >
-                  <span className="truncate">{r.label}</span>
-                  {r.hint && <span className="text-muted-foreground ml-2 max-w-[55%] shrink-0 truncate text-xs">{r.hint}</span>}
+                  {r.icon && <span aria-hidden className="text-muted-foreground grid w-5 shrink-0 place-items-center"><TabIcon name={r.icon} className="h-4 w-4" /></span>}
+                  <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                  {r.hint && <span className="text-muted-foreground max-w-[50%] shrink-0 truncate text-xs">{r.hint}</span>}
                 </button>
               </div>
             );
@@ -193,7 +262,14 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
             </div>
           )}
         </div>
-      </div>
+        {/* v1.172.0 - the keys, named. Decorative kbd caps; the behaviour is in onKey. */}
+        <div className="text-muted-foreground border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-2 text-[11px]" aria-hidden>
+          <span><kbd className="bg-secondary rounded px-1 font-sans">↑</kbd> <kbd className="bg-secondary rounded px-1 font-sans">↓</kbd> {L("move", "gerak")}</span>
+          <span><kbd className="bg-secondary rounded px-1 font-sans">↵</kbd> {L("open", "buka")}</span>
+          <span><kbd className="bg-secondary rounded px-1 font-sans">esc</kbd> {L("close", "tutup")}</span>
+          <span className="ml-auto"><kbd className="bg-secondary rounded px-1 font-sans">Ctrl</kbd> <kbd className="bg-secondary rounded px-1 font-sans">K</kbd></span>
+        </div>
+      </motion.div>
     </div>
   );
 }

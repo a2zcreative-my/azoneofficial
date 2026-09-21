@@ -1,10 +1,10 @@
 # Project State and Handoff
 
-**Last reviewed:** 20 September 2026  
+**Last reviewed:** 21 September 2026  
 **Workspace:** `a2zcreative-official`  
 **Production:** `a2zcreative.my` — the owner's phone showed `v1.169.0` in the More sheet on 20 September 2026 (commit `8580913`, "portal deploy", pushed 20:31 MYT). Not re-verified with a health check by the v1.170.0 author.
-**Local package metadata:** `1.171.0`
-**Release status:** `v1.170.0` was released by the owner on 20 September 2026 (`PUSH.bat allow-dirty`, commit `ed417d0`, pushed 22:52 MYT). Local `v1.171.0` passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it.
+**Local package metadata:** `1.172.0`
+**Release status:** `v1.171.0` was committed by the owner on 21 September 2026 (commit `ad066a5`, "portal deploy", 00:53 MYT). Local `v1.172.0` passed every offline gate (below) and is **not deployed**. `PUSH.bat` has not been run for it. **It carries a framework major (Next.js 16) and a dependency-lock change**: the office PC must `pnpm install` before anything else (`PUSH.bat` does this in step 3).
 
 ## Read First
 
@@ -12,7 +12,29 @@ This is the current coordination record for Claude, Codex, and any other contrib
 
 **A stash exists** (`refs/stash`, 19:27 MYT on 20 September, "reset: moving to HEAD" in the reflog beside it). It is another contributor's parked work. v1.170.0 did not touch, apply or drop it.
 
-## Current Local Work — v1.171.0
+## Current Local Work — v1.172.0
+
+One brief from the owner on 21 September, three objectives, executed as controlled migrations in order and recorded in full in `CHANGELOG.md` under 1.172.0. Baseline first: v1.171.0 at `ad066a5` was proven green on every offline gate (portal + worker `tsc`, 91 guards, ESLint, `next build` + export) before a line changed.
+
+**1. Reconciliation, Ads Fund and Purchasing retired** (not parked). Frontend code removed; `components/portal/purchasing-panels.tsx` deleted and its Accounting half moved to `components/portal/accounting-panel.tsx`; `PUSH.bat [3c/7]` deletes the old file on release. **Worker routes, permissions, tables and migrations for the three are untouched and dormant** - nothing in the portal calls them; removing them is a separate decision for the owner. The Companies review still lists purchase orders and reconciliations as reviewable history, with no register link. The REMOVE / KEEP-DORMANT / SHARED table is in the changelog.
+
+**2. Next.js 15.5.21 → 16.3.5** (registry `latest`, verified). Coupled dependencies only: `react`/`react-dom`/`@types/*` 19.3.0, `eslint-config-next` 16.3.5; `eslint` stays on 9 (the codemod's jump to 10 was reverted - not required); `@eslint/eslintrc` and the deprecated, unused `@cloudflare/next-on-pages` removed. Lockfile regenerated with pnpm 9.15.0; frozen install passes. Migration edits: `favicon.ico` re-encoded RGBA for Turbopack's decoder (same pixels); `lint` script → ESLint CLI over `app components lib hooks constants types`; **`npm run ci` and `PUSH.bat [8/8]` now run `lint` explicitly** because `next build` no longer does; flat config imports the `eslint-config-next@16` presets directly; the five new React-Compiler rules from `eslint-plugin-react-hooks@7` report as **warnings** (documented in `eslint.config.mjs` - not disabled, and every pre-upgrade rule keeps its severity); `tsconfig.json` `jsx: react-jsx` + `.next/dev/types`; `next.config.ts` `agentRules: false` so `next dev` can never write into `CLAUDE.md`; `<html data-scroll-behavior="smooth">` to keep instant scroll-to-top on navigation. Static export, Cloudflare Workers assets, the API worker, D1, R2, wrangler and secrets: unchanged. `wrangler deploy --dry-run` reads the new export (312 files).
+
+**3. Portal UI V2**, evolved on the existing system - nothing installed. Sidebar cut into Overview / Sales / Operations / ELFIA / People / Finance / Account / System (one registry move: Inventory behind Hankei's; `sales-performance` guard updated to fifth), remembered collapse, floating labels on the icon rail, Up/Down/Home/End; the phone More sheet shares the same groups and BM labels. Command palette: Recent (device-local, permission-filtered), icons, real listbox semantics, key hints, reduced-motion-aware entrance. `DataTable` v2: quick filters + active chips + Clear all, selection + contextual action bar (only caller-supplied actions), CSV of selected/visible rows, keyboard rows, density and column visibility remembered per `id`, row actions. New `SideDrawer`. Web Orders adopts the table and the drawer (actions verbatim); Cash Flow and Commission gain filters and CSV. New vocabulary word `menuCard`.
+
+Verification for `v1.172.0` (all offline, in a Linux sandbox):
+
+- portal `tsc --noEmit`: clean; worker `tsc --noEmit`: clean.
+- `node scripts/run-guards.mjs`: **all 91 guards passed** (updated: `tab-zones`, `clickable-data`, `app-icons`, `sales-performance`).
+- ESLint (`pnpm lint`): 0 errors, 147 warnings - 24 pre-existing + 123 from the five new compiler rules, listed by file in the session; none introduced by the V2 code (the palette's recents use `useSyncExternalStore`, not an effect).
+- `next build` on 16.3.5 (Turbopack): compiled, type-checked, exported 31 routes; `tsconfig.json` untouched by the build; `pnpm install --frozen-lockfile` clean.
+- Chromium against fixtures at 375 / 390 / 430 / 768 / 1024 / 1280 / 1440 px, light and dark: public pages, 404, portal shell, eight tabs, the new sidebar, tooltip and keyboard, palette Recent, Web Orders table + drawer + CSV download, density/columns persistence, Finance quick filters. No overflow, no page errors, no retired tab reachable.
+- Line endings: every edited file keeps the exact original ending on every untouched line (`package.json`, `CHANGELOG.md`, this file, `app/portal/page.tsx` CRLF; the rest LF; `PUSH.bat` as found).
+- Not verified here: a real `next dev` session on Windows (the sandbox only builds), Cloudflare Workers Builds on Node 22 with the new lockfile (expected clean: same `npm run ci`, plus `lint`), the four browser-only guards (still unverified since v1.168.0 - see v1.170.0).
+
+**For the owner before `PUSH.bat`:** (a) `pnpm install` will change `node_modules` substantially - run it once and open `pnpm dev` to see the portal on 16 locally; (b) glance at the sidebar groups and the Web Orders drawer on the phone; (c) the worktree will be dirty until committed - commit first or `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.172.0: not yet given.**
+
+## Previous Local Work — v1.171.0
 
 Two sittings on 20 September, both from the owner's own screens.
 
@@ -70,9 +92,13 @@ Verification for `v1.170.0` (all offline, in a Linux sandbox):
 - Adopting `EmptyState` and the table contract across the other panels — one by one, as the button contract was.
 - The streak counts within the current month only; a cross-month streak would need a second month of verdicts.
 
-## Release Decision — v1.171.0
+## Release Decision — v1.172.0
 
-No database migration. No permission change. The attribution change is the one to watch in production: open Sales Performance for a past week and confirm the credit now sits with the person who was rostered or hosting. `PUSH.bat` will run typecheck, the 90 guards and the build again on the office PC. The v1.171.0 files are in the worktree without a commit, so a plain `PUSH.bat` will refuse; either commit them first or run `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.171.0: not yet given.**
+No database migration. No permission-matrix change (three tab names left the worker whitelist; the `*_manage` permissions behind their dormant routes are untouched). What to watch in production after `PUSH.bat`: the More sheet shows `v1.172.0`; every tab still opens; Web Orders opens an order in the drawer and "Mark shipped" still reaches the store; Cash Flow's "auto" rows are intact. Rollback is `git revert` of the release commit plus `pnpm install` - the lockfile is part of the change. The v1.172.0 files are in the worktree without a commit, so a plain `PUSH.bat` will refuse; either commit them first or run `PUSH.bat allow-dirty` after reviewing the diff. **Dirty-tree approval for v1.172.0: not yet given.**
+
+## Release Decision — v1.171.0 (committed by the owner, `ad066a5`)
+
+No database migration. No permission change. The attribution change is the one to watch in production: open Sales Performance for a past week and confirm the credit now sits with the person who was rostered or hosting.
 
 ## Release Decision — v1.170.0 (released)
 
@@ -93,9 +119,10 @@ The previously identified server risks are resolved: non-admin settings redact t
 
 Recorded so the next contributor does not repeat it:
 
-- Stack: Next.js 15.5.21 App Router (static export) · React 19 · TypeScript 5.7 · Tailwind v4 via `@tailwindcss/postcss` with CSS-first `@theme inline` tokens and a `.dark` class variant · `lucide-react` 0.469 · `framer-motion` 12 · `cva` / `clsx` / `tailwind-merge` · hand-built `components/ui` (no shadcn) · pnpm 9.15 · Cloudflare Workers + D1 + R2.
+- Stack (updated 21 September 2026, v1.172.0): Next.js 16.3.5 App Router (static export, Turbopack) · React 19.3 · TypeScript 5.9 (`^5.7`) · ESLint 9 flat config · Tailwind v4 via `@tailwindcss/postcss` with CSS-first `@theme inline` tokens and a `.dark` class variant · `lucide-react` 0.469 · `framer-motion` 12 · `cva` / `clsx` / `tailwind-merge` · hand-built `components/ui` (no shadcn) · pnpm 9.15 · Cloudflare Workers + D1 + R2.
 - Already present and not to be duplicated: semantic tokens (`--background … --ring`, `--success/--warning/--danger/--info` and `-soft`, validated tile and chart tokens), the `.erp-button` / `.erp-icon-button` contract, `.skel` shimmer, `screen-enter`, global `:focus-visible`, reduced-motion handling, the command palette (Ctrl/Cmd-K, `components/layout/command-palette.tsx`), the collapsible grouped sidebar, `DataTable`, `SaveToast`, confirm/prompt dialogs, `PermissionPlaceholder`, `app/portal/error.tsx`.
-- Decision: **nothing installed or upgraded**. The existing stack supports every item in the modernisation brief; the work is hierarchy, states and consistency, delivered as slices behind guards.
+- Decision (20 September): **nothing installed or upgraded**. The existing stack supports every item in the modernisation brief; the work is hierarchy, states and consistency, delivered as slices behind guards.
+- 21 September, v1.172.0: the framework moved to Next.js 16 on the owner's instruction (coupled dependencies only, see the changelog); the interface work (Portal UI V2) still installed nothing. `components/ui` gained `side-drawer.tsx`; `data-table.tsx` grew the opt-in filter / selection / density / columns / row-click surface; `lib/ui-styles.ts` gained `menuCard`; `components/layout/side-nav.tsx` exports `SECTIONS`, `SECTION_LABEL_MS`, `sectionTitle`, `NAV_COLLAPSED_KEY`. Device-local preference keys: `azone-nav-collapsed`, `azone-palette-recents`, `azone-table:<id>:density`, `azone-table:<id>:hidden`.
 
 ## Collaboration Protocol
 
