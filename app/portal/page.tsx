@@ -78,6 +78,7 @@ import {
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
 import { PORTAL_WIDTH, btnClass, btnGhost, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
+import css from "./portal.module.css";
 import { dmy } from "@/lib/format";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
@@ -708,17 +709,17 @@ export default function PortalPage() {
   }
   if (!user) {
     return (
-      <div className="mx-auto mt-24 max-w-sm px-6 text-center">
-        <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">
+      <div className={css.gate}>
+        <p className={css.gateEyebrow}>
           {L(
             "A2Z CREATIVE MARKETING / Staff Portal",
             "A2Z CREATIVE MARKETING / Portal Kakitangan"
           )}
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className={css.gateTitle}>
           {L("Sign in required", "Log masuk diperlukan")}
         </h1>
-        <p className="text-muted-foreground mt-3 text-sm">
+        <p className={css.gateText}>
           {L(
             "The Staff Portal is for A2Z CREATIVE MARKETING employees only.",
             "Portal Kakitangan hanya untuk pekerja A2Z CREATIVE MARKETING."
@@ -729,7 +730,7 @@ export default function PortalPage() {
             router and reloads the whole bundle to reach a page the client
             already has. It only surfaced now because this is the first
             deploy where the WEBSITE half of the pipeline actually ran. */}
-        <Link href="/login" className={`${btnClass} mt-6`}>
+        <Link href="/login" className={`${btnClass} ${css.gateAction}`}>
           {L("Go to login", "Pergi ke log masuk")}
         </Link>
       </div>
@@ -738,22 +739,22 @@ export default function PortalPage() {
 
   if (user.requires_2fa) {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-12 md:py-24">
+      <div className={css.stepUp}>
         <div className={card}>
-          <h1 className="text-foreground mb-2 text-2xl font-semibold tracking-tight">
+          <h1 className={css.stepUpTitle}>
             {L(
               "Two-Factor Authentication Required",
               "Pengesahan Dua Faktor Diperlukan"
             )}
           </h1>
-          <p className="text-muted-foreground mb-8 text-sm">
+          <p className={css.stepUpText}>
             {L(
               "Your role requires two-factor authentication to be enabled before you can access the A2Z CREATIVE MARKETING Staff Portal. Please set it up now.",
               "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Kakitangan A2Z CREATIVE MARKETING. Sila sediakannya sekarang."
             )}
           </p>
           <TwoFactorPanel />
-          <div className="border-border mt-8 flex justify-end border-t pt-6">
+          <div className={css.stepUpFoot}>
             <button
               onClick={() => {
                 /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
@@ -766,7 +767,7 @@ export default function PortalPage() {
                   window.location.href = "/login";
                 });
               }}
-              className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+              className={css.quietLink}
             >
               {L("Sign out", "Log keluar")}
             </button>
@@ -861,7 +862,7 @@ export default function PortalPage() {
           One standard width, centred, defined once in ui-styles and used by
           every screen. 1600px is wide enough for the seven-column roster and
           the payroll tables, narrow enough that prose stays readable. */}
-      <div className={`w-full px-4 py-3 md:px-5 md:py-4 md:pb-6 ${mobileAppBottomClearance} ${PORTAL_WIDTH}`}>
+      <div className={`${css.page} ${mobileAppBottomClearance} ${PORTAL_WIDTH}`}>
         {/* v1.13.0: on desktop this row IS the shell's topbar. `md:-mx-5 md:-mt-4`
           breaks it out of <main>'s padding so it spans the full working area,
           and it stays sticky/bordered instead of dissolving into the page as
@@ -877,12 +878,13 @@ export default function PortalPage() {
             had to until phones started drawing under it. */}
         {/* v1.172.1 (Interface System V3): the header is the named
             .erp-topbar (styles/erp-v3.css) - one blur on phones, a plain bar
-            on desktop. The sticky position and the status-bar inset stay
-            written here, where tests/shell-scroll.mjs reads them: the inset
-            is ADDED to the bar's own top padding, never swapped for it. */}
-        <header className="erp-topbar sticky top-0 [--hdr-pt:0.5rem] md:[--hdr-pt:0.75rem]"
+            on desktop, sticky at the top, and (v1.172.2) the owner of its
+            own --hdr-pt. The status-bar inset stays written here, where
+            tests/shell-scroll.mjs reads it: the inset is ADDED to the bar's
+            own top padding, never swapped for it. */}
+        <header className="erp-topbar"
           style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-          <div className="flex min-w-0 flex-1 items-center gap-2 md:basis-full md:gap-3 lg:basis-auto">
+          <div className={css.identity}>
             {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
               gold-ringed, next to the welcome on desktop and the screen title
               on mobile. Falls back to the initial when no photo is set. */}
@@ -890,57 +892,57 @@ export default function PortalPage() {
               <img
                 src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`}
                 alt=""
-                className="ring-gold h-9 w-9 shrink-0 rounded-full object-cover ring-2 md:h-11 md:w-11"
+                className={css.avatar}
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
             ) : (
-              <span className="bg-primary text-primary-foreground ring-gold flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2 md:h-11 md:w-11">
+              <span className={`${css.avatar} ${css.avatarInitial}`}>
                 {user.name.trim().charAt(0).toUpperCase()}
               </span>
             )}
-            <div className="min-w-0">
-              <p className="erp-topbar-eyebrow hidden md:block">
+            <div className="erp-min0">
+              <p className="erp-topbar-eyebrow erp-desktop-only">
                 {tr("Staff Portal short", lang)}
               </p>
               {/* Tablet tools use a second row so translated titles remain readable. */}
-              <h1 className="erp-topbar-title hidden md:block">
+              <h1 className="erp-topbar-title erp-desktop-only">
                 {tr(activeTab, lang)}
               </h1>
               {/* On phones the header reads like an app screen title.
                 v1.10.0: the Dashboard says "Today" (the reference design's
                 home title); every other tab keeps its own name. */}
-              <h1 className="erp-topbar-title md:hidden">
+              <h1 className="erp-topbar-title erp-phone-only">
                 {activeTab === "Dashboard"
                   ? tr("Today", lang)
                   : tr(activeTab, lang)}
               </h1>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 md:w-full md:min-w-0 md:shrink md:justify-end lg:w-auto">
+          <div className={css.tools}>
             {/* v1.8.0: global search — opens the palette (Ctrl/Cmd+K works anywhere) */}
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="erp-button erp-button-secondary text-muted-foreground hidden w-44 min-w-28 shrink justify-between md:inline-flex"
+              className={`erp-button erp-button-secondary ${css.searchPill}`}
               aria-label={L("Search the portal", "Cari dalam portal")}
             >
-              <span className="flex items-center gap-2">
-                <Search aria-hidden className="h-4 w-4" strokeWidth={1.75} />{" "}
+              <span className={css.searchPillInner}>
+                <Search aria-hidden className="erp-icon" strokeWidth={1.75} />{" "}
                 {tr("Search…", lang)}
               </span>
-              <kbd className="bg-secondary rounded px-1.5 py-0.5 text-[10px] font-medium">
+              <kbd className={css.kbd}>
                 Ctrl K
               </kbd>
             </button>
             <button
               type="button"
-              className={`${btnHdr} md:hidden`}
+              className={`${btnHdr} erp-phone-only`}
               onClick={() => setPaletteOpen(true)}
               aria-label={L("Search the portal", "Cari dalam portal")}
             >
-              <Search aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              <Search aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
             {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
               taps — on phones they live in the More sheet's Preferences row
@@ -978,9 +980,9 @@ export default function PortalPage() {
               }}
             >
               {sound ? (
-                <Volume2 aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                <Volume2 aria-hidden className="erp-icon" strokeWidth={1.75} />
               ) : (
-                <VolumeX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                <VolumeX aria-hidden className="erp-icon" strokeWidth={1.75} />
               )}
             </button>
             {/* v1.6.0: push alerts to this device (works even with the tab
@@ -1029,17 +1031,17 @@ export default function PortalPage() {
                 {pushState === "granted" ? (
                   <BellRing
                     aria-hidden
-                    className="h-4 w-4"
+                    className="erp-icon"
                     strokeWidth={1.75}
                   />
                 ) : (
-                  <BellOff aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                  <BellOff aria-hidden className="erp-icon" strokeWidth={1.75} />
                 )}
               </button>
             )}
             <button
               type="button"
-              className={`${btnHdr} relative`}
+              className={`${btnHdr} ${css.bellAnchor}`}
               aria-label={
                 unread > 0
                   ? L(
@@ -1057,9 +1059,9 @@ export default function PortalPage() {
                   });
               }}
             >
-              <Bell aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              <Bell aria-hidden className="erp-icon" strokeWidth={1.75} />
               {unread > 0 && (
-                <span className="erp-badge animate-pulse">
+                <span className="erp-badge erp-pulse">
                   {unread > 9 ? "9+" : unread}
                 </span>
               )}
@@ -1082,11 +1084,11 @@ export default function PortalPage() {
               aria-label={L("Switch colour theme", "Tukar tema warna")}
               onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
             >
-              <Palette aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              <Palette aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
             <button
               type="button"
-              className={`${btnHdrDesktop} text-xs font-semibold`}
+              className={`${btnHdrDesktop} ${css.langButton}`}
               title={
                 lang === "ms"
                   ? "Bahasa: BM — tukar ke English"
@@ -1108,9 +1110,9 @@ export default function PortalPage() {
               aria-label={L("Toggle dark mode", "Togol mod gelap")}
             >
               {dark ? (
-                <Sun aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                <Sun aria-hidden className="erp-icon" strokeWidth={1.75} />
               ) : (
-                <Moon aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                <Moon aria-hidden className="erp-icon" strokeWidth={1.75} />
               )}
             </button>
             {/* v1.16.0 (CEO): icon-only — the text label cost ~70px in a row
@@ -1131,32 +1133,32 @@ export default function PortalPage() {
                 })
               }
             >
-              <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+              <LogOut aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
           </div>
         </header>
 
         {showNotifs && (
-          <div className={`${card} mt-4`}>
-            <p className="text-sm font-semibold">{tr("Notifications", lang)}</p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
+          <div className={`${card} erp-mt-4`}>
+            <p className="erp-heading">{tr("Notifications", lang)}</p>
+            <p className="erp-meta erp-mt-half">
               {L(
                 "Last 7 days. Older notifications clear automatically.",
                 "7 hari terakhir. Pemberitahuan lama dipadam secara automatik."
               )}
             </p>
             {notifs.length === 0 && (
-              <p className="text-muted-foreground mt-2 text-sm">
+              <p className="erp-text-sm erp-muted erp-mt-2">
                 {L("Nothing yet.", "Tiada apa-apa lagi.")}
               </p>
             )}
-            <div className="mt-1 max-h-44 overflow-y-auto pr-1">
+            <div className={css.notifList}>
               {notifs.map((n) => (
-                <p key={n.id} className="mt-2 text-sm">
+                <p key={n.id} className={css.notifItem}>
                   {n.kind === "announcement" || n.kind === "enquiry" ? (
                     <button
                       type="button"
-                      className="text-left underline-offset-2 hover:underline"
+                      className={css.notifLink}
                       onClick={() => setTab(n.kind === "enquiry" ? "Enquiries" : "Announcements")}
                     >
                       {n.message}
@@ -1164,7 +1166,7 @@ export default function PortalPage() {
                   ) : (
                     n.message
                   )}{" "}
-                  <span className="text-muted-foreground text-xs">
+                  <span className="erp-meta">
                     · {dmy(n.created_at)}
                   </span>
                 </p>
@@ -1179,7 +1181,7 @@ export default function PortalPage() {
         {/* App-style bottom navigation (v1.168.0) — phones only. The fixed
           primary tabs stay predictable; the remaining permitted tabs use More. */}
         <nav
-          className={`${mobileBottomNav} erp-bottom-nav`}
+          className={mobileBottomNav}
           aria-label={L(
             "Portal sections (mobile)",
             "Bahagian portal (mudah alih)"
@@ -1234,7 +1236,7 @@ export default function PortalPage() {
                 <span aria-hidden className="erp-bottom-nav-icon">
                   <Ellipsis
                     aria-hidden
-                    className="h-[18px] w-[18px]"
+                    className="erp-icon-md"
                     strokeWidth={1.75}
                   />
                 </span>
@@ -1247,35 +1249,35 @@ export default function PortalPage() {
         </nav>
 
         {moreOpen && (
-          <div className="fixed inset-0 z-30 md:hidden">
+          <div className={css.moreBackdrop}>
             <button
               type="button"
               aria-label={L("Close menu", "Tutup menu")}
-              className="absolute inset-0 cursor-pointer bg-black/40"
+              className={css.moreScrim}
               onClick={() => setMoreOpen(false)}
             />
             {/* v1.10.0 review fix: bottom padding clears the taller nav PLUS the
               phone's home-indicator inset — the old pb-16 left the Preferences
               row half-covered and untappable on notched iPhones. */}
             <div id="portal-more-menu" role="dialog" aria-modal="true" aria-label={tr("More", lang)} className={sheetCard}>
-              <div className="mb-3 flex items-center justify-between">
-                <span className="w-9" />
-                <span aria-hidden className="bg-border mx-auto h-1.5 w-12 rounded-full" />
+              <div className={css.moreHead}>
+                <span className={css.moreSpacer} />
+                <span aria-hidden className={css.moreGrip} />
                 <button
                   type="button"
                   aria-label={L("Close", "Tutup")}
-                  className="erp-icon-button text-muted-foreground text-base"
+                  className={`erp-icon-button ${css.moreClose}`}
                   onClick={() => setMoreOpen(false)}
                 >
-                  <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                  <CloseX aria-hidden className="erp-icon" strokeWidth={1.75} />
                 </button>
               </div>
               {mobileGroups.map((section) => (
-                <section key={section.title} className="mb-4 last:mb-0">
-                  <p className="text-muted-foreground mb-1.5 text-[10px] font-semibold tracking-wider uppercase">
+                <section key={section.title} className={css.moreSection}>
+                  <p className={css.moreLabel}>
                     {sectionTitle(section.title, lang)}
                   </p>
-                  <div className="grid grid-cols-3 gap-2.5">
+                  <div className={css.moreGrid}>
                   {section.tabs.map((t) => (
                     <button
                       key={t}
@@ -1285,13 +1287,9 @@ export default function PortalPage() {
                         setMoreOpen(false);
                         window.scrollTo({ top: 0 });
                       }}
-                      className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-medium ${
-                        tab === t
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border hover:bg-secondary"
-                      }`}
+                      className={`${css.moreTab} ${tab === t ? css.moreTabOn : ""}`}
                     >
-                      <span aria-hidden className="grid place-items-center">
+                      <span aria-hidden className="erp-center">
                         <TabIcon name={t} />
                       </span>
                       {tr(t, lang)}
@@ -1303,15 +1301,15 @@ export default function PortalPage() {
               {/* v1.10.0: the set-once switches displaced from the app bar —
                 sound, push alerts, language, colour theme. Same handlers as
                 the desktop header buttons. */}
-              <p className="text-muted-foreground mt-4 mb-1.5 text-[10px] font-semibold tracking-wider uppercase">
+              <p className={`${css.moreLabel} ${css.moreLabelPrefs}`}>
                 {tr("Preferences", lang)}
               </p>
               <div
-                className={`grid gap-2.5 ${pushState !== "unsupported" ? "grid-cols-4" : "grid-cols-3"}`}
+                className={`${css.moreGrid} ${pushState !== "unsupported" ? css.moreGrid4 : ""}`}
               >
                 <button
                   type="button"
-                  className="border-border hover:bg-secondary flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium"
+                  className={css.morePref}
                   onClick={() => {
                     const next = !sound;
                     setSound(next);
@@ -1322,15 +1320,15 @@ export default function PortalPage() {
                     if (next) void chime();
                   }}
                 >
-                  <span aria-hidden className="grid place-items-center">
+                  <span aria-hidden className="erp-center">
                     {sound ? (
                       <Volume2
-                        className="h-[18px] w-[18px]"
+                        className="erp-icon-md"
                         strokeWidth={1.75}
                       />
                     ) : (
                       <VolumeX
-                        className="h-[18px] w-[18px]"
+                        className="erp-icon-md"
                         strokeWidth={1.75}
                       />
                     )}
@@ -1346,7 +1344,7 @@ export default function PortalPage() {
                 {pushState !== "unsupported" && (
                   <button
                     type="button"
-                    className="border-border hover:bg-secondary flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium"
+                    className={css.morePref}
                     onClick={async () => {
                       if (pushState === "granted") {
                         await disablePush();
@@ -1372,15 +1370,15 @@ export default function PortalPage() {
                       }
                     }}
                   >
-                    <span aria-hidden className="grid place-items-center">
+                    <span aria-hidden className="erp-center">
                       {pushState === "granted" ? (
                         <BellRing
-                          className="h-[18px] w-[18px]"
+                          className="erp-icon-md"
                           strokeWidth={1.75}
                         />
                       ) : (
                         <BellOff
-                          className="h-[18px] w-[18px]"
+                          className="erp-icon-md"
                           strokeWidth={1.75}
                         />
                       )}
@@ -1396,25 +1394,25 @@ export default function PortalPage() {
                 )}
                 <button
                   type="button"
-                  className="border-border hover:bg-secondary flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium"
+                  className={css.morePref}
                   onClick={() => {
                     const next = lang === "ms" ? "en" : "ms";
                     setLangState(next);
                     persistLang(next);
                   }}
                 >
-                  <span aria-hidden className="text-base font-bold">
+                  <span aria-hidden className={css.moreLang}>
                     {lang === "ms" ? "BM" : "EN"}
                   </span>
                   {lang === "ms" ? "Bahasa" : "English"}
                 </button>
                 <button
                   type="button"
-                  className="border-border hover:bg-secondary flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-[11px] font-medium"
+                  className={css.morePref}
                   onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
                 >
-                  <span aria-hidden className="grid place-items-center">
-                    <Palette className="h-[18px] w-[18px]" strokeWidth={1.75} />
+                  <span aria-hidden className="erp-center">
+                    <Palette className="erp-icon-md" strokeWidth={1.75} />
                   </span>
                   {theme === "plum"
                     ? lang === "ms"
@@ -1433,21 +1431,21 @@ export default function PortalPage() {
                   the one consequential action on this sheet and wears the
                   contract's destructive outline so it is never pressed by
                   reflex. */}
-              <div className="border-border mt-4 grid grid-cols-2 gap-2 border-t pt-3">
+              <div className={css.moreFoot}>
                 <button type="button" className={btnGhost} aria-pressed={dark} onClick={() => setDark((v) => !v)}>
-                  {dark ? <Sun aria-hidden className="h-4 w-4" /> : <Moon aria-hidden className="h-4 w-4" />}
+                  {dark ? <Sun aria-hidden className="erp-icon" /> : <Moon aria-hidden className="erp-icon" />}
                   {dark ? L("Light mode", "Mod cerah") : L("Dark mode", "Mod gelap")}
                 </button>
                 <button type="button" className="erp-button erp-button-danger" onClick={() =>
                   void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => {
                     clearApiCache(); setUser(null); setMoreOpen(false);
                   })}>
-                  <LogOut aria-hidden className="h-4 w-4" />{tr("Sign out", lang)}
+                  <LogOut aria-hidden className="erp-icon" />{tr("Sign out", lang)}
                 </button>
               </div>
               {/* v1.23.4: the visible build stamp — "is the live site on the
                 new version?" is now answerable from any phone. */}
-              <p className="text-muted-foreground/70 mt-3 text-center text-[10px] tabular-nums">
+              <p className={css.buildStamp}>
                 {L(
                   `A2Z CREATIVE MARKETING staff portal · v${APP_VERSION}`,
                   `Portal kakitangan A2Z CREATIVE MARKETING · v${APP_VERSION}`
@@ -1457,7 +1455,7 @@ export default function PortalPage() {
           </div>
         )}
 
-        <main key={tab} className="screen-enter mt-4 md:mt-6">
+        <main key={tab} className={`screen-enter ${css.main}`}>
           {activeTab === "Companies" && <CompaniesPanel />}
           {activeTab === "On Shift" && (
             <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} shiftOnly />
@@ -1466,16 +1464,16 @@ export default function PortalPage() {
             <>
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
                   the portal on the Home Screen. Phones only (md:hidden). */}
-              <div className="mb-4 md:hidden"><InstallCoach /></div>
+              <div className={`${css.coach} erp-phone-only`}><InstallCoach /></div>
               <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang}
                 onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }} />
-              <details className="border-border mt-5 border-t pt-3">
-                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">
+              <details className={css.overview}>
+                <summary className={css.overviewSummary}>
                   {L("Calendar and team overview", "Kalendar dan ringkasan pasukan")}
                 </summary>
-                <div className="grid gap-4 pb-4 lg:grid-cols-2">
-                  <div className="min-w-0 space-y-3"><ContextPanel lang={lang} /></div>
-                  <div className="min-w-0 space-y-3"><RightRail lang={lang} go={(t) => setTab(t as TabName)} /></div>
+                <div className={css.overviewGrid}>
+                  <div className={css.overviewCol}><ContextPanel lang={lang} /></div>
+                  <div className={css.overviewCol}><RightRail lang={lang} go={(t) => setTab(t as TabName)} /></div>
                 </div>
               </details>
             </>
@@ -1484,14 +1482,14 @@ export default function PortalPage() {
             <ClaimsPanel userId={user.id} role={user.role} />
           )}
           {activeTab === "Finance" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               {/* Current cash and payments due precede reporting. */}
               <CashFlowPanel />
               <ExpensesPanel reporting={<PnlCard />} />
             </div>
           )}
           {activeTab === "Attendance" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <Attendance user={user} />
               {/* v1.171.0 (CEO, 20-09-2026: "resort it based on it own
                   function and properly put in on their own tabs") — the
@@ -1517,7 +1515,7 @@ export default function PortalPage() {
               )}
               {/* Scheduling follows attendance review and OT decisions.
                   v1.171.0: the anchor "Open roster" (assignments card) scrolls to. */}
-              <div id="roster-board" className="scroll-mt-16">
+              <div id="roster-board" className={css.rosterAnchor}>
               <RosterBoard
                 canManage={[
                   "ceo",
@@ -1559,7 +1557,7 @@ export default function PortalPage() {
           {activeTab === "Accounting" && <AccountingPanel />}
           {activeTab === "Leave" && <Leave user={user} />}
           {activeTab === "Tasks" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} />
             </div>
           )}
@@ -1572,15 +1570,15 @@ export default function PortalPage() {
               be answered), one place after Sales. */}
           {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} />}
           {activeTab === "Sales" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
-              <section className="space-y-3 md:space-y-4">
+              <section className="erp-stack-tight">
                 <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
                 <SalesMap />
               </section>
-              <section className="space-y-3 md:space-y-4">
+              <section className="erp-stack-tight">
                 <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
-                <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+                <div className={css.twoUp}>
                   <LiveEconomicsCard />
                   <PackagesEditorCard role={user.role} />
                 </div>
@@ -1621,7 +1619,7 @@ export default function PortalPage() {
             />
           )}
           {activeTab === "HR" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes(
                 user.role
               ) ? (
@@ -1635,7 +1633,7 @@ export default function PortalPage() {
           )}
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}
@@ -1669,9 +1667,9 @@ export default function PortalPage() {
             <ElfiaTrafficPanel />
           )}
           {activeTab === "Ecommerce" && (
-            <div className="space-y-3 md:space-y-6">
+            <div className={css.ecomStack}>
               {REVENUE_ROLES.includes(user.role) && (
-                <section className="space-y-3 md:space-y-4">
+                <section className="erp-stack-tight">
                   <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
                   {/* v1.171.0: the Sales floor (KPI target, pace, markets,
                       month bars) is the card's third pill - moved here from
@@ -1679,9 +1677,9 @@ export default function PortalPage() {
                   <RevenueAndHoursCard user={user} go={setTab} lang={lang} />
                 </section>
               )}
-              <section className="space-y-3 md:space-y-4">
+              <section className="erp-stack-tight">
                 <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
-                <div className={`grid grid-cols-1 gap-3 md:gap-4 ${REVENUE_ROLES.includes(user.role) ? "md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" : ""}`}>
+                <div className={`${css.ecomWork} ${REVENUE_ROLES.includes(user.role) ? css.ecomWorkSplit : ""}`}>
                   <TikTokOrdersCard
                     role={user.role}
                     onChanged={() => {
@@ -1692,14 +1690,14 @@ export default function PortalPage() {
                 </div>
               </section>
               {REVENUE_ROLES.includes(user.role) && (
-                <section className="space-y-3 md:space-y-4">
+                <section className="erp-stack-tight">
                   <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
                   <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
                   <MoneyCard user={user} />
                   {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
                 </section>
               )}
-              <section className="space-y-3 md:space-y-4">
+              <section className="erp-stack-tight">
                 <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
                 <ConnectionStatusCard />
               </section>
@@ -1718,7 +1716,7 @@ export default function PortalPage() {
               signed-in officer's own card first. */}
           {activeTab === "Cards" && <CardsPanel role={user.role} />}
           {activeTab === "Users" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <div className={card}>
                 <UsersPanel role={user.role} embedded />
                 {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard embedded />}
@@ -1730,15 +1728,14 @@ export default function PortalPage() {
             </div>
           )}
           {activeTab === "Profile" && (
-            <div className="space-y-4 md:space-y-6">
+            <div className="erp-stack">
               <Profile />
               <MyPayslip />
               <TwoFactorPanel />
               {/* v1.4.191: staff read how their personal data (NRIC, bank,
                 photos, payroll) is handled — PDPA notice */}
-              <p className="text-muted-foreground text-center text-xs">
+              <p className={css.privacyNote}>
                 <a
-                  className="underline"
                   href="/privacy"
                   target="_blank"
                   rel="noopener noreferrer"

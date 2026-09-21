@@ -1,0 +1,159 @@
+/* v1.172.2 - the data table's own chrome (Tailwind retired). The toolbar,
+   filter chips, action bar, frame, sticky header and cells are the named
+   classes in styles/erp-v3.css and styles/globals.css; this module holds
+   only what belongs to THIS component: the toolbar's labels, the Columns
+   menu, the filter rows, the bar's separators and the pager. Colours are
+   tokens; the one white line is on the navy action bar. */
+
+.toolLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.colsAnchor {
+  position: relative;
+}
+.colsMenu {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  margin-top: 0.25rem;
+  width: 13rem;
+}
+.colsItem {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius);
+  padding-inline: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  cursor: pointer;
+}
+.colsItemLocked {
+  color: var(--muted-foreground);
+  cursor: default;
+}
+@media (hover: hover) {
+  .colsItem:not(.colsItemLocked):hover {
+    background: var(--secondary);
+  }
+}
+.filters {
+  margin-bottom: 0.75rem;
+}
+.filters > :where(:not(:last-child)) {
+  margin-bottom: 0.5rem;
+}
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.filterLabel {
+  margin-right: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.clearAll {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  color: var(--brand-accent-deep);
+  text-underline-offset: 2px;
+}
+@media (hover: hover) {
+  .clearAll:hover,
+  .clearSelection:hover {
+    text-decoration-line: underline;
+  }
+}
+.bar {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.barCount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.barWord {
+  opacity: 0.9;
+}
+.barRule {
+  margin-inline: 0.25rem;
+  height: 1rem;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.3);
+}
+.clearSelection {
+  margin-left: auto;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  text-underline-offset: 2px;
+}
+.table {
+  min-width: 640px;
+}
+.checkCol {
+  width: 2.5rem;
+}
+.actionsCol {
+  width: 1px;
+}
+.actionsCell {
+  white-space: nowrap;
+}
+.sortButton {
+  /* no letter-spacing: the workspace sets every button's to 0 (globals.css) */
+  font-weight: 600;
+  text-transform: uppercase;
+}
+@media (hover: hover) {
+  .sortButton:hover {
+    color: var(--foreground);
+  }
+}
+.row {
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.skelRight {
+  margin-left: auto;
+}
+.emptyFrame {
+  border-top: 1px solid var(--border);
+}
+.foot {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.footNote {
+  color: var(--muted-foreground);
+}
+.footSkel {
+  display: inline-block;
+  vertical-align: middle;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.pagerCount {
+  padding-inline: 0.375rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}

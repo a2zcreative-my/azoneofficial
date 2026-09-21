@@ -272,9 +272,16 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
      getting silence is the same uncertainty rules 1-3 exist to remove; it
      just arrives through CSS instead of a missing toast. */
   const rowBtns = readFileSync(path.join(root, "components/ui/row-button.tsx"), "utf8");
+  /* v1.172.2 (Tailwind retired): OFF is the named .erp-button-off - inert
+     when disabled in styles/erp-v3.css; the 50% opacity is the .erp-button
+     contract in globals.css. */
+  const v3 = readFileSync(path.join(root, "styles/erp-v3.css"), "utf8");
+  const globals = readFileSync(path.join(root, "styles/globals.css"), "utf8");
   ok("every row-button token shows when it is disabled",
      (rowBtns.match(/export const rowBtn\w* =\s*\n?\s*`[^`]*\$\{OFF\}`/g) ?? []).length === 5
-     && /const OFF = "disabled:pointer-events-none disabled:opacity-50"/.test(rowBtns),
+     && /const OFF = "erp-button-off"/.test(rowBtns)
+     && /\.erp-button\.erp-button-off:disabled \{ pointer-events: none; \}/.test(v3)
+     && /\.erp-button:disabled \{[^}]*opacity: 0\.5;/.test(globals),
      "a button that looks pressable and does nothing is silence with extra steps");
 
   /* And where the reason is not obvious from the row, the honest control is

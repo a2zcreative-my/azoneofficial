@@ -10,26 +10,46 @@
  *
  * These are plain presentational pieces: no state, no effects, safe to
  * render during the static prerender that becomes portal.html.
+ *
+ * v1.172.2 (Tailwind retired): a block is sized by `w` / `h` (px numbers or
+ * any CSS length) and rounded by `round`; the compositions live in
+ * skeleton.module.css. `className` stays for the legacy callers that still
+ * pass utility sizes - those strings are frozen in legacy-utilities.css and
+ * shrink as the callers migrate.
  */
 
+import type { CSSProperties } from "react";
 import { card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import s from "./skeleton.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-/** One shimmering block. `w`/`h` are Tailwind classes. */
-export function Skel({ className = "" }: { className?: string }) {
-  // Default corner radius, unless the caller picked one (rounded-full, etc.).
-  const radius = /(^|\s)rounded(-|$|\s)/.test(className) ? "" : "rounded-lg";
-  return <div className={`skel ${radius} ${className}`} aria-hidden />;
+type Len = number | string;
+const len = (v: Len | undefined) => (typeof v === "number" ? `${v}px` : v);
+
+/** One shimmering block. Size it with `w` / `h`; `round` picks the corner. */
+export function Skel({ className = "", w, h, round, style }: {
+  className?: string;
+  w?: Len;
+  h?: Len;
+  /** "lg" (the card radius, default), "full" (a pill or circle), "none" */
+  round?: "lg" | "full" | "none";
+  style?: CSSProperties;
+}) {
+  // Default corner radius, unless the caller picked one (a `round` prop, or
+  // a legacy rounded-* utility in className).
+  const legacyRadius = /(^|\s)rounded(-|$|\s)/.test(className);
+  const radius = round === "full" ? "9999px" : round === "none" ? "0" : legacyRadius ? undefined : "var(--radius)";
+  return <div className={`skel ${className}`} style={{ width: len(w), height: len(h), borderRadius: radius, ...style }} aria-hidden />;
 }
 
 /** A run of text lines; the last line is short, like real prose. */
 export function SkelText({ lines = 2, className = "" }: { lines?: number; className?: string }) {
   return (
-    <div className={`space-y-1.5 ${className}`} aria-hidden>
+    <div className={`${s.lines} ${className}`} aria-hidden>
       {Array.from({ length: lines }, (_, i) => (
-        <Skel key={i} className={`h-3 ${i === lines - 1 ? "w-1/2" : "w-full"}`} />
+        <Skel key={i} h={12} w={i === lines - 1 ? "50%" : "100%"} />
       ))}
     </div>
   );
@@ -38,9 +58,9 @@ export function SkelText({ lines = 2, className = "" }: { lines?: number; classN
 /** Card heading + subtitle — every AZ ONE card starts with these two. */
 export function SkelHead({ sub = true }: { sub?: boolean }) {
   return (
-    <div className="space-y-2" aria-hidden>
-      <Skel className="h-4 w-40" />
-      {sub && <Skel className="h-3 w-56 max-w-full" />}
+    <div className={s.stack2} aria-hidden>
+      <Skel h={16} w={160} />
+      {sub && <Skel h={12} w={224} style={{ maxWidth: "100%" }} />}
     </div>
   );
 }
@@ -50,7 +70,7 @@ export function SkelCard({ lines = 3, sub = true, className = "" }: { lines?: nu
   return (
     <div className={`${card} ${className}`} aria-hidden>
       <SkelHead sub={sub} />
-      <SkelText lines={lines} className="mt-3" />
+      <SkelText lines={lines} className="erp-mt-3" />
     </div>
   );
 }
@@ -59,9 +79,9 @@ export function SkelCard({ lines = 3, sub = true, className = "" }: { lines?: nu
 export function SkelStat({ className = "" }: { className?: string }) {
   return (
     <div className={`${card} ${className}`} aria-hidden>
-      <Skel className="h-2.5 w-24" />
-      <Skel className="mt-2 h-7 w-32" />
-      <Skel className="mt-2 h-2 w-full" />
+      <Skel h={10} w={96} />
+      <Skel className="erp-mt-2" h={28} w={128} />
+      <Skel className="erp-mt-2" h={8} w="100%" />
     </div>
   );
 }
@@ -71,13 +91,13 @@ export function SkelRows({ rows = 4, className = "" }: { rows?: number; classNam
   return (
     <div className={className} aria-hidden>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="border-border flex items-center gap-2.5 border-b py-2.5 last:border-0">
-          <Skel className="h-8 w-[52px] shrink-0" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <Skel className="h-3.5 w-2/3" />
-            <Skel className="h-2.5 w-1/3" />
+        <div key={i} className={s.row}>
+          <Skel className="erp-fixed" h={32} w={52} />
+          <div className={s.rowMid}>
+            <Skel h={14} w="66.666667%" />
+            <Skel h={10} w="33.333333%" />
           </div>
-          <Skel className="h-5 w-16 shrink-0 rounded-full" />
+          <Skel className="erp-fixed" h={20} w={64} round="full" />
         </div>
       ))}
     </div>
@@ -87,13 +107,13 @@ export function SkelRows({ rows = 4, className = "" }: { rows?: number; classNam
 /** Table body placeholder — matches a header + N rows. */
 export function SkelTable({ rows = 5, cols = 4, className = "" }: { rows?: number; cols?: number; className?: string }) {
   return (
-    <div className={`space-y-2 ${className}`} aria-hidden>
-      <div className="flex gap-3">
-        {Array.from({ length: cols }, (_, i) => <Skel key={i} className="h-2.5 flex-1" />)}
+    <div className={`${s.stack2} ${className}`} aria-hidden>
+      <div className={s.cells}>
+        {Array.from({ length: cols }, (_, i) => <Skel key={i} className={s.cell} h={10} />)}
       </div>
       {Array.from({ length: rows }, (_, r) => (
-        <div key={r} className="flex gap-3">
-          {Array.from({ length: cols }, (_, i) => <Skel key={i} className="h-4 flex-1" />)}
+        <div key={r} className={s.cells}>
+          {Array.from({ length: cols }, (_, i) => <Skel key={i} className={s.cell} h={16} />)}
         </div>
       ))}
     </div>
@@ -104,13 +124,13 @@ export function SkelTable({ rows = 5, cols = 4, className = "" }: { rows?: numbe
 export function SkelDonut() {
   return (
     <div className={card} aria-hidden>
-      <Skel className="h-4 w-36" />
-      <div className="mt-3 flex items-center gap-4">
-        <Skel className="h-28 w-28 shrink-0 rounded-full" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skel className="h-3 w-full" />
-          <Skel className="h-3 w-full" />
-          <Skel className="h-3 w-2/3" />
+      <Skel h={16} w={144} />
+      <div className={s.donut}>
+        <Skel className="erp-fixed" h={112} w={112} round="full" />
+        <div className={s.donutLines}>
+          <Skel h={12} w="100%" />
+          <Skel h={12} w="100%" />
+          <Skel h={12} w="66.666667%" />
         </div>
       </div>
     </div>
@@ -118,14 +138,14 @@ export function SkelDonut() {
 }
 
 /** Bar-chart block (sales by month). Heights vary so it reads as a chart. */
-const BAR_H = ["h-8", "h-14", "h-10", "h-16", "h-12", "h-20", "h-11", "h-16"];
+const BAR_H = [32, 56, 40, 64, 48, 80, 44, 64];
 export function SkelChart({ bars = 6 }: { bars?: number }) {
   return (
     <div className={card} aria-hidden>
       <SkelHead />
-      <div className="mt-3 flex h-20 items-end gap-1.5">
+      <div className={s.bars}>
         {Array.from({ length: bars }, (_, i) => (
-          <Skel key={i} className={`flex-1 ${BAR_H[i % BAR_H.length]}`} />
+          <Skel key={i} className={s.bar} h={BAR_H[i % BAR_H.length]} />
         ))}
       </div>
     </div>
@@ -138,8 +158,8 @@ export function SkelChart({ bars = 6 }: { bars?: number }) {
 export function StaleHint({ show, className = "" }: { show: boolean; className?: string }) {
   if (!show) return null;
   return (
-    <span className={`text-muted-foreground/70 inline-flex items-center gap-1 text-[10px] font-medium ${className}`}>
-      <span className="bg-gold-solid inline-block h-1.5 w-1.5 animate-pulse rounded-full" aria-hidden />
+    <span className={`${s.stale} ${className}`}>
+      <span className={s.staleDot} aria-hidden />
       {L("updating…", "mengemas kini…")}
     </span>
   );

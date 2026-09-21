@@ -139,6 +139,8 @@ ok("no token name was mangled by a rename — Tailwind emits nothing for those, 
 
 /* ---- the tokens the converted UI now depends on --------------------- */
 const css = read("styles/globals.css");
+const legacy = read("styles/legacy-utilities.css");
+const v3 = read("styles/erp-v3.css");
 const darkAt = css.indexOf(".dark {");
 for (const fam of ["success", "warning", "danger", "info", "plan", "celebrate"]) {
   const light = new RegExp(`^\\s*--${fam}:`, "m").test(css.slice(0, darkAt));
@@ -147,9 +149,19 @@ for (const fam of ["success", "warning", "danger", "info", "plan", "celebrate"])
   const darkSoft = new RegExp(`^\\s*--${fam}-soft:`, "m").test(css.slice(darkAt));
   ok(`--${fam} is a complete pair in BOTH themes`, light && soft && dark && darkSoft,
      [light ? "" : "light", soft ? "" : "light-soft", dark ? "" : "dark", darkSoft ? "" : "dark-soft"].filter(Boolean).join(","));
-  ok(`--${fam} reaches Tailwind as a utility`,
-     new RegExp(`--color-${fam}:\\s*var\\(--${fam}\\)`).test(css)
-     && new RegExp(`--color-${fam}-soft:\\s*var\\(--${fam}-soft\\)`).test(css));
+  /* v1.172.2 (Tailwind retired): the @theme bridge (--color-<fam>: var(--<fam>))
+     is gone. What must hold now: every legacy status utility that survives in
+     styles/legacy-utilities.css resolves to the token, not a colour of its
+     own, and the V3 tones (the chips and notes the vocabulary maps to) read
+     the same pair. */
+  const legacyRules = [...legacy.matchAll(new RegExp(`^\\s*\\.(?:bg|text|border(?:-[tlrb])?|ring|from|to)-${fam}(?:-soft)?\\s*\\{([^}]*)\\}`, "gm"))];
+  const legacyOnToken = legacyRules.every(([, body]) => new RegExp(`var\\(--${fam}(?:-soft)?\\)`).test(body));
+  ok(`--${fam}: every surviving legacy utility resolves to the token`, legacyOnToken,
+     legacyRules.filter(([, body]) => !new RegExp(`var\\(--${fam}(?:-soft)?\\)`).test(body)).map(([m]) => m.trim().slice(0, 60)).join(" | "));
+  if (["success", "warning", "danger", "info"].includes(fam)) {
+    ok(`--${fam} is the V3 chip tone (fill = soft, ink = token)`,
+       new RegExp(`\\.erp-chip-${fam} \\{ background: var\\(--${fam}-soft\\); color: var\\(--${fam}\\); \\}`).test(v3));
+  }
 }
 
 /* ---- the chip helpers stay the one way to spell a chip -------------- */

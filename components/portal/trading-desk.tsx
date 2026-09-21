@@ -718,11 +718,13 @@ export function TradingDesk({
 
       {mode === "pulse" && detailModal && (
         <div
-          className="animate-in fade-in fixed inset-0 z-[100] flex flex-col items-center justify-end overflow-hidden bg-black/60 backdrop-blur-sm transition-all sm:justify-center sm:p-6"
+          /* v1.172.2: the animate-in / fade-in / slide-in tokens that sat here belonged
+             to a plugin that was never installed - they styled nothing. */
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-end overflow-hidden bg-black/60 backdrop-blur-sm transition-all sm:justify-center sm:p-6"
           onClick={() => setDetailModal(null)}
         >
           <div
-            className="bg-background animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 relative flex max-h-[90vh] w-full flex-col rounded-t-2xl shadow-2xl sm:max-w-xl sm:rounded-2xl"
+            className="bg-background relative flex max-h-[90vh] w-full flex-col rounded-t-2xl shadow-2xl sm:max-w-xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-muted/20 flex shrink-0 items-center justify-between rounded-t-2xl border-b px-4 py-3 sm:rounded-t-2xl sm:px-5 sm:py-4">

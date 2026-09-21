@@ -9,38 +9,43 @@
  *            chose set A, adding the context panel and right rail.
  * v1.164.0: the portal uses `navigation` with side-nav.tsx and a full-width
  * neutral workspace. The framed rail layout below remains for legacy callers.
+ * v1.172.2: Tailwind retired - the layout is app-shell.module.css (one class
+ * per box, the desktop rules behind the 768px query); nothing about the
+ * geometry changed. tests/shell-scroll.mjs reads the containing-block rule
+ * there now.
  *
  * Desktop layout:
  *
- *   backdrop (bg-shell-backdrop, p-5)
- *     └ canvas (rounded-shell, bg-background, shadow-shell, flex, full width)
- *         ├ gutter (bg-brand, w-14, rounded-l-shell) → sticky icon rail
- *         ├ context panel (w-[264px], optional, own scroll)
- *         ├ main content (flex-1, min-w-0)
- *         └ right rail (w-[292px], optional, own scroll)
+ *   backdrop (.backdropCanvas: shell backdrop, 1.25rem padding)
+ *     └ canvas (.canvasFrameCanvas: 26px radius, page ground, shell shadow, flex, full width)
+ *         ├ gutter (.gutter: brand navy, 3.5rem, rounded left) → sticky icon rail
+ *         ├ context panel (.columnLeft: 264px, optional, own scroll)
+ *         ├ main content (.scroll: flex 1, min-width 0)
+ *         └ right rail (.columnRight: 292px, optional, own scroll)
  *
- * PHONE: every rule below is `md:`-prefixed and the two side columns are
- * `hidden md:flex`, so this renders `children` in bare wrappers. The v1.11.1
- * bottom nav, More sheet and safe-area insets are untouched to the pixel.
+ * PHONE: every desktop rule in the module is behind `min-width: 768px` and
+ * the two side columns are display:none below it, so this renders `children`
+ * in bare wrappers. The v1.11.1 bottom nav, More sheet and safe-area insets
+ * are untouched to the pixel.
  *
  * v1.21.1 (CEO: "make the overfloat scrollable inside the UI/UX instead of
  * the outside UI/UX"): the shell is now FIXED to the viewport on desktop —
- * backdrop h-dvh, canvas h-full, and the CONTENT COLUMN is the scroll
+ * backdrop 100dvh, canvas 100%, and the CONTENT COLUMN is the scroll
  * container. The page itself never scrolls; the rounded canvas and both
  * side columns stay put like an app window. This retires the old sticky
  * dance entirely (rail/columns are simply full-height flex children), so
- * `overflow-hidden` on the canvas is now safe — and needed, to clip the
+ * `overflow: hidden` on the canvas is now safe — and needed, to clip the
  * scrolling content to the rounded corners.
  *
  * v1.88.1 (CEO, screenshot of the Leave tab: the canvas ending two-thirds
  * down the window with a white void below it and a SECOND scrollbar on the
  * page itself). Two holes in the v1.21.1 model, closed here:
  *
- *   1. The canvas was `overflow-hidden` but NOT `relative`. An absolutely
+ *   1. The canvas was `overflow: hidden` but NOT `position: relative`. An absolutely
  *      positioned descendant with no positioned ancestor is laid out against
  *      the initial containing block — the document — so it grows the
  *      document's scrollable area straight through the clip. The clip never
- *      saw it. `relative` makes the canvas that element's containing block,
+ *      saw it. `position: relative` makes the canvas that element's containing block,
  *      and then the clip does its job.
  *   2. Nothing actually FORBADE the document from scrolling on desktop; the
  *      model relied on nothing ever escaping. `html.shell-locked` now does
@@ -56,6 +61,7 @@
  */
 
 import { useEffect, type ReactNode } from "react";
+import s from "./app-shell.module.css";
 
 export function AppShell({
   rail, navigation, contextPanel, rightRail, children,
@@ -66,9 +72,9 @@ export function AppShell({
      Nothing about the layout changes: the rounded canvas, the p-5 backdrop
      that makes it a canvas at all, the icon rail and both side columns are
      exactly as they were. Only the ceiling is gone, so the canvas takes the
-     window it is given. A caller can still pass a cap if a screen ever wants
-     one. */
-  maxWidth = "md:max-w-none",
+     window it is given. A caller can still pass a class if a screen ever
+     wants a cap (v1.172.2: a CSS Module class, not a utility). */
+  maxWidth = "",
 }: {
   rail?: ReactNode;
   /** Full-height labeled navigation; mutually exclusive with the legacy icon rail. */
@@ -96,16 +102,16 @@ export function AppShell({
     return () => document.documentElement.classList.remove("shell-locked");
   }, []);
   return (
-    <div className={`${navigation ? "erp-workspace bg-secondary" : "md:bg-shell-backdrop"} md:relative md:h-dvh md:overflow-hidden ${navigation ? "" : "md:p-5"}`}>
+    <div className={navigation ? `erp-workspace ${s.workspace} ${s.backdrop}` : `${s.backdrop} ${s.backdropCanvas}`}>
       <style>{`@media (min-width: 768px) { html.shell-locked, html.shell-locked body { overflow: hidden; height: 100%; } }`}</style>
-      <div className={`${navigation ? "md:bg-secondary" : "md:rounded-shell md:bg-background md:shadow-shell"} md:mx-auto md:flex md:h-full md:overflow-hidden ${maxWidth}`}>
+      <div className={`${s.canvasFrame} ${navigation ? s.canvasFrameWorkspace : s.canvasFrameCanvas} ${maxWidth}`}>
         {navigation}
         {!navigation && rail ? (
-          <div className="bg-brand rounded-l-shell hidden w-14 shrink-0 md:block">{rail}</div>
+          <div className={s.gutter}>{rail}</div>
         ) : null}
 
         {contextPanel ? (
-          <aside className="border-border bg-secondary hidden w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r p-4 md:flex md:h-full">
+          <aside className={`${s.column} ${s.columnLeft}`}>
             {contextPanel}
           </aside>
         ) : null}
@@ -114,15 +120,16 @@ export function AppShell({
             scrolls inside here, under the sticky in-content header. The id
             lets the portal reset scrollTop on tab change (a new tab must
             open at its top, not wherever the last one was left). */}
-        {/* v1.23.4 (CEO: "Still overflow for Attendance"): max-md:overflow-x-clip
-            is the STRUCTURAL guarantee — even if a future card is wider than
-            the phone, it clips instead of panning the whole page sideways.
-            `clip` (not hidden) so it creates no scroll container and the
-            sticky mobile header keeps sticking. Desktop untouched. */}
-        <div id="shell-scroll" className="min-w-0 max-md:overflow-x-clip md:h-full md:flex-1 md:overflow-y-auto">{children}</div>
+        {/* v1.23.4 (CEO: "Still overflow for Attendance"): the phone-width
+            overflow-x: clip in the module is the STRUCTURAL guarantee — even
+            if a future card is wider than the phone, it clips instead of
+            panning the whole page sideways. `clip` (not hidden) so it
+            creates no scroll container and the sticky mobile header keeps
+            sticking. Desktop untouched. */}
+        <div id="shell-scroll" className={s.scroll}>{children}</div>
 
         {rightRail ? (
-          <aside className="border-border bg-secondary rounded-r-shell hidden w-[292px] shrink-0 flex-col gap-3 overflow-y-auto border-l p-4 md:flex md:h-full">
+          <aside className={`${s.column} ${s.columnRight}`}>
             {rightRail}
           </aside>
         ) : null}

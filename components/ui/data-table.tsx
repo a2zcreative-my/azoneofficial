@@ -34,6 +34,8 @@
  *   rowActions    a trailing cell of per-row commands, never sorted
  * Sticky header, framed scroll, skeleton and empty states are as before
  * (styles/globals.css .erp-table*).
+ * v1.172.2 (Tailwind retired): the component's own chrome is
+ * data-table.module.css; no utility class is left in this file.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -43,6 +45,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { downloadCsv } from "@/lib/csv";
 import { btnSm, btnSmDanger, inputClassSm, menuCard, selectClassSm, tabPill, tabPillOn, td, tdR2, th, thR2 } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import s from "./data-table.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -249,7 +252,7 @@ export function DataTable<T extends { id: number | string }>({
   return (
     <div>
       <div className="erp-toolbar">
-        <label className="text-muted-foreground flex items-center gap-2 text-xs">
+        <label className={s.toolLabel}>
           <select className={selectClassSm} value={per}
             onChange={(e) => { setPer(Number(e.target.value)); setPage(1); }} aria-label={L("Entries per page", "Entri setiap halaman")}>
             {pageSizes.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -258,7 +261,7 @@ export function DataTable<T extends { id: number | string }>({
         </label>
         <div className="erp-toolbar-group">
           {searchText && (
-            <label className="text-muted-foreground flex items-center gap-2 text-xs">
+            <label className={s.toolLabel}>
               {L("Search:", "Cari:")}
               <input type="search" className={inputClassSm} value={q}
                 onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
@@ -280,20 +283,20 @@ export function DataTable<T extends { id: number | string }>({
                     title={L("Row density", "Ketumpatan baris")}>
                     {density === "compact" ? L("Compact", "Padat") : L("Comfortable", "Selesa")}
                   </button>
-                  <div ref={colsRef} className="relative">
+                  <div ref={colsRef} className={s.colsAnchor}>
                     <button type="button" className={btnSm} aria-haspopup="menu" aria-expanded={colsOpen} onClick={() => setColsOpen((v) => !v)}>
                       {L("Columns", "Lajur")}{hidden.size > 0 ? ` (${shown.length}/${columns.length})` : ""}
                     </button>
                     {colsOpen && (
                       <div role="menu" aria-label={L("Show or hide columns", "Tunjuk atau sembunyi lajur")}
-                        className={`${menuCard} absolute right-0 z-20 mt-1 w-52`}>
+                        className={`${menuCard} ${s.colsMenu}`}>
                         {columns.map((c) => {
                           const locked = c.hideable === false;
                           return (
                             <label key={c.key} role="menuitemcheckbox" aria-checked={!hidden.has(c.key)}
-                              className={`flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm ${locked ? "text-muted-foreground" : "hover:bg-secondary cursor-pointer"}`}>
+                              className={`${s.colsItem} ${locked ? s.colsItemLocked : ""}`}>
                               <input type="checkbox" className="erp-check" checked={!hidden.has(c.key)} disabled={locked} onChange={() => toggleColumn(c.key)} />
-                              <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                              <span className="erp-grow erp-truncate">{c.label}</span>
                             </label>
                           );
                         })}
@@ -311,10 +314,10 @@ export function DataTable<T extends { id: number | string }>({
           options, a select when it has many; the chosen values repeat below
           as removable chips so the table is never quietly narrowed. */}
       {filters.length > 0 && (
-        <div className="mb-3 space-y-2">
+        <div className={s.filters}>
           {filters.map((f) => (
-            <div key={f.key} className="flex flex-wrap items-center gap-1.5">
-              <span className="text-muted-foreground mr-1 text-xs font-medium">{f.label}</span>
+            <div key={f.key} className={s.filterRow}>
+              <span className={s.filterLabel}>{f.label}</span>
               {f.options.length <= 6 ? (
                 <>
                   <button type="button" className={active[f.key] ? tabPill : tabPillOn} aria-pressed={!active[f.key]}
@@ -338,8 +341,8 @@ export function DataTable<T extends { id: number | string }>({
             </div>
           ))}
           {(activeChips.length > 0 || q) && (
-            <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
-              <span className="text-muted-foreground text-xs">{L("Filtered by", "Ditapis mengikut")}</span>
+            <div className={s.filterRow} aria-live="polite">
+              <span className="erp-meta">{L("Filtered by", "Ditapis mengikut")}</span>
               {q && (
                 <button type="button" className={chipBtn} onClick={() => { setQ(""); setPage(1); }}
                   aria-label={L(`Clear search "${q}"`, `Kosongkan carian "${q}"`)}>
@@ -353,7 +356,7 @@ export function DataTable<T extends { id: number | string }>({
                   {c.label}: {c.value} <span aria-hidden>×</span>
                 </button>
               ))}
-              <button type="button" className="text-gold-deep text-xs font-semibold underline-offset-2 hover:underline" onClick={clearAll}>{L("Clear all", "Kosongkan semua")}</button>
+              <button type="button" className={s.clearAll} onClick={clearAll}>{L("Clear all", "Kosongkan semua")}</button>
             </div>
           )}
         </div>
@@ -363,10 +366,10 @@ export function DataTable<T extends { id: number | string }>({
           is selected, offering only what the caller can really do. */}
       {selectable && selectedRows.length > 0 && (
         <div role="region" aria-label={L("Selected rows", "Baris dipilih")} aria-live="polite"
-          className="erp-action-bar text-sm">
-          <span className="font-semibold tabular-nums">{selectedRows.length}</span>
-          <span className="opacity-90">{L("selected", "dipilih")}</span>
-          <span className="mx-1 h-4 w-px bg-white/30" aria-hidden />
+          className={`erp-action-bar ${s.bar}`}>
+          <span className={s.barCount}>{selectedRows.length}</span>
+          <span className={s.barWord}>{L("selected", "dipilih")}</span>
+          <span className={s.barRule} aria-hidden />
           {csvExport && <button type="button" className={barBtn} onClick={exportCsv}>{L("Export CSV", "Eksport CSV")}</button>}
           {bulkActions.map((a) => (
             <button key={a.label} type="button"
@@ -375,7 +378,7 @@ export function DataTable<T extends { id: number | string }>({
               {a.label}
             </button>
           ))}
-          <button type="button" className="ml-auto text-xs font-medium underline-offset-2 hover:underline" onClick={clearSelection}>{L("Clear selection", "Kosongkan pilihan")}</button>
+          <button type="button" className={s.clearSelection} onClick={clearSelection}>{L("Clear selection", "Kosongkan pilihan")}</button>
         </div>
       )}
 
@@ -385,11 +388,11 @@ export function DataTable<T extends { id: number | string }>({
           stays put (styles/globals.css .erp-table), so a long list is read
           against its column names rather than from memory. */}
       <div className="erp-table-wrap" aria-busy={loading || undefined}>
-        <table className={`erp-table min-w-[640px] ${density === "compact" ? "erp-table-compact" : ""}`}>
+        <table className={`erp-table ${s.table} ${density === "compact" ? "erp-table-compact" : ""}`}>
           <thead>
             <tr>
               {selectable && (
-                <th className={`${th} w-10`}>
+                <th className={`${th} ${s.checkCol}`}>
                   <input ref={headCheck} type="checkbox" className="erp-check" checked={allOnPage} onChange={togglePage}
                     aria-label={allOnPage ? L("Deselect every row on this page", "Nyahpilih setiap baris di halaman ini") : L("Select every row on this page", "Pilih setiap baris di halaman ini")} />
                 </th>
@@ -400,7 +403,7 @@ export function DataTable<T extends { id: number | string }>({
                   <th key={c.key} className={c.numeric ? thR2 : th}
                     aria-sort={sort === c.key ? (dir === "asc" ? "ascending" : "descending") : undefined}>
                     {sortable ? (
-                      <button type="button" className="hover:text-foreground font-semibold tracking-wide uppercase"
+                      <button type="button" className={s.sortButton}
                         onClick={() => {
                           if (sort === c.key) setDir((d) => (d === "asc" ? "desc" : "asc"));
                           else { setSort(c.key); setDir(c.numeric ? "desc" : "asc"); }
@@ -412,20 +415,20 @@ export function DataTable<T extends { id: number | string }>({
                   </th>
                 );
               })}
-              {rowActions && <th className={`${thR2} w-px`}>{rowActionsLabel ?? <span className="sr-only">{L("Actions", "Tindakan")}</span>}</th>}
+              {rowActions && <th className={`${thR2} ${s.actionsCol}`}>{rowActionsLabel ?? <span className="erp-sr-only">{L("Actions", "Tindakan")}</span>}</th>}
             </tr>
           </thead>
           <tbody ref={bodyRef}>
             {loading ? (
               Array.from({ length: Math.min(per, 6) }, (_, i) => (
                 <tr key={`skel-${i}`} aria-hidden>
-                  {selectable && <td className={td}><Skel className="h-3.5 w-3.5" /></td>}
+                  {selectable && <td className={td}><Skel h={14} w={14} /></td>}
                   {shown.map((c) => (
                     <td key={c.key} className={c.numeric ? tdR2 : td}>
-                      <Skel className={`h-3.5 ${c.numeric ? "ml-auto w-14" : i % 2 ? "w-2/3" : "w-1/2"}`} />
+                      <Skel className={c.numeric ? s.skelRight : ""} h={14} w={c.numeric ? 56 : i % 2 ? "66.666667%" : "50%"} />
                     </td>
                   ))}
-                  {rowActions && <td className={tdR2}><Skel className="ml-auto h-3.5 w-10" /></td>}
+                  {rowActions && <td className={tdR2}><Skel className={s.skelRight} h={14} w={40} /></td>}
                 </tr>
               ))
             ) : slice.length === 0 ? null : slice.map((r) => {
@@ -435,7 +438,7 @@ export function DataTable<T extends { id: number | string }>({
                   tabIndex={onRowClick ? 0 : undefined}
                   onClick={onRowClick ? () => onRowClick(r) : undefined}
                   onKeyDown={onRowClick ? (e) => onRowKey(e, r) : undefined}
-                  className={`transition-colors ${onRowClick ? "erp-row-click" : ""}`}>
+                  className={`${s.row} ${onRowClick ? "erp-row-click" : ""}`}>
                   {selectable && (
                     <td className={td} onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" className="erp-check" checked={!!isSel} onChange={() => toggleRow(r.id)}
@@ -447,7 +450,7 @@ export function DataTable<T extends { id: number | string }>({
                       {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
                     </td>
                   ))}
-                  {rowActions && <td className={`${tdR2} whitespace-nowrap`} onClick={(e) => e.stopPropagation()}>{rowActions(r)}</td>}
+                  {rowActions && <td className={`${tdR2} ${s.actionsCell}`} onClick={(e) => e.stopPropagation()}>{rowActions(r)}</td>}
                 </tr>
               );
             })}
@@ -458,7 +461,7 @@ export function DataTable<T extends { id: number | string }>({
             centred on the table and a phone saw "No cash flow entries yet —
             paid" cut at the frame's edge, the rest a sideways scroll away. */}
         {!loading && slice.length === 0 && (
-          <div className="border-border border-t">
+          <div className={s.emptyFrame}>
             {q || activeChips.length > 0 ? (
               <EmptyState icon="search"
                 title={L("Nothing matches that search.", "Tiada padanan untuk carian itu.")}
@@ -471,18 +474,18 @@ export function DataTable<T extends { id: number | string }>({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span className="text-muted-foreground">
+      <div className={s.foot}>
+        <span className={s.footNote}>
           {/* the house rule (tests/skeleton-loading.mjs): a shape, never a word about waiting */}
-          {footer ?? (loading ? <Skel className="inline-block h-3 w-40 align-middle" /> : shaped.length === 0 ? L("Showing 0 entries", "Memaparkan 0 entri")
+          {footer ?? (loading ? <Skel className={s.footSkel} h={12} w={160} /> : shaped.length === 0 ? L("Showing 0 entries", "Memaparkan 0 entri")
             : L(`Showing ${(cur - 1) * per + 1} to ${Math.min(cur * per, shaped.length)} of ${shaped.length} entries`,
               `Memaparkan ${(cur - 1) * per + 1} hingga ${Math.min(cur * per, shaped.length)} daripada ${shaped.length} entri`))}
         </span>
         {pages > 1 && (
-          <div className="flex items-center gap-1">
+          <div className={s.pager}>
             <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(1)} aria-label={L("First page", "Halaman pertama")}>«</button>
             <button type="button" className={btnSm} disabled={cur === 1} onClick={() => setPage(cur - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}>‹</button>
-            <span className="text-muted-foreground px-1.5 tabular-nums">{cur} / {pages}</span>
+            <span className={s.pagerCount}>{cur} / {pages}</span>
             <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(cur + 1)} aria-label={L("Next page", "Halaman seterusnya")}>›</button>
             <button type="button" className={btnSm} disabled={cur === pages} onClick={() => setPage(pages)} aria-label={L("Last page", "Halaman terakhir")}>»</button>
           </div>

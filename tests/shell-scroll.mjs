@@ -46,11 +46,17 @@ const ok = (label, cond, extra = "") => {
 };
 
 const shell = read("components/layout/app-shell.tsx");
+const shellCss = read("components/layout/app-shell.module.css");
 const page = read("app/portal/page.tsx");
 const staff = read("worker/src/staff.ts");
+const v3 = read("styles/erp-v3.css");
 
+/* v1.172.2 (Tailwind retired): the three declarations live in
+   app-shell.module.css .backdrop, behind the same 768px query, on the box
+   the component still renders first. */
 ok("the canvas is a containing block, not just a clip",
-   /md:relative md:h-dvh md:overflow-hidden/.test(shell),
+   /className=\{navigation \? `erp-workspace \$\{s\.workspace\} \$\{s\.backdrop\}` : `\$\{s\.backdrop\} \$\{s\.backdropCanvas\}`\}/.test(shell)
+   && /@media \(min-width: 768px\) \{[\s\S]*?\.backdrop \{[^}]*position: relative;[^}]*height: 100dvh;[^}]*overflow: hidden;/.test(shellCss),
    "without `relative`, an absolute descendant is positioned against the document and grows it through the clip");
 ok("the document is locked while the shell is mounted",
    /classList\.add\("shell-locked"\)/.test(shell) && /classList\.remove\("shell-locked"\)/.test(shell),
@@ -105,14 +111,22 @@ ok("the worker records which axis the report is about",
 {
   ok("the viewport still asks for edge to edge", /viewportFit: "cover"/.test(read("app/layout.tsx")),
      "without it the fix below is harmless and the app keeps a browser-coloured bar");
+  /* v1.172.2 (Tailwind retired): the portal's header is the named
+     .erp-topbar - sticky at the top and the owner of --hdr-pt in
+     styles/erp-v3.css - with the inset still written inline on the element.
+     The admin and account consoles keep the utility spelling for now. */
+  ok("the V3 topbar is sticky at the top and owns its --hdr-pt",
+     /\.erp-topbar \{[^}]*position: sticky;[^}]*top: 0;[^}]*--hdr-pt: 0\.5rem;/.test(v3)
+     && /@media \(min-width: 768px\) \{\s*\.erp-topbar \{\s*--hdr-pt: 0\.75rem;/.test(v3));
   for (const f of ["app/portal/page.tsx", "app/admin/page.tsx", "app/account/page.tsx"]) {
     const src = read(f);
-    const headers = [...src.matchAll(/<header className="[^"]*sticky top-0[^"]*"(?:\s*\n?\s*style=\{\{[^}]*\}\})?/g)].map((m) => m[0]);
+    const headers = [...src.matchAll(/<header className="(?:[^"]*sticky top-0[^"]*|erp-topbar[^"]*)"(?:\s*\n?\s*style=\{\{[^}]*\}\})?/g)].map((m) => m[0]);
     ok(`${f} has sticky mobile headers to check`, headers.length > 0);
     for (const h of headers) {
       ok(`${f}: a sticky top-0 header clears the status bar`, /env\(safe-area-inset-top, 0px\)/.test(h),
          "installed on a phone, the clock and battery are drawn over it");
-      ok(`${f}: the header keeps its own top padding on top of the inset`, /calc\(var\(--hdr-pt\) \+ env\(safe-area-inset-top/.test(h) && /\[--hdr-pt:/.test(h),
+      ok(`${f}: the header keeps its own top padding on top of the inset`,
+         /calc\(var\(--hdr-pt\) \+ env\(safe-area-inset-top/.test(h) && (/\[--hdr-pt:/.test(h) || /className="erp-topbar/.test(h)),
          "the inset is added to the padding, not swapped for it - in a browser tab the header must look exactly as before");
     }
   }

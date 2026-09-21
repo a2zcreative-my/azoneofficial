@@ -22,6 +22,7 @@ import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { btnHero, btnHeroPrimary, btnSm, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import css from "./dashboard.module.css";
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -62,13 +63,15 @@ export function summariseMonth(days: MonthDay[]) {
   return { onTime, late, halfDay, absent, awaiting, leave, holiday, restWorked, scheduled, streak, present: onTime + late + halfDay + restWorked };
 }
 
-const DAY_FILL: Record<MonthDay["status"], string> = {
-  ok: "bg-ring-ontime", assigned: "bg-ring-ontime",
-  late: "bg-ring-late",
-  half_day: "bg-ring-absent", absent: "bg-ring-absent",
-  awaiting_approval: "bg-warning-soft ring-1 ring-warning ring-inset",
-  pending: "bg-transparent ring-1 ring-border ring-inset",
-  rest_day: "bg-tint-navy", holiday: "bg-tint-navy", leave: "bg-info-soft",
+/* v1.172.2 - the day cells are module classes (dashboard.module.css); the
+   fills are the validated ring colours the attendance donut uses. */
+const DAY_FILL: Record<MonthDay["status"], string | undefined> = {
+  ok: css.dayOnTime, assigned: css.dayOnTime,
+  late: css.dayLate,
+  half_day: css.dayAbsent, absent: css.dayAbsent,
+  awaiting_approval: css.dayAwaiting,
+  pending: css.dayPending,
+  rest_day: css.dayOff, holiday: css.dayOff, leave: css.dayLeave,
 };
 const dayStatusL = (s: MonthDay["status"], lang: Lang): string => {
   const en: Record<MonthDay["status"], string> = {
@@ -109,10 +112,10 @@ export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
     cells.push(byDate.get(iso) ?? { date: iso, status: "future" });
   }
   const monthName = MONTH_NAMES[lang === "ms" ? "ms" : "en"][m - 1] ?? month;
-  const stat = (label: string, value: string | number, tone: string) => (
-    <div className="min-w-0">
-      <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{label}</p>
-      <p className={`mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums ${tone}`}>{value}</p>
+  const stat = (label: string, value: string | number, tone: string | undefined) => (
+    <div className={css.stat}>
+      <p className={css.statLabel}>{label}</p>
+      <p className={`${css.statValue} ${tone ?? ""}`}>{value}</p>
     </div>
   );
   const notes: string[] = [];
@@ -123,74 +126,74 @@ export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
   if (s.restWorked > 0) notes.push(L(`${s.restWorked} rest day${s.restWorked === 1 ? "" : "s"} worked`, `${s.restWorked} hari rehat bekerja`));
   return (
     <div className={card}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className={css.monthHead}>
         <PanelTitle icon="date">{L("Attendance this month", "Kehadiran bulan ini")}</PanelTitle>
-        <p className="text-muted-foreground text-xs tabular-nums">
+        <p className={css.monthWhen}>
           {has
             ? L(`${s.present} of ${s.scheduled} scheduled days · ${monthName}`, `${s.present} daripada ${s.scheduled} hari berjadual · ${monthName}`)
             : monthName}
         </p>
       </div>
-      <div className="mt-4 md:flex md:items-start md:justify-between md:gap-8">
-        <div className={`grid gap-3 md:flex-1 ${has ? "grid-cols-3 sm:grid-cols-6 md:max-w-3xl" : "grid-cols-2 sm:grid-cols-4"}`}>
-          {has && stat(L("On time", "Tepat waktu"), s.onTime, "text-ring-ontime")}
-          {has && stat(L("Late", "Lewat"), s.late, s.late > 0 ? "text-warning" : "")}
-          {has && stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? "text-danger" : "")}
+      <div className={css.monthBody}>
+        <div className={`${css.stats} ${has ? css.statsFull : ""}`}>
+          {has && stat(L("On time", "Tepat waktu"), s.onTime, css.onTime)}
+          {has && stat(L("Late", "Lewat"), s.late, s.late > 0 ? css.late : "")}
+          {has && stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? css.half : "")}
           {/* v1.171.0 — the punches' own figures, from the four-tile strip
               this card replaced: days with a punch, and the day's shifts
               added up (v1.133.0 pairing rule - the hours between two shifts
               are not worked hours). */}
           {daysPresent !== undefined && (
-            <div className="min-w-0" title={L("Days this month with attendance recorded", "Hari bulan ini dengan kehadiran direkodkan")}>
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Present", "Hadir")}</p>
-              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{daysPresent}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
+            <div className={css.stat} title={L("Days this month with attendance recorded", "Hari bulan ini dengan kehadiran direkodkan")}>
+              <p className={css.statLabel}>{L("Present", "Hadir")}</p>
+              <p className={css.statValue}>{daysPresent}<span className={css.statUnit}>{L("d", "h")}</span></p>
             </div>
           )}
           {hours !== undefined && (
-            <div className="min-w-0" title={L("Your shifts added up, per day", "Syif anda dijumlahkan, setiap hari")}>
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Hours", "Jam")}</p>
-              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{hours.toFixed(1)}<span className="text-muted-foreground ml-0.5 text-sm font-medium">h</span></p>
+            <div className={css.stat} title={L("Your shifts added up, per day", "Syif anda dijumlahkan, setiap hari")}>
+              <p className={css.statLabel}>{L("Hours", "Jam")}</p>
+              <p className={css.statValue}>{hours.toFixed(1)}<span className={css.statUnit}>h</span></p>
             </div>
           )}
           {has && (
-            <div className="min-w-0" title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Streak", "Rentetan")}</p>
-              <p className="mt-1 text-[22px] leading-none font-semibold tracking-tight tabular-nums">{s.streak}<span className="text-muted-foreground ml-0.5 text-sm font-medium">{L("d", "h")}</span></p>
+            <div className={css.stat} title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
+              <p className={css.statLabel}>{L("Streak", "Rentetan")}</p>
+              <p className={css.statValue}>{s.streak}<span className={css.statUnit}>{L("d", "h")}</span></p>
             </div>
           )}
         </div>
         {/* the month, as it happened — Monday-first, one cell per day */}
         {has && (
-        <div className="mt-4 w-full md:mt-0 md:w-[16.5rem] md:shrink-0" aria-label={L("Day by day", "Hari demi hari")}>
-          <div className="text-muted-foreground grid grid-cols-7 gap-1 text-center text-[9px] font-semibold tracking-wider uppercase">
+        <div className={css.calendar} aria-label={L("Day by day", "Hari demi hari")}>
+          <div className={css.weekdays}>
             {(lang === "ms" ? ["I", "S", "R", "K", "J", "S", "A"] : ["M", "T", "W", "T", "F", "S", "S"]).map((d, i) => <span key={i}>{d}</span>)}
           </div>
-          <div className="mt-1 grid grid-cols-7 gap-1">
+          <div className={css.days}>
             {Array.from({ length: offset }, (_, i) => <span key={`o${i}`} aria-hidden />)}
             {cells.map((c) => (
               <span
                 key={c.date}
                 title={`${dmy(c.date)} · ${c.status === "future" ? L("Upcoming", "Akan datang") : dayStatusL(c.status, lang)}${"in" in c && c.in ? ` · ${c.in}${c.out ? `–${c.out}` : ""}` : ""}`}
-                className={`block h-2.5 rounded-sm ${c.status === "future" ? "bg-tint-navy opacity-40" : DAY_FILL[c.status]}`}
+                className={`${css.day} ${c.status === "future" ? css.dayFuture : DAY_FILL[c.status] ?? ""}`}
               />
             ))}
           </div>
-          <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
-            <span className="flex items-center gap-1"><i className="bg-ring-ontime inline-block h-2 w-2 rounded-sm" />{L("on time", "tepat")}</span>
-            <span className="flex items-center gap-1"><i className="bg-ring-late inline-block h-2 w-2 rounded-sm" />{L("late", "lewat")}</span>
-            <span className="flex items-center gap-1"><i className="bg-ring-absent inline-block h-2 w-2 rounded-sm" />{L("half day / absent", "separuh / tidak hadir")}</span>
-            <span className="flex items-center gap-1"><i className="bg-tint-navy inline-block h-2 w-2 rounded-sm" />{L("off", "cuti/rehat")}</span>
+          <div className={css.legend}>
+            <span className={css.legendItem}><i className={`${css.swatch} ${css.dayOnTime}`} />{L("on time", "tepat")}</span>
+            <span className={css.legendItem}><i className={`${css.swatch} ${css.dayLate}`} />{L("late", "lewat")}</span>
+            <span className={css.legendItem}><i className={`${css.swatch} ${css.dayAbsent}`} />{L("half day / absent", "separuh / tidak hadir")}</span>
+            <span className={css.legendItem}><i className={`${css.swatch} ${css.dayOff}`} />{L("off", "cuti/rehat")}</span>
           </div>
         </div>
         )}
       </div>
       {!has && (
-        <p className="text-muted-foreground mt-3 text-xs" role="status">
+        <p className={css.monthNote} role="status">
           {L("Day-by-day verdicts (on time, late, half day) are not available right now — the figures above count your punches.", "Keputusan hari demi hari (tepat waktu, lewat, separuh hari) tidak tersedia sekarang — angka di atas mengira punch anda.")}
         </p>
       )}
       {notes.length > 0 && (
-        <p className="text-muted-foreground mt-3 text-xs">{notes.join(" · ")}</p>
+        <p className={css.monthNote}>{notes.join(" · ")}</p>
       )}
     </div>
   );
@@ -210,7 +213,7 @@ export function PunchToast({
   /* v1.124.0 — see SaveToast: the ring follows the theme now. */
   const colour = variant === "success" ? "var(--primary)" : "var(--warning)";
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+    <div className={css.toastLayer}>
       <style>{`
         @keyframes punch-pop { 0% { opacity: 0; transform: scale(.82) translateY(8px); } 60% { opacity: 1; transform: scale(1.03); } 100% { transform: scale(1); } }
         @keyframes punch-ring { from { stroke-dashoffset: 151; } to { stroke-dashoffset: 0; } }
@@ -229,7 +232,7 @@ export function PunchToast({
       >
         <svg
           viewBox="0 0 52 52"
-          className="mx-auto h-14 w-14"
+          className={css.toastRing}
           aria-hidden="true"
         >
           <circle
@@ -267,8 +270,8 @@ export function PunchToast({
             </g>
           )}
         </svg>
-        <p className="mt-3 text-base font-semibold">{title}</p>
-        <p className="text-muted-foreground mt-0.5 text-sm">{sub}</p>
+        <p className={css.toastTitle}>{title}</p>
+        <p className={css.toastSub}>{sub}</p>
       </div>
     </div>
   );
@@ -1051,20 +1054,20 @@ export function Dashboard({
   const daysPresent = dayPairs.size;
   const monthHours = Array.from(dayPairs.values()).reduce((a, e) => a + e.hours, 0);
   return (
-    <div className="space-y-6 pb-2">
+    <div className={css.page}>
       {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
           top of the reference's phone screen. Phones only; the desktop header
           already greets. */}
-      <div className="md:hidden">
-        <p className="text-muted-foreground text-[12px]">
+      <div className={css.greeting}>
+        <p className={css.greetingDate}>
           {mytTodayLine(lang)}
         </p>
-        <h2 className="mt-0.5 text-xl font-semibold">
+        <h2 className={css.greetingTitle}>
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
       {/* Daily actions and pending work precede metrics and company reporting. */}
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight">
         <ZoneLabel>{L("My day", "Hari saya")}</ZoneLabel>
       {/* v1.115.0 — QUICK ACTIONS FIRST. The CEO, 05-09-2026, with the
           Dashboard on screen: *"Quick actions should be on the top so that
@@ -1073,12 +1076,12 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
-      <div className={`erp-shift-hero ${shiftOnly ? "md:mx-auto md:max-w-3xl" : ""}`}>
+      <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : ""}`}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <PanelTitle icon="time" className="text-white" tone="inherit">
+        <div className={css.heroHead}>
+        <div className={css.heroTitleRow}>
+        <PanelTitle icon="time" className={css.heroTitle} tone="inherit">
           {shiftOnly ? L("On Shift", "Syif Saya") : openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
         </PanelTitle>
         {/* v1.172.1 (Interface System V3): the state of the day, said once
@@ -1096,11 +1099,11 @@ export function Dashboard({
         {/* v1.172.1: a compact link beside the title on every width - as a
             full-width pill it read as the first action on a phone. */}
         <button type="button" className={btnSm} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
-          <AppIcon name={shiftOnly ? "next" : "time"} className="h-4 w-4" />
+          <AppIcon name={shiftOnly ? "next" : "time"} className="erp-icon" />
           {shiftOnly ? L("Dashboard", "Papan Pemuka") : L("On Shift", "Syif Saya")}
         </button>
         </div>
-        {todayShift?.entry?.leave_review && <p role="status" className="mt-2 text-sm text-warning">{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
+        {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
             ragged wrapping; the desktop keeps its inline row. v1.10.0: the
             flip moved sm→md so the whole mobile shell (nav, hero, cards,
@@ -1108,24 +1111,24 @@ export function Dashboard({
         {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
             a green "Clock in" for someone who already clocked in. */}
         {attendanceError && (
-          <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-warning">
+          <div role="alert" className={css.heroAlert}>
             <span>{L("Attendance could not be refreshed. Check your connection and retry.", "Kehadiran tidak dapat dimuat semula. Semak sambungan dan cuba lagi.")}</span>
             <button type="button" className={btnHero} onClick={() => void load()}>
-              <AppIcon name="refresh" className="h-4 w-4" />{L("Retry", "Cuba lagi")}
+              <AppIcon name="refresh" className="erp-icon" />{L("Retry", "Cuba lagi")}
             </button>
           </div>
         )}
         {!attKnown ? !attendanceError && (
           <div
-            className="mt-2.5 grid grid-cols-2 gap-2 md:flex md:flex-wrap"
+            className={css.actionsSkel}
             aria-busy="true"
           >
             {[0, 1, 2, 3].map((i) => (
-              <Skel key={i} className="h-11 rounded-full md:w-36" />
+              <Skel key={i} className={css.actionSkel} h={44} round="full" />
             ))}
           </div>
         ) : (
-          <div className={shiftOnly ? "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" : "mt-3 grid grid-cols-2 gap-2 md:flex md:flex-wrap"}>
+          <div className={shiftOnly ? css.actionsShift : css.actions}>
             {/* v1.172.1: one button height everywhere (the 44px contract) -
                 the On Shift tab used to grow its two buttons to 56px. */}
             <button
@@ -1183,13 +1186,13 @@ export function Dashboard({
           </div>
         )}
         {showOt && !hasOtOut && (
-          <p className="erp-note erp-note-warning mt-2">
+          <p className="erp-note erp-note-warning erp-mt-2">
             {L("Working on after your schedule? Tap OT in when overtime starts and OT out when you finish — it goes to the CEO to approve, and approved overtime is paid on your payslip.",
                "Bekerja selepas jadual anda? Tekan OT in apabila OT bermula dan OT out apabila selesai — ia dihantar kepada CEO untuk kelulusan, dan OT yang diluluskan dibayar pada slip gaji anda.")}
           </p>
         )}
         {punchError && (
-          <p className="text-destructive mt-2 text-xs font-medium">
+          <p className={css.punchError}>
             {punchError}
           </p>
         )}
@@ -1203,8 +1206,8 @@ export function Dashboard({
         {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
             from the cron, for the person who has the tab open right now. */}
         {clockOutDue && (
-          <p className="erp-note erp-note-warning mt-2">
-            <AppIcon name="time" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{tr("Don't forget to clock out", lang)}{" "}
+          <p className="erp-note erp-note-warning erp-mt-2">
+            <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
             — {tr("tap Clock out before you leave.", lang)}
           </p>
         )}
@@ -1214,7 +1217,7 @@ export function Dashboard({
             anything worked outside these hours goes to the CEO as overtime
             without a second pair of buttons. */}
         {attKnown && todayShift && (
-          <p className="text-muted-foreground mt-2 text-xs">
+          <p className={css.shiftsNote}>
             {/* v1.133.2 — the SHIFTS, including roster and live-board
                 assignments, not only the pattern. One clock-in per shift;
                 a day with none has nothing to clock in for. */}
@@ -1234,12 +1237,12 @@ export function Dashboard({
                 would fire the browser's location prompt on every Dashboard
                 open, before the person asked to punch. The real check stays
                 where it belongs — server-side, at the punch. */}
-            <div className="erp-note mt-3 md:hidden">
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2 text-[12px] font-medium">
+            <div className={`erp-note ${css.fenceNote}`}>
+              <div className={css.fenceHead}>
+                <span className={css.fenceLabel}>
                   <ShieldOk
                     aria-hidden
-                    className="h-4 w-4"
+                    className="erp-icon"
                     strokeWidth={1.75}
                   />
                   {lang === "ms"
@@ -1263,11 +1266,11 @@ export function Dashboard({
               </div>
               {gpsCheck.state === "done" && (
                 <p
-                  className={`mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}
+                  className={`${css.fenceResult} ${gpsCheck.inside ? css.inside : css.outside}`}
                 >
                   <span
                     aria-hidden
-                    className={`h-2 w-2 shrink-0 rounded-full ${gpsCheck.inside ? "bg-success" : "bg-warning"}`}
+                    className={css.fenceDot}
                   />
                   {gpsCheck.inside
                     ? lang === "ms"
@@ -1283,12 +1286,12 @@ export function Dashboard({
                 </p>
               )}
               {gpsCheck.state === "error" && (
-                <p className="text-warning mt-1.5 text-[12px] font-medium">
+                <p className={css.fenceError}>
                   {gpsCheck.message}
                 </p>
               )}
             </div>
-            <p className="mt-3 hidden text-[11px] text-white/70 md:block">
+            <p className={css.fenceLine}>
               {tr("Office check-in is on", lang)} —{" "}
               {GEOFENCE_EXEMPT_ROLES.includes(user.role)
                 ? lang === "ms"
@@ -1299,7 +1302,7 @@ export function Dashboard({
                   : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}{" "}
               <button
                 type="button"
-                className="ml-2 font-semibold text-gold underline-offset-2 hover:underline disabled:opacity-50"
+                className={css.fenceCheck}
                 onClick={() => void checkLocation()}
                 disabled={gpsCheck.state === "busy"}
               >
@@ -1313,7 +1316,7 @@ export function Dashboard({
               </button>
               {gpsCheck.state === "done" && (
                 <span
-                  className={`ml-1.5 font-semibold ${gpsCheck.inside ? "text-success" : "text-warning"}`}
+                  className={`${css.fenceVerdict} ${gpsCheck.inside ? css.inside : css.outside}`}
                 >
                   {gpsCheck.inside
                     ? L(
@@ -1328,7 +1331,7 @@ export function Dashboard({
               )}
               {gpsCheck.state === "error" && (
                 <>
-                  <span className="text-warning ml-1.5">
+                  <span className={css.fenceMessage}>
                     {gpsCheck.message}
                   </span>
                   {/* v1.25.3: "tap the padlock" is impossible when the portal
@@ -1341,9 +1344,9 @@ export function Dashboard({
           </>
         )}
         {!attKnown ? (
-          <Skel className="mt-3 h-3 w-48" />
+          <Skel className={css.punchesSkel} h={12} w={192} />
         ) : (
-          <p className="mt-3 text-xs text-white/70">
+          <p className={css.punches}>
             {today.length === 0 && todayOt.length === 0
               ? L(
                   "No attendance recorded today.",
@@ -1367,7 +1370,7 @@ export function Dashboard({
 
       </section>
       {!shiftOnly && <>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight">
         <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
       {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
           person, from every module. One quiet line when there is nothing.
@@ -1387,7 +1390,7 @@ export function Dashboard({
         <OneDesk go={(t) => go(t as TabName)} />
       )}
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight">
         <ZoneLabel>{L("My month", "Bulan saya")}</ZoneLabel>
       {/* v1.171.0 — ONE card for the month. The four-tile strip (today's
           clock-in, days present, hours, open tasks) said what the hero and
@@ -1406,18 +1409,18 @@ export function Dashboard({
           moved to Ecommerce, the attendance donut and today's assignments to
           Attendance, the bars with the floor. See trading-desk.tsx. */}
       <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>
       {/* v1.169.0: Tasks, leave and news are one work panel. The previous
           mobile checklist plus three desktop cards repeated the same records
           and made the bottom half of the Dashboard read as six destinations.
           v1.171.0: the events are the fourth pill (the CEO chose "Tasks |
           Leave | News | Events"); the #upcoming-events anchor moves here. */}
-      <div id="upcoming-events" className={`${card} scroll-mt-16`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div id="upcoming-events" className={`${card} ${css.overviewAnchor}`}>
+        <div className={css.overviewHead}>
           <div>
             <PanelTitle icon="orders">{L("Work overview", "Ringkasan kerja")}</PanelTitle>
-            <p className="text-muted-foreground mt-0.5 text-xs">
+            <p className="erp-meta erp-mt-half">
               {L("Your tasks, leave requests, company updates and upcoming events.", "Tugasan, permohonan cuti, kemas kini syarikat dan acara akan datang anda.")}
             </p>
           </div>
@@ -1429,73 +1432,73 @@ export function Dashboard({
               ["events", L("Events", "Acara")],
             ] as const} />
         </div>
-        <div hidden={aroundTab !== "tasks"} className="mt-4">
+        <div hidden={aroundTab !== "tasks"} className={css.pane}>
           {!tasksKnown ? <SkelText lines={3} /> : tasks.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{tr("Nothing assigned.", lang)}</p>
+            <p className="erp-text-sm erp-muted">{tr("Nothing assigned.", lang)}</p>
           ) : (
-            <ul className="divide-border divide-y">
+            <ul className={css.list}>
               {tasks.slice(0, 4).map((t) => (
                 <li key={t.id}>
-                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Tasks")}>
-                    <span className="bg-tint-gold text-gold-deep grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="orders" className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{t.title}</span><span className="text-muted-foreground block text-xs">{priorityL(t.priority)}{t.deadline ? L(` · due ${dmy(t.deadline)}`, ` · sebelum ${dmy(t.deadline)}`) : ""}</span></span>
-                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  <button type="button" className={css.listItem} onClick={() => go("Tasks")}>
+                    <span className={`erp-avatar ${css.listIconGold}`}><AppIcon name="orders" className="erp-icon" /></span>
+                    <span className={css.listText}><span className={css.listTitle}>{t.title}</span><span className={css.listSub}>{priorityL(t.priority)}{t.deadline ? L(` · due ${dmy(t.deadline)}`, ` · sebelum ${dmy(t.deadline)}`) : ""}</span></span>
+                    <AppIcon name="next" className={`erp-icon ${css.listChevron}`} />
                   </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <div hidden={aroundTab !== "leave"} className="mt-4">
+        <div hidden={aroundTab !== "leave"} className={css.pane}>
           {!leaveKnown ? <SkelText lines={3} /> : leave.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{tr("None pending.", lang)}</p>
+            <p className="erp-text-sm erp-muted">{tr("None pending.", lang)}</p>
           ) : (
-            <ul className="divide-border divide-y">
+            <ul className={css.list}>
               {leave.slice(0, 4).map((l) => (
                 <li key={l.id}>
-                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Leave")}>
-                    <span className="bg-secondary grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="date" className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{leaveTypeL(l.type)}</span><span className="text-muted-foreground block text-xs">{dmy(l.start_date)} → {dmy(l.end_date)} · {l.days}d</span></span>
-                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  <button type="button" className={css.listItem} onClick={() => go("Leave")}>
+                    <span className="erp-avatar"><AppIcon name="date" className="erp-icon" /></span>
+                    <span className={css.listText}><span className={css.listTitle}>{leaveTypeL(l.type)}</span><span className={css.listSub}>{dmy(l.start_date)} → {dmy(l.end_date)} · {l.days}d</span></span>
+                    <AppIcon name="next" className={`erp-icon ${css.listChevron}`} />
                   </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <div hidden={aroundTab !== "news"} className="mt-4">
+        <div hidden={aroundTab !== "news"} className={css.pane}>
           {!annsKnown ? <SkelText lines={3} /> : anns.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{tr("No announcements.", lang)}</p>
+            <p className="erp-text-sm erp-muted">{tr("No announcements.", lang)}</p>
           ) : (
-            <ul className="divide-border divide-y">
+            <ul className={css.list}>
               {anns.slice(0, 4).map((a) => (
                 <li key={a.id}>
-                  <button type="button" className="hover:bg-secondary/60 flex min-h-14 w-full items-center gap-3 px-1 text-left" onClick={() => go("Announcements")}>
-                    <span className="bg-secondary grid h-8 w-8 shrink-0 place-items-center rounded-full"><AppIcon name="chat" className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{a.title}</span><span className="text-muted-foreground block text-xs">{annCatL(a.category)}</span></span>
-                    <AppIcon name="next" className="text-muted-foreground h-4 w-4" />
+                  <button type="button" className={css.listItem} onClick={() => go("Announcements")}>
+                    <span className="erp-avatar"><AppIcon name="chat" className="erp-icon" /></span>
+                    <span className={css.listText}><span className={css.listTitle}>{a.title}</span><span className={css.listSub}>{annCatL(a.category)}</span></span>
+                    <AppIcon name="next" className={`erp-icon ${css.listChevron}`} />
                   </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <div hidden={aroundTab !== "events"} className="mt-4">
+        <div hidden={aroundTab !== "events"} className={css.pane}>
           {/* v1.21.6 — My schedule: the person's own upcoming roster/live
               sessions, on the Dashboard where the phone actually opens.
               v1.171.0: under the Events pill, above the company calendar - what
               is coming up, mine first. */}
           {mySessions.length > 0 && (
-            <div className="border-border mb-4 border-b pb-4">
-              <p className="text-[15px] font-semibold md:text-sm">
+            <div className={css.schedule}>
+              <p className={css.scheduleTitle}>
                 {lang === "ms" ? "Jadual saya" : "My schedule"}
               </p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
+              <p className="erp-meta erp-mt-half">
                 {lang === "ms"
                   ? "Sesi roster yang ditetapkan kepada anda — anda dimaklumkan setiap kali satu ditambah atau dipindah."
                   : "Roster sessions assigned to you — you are notified whenever one is added or moved."}
               </p>
-              <div className="mt-1.5">
+              <div className={css.scheduleList}>
                 {mySessions.map((s) => {
                   const todayIso = new Date(Date.now() + 8 * 3600 * 1000)
                     .toISOString()
@@ -1504,11 +1507,11 @@ export function Dashboard({
                   return (
                     <div
                       key={s.id}
-                      className="border-border border-b py-2 text-sm last:border-0 last:pb-0"
+                      className={css.session}
                     >
-                      <p className="flex flex-wrap items-baseline gap-x-1.5">
+                      <p className={css.sessionWhen}>
                         <span
-                          className={`font-semibold tabular-nums ${isToday ? "text-gold-deep" : ""}`}
+                          className={`${css.sessionDate} ${isToday ? css.sessionToday : ""}`}
                         >
                           {isToday
                             ? lang === "ms"
@@ -1516,7 +1519,7 @@ export function Dashboard({
                               : "TODAY"
                             : dmy(s.session_date)}
                         </span>
-                        <span className="text-muted-foreground tabular-nums">
+                        <span className={css.sessionTime}>
                           {s.start_time}
                           {s.end_time ? `–${s.end_time}` : ""}
                         </span>
@@ -1524,12 +1527,12 @@ export function Dashboard({
                           {s.platform}
                         </span>
                       </p>
-                      <p className="mt-0.5 truncate text-[13px] font-medium">
+                      <p className={css.sessionWhat}>
                         {s.client_company ??
                           s.client_name ??
                           L("Live session", "Sesi LIVE")}
                         {s.notes ? (
-                          <span className="text-muted-foreground font-normal">
+                          <span className={css.sessionNotes}>
                             {" "}
                             — {s.notes}
                           </span>
@@ -1701,10 +1704,10 @@ export function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   }, []);
   const wrap = (node: ReactNode) =>
     inModal ? (
-      <div className="flex flex-col pb-4 sm:pb-0">{node}</div>
+      <div className={css.summaryModal}>{node}</div>
     ) : (
       <div className={card}>
-        <p className="mb-3 text-sm font-semibold">
+        <p className={css.summaryTitle}>
           ⭐ {L("Active Stokis", "Stokis aktif")}
         </p>
         {node}
@@ -1712,15 +1715,15 @@ export function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
     );
   if (!loaded)
     return wrap(
-      <SkelRows rows={4} className={inModal ? "px-4 sm:px-5" : "max-h-80 pr-1"} />
+      <SkelRows rows={4} className={inModal ? css.summarySkelModal : css.summarySkelCard} />
     );
   if (data.length === 0)
     return wrap(
       <p
         className={
           inModal
-            ? "text-muted-foreground px-4 py-8 text-center text-sm"
-            : "text-muted-foreground mt-2 text-sm"
+            ? css.summaryEmptyModal
+            : css.summaryEmptyCard
         }
       >
         {L("No active stokis.", "Tiada stokis aktif.")}
@@ -1729,16 +1732,16 @@ export function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
   return wrap(
     <div
       className={
-        inModal ? "overflow-y-auto" : "max-h-80 space-y-3 overflow-y-auto pr-1"
+        inModal ? css.summaryListModal : css.summaryListCard
       }
     >
       {data.map((s) => (
         <div
           key={s.id}
-          className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-4 py-3 transition-colors sm:px-5" : "pb-2"}`}
+          className={`${css.summaryRow} ${inModal ? css.summaryRowModal : css.summaryRowCard}`}
         >
-          <p className="font-bold">{s.name}</p>
-          <p className="text-muted-foreground text-xs">
+          <p className={css.summaryName}>{s.name}</p>
+          <p className={css.summaryDetail}>
             {fmtRM(s.month_cents)} {L("this month", "bulan ini")}
           </p>
         </div>
@@ -1860,7 +1863,7 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
      being accepted before, and the fix is one full DEPLOY.bat run. */
   const fenceWarning = fenceMissing ? (
     <p
-      className={`bg-danger-soft text-danger rounded-lg px-3 py-2 text-xs font-medium ${inModal ? "mx-4 mt-3 sm:mx-5" : "mb-2"}`}
+      className={`${css.fenceMissing} ${inModal ? css.fenceMissingModal : css.fenceMissingCard}`}
     >
       Office geofence is NOT active on this deployment — run DEPLOY.bat in full
       (step 2 seeds it via migration 0072), then punches require location and
@@ -1869,13 +1872,13 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
   ) : null;
   const wrap = (node: ReactNode) =>
     inModal ? (
-      <div className="flex flex-col pb-4 sm:pb-0">
+      <div className={css.summaryModal}>
         {fenceWarning}
         {node}
       </div>
     ) : (
       <div className={card}>
-        <p className="mb-3 text-sm font-semibold">
+        <p className={css.summaryTitle}>
           {L("In Today", "Hadir hari ini")}
         </p>
         {fenceWarning}
@@ -1884,15 +1887,15 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
     );
   if (!loaded)
     return wrap(
-      <SkelRows rows={4} className={inModal ? "px-4 sm:px-5" : "max-h-80 pr-1"} />
+      <SkelRows rows={4} className={inModal ? css.summarySkelModal : css.summarySkelCard} />
     );
   if (data.length === 0)
     return wrap(
       <p
         className={
           inModal
-            ? "text-muted-foreground px-4 py-8 text-center text-sm"
-            : "text-muted-foreground mt-2 text-sm"
+            ? css.summaryEmptyModal
+            : css.summaryEmptyCard
         }
       >
         {L("No one checked in today.", "Tiada sesiapa daftar masuk hari ini.")}
@@ -1901,18 +1904,18 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
   return wrap(
     <div
       className={
-        inModal ? "overflow-y-auto" : "max-h-80 space-y-3 overflow-y-auto pr-1"
+        inModal ? css.summaryListModal : css.summaryListCard
       }
     >
       {data.map((u) => (
         <div
           key={u.id}
-          className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-4 py-3 transition-colors sm:px-5" : "pb-2"}`}
+          className={`${css.summaryRow} ${inModal ? css.summaryRowModal : css.summaryRowCard}`}
         >
-          <p className="text-sm font-medium">{u.name}</p>
+          <p className={css.summaryWho}>{u.name}</p>
           {/* v1.15.0 fix (audit finding): in_at is a UTC string — slicing it
               showed a 10:00 MYT clock-in as 02:00. mytTime converts. */}
-          <p className="text-muted-foreground text-xs">
+          <p className={css.summaryDetail}>
             {L("Checked in at", "Daftar masuk pada")}{" "}
             {u.in_at ? mytTime(u.in_at) : L("unknown", "tidak diketahui")}
             {(() => {
@@ -1925,23 +1928,23 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
               if (g.ok === null)
                 return (
                   <span
-                    className={`ml-1.5 font-medium ${exempt ? "opacity-60" : "text-warning"}`}
+                    className={exempt ? css.faded : css.flagWarn}
                   >
                     · {g.text}
                   </span>
                 );
               if (exempt)
                 return (
-                  <span className="ml-1.5 font-medium opacity-60">
+                  <span className={css.faded}>
                     · {g.text}
                   </span>
                 );
               return g.ok ? (
-                <span className="text-success ml-1.5 font-medium">
+                <span className={css.flagOk}>
                   · {L("at office", "di pejabat")} · {g.text}
                 </span>
               ) : (
-                <span className="text-danger ml-1.5 font-semibold">
+                <span className={css.flagBad}>
                   · {L("OUTSIDE OFFICE", "LUAR PEJABAT")} · {g.text}
                 </span>
               );
@@ -1969,10 +1972,10 @@ export function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
       setLoaded(true);
     });
   }, [kind]);
-  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
+  if (!loaded) return <SkelRows rows={4} className={css.deskSkel} />;
   if (data.length === 0)
     return (
-      <p className="text-muted-foreground py-8 text-center text-sm">
+      <p className={css.deskEmpty}>
         {L(
           `No ${kind === "INV" ? "unpaid invoices" : "open quotations"}.`,
           kind === "INV"
@@ -1982,19 +1985,19 @@ export function OutstandingDocsSummary({ kind }: { kind: "INV" | "QT" }) {
       </p>
     );
   return (
-    <div className="flex flex-col pb-4 sm:pb-0">
+    <div className={css.deskList}>
       {data.map((d) => (
         <div
           key={d.id}
-          className="border-border hover:bg-muted/50 flex items-center justify-between border-b px-4 py-3 transition-colors last:border-0 sm:px-5"
+          className={css.deskRow}
         >
-          <span className="text-sm font-medium">
+          <span className={css.summaryWho}>
             {d.doc_number}{" "}
-            <span className="text-muted-foreground font-normal">
+            <span className={css.sessionNotes}>
               ({d.company})
             </span>
           </span>
-          <span className="font-bold text-danger tabular-nums">
+          <span className={`${css.deskMoney} ${css.deskMoneyBad}`}>
             {fmtRM(d.total_cents)}
           </span>
         </div>
@@ -2014,27 +2017,27 @@ export function PendingLeaveSummary() {
       setLoaded(true);
     });
   }, []);
-  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
+  if (!loaded) return <SkelRows rows={4} className={css.deskSkel} />;
   if (data.length === 0)
     return (
-      <p className="text-muted-foreground py-8 text-center text-sm">
+      <p className={css.deskEmpty}>
         {L("No pending leave requests.", "Tiada permohonan cuti menunggu.")}
       </p>
     );
   return (
-    <div className="flex flex-col pb-4 sm:pb-0">
+    <div className={css.deskList}>
       {data.map((l) => (
         <div
           key={l.id}
-          className="border-border hover:bg-muted/50 flex items-center justify-between border-b px-4 py-3 transition-colors last:border-0 sm:px-5"
+          className={css.deskRow}
         >
-          <p className="text-sm font-medium">
+          <p className={css.summaryWho}>
             {l.user_name || L("Unknown", "Tidak diketahui")}{" "}
-            <span className="text-muted-foreground font-normal">
+            <span className={css.sessionNotes}>
               ({l.days} {L("days", "hari")})
             </span>
           </p>
-          <p className="text-muted-foreground text-xs">
+          <p className={css.summaryDetail}>
             {l.start_date} {L("to", "hingga")} {l.end_date}
           </p>
         </div>
@@ -2070,27 +2073,27 @@ export function PendingClaimsSummary() {
       setLoaded(true);
     });
   }, []);
-  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
+  if (!loaded) return <SkelRows rows={4} className={css.deskSkel} />;
   if (data.length === 0)
     return (
-      <p className="text-muted-foreground py-8 text-center text-sm">
+      <p className={css.deskEmpty}>
         {L("No pending claims.", "Tiada tuntutan menunggu.")}
       </p>
     );
   return (
-    <div className="flex flex-col pb-4 sm:pb-0">
+    <div className={css.deskList}>
       {data.map((c) => (
         <div
           key={c.id}
-          className="border-border hover:bg-muted/50 flex items-center justify-between border-b px-4 py-3 transition-colors last:border-0 sm:px-5"
+          className={css.deskRow}
         >
-          <p className="text-sm font-medium">
+          <p className={css.summaryWho}>
             {c.user_name || L("Unknown", "Tidak diketahui")}{" "}
-            <span className="text-muted-foreground font-normal">
+            <span className={css.sessionNotes}>
               - {c.category}
             </span>
           </p>
-          <span className="font-bold tabular-nums">
+          <span className={css.deskMoney}>
             {fmtRM(c.amount_cents)}
           </span>
         </div>
@@ -2114,25 +2117,25 @@ export function LowStockSummary() {
       setLoaded(true);
     });
   }, []);
-  if (!loaded) return <SkelRows rows={4} className="px-4 pb-4 sm:px-5 sm:pb-0" />;
+  if (!loaded) return <SkelRows rows={4} className={css.deskSkel} />;
   if (data.length === 0)
     return (
-      <p className="text-muted-foreground py-8 text-center text-sm">
+      <p className={css.deskEmpty}>
         {L("No low stock items.", "Tiada barang stok rendah.")}
       </p>
     );
   return (
-    <div className="flex flex-col pb-4 sm:pb-0">
+    <div className={css.deskList}>
       {data.map((i) => (
         <div
           key={i.id}
-          className="border-border hover:bg-muted/50 flex items-center justify-between border-b px-4 py-3 transition-colors last:border-0 sm:px-5"
+          className={css.deskRow}
         >
-          <p className="text-sm font-medium">
+          <p className={css.summaryWho}>
             {i.name}{" "}
-            <span className="text-muted-foreground font-normal">({i.sku})</span>
+            <span className={css.sessionNotes}>({i.sku})</span>
           </p>
-          <span className="font-bold text-danger tabular-nums">
+          <span className={`${css.deskMoney} ${css.deskMoneyBad}`}>
             {L(`${i.stock} left`, `baki ${i.stock}`)}
           </span>
         </div>

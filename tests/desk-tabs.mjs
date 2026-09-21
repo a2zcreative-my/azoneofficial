@@ -61,7 +61,11 @@ const events = read("components/portal/events.tsx");
   const cardStart = dash.indexOf('id="upcoming-events"');
   ok("the events anchor still exists", cardStart > 0);
   const cardBlock = dash.slice(cardStart, cardStart + 2500);
-  ok("the anchor is on a card with a pill row", /className=\{`\$\{card\} scroll-mt-16`\}/.test(cardBlock) && /<SectionTabs/.test(cardBlock));
+  /* v1.172.2 (Tailwind retired): the scroll margin is dashboard.module.css
+     .overviewAnchor (4rem, the sticky bar's height). */
+  ok("the anchor is on a card with a pill row",
+     /className=\{`\$\{card\} \$\{css\.overviewAnchor\}`\}/.test(cardBlock) && /<SectionTabs/.test(cardBlock)
+     && /\.overviewAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/dashboard.module.css")));
   const pills = [...cardBlock.matchAll(/\["(tasks|leave|news|events)", /g)].map((m) => m[1]);
   ok("the pills read tasks, leave, news, events", pills.join(",") === "tasks,leave,news,events", `pills: ${pills.join(",") || "none"}`);
   ok("the card opens on tasks", /useState<"tasks" \| "leave" \| "news" \| "events">\("tasks"\)/.test(dash));
@@ -70,7 +74,7 @@ const events = read("components/portal/events.tsx");
   ok("the personal month bar chart is gone with it (the month card draws the month once)", !/bg-bar-high/.test(dash) && (dash.match(/<MonthAttendanceCard /g) ?? []).length === 1);
   ok("the mobile hero is off the Dashboard", !/NextEventCard/.test(dash));
   ok("my schedule (own roster sessions) sits under the events pill, above the company calendar",
-     /<div hidden=\{aroundTab !== "events"\} className="mt-4">[\s\S]{0,400}\{mySessions\.length > 0 && \([\s\S]*?<UpcomingEventsCard role=\{user\.role\} embedded \/>\s*<\/div>/.test(dash));
+     /<div hidden=\{aroundTab !== "events"\} className=\{css\.pane\}>[\s\S]{0,400}\{mySessions\.length > 0 && \([\s\S]*?<UpcomingEventsCard role=\{user\.role\} embedded \/>\s*<\/div>/.test(dash));
 }
 
 /* ---- 2. the embedded events body has no frame and no title ---- */

@@ -1,0 +1,388 @@
+/* v1.172.2 - the Claims flow's own layout (Tailwind retired): a claim row,
+   its expanded record, the payee remarks, the form's item grid, the month
+   filter strip and the HR history rows. Cards, chips, controls, the
+   segmented switch, the pills and the row buttons are the named classes in
+   styles/erp-v3.css. Tokens only. The item grid's five columns keep the
+   8.5rem / 7rem / 1fr / 6.5rem / auto measure the form has had since
+   v1.150.0, from `sm` up. */
+
+.row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+.rowHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.rowLine {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.capitalize {
+  text-transform: capitalize;
+}
+.chipGap {
+  margin-left: 0.25rem;
+}
+.chipGapWide {
+  margin-left: 0.375rem;
+}
+.countChip {
+  margin-left: 0.5rem;
+  font-weight: 700;
+}
+.chipIcon {
+  /* no size: AppIcon is 16px (styles/erp-v3.css, unlayered) - the legacy
+     h-3.5 utility this replaced never applied either */
+  margin-right: 0.25rem;
+  margin-top: -0.125rem;
+}
+.chipIconSm {
+  margin-right: 0.125rem;
+  margin-top: -0.125rem;
+}
+.rowActions {
+  /* alignment is .erp-row-actions' own: left on a phone, right from `sm` */
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.pointer {
+  cursor: pointer;
+}
+.fileInput {
+  display: none;
+}
+.payeeEdit {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.textLink {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-decoration-line: underline;
+}
+.inlineLink {
+  margin-left: 0.375rem;
+  text-decoration-line: underline;
+}
+.inlineLinkWide {
+  margin-left: 0.5rem;
+  text-decoration-line: underline;
+}
+.remark {
+  margin-top: 0.25rem;
+  border-radius: var(--radius);
+  border: 1px solid;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+}
+.remarkSuccess {
+  border-color: color-mix(in oklab, var(--success) 30%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+.remarkWarning {
+  border-color: color-mix(in oklab, var(--warning) 30%, transparent);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.items {
+  margin-top: 0.25rem;
+  display: grid;
+  gap: 0.125rem;
+}
+.record {
+  margin-top: 0.375rem;
+}
+.decision {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.decisionNote {
+  flex: 1 1 0%;
+}
+.pendingList {
+  margin-top: 0.75rem;
+}
+.pendingList > :where(:not(:last-child)) {
+  margin-bottom: 0.5rem;
+}
+.anchor {
+  scroll-margin-top: 4rem;
+}
+.anchorForm {
+  scroll-margin-top: 9rem;
+}
+.formTitleLink {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+  text-decoration-line: underline;
+}
+.fieldBlock {
+  margin-top: 0.5rem;
+  display: block;
+}
+.fieldBlockWide {
+  margin-top: 0.75rem;
+  display: block;
+}
+@media (min-width: 640px) {
+  .fieldNarrow {
+    max-width: 20rem;
+  }
+  .fieldMedium {
+    max-width: 28rem;
+  }
+}
+.fieldLabel {
+  display: block;
+  margin-bottom: 0.125rem;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.fieldLabelPlain {
+  display: block;
+  margin-bottom: 0.125rem;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.fieldHelp {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.rateLine {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.rateLine strong {
+  color: var(--foreground);
+}
+.rateIcon {
+  display: inline;
+  margin-right: 0.25rem;
+  margin-top: -0.125rem;
+}
+.rateEdit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.rateInput {
+  width: 6rem;
+}
+.kmInput {
+  width: 7rem;
+}
+.gridHead {
+  display: none;
+}
+.item {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+}
+.phoneField {
+  display: block;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.phoneFieldWide {
+  grid-column: span 2 / span 2;
+}
+.phoneControl {
+  margin-top: 0.125rem;
+}
+.deskControl {
+  display: none;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.remove {
+  justify-self: end;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--destructive);
+  text-decoration-line: underline;
+}
+.removeSpacer {
+  display: none;
+}
+.mileage {
+  grid-column: span 2 / span 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mileageLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.mileageIcon {
+  /* no size: AppIcon is 16px (see .chipIcon) */
+  flex-shrink: 0;
+}
+.mileageNote {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+@media (min-width: 640px) {
+  .gridHead {
+    margin-top: 0.5rem;
+    display: grid;
+    grid-template-columns: 8.5rem 7rem 1fr 6.5rem auto;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    color: var(--muted-foreground);
+  }
+  .item {
+    margin-top: 0.25rem;
+    grid-template-columns: 8.5rem 7rem 1fr 6.5rem auto;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+  }
+  .phoneField {
+    display: none;
+  }
+  .deskControl {
+    display: block;
+  }
+  .remove {
+    justify-self: auto;
+  }
+  .removeSpacer {
+    display: block;
+  }
+  .mileage {
+    grid-column: span 5 / span 5;
+    padding-bottom: 0.25rem;
+  }
+}
+.itemsFoot {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.submitRow {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+@media (min-width: 640px) {
+  .submitRow {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .submitRow > .startLeft {
+    justify-content: flex-start;
+  }
+}
+.formMsg {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--warning);
+}
+.monthStrip {
+  margin-top: 0.625rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1rem;
+  row-gap: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.monthFilter {
+  border-radius: 0.25rem;
+  padding-inline: 0.25rem;
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (hover: hover) {
+  .monthFilter:hover {
+    text-decoration-line: underline;
+  }
+}
+.monthFilterOn {
+  background: var(--card);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.toneSuccess {
+  color: var(--success);
+}
+.toneWarning {
+  color: var(--warning);
+}
+.toneDanger {
+  color: var(--danger);
+}
+.list {
+  margin-top: 0.75rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.list > :where(:not(:last-child)) {
+  margin-bottom: 0.5rem;
+}
+.historyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.historyActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}

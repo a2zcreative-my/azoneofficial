@@ -94,7 +94,13 @@ const i18n = read("lib/i18n.ts");
   ok("every input is inside a labelled Field", labelled.length === ids.length, `${labelled.length} of ${ids.length}: ${ids.filter((i) => !labelled.includes(i)).join(", ")}`);
   ok("Field renders a real <label htmlFor>", /<label htmlFor=\{id\}/.test(src));
   ok("the inputs are the 16px public-page field, not the 14px desk one", /inputClassLg/.test(src) && !/\binputClass\b(?!Lg)/.test(src));
-  ok("...and inputClassLg really is 16px on a phone", /export const inputClassLg[\s\S]*?text-base[\s\S]*?sm:text-sm/.test(styles));
+  /* v1.172.2 (Tailwind retired): the field is the named .erp-input-public,
+     16px below `sm` and 14px from it, in styles/erp-v3.css. */
+  const v3 = read("styles/erp-v3.css");
+  ok("...and inputClassLg really is 16px on a phone",
+     /export const inputClassLg =[\s\S]*?"erp-input-public";/.test(styles)
+     && /\.erp-input-public \{[^}]*font-size: 1rem;/.test(v3)
+     && /@media \(min-width: 640px\) \{ \.erp-input-public \{ font-size: 0\.875rem;/.test(v3));
   ok("the email field asks for the email keyboard and no autocapitalise", /inputMode="email"/.test(src) && /autoCapitalize="none"/.test(src));
   ok("the password field keeps its autocomplete contract", /autoComplete=\{mode === "register" \? "new-password" : "current-password"\}/.test(src) && /autoComplete="username"/.test(src));
   ok("the password can be revealed, and the toggle says which state it is in", /aria-pressed=\{showPw\}/.test(src) && /aria-label=\{showPw \? L\("Hide password"/.test(src));

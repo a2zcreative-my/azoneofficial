@@ -155,12 +155,18 @@ ok("no signed-in screen imports lucide directly — it goes through AppIcon",
    direct.length === 0, direct.join(", "));
 
 /* ---- one size, one weight ------------------------------------------- */
+/* v1.172.2 (Tailwind retired): the size is the named .erp-icon class, whose
+   16px square lives in styles/erp-v3.css; the stroke stays on the glyph. */
+const v3 = read("styles/erp-v3.css");
 ok("AppIcon fixes the size and the stroke in one place",
-   /h-4 w-4/.test(iconFile) && /strokeWidth=\{1\.75\}/.test(iconFile));
+   /className=\{`erp-icon erp-icon-inline \$\{className\}`\}/.test(iconFile) && /strokeWidth=\{1\.75\}/.test(iconFile)
+   && /\.erp-icon \{ width: 1rem; height: 1rem; flex-shrink: 0; \}/.test(v3));
 ok("AppIcon is always aria-hidden — the word beside it is the label",
    /<Glyph aria-hidden/.test(iconFile));
 ok("PanelTitle renders the same heading with or without an icon",
-   /text-sm font-semibold/.test(iconFile) && /icon \?/.test(iconFile));
+   /className=\{`erp-panel-title \$\{className\}`\}/.test(iconFile) && /icon \?/.test(iconFile)
+   && /\.erp-panel-title \{[^}]*font-size: 0\.875rem; line-height: 1\.25rem; font-weight: 600; \}/.test(v3)
+   && /\.erp-heading \{ font-size: 0\.875rem; line-height: 1\.25rem; font-weight: 600; \}/.test(v3));
 
 /* ---- the trap: prose that named a button by its glyph --------------- */
 const prose = [...files].map((f) => stripComments(read(f))).join("\n");

@@ -64,7 +64,12 @@ ok("the leaderboard rides in the map's side column", /<OpsMapCard aside=\{<Leade
 const caps = ["This month", "The work", "The longer view", "Setup"];
 ok("the four zones are captioned", caps.every((c) => tab.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !tab.includes(`<ZoneLabel>{L("${c}"`)).join(","));
 ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
-ok("the tracker is wide and fulfilment beside it", /md:grid-cols-\[minmax\(0,2fr\)_minmax\(0,1fr\)\]/.test(tab));
+/* v1.172.2 (Tailwind retired): the 2fr / 1fr split is portal.module.css
+   .ecomWorkSplit, applied when the role sees revenue. */
+const portalCss = read("app/portal/portal.module.css");
+ok("the tracker is wide and fulfilment beside it",
+   /REVENUE_ROLES\.includes\(user\.role\) \? css\.ecomWorkSplit : ""/.test(tab)
+   && /\.ecomWorkSplit \{\s*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\);/.test(portalCss));
 
 /* 2. visual and keyboard reading order agree on every viewport */
 ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab));
@@ -217,7 +222,8 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("Attendance records and decisions precede scheduling and setup",
     ordered(attendance, ['<Attendance user=', '<CompanyAttendanceToday', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));
   ok("the assignments card's Open roster scrolls to the board on the same tab",
-    /<div id="roster-board" className="scroll-mt-16">\s*<RosterBoard/.test(attendance)
+    /<div id="roster-board" className=\{css\.rosterAnchor\}>\s*<RosterBoard/.test(attendance)
+    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("app/portal/portal.module.css"))
     && /onOpenRoster=\{\(\) => revealAnchor\("roster-board"\)\}/.test(read("components/portal/dashboard-cards.tsx")));
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
   ok("Users starts with accounts, then review, permissions and locations",

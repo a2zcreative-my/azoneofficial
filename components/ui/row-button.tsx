@@ -37,7 +37,10 @@
  * A disabled button still owes an explanation. Where the reason is not
  * obvious from the row, prefer LEAVING IT ENABLED and answering with the
  * house toast ("No changes"), which is what the Overtime Save does now. */
-const OFF = "disabled:pointer-events-none disabled:opacity-50";
+/* v1.172.2 (Tailwind retired): the named class in styles/erp-v3.css - a
+   disabled row button is inert (pointer-events: none) and, by the
+   .erp-button contract in globals.css, at 50% opacity. */
+const OFF = "erp-button-off";
 
 /** Neutral action — Edit, Print, Revert, Send PDF. */
 export const rowBtn =
@@ -75,4 +78,4 @@ export const rowBtnWarning =
  * against the right edge — the row reads as two ragged fragments instead of
  * one block. On a phone the buttons sit under the text, so they should start
  * where the text starts; on a desktop they still sit opposite it. */
-export const rowActions = "flex flex-wrap items-center justify-start gap-1.5 sm:justify-end";
+export const rowActions = "erp-row-actions";

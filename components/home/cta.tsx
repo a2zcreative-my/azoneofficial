@@ -7,7 +7,7 @@ import { whatsappUrl } from "@/constants/content";
 
 export function Cta() {
   return (
-    <Section id="contact" className="bg-brand-neutral">
+    <Section id="contact" neutral>
       <Reveal>
         <div className="mx-auto max-w-2xl text-center">
           <p className="text-gold-deep mb-3 text-xs font-medium tracking-[0.3em] uppercase">

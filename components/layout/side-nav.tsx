@@ -146,7 +146,7 @@ export function SideNav({
       {/* Brand + collapse toggle */}
       <div className="erp-rail-brand">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {!collapsed && <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg bg-white object-contain p-1" />}
+        {!collapsed && <img src="/logo.png" alt="" className="erp-rail-logo" />}
         {!collapsed && (
           <span className="erp-rail-brand-name">
             A2Z CREATIVE MARKETING
@@ -160,7 +160,7 @@ export function SideNav({
           aria-expanded={!collapsed}
           className="erp-icon-button erp-icon-button-ghost"
         >
-          {collapsed ? <PanelLeftOpen aria-hidden className="h-4 w-4" /> : <PanelLeftClose aria-hidden className="h-4 w-4" />}
+          {collapsed ? <PanelLeftOpen aria-hidden className="erp-icon" /> : <PanelLeftClose aria-hidden className="erp-icon" />}
         </button>
       </div>
 
@@ -196,7 +196,7 @@ export function SideNav({
                       className="erp-rail-item"
                     >
                       {/* the gold active marker is drawn by .erp-rail-item[aria-current] */}
-                      <span className="erp-rail-icon"><TabIcon name={it.name} className="h-4 w-4" /></span>
+                      <span className="erp-rail-icon"><TabIcon name={it.name} className="erp-icon" /></span>
                       {!collapsed && <span className="erp-rail-item-label">{it.label}</span>}
                     </button>
                   </li>
@@ -226,9 +226,9 @@ export function SideNav({
           onClick={onSignOut}
           title={ms ? "Log keluar" : "Sign out"}
           aria-label={ms ? "Log keluar" : "Sign out"}
-          className="erp-rail-item rounded-lg"
+          className="erp-rail-item erp-rail-item-signout"
         >
-          <span className="erp-rail-icon"><LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} /></span>
+          <span className="erp-rail-icon"><LogOut aria-hidden className="erp-icon" strokeWidth={1.75} /></span>
           {!collapsed && <span className="erp-rail-item-label">{ms ? "Log keluar" : "Sign out"}</span>}
         </button>
       </div>

@@ -30,6 +30,7 @@ import { getLang } from "@/lib/i18n";
 import { brandByCode } from "@/constants/brands";
 import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
+import css from "./web-orders-panel.module.css";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -192,18 +193,18 @@ export function WebOrdersPanel() {
      the courier contract above with /{ key: "…", label:/ and must not find a
      table column in it. */
   const columns: DataColumn<WebOrder>[] = [
-    { label: L("Order", "Pesanan"), key: "order_number", hideable: false, render: (o) => <span className="font-mono text-xs">{o.order_number}</span> },
+    { label: L("Order", "Pesanan"), key: "order_number", hideable: false, render: (o) => <span className={css.monoXs}>{o.order_number}</span> },
     { label: "Status", key: "status", render: (o) => <span className={statusChip(o.status)}>{statusLabel(o.status)}</span>, sortValue: (o) => STATUSES.indexOf(o.status as typeof STATUSES[number]) },
-    { label: L("Customer", "Pelanggan"), key: "customer", render: (o) => <>{o.customer_name ?? "—"}<span className="text-muted-foreground ml-1 text-xs">{o.phone ?? ""}</span></>, sortValue: (o) => o.customer_name ?? "" },
-    { label: L("Total", "Jumlah"), key: "total", numeric: true, render: (o) => <span className="font-medium">{fmtRM(o.total_cents)}</span>, sortValue: (o) => o.total_cents },
-    { label: L("Placed", "Dibuat"), key: "placed", render: (o) => <span className="text-xs">{dmyMYT(o.placed_at)}</span>, sortValue: (o) => o.placed_at ?? "" },
+    { label: L("Customer", "Pelanggan"), key: "customer", render: (o) => <>{o.customer_name ?? "—"}<span className={css.phone}>{o.phone ?? ""}</span></>, sortValue: (o) => o.customer_name ?? "" },
+    { label: L("Total", "Jumlah"), key: "total", numeric: true, render: (o) => <span className="erp-medium">{fmtRM(o.total_cents)}</span>, sortValue: (o) => o.total_cents },
+    { label: L("Placed", "Dibuat"), key: "placed", render: (o) => <span className="erp-text-xs">{dmyMYT(o.placed_at)}</span>, sortValue: (o) => o.placed_at ?? "" },
     { label: L("Tracking", "Penjejakan"), key: "tracking", sortable: false, render: (o) => (
-      <span className="text-xs">
+      <span className="erp-text-xs">
         {o.tracking_no ? (
           o.tracking_url ? (
             /* The link is the shop's, not one built here. */
             <a href={o.tracking_url} target="_blank" rel="noopener noreferrer"
-              className="underline" onClick={(e) => e.stopPropagation()}
+              className={css.link} onClick={(e) => e.stopPropagation()}
               title={L("Open the courier's tracking page", "Buka halaman penjejakan kurier")}>
               {COURIERS.find((c) => c.key === o.tracking_courier)?.label ?? o.tracking_courier} {o.tracking_no}
             </a>
@@ -220,36 +221,36 @@ export function WebOrdersPanel() {
     <div className={card}>
       {toastNode}
       {confirmNode}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">{L("Web Orders", "Pesanan Web")} <span className="text-muted-foreground text-xs font-normal">ELFIA</span> <StaleHint show={list.stale} className="ml-1" /></h2>
+      <div className="erp-flex erp-flex-wrap erp-flex-between">
+        <h2 className={css.title}>{L("Web Orders", "Pesanan Web")} <span className={css.titleBrand}>ELFIA</span> <StaleHint show={list.stale} className={css.stale} /></h2>
         <button type="button" className={btnSm} disabled={syncing} onClick={() => void syncNow()}
           title={L("The store is polled every 5 minutes anyway — this just pulls now", "Kedai ditarik setiap 5 minit — butang ini menarik sekarang sahaja")}>
           {syncing ? L("Pulling…", "Menarik…") : L("Pull now", "Tarik sekarang")}
         </button>
       </div>
       {pending && (
-        <p className="text-muted-foreground mt-2 text-sm">
+        <p className="erp-text-sm erp-muted erp-mt-2">
           {L("Waiting for migration 0081 — run the deploy and this fills by itself.", "Menunggu migrasi 0081 — jalankan deploy dan senarai ini terisi sendiri.")}
         </p>
       )}
       {/* The status chips and the search box are the STORE's filters - each
           change is a new request, remembered per pair (v1.104.0). They are the
           shared 44px pill (v1.172.0), not a private chip shape. */}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      <div className={css.filters}>
         <button type="button" className={statusF === "" ? tabPillOn : tabPill} aria-pressed={statusF === ""}
           onClick={() => setStatusF("")}>{L("All", "Semua")}</button>
         {STATUSES.map((s) => (
           <button key={s} type="button" className={statusF === s ? tabPillOn : tabPill} aria-pressed={statusF === s}
             onClick={() => setStatusF(s)}>{statusLabel(s)}</button>
         ))}
-        <input className={`${inputClass} sm:max-w-56`} placeholder={L("Order no / phone / name", "No pesanan / telefon / nama")}
+        <input className={`${inputClass} ${css.search}`} placeholder={L("Order no / phone / name", "No pesanan / telefon / nama")}
           value={q} onChange={(e) => setQ(e.target.value)} aria-label={L("Search orders", "Cari pesanan")} />
       </div>
       {/* v1.172.0 - the shared table: sortable, keyboard-walkable rows that
           open the order in a drawer, a CSV of what is on screen, remembered
           density and columns. Until the first EVER response the body is a
           skeleton, never "No web orders yet" (v1.77.0). */}
-      <div className="mt-3">
+      <div className="erp-mt-3">
         <DataTable<WebOrder>
           id="web-orders"
           columns={columns}
@@ -275,7 +276,7 @@ export function WebOrdersPanel() {
       <SideDrawer
         open={o !== null}
         onClose={() => { setOpen(null); setDetail(null); }}
-        title={o ? <span className="font-mono">{o.order_number}</span> : ""}
+        title={o ? <span className={css.mono}>{o.order_number}</span> : ""}
         subtitle={o ? <>{statusLabel(o.status)} · {o.customer_name ?? "—"} {o.phone ?? ""} · {fmtRM(o.total_cents)}</> : undefined}
         wide
       >
@@ -284,56 +285,56 @@ export function WebOrdersPanel() {
     {/* v1.77.0 — skeleton until the detail lands, in the
         detail's own two-column grid. */}
     {!detail && (
-      <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2" aria-hidden>
+      <div className={css.detail} aria-hidden>
         <div>
-          <Skel className="h-3 w-44" />
-          <SkelText lines={3} className="mt-2" />
+          <Skel h={12} w={176} />
+          <SkelText lines={3} className="erp-mt-2" />
         </div>
         <div>
-          <Skel className="h-3 w-40" />
-          <SkelText lines={2} className="mt-2" />
+          <Skel h={12} w={160} />
+          <SkelText lines={2} className="erp-mt-2" />
         </div>
-        <div className="md:col-span-2 border-border border-t pt-3">
-          <Skel className="h-3 w-32" />
-          <Skel className="mt-2 h-7 w-36" />
+        <div className={css.detailWide}>
+          <Skel h={12} w={128} />
+          <Skel className="erp-mt-2" h={28} w={144} />
         </div>
       </div>
     )}
     {detail && (
-      <div className="grid grid-cols-1 gap-3 py-1 md:grid-cols-2">
+      <div className={css.detail}>
         <div>
-          <p className="text-xs font-semibold">{L("Items — price actually charged", "Barangan — harga sebenar dicaj")}</p>
-          <ul className="mt-1 space-y-0.5 text-sm">
+          <p className="erp-text-xs erp-strong">{L("Items — price actually charged", "Barangan — harga sebenar dicaj")}</p>
+          <ul className={css.lines}>
             {detail.lines.map((l) => (
-              <li key={l.id} className="flex justify-between gap-2">
-                <span>{l.qty}× {l.name ?? l.sku ?? "?"}{l.sku ? <span className="text-muted-foreground ml-1 font-mono text-xs">{l.sku}</span> : null}</span>
+              <li key={l.id} className={css.line}>
+                <span>{l.qty}× {l.name ?? l.sku ?? "?"}{l.sku ? <span className={css.sku}>{l.sku}</span> : null}</span>
                 <span>{fmtRM(l.price_cents * l.qty)}</span>
               </li>
             ))}
-            <li className="text-muted-foreground flex justify-between gap-2 text-xs">
+            <li className={`${css.line} ${css.lineMuted}`}>
               <span>{L("Shipping", "Penghantaran")}</span><span>{fmtRM(o.shipping_cents)}</span>
             </li>
           </ul>
-          {o.address && <p className="text-muted-foreground mt-2 text-xs whitespace-pre-line">{o.address}</p>}
+          {o.address && <p className={css.address}>{o.address}</p>}
         </div>
         <div>
-          <p className="text-xs font-semibold">{L("What it did to the stock count", "Kesannya pada kiraan stok")}</p>
+          <p className="erp-text-xs erp-strong">{L("What it did to the stock count", "Kesannya pada kiraan stok")}</p>
           {detail.movements.length === 0
-            ? <p className="text-muted-foreground mt-1 text-xs">{L("No movements recorded for this order (yet).", "Tiada pergerakan direkod untuk pesanan ini (buat masa ini).")}</p>
+            ? <p className="erp-meta erp-mt-1">{L("No movements recorded for this order (yet).", "Tiada pergerakan direkod untuk pesanan ini (buat masa ini).")}</p>
             : (
-              <ul className="mt-1 space-y-0.5 text-sm">
+              <ul className={css.lines}>
                 {detail.movements.map((m, i) => (
-                  <li key={i} className="flex justify-between gap-2">
-                    <span className="font-mono text-xs">{m.sku}</span>
-                    <span className={m.delta < 0 ?"text-warning" :"text-success"}>
+                  <li key={i} className={css.line}>
+                    <span className={css.monoXs}>{m.sku}</span>
+                    <span className={m.delta < 0 ? css.deltaDown : css.deltaUp}>
                       {m.delta > 0 ? `+${m.delta}` : m.delta}
-                      {m.outcome !== "applied" && <span className="text-muted-foreground ml-1 text-xs">({m.outcome})</span>}
+                      {m.outcome !== "applied" && <span className={css.phone}>({m.outcome})</span>}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
-          {o.paid_seen_at && <p className="text-muted-foreground mt-2 text-xs">{L("Booked as revenue on", "Ditempah sebagai hasil pada")} {dmyMYT(o.paid_seen_at)}</p>}
+          {o.paid_seen_at && <p className="erp-meta erp-mt-2">{L("Booked as revenue on", "Ditempah sebagai hasil pada")} {dmyMYT(o.paid_seen_at)}</p>}
         </div>
 
         {/* v1.51.0 — the CEO: "elfia web order should be
@@ -345,10 +346,10 @@ export function WebOrdersPanel() {
             the rules — forward-only, and cancelling puts
             the stock back — so only the moves that are
             legal from THIS status are offered. */}
-        <div className="md:col-span-2 border-border border-t pt-3">
-          <p className="text-xs font-semibold">{L("Move this order forward", "Gerakkan pesanan ini")}</p>
+        <div className={css.detailWide}>
+          <p className="erp-text-xs erp-strong">{L("Move this order forward", "Gerakkan pesanan ini")}</p>
           {["pending_payment", "payment_review"].includes(o.status) && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <div className={css.commands}>
               <button type="button" className={btnSm} disabled={acting}
                 onClick={() => void act(o, "confirm_paid")}>
                 {L("Payment received", "Bayaran diterima")}
@@ -370,16 +371,16 @@ export function WebOrdersPanel() {
             </div>
           )}
           {o.status === "paid" && (
-            <div className="mt-2 flex flex-wrap items-end gap-2 text-xs">
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground">{L("Courier", "Kurier")}</span>
+            <div className={`${css.commands} ${css.commandsEnd}`}>
+              <label className={css.field}>
+                <span className="erp-muted">{L("Courier", "Kurier")}</span>
                 <select className={selectClassSm}
                   value={courier} onChange={(e) => setCourier(e.target.value)}>
                   {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                 </select>
               </label>
-              <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
-                <span className="text-muted-foreground">{L("Tracking number", "Nombor penjejakan")}</span>
+              <label className={`${css.field} ${css.fieldGrow}`}>
+                <span className="erp-muted">{L("Tracking number", "Nombor penjejakan")}</span>
                 <input className={inputClass} value={tracking} maxLength={60}
                   placeholder={L("as printed on the parcel", "seperti tercetak pada bungkusan")}
                   onChange={(e) => setTracking(e.target.value)} />
@@ -392,9 +393,9 @@ export function WebOrdersPanel() {
             </div>
           )}
           {o.status === "shipped" && (
-            <div className="mt-2 space-y-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-muted-foreground">
+            <div className={css.commandsStack}>
+              <div className="erp-flex erp-flex-wrap">
+                <span className="erp-muted">
                   {o.tracking_no
                     ? L(`Customer is tracking ${o.tracking_no}`, `Pelanggan menjejak ${o.tracking_no}`)
                     : L("No tracking number was entered", "Tiada nombor penjejakan dimasukkan")}
@@ -417,16 +418,16 @@ export function WebOrdersPanel() {
               {/* A tracking number is typed off a label by hand.
                   Until now a typo was permanent and the customer
                   followed somebody else's parcel. */}
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-muted-foreground">{L("Correct the courier", "Betulkan kurier")}</span>
+              <div className="erp-flex erp-flex-wrap erp-flex-bottom">
+                <label className={css.field}>
+                  <span className="erp-muted">{L("Correct the courier", "Betulkan kurier")}</span>
                   <select className={selectClassSm}
                     value={courier} onChange={(e) => setCourier(e.target.value)}>
                     {COURIERS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>
                 </label>
-                <label className="flex flex-1 flex-col gap-1" style={{ minWidth: "12rem" }}>
-                  <span className="text-muted-foreground">{L("Correct the number", "Betulkan nombor")}</span>
+                <label className={`${css.field} ${css.fieldGrow}`}>
+                  <span className="erp-muted">{L("Correct the number", "Betulkan nombor")}</span>
                   <input className={inputClass} value={tracking} maxLength={60}
                     placeholder={o.tracking_no ?? ""}
                     onChange={(e) => setTracking(e.target.value)} />
@@ -440,7 +441,7 @@ export function WebOrdersPanel() {
             </div>
           )}
           {["completed", "cancelled"].includes(o.status) && (
-            <p className="text-muted-foreground mt-1 text-xs">
+            <p className="erp-meta erp-mt-1">
               {L("This order is finished — nothing left to do here.", "Pesanan ini selesai — tiada apa lagi di sini.")}
             </p>
           )}

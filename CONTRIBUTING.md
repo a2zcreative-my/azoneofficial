@@ -23,7 +23,7 @@ Conventional Commits where practical: `feat:`, `fix:`, `docs:`, `refactor:`, `ch
 - Strict TypeScript, no `any`
 - Content lives in `constants/`, never hard-coded in components
 - Components small, reusable, typed props
-- Tailwind for styling; design tokens from `styles/globals.css`
+- Styling: the `.erp-*` classes in `styles/erp-v3.css` (via the vocabulary in `lib/ui-styles.ts`), design tokens from `styles/globals.css`, a CSS Module beside a component for its own layout. No Tailwind (retired v1.172.2) and no utility classes - `docs/INTERFACE-SYSTEM-V3.md` §0
 - Prettier + ESLint enforced (`pnpm format`, `pnpm lint`)
 
 ## Documentation rules (mandatory)

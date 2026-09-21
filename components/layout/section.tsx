@@ -8,6 +8,9 @@ interface SectionProps {
   title?: ReactNode;
   intro?: ReactNode;
   dark?: boolean;
+  /** v1.172.2 - the neutral (warm grey) ground, an explicit choice now that
+      cn() no longer lets a caller's bg-* utility override the default. */
+  neutral?: boolean;
   children: ReactNode;
   className?: string;
 }
@@ -18,6 +21,7 @@ export function Section({
   title,
   intro,
   dark = false,
+  neutral = false,
   children,
   className,
 }: SectionProps) {
@@ -26,7 +30,7 @@ export function Section({
       id={id}
       className={cn(
         "scroll-mt-24 px-6 py-16 sm:py-24",
-        dark ? "bg-brand text-white" : "bg-background text-foreground",
+        dark ? "bg-brand text-white" : neutral ? "bg-brand-neutral text-foreground" : "bg-background text-foreground",
         className,
       )}
     >

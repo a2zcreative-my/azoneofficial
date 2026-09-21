@@ -5,7 +5,7 @@
  * "No data." answers nothing. A person looking at an empty list wants three
  * things: WHAT is empty, WHY it is probably empty, and WHAT they can do about
  * it. This component carries exactly those three, in the house vocabulary
- * (AppIcon, the erp-empty geometry in styles/globals.css), so every panel that
+ * (AppIcon, the erp-empty geometry in styles/globals.css; v1.172.2: no utilities), so every panel that
  * adopts it reads the same way. Errors are NOT empty states - a failed
  * request has its own copy and a retry; use `tone="error"` for that so the
  * icon and the emphasis say "something failed" rather than "nothing here".
@@ -28,12 +28,12 @@ export function EmptyState({
 }) {
   return (
     <div className={`erp-empty ${className}`} role={tone === "error" ? "alert" : undefined}>
-      <span className={`erp-empty-icon ${tone === "error" ? "bg-danger-soft text-danger" : ""}`} aria-hidden>
-        <AppIcon name={tone === "error" ? "warning" : icon} className="h-5 w-5" />
+      <span className={`erp-empty-icon ${tone === "error" ? "erp-empty-icon-error" : ""}`} aria-hidden>
+        <AppIcon name={tone === "error" ? "warning" : icon} className="erp-icon-lg" />
       </span>
       <p className="erp-empty-title">{title}</p>
       {hint && <p className="erp-empty-hint">{hint}</p>}
-      {action && <div className="mt-2">{action}</div>}
+      {action && <div className="erp-empty-action">{action}</div>}
     </div>
   );
 }

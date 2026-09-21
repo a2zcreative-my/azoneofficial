@@ -12,6 +12,7 @@ import { firstName, properName } from "@/lib/names";
 import { btnGhost, card, inputClass, selectClass, chipNeutral, chipSuccess, chipWarn, chipInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmInfo } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import css from "./attendance.module.css";
 
 /* ================= Attendance ================= */
 
@@ -80,7 +81,7 @@ export function Attendance({ user }: { user: User }) {
   }, [canReport]);
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className={css.page}>
       {/* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or
           clock out for me to aware"): today's snapshot, refreshed every two
           minutes — missing punches called out on top, then a compact list. */}
@@ -113,7 +114,7 @@ export function Attendance({ user }: { user: User }) {
                 {L("Today's attendance monitor", "Pemantau kehadiran hari ini")}{" "}
                 — {dmy(monitor.date)}
               </PanelTitle>
-              <p className="text-muted-foreground mt-0.5 text-xs">
+              <p className="erp-meta erp-mt-half">
                 {L(
                   "Live snapshot of every active staff member's punches today (refreshes every 2 minutes).",
                   "Paparan langsung punch setiap kakitangan aktif hari ini (dimuat semula setiap 2 minit)."
@@ -126,14 +127,14 @@ export function Attendance({ user }: { user: User }) {
                   : ""}
               </p>
               {notIn.length > 0 && !isWeekend && (
-                <p className="erp-note erp-note-warning mt-2 font-semibold">
-                  <AppIcon name="warning" className="mr-1 h-3.5 w-3.5" />{L("Not clocked in:", "Belum daftar masuk:")}{" "}
+                <p className="erp-note erp-note-warning erp-mt-2 erp-strong">
+                  <AppIcon name="warning" className={css.noteIcon} />{L("Not clocked in:", "Belum daftar masuk:")}{" "}
                   {notIn.map((s) => firstName(s.name)).join(", ")}
                 </p>
               )}
               {stillIn.length > 0 && afterShift && (
-                <p className="erp-note erp-note-info mt-2 font-semibold">
-                  <AppIcon name="pending" className="mr-1 h-3.5 w-3.5" />
+                <p className="erp-note erp-note-info erp-mt-2 erp-strong">
+                  <AppIcon name="pending" className={css.noteIcon} />
                   {L(
                     "Past 18:00 with no clock-out yet:",
                     "Melepasi 18:00 tanpa daftar keluar lagi:"
@@ -144,7 +145,7 @@ export function Attendance({ user }: { user: User }) {
               {/* v1.4.196 (CEO): summary callouts stay; the full per-staff
                 list hides behind one click — minimalist view */}
               <DetailsToggle label={L("Staff list", "Senarai kakitangan")}>
-                <div className="border-border divide-border mt-1 max-h-64 divide-y overflow-y-auto rounded-lg border">
+                <div className={css.staffList}>
                   {[...monitor.staff]
                     .sort(
                       (a, b) =>
@@ -154,13 +155,13 @@ export function Attendance({ user }: { user: User }) {
                     .map((st) => (
                       <div
                         key={st.id}
-                        className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm"
+                        className={css.staffRow}
                       >
-                        <span className="min-w-0 flex-1 truncate">
-                          <span className="font-medium">
+                        <span className="erp-grow erp-truncate">
+                          <span className="erp-medium">
                             {properName(st.name)}
                           </span>
-                          <span className="text-muted-foreground text-xs capitalize">
+                          <span className={css.staffRole}>
                             {" "}
                             · {st.role.replace(/_/g, " ")}
                             {st.employment_status === "part_time"
@@ -168,14 +169,14 @@ export function Attendance({ user }: { user: User }) {
                               : ""}
                           </span>
                         </span>
-                        <span className="flex flex-wrap items-center justify-end gap-1">
+                        <span className={css.staffChips}>
                           {st.in_at ? (
                             <span className={chipSmSuccess}>
                               {L("In", "Masuk")} {hm(st.in_at)}
                             </span>
                           ) : (
                             <span className={chipSmWarn}>
-                              <AppIcon name="warning" className="mr-0.5 h-3 w-3" />{L("not clocked in", "belum daftar masuk")}
+                              <AppIcon name="warning" className={css.chipIcon} />{L("not clocked in", "belum daftar masuk")}
                             </span>
                           )}
                           {st.in_at &&
@@ -207,14 +208,14 @@ export function Attendance({ user }: { user: User }) {
           );
         })()}
       <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="erp-flex erp-flex-wrap erp-flex-between">
           <div>
-            <p className="text-sm font-semibold">
+            <p className="erp-heading">
               {reportMode && canReport
                 ? L("Team attendance report", "Laporan kehadiran pasukan")
                 : L("My attendance", "Kehadiran saya")}
             </p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
+            <p className="erp-meta erp-mt-half">
               {reportMode && canReport
                 ? L(
                     "Every punch across the team for the chosen month. Times are Malaysia time.",
@@ -226,10 +227,10 @@ export function Attendance({ user }: { user: User }) {
                   )}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={css.controls}>
             {reportMode && canReport && records.length > 0 && (
               <select
-                className={`${selectClass} sm:w-auto sm:max-w-44`}
+                className={`${selectClass} ${css.staffFilter}`}
                 value={filterName}
                 title={L(
                   "Show one staff member only",
@@ -252,7 +253,7 @@ export function Attendance({ user }: { user: User }) {
 
             <input
               type="month"
-              className={`${inputClass} sm:w-auto`}
+              className={`${inputClass} ${css.monthField}`}
               value={month}
               onChange={(e) => setMonth(e.target.value)}
             />
@@ -273,11 +274,11 @@ export function Attendance({ user }: { user: User }) {
         {/* v1.77.0 — skeleton until the first fetch lands: the table's
             column count (4 personal, 3 report) so nothing jumps. */}
         {!loaded && (
-          <SkelTable rows={6} cols={reportMode && canReport ? 3 : 4} className="mt-3" />
+          <SkelTable rows={6} cols={reportMode && canReport ? 3 : 4} className="erp-mt-3" />
         )}
 
         {loaded && records.length === 0 && (
-          <p className="text-muted-foreground mt-3 text-sm">
+          <p className="erp-text-sm erp-muted erp-mt-3">
             {L("No records for this month.", "Tiada rekod untuk bulan ini.")}
           </p>
         )}
@@ -317,20 +318,20 @@ export function Attendance({ user }: { user: User }) {
               return ms > 0 ? sum + ms : sum;
             }, 0);
             return (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[420px] border-collapse text-sm">
+              <div className={css.tableWrap}>
+                <table className={`${css.table} ${css.tableMine}`}>
                   <thead>
-                    <tr className="border-border border-b">
-                      <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">
+                    <tr className={css.headRow}>
+                      <th className={css.th}>
                         {L("Date", "Tarikh")}
                       </th>
-                      <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">
+                      <th className={`${css.th} ${css.thIndent}`}>
                         {L("In", "Masuk")}
                       </th>
-                      <th className="text-muted-foreground py-2 pr-2 pl-4 text-left text-xs font-semibold uppercase">
+                      <th className={`${css.th} ${css.thIndent}`}>
                         {L("Out", "Keluar")}
                       </th>
-                      <th className="text-muted-foreground px-2 py-2 text-left text-xs font-semibold uppercase">
+                      <th className={css.th}>
                         {L("Hours", "Jam")}
                       </th>
                     </tr>
@@ -343,23 +344,23 @@ export function Attendance({ user }: { user: User }) {
                       return (
                         <tr
                           key={d}
-                          className="border-border border-b last:border-0"
+                          className={css.row}
                         >
-                          <td className="px-2 py-1.5 font-medium whitespace-nowrap">
+                          <td className={`${css.td} ${css.tdStrong}`}>
                             {dmy(d)}
                           </td>
-                          <td className="px-2 py-1.5 whitespace-nowrap">
+                          <td className={`${css.td} ${css.tdNowrap}`}>
                             {firstIn ? (
                               <span className={chipSuccess}>
                                 {mytTime(firstIn)}
                               </span>
                             ) : (
-                              <span className="text-muted-foreground text-xs">
+                              <span className="erp-meta">
                                 —
                               </span>
                             )}
                           </td>
-                          <td className="px-2 py-1.5 whitespace-nowrap">
+                          <td className={`${css.td} ${css.tdNowrap}`}>
                             {lastOut ? (
                               <span className={chipNeutral}>
                                 {mytTime(lastOut)}
@@ -374,7 +375,7 @@ export function Attendance({ user }: { user: User }) {
                               </span>
                             )}
                           </td>
-                          <td className="px-2 py-1.5 font-medium whitespace-nowrap">
+                          <td className={`${css.td} ${css.tdStrong}`}>
                             {hrs ?? "—"}
                           </td>
                         </tr>
@@ -382,15 +383,15 @@ export function Attendance({ user }: { user: User }) {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="border-border border-t-2 font-semibold">
-                      <td className="px-2 py-2">
+                    <tr className={css.totalRow}>
+                      <td className={css.totalCell}>
                         {L(
                           `${days.length} day${days.length === 1 ? "" : "s"}`,
                           `${days.length} hari`
                         )}
                       </td>
-                      <td className="px-2 py-2" colSpan={2}></td>
-                      <td className="px-2 py-2 whitespace-nowrap">
+                      <td className={css.totalCell} colSpan={2}></td>
+                      <td className={`${css.totalCell} ${css.tdNowrap}`}>
                         {totalMs > 0
                           ? `${Math.floor(totalMs / 3600000)}h ${String(Math.round((totalMs % 3600000) / 60000)).padStart(2, "0")}m`
                           : "—"}
@@ -404,10 +405,10 @@ export function Attendance({ user }: { user: User }) {
 
         {/* Team report: every punch, sortable, with clear In/Out chips. */}
         {loaded && reportMode && canReport && records.length > 0 && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[480px] border-collapse text-sm">
+          <div className={css.tableWrap}>
+            <table className={`${css.table} ${css.tableTeam}`}>
               <thead>
-                <tr className="border-border border-b">
+                <tr className={css.headRow}>
                   {(
                     [
                       ["name", "Staff"],
@@ -417,7 +418,7 @@ export function Attendance({ user }: { user: User }) {
                   ).map(([k, label]) => (
                     <th
                       key={k}
-                      className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none hover:underline"
+                      className={`${css.th} ${css.thSort}`}
                       title={L(
                         "Click to sort — click again to reverse",
                         "Klik untuk isih — klik lagi untuk terbalikkan"
@@ -455,11 +456,11 @@ export function Attendance({ user }: { user: User }) {
                         a.created_at.localeCompare(b.created_at)) * sortDir
                   );
                 })().map((r, i) => (
-                  <tr key={i} className="border-border border-b last:border-0">
-                    <td className="px-2 py-1.5 font-medium whitespace-nowrap">
+                  <tr key={i} className={css.row}>
+                    <td className={`${css.td} ${css.tdStrong}`}>
                       {r.name ?? "—"}
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className={css.td}>
                       <span
                         className={r.type === "clock_in" ? chipSuccess : chipNeutral}
                       >
@@ -468,7 +469,7 @@ export function Attendance({ user }: { user: User }) {
                           : L("Out", "Keluar")}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">
+                    <td className={`${css.td} ${css.tdNowrap}`}>
                       {mytDateTime(r.created_at)}
                     </td>
                   </tr>

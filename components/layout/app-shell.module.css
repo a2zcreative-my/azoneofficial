@@ -1,0 +1,107 @@
+/* v1.172.2 - the app shell's own layout (Tailwind retired; this replaces the
+   utility strings app-shell.tsx carried since v1.14.0, one for one).
+
+   Two shells share this file:
+     - the PORTAL: `navigation` set - a full-width neutral workspace with the
+       labelled rail (side-nav.tsx) on the left and the content column as the
+       only thing that scrolls on desktop (v1.21.1 / v1.88.1 model);
+     - the LEGACY CANVAS (admin, account): a rounded canvas on the shell
+       backdrop with the icon gutter, and optional context / right columns.
+   Every desktop rule is behind the 768px query; on a phone the shell is
+   bare wrappers and the document scrolls, by design.
+
+   Colours are tokens only (--secondary, --background, --border, the brand
+   navy and the shell backdrop). The 26px shell radius and its shadow are the
+   values the canvas has had since v1.12.0 (globals.css --radius-shell,
+   --shadow-shell). */
+
+.backdrop {
+  /* phone: nothing */
+}
+.workspace {
+  background: var(--secondary);
+}
+.canvasFrame {
+  /* phone: nothing */
+}
+.gutter {
+  display: none;
+}
+.column {
+  display: none;
+}
+.scroll {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  /* v1.23.4 - the STRUCTURAL guarantee against sideways panning: a card
+     wider than the phone clips here instead of moving the page. `clip`, not
+     hidden, so no scroll container is created and the sticky mobile header
+     keeps sticking. */
+  .scroll {
+    overflow-x: clip;
+  }
+}
+
+@media (min-width: 768px) {
+  .backdrop {
+    /* v1.88.1 - the canvas is a CONTAINING BLOCK, not just a clip: an
+       absolutely positioned descendant of a non-positioned clip is laid out
+       against the document and grows it straight through the clip. */
+    position: relative;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .backdropCanvas {
+    background: var(--shell-backdrop);
+    padding: 1.25rem;
+  }
+  .canvasFrame {
+    margin-inline: auto;
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+    max-width: none;
+  }
+  .canvasFrameWorkspace {
+    background: var(--secondary);
+  }
+  .canvasFrameCanvas {
+    border-radius: var(--radius-shell, 26px);
+    background: var(--background);
+    box-shadow: var(--shadow-shell);
+  }
+  .gutter {
+    display: block;
+    width: 3.5rem;
+    flex-shrink: 0;
+    background: var(--brand-primary);
+    border-top-left-radius: var(--radius-shell, 26px);
+    border-bottom-left-radius: var(--radius-shell, 26px);
+  }
+  .column {
+    display: flex;
+    height: 100%;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding: 1rem;
+    background: var(--secondary);
+  }
+  .columnLeft {
+    width: 264px;
+    border-right: 1px solid var(--border);
+  }
+  .columnRight {
+    width: 292px;
+    border-left: 1px solid var(--border);
+    border-top-right-radius: var(--radius-shell, 26px);
+    border-bottom-right-radius: var(--radius-shell, 26px);
+  }
+  .scroll {
+    height: 100%;
+    flex: 1 1 0%;
+    overflow-y: auto;
+  }
+}

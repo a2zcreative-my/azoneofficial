@@ -35,7 +35,15 @@ export const card = "erp-card";
    screen can adjust a width without inventing a control. Tailwind is a
    compatibility layer from here on: new surfaces take a name from this
    file or a class from erp-v3.css, never a fresh utility string
-   (tests/interface-v3.mjs). */
+   (tests/interface-v3.mjs).
+
+   v1.172.2 - TAILWIND RETIRED. Every name here is now a named class and
+   nothing else: no utility survives in this file. The utilities that
+   unmigrated screens still append (`${inputClass} sm:max-w-56`) are frozen
+   in styles/legacy-utilities.css and still win - the cascade order kept
+   `utilities` last - but nothing generates new ones; a width, a margin or a
+   colour a screen needs is an .erp-* class or a CSS Module beside it
+   (tests/tailwind-retired.mjs). */
 
 /* ============ v1.125.0 — THE CARD VOCABULARY ===========================
    The CEO, 06-09-2026: *"Some card-like inner rows use borders and rounded
@@ -113,11 +121,12 @@ export const menuCard = "erp-menu";
    from the fixed nav's real height, so the content could feel slightly
    floated or tucked depending on the WebView. Keep the nav and the page
    clearance on the same formula: 4rem nav + its safe-area floor + one
-   breathing unit for the last card. */
-export const mobileAppBottomClearance =
-  "pb-[calc(5rem+max(env(safe-area-inset-bottom,0px),6px))]";
-export const mobileBottomNav =
-  "border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t pb-[max(env(safe-area-inset-bottom,0px),6px)] md:hidden";
+   breathing unit for the last card.
+   v1.172.2 - the two formulas live as two named classes in
+   styles/erp-v3.css (.erp-page-clearance, .erp-bottom-nav), where
+   tests/pwa-calendar.mjs reads them. */
+export const mobileAppBottomClearance = "erp-page-clearance";
+export const mobileBottomNav = "erp-bottom-nav";
 
 /* v1.70.0 — ONE standard content width for the whole portal.
    (CEO: "make the width globally standardize instead of inconsistent")
@@ -146,7 +155,7 @@ export const mobileBottomNav =
    What this still is: ONE width for every screen, set in ONE place, applied
    to the OUTER container and never to a card. Change this line and every
    screen changes together — which was the whole point of it existing. */
-export const PORTAL_WIDTH = "mx-auto w-full max-w-none";
+export const PORTAL_WIDTH = "erp-page";
 
 /** Standard form field (v1.4.154 width standard applies to the wrapper). */
 export const inputClass =
@@ -159,7 +168,9 @@ export const inputClass =
 /** Public-site field — larger type and touch target for the marketing pages,
     where visitors arrive cold on a phone. Deliberately not the same. */
 export const inputClassLg =
-  "w-full rounded-lg border border-input bg-background px-4 py-2.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring sm:text-sm";
+  /* v1.172.2 - a named class (styles/erp-v3.css): 16px on a phone, 14px
+     from `sm` up, the 2px focus ring. tests/login-ux.mjs reads it there. */
+  "erp-input-public";
 
 /** Standard primary button. */
 export const btnClass =
@@ -226,7 +237,9 @@ export const btnHdr =
  * fix is the standard Tailwind pattern — `hidden` as the ONLY base display
  * class, the visible display arriving with the `md:` variant. */
 export const btnHdrDesktop =
-  "erp-icon-button hidden md:inline-flex";
+  /* v1.172.2 - .erp-desktop-only is display:none below 768px and nothing
+     above it, so the button's own inline-flex is what shows on the desk. */
+  "erp-icon-button erp-desktop-only";
 
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
@@ -242,13 +255,13 @@ export const iconBtnInverse =
 
 /** Quick actions — full-width touch targets on phones, compact row actions on desktop. */
 export const btnQuick =
-  "erp-button erp-button-secondary w-full md:w-auto";
+  "erp-button erp-button-secondary erp-button-quick";
 export const btnQuickPrimary =
-  "erp-button erp-button-primary w-full md:w-auto";
+  "erp-button erp-button-primary erp-button-quick";
 export const btnHero =
-  "erp-button erp-button-secondary w-full md:w-auto";
+  "erp-button erp-button-secondary erp-button-quick";
 export const btnHeroPrimary =
-  "erp-button erp-button-accent w-full md:w-auto";
+  "erp-button erp-button-accent erp-button-quick";
 
 /** Field labels — the two spellings that existed are now named. */
 export const fieldLabel = "erp-label";
@@ -270,8 +283,9 @@ export const inputClassSm =
    rather than py-2/py-1. Everything else matches the input it stands next
    to, deliberately. */
 export const selectClass =
-  /* v1.172.1 - the V3 select: the input plus its own chevron. */
-  "erp-input erp-select sm:w-auto";
+  /* v1.172.1 - the V3 select: the input plus its own chevron. v1.172.2: it
+     is full width on a phone and its own width from `sm` up, in the class. */
+  "erp-input erp-select";
 /** v1.172.1 - the V3 textarea; append `rows` on the element, not a height. */
 export const textareaClass = "erp-input erp-textarea";
 /** v1.172.1 - the V3 dense select, for toolbars and table cells. */
@@ -326,7 +340,7 @@ export const listBox = "erp-listbox";
    and only then relaxes to the desk's 28px. Always give it an aria-label:
    a glyph is not a name. */
 export const iconBtn =
-  "erp-icon-button text-muted-foreground hover:text-foreground";
+  "erp-icon-button erp-icon-button-muted";
 
 /** Dashboard tile styling. */
 export const tile = card;
@@ -339,6 +353,6 @@ export const tile = card;
    draws it. A card with more than one thing to show uses that, so a pill
    means the same thing on every tab of the portal. */
 export const tabPill =
-  "erp-button erp-button-secondary erp-button-compact text-muted-foreground";
+  "erp-button erp-button-secondary erp-button-compact erp-tab-pill";
 export const tabPillOn =
   "erp-button erp-button-primary erp-button-compact";

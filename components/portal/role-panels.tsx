@@ -56,6 +56,7 @@ import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; 
 import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { usePrompt } from "@/components/ui/prompt-dialog";
+import cl from "./claims.module.css"; // v1.172.2 - the Claims flow's own layout (Tailwind retired)
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -4503,47 +4504,47 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   // v1.4.95: minimalist rows — one line collapsed; Details ▾ opens items,
   // receipt, print form and the decision trail.
   const claimRow = (c: Claim, actions: boolean) => (
-    <div key={c.id} className="border-border rounded-lg border px-3 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm">
+    <div key={c.id} className={cl.row}>
+      <div className={cl.rowHead}>
+        <p className={cl.rowLine}>
           {/* v1.4.249 (CEO: "globally and standardize"): the claim number is
               the identifier and the only thing you click to open the record —
               same affordance as a document number or a company name. */}
           <RecordToggle open={expanded === c.id} title={L("Purpose, items, receipt and decision", "Tujuan, item, resit dan keputusan")}
             onToggle={() => setExpanded((e) => e === c.id ? null : c.id)}>{claimNoOf(c)}</RecordToggle>{" · "}
-          {c.claimant && <span className="font-medium">{properName(c.claimant)} · </span>}
-          <span className="font-semibold">{rmc(c.amount_cents)}</span>{" "}
+          {c.claimant && <span className="erp-medium">{properName(c.claimant)} · </span>}
+          <span className="erp-strong">{rmc(c.amount_cents)}</span>{" "}
           {claimItems(c).length > 1
             ? <span className={chipNeutral}>{claimItems(c).length} {L("items", "item")}</span>
-            : <span className={`${chipNeutral} capitalize`}>{catLabel(c.category)}</span>}{" "}
+            : <span className={`${chipNeutral} ${cl.capitalize}`}>{catLabel(c.category)}</span>}{" "}
           {c.claim_type === "salary_advance" && <span className={chipInfo}>{L("Salary advance", "Pendahuluan gaji")} · {c.payroll_month}</span>}{" "}
-          <span className={`${chip} capitalize ${badgeCls[c.status] ?? "erp-chip-neutral"}`}>{statusLabel(c.status)}</span>
+          <span className={`${chip} ${cl.capitalize} ${badgeCls[c.status] ?? "erp-chip-neutral"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
-            <span className={`${chipSmInfo} ml-1`}
+            <span className={`${chipSmInfo} ${cl.chipGap}`}
               title={L("Chain: HR review → COO pre-approval → CEO final approval", "Rantaian: semakan HR → pra-kelulusan COO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("HR ✓ · COO ✓ — CEO next", "HR ✓ · COO ✓ — CEO seterusnya") : c.hr_reviewed_at ? L("HR ✓ — awaiting COO", "HR ✓ — menunggu COO") : L("awaiting HR review", "menunggu semakan HR")}
             </span>
           )}
           {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
-            <span className={`${chipSmInfo} ml-1`}
+            <span className={`${chipSmInfo} ${cl.chipGap}`}
               title={L("Chain: CCO pre-approval → CEO final approval", "Rantaian: pra-kelulusan CCO → kelulusan akhir CEO")}>
               {c.pre_approved_at ? L("CCO ✓ — CEO next", "CCO ✓ — CEO seterusnya") : L("awaiting CCO", "menunggu CCO")}
             </span>
           )}
           {(c as Claim & { paid_at?: string | null }).paid_at && (
-            <span className={`${chipSuccess} ml-1 font-semibold`}
-              title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
+            <span className={`${chipSuccess} ${cl.chipGap} erp-strong`}
+              title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className={cl.chipIcon} />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
           )}
         </p>
         {/* v1.4.253: date on the left, real buttons in the standard wrapping
             group — no more underlined words strung together with dots. */}
-        <div className={`${rowActions} text-muted-foreground mt-1.5 justify-start text-xs`}>
+        <div className={`${rowActions} ${cl.rowActions}`}>
           <span>{dmy(c.claim_date)}</span>
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
             <>
-              <label className={`${rowBtn} cursor-pointer`} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
-                <><AppIcon name="attach" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Attach receipt", "Lampirkan resit")}</>
-                <input type="file" accept="image/*,application/pdf" className="hidden"
+              <label className={`${rowBtn} ${cl.pointer}`} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
+                <><AppIcon name="attach" className={cl.chipIcon} />{L("Attach receipt", "Lampirkan resit")}</>
+                <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";
@@ -4603,8 +4604,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           )}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
-            ? <span className={chipSmSuccess} title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("pays to you","dibayar kepada anda")}</></span>
-            : c.payee_name ? <span className={chipSmWarn} title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}><AppIcon name="money" className="mr-0.5 -mt-0.5 h-3 w-3" />→ {firstName(c.payee_name)}</span> : null}
+            ? <span className={chipSmSuccess} title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className={cl.chipIconSm} />{L("pays to you","dibayar kepada anda")}</></span>
+            : c.payee_name ? <span className={chipSmWarn} title={`${L("Pay to","Bayar kepada")} ${properName(c.payee_full || c.payee_name)} ${L("— internal remark","— catatan dalaman")}`}><AppIcon name="money" className={cl.chipIconSm} />→ {firstName(c.payee_name)}</span> : null}
         </div>
       </div>
       {expanded === c.id && (
@@ -4617,7 +4618,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               payee set = pay the submitter, said explicitly — and ✎ lets
               them set/change it on any claim, incl. pre-payee approved ones. */}
           {canPayee && payeeEdit?.claimId === c.id ? (
-            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={cl.payeeEdit}>
               <select className={selectClassSm} value={payeeEdit.value}
                 onChange={(e) => setPayeeEdit({ claimId: c.id, value: Number(e.target.value) })}>
                 <option value={0}>{`${L("— pay the submitter", "— bayar penghantar")} (${properName(c.claimant_full || c.claimant || "")}) —`}</option>
@@ -4633,31 +4634,31 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   setPayeeEdit(null);
                   void load();
                 }}>{L("Save payee", "Simpan penerima bayaran")}</button>
-              <button type="button" className="text-xs underline" onClick={() => setPayeeEdit(null)}>{L("cancel", "batal")}</button>
+              <button type="button" className={cl.textLink} onClick={() => setPayeeEdit(null)}>{L("cancel", "batal")}</button>
             </span>
           ) : c.payee_user_id === userId ? (
-            <p className="mt-1 rounded-lg border border-success/30 bg-success-soft px-2 py-1 text-xs font-semibold text-success">
-              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("This claim was raised on your behalf by", "Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
-              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
+            <p className={`${cl.remark} ${cl.remarkSuccess}`}>
+              <AppIcon name="money" className={cl.chipIcon} />{L("This claim was raised on your behalf by", "Tuntutan ini dibuat bagi pihak anda oleh")} {properName(c.claimant_full || c.claimant || "")} {L("— the payment comes to YOU once the CEO approves. Follow the status chip above.", "— bayaran datang kepada ANDA setelah CEO meluluskan. Ikuti cip status di atas.")}
+              {canPayee && <button type="button" className={cl.inlineLink} onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : c.payee_name ? (
-            <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
+            <p className={`${cl.remark} ${cl.remarkWarning}`}
               title={L("Internal remark for the CEO (payment) and HR (records) — not printed on the claim form", "Catatan dalaman untuk CEO (bayaran) dan HR (rekod) — tidak dicetak pada borang tuntutan")}>
-              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Pay this claim to:", "Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
-              {canPayee && <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
+              <AppIcon name="money" className={cl.chipIcon} />{L("Pay this claim to:", "Bayar tuntutan ini kepada:")} {properName(c.payee_full || c.payee_name)}
+              {canPayee && <button type="button" className={cl.inlineLink} onClick={() => setPayeeEdit({ claimId: c.id, value: c.payee_user_id ?? 0 })}>{L("✎ change", "✎ tukar")}</button>}
             </p>
           ) : canPayee && (
-            <p className="mt-1 rounded-lg border border-warning/30 bg-warning-soft px-2 py-1 text-xs font-semibold text-warning"
+            <p className={`${cl.remark} ${cl.remarkWarning}`}
               title={L("No separate payee set — the payment goes to whoever submitted the claim", "Tiada penerima bayaran berasingan — bayaran pergi kepada penghantar tuntutan")}>
-              <AppIcon name="money" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Pay to:", "Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
-              <button type="button" className="ml-1.5 underline" onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
+              <AppIcon name="money" className={cl.chipIcon} />{L("Pay to:", "Bayar kepada:")} {properName(c.claimant_full || c.claimant || "")} {L("(the submitter — no separate payee)", "(penghantar — tiada penerima bayaran berasingan)")}
+              <button type="button" className={cl.inlineLink} onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
             </p>
           )}
-          {c.description && <p className="text-muted-foreground mt-1 text-xs">{L("Purpose:", "Tujuan:")} {c.description}</p>}
-          <div className="mt-1 space-y-0.5">
+          {c.description && <p className="erp-meta erp-mt-1">{L("Purpose:", "Tujuan:")} {c.description}</p>}
+          <div className={cl.items}>
             {claimItems(c).map((it, i) => (
-              <p key={i} className="text-muted-foreground text-xs">
-                {dmy(it.claim_date)} · <span className="capitalize">{catLabel(it.category)}</span>
+              <p key={i} className="erp-meta">
+                {dmy(it.claim_date)} · <span className={cl.capitalize}>{catLabel(it.category)}</span>
                 {it.description ? ` · ${it.description}` : ""}{it.km != null ? ` · ${it.km} km × RM ${rmBare(it.rate_cents_per_km ?? 0)}/km` : ""} · {rmc(it.amount_cents)}
               </p>
             ))}
@@ -4666,10 +4667,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               that minimalist"): the record's actions are real buttons in the
               standard row group, not a run-on sentence of underlined words —
               an underlined word has no tap target on a phone. */}
-          <div className={`${rowActions} mt-1.5 justify-start`}>
+          <div className={`${rowActions} ${cl.record}`}>
             {c.receipt_key
               ? <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}>{L("View receipt", "Lihat resit")}</button>
-              : <span className="text-muted-foreground text-xs">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
+              : <span className="erp-meta">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
             <button type="button" className={rowBtn} title={L("Claim form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang tuntutan sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
               onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
             {/* v1.4.246: the real PDF file, straight into the phone's share sheet. */}
@@ -4677,15 +4678,15 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               onClick={() => void sendClaimPdf(c)}>{L("Send PDF", "Hantar PDF")}</button>
           </div>
           {c.decided_by_name && (
-            <p className="text-muted-foreground mt-1 text-xs">
+            <p className="erp-meta erp-mt-1">
               {L("Decided by", "Diputuskan oleh")} {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}
             </p>
           )}
           {canDecide && c.paid_at && !c.payment_proof_key && (
-            <label className={`${rowBtn} mt-2 cursor-pointer`}
+            <label className={`${rowBtn} erp-mt-2 ${cl.pointer}`}
               title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
-              <><AppIcon name="attach" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
-              <input type="file" accept="image/*,application/pdf" className="hidden"
+              <><AppIcon name="attach" className={cl.chipIcon} />{L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
+              <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
@@ -4703,24 +4704,24 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </label>
           )}
           {c.payment_proof_key && (c.user_id === userId || canDecide || role === "hr_admin") && (
-            <p className="mt-1 text-xs">
-              <button type="button" className="underline" onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</button>
+            <p className="erp-text-xs erp-mt-1">
+              <button type="button" className={cl.textLink} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</button>
             </p>
           )}
           {canDecide && c.status === "approved" && !c.paid_at && (
-            <button type="button" className={`${rowBtnPrimary} mt-2`}
+            <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={async () => {
                 const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
                 if (res.ok) { showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan")); void load(); }
               }}>
-              <><AppIcon name="paid" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Mark paid (money released)", "Tanda dibayar (wang dilepaskan)")}</>
+              <><AppIcon name="paid" className={cl.chipIcon} />{L("Mark paid (money released)", "Tanda dibayar (wang dilepaskan)")}</>
             </button>
           )}
         </>
       )}
       {actions && canDecide && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input className={`${inputClass} flex-1`} placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
+        <div className={cl.decision}>
+          <input className={`${inputClass} ${cl.decisionNote}`} placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
             value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
           <button type="button" className={rowBtnPrimary}
             title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? L("Chain (HR → COO) not finished — approving now is a recorded CEO override", "Rantaian (HR → COO) belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? L("CCO pre-approval not done — approving now is a recorded CEO override", "Pra-kelulusan CCO belum dibuat — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
@@ -4734,22 +4735,22 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           button that the server would refuse, the payee-reviewer sees why the
           claim skips them. */}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id === userId && ["hr_admin", "coo", "cco"].includes(role) && (
-        <p className="text-muted-foreground mt-2 text-xs">
+        <p className="erp-meta erp-mt-2">
           {L("Your stage is waived on this claim — it pays to you, so the CEO decides it directly.", "Peringkat anda diketepikan pada tuntutan ini — ia dibayar kepada anda, jadi CEO memutuskannya terus.")}
         </p>
       )}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
         <>
           {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
-            <button type="button" className={`${rowBtnPrimary} mt-2`}
+            <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={() => void hrReview(c.id)}>{L("✔ HR review OK — pass to COO", "✔ Semakan HR OK — serah kepada COO")}</button>
           )}
           {(role === "coo" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "staff" && c.hr_reviewed_at && !c.pre_approved_at && (
-            <button type="button" className={`${rowBtnPrimary} mt-2`}
+            <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
           {(role === "cco" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at && (
-            <button type="button" className={`${rowBtnPrimary} mt-2`}
+            <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
         </>
@@ -4758,7 +4759,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   );
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="erp-stack">
       {toastNode}
       {stepUpNode}
       {confirmNode}
@@ -4766,36 +4767,36 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           of staff came for - a pill that jumps to the form - and returns
           them to their list after a submit (revealAnchor below). */}
       <div className={rowHead}>
-        <p className="text-sm font-semibold">{L("Claims", "Tuntutan")}</p>
+        <p className="erp-heading">{L("Claims", "Tuntutan")}</p>
         <a href="#claim-form" className={btnSmPrimary}>{L("Claim form", "Borang tuntutan")}</a>
       </div>
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
-        <div id="claims-pending" className={`${card} scroll-mt-16`}>
-          <p className="text-sm font-semibold">
+        <div id="claims-pending" className={`${card} ${cl.anchor}`}>
+          <p className="erp-heading">
             {L("Pending approvals", "Kelulusan menunggu")}
             {pending.length > 0 && (
-              <span className={`${chipSmWarn} ml-2 font-bold`}>{pending.length}</span>
+              <span className={`${chipSmWarn} ${cl.countChip}`}>{pending.length}</span>
             )}
           </p>
-          <div className="mt-3 space-y-2">
+          <div className={cl.pendingList}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={2} />}
-            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="text-muted-foreground text-sm">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
+            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="erp-text-sm erp-muted">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
             {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
           </div>
         </div>
       )}
 
-      <div id="claim-form" className={`${card} scroll-mt-36`}>
-        <p className="text-sm font-semibold">
+      <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
+        <p className="erp-heading">
           {editingClaim
-            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className="ml-1 text-xs font-normal underline" onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
+            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
             : L("Submit a claim", "Hantar tuntutan")}
         </p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+        <p className="erp-meta erp-mt-half">
           {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
         </p>
-        <div className="erp-segmented mt-3" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
+        <div className="erp-segmented erp-mt-3" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
           {(["reimbursement", "salary_advance"] as const).map((t) => (
             <button key={t} type="button" aria-pressed={claimType === t}
               onClick={() => setClaimType(t)}>
@@ -4804,23 +4805,23 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           ))}
         </div>
         {claimType === "salary_advance" && (
-          <label className="mt-2 block sm:max-w-xs">
-            <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
+          <label className={`${cl.fieldBlock} ${cl.fieldNarrow}`}>
+            <span className={cl.fieldLabel}>{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
             <input type="month" min={items.find((i) => i.claim_date)?.claim_date.slice(0, 7) || currentMonth}
               className={inputClass} value={payrollMonth}
               onChange={(e) => setPayrollMonth(e.target.value)} />
-            <span className="text-muted-foreground mt-1 block text-[11px]">{L("The deduction starts only after this advance is approved and marked paid.", "Potongan bermula hanya selepas pendahuluan diluluskan dan ditanda dibayar.")}</span>
+            <span className={cl.fieldHelp}>{L("The deduction starts only after this advance is approved and marked paid.", "Potongan bermula hanya selepas pendahuluan diluluskan dan ditanda dibayar.")}</span>
           </label>
         )}
-        <label className="mt-3 block"><span className="text-muted-foreground mb-0.5 block text-[11px] font-medium">{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
+        <label className={cl.fieldBlockWide}><span className={cl.fieldLabel}>{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
         <input className={inputClass} placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
         {/* v1.4.173 (CEO): who the payment actually goes to when this claim
             is raised on behalf of someone. Internal remark — CEO pays by it,
             HR keeps it for records; NEVER printed on the claim form. */}
         {canPayee && (
-          <label className="mt-2 block sm:max-w-md">
-            <span className="text-muted-foreground mb-0.5 block text-[11px]">{L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
+          <label className={`${cl.fieldBlock} ${cl.fieldMedium}`}>
+            <span className={cl.fieldLabelPlain}>{L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
             <select className={selectClass} value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
               <option value={0}>{L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
@@ -4830,18 +4831,18 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         )}
         {/* v1.150.0: the company mileage rate — read by everyone who claims,
             changed only by the claims decider (the CEO); every change is audited. */}
-        <p className="text-muted-foreground mt-2 text-xs">
+        <p className={cl.rateLine}>
           {rateDraft === null ? (
             <>
-              <AppIcon name="place" className="mr-1 -mt-0.5 inline h-3.5 w-3.5" />
-              {L("Mileage rate:", "Kadar perbatuan:")} <strong className="text-foreground">RM {rmBare(rateCents)}/km</strong> {L("(round trip, per Google Maps)", "(pergi balik, ikut Google Maps)")}
-              {mileage?.can_set && <button type="button" className="ml-2 underline" onClick={() => setRateDraft((rateCents / 100).toFixed(2))}>{L("Change", "Tukar")}</button>}
+              <AppIcon name="place" className={cl.rateIcon} />
+              {L("Mileage rate:", "Kadar perbatuan:")} <strong>RM {rmBare(rateCents)}/km</strong> {L("(round trip, per Google Maps)", "(pergi balik, ikut Google Maps)")}
+              {mileage?.can_set && <button type="button" className={cl.inlineLinkWide} onClick={() => setRateDraft((rateCents / 100).toFixed(2))}>{L("Change", "Tukar")}</button>}
             </>
           ) : (
-            <span className="inline-flex flex-wrap items-center gap-2">
-              <AppIcon name="place" className="h-3.5 w-3.5" />
+            <span className={cl.rateEdit}>
+              <AppIcon name="place" className={cl.mileageIcon} />
               <span>{L("New rate RM", "Kadar baharu RM")}</span>
-              <input type="number" min={0.01} max={100} step="0.01" inputMode="decimal" className={`${inputClass} w-24`} value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} />
+              <input type="number" min={0.01} max={100} step="0.01" inputMode="decimal" className={`${inputClass} ${cl.rateInput}`} value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} />
               <span>/km</span>
               <button type="button" className={rowBtnPrimary} onClick={async () => {
                 const r = await api<{ ok?: boolean; cents_per_km?: number; error?: { message?: string } }>(`/claims/mileage-rate`, { method: "POST", body: JSON.stringify({ rate_rm: Number(rateDraft) }) });
@@ -4850,59 +4851,59 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setRateDraft(null);
                 showToast(L("Saved", "Disimpan"), `${L("Mileage rate is now RM", "Kadar perbatuan kini RM")} ${rmBare(r.data.cents_per_km)}/km ${L("— recorded in the audit log", "— direkodkan dalam log audit")}`);
               }}>{L("Save", "Simpan")}</button>
-              <button type="button" className="underline" onClick={() => setRateDraft(null)}>{L("cancel", "batal")}</button>
+              <button type="button" className={cl.textLink} onClick={() => setRateDraft(null)}>{L("cancel", "batal")}</button>
             </span>
           )}
         </p>
-        <div className="text-muted-foreground mt-2 hidden gap-2 text-xs sm:grid sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto]">
+        <div className={cl.gridHead}>
           <span>{L("Date", "Tarikh")}</span><span>{L("Category", "Kategori")}</span><span>{L("Description", "Keterangan")}</span><span>{L("Amount (RM)", "Amaun (RM)")}</span><span />
         </div>
         {items.map((it, i) => (
-          <div key={i} className="border-border mt-2 grid grid-cols-2 items-center gap-2 rounded-lg border p-2 sm:mt-1 sm:grid-cols-[8.5rem_7rem_1fr_6.5rem_auto] sm:rounded-none sm:border-0 sm:p-0">
-            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Date", "Tarikh")}
-              <input type="date" className={`${inputClass} mt-0.5`}
+          <div key={i} className={cl.item}>
+            <label className={cl.phoneField}>{L("Date", "Tarikh")}
+              <input type="date" className={`${inputClass} ${cl.phoneControl}`}
                 value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             </label>
-            <input type="date" className={`${inputClass} hidden sm:block`}
+            <input type="date" className={`${inputClass} ${cl.deskControl}`}
               value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
-            <label className="text-muted-foreground block text-[11px] sm:hidden">{L("Category", "Kategori")}
-              <select className={`${selectClass} mt-0.5 capitalize`} value={it.category}
+            <label className={cl.phoneField}>{L("Category", "Kategori")}
+              <select className={`${selectClass} ${cl.phoneControl} ${cl.capitalize}`} value={it.category}
                 onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
                 {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
               </select>
             </label>
-            <select className={`${selectClass} hidden capitalize sm:block`} value={it.category}
+            <select className={`${selectClass} ${cl.deskControl} ${cl.capitalize}`} value={it.category}
               onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, category: e.target.value } : x))}>
               {CLAIM_CATEGORIES.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
             </select>
-            <label className="text-muted-foreground col-span-2 block text-[11px] sm:hidden">{L("Description", "Keterangan")}
-              <input className={`${inputClass} mt-0.5`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
+            <label className={`${cl.phoneField} ${cl.phoneFieldWide}`}>{L("Description", "Keterangan")}
+              <input className={`${inputClass} ${cl.phoneControl}`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
                 value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
             </label>
-            <input className={`${inputClass} hidden sm:block`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
+            <input className={`${inputClass} ${cl.deskControl}`} placeholder={L("e.g. Grab to client meeting", "cth. Grab ke mesyuarat pelanggan")}
               value={it.description} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, description: e.target.value } : x))} />
-            <label className="text-muted-foreground block text-[11px] sm:hidden">{isMileage(it) ? L("Amount (RM, from km)", "Amaun (RM, dari km)") : L("Amount (RM)", "Amaun (RM)")}
+            <label className={cl.phoneField}>{isMileage(it) ? L("Amount (RM, from km)", "Amaun (RM, dari km)") : L("Amount (RM)", "Amaun (RM)")}
               {isMileage(it)
-                ? <input readOnly className={`${inputClass} mt-0.5 tabular-nums`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
-                : <input type="number" min={0} step="0.01" className={`${inputClass} mt-0.5`} placeholder="0.00"
+                ? <input readOnly className={`${inputClass} ${cl.phoneControl} ${cl.num}`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+                : <input type="number" min={0} step="0.01" className={`${inputClass} ${cl.phoneControl}`} placeholder="0.00"
                     value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             </label>
             {isMileage(it)
-              ? <input readOnly className={`${inputClass} hidden tabular-nums sm:block`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
-              : <input type="number" min={0} step="0.01" className={`${inputClass} hidden sm:block`} placeholder="0.00"
+              ? <input readOnly className={`${inputClass} ${cl.deskControl} ${cl.num}`} value={rmBare(mileageCents(it.km))} title={L("Computed: km × rate", "Dikira: km × kadar")} />
+              : <input type="number" min={0} step="0.01" className={`${inputClass} ${cl.deskControl}`} placeholder="0.00"
                   value={it.amount} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))} />}
             {items.length > 1
-              ? <button type="button" className="text-destructive justify-self-end text-xs underline sm:justify-self-auto" onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>{L("✕ Remove", "✕ Buang")}</button>
-              : <span className="hidden sm:block" />}
+              ? <button type="button" className={cl.remove} onClick={() => setItems((a) => a.filter((_, xi) => xi !== i))}>{L("✕ Remove", "✕ Buang")}</button>
+              : <span className={cl.removeSpacer} />}
             {/* v1.150.0: mileage — only a travel line has a km box. */}
             {it.category === "travel" && (
-              <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-5 sm:pb-1">
-                <label className="text-muted-foreground inline-flex items-center gap-1.5 text-[11px]">
-                  <AppIcon name="place" className="h-3.5 w-3.5" />{L("Mileage (km, round trip)", "Perbatuan (km, pergi balik)")}
-                  <input type="number" min={0} step="0.1" inputMode="decimal" className={`${inputClass} w-28`} placeholder="0.0"
+              <div className={cl.mileage}>
+                <label className={cl.mileageLabel}>
+                  <AppIcon name="place" className={cl.mileageIcon} />{L("Mileage (km, round trip)", "Perbatuan (km, pergi balik)")}
+                  <input type="number" min={0} step="0.1" inputMode="decimal" className={`${inputClass} ${cl.kmInput}`} placeholder="0.0"
                     value={it.km} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, km: e.target.value } : x))} />
                 </label>
-                <span className="text-muted-foreground text-[11px]">
+                <span className={cl.mileageNote}>
                   {isMileage(it)
                     ? `${Math.round(Number(it.km) * 10) / 10} km × RM ${rmBare(rateCents)}/km = RM ${rmBare(mileageCents(it.km))}`
                     : L(`Mileage at RM ${rmBare(rateCents)}/km — the Google Maps distance to the destination and back to HQ. Leave empty for a receipt (Grab, toll, parking).`, `Perbatuan pada RM ${rmBare(rateCents)}/km — jarak Google Maps ke destinasi dan balik ke HQ. Biarkan kosong untuk resit (Grab, tol, parkir).`)}
@@ -4911,16 +4912,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             )}
           </div>
         ))}
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <div className={cl.itemsFoot}>
           <button type="button" className={btnSm} onClick={() => setItems((a) => [...a, { ...emptyItem }])}>{L("+ Add item", "+ Tambah item")}</button>
-          <p className="text-sm font-semibold">
+          <p className="erp-heading">
             {L("Total: RM", "Jumlah: RM")} {rmBare(items.reduce((a, i) => a + lineCents(i), 0))}
           </p>
         </div>
-        <div className="mt-2 flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <label className={`${btnSm} cursor-pointer sm:justify-start`}>
+        <div className={cl.submitRow}>
+          <label className={`${btnSm} ${cl.pointer} ${cl.startLeft}`}>
             {receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}
-            <input type="file" accept="image/*,application/pdf" className="hidden"
+            <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
                 // v1.4.110: PDFs can't be compressed client-side — hard limit
@@ -4941,14 +4942,14 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setReceipt(f);
               }} />
           </label>
-          <button type="button" disabled={submitting} className={`${btnClass} sm:justify-start`}
+          <button type="button" disabled={submitting} className={`${btnClass} ${cl.startLeft}`}
             onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
-        {msg && <p className="mt-2 text-xs font-medium text-warning">{msg}</p>}
+        {msg && <p className={cl.formMsg}>{msg}</p>}
       </div>
 
-      <div id="claims-list" className={`${card} scroll-mt-16`}>
-        <p className="text-sm font-semibold">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
+      <div id="claims-list" className={`${card} ${cl.anchor}`}>
+        <p className="erp-heading">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
         {(() => {
           // v1.4.147: overall of the present month, by CLAIM DATE (the same
           // month-attribution rule the Expenses tab uses).
@@ -4963,32 +4964,32 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           const pending = mine.filter((c) => c.status === "pending");
           const rejected = mine.filter((c) => c.status === "rejected");
           return (
-            <div className="erp-card-inset mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-              <span className="font-semibold">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
+            <div className={`erp-card-inset ${cl.monthStrip}`}>
+              <span className="erp-strong">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
               {/* v1.88.0 (CEO: "clickable data without me need to open another
                   new tabs") — these were four figures you could read and not
                   follow, above a list of every claim. Each one now scopes the
                   list below to what it counts. */}
-              {([["approved", L("Approved","Diluluskan"), approved,"text-success"],
-                 ["paid", L("— of which paid","— daripadanya dibayar"), paid,"text-success"],
-                 ["pending", L("Pending","Menunggu"), pending,"text-warning"],
-                 ...(rejected.length > 0 ? [["rejected", L("Rejected","Ditolak"), rejected,"text-danger"] as const] : []),
-               ] as [string, string, typeof mine, string][]).map(([k, lbl, list, tone]) => (
+              {([["approved", L("Approved","Diluluskan"), approved, cl.toneSuccess],
+                 ["paid", L("— of which paid","— daripadanya dibayar"), paid, cl.toneSuccess],
+                 ["pending", L("Pending","Menunggu"), pending, cl.toneWarning],
+                 ...(rejected.length > 0 ? [["rejected", L("Rejected","Ditolak"), rejected, cl.toneDanger] as const] : []),
+               ] as [string, string, typeof mine, string | undefined][]).map(([k, lbl, list, tone]) => (
                 <button key={k} type="button" aria-pressed={claimF === k}
-                  className={`${tone} rounded px-1 transition hover:underline ${claimF === k ? "ring-primary bg-card ring-2" : ""}`}
+                  className={`${tone ?? ""} ${cl.monthFilter} ${claimF === k ? cl.monthFilterOn : ""}`}
                   title={L("Show only these claims", "Tunjuk tuntutan ini sahaja")}
                   onClick={() => setClaimF(claimF === k ? "" : k)}>
                   {lbl} {list.length} · {fmt(sum(list))}{claimF === k ? " ✕" : ""}
                 </button>
               ))}
-              <span className="text-muted-foreground">{L("by claim date — matches the Expenses month figure", "ikut tarikh tuntutan — sepadan dengan angka bulan Perbelanjaan")}</span>
+              <span className="erp-muted">{L("by claim date — matches the Expenses month figure", "ikut tarikh tuntutan — sepadan dengan angka bulan Perbelanjaan")}</span>
             </div>
           );
         })()}
-        <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+        <div className={cl.list}>
           {/* v1.77.0 — skeleton until the first fetch lands. */}
           {!loaded && <SkelRows rows={4} />}
-          {loaded && (canDecide ? decided : mainList).length === 0 && <p className="text-muted-foreground text-sm">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
+          {loaded && (canDecide ? decided : mainList).length === 0 && <p className="erp-text-sm erp-muted">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
           {(canDecide ? decided : mainList)
             .filter((c) => !claimF
               || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
@@ -4998,24 +4999,24 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
 
       {role === "hr_admin" && (
         <div className={card}>
-          <p className="text-sm font-semibold">{L("Approved claims history — compilation", "Sejarah tuntutan diluluskan — kompilasi")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+          <p className="erp-heading">{L("Approved claims history — compilation", "Sejarah tuntutan diluluskan — kompilasi")}</p>
+          <p className="erp-meta erp-mt-half">
             {L("Read-only: every CEO-approved claim, for printing the claim form and the payment receipt (payout proof) for HR records.", "Baca sahaja: setiap tuntutan yang diluluskan CEO, untuk mencetak borang tuntutan dan resit bayaran (bukti bayaran) untuk rekod HR.")}
           </p>
-          <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+          <div className={cl.list}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={3} />}
-            {loaded && hrHistory.length === 0 && <p className="text-muted-foreground text-sm">{L("No approved claims yet.", "Tiada tuntutan diluluskan lagi.")}</p>}
+            {loaded && hrHistory.length === 0 && <p className="erp-text-sm erp-muted">{L("No approved claims yet.", "Tiada tuntutan diluluskan lagi.")}</p>}
             {hrHistory.map((c) => (
-              <div key={`hrh-${c.id}`} className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
-                <span className="min-w-0">
-                  <span className="font-medium">{claimNoOf(c)}</span>
-                  <span className="text-muted-foreground"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
+              <div key={`hrh-${c.id}`} className={cl.historyRow}>
+                <span className="erp-min0">
+                  <span className="erp-medium">{claimNoOf(c)}</span>
+                  <span className="erp-muted"> · {properName(c.claimant_full || c.claimant || "")} · {rmc(c.amount_cents)}</span>
                   {c.paid_at
-                    ? <span className={`${chipSuccess} ml-1.5`}>{L("PAID","DIBAYAR")} {dmy(c.paid_at)}</span>
-                    : <span className={`${chipWarn} ml-1.5`}>{L("payment due","bayaran perlu dibuat")}</span>}
+                    ? <span className={`${chipSuccess} ${cl.chipGapWide}`}>{L("PAID","DIBAYAR")} {dmy(c.paid_at)}</span>
+                    : <span className={`${chipWarn} ${cl.chipGapWide}`}>{L("payment due","bayaran perlu dibuat")}</span>}
                 </span>
-                <span className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                <span className={cl.historyActions}>
                   <button type="button" className={rowBtn} onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
                   <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c)}>{L("Send PDF", "Hantar PDF")}</button>
                   {c.payment_proof_key && <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("Payment proof", "Bukti bayaran")}</button>}

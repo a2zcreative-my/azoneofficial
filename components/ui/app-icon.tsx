@@ -142,14 +142,17 @@ export type AppIconName = keyof typeof APP_ICON;
  */
 export function AppIcon({ name, className = "" }: { name: AppIconName; className?: string }) {
   const Glyph = APP_ICON[name];
-  return <Glyph aria-hidden className={`inline-block h-4 w-4 shrink-0 ${className}`} strokeWidth={1.75} />;
+  /* v1.172.2 (Tailwind retired): the 16px size is .erp-icon (styles/erp-v3.css);
+     a caller resizes with .erp-icon-sm / -md / -lg or a CSS Module class. */
+  return <Glyph aria-hidden className={`erp-icon erp-icon-inline ${className}`} strokeWidth={1.75} />;
 }
 
 /**
  * The card heading, with its icon. Renders exactly what a bare
- * `<p className="text-sm font-semibold">` renders when given no icon, so a
- * card can be converted to it without moving a pixel, and the 138 headings
- * that have no icon yet are not a different component.
+ * `<p className="erp-heading">` renders when given no icon (v1.172.2:
+ * .erp-panel-title in styles/erp-v3.css - 14px semibold, a 0.5rem gap to
+ * the icon), so a card can be converted to it without moving a pixel, and
+ * the 138 headings that have no icon yet are not a different component.
  *
  * The icon is muted by default: a heading's job is the word. An icon at the
  * same weight as the text competes with it, which is how a page ends up
@@ -163,8 +166,8 @@ export function PanelTitle({ icon, children, className = "", tone = "muted" }: {
   tone?: "muted" | "inherit";
 }) {
   return (
-    <p className={`flex items-center gap-2 text-sm font-semibold ${className}`}>
-      {icon ? <AppIcon name={icon} className={tone === "muted" ? "text-muted-foreground" : ""} /> : null}
+    <p className={`erp-panel-title ${className}`}>
+      {icon ? <AppIcon name={icon} className={tone === "muted" ? "erp-muted" : ""} /> : null}
       {children}
     </p>
   );

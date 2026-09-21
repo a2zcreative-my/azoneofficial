@@ -1,0 +1,422 @@
+/* v1.172.2 - the portal page's own chrome (Tailwind retired): the signed-out
+   and step-up screens, the page frame, the topbar's two halves and the
+   avatar, the desktop search pill, the notifications card, the More sheet
+   and a few tab-body arrangements. The bar, the rail, the bottom nav, the
+   sheet surface, cards, pills and buttons are the named classes in
+   styles/erp-v3.css. Tokens only; the 768px and 1024px queries are the
+   shell's own breakpoints. */
+
+/* ---- signed out / 2FA required ---- */
+.gate {
+  margin: 6rem auto 0;
+  max-width: 24rem;
+  padding-inline: 1.5rem;
+  text-align: center;
+}
+.gateEyebrow {
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brand-accent-deep);
+}
+.gateTitle {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.gateText {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+.gateAction {
+  margin-top: 1.5rem;
+}
+.stepUp {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 32rem;
+  padding: 3rem 1rem;
+}
+@media (min-width: 768px) {
+  .stepUp {
+    padding-block: 6rem;
+  }
+}
+.stepUpTitle {
+  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+}
+.stepUpText {
+  margin-bottom: 2rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+.stepUpFoot {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+}
+.quietLink {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (hover: hover) {
+  .quietLink:hover {
+    color: var(--foreground);
+  }
+}
+
+/* ---- the page frame ---- */
+.page {
+  /* no padding-bottom on a phone: .erp-page-clearance (styles/erp-v3.css)
+     owns it there, clearing the fixed bottom nav; a shorthand here would
+     override that layered class */
+  width: 100%;
+  padding-top: 0.75rem;
+  padding-inline: 1rem;
+}
+@media (min-width: 768px) {
+  .page {
+    padding-top: 1rem;
+    padding-inline: 1.25rem;
+    padding-bottom: 1.5rem;
+  }
+}
+
+/* ---- topbar ---- */
+.identity {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 0.5rem;
+}
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--brand-accent);
+}
+.avatarInitial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+.tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+.searchPill {
+  display: none;
+}
+.searchPillInner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.kbd {
+  border-radius: 0.25rem;
+  background: var(--secondary);
+  padding: 0.125rem 0.375rem;
+  font-size: 10px;
+  font-weight: 500;
+}
+.langButton {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+}
+.bellAnchor {
+  position: relative;
+}
+@media (min-width: 768px) {
+  .identity {
+    flex-basis: 100%;
+    gap: 0.75rem;
+  }
+  .avatar {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .tools {
+    width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
+    justify-content: flex-end;
+  }
+  .searchPill {
+    display: inline-flex;
+    width: 11rem;
+    min-width: 7rem;
+    flex-shrink: 1;
+    justify-content: space-between;
+    color: var(--muted-foreground);
+  }
+}
+@media (min-width: 1024px) {
+  .identity {
+    flex-basis: auto;
+  }
+  .tools {
+    width: auto;
+  }
+}
+
+/* ---- notifications card ---- */
+.notifList {
+  margin-top: 0.25rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.notifItem {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.notifLink {
+  text-align: left;
+  text-underline-offset: 2px;
+}
+@media (hover: hover) {
+  .notifLink:hover {
+    text-decoration-line: underline;
+  }
+}
+
+/* ---- the More sheet ---- */
+.moreBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+@media (min-width: 768px) {
+  .moreBackdrop {
+    display: none;
+  }
+}
+.moreScrim {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.4);
+}
+.moreHead {
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.moreSpacer {
+  width: 2.25rem;
+}
+.moreGrip {
+  margin-inline: auto;
+  height: 0.375rem;
+  width: 3rem;
+  border-radius: 9999px;
+  background: var(--border);
+}
+.moreClose {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  color: var(--muted-foreground);
+}
+.moreSection {
+  margin-bottom: 1rem;
+}
+.moreSection:last-child {
+  margin-bottom: 0;
+}
+.moreLabel {
+  /* no letter-spacing: the workspace sets every <p>'s to 0 (globals.css) */
+  margin-bottom: 0.375rem;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.moreLabelPrefs {
+  margin-top: 1rem;
+}
+.moreGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+.moreGrid4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.moreTab {
+  display: flex;
+  min-height: 4rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+}
+.moreTabOn {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.morePref {
+  display: flex;
+  min-height: 3.5rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  font-size: 11px;
+  font-weight: 500;
+}
+@media (hover: hover) {
+  .moreTab:not(.moreTabOn):hover,
+  .morePref:hover {
+    background: var(--secondary);
+  }
+}
+.moreLang {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+}
+.moreFoot {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.buildStamp {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+/* ---- tab bodies ---- */
+.main {
+  margin-top: 1rem;
+}
+@media (min-width: 768px) {
+  .main {
+    margin-top: 1.5rem;
+  }
+}
+.coach {
+  margin-bottom: 1rem;
+}
+.overview {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.overviewSummary {
+  min-height: 2.75rem;
+  cursor: pointer;
+  padding-block: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.overviewGrid {
+  display: grid;
+  gap: 1rem;
+  padding-bottom: 1rem;
+}
+.overviewCol {
+  min-width: 0;
+}
+.overviewCol > :where(:not(:last-child)) {
+  margin-bottom: 0.75rem;
+}
+@media (min-width: 1024px) {
+  .overviewGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.rosterAnchor {
+  scroll-margin-top: 4rem;
+}
+.twoUp {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+@media (min-width: 768px) {
+  .twoUp {
+    gap: 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .twoUp {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.ecomStack {
+  display: grid;
+  gap: 0.75rem;
+}
+.ecomWork {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+@media (min-width: 768px) {
+  .ecomStack {
+    gap: 1.5rem;
+  }
+  .ecomWork {
+    gap: 1rem;
+  }
+  .ecomWorkSplit {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+.privacyNote {
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.privacyNote a {
+  text-decoration-line: underline;
+}

@@ -39,10 +39,17 @@ const eventIcs = read("lib/event-ics.ts");
 const staff = read("worker/src/staff.ts");
 const eventsPanel = read("components/portal/events.tsx");
 
+/* v1.172.2 (Tailwind retired): the two names resolve to classes in
+   styles/erp-v3.css, and the FORMULA is checked there - 4rem nav + the
+   safe-area floor + one breathing unit for the page, the floor for the bar. */
+const v3 = read("styles/erp-v3.css");
 ok("the PWA shell exposes one named bottom clearance",
-  /export const mobileAppBottomClearance\s*=\s*\n\s*"pb-\[calc\(5rem\+max\(env\(safe-area-inset-bottom,0px\),6px\)\)\]"/.test(styles));
+  /export const mobileAppBottomClearance = "erp-page-clearance";/.test(styles)
+  && /\.erp-page-clearance \{ padding-bottom: calc\(5rem \+ max\(env\(safe-area-inset-bottom, 0px\), 6px\)\); \}/.test(v3));
 ok("the PWA bottom nav exposes one named safe-area style",
-  /export const mobileBottomNav\s*=\s*\n\s*"border-border bg-card fixed inset-x-0 bottom-0 z-40 flex border-t pb-\[max\(env\(safe-area-inset-bottom,0px\),6px\)\] md:hidden"/.test(styles));
+  /export const mobileBottomNav = "erp-bottom-nav";/.test(styles)
+  && /\.erp-bottom-nav \{[^}]*position: fixed;[^}]*inset-inline: 0;[^}]*bottom: 0;[^}]*z-index: 40;[^}]*display: flex;[^}]*border-top: 1px solid var\(--border\);[^}]*background: var\(--card\);[^}]*padding-bottom: max\(env\(safe-area-inset-bottom, 0px\), 6px\);/.test(v3)
+  && /@media \(min-width: 768px\) \{ \.erp-bottom-nav \{ display: none; \} \}/.test(v3));
 for (const [file, src] of pages) {
   ok(`${file} uses the shared mobile bottom clearance`, src.includes("mobileAppBottomClearance"));
 }

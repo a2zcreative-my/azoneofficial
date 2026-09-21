@@ -1,0 +1,133 @@
+/* v1.172.2 - the Attendance tab's own layout (Tailwind retired): the
+   monitor's staff list and the two hand-set tables (my month, the team
+   report). The cards, chips, controls and notes are the named classes in
+   styles/erp-v3.css; this module is only the geometry that belongs to this
+   screen. Tokens only. */
+
+.page > :where(:not(:last-child)) {
+  margin-bottom: 1rem;
+}
+@media (min-width: 768px) {
+  .page > :where(:not(:last-child)) {
+    margin-bottom: 1.5rem;
+  }
+}
+.noteIcon {
+  /* no size: AppIcon is 16px (styles/erp-v3.css, unlayered) - the legacy
+     h-3.5 utility this replaced never applied either */
+  margin-right: 0.25rem;
+}
+.chipIcon {
+  margin-right: 0.125rem;
+}
+.staffList {
+  margin-top: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.staffList > * + * {
+  border-top: 1px solid var(--border);
+}
+.staffRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0.125rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.staffRole {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+  text-transform: capitalize;
+}
+.staffChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+@media (min-width: 640px) {
+  .staffFilter {
+    width: auto;
+    max-width: 11rem;
+  }
+  .monthField {
+    width: auto;
+  }
+}
+.tableWrap {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.tableMine {
+  min-width: 420px;
+}
+.tableTeam {
+  min-width: 480px;
+}
+.headRow {
+  border-bottom: 1px solid var(--border);
+}
+.th {
+  padding: 0.5rem;
+  text-align: left;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.thIndent {
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+}
+.thSort {
+  cursor: pointer;
+  user-select: none;
+}
+@media (hover: hover) {
+  .thSort:hover {
+    text-decoration-line: underline;
+  }
+}
+.row {
+  border-bottom: 1px solid var(--border);
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.td {
+  padding: 0.375rem 0.5rem;
+}
+.tdStrong {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tdNowrap {
+  white-space: nowrap;
+}
+.totalRow {
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}
+.totalCell {
+  padding: 0.5rem;
+}

@@ -156,7 +156,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable} data-scroll-behavior="smooth">
-      <body className={`${poppins.variable} bg-background text-foreground min-h-screen font-sans antialiased selection:bg-primary/20`}>
+      <body className={poppins.variable}>
         <MsBoot />
         <OfflineBanner />
         <PwaRegister />

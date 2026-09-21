@@ -71,8 +71,8 @@ export function revealAnchor(id: string | undefined): void {
     const el = document.getElementById(id);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
-      el.classList.add("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "rounded-2xl");
-      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "rounded-2xl"), 2200);
+      el.classList.add("erp-reveal");
+      window.setTimeout(() => el.classList.remove("erp-reveal"), 2200);
       return;
     }
     if (tries++ < 40) window.setTimeout(tick, 100);
@@ -316,14 +316,14 @@ export function QuietCard({ title, summary, children }: { title: string; summary
   const [open, setOpen] = useState(false);
   return (
     <div className={card}>
-      <button type="button" className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="min-w-0">
-          <span className="block text-sm font-semibold">{title}</span>
-          {summary && <span className="text-muted-foreground mt-0.5 block truncate text-xs">{summary}</span>}
+      <button type="button" className="erp-quiet-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="erp-min0">
+          <span className="erp-quiet-title">{title}</span>
+          {summary && <span className="erp-quiet-summary">{summary}</span>}
         </span>
-        <span aria-hidden className={`text-muted-foreground shrink-0 text-xs transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+        <span aria-hidden className="erp-quiet-chevron" data-open={open || undefined}>▾</span>
       </button>
-      {open && <div className="mt-3">{children}</div>}
+      {open && <div className="erp-quiet-body">{children}</div>}
     </div>
   );
 }
@@ -341,7 +341,7 @@ export function SectionTabs<T extends string>({ value, onChange, tabs, className
   className?: string;
 }) {
   return (
-    <div role="tablist" className={`flex flex-wrap gap-1.5 ${className}`}>
+    <div role="tablist" className={`erp-pill-row ${className}`}>
       {tabs.map(([k, label]) => (
         <button key={k} type="button" role="tab" aria-selected={value === k}
           className={value === k ? tabPillOn : tabPill} onClick={() => onChange(k)}>

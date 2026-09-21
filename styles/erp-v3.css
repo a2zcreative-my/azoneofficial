@@ -33,11 +33,15 @@
    palette (navy #1a2946 · gold #c8a96a / #c9a227 · white · neutral grey)
    is never restated here.
 
-   Tailwind is a COMPATIBILITY LAYER. Utilities still win over these rules
-   (Tailwind v4 emits its utilities layer after `components`), so a caller
-   may append `sm:max-w-56` to an input or `mt-4` to a card, and a legacy
-   surface that still spells its look out by hand keeps working until it is
-   migrated. tests/interface-v3.mjs holds the migrated surfaces to the names.
+   v1.172.2 - TAILWIND IS RETIRED. This file is the `components` cascade
+   layer; the utility classes unmigrated screens still carry were compiled
+   ONCE into styles/legacy-utilities.css (the `utilities` layer, frozen,
+   shrink-only), so a legacy `mt-4` still wins over a class here exactly as
+   it did - until that screen migrates. New work never writes a utility:
+   it takes a name from this file (the LAYOUT AND TYPE PRIMITIVES section
+   holds the rows, stacks, grids, icons and type steps), a token, or a CSS
+   Module beside the component. tests/interface-v3.mjs holds the migrated
+   surfaces to the names; tests/tailwind-retired.mjs holds the retirement.
    ===================================================================== */
 
 @layer components {
@@ -66,10 +70,15 @@
 
   /* ---------- page & stacks ---------- */
   .erp-page { width: 100%; margin-inline: auto; max-width: none; }
-  .erp-stack { display: grid; gap: 1rem; }
-  @media (min-width: 768px) { .erp-stack { gap: 1.5rem; } }
-  .erp-stack-tight { display: grid; gap: 0.75rem; }
-  @media (min-width: 768px) { .erp-stack-tight { gap: 1rem; } }
+  /* v1.172.2 - the stacks are BLOCK flow with a margin between children
+     (what the space-y utilities were), not grids: a child's own top margin
+     collapses into the gap instead of adding to it, so the panels that
+     were laid out against space-y keep their exact rhythm. :where() keeps
+     the rule at zero specificity, so a child's own class still wins. */
+  .erp-stack > :where(:not(:last-child)) { margin-bottom: 1rem; }
+  @media (min-width: 768px) { .erp-stack > :where(:not(:last-child)) { margin-bottom: 1.5rem; } }
+  .erp-stack-tight > :where(:not(:last-child)) { margin-bottom: 0.75rem; }
+  @media (min-width: 768px) { .erp-stack-tight > :where(:not(:last-child)) { margin-bottom: 1rem; } }
 
   /* A zone: the eyebrow that names a group of cards, with a rule to its
      right. Small, quiet, uppercase - it organises, it does not compete. */
@@ -325,6 +334,25 @@
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa6ba' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   }
   .erp-select.erp-input-sm { padding-right: 2rem; background-position: right 0.5rem center; }
+  /* v1.172.2 - the full select is as wide as its column on a phone and its
+     own width from `sm` up (was the appended sm:w-auto utility). */
+  @media (min-width: 640px) { .erp-input.erp-select:not(.erp-input-sm) { width: auto; } }
+  /* v1.172.2 - the public-site field (lib/ui-styles.ts inputClassLg): the
+     marketing pages' 16px control, 14px from `sm`, the 2px focus ring.
+     Deliberately not the workspace input - visitors arrive cold on a phone. */
+  .erp-input-public {
+    width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--input);
+    background: var(--background);
+    padding: 0.625rem 1rem;
+    font-size: 1rem;
+    line-height: 1.5rem;
+    color: var(--foreground);
+    outline: none;
+  }
+  .erp-input-public:focus { box-shadow: 0 0 0 2px var(--ring); }
+  @media (min-width: 640px) { .erp-input-public { font-size: 0.875rem; line-height: 1.25rem; } }
   select.erp-input[multiple], select.erp-input[size] { background-image: none; padding-right: 0.875rem; }
   .erp-textarea { min-height: 6rem; padding: 0.625rem 0.875rem; resize: vertical; line-height: 1.5; }
   /* Date, month and time controls keep the control height on iOS, where the
@@ -397,6 +425,22 @@
   /* ---------- buttons: additions to the v1.169.0 contract ---------- */
   .erp-button > svg { flex: 0 0 auto; width: 1rem; height: 1rem; }
   .erp-icon-button > svg { flex: 0 0 auto; }
+  /* v1.172.2 - the quick action: a full-width touch target on a phone, a
+     row action from `md` up (was `w-full md:w-auto` on btnQuick/btnHero). */
+  .erp-button-quick { width: 100%; }
+  @media (min-width: 768px) { .erp-button-quick { width: auto; } }
+  /* v1.172.2 - the tab pill's resting tone and the muted row action */
+  .erp-button.erp-tab-pill { color: var(--muted-foreground); }
+  .erp-icon-button.erp-icon-button-muted { color: var(--muted-foreground); }
+  @media (hover: hover) { .erp-icon-button.erp-icon-button-muted:hover { color: var(--foreground); } }
+  /* v1.172.2 - a disabled ROW button is inert as well as faded (components/
+     ui/row-button.tsx OFF): the hover fill must not fire on a control that
+     will not act. The 50% opacity comes from the .erp-button contract. */
+  .erp-button.erp-button-off:disabled { pointer-events: none; }
+  /* v1.172.2 - the wrapper every row's action group uses: left-aligned on a
+     phone (the buttons sit under the text), right-aligned from `sm` up. */
+  .erp-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0.375rem; }
+  @media (min-width: 640px) { .erp-row-actions { justify-content: flex-end; } }
   /* Borderless, for the quiet third command in a row. */
   .erp-button-ghost {
     border: 1px solid transparent;
@@ -558,8 +602,9 @@
     justify-content: space-between;
     gap: 0.5rem;
     margin-inline: -1rem;
-    /* top padding is set inline by the page: its own --hdr-pt plus the
-       status-bar inset (tests/shell-scroll.mjs) */
+    /* top padding is set inline by the page: its own --hdr-pt (owned here
+       since v1.172.2) plus the status-bar inset (tests/shell-scroll.mjs) */
+    --hdr-pt: 0.5rem;
     padding: 0.5rem 1rem 0.5rem;
     border-bottom: 1px solid var(--border);
     background: color-mix(in srgb, var(--background) 92%, transparent);
@@ -568,6 +613,7 @@
   }
   @media (min-width: 768px) {
     .erp-topbar {
+      --hdr-pt: 0.75rem;
       flex-wrap: wrap;
       gap: 0.75rem;
       margin-inline: -1.25rem;
@@ -595,8 +641,23 @@
      tinted icon well and a gold hairline - so it reads with or without
      colour. */
   .erp-bottom-nav {
+    /* v1.172.2 - the bar itself (was lib/ui-styles.ts mobileBottomNav as
+       utilities): fixed to the bottom edge, above the page, gone from `md`
+       up, padded by the home-indicator inset with a 6px floor. The page
+       clears it by the same formula (.erp-page-clearance below);
+       tests/pwa-calendar.mjs holds the pair together. */
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    border-top: 1px solid var(--border);
+    background: var(--card);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
     box-shadow: 0 -6px 20px rgba(13, 21, 38, 0.06);
   }
+  @media (min-width: 768px) { .erp-bottom-nav { display: none; } }
+  .erp-page-clearance { padding-bottom: calc(5rem + max(env(safe-area-inset-bottom, 0px), 6px)); }
   .dark .erp-bottom-nav { box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35); }
   .erp-bottom-nav-item {
     position: relative;
@@ -742,6 +803,9 @@
   .erp-rail-user { padding: 0.25rem 0.25rem 0.5rem; }
   .erp-rail-user-name { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .erp-rail-user-role { font-size: 0.75rem; color: var(--muted-foreground); text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* v1.172.2 - the brand mark and the sign-out row, off utilities */
+  .erp-rail-logo { width: 2rem; height: 2rem; flex-shrink: 0; border-radius: var(--radius); background: #fff; object-fit: contain; padding: 0.25rem; }
+  .erp-rail-item-signout { border-radius: var(--radius); }
 
   /* The contextual drawer (components/ui/side-drawer.tsx). */
   .erp-drawer-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: flex-end; }
@@ -776,8 +840,134 @@
   .erp-drawer-title { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .erp-drawer-sub { margin-top: 0.125rem; font-size: 0.75rem; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .erp-drawer-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: 1rem; }
+  .erp-icon-button.erp-drawer-close { color: var(--muted-foreground); margin-right: -0.5rem; flex-shrink: 0; }
   .erp-drawer-foot { padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); }
   @media (min-width: 768px) {
     .erp-drawer-head, .erp-drawer-body, .erp-drawer-foot { padding-inline: 1.25rem; }
   }
+
+  /* ===================================================================
+     v1.172.2 - LAYOUT AND TYPE PRIMITIVES (Tailwind retired).
+     The structural vocabulary a screen composes its boxes with now that
+     utilities are frozen: a row, a growing cell, a card grid, an icon, a
+     muted line, a rhythm step. Each is named for what it does in the
+     layout and sits on the 0.25rem rhythm. A screen-specific arrangement
+     (a hero, a two-column form, a calendar) is a CSS Module beside the
+     component, NOT a longer list here - this section stays short on
+     purpose. Responsive helpers exist only as show/hide at the 768px
+     breakpoint; a layout that changes shape at a width is a Module.
+     =================================================================== */
+  .erp-flex { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+  .erp-flex-between { justify-content: space-between; }
+  .erp-flex-wrap { flex-wrap: wrap; }
+  .erp-flex-top { align-items: flex-start; }
+  .erp-flex-bottom { align-items: flex-end; }
+  .erp-flex-baseline { align-items: baseline; }
+  .erp-flex-end { justify-content: flex-end; }
+  .erp-flex-col { flex-direction: column; align-items: stretch; }
+  .erp-gap-1 { gap: 0.25rem; }
+  .erp-gap-2 { gap: 0.5rem; }
+  .erp-gap-3 { gap: 0.75rem; }
+  .erp-gap-4 { gap: 1rem; }
+  .erp-grow { flex: 1 1 0%; min-width: 0; }
+  .erp-fixed { flex-shrink: 0; }
+  .erp-min0 { min-width: 0; }
+  .erp-full { width: 100%; }
+  .erp-block { display: block; }
+  .erp-center { display: grid; place-items: center; }
+  .erp-cols-2, .erp-cols-3, .erp-cols-4 { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .erp-cols-2 > *, .erp-cols-3 > *, .erp-cols-4 > * { min-width: 0; }
+  @media (min-width: 768px) {
+    .erp-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .erp-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+  }
+  .erp-scroll-x { overflow-x: auto; }
+  .erp-divide > * + * { border-top: 1px solid var(--border); }
+  /* rhythm steps - the ONLY spacing helpers; a component's own spacing
+     belongs in its class */
+  .erp-mt-half { margin-top: 0.125rem; }
+  .erp-mt-1 { margin-top: 0.25rem; }
+  .erp-mt-2 { margin-top: 0.5rem; }
+  .erp-mt-3 { margin-top: 0.75rem; }
+  .erp-mt-4 { margin-top: 1rem; }
+  .erp-mt-6 { margin-top: 1.5rem; }
+  .erp-mb-3 { margin-bottom: 0.75rem; }
+  /* icons: the lucide glyph sizes the interface uses */
+  .erp-icon { width: 1rem; height: 1rem; flex-shrink: 0; }
+  .erp-icon-sm { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+  .erp-icon-md { width: 1.125rem; height: 1.125rem; flex-shrink: 0; }
+  .erp-icon-lg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
+  .erp-icon-inline { display: inline-block; }
+  /* AppIcon's fixed size lives OUTSIDE the layer, at the end of this file */
+  /* the card heading (components/ui/app-icon.tsx PanelTitle): what a bare
+     .erp-heading renders, with room for its icon */
+  .erp-panel-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+  /* type: sizes on the interface's scale, tones on the tokens */
+  .erp-text-xs { font-size: 0.75rem; line-height: 1rem; }
+  .erp-text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+  .erp-text-base { font-size: 1rem; line-height: 1.5rem; }
+  .erp-text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+  .erp-muted { color: var(--muted-foreground); }
+  .erp-strong { font-weight: 600; }
+  .erp-medium { font-weight: 500; }
+  .erp-num { font-variant-numeric: tabular-nums; }
+  .erp-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erp-nowrap { white-space: nowrap; }
+  .erp-left { text-align: left; }
+  .erp-right { text-align: right; }
+  .erp-centered { text-align: center; }
+  .erp-meta { font-size: 0.75rem; line-height: 1rem; color: var(--muted-foreground); }
+  .erp-eyebrow { font-size: 0.625rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-foreground); }
+  .erp-heading { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+  .erp-danger { color: var(--danger); }
+  .erp-success { color: var(--success); }
+  .erp-warning { color: var(--warning); }
+  /* list rows: the "row with a hover" every panel list uses */
+  .erp-list-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+    transition: background-color 150ms ease;
+  }
+  .erp-list-row:last-child { border-bottom: 0; }
+  @media (hover: hover) { .erp-list-row:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); } }
+  @media (min-width: 640px) { .erp-list-row { padding-inline: 1.25rem; } }
+  .erp-none { padding: 2rem 0; text-align: center; font-size: 0.875rem; line-height: 1.25rem; color: var(--muted-foreground); }
+  .erp-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; flex-shrink: 0; border-radius: 9999px; background: var(--secondary); }
+  /* the quiet card (page-shared.tsx QuietCard): one line until tapped */
+  .erp-quiet-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.75rem; text-align: left; }
+  .erp-quiet-title { display: block; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+  .erp-quiet-summary { display: block; margin-top: 0.125rem; font-size: 0.75rem; line-height: 1rem; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erp-quiet-chevron { flex-shrink: 0; font-size: 0.75rem; line-height: 1rem; color: var(--muted-foreground); transition: transform 150ms ease; }
+  .erp-quiet-chevron[data-open] { transform: rotate(180deg); }
+  .erp-quiet-body { margin-top: 0.75rem; }
+  /* one row of pills (SectionTabs) */
+  .erp-pill-row { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+  /* revealAnchor(): the card a deep link lands on, ringed for a moment */
+  .erp-reveal { box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary); border-radius: 1rem; }
+  /* the attention pulse (the unread badge); still under reduced motion */
+  .erp-pulse { animation: erp-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  @keyframes erp-pulse { 50% { opacity: 0.5; } }
+  @media (prefers-reduced-motion: reduce) { .erp-pulse { animation: none; } }
+  /* visually hidden, read by assistive technology */
+  .erp-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border-width: 0; }
+  /* show/hide at the one breakpoint the shell uses */
+  @media (max-width: 767px) { .erp-desktop-only { display: none !important; } }
+  @media (min-width: 768px) { .erp-phone-only { display: none !important; } }
 }
+
+/* =====================================================================
+   OUTSIDE THE LAYER, ON PURPOSE - v1.172.2.
+   AppIcon (components/ui/app-icon.tsx) is a 16px glyph, and 75 call sites
+   still carry a legacy `h-3.5 w-3.5` / `h-3 w-3` utility on it. Those never
+   applied: Tailwind ordered its own h-4/w-4 after them, so every AppIcon has
+   always rendered at 16px. Keeping that rule unlayered keeps the icons at
+   the size the interface was reviewed at; the layered legacy utilities lose
+   to it exactly as they lost before. An .erp-icon-* size class (below, also
+   unlayered so it wins over this one) or a CSS Module class still resizes an
+   icon on purpose - a CSS Module ships after this file, so its equal
+   specificity wins by order. :where() keeps this at one class of weight.
+   ===================================================================== */
+:where(svg).erp-icon-inline { width: 1rem; height: 1rem; }
+.erp-icon-inline.erp-icon-sm { width: 0.875rem; height: 0.875rem; }
+.erp-icon-inline.erp-icon-md { width: 1.125rem; height: 1.125rem; }
+.erp-icon-inline.erp-icon-lg { width: 1.25rem; height: 1.25rem; }

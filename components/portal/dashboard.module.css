@@ -1,0 +1,688 @@
+/* v1.172.2 - the Dashboard's own layout (Tailwind retired): the phone
+   greeting, the shift hero's rows, its action grid and location strip, the
+   work-overview lists and the schedule rows. The hero surface, cards, zone
+   labels, chips, notes and buttons are the named classes in
+   styles/erp-v3.css and styles/globals.css. Tokens only; the hero's ink
+   tokens (--success / --warning on navy) come from .erp-shift-hero. */
+
+.page {
+  padding-bottom: 0.5rem;
+}
+.page > :where(:not(:last-child)) {
+  margin-bottom: 1.5rem;
+}
+.greeting {
+  display: block;
+}
+.greetingDate {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.greetingTitle {
+  margin-top: 0.125rem;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+}
+@media (min-width: 768px) {
+  .greeting {
+    display: none;
+  }
+  .heroNarrow {
+    /* a grid item with auto margins shrinks to its content; the width keeps
+       it the full column up to the cap, as the block layout it replaced */
+    width: 100%;
+    margin-inline: auto;
+    max-width: 48rem;
+  }
+}
+.heroHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.heroTitleRow {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.heroTitle {
+  color: #fff;
+}
+.heroWarn {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--warning);
+}
+.heroAlert {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--warning);
+}
+.actionsSkel {
+  margin-top: 0.625rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.actions {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.actionsShift {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+@media (min-width: 640px) {
+  .actionsShift {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 768px) {
+  .actionsSkel,
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .actionSkel {
+    width: 9rem;
+  }
+}
+.punchError {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--destructive);
+}
+.noteIcon {
+  /* no size: AppIcon is 16px (styles/erp-v3.css, unlayered) - the legacy
+     h-3.5 utility this replaced never applied either */
+  margin-right: 0.25rem;
+  margin-top: -0.125rem;
+}
+.shiftsNote {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.fenceNote {
+  margin-top: 0.75rem;
+}
+.fenceHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.fenceLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  font-weight: 500;
+}
+.fenceResult {
+  margin-top: 0.375rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 12px;
+  font-weight: 600;
+}
+.fenceDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.fenceError {
+  margin-top: 0.375rem;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--warning);
+}
+.inside {
+  color: var(--success);
+}
+.outside {
+  color: var(--warning);
+}
+.fenceLine {
+  display: none;
+  margin-top: 0.75rem;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+@media (min-width: 768px) {
+  .fenceNote {
+    display: none;
+  }
+  .fenceLine {
+    display: block;
+  }
+}
+.fenceCheck {
+  margin-left: 0.5rem;
+  font-weight: 600;
+  color: var(--brand-accent);
+  text-underline-offset: 2px;
+}
+.fenceCheck:disabled {
+  opacity: 0.5;
+}
+@media (hover: hover) {
+  .fenceCheck:hover {
+    text-decoration-line: underline;
+  }
+}
+.fenceVerdict {
+  margin-left: 0.375rem;
+  font-weight: 600;
+}
+.fenceMessage {
+  margin-left: 0.375rem;
+  color: var(--warning);
+}
+.punchesSkel {
+  margin-top: 0.75rem;
+}
+.punches {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+.overviewHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.overviewAnchor {
+  scroll-margin-top: 4rem;
+}
+.pane {
+  margin-top: 1rem;
+}
+.list > * + * {
+  border-top: 1px solid var(--border);
+}
+.listItem {
+  display: flex;
+  min-height: 3.5rem;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding-inline: 0.25rem;
+  text-align: left;
+}
+@media (hover: hover) {
+  .listItem:hover {
+    background: color-mix(in oklab, var(--secondary) 60%, transparent);
+  }
+}
+.listIconGold {
+  background: var(--tint-gold);
+  color: var(--brand-accent-deep);
+}
+.listText {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+.listTitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.listSub {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.listChevron {
+  color: var(--muted-foreground);
+}
+.schedule {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1rem;
+}
+.scheduleTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+@media (min-width: 768px) {
+  .scheduleTitle {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+}
+.scheduleList {
+  margin-top: 0.375rem;
+}
+.session {
+  border-bottom: 1px solid var(--border);
+  padding-block: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.session:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.sessionWhen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.375rem;
+}
+.sessionDate {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sessionToday {
+  color: var(--brand-accent-deep);
+}
+.sessionTime {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.sessionWhat {
+  margin-top: 0.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sessionNotes {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+/* ---- the month card ---- */
+.monthHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.monthWhen {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.monthBody {
+  margin-top: 1rem;
+}
+.stats {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.statsFull {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 640px) {
+  .stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .statsFull {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.stat {
+  min-width: 0;
+}
+.statLabel {
+  /* no letter-spacing: the workspace sets every <p>'s to 0 (globals.css) */
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.statValue {
+  margin-top: 0.25rem;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.statUnit {
+  margin-left: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.onTime {
+  color: var(--ring-ontime);
+}
+.late {
+  color: var(--warning);
+}
+.half {
+  color: var(--danger);
+}
+.calendar {
+  margin-top: 1rem;
+  width: 100%;
+}
+@media (min-width: 768px) {
+  .monthBody {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 2rem;
+  }
+  .stats {
+    flex: 1 1 0%;
+  }
+  .statsFull {
+    max-width: 48rem;
+  }
+  .calendar {
+    margin-top: 0;
+    width: 16.5rem;
+    flex-shrink: 0;
+  }
+}
+.weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.days {
+  margin-top: 0.25rem;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+.day {
+  display: block;
+  height: 0.625rem;
+  border-radius: 0.25rem;
+}
+.dayFuture {
+  background: var(--tint-navy);
+  opacity: 0.4;
+}
+.dayOnTime {
+  background: var(--ring-ontime);
+}
+.dayLate {
+  background: var(--ring-late);
+}
+.dayAbsent {
+  background: var(--ring-absent);
+}
+.dayAwaiting {
+  background: var(--warning-soft);
+  box-shadow: inset 0 0 0 1px var(--warning);
+}
+.dayPending {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.dayOff {
+  background: var(--tint-navy);
+}
+.dayLeave {
+  background: var(--info-soft);
+}
+.legend {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.swatch {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 0.25rem;
+}
+.monthNote {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+
+/* ---- the punch toast ---- */
+.toastLayer {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toastRing {
+  margin-inline: auto;
+  width: 3.5rem;
+  height: 3.5rem;
+}
+.toastTitle {
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.toastSub {
+  margin-top: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+
+/* ---- the summaries (desk cards and their modal bodies) ---- */
+.summaryModal {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 1rem;
+}
+.summaryTitle {
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+.summarySkelModal {
+  padding-inline: 1rem;
+}
+.summarySkelCard {
+  max-height: 20rem;
+  padding-right: 0.25rem;
+}
+.summaryEmptyModal {
+  padding: 2rem 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+.summaryEmptyCard {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+.summaryListModal {
+  overflow-y: auto;
+}
+.summaryListCard {
+  max-height: 20rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.summaryListCard > :where(:not(:last-child)) {
+  margin-bottom: 0.75rem;
+}
+.summaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.summaryRow:last-child {
+  border-bottom: 0;
+}
+.summaryRowModal {
+  padding: 0.75rem 1rem;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.summaryRowCard {
+  padding-bottom: 0.5rem;
+}
+.summaryName {
+  font-weight: 700;
+}
+.summaryWho {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.summaryDetail {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.faded {
+  margin-left: 0.375rem;
+  font-weight: 500;
+  opacity: 0.6;
+}
+.flagWarn {
+  margin-left: 0.375rem;
+  font-weight: 500;
+  color: var(--warning);
+}
+.flagOk {
+  margin-left: 0.375rem;
+  font-weight: 500;
+  color: var(--success);
+}
+.flagBad {
+  margin-left: 0.375rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+.fenceMissing {
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--danger);
+}
+.fenceMissingModal {
+  margin: 0.75rem 1rem 0;
+}
+.fenceMissingCard {
+  margin-bottom: 0.5rem;
+}
+.deskList {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 1rem;
+}
+.deskEmpty {
+  padding-block: 2rem;
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted-foreground);
+}
+.deskSkel {
+  padding: 0 1rem 1rem;
+}
+.deskRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.deskRow:last-child {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  .summaryRowModal:hover,
+  .deskRow:hover {
+    background: color-mix(in oklab, var(--muted) 50%, transparent);
+  }
+}
+.deskMoney {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.deskMoneyBad {
+  color: var(--danger);
+}
+@media (min-width: 640px) {
+  .summaryModal,
+  .deskList {
+    padding-bottom: 0;
+  }
+  .summarySkelModal,
+  .deskSkel {
+    padding-inline: 1.25rem;
+  }
+  .deskSkel {
+    padding-bottom: 0;
+  }
+  .summaryRowModal,
+  .deskRow {
+    padding-inline: 1.25rem;
+  }
+  .fenceMissingModal {
+    margin-inline: 1.25rem;
+  }
+}

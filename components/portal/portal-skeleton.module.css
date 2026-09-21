@@ -1,0 +1,118 @@
+/* v1.172.2 - the static first-paint skeleton's geometry (Tailwind retired).
+   It mirrors the authenticated portal's shell: rail, sticky header, quick
+   actions, agenda rows, the four KPI tiles and the phone bottom bar, so the
+   real page lands on top without a jump. Desktop rules behind 768px, the
+   wide KPI row behind 1280px, exactly the widths the real screens use. */
+
+.rail {
+  display: none;
+}
+.page {
+  /* no padding-bottom on a phone: .erp-page-clearance owns it (see the
+     portal's own module) */
+  width: 100%;
+  padding-top: 0.75rem;
+  padding-inline: 1rem;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-inline: -1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.headLeft {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+.headRight {
+  display: flex;
+  gap: 0.375rem;
+}
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+.body {
+  margin-top: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+.quick {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.quickItem {
+  height: 2.75rem;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.kpi {
+  display: grid;
+  gap: 0.75rem;
+}
+.navItem {
+  display: flex;
+  min-height: 4rem;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding-block: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .rail {
+    display: flex;
+    height: 100%;
+    width: 4rem;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 0.75rem;
+    border-right: 1px solid var(--border);
+    background: var(--background);
+    padding: 0.75rem;
+  }
+  .page {
+    padding-top: 1rem;
+    padding-inline: 1.25rem;
+    padding-bottom: 1.5rem;
+  }
+  .head {
+    margin-inline: -1.25rem;
+    padding-inline: 1.25rem;
+  }
+  .avatar {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .phoneTitle {
+    display: none;
+  }
+  .quick {
+    display: flex;
+  }
+  .quickItem {
+    height: 2.25rem;
+    width: 9rem;
+  }
+}
+@media (min-width: 1280px) {
+  .rail {
+    width: 14rem;
+  }
+  .kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

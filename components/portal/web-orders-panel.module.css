@@ -1,0 +1,132 @@
+/* v1.172.2 - the Web Orders tab's own layout (Tailwind retired): the card
+   head, the store-filter row, the drawer's two-column detail and its
+   command rows. Table, chips, pills, controls and the drawer are the named
+   classes in styles/erp-v3.css. Tokens only. */
+
+.title {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.titleBrand {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.stale {
+  margin-left: 0.25rem;
+}
+.filters {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+@media (min-width: 640px) {
+  .search {
+    max-width: 14rem;
+  }
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.monoXs {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.phone {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.link {
+  text-decoration-line: underline;
+}
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  padding-block: 0.25rem;
+}
+.detailWide {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+@media (min-width: 768px) {
+  .detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .detailWide {
+    grid-column: span 2 / span 2;
+  }
+}
+.lines {
+  margin-top: 0.25rem;
+  display: grid;
+  gap: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.lineMuted {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.sku {
+  margin-left: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+.address {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+  white-space: pre-line;
+}
+.deltaDown {
+  color: var(--warning);
+}
+.deltaUp {
+  color: var(--success);
+}
+.commands {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.commandsEnd {
+  align-items: flex-end;
+}
+.commandsStack {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.commandsStack > :where(:not(:last-child)) {
+  margin-bottom: 0.5rem;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.fieldGrow {
+  flex: 1 1 0%;
+  min-width: 12rem;
+}

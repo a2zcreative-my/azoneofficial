@@ -1,68 +1,85 @@
 # Portal Interface System V3
 
-**Introduced:** v1.172.1 (21 September 2026). **Owner files:** `styles/erp-v3.css`, `lib/ui-styles.ts`. **Guard:** `tests/interface-v3.mjs` (#92).
+**Introduced:** v1.172.1 (21 September 2026). **Tailwind retired:** v1.172.2 (21 September 2026). **Owner files:** `styles/erp-v3.css`, `styles/erp-reset.css`, `styles/legacy-utilities.css`, `lib/ui-styles.ts`. **Guards:** `tests/interface-v3.mjs` (#92), `tests/tailwind-retired.mjs` (#93).
 
-The portal has an in-house ERP design system: named CSS classes, in the semantic tokens, exposed to TypeScript through `lib/ui-styles.ts`. Tailwind stays installed as a **compatibility layer** for the surfaces that have not been migrated and for one-off adjustments (`sm:max-w-56`, `mt-4`). Nothing was installed: no MUI, Ant Design, Chakra, Mantine, Bootstrap, shadcn.
+The portal has an in-house ERP design system: named CSS classes, in the semantic tokens, exposed to TypeScript through `lib/ui-styles.ts`, with CSS Modules for a screen's own layout. **Tailwind is gone** — the package, its PostCSS plugin, the prettier plugin, `tailwind-merge`, `@import "tailwindcss"`, `@custom-variant` and `@theme`. Nothing was installed in its place: no MUI, Ant Design, Chakra, Mantine, Bootstrap, shadcn. The stylesheet is four plain CSS files and the CSS Modules beside the migrated components.
 
-## 1. What changed in V3
+## 0. How to build UI now (read this first)
 
-| Layer | Before | V3 |
-| --- | --- | --- |
-| Cards | `card` = a utility string; ~30 hand-rolled `rounded-* border border-border bg-card p-*` variants | `.erp-card`, `-compact`, `-inset` (filled, no shadow), `-accent`, `.erp-stat`, `.erp-action-card`, `.erp-note`, `.erp-row`, `.erp-listbox`, `.erp-sheet`, `.erp-modal`, `.erp-menu`, `.erp-toast`. One 12px card radius, one shadow, one padding per breakpoint. |
-| Forms | `inputClass` (44/36px by breakpoint), 82 hand-rolled `border-input …` controls in eleven heights | `.erp-input` (44px everywhere, 16px type on a phone, one radius, one focus ring), `.erp-input-sm` (36px), `.erp-select` (own chevron), `.erp-textarea`, `.erp-label`, `.erp-help`, `.erp-error`, `.erp-field`, `.erp-field-row`, `.erp-check`, `.erp-segmented`. A zero-specificity floor under every legacy control in the workspace (min height, radius, border, ring). |
-| Buttons | the v1.169.0 44px pill (unchanged) | + `.erp-button-ghost`, `.erp-button-success`, `.erp-icon-button-ghost`, `aria-busy` spinner state, icon sizing, max-width so a label never widens a phone. |
-| Chips | `chip*` utility strings; ~40 hand-rolled pills | `.erp-chip` + tones (neutral / success / warning / danger / info / gold), `.erp-chip-sm`, `.erp-chip-action`, `.erp-badge` (the unread count). |
-| Tables | `th`/`td` utility strings; toolbar and action bar in utilities | `.erp-th` / `.erp-td` (+ `-num`), `.erp-toolbar`, `.erp-toolbar-group`, `.erp-action-bar` (re-tokened for navy), `.erp-filter-chip`, compact density. Frame and sticky header stay in `globals.css` (`.erp-table*`). |
-| Shell | header, bottom nav, rail, drawer in utilities | `.erp-topbar`, `.erp-bottom-nav` + `-item` / `-icon` / `-label` (gold hairline + tinted well for the active stop), `.erp-rail*` (grouped, collapsible, tooltip), `.erp-drawer*` (head / body / foot, safe-area foot). |
-| Zones | `ZoneLabel` in utilities | `.erp-zone` / `.erp-zone-label` (rule drawn by `::after`). |
+1. **A surface, a control, a chip, a table cell, a button:** use the vocabulary in `lib/ui-styles.ts` (`card`, `inputClass`, `selectClass`, `btnSm`, `chipSuccess`, `th`/`td`, `rowHead`, `listRow`, `sheetCard` …) or the `.erp-*` class it resolves to. Every name is documented in `styles/erp-v3.css`; the file's header lists what it owns.
+2. **A row, a stack, a grid of cards, an icon, a muted line, a rhythm step:** the layout and type primitives in `erp-v3.css` (section *LAYOUT AND TYPE PRIMITIVES*):
+   - stacks: `erp-stack` (1rem, 1.5rem from `md`), `erp-stack-tight` (0.75rem / 1rem) — block flow with collapsing margins, exactly what `space-y-*` was
+   - rows: `erp-flex` (+ `-between`, `-wrap`, `-top`, `-bottom`, `-baseline`, `-end`, `-col`), `erp-gap-1..4`, `erp-grow`, `erp-fixed`, `erp-min0`, `erp-full`, `erp-center`, `erp-divide`, `erp-scroll-x`
+   - grids: `erp-cols-2`, `erp-cols-3`, `erp-cols-4` (two columns on a phone, their count from `md`)
+   - rhythm: `erp-mt-half` (2px), `erp-mt-1..4`, `erp-mt-6`, `erp-mb-3` — the only spacing helpers
+   - icons: `erp-icon` (16px), `erp-icon-sm` (14), `erp-icon-md` (18), `erp-icon-lg` (20); `AppIcon` is always 16px unless given one of these
+   - type: `erp-text-xs/sm/base/lg`, `erp-muted`, `erp-meta` (12px muted), `erp-heading` (14px semibold), `erp-panel-title` (heading with an icon slot), `erp-eyebrow`, `erp-strong`, `erp-medium`, `erp-num`, `erp-truncate`, `erp-nowrap`, `erp-left/right/centered`, `erp-danger/success/warning`
+   - lists: `erp-list-row` (the hover row), `erp-none` (the quiet "nothing here" line), `erp-avatar` (a 32px round well), `erp-row-actions`, `erp-pill-row`, `erp-quiet-*`, `erp-reveal`
+   - shell: `erp-page`, `erp-page-clearance` (clears the phone bottom nav), `erp-bottom-nav`, `erp-topbar`, `erp-desktop-only` / `erp-phone-only` (display:none on the other side of 768px — the ONLY responsive helpers)
+3. **A layout that belongs to one screen** (a hero, a two-column form, a calendar, a table's own chrome): a **CSS Module** beside the component — `dashboard.module.css`, `claims.module.css`, `attendance.module.css`, `data-table.module.css`, `portal.module.css`, `app-shell.module.css` are the models. Rules: tokens only (`var(--card)`, `var(--border)`, `var(--success)` …); breakpoints at 640 / 768 / 1024 / 1280px; a module never restyles an `.erp-*` class, it adds the geometry around it; class names say what the box is (`.heroHead`, `.fenceLine`, `.pager`), not how it looks.
+4. **A colour:** a token from `styles/globals.css` `:root` / `.dark` (`--background`, `--foreground`, `--card`, `--border`, `--primary`, `--secondary`, `--muted-foreground`, `--success/-soft`, `--warning/-soft`, `--danger/-soft`, `--info/-soft`, `--plan`, `--celebrate`, `--brand-primary`, `--brand-accent`, `--gold-solid`, `--tint-gold`, `--tint-navy`, the `--ring-*` and `--tile-*` chart steps, `--ink-on-navy-*`). Never a hex value in a component or a module.
+5. **Never:** a new utility class (`flex items-center gap-2`, `mt-2`, `text-xs`) in any file — nothing generates CSS for it, and guard #93 fails the build on one the frozen sheet does not define; a `dark:` / `md:` / `hover:` prefix (a token already knows the theme; a module has the media query); an inline `style` for something a class can say; a Tailwind package, `@tailwindcss/postcss`, `tailwind-merge`, `prettier-plugin-tailwindcss`, `tailwindcss-animate`.
 
-Colours are **never restated** in `erp-v3.css`: every fill and ink is a token from `globals.css` (`--card`, `--border`, `--primary`, `--success` …), so light, dark and the Plum preset work unchanged and the locked palette (navy `#1a2946`, gold `#c8a96a` / `#c9a227`, white, neutral grey) is untouched. Status ink for navy surfaces (the shift hero, the table's action bar) is three named tokens in `globals.css`: `--ink-on-navy-success/warning/danger`.
+## 1. What replaced Tailwind (v1.172.2)
 
-## 2. Which screens were migrated
+| Was | Now |
+| --- | --- |
+| `@import "tailwindcss"` (engine + preflight + utilities) | `styles/erp-reset.css` — the document reset, hand-written, `@layer base`; `styles/legacy-utilities.css` — see §3 |
+| `@tailwindcss/postcss` in `postcss.config.mjs` | `plugins: {}` — the file stays so Next.js applies no defaults; the bundler processes plain CSS |
+| `@custom-variant dark` | the `.dark` class on `<html>`, as before; the frozen `dark:` utilities compiled to `:where(.dark, .dark *)` |
+| `@theme inline { --color-primary: var(--primary) … }` | gone — colour utilities were compiled with the token inlined (`.bg-card { background-color: var(--card) }`); `--font-sans`, `--radius-shell`, `--radius-card`, `--radius-panel`, `--shadow-soft`, `--shadow-shell` are plain `:root` properties |
+| `tailwind-merge` in `cn()` | `clsx` only — `cn()` joins; the one caller that relied on a later utility overriding an earlier one (`components/home/cta.tsx`) passes `<Section neutral>` instead |
+| `prettier-plugin-tailwindcss` | removed from `.prettierrc` |
+| utility strings in the vocabulary (`mobileBottomNav`, `mobileAppBottomClearance`, `PORTAL_WIDTH`, `inputClassLg`, `btnHdrDesktop`, `btnQuick*`/`btnHero*`, `selectClass`, `iconBtn`, `tabPill`) | `.erp-bottom-nav`, `.erp-page-clearance`, `.erp-page`, `.erp-input-public`, `.erp-desktop-only`, `.erp-button-quick`, the select's own `sm` width, `.erp-icon-button-muted`, `.erp-tab-pill` |
+| `rowBtn*` disabled utilities, `rowActions` | `.erp-button-off`, `.erp-row-actions` |
+| `AppIcon` `inline-block h-4 w-4 shrink-0`; `PanelTitle` utilities | `.erp-icon .erp-icon-inline`; `.erp-panel-title` |
 
-- **Portal shell** (`app/portal/page.tsx`): topbar, phone bottom navigation, More sheet, notification badge.
-- **Sidebar** (`components/layout/side-nav.tsx`) and **command palette** (`components/layout/command-palette.tsx`).
-- **Dashboard** (`components/portal/dashboard.tsx`, `trading-desk.tsx`, `page-shared.tsx`): zone labels, shift hero (state-of-day chip, one button height, compact On Shift link, notes), company pulse tiles, work-overview chips.
-- **On Shift** tab (the same hero, `shiftOnly`): no more 56px buttons.
-- **Attendance** (`components/portal/attendance.tsx`): month field, every status chip, the two notes.
-- **Claims** (`components/portal/role-panels.tsx` `ClaimsPanel`): pill call-to-action, segmented claim-type switch, every field on the vocabulary, status/count chips, `#claims-list` anchor and return-to-list after submit and after update.
-- **Web Orders, Cash Flow, Commission, Accounting** (`DataTable` consumers) and the **DataTable** itself (`components/ui/data-table.tsx`): toolbar, chips, action bar, density, columns menu.
-- **Drawer** (`components/ui/side-drawer.tsx`).
-- **Every `lib/ui-styles.ts` consumer** (≈330 `inputClass` sites, every `card`, `chip*`, `th`/`td`, `listRow`, `rowHead`, `sheetCard`, `modalCard`, `toastCard`, `menuCard`, `tileCard`) took the V3 look without an edit, because the names now resolve to the classes.
-- Form controls rewritten from hand-rolled utilities to the vocabulary in: `role-panels.tsx` (42), `elfia-store-panel.tsx` (8), `payroll-panel.tsx` (5 + its local constant), `geofence-card.tsx` (4), `staff-directory.tsx` (3 + its local constant), `attendance.tsx`, `sales.tsx`, `web-orders-panel.tsx`, `live-cards.tsx`, `leave.tsx`, `tasks.tsx`, `content-panel.tsx`, `trading-desk.tsx`, `verification-card.tsx`.
+The cascade order is declared once at the top of `erp-reset.css` and repeated in `globals.css`: `properties < theme < base < components < utilities < unlayered`. `erp-v3.css` is the `components` layer, the frozen sheet the `utilities` layer, CSS Modules and the rules in `globals.css` are unlayered. So: a frozen utility still beats a V3 class on a screen that has not migrated (as it did under Tailwind), and a CSS Module beats both — which is what lets a module set the geometry around an `.erp-*` class.
 
-## 3. What remains on Tailwind, on purpose
+One deliberate exception sits **outside** the layers at the end of `erp-v3.css`: `AppIcon`'s 16px size. Seventy-five call sites still carry a legacy `h-3.5 w-3.5` / `h-3 w-3` on an `AppIcon`; those never applied under Tailwind either (its sheet ordered `h-4` after them), so the unlayered rule keeps every icon at the size the interface was reviewed at. Resize one with `erp-icon-sm/-md/-lg` or a module class.
 
-- **Layout utilities everywhere** (`flex`, `grid`, `gap-*`, `mt-*`, `hidden md:block`, widths). V3 owns *components*, not layout; a layout utility is not a design decision and does not drift.
-- **Public site** (`app/(marketing)`, `components/home`, `components/layout/navbar.tsx`, `footer.tsx`, `components/ui/button.tsx`): a different product with its own type scale; untouched.
-- **Legacy panels not yet on the vocabulary**: hand-rolled chips and small buttons still exist in `hankeis-panel.tsx`, `sales.tsx`, `payroll-panel.tsx`, `elfia-store-panel.tsx`, `roster-board.tsx`, `staff-directory.tsx`, `hotels-panel.tsx`, `threads-panel.tsx`, `admin/*`, `account/*`. They render correctly (the zero-specificity floor gives their controls the V3 height, radius and ring) and are **not** in guard #92's migrated list, so they may keep their utilities until their own pass.
-- **`inputClassLg`** (the public-site 16px field) and `PORTAL_WIDTH`, `mobileBottomNav`, `mobileAppBottomClearance` stay as utility strings: the last two carry the safe-area formula that `tests/pwa-calendar.mjs` reads verbatim.
-- **`@theme inline` tokens in `globals.css`** (`bg-success-soft`, `text-gold-deep`, `rounded-card` …) remain the bridge that lets a Tailwind utility read a semantic token.
+## 2. Which screens are off utilities (guard #93 holds them there)
 
-## 4. What must NOT be removed yet
+`app/layout.tsx`, `app/portal/page.tsx` (the whole page: gate, step-up, topbar, More sheet, tab bodies), `components/layout/app-shell.tsx`, `side-nav.tsx`, `components/ui/side-drawer.tsx`, `data-table.tsx`, `skeleton.tsx`, `empty-state.tsx`, `app-icon.tsx`, `row-button.tsx`, `components/portal/page-shared.tsx`, `portal-skeleton.tsx`, `dashboard.tsx` (hero, month card, work overview, punch toast, every summary), `attendance.tsx`, `web-orders-panel.tsx`, the Claims flow in `role-panels.tsx`, `lib/ui-styles.ts`, `lib/utils.ts`. Each references **zero** legacy utilities; the guard lists them in `MIGRATED`.
 
-- `@import "tailwindcss"` and `@tailwindcss/postcss` — ~250 files still use utilities.
+The look did not move: every screen above was pixel-compared against the v1.172.1 build at 375 / 768 / 1440 px, light and dark (272 screenshots), and matched to the antialiasing.
+
+## 3. The frozen legacy sheet — `styles/legacy-utilities.css`
+
+Every utility class the unmigrated screens still referenced on retirement day (≈1,100 selectors across the public site, admin, account and the remaining panels) was compiled **once** into plain CSS: rem spacing, the semantic tokens, `.dark` ancestors, media queries. No engine reads it; it is a static stylesheet this repository owns. Rules, also in its header:
+
+1. It only shrinks. Never add a class to it.
+2. When a screen migrates, run `node scripts/prune-legacy-utilities.mjs` (report) and `--write` (remove the rules nothing references any more), then `node tests/tailwind-retired.mjs --write-budget` to lower that file's floor.
+3. Do not "fix" a legacy rule to change a look — change the component.
+4. `--lu-*` custom properties are its private plumbing (transforms, shadows, rings, gradients); nothing else reads them.
+5. Its `:root` block carries Tailwind's default scale (`--text-sm`, `--font-weight-semibold`, `--radius-2xl` …) and the seven palette colours unmigrated screens still use (amber, red, emerald, sky, violet, slate) — frozen, do not extend; migrate the screen to `--warning` / `--danger` / `--success` / `--info` / `--plan` instead.
+
+`tests/legacy-utility-budget.json` records, per file, how many legacy classes it references (128 files, ≈7,000 references at v1.172.2). A file may only go down; a new file may reference none. That is the ratchet: Tailwind's utilities cannot grow back, screen by screen they disappear.
+
+## 4. What must not be removed or reintroduced
+
 - The `.erp-button` / `.erp-icon-button` block in `globals.css` — `tests/interface-system.mjs` reads it there.
-- The `.erp-table*` frame in `globals.css` — the sticky header contract, also read by guards.
-- `mobileBottomNav` / `mobileAppBottomClearance` strings — `tests/pwa-calendar.mjs`.
-- The `[--hdr-pt:…]` inline padding on the portal header — `tests/shell-scroll.mjs` proves the status-bar inset is *added* to the bar's own padding.
-- The `@theme inline` block — every `bg-*-soft` / `text-*` utility depends on it.
+- The `.erp-table*` frame in `globals.css` — the sticky-header contract.
+- The inline `paddingTop: calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))` on the portal `<header className="erp-topbar">` — `tests/shell-scroll.mjs` proves the status-bar inset is *added* to the bar's own padding (`--hdr-pt` is owned by `.erp-topbar` now).
+- The unlayered `AppIcon` size rule at the end of `erp-v3.css` (§1).
+- The cascade-layer declaration and the import order in `globals.css` / `erp-reset.css`.
+- Any Tailwind package, at-rule or plugin (guard #93 enumerates them). `cn()` must stay `clsx` only.
 
-## 5. The next safe phase for retiring Tailwind
+## 5. Next phases (each one is: migrate, prune, write-budget, guard)
 
-1. Migrate the remaining panels' chips and small buttons onto `chip*` / `btnSm*` (mechanical; same script used in v1.172.1) and add each file to guard #92's `MIGRATED` list as it lands.
-2. Move layout patterns that repeat (`flex flex-wrap items-center justify-between gap-2`, the 2-up phone grid) into `.erp-*` layout helpers; then a migrated file has **no** utility strings and can be linted for "no `className` containing a Tailwind utility".
-3. Public site: decide whether it shares V3 or keeps its own sheet; either way its utilities move to named classes last.
-4. Only then: drop `@import "tailwindcss"`, keep `@theme`-equivalent tokens as plain CSS custom properties, remove `@tailwindcss/postcss` and `prettier-plugin-tailwindcss`. Guard #92 should at that point assert that no `className` in `app/` or `components/` matches a Tailwind utility pattern.
+1. The remaining portal panels (`sales.tsx`, `roster-board.tsx`, `payroll-panel.tsx`, `hankeis-panel.tsx`, `staff-directory.tsx`, `events.tsx`, `hotels-panel.tsx`, `threads-panel.tsx` …): a CSS Module each for their own layout, the primitives for the rest. Add each file to guard #93's `MIGRATED` list as it lands.
+2. `app/admin/*` and `app/account/*`: they share the vocabulary already; their page frames want the portal's module pattern (`portal.module.css` is the model).
+3. The public site (`components/home/*`, `navbar.tsx`, `footer.tsx`, `components/ui/button.tsx`, the marketing pages): its own module set and type scale; last, because nothing there drifts.
+4. When the budget file is empty, delete `styles/legacy-utilities.css`, its import and the `utilities` layer; guard #93 then asserts the file is gone.
 
-## 6. Verification (v1.172.1, offline, Linux sandbox)
+## 6. Verification (v1.172.2, offline, Linux sandbox)
 
-- `npm run typecheck` (portal) and worker `tsc --noEmit`: clean.
-- `npm run lint`: 0 errors; the warnings are the pre-existing set (24) plus the five React-Compiler rules held at *warn* since v1.172.0.
-- `npm run guard`: **92/92** (new: `interface-v3`, 213 checks; updated: `inventory-category` reads the shared chip).
-- `npm run build` (Next.js 16.3.5, Turbopack, static export): 31 routes.
-- Chromium against fixtures at 375 / 390 / 430 / 768 / 1280 / 1440 px, light and dark: public pages, the portal shell, Dashboard, On Shift, Claims (form → submit → back at the list), Web Orders (table, drawer, CSV), Finance, Attendance, Users — no horizontal overflow, no page errors, bottom nav clear of content, no retired tab reachable.
+- `pnpm install` regenerated `pnpm-lock.yaml` (Tailwind, `@tailwindcss/*`, `tailwind-merge`, `prettier-plugin-tailwindcss` and their dependents removed; nothing added).
+- `npm run typecheck`: clean. `npm run lint`: 0 errors, 147 warnings (the same pre-existing set as v1.172.1).
+- `npm run guard`: **93/93** (new: `tailwind-retired`, 58 checks; updated legitimately, never weakened: `interface-v3`, `status-tokens`, `pwa-calendar`, `shell-scroll`, `login-ux`, `action-feedback`, `app-icons`, `skeleton-loading`, `tab-zones`, `desk-tabs` — each now reads the named class or the module rule that replaced the utility string it used to read).
+- `npm run build` (Next.js 16.3.5, Turbopack, static export): 31 routes; the CSS is three chunks (reset + V3 + frozen sheet, globals, CSS Modules).
+- Chromium against fixtures, 375 / 390 / 430 / 768 / 1280 / 1440 px, light and dark: public pages, the portal shell, Dashboard, On Shift, Claims (form → submit → back at the list), Web Orders (table, drawer), Finance, Attendance and 15 more tabs — no horizontal overflow, no page errors, bottom nav clear of content (page clearance ≥ nav height), 44px controls, no retired tab reachable. 272 screenshots pixel-compared with the v1.172.1 build: identical.
 
 ## 7. Release state
 
-`PUSH.bat` was **not** run. Nothing was deployed. The worktree is dirty with the v1.172.1 files until the owner commits.
+`PUSH.bat` was **not** run. Nothing was deployed. The worktree is dirty with the v1.172.1 + v1.172.2 files until the owner commits.

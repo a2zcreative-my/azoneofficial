@@ -117,15 +117,16 @@ export function SideDrawer({
             className={`erp-drawer ${wide ? "erp-drawer-wide" : ""}`}
           >
             {/* v1.172.1 (Interface System V3): the panel, head, body and foot
-                are named classes in styles/erp-v3.css. */}
+                are named classes in styles/erp-v3.css. v1.172.2: so are the
+                heading cell and the close button - no utilities left here. */}
             <div className="erp-drawer-head">
-              <div className="min-w-0 flex-1">
+              <div className="erp-grow">
                 <h2 id={titleId} className="erp-drawer-title">{title}</h2>
                 {subtitle && <p className="erp-drawer-sub">{subtitle}</p>}
               </div>
               <button type="button" data-drawer-close onClick={onClose} aria-label={L("Close", "Tutup")}
-                className="erp-icon-button text-muted-foreground -mr-2 shrink-0">
-                <X aria-hidden className="h-4 w-4" strokeWidth={1.75} />
+                className="erp-icon-button erp-drawer-close">
+                <X aria-hidden className="erp-icon" strokeWidth={1.75} />
               </button>
             </div>
             <div className="erp-drawer-body">{children}</div>

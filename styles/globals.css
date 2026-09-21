@@ -1,17 +1,31 @@
-@import "tailwindcss";
-/* v1.172.1 - PORTAL INTERFACE SYSTEM V3: the named-class design system.
+/* v1.172.2 - TAILWIND RETIRED. The stylesheet is three files and this one:
+     erp-reset.css        the document reset (cascade layer `base`)
+     erp-v3.css           the Portal Interface System V3 named classes
+                          (`components`) - THE place a new look is built
+     legacy-utilities.css the utility classes unmigrated screens still carry,
+                          frozen as plain CSS on retirement day (`utilities`);
+                          it only shrinks - see its header and the guard
+                          tests/tailwind-retired.mjs
+   Cascade order is declared once at the top of erp-reset.css and repeated
+   below: properties < theme < base < components < utilities < unlayered.
+   Everything unlayered in this file (tokens, the .dark theme, the table
+   frame, the button contract's overrides) beats all four layers, exactly as
+   it did when Tailwind supplied them.
+   v1.172.1 - PORTAL INTERFACE SYSTEM V3: the named-class design system.
    Surfaces, forms, chips, table cells, the shell and the drawer live in
    styles/erp-v3.css; lib/ui-styles.ts maps the TypeScript vocabulary onto
    those names. The 44px button contract and the table frame stay below in
    this file. Read the header of erp-v3.css before adding a class anywhere. */
+@import "./erp-reset.css";
 @import "./erp-v3.css";
+@import "./legacy-utilities.css";
+@layer properties, theme, base, components, utilities;
 
-/* v1.18.0 (CODE-AUDIT): bind the `dark:` variant to the app's own toggle.
-   Without this declaration Tailwind v4 keys `dark:` off the OPERATING
-   SYSTEM's colour scheme — so the 13 dark: utilities in the codebase agreed
-   with the 🌙 button only when the phone's system theme happened to match.
-   The app sets .dark on <html>; now dark: follows it, like everything else. */
-@custom-variant dark (&:where(.dark, .dark *));
+/* The dark theme is the .dark class on <html> (set by the 🌙 toggle in
+   app/layout.tsx), never the operating system's scheme: the tokens below
+   flip under the .dark selector and the legacy `dark:` utilities compiled to
+   `:where(.dark, .dark *)` ancestors. New work never needs a dark variant -
+   it reads a token, and the token already knows the theme. */
 
 /* Operational workspace: scoped so document and public-site surfaces stay independent.
    v1.172.1 - one 12px card radius for the whole workspace (was 8px): the V3
@@ -239,6 +253,9 @@
   }
   .erp-empty-title { color: var(--foreground); font-size: 0.875rem; font-weight: 600; }
   .erp-empty-hint { max-width: 32rem; font-size: 0.75rem; line-height: 1.5; }
+  /* v1.172.2 - the error tone and the action slot, off utilities */
+  .erp-empty-icon-error { background: var(--danger-soft); color: var(--danger); }
+  .erp-empty-action { margin-top: 0.5rem; }
 }
 
 /* ---------------------------------- */
@@ -396,88 +413,19 @@
   --browser-theme-color: #1a2946;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-
-  --color-brand: var(--brand-primary);
-  --color-brand-neutral: var(--brand-neutral);
-  --color-gold: var(--brand-accent);
-  --color-gold-deep: var(--brand-accent-deep);
-  --color-gold-soft: var(--brand-accent-soft);
-  --color-gold-solid: var(--gold-solid);
-
-  /* v1.5.0 semantic status utilities: bg-success/-soft, text-warning, … */
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --color-plan: var(--plan);
-  --color-plan-soft: var(--plan-soft);
-  --color-celebrate: var(--celebrate);
-  --color-celebrate-soft: var(--celebrate-soft);
-  --color-bull: var(--bull);
-  --color-bear: var(--bear);
-
-  /* v1.12.0 — shell + validated chart steps as utilities
-     (bg-shell-backdrop, bg-brand-soft, bg-tint-gold, bg-ring-ontime, …) */
-  --color-shell-backdrop: var(--shell-backdrop);
-  --color-brand-soft: var(--brand-primary-soft);
-  --color-tint-navy: var(--tint-navy);
-  --color-tint-gold: var(--tint-gold);
-  --color-ring-ontime: var(--ring-ontime);
-  --color-ring-late: var(--ring-late);
-  --color-ring-absent: var(--ring-absent);
-  --color-bar-low: var(--bar-low);
-  --color-bar-mid: var(--bar-mid);
-  --color-bar-high: var(--bar-high);
-  --color-tile-brand: var(--tile-brand);
-  --color-tile-brand-fg: var(--tile-brand-fg);
-  --color-tile-success: var(--tile-success);
-  --color-tile-success-fg: var(--tile-success-fg);
-  --color-tile-gold: var(--tile-gold);
-  --color-tile-gold-fg: var(--tile-gold-fg);
-  --color-tile-danger: var(--tile-danger);
-  --color-tile-danger-fg: var(--tile-danger-fg);
-  --color-tile-info: var(--tile-info);
-  --color-tile-info-fg: var(--tile-info-fg);
-  --color-tile-muted: var(--tile-muted);
-  --color-tile-muted-fg: var(--tile-muted-fg);
-
-  /* rounded-shell / rounded-card, shadow-soft / shadow-shell */
+/* v1.172.2 - the @theme bridge is gone with Tailwind. Colour utilities in
+   legacy-utilities.css were compiled with the semantic token inlined
+   (bg-card is `background-color: var(--card)`), so no --color-* alias
+   exists any more: read --card, --border, --primary, --success ... directly,
+   in CSS and in CSS Modules alike. The few shell-scale tokens the bridge
+   used to publish stay here as plain custom properties. */
+:root {
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
   --radius-shell: 26px;
   --radius-card: var(--surface-radius, 16px);
   --radius-panel: var(--surface-radius, 12px);
   --shadow-soft: 0 1px 2px rgba(13, 21, 38, 0.05), 0 10px 30px rgba(13, 21, 38, 0.07);
   --shadow-shell: 0 24px 60px rgba(8, 14, 26, 0.28);
-
-  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
-
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
 }
 
 .dark {
@@ -545,7 +493,7 @@
 
 @layer base {
   * {
-    border-color: var(--color-border);
+    border-color: var(--border);
   }
 
   html {
@@ -559,7 +507,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-ring);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 
@@ -571,11 +519,20 @@
        ignore the second declaration and keep `hidden`. Keep BOTH lines. */
     overflow-x: hidden;
     overflow-x: clip;
-    background-color: var(--color-background);
-    color: var(--color-foreground);
+    background-color: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* v1.172.2 - the two things <body> used to carry as utilities
+       (min-h-screen, selection:bg-primary/20), so app/layout.tsx sets no
+       class but the font variable. */
+    min-height: 100vh;
+  }
+  body ::selection,
+  body::selection {
+    background-color: color-mix(in oklab, var(--primary) 20%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -600,7 +557,7 @@
 .skel {
   position: relative;
   overflow: hidden;
-  background-color: color-mix(in oklab, var(--color-secondary) 88%, var(--color-foreground) 12%);
+  background-color: color-mix(in oklab, var(--secondary) 88%, var(--foreground) 12%);
   /* NO border-radius here: this rule lives outside @layer, so it would beat
      every Tailwind rounded-* utility and flatten circles (the donut) and
      pills. The Skel component supplies a default radius instead. */
@@ -613,7 +570,7 @@
   background-image: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--color-card) 70%, transparent),
+    color-mix(in oklab, var(--card) 70%, transparent),
     transparent
   );
   animation: azone-shimmer 1.5s ease-in-out infinite;

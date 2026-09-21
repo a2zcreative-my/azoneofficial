@@ -113,8 +113,15 @@ const codeOnly = (src) => src
   ok("the workspace navigation has a dedicated slot", /\{navigation\}/.test(shell));
   ok("neither first paint nor portal squeezes content between permanent side panels",
      !/\b(?:contextPanel|rightRail)=/.test(skel + page));
+  /* v1.172.2 (Tailwind retired): the rail's two widths live in
+     portal-skeleton.module.css - 4rem from the tablet breakpoint, 14rem from
+     1280px - the same numbers the real rail uses. */
+  const skelCss = read("components/portal/portal-skeleton.module.css");
   ok("the skeleton matches compact tablet and expanded desktop navigation",
-     /w-16.*xl:w-56/.test(skel) && /min-width: 1280px/.test(page));
+     /className=\{s\.rail\}/.test(skel)
+     && /@media \(min-width: 768px\) \{[\s\S]*?\.rail \{[^}]*width: 4rem;/.test(skelCss)
+     && /@media \(min-width: 1280px\) \{[\s\S]*?\.rail \{[^}]*width: 14rem;/.test(skelCss)
+     && /min-width: 1280px/.test(page));
 }
 
 /* ---- R4 / R5: every component that fetches on mount shows a skeleton ---- */
