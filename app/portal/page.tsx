@@ -79,6 +79,7 @@ import {
 } from "@/components/portal/lazy-panels";
 import { PORTAL_WIDTH, btnClass, btnGhost, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import css from "./portal.module.css";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { dmy } from "@/lib/format";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
@@ -1482,14 +1483,23 @@ export default function PortalPage() {
             <ClaimsPanel userId={user.id} role={user.role} />
           )}
           {activeTab === "Finance" && (
-            <div className="erp-stack">
-              {/* Current cash and payments due precede reporting. */}
-              <CashFlowPanel />
+            /* v1.173.0 (tab concept): two zones. The cash position and the
+               month's figures first, the payments due and the expense
+               records under them; the P&L rides inside Expenses as before. */
+            <TabPage>
+              <TabZone label={L("This month", "Bulan ini")}>
+                {/* Current cash and payments due precede reporting. */}
+                <CashFlowPanel />
+              </TabZone>
+              {/* the expense zones are the panel's own (role-panels.tsx) */}
               <ExpensesPanel reporting={<PnlCard />} />
-            </div>
+            </TabPage>
           )}
           {activeTab === "Attendance" && (
-            <div className="erp-stack">
+            /* v1.173.0 (tab concept): four zones in the v1.171.0 order -
+               today's records, the decisions waiting, the roster, setup. */
+            <TabPage>
+              <TabZone label={L("Today", "Hari ini")}>
               <Attendance user={user} />
               {/* v1.171.0 (CEO, 20-09-2026: "resort it based on it own
                   function and properly put in on their own tabs") — the
@@ -1499,6 +1509,8 @@ export default function PortalPage() {
               {MANAGE_ROLES.includes(user.role) && (
                 <CompanyAttendanceToday canManage={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)} />
               )}
+              </TabZone>
+              <TabZone label={L("Waiting on me", "Menunggu saya")}>
               {/* v1.84.0 (CEO: "attendance verification should move to
                   Attendance ... full report is require and a must!") — it was
                   on the HR tab, printing every punch in the month with no
@@ -1513,6 +1525,8 @@ export default function PortalPage() {
                   title={L("OT Approvals", "Kelulusan OT")}
                 />
               )}
+              </TabZone>
+              <TabZone label={L("The roster", "Jadual")}>
               {/* Scheduling follows attendance review and OT decisions.
                   v1.171.0: the anchor "Open roster" (assignments card) scrolls to. */}
               <div id="roster-board" className={css.rosterAnchor}>
@@ -1537,6 +1551,8 @@ export default function PortalPage() {
                 onOpenRegister={canOpen("Sales Performance") ? (staff, day) => { setSpPreset({ staff, day }); setTab("Sales Performance"); } : undefined}
               />
               </div>
+              </TabZone>
+              <TabZone label={L("Setup", "Tetapan")}>
               {/* v1.91.0 — mirrors attendance_correct in the worker. */}
               {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) ? (
                 <AttendanceAdminPanel role={user.role} />
@@ -1545,7 +1561,8 @@ export default function PortalPage() {
                   title={L("Attendance Admin", "Admin Kehadiran")}
                 />
               )}
-            </div>
+              </TabZone>
+            </TabPage>
           )}
           {/* v1.172.0 - Reconciliation, Ads Fund and Purchasing retired: no
              block here, no tab in the registry, no panel in the bundle. */}
@@ -1557,9 +1574,8 @@ export default function PortalPage() {
           {activeTab === "Accounting" && <AccountingPanel />}
           {activeTab === "Leave" && <Leave user={user} />}
           {activeTab === "Tasks" && (
-            <div className="erp-stack">
-              <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} />
-            </div>
+            /* v1.173.0: the zones are the panel's own (tasks.tsx). */
+            <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} />
           )}
           {activeTab === "Announcements" && <Announcements user={user} />}
           {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter
@@ -1570,20 +1586,19 @@ export default function PortalPage() {
               be answered), one place after Sales. */}
           {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} />}
           {activeTab === "Sales" && (
-            <div className="erp-stack">
+            /* v1.173.0 (tab concept): the Sales panel draws its own zones
+               (the month's figures, the work, the customers); the map and
+               the long view follow as two more. */
+            <TabPage>
               <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
-              <section className="erp-stack-tight">
-                <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
+              <TabZone label={L("This month", "Bulan ini")}>
                 <SalesMap />
-              </section>
-              <section className="erp-stack-tight">
-                <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
-                <div className={css.twoUp}>
-                  <LiveEconomicsCard />
-                  <PackagesEditorCard role={user.role} />
-                </div>
-              </section>
-            </div>
+              </TabZone>
+              <TabZone label={L("The longer view", "Pandangan lebih jauh")} cols={2}>
+                <LiveEconomicsCard />
+                <PackagesEditorCard role={user.role} />
+              </TabZone>
+            </TabPage>
           )}
           {/* v1.21.0: the Pipeline tab is retired (CEO: "Sales pipeline is
             really needed?? I dont think so"). Customer enquiries — the real
@@ -1619,7 +1634,8 @@ export default function PortalPage() {
             />
           )}
           {activeTab === "HR" && (
-            <div className="erp-stack">
+            /* v1.173.0: the zones are the panel's own (role-panels.tsx HrPanel). */
+            <TabPage>
               <HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes(
                 user.role
               ) ? (
@@ -1629,11 +1645,12 @@ export default function PortalPage() {
                   title={L("HR Administration", "Pentadbiran HR")}
                 />
               )} />
-            </div>
+            </TabPage>
           )}
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
-            <div className="erp-stack">
+            /* v1.173.0: the zones are the panel's own (staff-directory.tsx). */
+            <TabPage>
               <StaffDirectory
                 canAmend={["super_admin", "admin", "ceo"].includes(user.role)}
                 readOnly={["coo", "cco"].includes(user.role)}
@@ -1649,7 +1666,7 @@ export default function PortalPage() {
                   then into the record itself: a cake on the face within a
                   fortnight, the age they turn on the open card, and the next
                   three under the circle. The date is set on the record form. */}
-            </div>
+            </TabPage>
           )}
           {activeTab === "Inventory" && (
             /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
@@ -1716,21 +1733,37 @@ export default function PortalPage() {
               signed-in officer's own card first. */}
           {activeTab === "Cards" && <CardsPanel role={user.role} />}
           {activeTab === "Users" && (
-            <div className="erp-stack">
-              <div className={card}>
-                <UsersPanel role={user.role} embedded />
-                {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard embedded />}
-              </div>
-              {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
-              {["super_admin", "ceo", "coo"].includes(user.role) && (
-                <GeofenceCard />
+            /* v1.173.0 (tab concept): accounts and their review in one card
+               under ACCOUNTS; who sees which tab and where a punch counts
+               side by side under ACCESS AND LOCATIONS. Same order as before. */
+            <TabPage>
+              <TabZone label={L("Accounts", "Akaun")}>
+                <div className={card}>
+                  <UsersPanel role={user.role} embedded />
+                  {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard embedded />}
+                </div>
+              </TabZone>
+              {["ceo", "super_admin", "coo"].includes(user.role) && (
+                <TabZone label={L("Access and locations", "Akses dan lokasi")} cols={2}>
+                  {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
+                  {["super_admin", "ceo", "coo"].includes(user.role) && (
+                    <GeofenceCard />
+                  )}
+                </TabZone>
               )}
-            </div>
+            </TabPage>
           )}
           {activeTab === "Profile" && (
-            <div className="erp-stack">
-              <Profile />
-              <MyPayslip />
+            /* v1.173.0 (tab concept): three zones - who I am, my pay, my
+               security - in the order the tab has always read. */
+            <TabPage>
+              <TabZone label={L("My details", "Butiran saya")}>
+                <Profile />
+              </TabZone>
+              <TabZone label={L("My pay", "Gaji saya")}>
+                <MyPayslip />
+              </TabZone>
+              <TabZone label={L("Security and privacy", "Keselamatan dan privasi")}>
               <TwoFactorPanel />
               {/* v1.4.191: staff read how their personal data (NRIC, bank,
                 photos, payroll) is handled — PDPA notice */}
@@ -1746,7 +1779,8 @@ export default function PortalPage() {
                   )}
                 </a>
               </p>
-            </div>
+              </TabZone>
+            </TabPage>
           )}
         </main>
       </div>

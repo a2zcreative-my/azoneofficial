@@ -34,7 +34,8 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
-import { card, inputClassSm } from "@/lib/ui-styles";
+import { card, inputClassSm, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -330,9 +331,12 @@ export function ThreadsPanel() {
   const noAccounts = accLoaded && accounts.length === 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4">
+    /* v1.173.0 (tab concept): THE TAB (title, states, the Study | Connection
+       pills - the shared pill row now), then THE STUDY or THE CONNECTION. */
+    <TabPage>
       {toastNode}
       {confirmNode}
+      <TabZone label="Threads">
       <div className={card}>
         {/* header: title, account chips, section chooser */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -343,16 +347,14 @@ export function ThreadsPanel() {
             </p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="erp-pill-row erp-mt-3" role="tablist">
           {([
             ["study", L("Study", "Kajian")],
             ...(canManage ? [["connection", L("Connection", "Sambungan")] as [Section, string]] : []),
           ] as [Section, string][]).map(([key, lbl]) => (
-            <button key={key} type="button"
-              className={section === key
-                ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-                : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
-              aria-pressed={section === key}
+            <button key={key} type="button" role="tab"
+              className={section === key ? tabPillOn : tabPill}
+              aria-selected={section === key}
               onClick={() => setSection(key)}>
               {lbl}
             </button>
@@ -379,6 +381,7 @@ export function ThreadsPanel() {
           </p>
         )}
       </div>
+      </TabZone>
 
       {/* ================= STUDY ================= *
           CEO, 05-09-2026: *"I want to view only for study case on Product and
@@ -392,7 +395,7 @@ export function ThreadsPanel() {
           about the WRITING, and the card says so once rather than letting
           somebody read a share of posts as a share of eyeballs. */}
       {section === "study" && (
-        <>
+        <TabZone label={L("The study", "Kajian")}>
           <div className={card}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -439,12 +442,10 @@ export function ThreadsPanel() {
             {!topicsLoaded ? (
               <div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: 3 }, (_, i) => <Skel key={i} className="h-7 w-28 rounded-full" />)}</div>
             ) : (
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="erp-pill-row erp-mt-3" role="tablist" aria-label={L("Topics", "Topik")}>
                 {topics.map((t) => (
-                  <button key={t.id} type="button" aria-pressed={topic === t.id}
-                    className={topic === t.id
-                      ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-                      : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+                  <button key={t.id} type="button" role="tab" aria-selected={topic === t.id}
+                    className={topic === t.id ? tabPillOn : tabPill}
                     title={`${t.query}${t.last_run_at ? ` · ${L("last searched", "carian terakhir")} ${dmyMYT(t.last_run_at)}` : ""}`}
                     onClick={() => setTopic(t.id)}>
                     {t.label} <span className="opacity-70">{t.posts}</span>
@@ -706,11 +707,12 @@ export function ThreadsPanel() {
               </div>
             </div>
           )}
-        </>
+        </TabZone>
       )}
 
       {/* ================= CONNECTION ================= */}
       {section === "connection" && (
+        <TabZone label={L("The connection", "Sambungan")}>
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">{L("Connected accounts", "Akaun yang disambungkan")}</p>
@@ -819,7 +821,8 @@ export function ThreadsPanel() {
             </ul>
           )}
         </div>
+        </TabZone>
       )}
-    </div>
+    </TabPage>
   );
 }

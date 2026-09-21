@@ -39,6 +39,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SITE_CONFIG } from "@/constants/site";
 import { TEAM, cardMonogram, type TeamCard } from "@/constants/team";
@@ -211,7 +212,9 @@ export function CardsPanel({ role = "" }: { role?: string }) {
   );
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): one zone, the three officers' cards in it. */
+    <TabPage>
+      <TabZone label={L("The officers", "Pegawai")}>
       <div className={card}>
         <PanelTitle icon="person">{L("Business cards", "Kad perniagaan")}</PanelTitle>
         <p className="text-muted-foreground mt-1 text-sm">
@@ -231,6 +234,7 @@ export function CardsPanel({ role = "" }: { role?: string }) {
           ))}
         </div>
       </div>
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

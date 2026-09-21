@@ -15,6 +15,7 @@ import { btnClass, card, th, td, thR2, tdR2 } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { useConfirm } from "@/components/ui/confirm-dialog"; // v1.153.0 - the removal asks first
 import { Skel, StaleHint } from "@/components/ui/skeleton";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
 
@@ -150,26 +151,29 @@ export function AssetsPanel() {
   const lbl = "text-muted-foreground mb-0.5 block text-[11px]";
 
   return (
-    <div className="grid grid-cols-1 gap-4">
+    /* v1.173.0 (tab concept): AT A GLANCE (one figure per status, each a
+       filter, and the value), THE REGISTER, THE EDITOR - status, register,
+       editor, as before. */
+    <TabPage>
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={5} ariaLabel={L("Assets by status", "Aset mengikut status")}>
+          {counts.map(([k, label, n]) => (
+            <SummaryStat key={k} label={label} value={n} busy={!loaded}
+              tone={k === "in_use" ? "success" : k === "lost" || k === "disposed" ? "danger" : k === "repair" ? "warning" : "neutral"}
+              active={statusF === k} onClick={() => setStatusF(statusF === k ? "" : k)}
+              title={L(`Show only ${label.toLowerCase()} assets`, `Tunjuk aset ${label.toLowerCase()} sahaja`)} />
+          ))}
+          <SummaryStat label={L("Value", "Nilai")} value={rm(totalValue)} tone="brand" busy={!loaded} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The register", "Daftar")}>
       <div className={card}>
         <p className="text-sm font-semibold">{L("Company assets", "Aset syarikat")}</p>
         <p className="text-muted-foreground mt-1 text-xs">
           {L("Every piece of equipment the company owns — who holds it, where it lives, what it's worth. A real asset is never deleted: mark it lost or disposed so the history stays. An entry typed by mistake can be removed — it leaves the register, the audit log keeps it.", "Setiap peralatan milik syarikat — siapa yang memegangnya, di mana ia berada, berapa nilainya. Aset sebenar tidak pernah dipadam: tandakan sebagai hilang atau dilupuskan supaya sejarahnya kekal. Entri yang tersilap taip boleh dibuang — ia keluar dari daftar, log audit menyimpannya.")}
         </p>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {/* v1.77.0 — skeleton until the first fetch lands: three count
-              chips and the value chip, same height as the real pills. */}
-          {!loaded && Array.from({ length: 4 }, (_, i) => <Skel key={i} className="h-5 w-20 rounded-full" />)}
-          {loaded && counts.map(([k, label, n]) => n > 0 && (
-            <button key={k} type="button" aria-pressed={statusF === k}
-              className={`border-border rounded-full border px-2 py-0.5 transition hover:bg-secondary ${statusF === k ? "ring-primary bg-secondary ring-2" : ""}`}
-              title={L(`Show only ${label.toLowerCase()} assets`, `Tunjuk aset ${label.toLowerCase()} sahaja`)}
-              onClick={() => setStatusF(statusF === k ? "" : k)}>
-              {label} <span className="font-semibold">{n}</span>{statusF === k ? " ✕" : ""}
-            </button>
-          ))}
-          {totalValue > 0 && <span className="rounded-full bg-success-soft px-2 py-0.5 font-semibold text-success">{L("Value","Nilai")} {rm(totalValue)}</span>}
-        </div>
+        {/* v1.173.0 (tab concept): the status chips and the value chip that
+            sat here are the AT A GLANCE figures above - one place, one gesture. */}
       </div>
 
       <div className={card}>
@@ -275,6 +279,8 @@ export function AssetsPanel() {
         )}
       </div>
 
+      </TabZone>
+      <TabZone label={L("The editor", "Penyunting")}>
       <div id="asset-form" className={`${card} scroll-mt-36`}>
         <button type="button" className={btnClass}
           onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
@@ -330,7 +336,7 @@ export function AssetsPanel() {
         {toastNode}
         {confirmNode}
       </div>
-
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

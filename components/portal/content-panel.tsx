@@ -17,6 +17,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { PanelTitle } from "@/components/ui/app-icon";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -100,22 +101,27 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
   }
 
   return (
+    /* v1.173.0 (tab concept): THE PIPELINE first - one figure per stage,
+       each a filter (press again to clear, as the chips it replaces did) -
+       then THE WORK: the form and the list in one card. */
+    <TabPage>
+      <TabZone label={L("The pipeline", "Saluran")}>
+        <SummaryStrip cols={6} ariaLabel={L("Content by stage", "Kandungan mengikut peringkat")}>
+          {STAGES.map((s) => (
+            <SummaryStat key={s} label={stageLabel(s)} value={counts[s] ?? 0} busy={!loaded}
+              tone={s === "posted" ? "success" : s === "approval" ? "warning" : "neutral"}
+              active={stageFilter === s} onClick={() => setStageFilter(stageFilter === s ? null : s)}
+              title={L(`Show only ${stageLabel(s)}`, `Tunjuk ${stageLabel(s)} sahaja`)} />
+          ))}
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The work", "Kerja")}>
     <div className={card}>
       {toastNode}{confirmNode}
       <PanelTitle icon="content">{L("Content — IDEA → POSTED", "Kandungan — IDEA → DISIARKAN")}</PanelTitle>
       <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Plan every piece of content, move it through the production stages, and keep the script + caption together. Assigning it notifies the owner.", "Rancang setiap kandungan, gerakkannya melalui peringkat produksi, dan simpan skrip + kapsyen bersama. Penugasan akan memaklumkan pemiliknya.")}
       </p>
-
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {STAGES.map((s) => (
-          <button key={s} type="button"
-            className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STAGE_CHIP[s]} ${stageFilter === s ? "ring-2 ring-ring" : ""}`}
-            onClick={() => setStageFilter(stageFilter === s ? null : s)}>
-            {stageLabel(s)} {loaded ? counts[s] ?? 0 : <Skel className="inline-block h-3 w-3 align-middle" />}
-          </button>
-        ))}
-      </div>
 
       {canManage && (
         <div className="border-border mt-3 rounded-lg border p-3">
@@ -257,5 +263,7 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
         ))}
       </div>
     </div>
+      </TabZone>
+    </TabPage>
   );
 }

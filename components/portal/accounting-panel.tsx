@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
@@ -99,12 +100,14 @@ export function AccountingPanel() {
     setDraft((d) => ({ ...d, lines: d.lines.map((l, x) => (x === i ? { ...l, ...patch } : l)) }));
 
   return (
-    <div className={card}>
+    /* v1.173.0 (tab concept): the four figures first (AT A GLANCE), the
+       trial balance under THE BOOKS, the journal composer its own card
+       under ADJUSTMENTS - balance before adjustment, as before. */
+    <TabPage>
       {toastNode}
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
       {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
-      <p className="text-sm font-semibold">{L("Accounting", "Perakaunan")}</p>
-
-      <div className="mt-3">
+      <div>
         {/* v1.77.0 — skeleton until the first fetch lands. */}
         {!loaded ? <SkelTileStrip /> : (
           <StatStrip>
@@ -117,8 +120,12 @@ export function AccountingPanel() {
           </StatStrip>
         )}
       </div>
+      </TabZone>
 
-      <p className="text-muted-foreground mb-3 text-[11.5px]">
+      <TabZone label={L("The books", "Buku akaun")}>
+      <div className={card}>
+      <p className="text-sm font-semibold">{L("Accounting", "Perakaunan")}</p>
+      <p className="text-muted-foreground mt-1 mb-3 text-[11.5px]">
         {L("Bank movements post here automatically (paid expenses, payroll runs, claim payouts, Finance-tab entries) — this composer is for adjustments only.", "Pergerakan bank diposkan di sini secara automatik (perbelanjaan dibayar, larian gaji, bayaran tuntutan, catatan tab Kewangan) — borang ini untuk pelarasan sahaja.")}
       </p>
       {/* Trial balance */}
@@ -163,10 +170,13 @@ export function AccountingPanel() {
           )}
         </table>
       </div>
+      </div>
+      </TabZone>
 
+      <TabZone label={L("Adjustments", "Pelarasan")}>
       {/* Journal entry — the server refuses unbalanced entries; the button
           mirrors that rule so nobody types a whole entry to be told no. */}
-      <div className="border-border mt-4 border-t pt-4">
+      <div className={card}>
         <p className="mb-2 text-xs font-semibold">{L("New journal entry", "Catatan jurnal baharu")}</p>
         <div className={fieldRow}>
           <label><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
@@ -195,7 +205,7 @@ export function AccountingPanel() {
           </span>
         </div>
       </div>
-
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

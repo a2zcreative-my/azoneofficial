@@ -34,6 +34,7 @@ import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
 import { btnSm, btnSmPrimary, card, inputClass, selectClassSm } from "@/lib/ui-styles";
+import { SummaryStat, SummaryStrip, TabZone } from "@/components/portal/tab-concept";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
@@ -791,10 +792,27 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
     }
   };
 
+  /* v1.173.0 (tab concept) - the summary tier from the records already
+     loaded: headcount, active, departments. No second request. */
+  const activeCount = staff.filter((u) => u.is_active).length;
+  const departments = new Set(staff.map((u) => (u.department ?? "").trim()).filter(Boolean)).size;
+
   return (
-    <div className="space-y-3">
+    /* The page's TabPage is the stack; these are its zones: AT A GLANCE,
+       THE DIRECTORY (the directory | organisation | team map switch, the
+       search, the records or the chart). */
+    <>
       {toastNode}{promptNode}
-      <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={3} ariaLabel={L("Staff summary", "Ringkasan kakitangan")}>
+          <SummaryStat label={L("Staff records", "Rekod kakitangan")} value={staff.length} busy={!loaded} />
+          <SummaryStat label={L("Active", "Aktif")} value={activeCount} tone="success" busy={!loaded} />
+          <SummaryStat label={L("Departments", "Jabatan")} value={departments} busy={!loaded} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The directory", "Direktori")}>
+      <div className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{L("Staff directory", "Direktori kakitangan")}</p>
           <p className="text-muted-foreground text-xs">{staff.length} {L("staff records", "rekod kakitangan")}</p>
@@ -805,6 +823,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
             <AppIcon name="add" className="mr-1.5 h-4 w-4" />{L("Add staff", "Tambah kakitangan")}
           </button>
         )}
+      </div>
       </div>
 
       {!readOnly && showCreate && (
@@ -988,7 +1007,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
           that is already inside the page's scroll — two scrollbars for one
           picture. The orbit is now sized against the VIEWPORT instead, so it
           is whole on the screen it is drawn on, and the page scrolls once. */}
-      <div className="space-y-3">
+      <div className="erp-stack-tight">
       <div className="flex flex-wrap items-center gap-2">
         {/* v1.101.0 — Circle or Organisation. One segmented control rather
             than a second tab: it is the same people, the same fetch and the
@@ -1554,7 +1573,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "" }
         );
       })}
       </div>
-    </div>
+      </TabZone>
+    </>
   );
 }
 

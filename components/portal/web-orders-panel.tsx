@@ -31,6 +31,7 @@ import { brandByCode } from "@/constants/brands";
 import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import css from "./web-orders-panel.module.css";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -217,7 +218,24 @@ export function WebOrdersPanel() {
   ];
   const o = open === null ? null : orders.find((x) => x.id === open) ?? null;
 
+  /* v1.173.0 (tab concept) - the summary tier from the rows on screen: the
+     store filters server-side, so these read the current cut (all orders
+     when no status pill is pressed), never a second request. */
+  const inFlight = orders.filter((x) => x.status === "paid" || x.status === "payment_review").length;
+  const shipped = orders.filter((x) => x.status === "shipped" || x.status === "completed").length;
+  const valueCents = orders.reduce((a, x) => a + (x.status === "cancelled" ? 0 : x.total_cents), 0);
+
   return (
+    <TabPage>
+      <TabZone label={statusF ? L(`At a glance · ${statusLabel(statusF)}`, `Sepintas lalu · ${statusLabel(statusF)}`) : L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={4} ariaLabel={L("Web order summary", "Ringkasan pesanan web")}>
+          <SummaryStat label={L("Orders", "Pesanan")} value={orders.length} busy={!loaded} />
+          <SummaryStat label={L("Value", "Nilai")} value={fmtRM(valueCents)} tone="brand" busy={!loaded} hint={L("cancelled not counted", "dibatalkan tidak dikira")} />
+          <SummaryStat label={L("To ship", "Untuk dihantar")} value={inFlight} tone={inFlight > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => setStatusF("paid")} active={statusF === "paid"} title={L("Show the paid orders waiting to ship", "Tunjuk pesanan dibayar yang menunggu penghantaran")} />
+          <SummaryStat label={L("Shipped", "Dihantar")} value={shipped} tone="success" busy={!loaded} onClick={() => setStatusF("shipped")} active={statusF === "shipped"} title={L("Show the shipped orders", "Tunjuk pesanan yang dihantar")} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The orders", "Pesanan")}>
     <div className={card}>
       {toastNode}
       {confirmNode}
@@ -452,5 +470,7 @@ export function WebOrdersPanel() {
         )}
       </SideDrawer>
     </div>
+      </TabZone>
+    </TabPage>
   );
 }

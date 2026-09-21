@@ -93,7 +93,10 @@ export function StatTile({
   );
 }
 
-/** The four-across strip the reference uses at the top of every module page. */
-export function StatStrip({ children }: { children: ReactNode }) {
-  return <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">{children}</div>;
+/** The four-across strip the reference uses at the top of every module page.
+    v1.173.0 (tab concept): the shared summary grid (.erp-tiles - two across
+    on a phone, three from 640px, four from 1024px), the same one
+    SummaryStrip draws, so a StatTile strip and a SummaryStat strip line up. */
+export function StatStrip({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`erp-tiles ${className}`}>{children}</div>;
 }

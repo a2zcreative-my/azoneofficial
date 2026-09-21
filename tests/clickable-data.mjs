@@ -88,8 +88,10 @@ const ok = (label, cond, extra = "") => {
      /const matches = \(t: MonTask\): boolean =>/, "a tile of 3 that opens 4 rows is worse than a tile that opens nothing"],
     ["the quiet stock chips open like their siblings", "components/portal/company-monitor.tsx",
      /if \(!alert\) \{[\s\S]{0,400}?aria-expanded=\{isOpenQ\}/, "one chip in the row opened and the rest did not"],
+    /* v1.173.0 (tab concept): the counts are the AT A GLANCE figures (SummaryStat, a
+       button with aria-pressed) - the same filter, one row up. */
     ["asset counts filter the asset table", "components/portal/assets-panel.tsx",
-     /aria-pressed=\{statusF === k\}/, "the identical chip row in content-panel has filtered its table for releases"],
+     /<SummaryStat key=\{k\} label=\{label\} value=\{n\}[\s\S]{0,300}?active=\{statusF === k\} onClick=\{\(\) => setStatusF\(statusF === k \? "" : k\)\}/, "the identical chip row in content-panel has filtered its table for releases"],
     ["and the asset filter keys on the CODE, not the label", "components/portal/assets-panel.tsx",
      /a\.status === statusF/, "keying on a translated label breaks the filter the moment somebody switches to BM"],
     ["the state chips scope the customer list", "components/portal/elfia-traffic-panel.tsx",

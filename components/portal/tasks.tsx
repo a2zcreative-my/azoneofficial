@@ -5,6 +5,7 @@
    at the top are new and the declarations are exported. */
 import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, Task, TaskItem, User, priorityL } from "@/components/portal/page-shared";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
@@ -339,12 +340,31 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
     </div>
   );
 
+  /* v1.173.0 (tab concept) - the summary tier: the board's own figures,
+     derived from the rows already loaded, never a second request. Open and
+     overdue read from the same rule the list paints red with (v1.42.0). */
+  const openTasks = tasks.filter((t) => t.status !== "completed");
+  const overdueCount = openTasks.filter((t) => !!t.deadline && t.deadline < todayISO).length;
+  const pendingCount = openTasks.filter((t) => t.status === "in_progress").length;
+  const doneCount = tasks.length - openTasks.length;
+
   return (
-    <div className="space-y-4 md:space-y-6">
+    <TabPage>
       {deleteConfirmNode}
       {taskToastNode}
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={4} ariaLabel={L("Task summary", "Ringkasan tugasan")}>
+          <SummaryStat label={L("Open", "Terbuka")} value={openTasks.length} busy={!loaded} />
+          <SummaryStat label={L("Overdue", "Lewat")} value={overdueCount} tone={overdueCount > 0 ? "danger" : "neutral"} busy={!loaded} />
+          <SummaryStat label={L("Pending", "Menunggu")} value={pendingCount} tone={pendingCount > 0 ? "warning" : "neutral"} busy={!loaded} />
+          <SummaryStat label={L("Closed", "Selesai")} value={doneCount} tone="success" busy={!loaded} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={canManage ? L("The work", "Kerja") : L("My work", "Kerja saya")}>
       {renderTasks(tasks.filter((t) => t.status !== "completed"), canManage ? L("Active tasks", "Tugasan aktif") : L("My active tasks", "Tugasan aktif saya"), !loaded)}
+      </TabZone>
 
+      <TabZone label={L("New task", "Tugasan baharu")}>
       <div className={card}>
         <p className="text-sm font-semibold">
           {canManage
@@ -461,11 +481,14 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
           </button>
         </div>
       </div>
-    {progress}
+      </TabZone>
+    {progress ? <TabZone label={L("The longer view", "Pandangan lebih jauh")}>{progress}</TabZone> : null}
+      <TabZone label={L("The archive", "Arkib")}>
       <details>
         <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{L("Completed tasks", "Tugasan selesai")} ({tasks.filter((t) => t.status === "completed").length})</summary>
         {renderTasks(tasks.filter((t) => t.status === "completed"), L("Completed tasks", "Tugasan selesai"))}
       </details>
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

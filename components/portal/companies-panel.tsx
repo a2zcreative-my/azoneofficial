@@ -5,7 +5,8 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { makeApi, type ApiResult } from "@/lib/api";
 import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, type CompanyCode, type CompanyStaffSetup, type ReviewDetail, type ReviewKind, type ReviewRecord, type ReviewState } from "@/lib/company-review";
 import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, inputClass, chipNeutral, chipWarn } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, inputClass, chipNeutral, chipWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -208,20 +209,29 @@ export function CompaniesPanel() {
   useEffect(() => {
     if (selected !== null && (detail || employee || detailError) && window.innerWidth < 1280) reviewPane.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [selected,detail,employee,detailError]);
-  return <div className="min-w-0 space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-border border-b pb-3">
-      <div className="flex flex-wrap gap-1" role="group" aria-label={L("Company administration", "Pentadbiran syarikat")}>
-        {(["records","staff"] as const).map(v => <button key={v} type="button" aria-pressed={view === v} className={`${btnSm} ${view === v ? "bg-secondary font-semibold" : ""}`} onClick={() => { clear(); setView(v); }}>{v === "records" ? L("Ownership review", "Semakan pemilikan") : L("Staff setup", "Tetapan staf")}</button>)}
+  /* v1.173.0 (tab concept): two zones, two cards - ADMINISTRATION (the
+     Ownership review | Staff setup pills, the standing notice) and the open
+     view (the filters, the list, the review pane beside it from 1280px). */
+  return <TabPage>
+    <TabZone label={L("Administration", "Pentadbiran")}>
+    <div className={card}>
+    <div className="erp-flex erp-flex-wrap erp-flex-between erp-gap-3">
+      <div className="erp-pill-row" role="tablist" aria-label={L("Company administration", "Pentadbiran syarikat")}>
+        {(["records","staff"] as const).map(v => <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? tabPillOn : tabPill} onClick={() => { clear(); setView(v); }}>{v === "records" ? L("Ownership review", "Semakan pemilikan") : L("Staff setup", "Tetapan staf")}</button>)}
       </div>
       <button type="button" className={btnSm} title={L("Refresh", "Muat semula")} aria-label={L("Refresh company review", "Muat semula semakan syarikat")} onClick={() => { clear(); setRevision(v => v + 1); }}><AppIcon name="refresh" /></button>
     </div>
-    <p role="status" className="text-warning text-xs">{L("Reconciliation pending. Company access restrictions are not active.", "Penyesuaian belum selesai. Sekatan akses syarikat belum aktif.")}</p>
-    {success && <p role="status" className="text-success flex items-start gap-2 text-sm"><AppIcon name="success" />{success}</p>}
+    <p role="status" className="text-warning mt-2 text-xs">{L("Reconciliation pending. Company access restrictions are not active.", "Penyesuaian belum selesai. Sekatan akses syarikat belum aktif.")}</p>
+    {success && <p role="status" className="text-success mt-2 flex items-start gap-2 text-sm"><AppIcon name="success" />{success}</p>}
+    </div>
+    </TabZone>
+    <TabZone label={view === "records" ? L("The review", "Semakan") : L("Staff setup", "Tetapan staf")}>
+    <div className={card}>
     {view === "records" && <div className="grid gap-3 sm:grid-cols-2">
       <label className="text-xs">{L("Register", "Daftar")}<select aria-label={L("Register", "Daftar")} className={`${inputClass} mt-1 w-full min-w-0`} value={kind} onChange={e => { clear(); setKind(e.target.value as ReviewKind); }}>{Object.entries(REVIEW_KINDS).map(([key,label]) => <option key={key} value={key}>{L(label.en,label.ms)}</option>)}</select></label>
       <label className="text-xs">{L("Review status", "Status semakan")}<select className={`${inputClass} mt-1 w-full min-w-0`} value={filter} onChange={e => { clear(); setFilter(e.target.value); }}><option value="unassigned">{L("Not yet reviewed", "Belum disemak")}</option><option value="reviewed">{L("Previously reviewed", "Telah disemak")}</option><option value="all">{L("All records", "Semua rekod")}</option></select></label>
     </div>}
-    {error ? <p role="alert" className="text-danger text-sm">{error}</p> : <div className={`grid min-w-0 gap-5 ${selected !== null ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : ""}`}>
+    {error ? <p role="alert" className="text-danger mt-3 text-sm">{error}</p> : <div className={`mt-3 grid min-w-0 gap-5 ${selected !== null ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : ""}`}>
       <div className="min-w-0">
         {view === "records" ? records === null ? <SkelRows rows={5} /> : <>
           <ul className="divide-border divide-y">
@@ -240,5 +250,7 @@ export function CompaniesPanel() {
       </div>
       {selected !== null && <div ref={reviewPane} className="min-w-0 scroll-mt-24">{view === "records" ? detailError ? <p role="alert" className="text-danger text-sm">{detailError}</p> : detail && detail.kind === kind && detail.id === selected ? <RecordReview key={`${detail.kind}-${detail.id}-${detail.snapshot}-${detail.decision?.version ?? 0}`} detail={detail} onSaved={saved} onRelated={(nextKind,id) => { setKind(nextKind); setFilter("all"); setPage(0); setSelected(id); }} /> : <SkelRows rows={5} /> : employee && <StaffSetup key={`${employee.id}-${employee.version}`} employee={employee} onSaved={saved} />}</div>}
     </div>}
-  </div>;
+    </div>
+    </TabZone>
+  </TabPage>;
 }

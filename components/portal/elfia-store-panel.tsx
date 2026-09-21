@@ -1058,7 +1058,10 @@ export function ElfiaStorePanel() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): the four zones (THE SHOP, PRODUCTS, THE
+       SHOPFRONT, SETTINGS) are v1.122.0's; the stack and the zones wear the
+       shared classes every other tab uses. */
+    <div className="erp-stack erp-tab-page">
       {toastNode}
 
       {/* v1.49.0 — every collection name already in use, offered to every
@@ -1076,7 +1079,7 @@ export function ElfiaStorePanel() {
           carousel, the catalog PDF and the hover backdrop, quiet until opened.
           SETTINGS: delivery and the payment check, quiet. Nothing inside any
           card changed. */}
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("The shop", "Kedai")}</ZoneLabel>
       {/* ---- the bridge's pulse + what this tab is ---- */}
       <div className={card}>
@@ -1149,7 +1152,7 @@ export function ElfiaStorePanel() {
       </div>
 
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("Products", "Produk")}</ZoneLabel>
       {/* ---- the catalogue ---- */}
       <div className={card}>
@@ -1686,7 +1689,7 @@ export function ElfiaStorePanel() {
         </div>
       </div>
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("The shopfront", "Muka kedai")}</ZoneLabel>
       {/* ---- the hero carousel (v1.46.0) ---- */}
       <QuietCard title={L("Homepage carousel", "Karusel halaman utama")} summary={slides ? `${slides.length} ${L("slides", "slaid")} · ${slides.filter((s) => s.active).length} ${L("active", "aktif")}` : undefined}>
@@ -2091,7 +2094,7 @@ export function ElfiaStorePanel() {
       </QuietCard>
 
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("Settings", "Tetapan")}</ZoneLabel>
       <div className="grid grid-cols-1 items-start gap-3 md:gap-4 lg:grid-cols-2">
       {/* ---- what delivery costs (v1.52.0) ----

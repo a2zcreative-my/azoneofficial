@@ -5,6 +5,7 @@
    at the top are new and the declarations are exported. */
 import { Sub } from "@/components/portal/leave";
 import { Announcement, L, MANAGE_ROLES, User, annCatL } from "@/components/portal/page-shared";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SkelCard } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
@@ -185,12 +186,26 @@ export function Announcements({ user }: { user: User }) {
     </div>
   );
 
+  /* v1.173.0 (tab concept) - the summary tier from the rows already loaded. */
+  const unread = anns.filter((a) => !a.acked).length;
+  const acked = anns.length - unread;
+
   return (
-    <div className="space-y-4 md:space-y-6">
+    <TabPage>
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={3} ariaLabel={L("Announcement summary", "Ringkasan pengumuman")}>
+          <SummaryStat label={L("To acknowledge", "Untuk diperakui")} value={unread} tone={unread > 0 ? "warning" : "neutral"} busy={!loaded} />
+          <SummaryStat label={L("Acknowledged", "Diperakui")} value={acked} tone="success" busy={!loaded} />
+          <SummaryStat label={L("All posts", "Semua hantaran")} value={anns.length} busy={!loaded} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("Waiting on me", "Menunggu saya")}>
       <section aria-label={L("Current announcements", "Pengumuman semasa")}>
         {renderAnnouncements(anns.filter((a) => !a.acked), !loaded)}
       </section>
+      </TabZone>
       {canPost && (
+        <TabZone label={L("Publish", "Terbit")}>
         <div className={card}>
           <p className="text-sm font-semibold">
             {L("Publish news", "Terbit berita")}
@@ -314,7 +329,9 @@ export function Announcements({ user }: { user: User }) {
             </button>
           </div>
         </div>
+        </TabZone>
       )}
+      <TabZone label={L("The archive", "Arkib")}>
       <details>
         <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{L("Acknowledged announcements", "Pengumuman diperakui")} ({anns.filter((a) => a.acked).length})</summary>
         {renderAnnouncements(anns.filter((a) => a.acked))}
@@ -324,6 +341,7 @@ export function Announcements({ user }: { user: User }) {
           {L("No announcements yet.", "Tiada pengumuman lagi.")}
         </p>
       )}
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

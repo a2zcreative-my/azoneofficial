@@ -251,7 +251,9 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("Commission: decisions, calculation, rates", ordered(funds, ['rows={entries}', 'value={draft.basis}', 'id="commission-rates"']));
   ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
   ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
-  ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'THE MAP']));
+  /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
+     the search, the state filter and the pipeline precede it as before. */
+  ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'label={L("The map", "Peta")}', '================= THE MAP']));
   ok("HR: task reports, gated administration, birthdays", ordered(panels, ['L("Task report"', '{administration}', 'L("Staff birthdays"']) && page.includes('<HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes('));
   ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));

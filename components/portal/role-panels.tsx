@@ -46,7 +46,7 @@ import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
    bare literals; they now use the same tokens as the rest of the portal. */
 import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, thR2, tdR2, selectClass, selectClassSm, tabPill, tabPillOn, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
-import { dmy, dmyMYT, fmtRM, rm as rmBare } from "@/lib/format";
+import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { SectionTabs, ZoneLabel, revealAnchor, withStepUp } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
 import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
@@ -57,6 +57,7 @@ import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import cl from "./claims.module.css"; // v1.172.2 - the Claims flow's own layout (Tailwind retired)
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -225,14 +226,17 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): REPORTS, ADMINISTRATION (gated, its own
+       panel), PEOPLE - the v1.84.0 order, captioned. The page already wraps
+       this in a TabPage, so this is the stack of zones itself. */
+    <>
       {/* v1.84.0 — the verification table left this card for the Attendance
           tab, where the CEO asked for it, and became a REPORT rather than a
           log: one row per person, every scheduled day accounted for, and
           leave counted instead of appearing as a gap. See
           components/portal/verification-card.tsx. */}
 
-      <div className="space-y-4 md:space-y-6">
+      <TabZone label={L("Reports", "Laporan")}>
         <div className={card}>
           <p className="text-sm font-semibold">{L("Task report", "Laporan tugasan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -285,8 +289,12 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
             ))}
           </ul>
         </div>
+      </TabZone>
 
+      <TabZone label={L("Administration", "Pentadbiran")}>
         {administration}
+      </TabZone>
+      <TabZone label={L("People", "Orang")}>
         <div className={card}>
           <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -318,8 +326,8 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
             <span className="font-medium">{L("Sales", "Jualan")}</span>{L(" tab with the QT-AZOODDMMYY-X numbering.", " dengan penomboran QT-AZOODDMMYY-X.")}
           </p>
         </div>
-      </div>
-    </div>
+      </TabZone>
+    </>
   );
 }
 
@@ -857,7 +865,10 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   }, [load]);
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): the four zones (STOCK NOW, RECORD, WHAT MOVED,
+       SETUP) are the v1.119.0 ones; the stack and the zones now wear the
+       shared classes every other tab uses (TabPage / TabZone equivalents). */
+    <div className="erp-stack erp-tab-page">
       {invConfirmNode}
       {invToastNode}
       {detailItem && (
@@ -1026,7 +1037,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
         </div>
       )}
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("Stock now", "Stok sekarang")}</ZoneLabel>
       {statusCard}
       {bridgeHealth && (bridgeHealth.unavailable || !bridgeHealth.key_configured || bridgeHealth.pending_migration || bridgeHealth.unknown.length > 0) && (
@@ -1568,7 +1579,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       </div>
 
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("Record", "Rekod")}</ZoneLabel>
       {/* v1.123.0 — ONE CARD, THREE TABS. The CEO, 06-09-2026, naming the
           attendance card: the three ways a movement is recorded are one
@@ -1998,7 +2009,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         </div>
       </div>
       </section>
-      <section className="space-y-3 md:space-y-4">
+      <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("What moved", "Apa yang bergerak")}</ZoneLabel>
       {/* v1.123.0 — one card, two tabs: what TikTok moved, and what a
           person moved by hand. */}
@@ -2472,7 +2483,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         </div>
       </div>
       </section>
-      <section id="inventory-bridge" className="scroll-mt-36 space-y-3 md:space-y-4">
+      <section id="inventory-bridge" className="erp-stack-tight erp-tab-zone scroll-mt-36">
         <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
       {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
           it last report a sale, and (the part a human must act on) SKUs it
@@ -2970,7 +2981,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
   };
 
   return (
-    <div className={`${card} mt-4 md:mt-6`}>
+    /* v1.173.0: the Attendance tab's SETUP zone spaces this card; no margin of its own. */
+    <div className={card}>
       {toastNode}
       {askPatNode}
       <p className="text-sm font-semibold">{L("Staff attendance — corrections & back-entry", "Kehadiran kakitangan — pembetulan & kemasukan lampau")}</p>
@@ -4758,11 +4770,24 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     </div>
   );
 
+  /* v1.173.0 (tab concept) - the summary tier: this person's (or, for a
+     decider, the company's) claims this month, by claim date - the same
+     rule the month strip in the list uses. Each figure scopes the list. */
+  const nowMytMonth = mytToday().slice(0, 7);
+  const monthScope = (canDecide ? claims : claims.filter((c) => c.user_id === userId)).filter((c) => (c.claim_date ?? "").slice(0, 7) === nowMytMonth);
+  const sumCents = (list: typeof claims) => list.reduce((a, c) => a + c.amount_cents, 0);
+  const monthPending = monthScope.filter((c) => c.status === "pending");
+  const monthApproved = monthScope.filter((c) => c.status === "approved");
+  const monthPaid = monthApproved.filter((c) => c.paid_at);
+  const monthRejected = monthScope.filter((c) => c.status === "rejected");
+  const scopeList = (k: string) => { setClaimF(claimF === k ? "" : k); };
+
   return (
-    <div className="erp-stack">
+    <TabPage>
       {toastNode}
       {stepUpNode}
       {confirmNode}
+      <TabZone label={L("This month", "Bulan ini")}>
       {/* v1.172.1 (Interface System V3): the screen opens with what a member
           of staff came for - a pill that jumps to the form - and returns
           them to their list after a submit (revealAnchor below). */}
@@ -4770,7 +4795,15 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         <p className="erp-heading">{L("Claims", "Tuntutan")}</p>
         <a href="#claim-form" className={btnSmPrimary}>{L("Claim form", "Borang tuntutan")}</a>
       </div>
+      <SummaryStrip cols={4} ariaLabel={L("Claims this month", "Tuntutan bulan ini")}>
+        <SummaryStat label={L("Pending", "Menunggu")} value={monthPending.length} hint={fmtRM(sumCents(monthPending))} tone={monthPending.length > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => scopeList("pending")} active={claimF === "pending"} title={L("Show only pending claims", "Tunjuk tuntutan menunggu sahaja")} />
+        <SummaryStat label={L("Approved", "Diluluskan")} value={fmtRM(sumCents(monthApproved))} hint={`${monthApproved.length} ${L("claims", "tuntutan")}`} tone="success" busy={!loaded} onClick={() => scopeList("approved")} active={claimF === "approved"} title={L("Show only approved claims", "Tunjuk tuntutan diluluskan sahaja")} />
+        <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(sumCents(monthPaid))} hint={`${monthPaid.length} ${L("claims", "tuntutan")}`} tone="brand" busy={!loaded} onClick={() => scopeList("paid")} active={claimF === "paid"} title={L("Show only paid claims", "Tunjuk tuntutan dibayar sahaja")} />
+        <SummaryStat label={L("Rejected", "Ditolak")} value={monthRejected.length} hint={fmtRM(sumCents(monthRejected))} tone={monthRejected.length > 0 ? "danger" : "neutral"} busy={!loaded} onClick={() => scopeList("rejected")} active={claimF === "rejected"} title={L("Show only rejected claims", "Tunjuk tuntutan ditolak sahaja")} />
+      </SummaryStrip>
+      </TabZone>
       {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
+        <TabZone label={L("Waiting on me", "Menunggu saya")}>
         <div id="claims-pending" className={`${card} ${cl.anchor}`}>
           <p className="erp-heading">
             {L("Pending approvals", "Kelulusan menunggu")}
@@ -4785,8 +4818,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
           </div>
         </div>
+        </TabZone>
       )}
 
+      <TabZone label={L("Submit", "Hantar")}>
       <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
         <p className="erp-heading">
           {editingClaim
@@ -4947,7 +4982,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         </div>
         {msg && <p className={cl.formMsg}>{msg}</p>}
       </div>
+      </TabZone>
 
+      <TabZone label={L("The records", "Rekod")}>
       <div id="claims-list" className={`${card} ${cl.anchor}`}>
         <p className="erp-heading">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
         {(() => {
@@ -5026,9 +5063,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           </div>
         </div>
       )}
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }
+
 
 
 /* ================= Company expenses (v1.4.87) ================= */
@@ -5197,8 +5236,13 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
   };
 
   return (
-    <div className="space-y-4">
+    /* v1.173.0 (tab concept): RECORD AN EXPENSE, PAYMENTS DUE, REPORTING
+       (the P&L rides in from the page) and THE RECORDS - cash then
+       expenses with reporting after payments due, as the Finance tab has
+       read since v1.4.x. The page's TabPage is the stack. */
+    <>
       {toastNode}
+      <TabZone label={L("Record an expense", "Rekod perbelanjaan")}>
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -5254,8 +5298,10 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
         </div>
         {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
       </div>
+      </TabZone>
 
       {(payrollDue || upcoming.length > 0 || staffClaims.due.length > 0 || rows.some((r) => r.due_day && !r.paid_at)) && (
+        <TabZone label={L("Waiting on me", "Menunggu saya")}>
         <div className={card}>
           <PanelTitle icon="pay">{L("Payments due —", "Bayaran perlu dibuat —")} {dmy(month)}</PanelTitle>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -5417,9 +5463,11 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
             })}
           </div>
         </div>
+        </TabZone>
       )}
 
-      {reporting}
+      {reporting ? <TabZone label={L("Reporting", "Pelaporan")}>{reporting}</TabZone> : null}
+      <TabZone label={L("The records", "Rekod")}>
       <div className={card}>
         {/* v1.77.0 — skeleton until the first fetch lands: the month heading
             with its total on the right, then the expense rows — so neither
@@ -5654,6 +5702,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
           </>
         )}
       </div>
-    </div>
+      </TabZone>
+    </>
   );
 }

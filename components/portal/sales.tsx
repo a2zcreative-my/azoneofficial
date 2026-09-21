@@ -7,6 +7,7 @@ import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
 import { L, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
+import { SummaryStat, SummaryStrip, TabZone } from "@/components/portal/tab-concept";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -1698,8 +1699,30 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     ) +
     (doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents);
 
+  /* v1.173.0 (tab concept) - the summary tier: this month's documents, by
+     the date they were raised, from the rows already loaded. Quotations
+     and invoices are the two doors most people came through; the unpaid
+     figure is the one the CEO reads first. */
+  const monthKey = mytToday().slice(0, 7);
+  const monthDocs = docs.filter((d) => (d.created_at ?? "").slice(0, 7) === monthKey);
+  const monthQt = monthDocs.filter((d) => d.doc_type === "QT");
+  const monthInv = monthDocs.filter((d) => d.doc_type === "INV");
+  const unpaidInv = docs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
+  const cents = (list: SalesDoc[]) => list.reduce((a, d) => a + d.total_cents, 0);
+
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* The page's TabPage is the stack; these are its zones: AT A GLANCE
+       (figures), THE WORK, CUSTOMERS; the page adds THIS MONTH (the map)
+       and THE LONGER VIEW after them. */
+    <>
+      <TabZone label={L("At a glance", "Sepintas lalu")} hint={L("This month, by the date each document was raised; unpaid invoices from every month.", "Bulan ini, mengikut tarikh dokumen dibuat; invois belum dibayar dari semua bulan.")}>
+        <SummaryStrip cols={4} ariaLabel={L("Sales this month", "Jualan bulan ini")}>
+          <SummaryStat label={L("Quotations", "Sebut harga")} value={monthQt.length} hint={fmtRM(cents(monthQt))} busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
+          <SummaryStat label={L("Invoiced", "Diinvois")} value={fmtRM(cents(monthInv))} hint={`${monthInv.length} ${L("invoices", "invois")}`} tone="brand" busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
+          <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(cents(monthInv.filter((d) => d.payment_status === "paid")))} tone="success" busy={!loaded} />
+          <SummaryStat label={L("Unpaid invoices", "Invois belum dibayar")} value={unpaidInv.length} hint={fmtRM(cents(unpaidInv))} tone={unpaidInv.length > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => { setWorkTab("receipts"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open receipts and the outstanding report", "Buka resit dan laporan tertunggak")} />
+        </SummaryStrip>
+      </TabZone>
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the
@@ -1717,7 +1740,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           themselves, and the receipts / credit notes / outstanding report -
           one at a time, in the portal's own pills. Bodies are hidden, never
           unmounted: a half-written quotation survives a look at the list. */}
-      <section id="sales-work" className="scroll-mt-36 space-y-3 md:space-y-4">
+      <section id="sales-work" className="erp-stack-tight erp-tab-zone scroll-mt-36">
         <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
         <div className={card}>
           <SectionTabs value={workTab} onChange={setWorkTab} tabs={[
@@ -3095,7 +3118,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           </div>
         </div>
       </section>
-      <section id="sales-customers" className="scroll-mt-36 space-y-3 md:space-y-4">
+      <section id="sales-customers" className="erp-stack-tight erp-tab-zone scroll-mt-36">
         <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
         <div className={card}>
           <SectionTabs value={custTab} onChange={setCustTab} tabs={[
@@ -3459,6 +3482,6 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           </div>
         </div>
       </section>
-    </div>
+    </>
   );
 }

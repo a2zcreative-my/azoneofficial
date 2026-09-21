@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Skel, SkelRows, StaleHint } from "@/components/ui/skeleton";
 import { StatTile } from "@/components/ui/stat-tile";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { mytDateTime } from "@/components/portal/page-shared";
@@ -454,9 +455,15 @@ export function HankeisPanel() {
   const setupGap = d && (!d.setup.qr_configured || !d.setup.recipient_configured || !d.setup.account_configured);
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): the header card with its screen pills first,
+       then the open screen as captioned zones - TODAY, THE MONEY and THE
+       WORK on the dashboard; one zone per other screen. The tiles stay
+       StatTile (v1.13.0) - the same summary tier the Dashboard's month
+       card reads by. */
+    <TabPage>
       {toastNode}{confirmNode}{promptNode}
 
+      <TabZone label="Hankei's">
       <section className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -469,7 +476,7 @@ export function HankeisPanel() {
           </div>
           {can.order && <button type="button" className={btnSmPrimary} onClick={() => setSheet("new_order")}>{L("New order", "Pesanan baharu")}</button>}
         </div>
-        <div role="tablist" className="mt-3 flex flex-wrap gap-1.5">
+        <div role="tablist" className="erp-pill-row erp-mt-3">
           {SCREENS.map(([k, en, ms]) => (
             <button key={k} type="button" role="tab" aria-selected={screen === k} className={screen === k ? tabPillOn : tabPill} onClick={() => setScreen(k)}>
               {L(en, ms)}
@@ -485,11 +492,13 @@ export function HankeisPanel() {
           </p>
         )}
       </section>
+      </TabZone>
 
       {/* ---- dashboard ---- */}
       {screen === "dashboard" && (
         !d ? <SkelRows rows={4} /> : (
           <>
+            <TabZone label={L("Today", "Hari ini")}>
             <section className={card}>
               <PanelTitle icon="chart">{L("Today", "Hari ini")}</PanelTitle>
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
@@ -503,6 +512,8 @@ export function HankeisPanel() {
                 <StatTile label={L("Needs a shipping quote", "Perlu sebut harga penghantaran")} value={counts.quote_required ?? 0} tone="muted" />
               </div>
             </section>
+            </TabZone>
+            <TabZone label={L("The money", "Wang")}>
             <section className={card}>
               <PanelTitle icon="money">{L("Sales, from VERIFIED payments only", "Jualan, daripada bayaran DISAHKAN sahaja")}</PanelTitle>
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
@@ -515,6 +526,8 @@ export function HankeisPanel() {
                 {L("An order with a receipt on it counts for nothing here until a person has matched the bank transaction.", "Pesanan yang ada resit tidak dikira di sini sehingga seseorang memadankan transaksi bank.")}
               </p>
             </section>
+            </TabZone>
+            <TabZone label={L("The work", "Kerja")}>
             <section className={card}>
               <PanelTitle icon="orders">{L("Latest orders", "Pesanan terkini")}</PanelTitle>
               <ul className="divide-border mt-2 divide-y">
@@ -532,12 +545,14 @@ export function HankeisPanel() {
                 ))}
               </ul>
             </section>
+            </TabZone>
           </>
         )
       )}
 
       {/* ---- payment review ---- */}
       {screen === "review" && (
+        <TabZone label={L("Waiting on me", "Menunggu saya")}>
         <section className={card}>
           <PanelTitle icon="verify">{L("Payment review queue", "Barisan semakan bayaran")} <span className="text-muted-foreground font-normal tabular-nums">· {review.data?.queue.length ?? 0}</span></PanelTitle>
           <p className="text-muted-foreground mt-1 text-xs">
@@ -568,10 +583,12 @@ export function HankeisPanel() {
             </ul>
           )}
         </section>
+        </TabZone>
       )}
 
       {/* ---- orders ---- */}
       {screen === "orders" && (
+        <TabZone label={L("Orders", "Pesanan")}>
         <section className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <PanelTitle icon="orders">{L("Orders", "Pesanan")}</PanelTitle>
@@ -599,10 +616,12 @@ export function HankeisPanel() {
             </ul>
           )}
         </section>
+        </TabZone>
       )}
 
       {/* ---- fulfilment ---- */}
       {screen === "packing" && (
+        <TabZone label={L("Fulfilment", "Pemenuhan")}>
         <section className={card}>
           <PanelTitle icon="package">{L("Packing queue", "Barisan pembungkusan")}</PanelTitle>
           <p className="text-muted-foreground mt-1 text-xs">{L("Only orders whose payment a person has verified in the bank appear here. An order with an open exception is held.", "Hanya pesanan yang bayarannya telah disahkan oleh seseorang dalam bank muncul di sini. Pesanan dengan pengecualian terbuka ditahan.")}</p>
@@ -631,10 +650,12 @@ export function HankeisPanel() {
             </ul>
           )}
         </section>
+        </TabZone>
       )}
 
       {/* ---- customers ---- */}
       {screen === "customers" && (
+        <TabZone label={L("Customers", "Pelanggan")}>
         <section className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <PanelTitle icon="clients">{L("Customers", "Pelanggan")}</PanelTitle>
@@ -663,13 +684,15 @@ export function HankeisPanel() {
             </ul>
           )}
         </section>
+        </TabZone>
       )}
 
       {/* ---- catalogue ---- */}
-      {screen === "catalogue" && <CatalogueScreen canAdmin={can.admin} busy={busy} post={post} />}
+      {screen === "catalogue" && <TabZone label={L("The catalogue", "Katalog")}><CatalogueScreen canAdmin={can.admin} busy={busy} post={post} /></TabZone>}
 
       {/* ---- settings ---- */}
       {screen === "settings" && (
+        <TabZone label={L("Settings", "Tetapan")}>
         <>
           <section className={card}>
             <PanelTitle icon="fix">{L("Settings", "Tetapan")}</PanelTitle>
@@ -722,6 +745,7 @@ export function HankeisPanel() {
             </section>
           )}
         </>
+        </TabZone>
       )}
 
       {/* ---- order detail: the side-by-side review ---- */}
@@ -861,7 +885,7 @@ export function HankeisPanel() {
           <NewCustomerForm busy={busy} onSubmit={async (v) => { if (await post("/customers", v, ["Customer added", "Pelanggan ditambah"])) setSheet(null); }} />
         </Sheet>
       )}
-    </div>
+    </TabPage>
   );
 }
 

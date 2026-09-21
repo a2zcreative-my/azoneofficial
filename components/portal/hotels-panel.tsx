@@ -59,6 +59,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 import { card, inputClass, inputClassSm, fieldLabel, btnSmPrimary, btnSm } from "@/lib/ui-styles";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { useCachedApi } from "@/lib/cached-api";
@@ -445,10 +446,26 @@ export function HotelsPanel() {
   const patchContact = (i: number, k: keyof Contact, v: string) =>
     setDraft((d) => d && ({ ...d, contacts: d.contacts.map((c, x) => (x === i ? { ...c, [k]: v } : c)) }));
 
+  /* v1.173.0 (tab concept) - the summary tier from the figures the map
+     already weighs: hotels, states, and the pipeline's three counts. */
+  const pipeTotals = Object.values(statePipe).reduce((a, m) => ({ contacted: a.contacted + m.contacted, agreed: a.agreed + m.agreed }), { contacted: 0, agreed: 0 });
+
   return (
-    <div className="grid grid-cols-1 gap-4">
+    /* AT A GLANCE, THE DIRECTORY (search, filter, contact work), THE MAP -
+       filters and contact work before the map, as v1.140.0 ordered. */
+    <TabPage>
       {toastNode}
       {confirmNode}
+      <TabZone label={L("At a glance", "Sepintas lalu")}>
+        <SummaryStrip cols={5} ariaLabel={L("Hotel directory summary", "Ringkasan direktori hotel")}>
+          <SummaryStat label={L("Hotels", "Hotel")} value={total} busy={!loaded} />
+          <SummaryStat label={L("States", "Negeri")} value={Object.keys(byState).length} busy={!loaded} />
+          <SummaryStat label={L("Contacted", "Dihubungi")} value={pipeTotals.contacted} tone="brand" busy={!loaded} />
+          <SummaryStat label={L("Stay agreed", "Penginapan dipersetujui")} value={pipeTotals.agreed} tone="warning" busy={!loaded} />
+          <SummaryStat label={L("Reviews published", "Ulasan diterbitkan")} value={totalPublished} tone="success" busy={!loaded} onClick={() => setMapMode(byPublished ? "hotels" : "published")} active={byPublished} title={L("Colour the map by published reviews", "Warnakan peta mengikut ulasan diterbitkan")} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The directory", "Direktori")}>
       {/* ================= THE LIST ================= */}
       {pending && (
           <p className="text-warning mt-3 text-xs">
@@ -694,7 +711,9 @@ export function HotelsPanel() {
           </ul>
         )}
       </div>
+      </TabZone>
 
+      <TabZone label={L("The map", "Peta")}>
       {/* ================= THE MAP ================= */}
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -892,7 +911,7 @@ export function HotelsPanel() {
           </div>
         </div>
       </div>
-
-    </div>
+      </TabZone>
+    </TabPage>
   );
 }

@@ -6,6 +6,7 @@ import { openPrintPreview } from "@/components/ui/document-preview";
    at the top are new and the declarations are exported. */
 import { L, LeaveReq, User, leaveTypeL, withStepUp } from "@/components/portal/page-shared";
 import { RestDayCreditCard } from "@/components/portal/rest-day-credits";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
@@ -22,7 +23,7 @@ import { dmy, dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
-import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -963,11 +964,15 @@ export function Leave({ user }: { user: User }) {
   const mgmtPending = all.filter((l) => !["approved", "rejected", "cancelled"].includes(l.stage ?? l.status)).length;
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    /* v1.173.0 (tab concept): MY BALANCES (the tiles), APPLY, THE COMPANY
+       (the rest-day credits, the chooser, the board or the entitlement
+       table) and MY HISTORY - four captioned zones in the v1.92.0 order. */
+    <TabPage>
       {overrideConfirmNode}
       {stepUpNode}
       {removeLeaveNode}
       {leaveToastNode}
+      <TabZone label={L("My balances", "Baki saya")}>
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
           type in the same grid, so the row is the same height either way. */}
       {!loaded && (
@@ -1038,9 +1043,10 @@ export function Leave({ user }: { user: User }) {
         })}
       </div>
       )}
+      </TabZone>
 
       {!hourly && (
-      <div className="space-y-4 md:space-y-6">
+      <TabZone label={L("Apply", "Mohon")}>
         <div className={card}>
           <p className="text-sm font-semibold">
             {L("Apply for leave", "Mohon cuti")}
@@ -1138,17 +1144,18 @@ export function Leave({ user }: { user: User }) {
             </button>
           </div>
         </div>
-
-
-      </div>
+      </TabZone>
       )}
 
+      {(canApprove || canSetEntitlement) && (
+      <TabZone label={L("The company", "Syarikat")}>
       {/* v1.86.0 (CEO: "leave to review should inside the leave") — rest-day
           work waiting to become replacement leave. It is the one half of the
           old "Leave to review" card that is NOT a leave record: the other
           half listed unpaid days the register below already carries, which is
           what made the two cards look like the same function. CEO-only, and
-          it renders nothing for anyone else. */}
+          it renders nothing for anyone else. v1.173.0: inside THE COMPANY,
+          whose roles include the one this renders for. */}
       <RestDayCreditCard role={user.role} />
 
       {/* v1.92.0 — CEO, 04-09-2026: *"Leave entitlement and Leave — whole
@@ -1158,23 +1165,22 @@ export function Leave({ user }: { user: User }) {
           for the whole company before the four boxes he came to use. Both
           management areas now sit below, behind one chooser, one open at a
           time: the board first, because it is the one with things waiting. */}
+      {/* v1.173.0: the chooser wears the shared pill (tabPill / tabPillOn,
+          lib/ui-styles.ts) - the same row every other card switches with.
+          It still toggles OFF (press the open one again) as v1.92.0 gave it. */}
       {(canApprove || canSetEntitlement) && (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="erp-pill-row">
           {canApprove && (
             <button type="button" aria-pressed={mgmt === "company"}
-              className={mgmt === "company"
-                ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-                : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+              className={mgmt === "company" ? tabPillOn : tabPill}
               onClick={() => setMgmt(mgmt === "company" ? "" : "company")}>
               {L("Leave — whole company", "Cuti — seluruh syarikat")}
-              {mgmtPending > 0 && <span className="bg-bear ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white">{mgmtPending}</span>}
+              {mgmtPending > 0 && <span className="erp-chip erp-chip-danger erp-chip-count">{mgmtPending}</span>}
             </button>
           )}
           {canSetEntitlement && (
             <button type="button" aria-pressed={mgmt === "entitlement"}
-              className={mgmt === "entitlement"
-                ? "bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-medium"
-                : "border-border text-muted-foreground hover:bg-secondary/70 rounded-full border px-3 py-1 text-xs"}
+              className={mgmt === "entitlement" ? tabPillOn : tabPill}
               onClick={() => setMgmt(mgmt === "entitlement" ? "" : "entitlement")}>
               {L("Leave entitlement", "Kelayakan cuti")}
             </button>
@@ -1429,7 +1435,10 @@ export function Leave({ user }: { user: User }) {
             </div>
           );
         })()}
+      </TabZone>
+      )}
     {!hourly && (
+      <TabZone label={L("My history", "Sejarah saya")}>
 <div className={card}>
           <p className="text-sm font-semibold">
             {L("My leave history", "Sejarah cuti saya")}
@@ -1532,7 +1541,8 @@ export function Leave({ user }: { user: User }) {
             ))}
           </div>
         </div>
+      </TabZone>
       )}
-    </div>
+    </TabPage>
   );
 }

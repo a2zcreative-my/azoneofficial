@@ -21,6 +21,7 @@ import { STATES, liftsFor, stateOf, titleCase, wallPath } from "@/lib/malaysia-m
 import { Skel, SkelCard, SkelText, StaleHint } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import { AppIcon } from "@/components/ui/app-icon";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -177,7 +178,8 @@ export function ElfiaTrafficPanel() {
        loaded panel: three stat tiles, the map beside its 240px detail
        column on md+, stacked on phones, then the marketing-reach card. */
     return (
-      <div className="flex flex-col gap-4 md:gap-6">
+      <TabPage>
+        <TabZone label={L("The map", "Peta")}>
         <div className={card}>
           {header}
           {loaded ? (
@@ -215,7 +217,8 @@ export function ElfiaTrafficPanel() {
           )}
         </div>
         <SkelCard lines={3} sub />
-      </div>
+        </TabZone>
+      </TabPage>
     );
   }
 
@@ -240,7 +243,10 @@ export function ElfiaTrafficPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-4 md:gap-6">
+    /* v1.173.0 (tab concept): THE MAP (the totals row, the states, the
+       selected state) and, side by side from 1024px, ACCURACY AND REACH. */
+    <TabPage>
+    <TabZone label={L("The map", "Peta")}>
     <div className={card}>
       {header}
 
@@ -414,7 +420,9 @@ export function ElfiaTrafficPanel() {
         </>
       )}
     </div>
+    </TabZone>
 
+    <TabZone label={L("Accuracy and reach", "Ketepatan dan capaian")} cols={2}>
     {/* ---- Location accuracy (CEO: "ensure the location is correctly being
         recorded"). Visit locations are network-derived and approximate;
         order addresses are typed by real customers — ground truth. The card
@@ -552,6 +560,7 @@ export function ElfiaTrafficPanel() {
         </>
       )}
     </div>
-    </div>
+    </TabZone>
+    </TabPage>
   );
 }

@@ -506,6 +506,8 @@
   .erp-chip-danger { background: var(--danger-soft); color: var(--danger); }
   .erp-chip-info { background: var(--info-soft); color: var(--info); }
   .erp-chip-gold { background: var(--tint-gold); color: var(--brand-accent-deep); }
+  /* a count riding inside a pill or a title: tight, bold, tabular */
+  .erp-chip-count { margin-left: 0.375rem; padding: 0 0.4rem; font-size: 0.625rem; font-weight: 700; line-height: 1rem; font-variant-numeric: tabular-nums; }
   /* The count badge on an icon command (unread notifications): pinned to
      the top-right corner, gold on navy so it reads in both themes. */
   .erp-badge {
@@ -870,6 +872,9 @@
   .erp-gap-3 { gap: 0.75rem; }
   .erp-gap-4 { gap: 1rem; }
   .erp-grow { flex: 1 1 0%; min-width: 0; }
+  /* the text cell of a row with actions beside it: grows, but keeps 14rem
+     before the actions wrap under it - on a phone the words come first */
+  .erp-row-lead { flex: 1 1 14rem; min-width: 0; }
   .erp-fixed { flex-shrink: 0; }
   .erp-min0 { min-width: 0; }
   .erp-full { width: 100%; }
@@ -953,6 +958,65 @@
   /* show/hide at the one breakpoint the shell uses */
   @media (max-width: 767px) { .erp-desktop-only { display: none !important; } }
   @media (min-width: 768px) { .erp-phone-only { display: none !important; } }
+
+  /* ---------- v1.173.0: THE TAB CONCEPT (components/portal/tab-concept.tsx) ----------
+     Every tab body is a stack of captioned zones, the summary tier before
+     the records, several things in one card behind a pill row. These are
+     the only classes the concept adds; the zones themselves are .erp-stack /
+     .erp-stack-tight / .erp-zone, the grids .erp-cols-*. */
+  /* the tab body and its zones (TabPage / TabZone): the stack classes do
+     the spacing; these name the structure so a deep link can land on a
+     zone with the sticky header cleared, and a guard can count them */
+  .erp-tab-page { min-width: 0; }
+  .erp-tab-zone { min-width: 0; scroll-margin-top: 4rem; }
+  /* a zone's card grid: one column on a phone, side by side from 1024px -
+     the same widths app/portal/portal.module.css .twoUp has used since the
+     Sales tab's long view; cards start aligned, not stretched */
+  .erp-zone-grid-2, .erp-zone-grid-3 { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 0.75rem; }
+  .erp-zone-grid-2 > *, .erp-zone-grid-3 > * { min-width: 0; }
+  @media (min-width: 768px) { .erp-zone-grid-2, .erp-zone-grid-3 { gap: 1rem; } }
+  @media (min-width: 1024px) {
+    .erp-zone-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .erp-zone-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  /* the summary tier: 2 across on a phone, 3 from 640px, 4 from 1024px */
+  .erp-tiles { display: grid; gap: 0.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .erp-tiles > * { min-width: 0; }
+  .erp-tiles-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 640px) {
+    .erp-tiles { gap: 0.75rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .erp-tiles-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1024px) {
+    .erp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .erp-tiles-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .erp-tiles-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .erp-tiles-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .erp-tiles-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  }
+  /* a figure's tone: the value carries the colour, the tile stays quiet */
+  .erp-stat-success .erp-stat-value { color: var(--success); }
+  .erp-stat-warning .erp-stat-value { color: var(--warning); }
+  .erp-stat-danger .erp-stat-value { color: var(--danger); }
+  .erp-stat-brand .erp-stat-value { color: var(--primary); }
+  .erp-stat-hint { font-size: 0.6875rem; line-height: 1rem; color: var(--muted-foreground); }
+  .erp-stat-busy { color: var(--muted-foreground); letter-spacing: 0.1em; }
+  /* a figure that opens something */
+  .erp-stat-button { width: 100%; cursor: pointer; font: inherit; transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease; }
+  .erp-stat-button:active { transform: translateY(1px); }
+  @media (hover: hover) {
+    .erp-stat-button:hover { background: var(--secondary); border-color: color-mix(in srgb, var(--border) 60%, var(--primary)); }
+  }
+  .erp-stat-button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .erp-stat-active { box-shadow: 0 0 0 2px var(--primary); }
+  /* a zone's one quiet line, under the caption */
+  .erp-zone-hint { margin-top: -0.25rem; }
+  /* the pill card: title row, then one pane at a time */
+  .erp-pill-card-head { align-items: flex-start; gap: 0.75rem; }
+  .erp-pane { margin-top: 1rem; }
+  .erp-pane[hidden] { display: none; }
+  /* a table inside a card scrolls inside the card, never the page */
+  .erp-table-scroll { overflow-x: auto; margin-inline: -0.25rem; padding-inline: 0.25rem; -webkit-overflow-scrolling: touch; }
 }
 
 /* =====================================================================

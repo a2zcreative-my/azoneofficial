@@ -42,6 +42,7 @@ import {
   th, td, thR2, tdR2, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmDanger, chipSmInfo, listRow, tabPill, tabPillOn,
 } from "@/lib/ui-styles";
 import { StatTile } from "@/components/ui/stat-tile";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { MiniBar } from "@/components/ui/stat-card";
 import { AppIcon, PanelTitle, type AppIconName } from "@/components/ui/app-icon";
 import { ZoneLabel, mytDateTime } from "@/components/portal/page-shared";
@@ -1274,7 +1275,12 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
   const rangeLabel = ov ? (ov.range.label === "today" ? L("today", "hari ini") : ov.range.label === "yesterday" ? L("yesterday", "semalam") : `${dmy(ov.range.from)} – ${dmy(ov.range.to)}`) : "";
 
   return (
-    <div className="space-y-3 md:space-y-4">
+    /* v1.173.0 (tab concept): the header card, then the zones - KPI SUMMARY
+       (the six tiles, as v1.155.0 drew them), THE EVIDENCE (the seven
+       collapsible record sections, records and closing before scores),
+       THE SCORE, THE LONGER VIEW (funnel, trend). */
+    <TabPage>
+      <TabZone label={L("Sales Performance", "Prestasi Jualan")}>
       {/* ---- the header: title, filters, the two doors ---- */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1332,17 +1338,18 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
         )}
       </div>
 
+      </TabZone>
       {!ov ? (
-        <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">{Array.from({ length: 6 }, (_, i) => <SkelStat key={i} />)}</div>
+        <TabZone label={L("KPI summary", "Ringkasan KPI")}>
+          <div className="erp-tiles erp-tiles-6">{Array.from({ length: 6 }, (_, i) => <SkelStat key={i} />)}</div>
           <div className={card}><SkelRows rows={5} /></div>
-        </>
+        </TabZone>
       ) : (
         <>
           {/* ---- 1. KPI summary ---- */}
-          <section>
+          <section className="erp-stack-tight erp-tab-zone">
             <ZoneLabel>{L(`KPI summary · ${rangeLabel}`, `Ringkasan KPI · ${rangeLabel}`)}</ZoneLabel>
-            <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            <div className="erp-tiles erp-tiles-6">
               <StatTile label={L("Sales", "Jualan")} value={fmtRM(t!.sales_cents)} tone={team!.achievement_pct == null ? "brand" : team!.achievement_pct >= 100 ? "success" : team!.achievement_pct >= 50 ? "gold" : "danger"} icon={<AppIcon name="money" />}
                 hint={`${team!.achievement_pct == null ? L("no target set", "tiada sasaran") : L(`${team!.achievement_pct}% of ${fmtRM((t!.target_cents ?? 0) * ov.days)}`, `${team!.achievement_pct}% daripada ${fmtRM((t!.target_cents ?? 0) * ov.days)}`)}${t!.tiktok_cents ? ` · TikTok ${fmtRM(t!.tiktok_cents)}` : ""}`} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
               <StatTile label={L("Orders", "Pesanan")} value={t!.orders + t!.tiktok_orders} tone="info" icon={<AppIcon name="orders" />} hint={L(`${t!.orders} invoices · ${t!.tiktok_orders} TikTok · ${t!.orders_completed} completed`, `${t!.orders} invois · ${t!.tiktok_orders} TikTok · ${t!.orders_completed} selesai`)} onClick={() => jump("orders")} title={L("Open the orders", "Buka pesanan")} />
@@ -1353,6 +1360,7 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
             </div>
           </section>
 
+          <TabZone label={L("The evidence", "Bukti")}>
           {/* ---- 2. Today's sales activity ---- */}
           <Section id="sp-feed" icon="time" title={ov.range.label === "today" ? L("Today's sales activity", "Aktiviti jualan hari ini") : L("Sales activity", "Aktiviti jualan")} count={ov.feed.length}
             summary={L(`${t!.verified_activities} verified of ${t!.activities_total} recorded`, `${t!.verified_activities} disahkan daripada ${t!.activities_total} direkodkan`)} open={open.feed} onToggle={() => toggle("feed")}
@@ -1660,7 +1668,9 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
             summary={ov.closings.some((c) => c.user_id === me) ? L("You have closed this day - open to update it", "Anda telah menutup hari ini - buka untuk mengemaskininya") : L("Not closed yet - the system's figures are ready, your words are missing", "Belum ditutup - angka sistem sudah sedia, kata-kata anda belum ada")} open={open.closing} onToggle={() => toggle("closing")}>
             <ClosingCard ov={ov} toast={toast} onSaved={refresh} />
           </Section>
+          </TabZone>
 
+          <TabZone label={L("The score", "Skor")}>
           {/* ---- the score: the team's table for management, my own card for staff ---- */}
           {manager ? (
             <div className={card}>
@@ -1672,7 +1682,9 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
               {shown.length === 1 && shown[0] && <div className="mt-3"><ScoreCard row={shown[0]} title={L(`${shown[0].name} - score breakdown`, `${shown[0].name} - pecahan skor`)} /></div>}
             </div>
           ) : myRow ? <ScoreCard row={myRow} title={L("My productivity score", "Skor produktiviti saya")} /> : null}
+          </TabZone>
 
+          <TabZone label={L("The longer view", "Pandangan lebih jauh")}>
           {/* ---- 8. Sales funnel ---- */}
           <Section id="sp-funnel" icon="chart" title={L("Sales funnel", "Corong jualan")} summary={L(`${ov.funnel.posts} verified posts → ${ov.funnel.inquiries} inquiries → ${ov.funnel.orders} orders → ${fmtRM(ov.funnel.revenue_cents)}`, `${ov.funnel.posts} pos disahkan → ${ov.funnel.inquiries} pertanyaan → ${ov.funnel.orders} pesanan → ${fmtRM(ov.funnel.revenue_cents)}`)} open={open.funnel} onToggle={() => toggle("funnel")}>
             <Funnel f={ov.funnel} />
@@ -1682,8 +1694,7 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
           <Section id="sp-trend" icon="up" title={L("Performance trend", "Trend prestasi")} summary={L(`Score today ${ov.trend.today.score} · yesterday ${ov.trend.yesterday.score} · 7-day ${ov.trend.avg7.score} · 30-day ${ov.trend.avg30.score}`, `Skor hari ini ${ov.trend.today.score} · semalam ${ov.trend.yesterday.score} · 7 hari ${ov.trend.avg7.score} · 30 hari ${ov.trend.avg30.score}`)} open={open.trend} onToggle={() => toggle("trend")}>
             <Trend trend={ov.trend} who={manager && staff === "0" ? L("the whole team", "seluruh pasukan") : L("this person", "orang ini")} />
           </Section>
-
-
+          </TabZone>
         </>
       )}
 
@@ -1725,7 +1736,7 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
 
       {toastNode}
       {confirmNode}
-    </div>
+    </TabPage>
   );
 }
 

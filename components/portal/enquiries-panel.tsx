@@ -29,6 +29,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 import { card, inputClassSm, btnSm, btnSmPrimary } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
@@ -123,17 +124,38 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
     if (ok) setDraft((d) => ({ ...d, [e.id]: "" }));
   };
 
+  /* v1.173.0 (tab concept) - the summary tier: the server's own counts,
+     each figure a door onto that filter (v1.88.0: clickable data). */
+  const summary = (
+    <TabZone label={L("At a glance", "Sepintas lalu")}>
+      <SummaryStrip cols={4} ariaLabel={L("Enquiry summary", "Ringkasan pertanyaan")}>
+        <SummaryStat label={L("Waiting", "Menunggu")} value={counts.new ?? 0} tone={(counts.new ?? 0) > 0 ? "warning" : "neutral"} busy={view.loading} onClick={() => setFilter("new")} active={filter === "new"} title={L("Show the enquiries waiting for a reply", "Tunjuk pertanyaan yang menunggu balasan")} />
+        <SummaryStat label={L("Overdue", "Tertunggak")} value={counts.overdue ?? 0} tone={(counts.overdue ?? 0) > 0 ? "danger" : "neutral"} busy={view.loading} onClick={() => setFilter("overdue")} active={filter === "overdue"} title={L("Show the overdue enquiries", "Tunjuk pertanyaan tertunggak")} />
+        <SummaryStat label={L("Answered", "Dijawab")} value={counts.contacted ?? 0} tone="success" busy={view.loading} onClick={() => setFilter("contacted")} active={filter === "contacted"} title={L("Show the answered enquiries", "Tunjuk pertanyaan yang dijawab")} />
+        <SummaryStat label={L("Became business", "Jadi urusan")} value={counts.qualified ?? 0} tone="brand" busy={view.loading} onClick={() => setFilter("qualified")} active={filter === "qualified"} title={L("Show the enquiries that became business", "Tunjuk pertanyaan yang jadi urusan")} />
+      </SummaryStrip>
+    </TabZone>
+  );
+
   if (view.loading) {
     return (
+      <TabPage>
+        {summary}
+        <TabZone label={L("The inbox", "Peti masuk")}>
       <div className={card} aria-busy="true">
         <Skel className="h-4 w-40" />
         <div className="mt-3 flex gap-1.5">{Array.from({ length: 5 }, (_, i) => <Skel key={i} className="h-6 w-20 rounded-full" />)}</div>
         <div className="mt-3 space-y-2">{Array.from({ length: 5 }, (_, i) => <Skel key={i} className="h-14" />)}</div>
       </div>
+        </TabZone>
+      </TabPage>
     );
   }
 
   return (
+    <TabPage>
+    {summary}
+    <TabZone label={L("The inbox", "Peti masuk")}>
     <div className={card}>
       {toastNode}
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -181,7 +203,7 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
             return (
               <li key={e.id} className="py-2.5">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : e.id)}>
+                  <button type="button" className="erp-row-lead text-left" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : e.id)}>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-sm font-medium">{e.name}</span>
                       {e.company && <span className="text-muted-foreground text-xs">· {e.company}</span>}
@@ -279,5 +301,7 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
         </ul>
       )}
     </div>
+    </TabZone>
+    </TabPage>
   );
 }

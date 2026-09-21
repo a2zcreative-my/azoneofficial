@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { DataTable } from "@/components/ui/data-table";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelTable } from "@/components/ui/skeleton";
@@ -122,15 +123,14 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
   };
 
   return (
-    <div className={card}>
+    /* v1.173.0 (tab concept): THIS MONTH (the four tiles), THE DECISIONS
+       (the entries table), THE CALCULATION (compute an entry) and, when
+       opened, THE RATES - decisions, calculation, rates, as v1.172.0 ordered. */
+    <TabPage>
       {toastNode}
+      <TabZone label={L("This month", "Bulan ini")}>
       {pending && <p className="bg-warning-soft text-warning mb-3 rounded-lg px-3 py-2 text-xs font-medium">{L("The ERP tables are not migrated yet — run DEPLOY.bat (step 2 applies 0071), then reload.", "Jadual ERP belum dimigrasi lagi — jalankan DEPLOY.bat (langkah 2 menggunakan 0071), kemudian muat semula.")}</p>}
-      <div className={rowHead}>
-        <p className="text-sm font-semibold">{L("Commission", "Komisen")}</p>
-        <button type="button" className={btnSm} onClick={() => setShowRates((v) => !v)}>{showRates ? L("Hide rates", "Sembunyikan kadar") : L(`Rates (${rates.length})`, `Kadar (${rates.length})`)}</button>
-      </div>
-
-      <div className="mt-3">
+      <div>
         {/* v1.77.0 — skeleton until the first fetch lands: four tiles in the
             same strip, so the figures never read RM 0.00 while loading. */}
         {!loaded ? <SkelTileStrip /> : (
@@ -142,7 +142,14 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
           </StatStrip>
         )}
       </div>
+      </TabZone>
 
+      <TabZone label={L("The decisions", "Keputusan")}>
+      <div className={card}>
+      <div className={rowHead}>
+        <p className="text-sm font-semibold">{L("Commission", "Komisen")}</p>
+        <button type="button" className={btnSm} onClick={() => setShowRates((v) => !v)}>{showRates ? L("Hide rates", "Sembunyikan kadar") : L(`Rates (${rates.length})`, `Kadar (${rates.length})`)}</button>
+      </div>
       {/* v1.77.0 — skeleton until the first fetch lands: five columns, like
           the table below. */}
       {!loaded ? <SkelTable rows={5} cols={5} /> : (
@@ -186,7 +193,12 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
         empty={L("No commission entries yet.", "Tiada catatan komisen lagi.")}
       />
       )}
+      </div>
+      </TabZone>
 
+      <TabZone label={L("The calculation", "Pengiraan")}>
+      <div className={card}>
+      <p className="text-sm font-semibold mb-2">{L("Compute an entry", "Kira catatan")}</p>
       <div className={`${fieldRow} mb-4`}>
         <label><span className={fieldLabel}>{L("Host", "Hos")}</span>
           <select className={inputClass} value={draft.host_id} onChange={(e) => setDraft((d) => ({ ...d, host_id: e.target.value }))}>
@@ -202,11 +214,13 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
           {L("+ Compute entry", "+ Kira catatan")}
         </button>
       </div>
-      <p className="text-muted-foreground -mt-2 mb-3 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
-
+      <p className="text-muted-foreground -mt-2 text-[11px]">{L("The amount is computed from the host's rate on the server — the form cannot set it.", "Amaun dikira dari kadar hos di pelayan — borang tidak boleh menetapkannya.")}</p>
+      </div>
+      </TabZone>
 
       {showRates && (
-        <div id="commission-rates" className="border-border mt-4 scroll-mt-36 border-t pt-4">
+        <TabZone label={L("The rates", "Kadar")}>
+        <div id="commission-rates" className={`${card} scroll-mt-36`}>
           <p className="mb-2 text-xs font-semibold">{L("Rates (latest effective wins; only the CEO tier can set)", "Kadar (yang berkuat kuasa terkini digunakan; hanya peringkat CEO boleh tetapkan)")}</p>
           {rates.map((r) => (
             <p key={r.id} className="border-border flex flex-wrap justify-between gap-2 border-b py-1.5 text-sm last:border-0">
@@ -230,8 +244,8 @@ export function CommissionPanel({ canDecide }: { canDecide: boolean }) {
             </div>
           )}
         </div>
+        </TabZone>
       )}
-
-    </div>
+    </TabPage>
   );
 }

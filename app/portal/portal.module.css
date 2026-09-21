@@ -375,22 +375,8 @@
 .rosterAnchor {
   scroll-margin-top: 4rem;
 }
-.twoUp {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 1rem;
-}
-@media (min-width: 768px) {
-  .twoUp {
-    gap: 1.5rem;
-  }
-}
-@media (min-width: 1024px) {
-  .twoUp {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+/* v1.173.0: the Sales long view's two-up grid is TabZone cols={2}
+   (.erp-zone-grid-2 in styles/erp-v3.css) - the same widths this file gave it. */
 .ecomStack {
   display: grid;
   gap: 0.75rem;

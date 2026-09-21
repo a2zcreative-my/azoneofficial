@@ -268,7 +268,7 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   ok("NO VERIFIED SALES ACTIVITY is shown and explained before a closing", /NO VERIFIED SALES ACTIVITY/.test(panel) && /noActivity && !text\.no_activity_reason\.trim\(\)/.test(panel));
   ok("TRACKING UPDATE REQUIRED is flagged on the row and refused on the form", /TRACKING UPDATE REQUIRED/.test(panel) && /const needsTracking = SP_TRACKING_REQUIRED\.includes\(status\) && !tracking\.trim\(\);/.test(panel));
   ok("an order is an invoice - the page sends you to Sales to raise one, it does not invent one", /go\("Sales"\)/.test(panel) && !/api<[^>]*>\(`\/orders`/.test(panel));
-  ok("the dialog nodes sit at the panel's top level", /\{toastNode\}\s*\{confirmNode\}\s*<\/div>\s*\);\s*\}/.test(panel));
+  ok("the dialog nodes sit at the panel's top level", /\{toastNode\}\s*\{confirmNode\}\s*<\/(?:div|TabPage)>\s*\);\s*\}/.test(panel)); /* v1.173.0: the root is the tab concept's TabPage */
   ok("every string is bilingual - no bare English button labels", !/<button[^>]*>\s*[A-Z][a-z]+\s*<\/button>/.test(panel));
 }
 

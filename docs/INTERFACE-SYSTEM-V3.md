@@ -1,6 +1,6 @@
 # Portal Interface System V3
 
-**Introduced:** v1.172.1 (21 September 2026). **Tailwind retired:** v1.172.2 (21 September 2026). **Owner files:** `styles/erp-v3.css`, `styles/erp-reset.css`, `styles/legacy-utilities.css`, `lib/ui-styles.ts`. **Guards:** `tests/interface-v3.mjs` (#92), `tests/tailwind-retired.mjs` (#93).
+**Introduced:** v1.172.1 (21 September 2026). **Tailwind retired:** v1.172.2 (21 September 2026). **Owner files:** `styles/erp-v3.css`, `styles/erp-reset.css`, `styles/legacy-utilities.css`, `lib/ui-styles.ts`. **Tab concept:** v1.173.0 (21 September 2026). **Guards:** `tests/interface-v3.mjs` (#92), `tests/tailwind-retired.mjs` (#93), `tests/tab-concept.mjs` (#94).
 
 The portal has an in-house ERP design system: named CSS classes, in the semantic tokens, exposed to TypeScript through `lib/ui-styles.ts`, with CSS Modules for a screen's own layout. **Tailwind is gone** — the package, its PostCSS plugin, the prettier plugin, `tailwind-merge`, `@import "tailwindcss"`, `@custom-variant` and `@theme`. Nothing was installed in its place: no MUI, Ant Design, Chakra, Mantine, Bootstrap, shadcn. The stylesheet is four plain CSS files and the CSS Modules beside the migrated components.
 
@@ -9,8 +9,8 @@ The portal has an in-house ERP design system: named CSS classes, in the semantic
 1. **A surface, a control, a chip, a table cell, a button:** use the vocabulary in `lib/ui-styles.ts` (`card`, `inputClass`, `selectClass`, `btnSm`, `chipSuccess`, `th`/`td`, `rowHead`, `listRow`, `sheetCard` …) or the `.erp-*` class it resolves to. Every name is documented in `styles/erp-v3.css`; the file's header lists what it owns.
 2. **A row, a stack, a grid of cards, an icon, a muted line, a rhythm step:** the layout and type primitives in `erp-v3.css` (section *LAYOUT AND TYPE PRIMITIVES*):
    - stacks: `erp-stack` (1rem, 1.5rem from `md`), `erp-stack-tight` (0.75rem / 1rem) — block flow with collapsing margins, exactly what `space-y-*` was
-   - rows: `erp-flex` (+ `-between`, `-wrap`, `-top`, `-bottom`, `-baseline`, `-end`, `-col`), `erp-gap-1..4`, `erp-grow`, `erp-fixed`, `erp-min0`, `erp-full`, `erp-center`, `erp-divide`, `erp-scroll-x`
-   - grids: `erp-cols-2`, `erp-cols-3`, `erp-cols-4` (two columns on a phone, their count from `md`)
+   - rows: `erp-flex` (+ `-between`, `-wrap`, `-top`, `-bottom`, `-baseline`, `-end`, `-col`), `erp-gap-1..4`, `erp-grow`, `erp-row-lead` (grows, keeps 14rem before the actions beside it wrap under), `erp-fixed`, `erp-min0`, `erp-full`, `erp-center`, `erp-divide`, `erp-scroll-x`
+   - grids: `erp-cols-2`, `erp-cols-3`, `erp-cols-4` (two columns on a phone, their count from `md`); `erp-zone-grid-2/-3` (ONE column on a phone, side by side from 1024px — a zone's cards); `erp-tiles` (+ `-2/-3/-5/-6`: the summary tier, 2 across on a phone, 3 from 640px, 4 or the named count from 1024px)
    - rhythm: `erp-mt-half` (2px), `erp-mt-1..4`, `erp-mt-6`, `erp-mb-3` — the only spacing helpers
    - icons: `erp-icon` (16px), `erp-icon-sm` (14), `erp-icon-md` (18), `erp-icon-lg` (20); `AppIcon` is always 16px unless given one of these
    - type: `erp-text-xs/sm/base/lg`, `erp-muted`, `erp-meta` (12px muted), `erp-heading` (14px semibold), `erp-panel-title` (heading with an icon slot), `erp-eyebrow`, `erp-strong`, `erp-medium`, `erp-num`, `erp-truncate`, `erp-nowrap`, `erp-left/right/centered`, `erp-danger/success/warning`
@@ -83,3 +83,53 @@ Every utility class the unmigrated screens still referenced on retirement day (�
 ## 7. Release state
 
 `PUSH.bat` was **not** run. Nothing was deployed. The worktree is dirty with the v1.172.1 + v1.172.2 files until the owner commits.
+
+## 8. The tab concept (v1.173.0) — every tab reads like the Dashboard
+
+The CEO, 21-09-2026: *"All the tabs should responsive with PWA and also Web view and the tabs should work like Dashboard concept style designed"*, and chose all three of the Dashboard's habits. Guard #94 (`tests/tab-concept.mjs`) holds every tab in `lib/portal-tabs.ts` to them; `components/portal/tab-concept.tsx` is what a tab is built from.
+
+**The shape.** A tab body is `<TabPage>` — the shared stack (`erp-stack erp-tab-page`) — holding `<TabZone label=…>` sections (`erp-stack-tight erp-tab-zone`, opened by the shared small-caps `ZoneLabel`). Zone order, top to bottom: **the figures** (AT A GLANCE / THIS MONTH / TODAY — a `SummaryStrip` of `SummaryStat`s or a `StatStrip` of `StatTile`s), **the work** (what this person does here: WAITING ON ME, THE WORK, APPLY, SUBMIT), **the records** (THE RECORDS, THE ARCHIVE, THE DIRECTORY, THE MAP), **setup** (SETUP, THE RATES, ADMINISTRATION). A zone with several cards takes `cols={2}` (or 3): one column on a phone, side by side from 1024px, cards aligned at the top. Every card is `card` (`.erp-card`) with a heading; one thing per card.
+
+**The figures.** `SummaryStat` is one figure, one label, an optional hint; its tone (`success / warning / danger / brand`) colours the value only, from tokens. It is a plain `div` until something is behind it — then a `button` (`erp-stat-button`) with `aria-pressed` and a `title`, and `active` rings it: *"clickable data without me need to open another new tabs"* (v1.88.0). Enquiries' figures set the filter they count; Claims' scope the list by status; Assets' by asset status; Content's by stage; Web Orders' by shipment state; Hotels' recolour the map. `busy` shows `···` until the number is KNOWN — never a false zero (v1.25.1). Every figure is derived from the rows the panel already holds; the concept adds no request. Tabs whose figures are the old solid tiles (Finance, Accounting, Commission, Hankei's, Sales Performance) keep `StatTile`; `StatStrip` is now the same `erp-tiles` grid, so both kinds line up.
+
+**The pill row.** Several things on one topic in one card, one at a time: `PillCard` (title, `SectionTabs`, one `erp-pane` per pill, `hidden` — never unmounted, a half-typed form survives a look at the list, v1.123.0), or the existing `SectionTabs` cards (Dashboard's Work overview, Sales' The work and Customers, Inventory's Record and What moved, Users). Every chooser that used to hand-roll a pill (Leave's board/entitlement, Threads' Study/Connection and its topics, Companies' review/setup, Hankei's screens) now wears `tabPill` / `tabPillOn` in an `erp-pill-row`. Leave's chooser still toggles off (v1.92.0).
+
+**Responsive — one source order for the phone, the installed app and the web view.** No `order-*`, no viewport-dependent reordering (tests/tab-zones.mjs): the DOM order is the reading order at every width. On a phone (375–430px) every zone is one column, the tiles two across, the pill rows wrap, a table scrolls inside its card (`erp-table-scroll` / the module's own scroller), and `erp-page-clearance` keeps the last card above the bottom bar (v3check: clearance ≥ nav height). From 640px the tiles go three across; from 768px the rail replaces the bottom bar and the stack rhythm opens (1.5rem between zones); from 1024px zone grids and `erp-cols-*` split, tiles four (or six) across; 1280–1440px is the same page with wider gutters. Nothing in the concept reads the viewport in JavaScript.
+
+**Where each tab now stands (all 31 in `ALL_TABS`; Dashboard and On Shift are the reference).**
+
+| Tab | Zones (top → bottom) | Figures | Pill row |
+|---|---|---|---|
+| Ecommerce | This month · The work · The longer view · Setup (v1.171.0, unchanged) | RevenueAndHoursCard | revenue card |
+| Sales | At a glance · The work · Customers (panel) · This month (map) · The longer view (2 up) | quotations / invoiced / paid / unpaid — each opens the work | The work, Customers |
+| Enquiries | At a glance · The inbox | waiting / overdue / answered / became business → filter | status filters |
+| Sales Performance | header · KPI summary · The evidence · The score · The longer view | six StatTiles | range pills |
+| Hankei's | header (screen pills) · Today · The money · The work / one zone per screen | StatTiles | screens |
+| Inventory | Stock now · Record · What moved · Setup (v1.119.0, on the shared classes) | status card | Record, What moved |
+| Assets | At a glance · The register · The editor | per status → filter, value | — |
+| Hotels | At a glance · The directory · The map | hotels / states / contacted / agreed / published → map mode | — |
+| Threads | Threads (Study \| Connection) · The study / The connection | — | section, topics |
+| ELFIA Store | The shop · Products · The shopfront · Settings (v1.122.0, on the shared classes) | shop figures | — |
+| Web Orders | At a glance · The orders | orders / value / to ship / shipped → filter | status pills |
+| ELFIA Traffic | The map · Accuracy and reach (2 up) | totals row | — |
+| HR | Reports · Administration · People | — | — |
+| Attendance | Today · Waiting on me (2 up) · The roster · Setup | company today (donut) | roster |
+| Tasks | At a glance · The work · New task · The longer view · The archive | open / overdue / pending / closed | — |
+| Announcements | At a glance · Waiting on me · Publish · The archive | to acknowledge / acknowledged / all | — |
+| Staff Details | At a glance · The directory | records / active / departments | directory \| organisation \| team map |
+| Leave | My balances · Apply · The company · My history | balance tiles | board \| entitlement (toggles off) |
+| Claims | This month · Waiting on me · Submit · The records | pending / approved / paid / rejected → scope | claim type |
+| Payroll | The run · Setup | — | — |
+| Finance | This month (cash) · Record an expense · Waiting on me · Reporting · The records | CashFlow StatTiles | — |
+| Commission | This month · The decisions · The calculation · The rates | StatTiles | — |
+| Accounting | At a glance · The books · Adjustments | StatTiles | — |
+| Companies | Administration · The review / Staff setup | — | review \| setup |
+| Cards | The officers | — | — |
+| Profile | My details · My pay · Security and privacy | — | — |
+| Users | Accounts · Access and locations (2 up) | — | UsersPanel |
+| Stokis | This month · The network | active / sales / balance | — |
+| Content | The pipeline · The work | one per stage → filter | — |
+
+**Verification (v1.173.0, offline, fixtures).** typecheck clean; lint 0 errors / 147 warnings (unchanged set); guard 94/94; `next build` 31 routes; Chromium at 375 / 390 / 430 / 768 / 1280 / 1440, light and dark, every live tab with populated fixtures: no horizontal overflow, no page errors beyond the harness's pre-existing Ecommerce fixture gap, bottom nav cleared, v3check and the regression probe green. `PUSH.bat` not run.
+
+**What did not change.** No business rule, request, permission or record: the concept is layout. Every pinned order (tests/tab-zones.mjs, desk-tabs, inventory-category, card-vocabulary, users-ui, sales-performance, unpaid-leave …) still holds; where a guard read the old spelling of the same fact, it now reads the new one. Retired tabs stay retired.

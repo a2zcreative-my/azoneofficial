@@ -17,6 +17,7 @@ import { card, inputClass, btnClass, btnSm, fieldRow, fieldLabel, chipSuccess, c
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { PanelTitle } from "@/components/ui/app-icon";
+import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -84,6 +85,17 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
   const balanceTotal = rows.reduce((a, s) => a + (s.balance_cents ?? 0), 0);
 
   return (
+    /* v1.173.0 (tab concept): the network's three figures first (the same
+       ones the summary line reads out), then the register in one card. */
+    <TabPage>
+      <TabZone label={L("This month", "Bulan ini")}>
+        <SummaryStrip cols={3} ariaLabel={L("Stokis summary", "Ringkasan stokis")}>
+          <SummaryStat label={L("Active stokis", "Stokis aktif")} value={activeCount} tone="brand" busy={!loaded} />
+          <SummaryStat label={month ? L(`Sales · ${ym(month)}`, `Jualan · ${ym(month)}`) : L("Sales this month", "Jualan bulan ini")} value={fmtRM(monthTotal)} tone="success" busy={!loaded} />
+          <SummaryStat label={L("Outstanding balance", "Baki tertunggak")} value={fmtRM(balanceTotal)} tone={balanceTotal > 0 ? "warning" : "neutral"} busy={!loaded} />
+        </SummaryStrip>
+      </TabZone>
+      <TabZone label={L("The network", "Rangkaian")}>
     <div className={card}>
       {toastNode}{confirmNode}
       <PanelTitle icon="store">{L("Stokis — reseller network", "Stokis — rangkaian pengedar")}</PanelTitle>
@@ -236,5 +248,7 @@ export function StokisPanel({ canManage }: { canManage: boolean }) {
         })}
       </div>
     </div>
+      </TabZone>
+    </TabPage>
   );
 }

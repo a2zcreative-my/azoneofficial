@@ -188,11 +188,11 @@ ok("PUSH.bat still deletes it on release", /components\\portal\\purchasing-panel
 /* ---- 6. nothing was removed to make room ------------------------------ */
 const registry = read("scripts/run-guards.mjs");
 const names = [...registry.matchAll(/^\s*\["([a-z0-9-]+)", "/gm)].map((m) => m[1]).filter((n) => n !== "install");
-for (const g of ["interface-system", "card-vocabulary", "status-tokens", "users-ui", "pwa-calendar", "shell-scroll", "registry-parity", "production-safety", "hankeis", "csv-export", "tailwind-retired"]) {
+for (const g of ["interface-system", "card-vocabulary", "status-tokens", "users-ui", "pwa-calendar", "shell-scroll", "registry-parity", "production-safety", "hankeis", "csv-export", "tailwind-retired", "tab-concept"]) {
   ok(`guard ${g} is still registered`, names.includes(g));
 }
 ok("every registered guard still has its file", names.every((n) => existsSync(join(root, `tests/${n}.mjs`))), names.filter((n) => !existsSync(join(root, `tests/${n}.mjs`))).join(", "));
-ok("the registry grew to at least 93 (v1.172.2 added tailwind-retired)", names.length >= 93, String(names.length));
+ok("the registry grew to at least 94 (v1.172.2 added tailwind-retired, v1.173.0 tab-concept)", names.length >= 94, String(names.length));
 
 console.log(`interface-v3: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

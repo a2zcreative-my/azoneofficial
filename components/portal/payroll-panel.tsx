@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { displayName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { buildPayslipPdf, type PayslipData } from "@/lib/payslip-pdf";
 import { sharePdfFile } from "@/lib/doc-pdf";
 /* v1.28.0 — the payslip's employer of record is decided at RELEASE time and
@@ -870,7 +871,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   };
 
   return (
-    <div className={`${card} mt-4 md:mt-6`}>
+    /* v1.173.0 (tab concept): THE RUN (the month's table, save, the M2E
+       file, the release) in one card; SETUP (base salaries, the one-time
+       M2E details) as its own cards under it - review before save, payment
+       export, release and setup, the order v1.4.x settled. */
+    <TabPage>
+    <TabZone label={L("The run", "Larian")}>
+    <div className={card}>
       {toastNode}
       {payConfirmNode}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1519,9 +1526,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           )}
         </p>
       )}
+    </div>
+    </TabZone>
 
+    {(showBase || !readOnly) && (
+    <TabZone label={L("Setup", "Tetapan")}>
       {showBase && (
-        <div id="payroll-base" className="border-border mt-4 scroll-mt-36 border-t pt-4">
+        <div id="payroll-base" className={`${card} scroll-mt-36`}>
           <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
@@ -1634,7 +1645,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         </div>
       )}
 
-    {!readOnly && (<details className="mt-2 text-xs">
+    {!readOnly && (<details className={`${card} text-xs`}>
           <summary className="text-muted-foreground cursor-pointer select-none">
             {L("M2E setup (one-time) — ", "Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("incomplete — the M2E salary file needs this", "belum lengkap — fail gaji M2E memerlukannya") : L("complete", "lengkap")}
           </summary>
@@ -1680,7 +1691,9 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             </p>
           </div>
         </details>)}
-    </div>
+    </TabZone>
+    )}
+    </TabPage>
   );
 }
 
