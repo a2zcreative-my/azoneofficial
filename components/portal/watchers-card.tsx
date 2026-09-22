@@ -22,7 +22,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
-import { card, inputClassSm } from "@/lib/ui-styles";
+import { btnSm, card, inputClassSm } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -59,12 +59,27 @@ export const WATCHER_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
 
 /* v1.171.0 - `bare`: drawn under the desk inside the Dashboard's own frame;
    a rule separates the two, and the card brings no frame of its own. */
-export function WatchersCard({ role, go, bare = false }: { role: string; go: (tab: string) => void; bare?: boolean }) {
+/**
+ * v1.176.0 — `section` splits the two halves that used to share one card.
+ *   "both"      the Dashboard's old shape (kept for any caller that wants it)
+ *   "findings"  what the rules currently find true — the Desk page's
+ *               "Needs attention" zone, GROUPED: eleven low-stock SKUs are
+ *               one row saying "Stock below the line — 11", opened on demand.
+ *               A queue that lists every SKU separately is a queue nobody
+ *               scrolls to the bottom of.
+ *   "rules"     the rule editor, which is management configuration and does
+ *               not belong in an everyday queue. The Desk page puts it in a
+ *               Setup zone at the foot of the page, per the tab concept's
+ *               figures → work → records → setup order.
+ */
+export function WatchersCard({ role, go, bare = false, section = "both" }: { role: string; go: (tab: string) => void; bare?: boolean; section?: "both" | "findings" | "rules" }) {
   const exec = WATCHER_ROLES.includes(role);
   const canEdit = role === "ceo" || role === "super_admin";
   const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
   const { show: toast, node: toastNode } = useSaveToast();
   const [rules, setRules] = useState(false);
+  /* which watcher groups the reader has opened, on the findings view */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   if (!exec) return null;
 
@@ -105,34 +120,76 @@ export function WatchersCard({ role, go, bare = false }: { role: string; go: (ta
               : L("Nothing the company's rules watch for is true right now.", "Tiada apa yang diperhatikan oleh peraturan syarikat benar sekarang.")}
           </p>
         </div>
-        <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setRules((v) => !v)}>
-          {rules ? L("Hide rules", "Sembunyi peraturan") : L(`Rules (${watchers.length})`, `Peraturan (${watchers.length})`)}
-        </button>
+        {section === "both" && (
+          <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setRules((v) => !v)}>
+            {rules ? L("Hide rules", "Sembunyi peraturan") : L(`Rules (${watchers.length})`, `Peraturan (${watchers.length})`)}
+          </button>
+        )}
       </div>
       {view.data?.pending_migration && (
         <p className="text-warning mt-2 text-xs">{L("Run the deploy so migration 0115 applies — the watchers start on the next hour.", "Jalankan deploy supaya migrasi 0115 digunakan — pemerhati bermula pada jam berikutnya.")}</p>
       )}
 
-      {open.length > 0 && (
-        <ul className="divide-border/70 mt-3 divide-y">
-          {open.slice(0, 12).map((f) => (
-            <li key={f.ref}>
-              <button type="button" onClick={() => go(tabOf(f))}
-                className="hover:bg-secondary/50 flex w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors">
-                <span aria-hidden className="bg-warning h-2 w-2 shrink-0 rounded-full" />
-                {/* v1.171.0 - wraps (two lines at most) instead of truncating:
-                    "ELFIA Bawal Premium Extra Long —…" told the CEO nothing. */}
-                <span className="min-w-0 flex-1 text-sm break-words [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{f.title}</span>
-                <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{since(f.first_seen)}</span>
-                <span className="text-muted-foreground shrink-0 text-xs" aria-hidden>›</span>
-              </button>
-            </li>
-          ))}
-          {open.length > 12 && <li className="text-muted-foreground px-1.5 pt-2 text-xs">{L(`and ${open.length - 12} more`, `dan ${open.length - 12} lagi`)}</li>}
+      {section !== "rules" && open.length > 0 && (
+        /* v1.176.0 - GROUPED. One row per rule with its count and the oldest
+           finding's age; press it to list that rule's findings, press one of
+           those to go where it is fixed. Eleven low-stock SKUs were eleven
+           rows of a queue that is meant to be scanned in one screen. */
+        <ul className="erp-mt-3">
+          {[...new Set(open.map((f) => f.watcher))].map((key) => {
+            const group = open.filter((f) => f.watcher === key);
+            const oldest = group[group.length - 1] ?? group[0];
+            const newest = group[0];
+            if (!newest || !oldest) return null;
+            const w = watchers.find((x) => x.key === key);
+            const label = w ? L(w.label, LABEL_MS[w.label] ?? w.label) : key.replace(/_/g, " ");
+            const isOpen = Boolean(openGroups[key]);
+            return (
+              <li key={key} className="erp-list-row erp-watch-group">
+                <button type="button" className="erp-row-lead erp-watch-head"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpenGroups((g) => ({ ...g, [key]: !g[key] }))}
+                  title={isOpen ? L("Hide the detail", "Sembunyi perincian") : L("Show the detail", "Tunjuk perincian")}>
+                  <span aria-hidden className="erp-dot erp-dot-warning" />
+                  <span className="erp-min0 erp-grow">
+                    <span className="erp-watch-title">{label} — {group.length}</span>
+                    <span className="erp-meta">
+                      {group.length === 1
+                        ? newest.title
+                        : L(`oldest ${since(oldest.first_seen)} · ${isOpen ? "hide" : "show"} the list`,
+                            `terlama ${since(oldest.first_seen)} · ${isOpen ? "sembunyi" : "tunjuk"} senarai`)}
+                    </span>
+                  </span>
+                </button>
+                <span className="erp-row-actions">
+                  <span className="erp-num erp-nowrap erp-text-xs erp-muted">{since(newest.first_seen)}</span>
+                  <button type="button" className={btnSm} onClick={() => go(w?.tab ?? "Dashboard")}
+                    title={L(`Open ${w?.tab ?? "the tab"}`, `Buka ${w?.tab ?? "tab"}`)}>
+                    {L("Open", "Buka")}
+                  </button>
+                </span>
+                {isOpen && (
+                  <ul className="erp-watch-detail">
+                    {group.slice(0, 20).map((f) => (
+                      <li key={f.ref}>
+                        <button type="button" className="erp-watch-item" onClick={() => go(tabOf(f))}>
+                          <span className="erp-min0 erp-grow">{f.title}</span>
+                          <span className="erp-num erp-nowrap erp-text-xs erp-muted">{since(f.first_seen)}</span>
+                        </button>
+                      </li>
+                    ))}
+                    {group.length > 20 && (
+                      <li className="erp-meta">{L(`and ${group.length - 20} more`, `dan ${group.length - 20} lagi`)}</li>
+                    )}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {rules && (
+      {(rules || section === "rules") && (
         <ul className="border-border mt-3 divide-y rounded-xl border">
           {watchers.map((w) => (
             <li key={w.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">

@@ -58,7 +58,7 @@ interface NavItem { name: string; label: string }
  * tab never reaches this component: it is filtered out of `items` upstream.
  */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
-  { title: "Overview", tabs: ["Dashboard"] },
+  { title: "Overview", tabs: ["Dashboard", "Desk"] },
   { title: "Sales", tabs: ["Ecommerce", "Sales", "Enquiries", "Sales Performance", "Hankeis"] },
   { title: "Operations", tabs: ["Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },

@@ -1095,6 +1095,22 @@
   .erp-dot-warning { background: var(--warning); }
   .erp-dot-danger { background: var(--danger); }
   .erp-dot-success { background: var(--success); }
+
+  /* v1.176.0 - A GROUPED EXCEPTION on the Desk: one row per rule with its
+     count, expanding to the findings under it. Eleven low-stock SKUs were
+     eleven rows of a queue meant to be read in one screen. The row frame is
+     .erp-list-row; this adds only the stacking the detail needs. */
+  .erp-watch-group { flex-wrap: wrap; }
+  .erp-watch-head { align-items: flex-start; gap: 0.625rem; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .erp-watch-title { display: block; font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; overflow-wrap: break-word; }
+  .erp-watch-detail { flex: 1 1 100%; min-width: 0; margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+  .erp-watch-item {
+    display: flex; align-items: center; gap: 0.5rem; width: 100%; min-height: 40px;
+    padding: 0.25rem 0; border: 0; background: none; color: inherit; font: inherit;
+    text-align: left; font-size: 0.8125rem; line-height: 1.125rem; cursor: pointer;
+  }
+  @media (hover: hover) { .erp-watch-item:hover { color: var(--primary); } }
+  .erp-watch-item:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   .erp-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; flex-shrink: 0; border-radius: 9999px; background: var(--secondary); }
   /* the quiet card (page-shared.tsx QuietCard): one line until tapped */
   .erp-quiet-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.75rem; text-align: left; }

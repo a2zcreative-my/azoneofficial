@@ -37,6 +37,24 @@ import {
 } from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
 import { FAVOURITES_MAX, favouritesFull, favouritesServerSnapshot, favouritesSnapshot, readFavourites, subscribeFavourites, toggleFavourite } from "@/lib/favourites";
 import { revealAnchor } from "@/components/portal/page-shared";
+import { DeskPage } from "@/components/portal/desk-page";
+
+/* v1.176.0 — WHERE AN UPDATE IS READ. The bell is for updates with links, not
+   a second approval queue: it says a thing happened and takes you to the
+   record. The DESK is where what is waiting on you to DECIDE lives, and the
+   two counts answer different questions — unread messages here, pending
+   decisions there. Kinds come from worker/src/staff.ts `notify(...)`. */
+const NOTIF_WHERE: Record<string, { tab: string; anchor?: string }> = {
+  announcement: { tab: "Announcements" },
+  enquiry: { tab: "Enquiries" },
+  ot: { tab: "Attendance", anchor: "ot-approvals" },
+  attendance: { tab: "Attendance", anchor: "pending-punches" },
+  claim: { tab: "Claims", anchor: "claims-pending" },
+  leave: { tab: "Leave" },
+  task: { tab: "Tasks" },
+  watch: { tab: "Desk" },
+  commission: { tab: "Commission" },
+};
 import { AppIcon } from "@/components/ui/app-icon";
 /* v1.28.0 — legal document identity: a STAMPED document (leave form, invoice
    chase) renders the issuer stored on its row via resolveIssuer(issuer_code);
@@ -1114,12 +1132,17 @@ export default function PortalPage() {
                   : tr("Notifications", lang)
               }
               onClick={() => {
-                setShowNotifs((v) => !v);
-                if (unread)
-                  void api("/staff/notifications/read", {
-                    method: "POST",
-                    body: JSON.stringify({}),
-                  });
+                /* v1.176.0 — mark read when the panel CLOSES. Marking on open
+                   cleared the badge before the person had read a word, which
+                   made the unread state meaningless. */
+                setShowNotifs((v) => {
+                  if (v && unread)
+                    void api("/staff/notifications/read", {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                  return !v;
+                });
               }}
             >
               <Bell aria-hidden className="erp-icon" strokeWidth={1.75} />
@@ -1217,12 +1240,29 @@ export default function PortalPage() {
             )}
             <div className={css.notifList}>
               {notifs.map((n) => (
-                <p key={n.id} className={css.notifItem}>
-                  {n.kind === "announcement" || n.kind === "enquiry" ? (
+                /* v1.176.0 — AN UPDATE, WITH SOMEWHERE TO GO. Every row is a
+                   link now: NOTIF_WHERE maps the kind to the tab (and the
+                   section inside it) holding the record, so an overtime or
+                   claim update is no longer dead text. Unread rows are marked,
+                   and the panel marks read on CLOSE, not on open, so the state
+                   still means something while you read.
+                   THIS IS NOT AN APPROVAL QUEUE: nothing is actioned here, the
+                   badge counts unread MESSAGES, and what is waiting on you to
+                   DECIDE is the Desk's own count. Two different questions. */
+                <p key={n.id} className={`${css.notifItem} ${n.is_read ? "" : css.notifUnread}`}>
+                  {!n.is_read && <span aria-hidden className="erp-dot erp-dot-brand" />}
+                  {NOTIF_WHERE[n.kind] ? (
                     <button
                       type="button"
                       className={css.notifLink}
-                      onClick={() => setTab(n.kind === "enquiry" ? "Enquiries" : "Announcements")}
+                      onClick={() => {
+                        const where = NOTIF_WHERE[n.kind]!;
+                        setTab(where.tab as TabName);
+                        setShowNotifs(false);
+                        if (unread)
+                          void api("/staff/notifications/read", { method: "POST", body: JSON.stringify({}) });
+                        if (where.anchor) revealAnchor(where.anchor);
+                      }}
                     >
                       {n.message}
                     </button>
@@ -1231,6 +1271,7 @@ export default function PortalPage() {
                   )}{" "}
                   <span className="erp-meta">
                     · {dmy(n.created_at)}
+                    {!n.is_read && <> · {L("new", "baharu")}</>}
                   </span>
                 </p>
               ))}
@@ -1530,6 +1571,10 @@ export default function PortalPage() {
           {activeTab === "On Shift" && (
             <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} shiftOnly />
           )}
+        {/* v1.176.0 — THE DESK IS A PAGE. It was a bottom-bar stop that
+            scrolled this Dashboard to a zone, so the header named the wrong
+            place. Same data, its own destination. */}
+        {activeTab === "Desk" && <DeskPage user={user} go={(t) => setTab(t as TabName)} />}
           {activeTab === "Dashboard" && (
             <>
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put

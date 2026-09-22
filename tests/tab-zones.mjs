@@ -214,8 +214,14 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   };
   /* v1.171.0 - five cards, same order: hero, desk (+ watchers), my month,
      the company, around me. NextEventCard left the Dashboard. */
-  ok("Dashboard actions and queue precede metrics and company reporting",
-    ordered(dash, ['<PanelTitle icon="time"', '<OneDesk', '<WatchersCard', 'L("My month"', '<TradingDesk', 'L("Around me"']));
+  /* v1.176.0 - the Dashboard shows a SUMMARY of the queue, not the queue: the
+     full lists and the watchers moved to the Desk page. The zones themselves
+     are ordered per job by DASHBOARD_ZONES (tests/one-desk.mjs asserts the
+     map), so what this guard holds is that the summary card is still there,
+     still above the month and the company, and still not a second copy. */
+  ok("the Dashboard's queue is a summary card, above the metrics and the company",
+    ordered(dash, ['<PanelTitle icon="time"', '<DeskSummary', 'L("My month"', '<TradingDesk', 'L("Around me"'])
+    && !/<WatchersCard/.test(dash) && !/<DeskQueue/.test(dash));
   const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Commission"'));
   /* v1.171.0 - the company's attendance today (donut + assignments, from the
      Dashboard) follows the records/monitor and precedes the decisions. */

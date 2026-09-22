@@ -201,7 +201,10 @@ const { notified } = await import(pathToFileURL(join(dir, "staff.js")).href);
   ok("the desk card knows the bucket and its topic", /enquiries: \["Enquiries", "Pertanyaan"\]/.test(deskCard) && /"users", "enquiries"(?:, "[a-z]+")*\]\)/.test(deskCard) && /\| "enquiries"(?: \| "[a-z]+")*;/.test(deskCard));
   ok("the panel is lazy and mounted on its tab", /EnquiriesPanel = lazy\(/.test(lazy) && /activeTab === "Enquiries" && <EnquiriesPanel userId=\{user\.id\}[^\n]*\/>/.test(page));
   ok("the old Sales card is gone", !/CustomerEnquiriesCard/.test(page));
-  ok("a bell item for an enquiry opens the tab", /n\.kind === "enquiry" \? "Enquiries"/.test(page));
+  /* v1.176.0 - the bell no longer hard-codes two kinds: NOTIF_WHERE maps every
+     kind to the tab (and the section) that holds its record, so an overtime or
+     claim update is a link too instead of dead text. */
+  ok("a bell item for an enquiry opens the tab", /enquiry: \{ tab: "Enquiries" \}/.test(page) && /NOTIF_WHERE\[n\.kind\]/.test(page));
   ok("the panel is remembered and live", /useCachedApi<Data>\(`\/enquiries\$\{.*\}`, true, \["enquiries"\]\)/.test(panel));
   ok("the panel can take, hand over, reply, and set every status", /assigned_to: userId/.test(panel) && /Hand this enquiry to/.test(panel) && /reply: text/.test(panel)
      && ["contacted", "qualified", "closed", "new"].every((s) => panel.includes(`{ status: "${s}" }`)));

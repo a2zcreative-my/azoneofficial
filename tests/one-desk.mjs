@@ -176,10 +176,35 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("the zones are captioned, and the company caption lives inside the desk it captions",
      ["My day", "Waiting on me", "My month", "Around me"].every((z) => dash.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !dash.includes('L("The company"'),
      "a caption for a zone a role cannot see would be a heading over nothing");
-  ok("the executive tier sees the desk and the watchers in one frame; everyone else the desk alone",
-     /WATCHER_ROLES\.includes\(user\.role\) \? \(\s*<div className=\{card\}>\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} userId=\{user\.id\} bare \/>\s*<WatchersCard role=\{user\.role\} go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<\/div>\s*\) : \(\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} userId=\{user\.id\} \/>/.test(dash)
+  /* v1.176.0 - THE DASHBOARD SHOWS A SUMMARY, THE DESK PAGE OWNS THE QUEUE.
+     The owner, 22-09-2026, on duplicated information: the whole queue and the
+     whole watchers list were on the Dashboard, AND the phone's Desk stop was
+     that same zone reached by an anchor, so the header named the Dashboard
+     while he was reading his queue. */
+  ok("the Dashboard carries a summary card, never the queue itself",
+     /<DeskSummary go=\{\(t\) => go\(t as TabName\)\} \/>/.test(dash)
+     && !/<OneDesk/.test(dash) && !/<DeskQueue/.test(dash) && !/<WatchersCard/.test(dash)
      && /export const WATCHER_ROLES = \["ceo", "coo", "cco", "super_admin", "admin"\];/.test(read("components/portal/watchers-card.tsx")),
-     "one list of who sees the watchers, used by the card and by the frame around it");
+     "two identical lists means the reader has to work out which one is real");
+  {
+    const deskPage = read("components/portal/desk-page.tsx");
+    ok("the Desk is a registered tab with its own page, so its header names it",
+       /"Desk",/.test(tabsSrc) && /ALWAYS_VISIBLE: readonly string\[\] = \["Dashboard", "Desk"/.test(tabsSrc)
+       && /\{activeTab === "Desk" && <DeskPage user=\{user\} go=\{\(t\) => setTab\(t as TabName\)\} \/>\}/.test(page));
+    ok("the Desk separates the decisions from the exceptions",
+       /which="decide"/.test(deskPage) && /which="attention"/.test(deskPage)
+       && deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Needs attention"'));
+    ok("the Desk shows a task COUNT and a link - Tasks owns the list",
+       /L\("Your tasks", "Tugasan anda"\)/.test(deskPage)
+       && /go\("Tasks"\)/.test(deskPage)
+       && !/myTasks\.map/.test(deskPage) && !/myTasks\.slice/.test(deskPage),
+       "a queue that also runs your to-do list is two products in one scroll");
+    ok("one request serves both surfaces, so the counts cannot disagree",
+       /export function useDeskData\(\)/.test(card)
+       && /useCachedApi<DeskData>\("\/staff\/desk"/.test(card)
+       && (card.match(/useCachedApi<DeskData>/g) ?? []).length === 1
+       && /useDeskData\(\)/.test(deskPage));
+  }
   ok("bare drops only the frame - the desk's quiet line, list and order are untouched",
      /bare \? "" : `\$\{card\} border-l-4`/.test(card) && /if \(items\.length === 0\) \{\s*return \(\s*<p className="text-muted-foreground flex items-center gap-2 px-1 text-xs" role="status">/.test(card));
   ok("the Dashboard shows the month ONCE (no four-tile strip, no bar chart behind a pill)",
@@ -218,10 +243,18 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      && /e\.status === "new" && !e\.assigned_to \? \{ takeable: true as const \} : \{\}/.test(deskSrc)
      && (deskSrc.match(/takeable: true/g) ?? []).length === 1,
      "a second takeable bucket would mean an action whose evidence is not on screen");
-  ok("the card draws two lists, and falls back by bucket when the payload is old",
-     /L\("Your decision", "Keputusan anda"\)/.test(card) && /L\("Your work", "Kerja anda"\)/.test(card)
-     && /const kindOf = \(i: DeskItem\): "decide" \| "do" =>/.test(card)
+  ok("the queue draws two lists, and falls back by bucket when the payload is old",
+     /L\("Needs your decision", "Perlu keputusan anda"\)/.test(card) && /L\("Needs attention", "Perlu perhatian"\)/.test(card)
+     && /export const kindOf = \(i: DeskItem\): "decide" \| "do" =>/.test(card)
      && /DECIDE_BUCKETS\.includes\(i\.bucket\) \|\| i\.id\.startsWith\("task-close:"\)/.test(card));
+  ok("your own tasks are NOT a third list on the desk - they are a count",
+     /const myTasks = items\.filter\(\(i\) => kindOf\(i\) === "do" && i\.bucket === "tasks"\)/.test(card)
+     && /i\.bucket !== "tasks"/.test(card),
+     "the same task was on six screens; Tasks owns it");
+  ok("a row states ONE status and ONE next action",
+     /<span className=\{css\.title\}>\{i\.title\}<\/span>\s*<span className="erp-meta">\{i\.sub\}<\/span>\s*\{i\.next && <span className=\{css\.next\}>\{i\.next\}<\/span>\}/.test(card)
+     && !/sub: "approve or reject"/.test(deskSrc),
+     "the worker's sub says what it IS, next says what you do - never the action twice");
   ok("the desk offers no approve or reject button of its own",
      !/(Approve|Luluskan|Reject|Tolak)</.test(card)
      && (card.match(/method: "(?:POST|PATCH|PUT|DELETE)"/g) ?? []).length === 1,
@@ -231,11 +264,12 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      && /assigned_to: userId/.test(read("components/portal/enquiries-panel.tsx")),
      "the panel and the desk must take an enquiry the same way, or one of them is wrong");
   ok("a successful take refreshes the counts and the records without a reload",
-     /applyVersions\(\{ enquiries: getVersion\("enquiries"\) \+ 1 \}\); desk\.refresh\(\);/.test(card));
+     /applyVersions\(\{ enquiries: getVersion\("enquiries"\) \+ 1 \}\); refresh\(\);/.test(card),
+     "every subscriber - this queue, the Dashboard summary and the Enquiries tab - corrects itself");
   ok("a refused take keeps the row and offers a retry, and cannot be double-submitted",
      /if \(!userId \|\| busyId\) return;/.test(card)
-     && /disabled=\{busyId === i\.id\}/.test(card)
-     && /failedId === i\.id \? L\("Try again", "Cuba lagi"\)/.test(card)
+     && /disabled=\{busy\}/.test(card)
+     && /failed \? L\("Try again", "Cuba lagi"\)/.test(card)
      && /setFailWhy\(r\.data\?\.error\?\.message/.test(card));
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));
@@ -254,4 +288,36 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
    Early process.exit() calls in catch blocks above are left alone: those run
    only when an import already failed and MUST stop the script. */
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exitCode = 1; }
-else console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);
+else /* ---- v1.176.0 — ONE HOME PER WORKFLOW ---------------------------------
+   The owner, 22-09-2026: remove duplicated information and overlapping
+   workflows. These hold the boundaries, because every one of them was crossed
+   at least once before this release. */
+{
+  const dashSrc = read("components/portal/dashboard.tsx");
+  const deskPage = read("components/portal/desk-page.tsx");
+  const pageSrc = read("app/portal/page.tsx");
+  const deskCard = read("components/portal/one-desk.tsx");
+
+  ok("the Desk page is the only place the queue is listed",
+     /<DeskQueue/.test(deskPage) && !/<DeskQueue/.test(dashSrc) && !/<DeskQueue/.test(pageSrc));
+  ok("the Dashboard links to the Desk rather than repeating it",
+     /go\("Desk"\)/.test(deskCard) && /L\(`Open the Desk/.test(deskCard));
+  ok("Tasks owns the task list: neither the Desk page nor the desk card renders one",
+     !/tasks\.map\(/.test(deskPage) && !/myTasks\.map/.test(deskPage) && !/myTasks\.map/.test(deskCard));
+  ok("the bell is not a second approval queue: it links, it never decides",
+     /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(pageSrc)
+     && !/notifications\/decide|notifications\/approve/.test(pageSrc),
+     "its badge counts unread MESSAGES; what is waiting on you to decide is the Desk's own count");
+  ok("an unread update reads as unread, and is marked read on CLOSE not on open",
+     /css\.notifUnread/.test(pageSrc)
+     && /setShowNotifs\(\(v\) => \{\s*if \(v && unread\)/.test(pageSrc),
+     "marking on open cleared the badge before a word had been read");
+  ok("every notification kind has somewhere to go",
+     ["announcement", "enquiry", "ot", "attendance", "claim", "leave", "task", "watch"]
+       .every((k) => new RegExp(`${k}: \\{ tab: "`).test(pageSrc)));
+  ok("the Desk stop is a tab, so the header names what the person is looking at",
+     /push\(\{ key: "Desk", tab: "Desk" \}\)/.test(read("lib/portal-tabs.ts"))
+     && !/anchor: "one-desk"/.test(read("lib/portal-tabs.ts")));
+}
+
+console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);

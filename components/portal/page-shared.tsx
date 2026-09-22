@@ -230,6 +230,11 @@ export interface Notification {
   message: string;
   is_read: number;
   created_at: string;
+  /* v1.176.0 - the record this is about ("claim:31", "ot:9002:2026-09-21",
+     "watch:stock:17"). The worker has always selected it; the client threw it
+     away, which is why an overtime or claim notification was dead text while
+     an announcement was a link. */
+  ref?: string | null;
 }
 export interface Task {
   id: number;

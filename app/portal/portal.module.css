@@ -194,6 +194,20 @@
   overflow-y: auto;
   padding-right: 0.25rem;
 }
+/* v1.176.0 - an unread update reads as unread: the row is a touch stronger and
+   carries a dot, so the panel's read state means something now that it is no
+   longer cleared the instant the panel opens. */
+.notifUnread {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.notifUnread .erp-dot {
+  display: inline-block;
+  margin-top: 0;
+  margin-inline-end: 0.375rem;
+  vertical-align: middle;
+}
+
 .notifItem {
   margin-top: 0.5rem;
   font-size: 0.875rem;

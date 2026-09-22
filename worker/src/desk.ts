@@ -64,7 +64,17 @@ export interface DeskItem {
   kind: "decide" | "do";
   /** the person the item is ABOUT, when it is somebody else's — null for your own work */
   who: string | null;
-  /** the next action, in words, imperative and short: "Approve or reject" */
+  /**
+   * The next action, in words, imperative and short: "Approve or reject".
+   *
+   * v1.176.0 — THE DIVISION OF LABOUR BETWEEN `sub` AND `next`, which a row
+   * must not blur: `sub` says what the item IS and what state it is in
+   * ("RM 1,240.00 · final approval", "both punches recorded, undecided");
+   * `next` says what YOU do about it. Putting the action in both — a row
+   * reading "approve or reject" above "→ Approve or reject" — is the
+   * repetition the owner saw on his phone, and it makes a scannable queue
+   * unscannable.
+   */
   next: string;
   /**
    * v1.175.0 — the ONE inline action the desk offers. An unassigned new
@@ -180,7 +190,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       items.push({
         bucket: "claims", id: `claim:${c.id}`, tab: "Claims",
         title: `${c.name} — ${rm(c.amount_cents)}`,
-        sub: `${(c.description ?? "").slice(0, 60) || "claim"} · ${step === "hr_review" ? "HR review" : step === "pre_approve" ? "pre-approval" : "your decision"}`,
+        sub: `${(c.description ?? "").slice(0, 60) || "claim"} · ${step === "hr_review" ? "HR review" : step === "pre_approve" ? "pre-approval" : "final approval"}`,
         since: c.created_at, overdue: ageDays(c.created_at) > 7,
         kind: "decide", who: c.name,
         next: step === "hr_review" ? "Review as HR" : step === "pre_approve" ? "Pre-approve or reject" : "Approve or reject",
@@ -219,7 +229,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         items.push({
           bucket: "ot", id: `ot:${g.user_id}:${g.d}`, tab: "Attendance",
           title: `${g.name} — ${hm} overtime on ${dmy(g.d)}`,
-          sub: "approve or reject", since: g.last!, overdue: ageDays(g.last!) > 3,
+          sub: "both punches recorded, undecided", since: g.last!, overdue: ageDays(g.last!) > 3,
           kind: "decide", who: g.name, next: "Approve, give replacement leave, or reject",
         });
       }
@@ -295,7 +305,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
     for (const t of toClose) {
       items.push({
         bucket: "tasks", id: `task-close:${t.id}`, tab: "Tasks", title: t.title,
-        sub: `${t.assignee} finished every item — review and close`, since: t.created_at, overdue: false,
+        sub: `${t.assignee} finished every item`, since: t.created_at, overdue: false,
         kind: "decide", who: t.assignee, next: "Review the work and close it",
       });
     }
@@ -316,7 +326,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         items.push({
           bucket: "enquiries", id: `enquiry:${e.id}`, tab: "Enquiries",
           title: `${e.name}${e.company ? ` (${e.company})` : ""} — ${e.category ? e.category.replace(/_/g, " ") : "enquiry"}`,
-          sub: e.status === "new" ? (e.assigned_to === user.id ? "yours, not yet answered" : "not yet answered — take it or reply") : `${e.status}, yours`,
+          sub: e.status === "new" ? (e.assigned_to === user.id ? "yours, not answered" : "new, nobody has taken it") : `${e.status}, yours`,
           since: e.created_at, overdue: isEnquiryOverdue(e),
           kind: "do", who: e.name,
           next: e.status === "new" && !e.assigned_to ? "Take it, or open it to reply" : "Reply to the customer",
@@ -339,7 +349,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
     for (const a of results) {
       items.push({
         bucket: "news", id: `announcement:${a.id}`, tab: "Announcements", title: a.title,
-        sub: "not yet acknowledged", since: a.created_at, overdue: ageDays(a.created_at) > 7,
+        sub: "announcement", since: a.created_at, overdue: ageDays(a.created_at) > 7,
         kind: "do", who: null, next: "Read it and acknowledge",
       });
     }

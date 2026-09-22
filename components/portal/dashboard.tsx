@@ -6,11 +6,11 @@
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
-import { OneDesk } from "@/components/portal/one-desk";
+import { DeskSummary } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
-import { WATCHER_ROLES, WatchersCard } from "@/components/portal/watchers-card";
+import { WATCHER_ROLES } from "@/components/portal/watchers-card";
 import { Skel, SkelRows, SkelText } from "@/components/ui/skeleton";
 import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -1025,6 +1025,11 @@ export function Dashboard({
      hero's own line already says when the day's punches happened. */
   const hasOut = today.some((r) => r.type === "clock_out");
   const openSince = openNow ? mytTime(todayShift?.entry?.open_since ?? today[0]?.created_at ?? "") : null;
+  /* v1.176.0 - the day's first in and last out, so the ONE status chip can
+     carry the whole answer once a shift is finished ("Clocked out · 08:24 →
+     18:31") and nothing below needs to repeat it. `today` is newest-first. */
+  const firstIn = mytTime([...today].reverse().find((r) => r.type === "clock_in")?.created_at ?? "");
+  const lastOut = mytTime(today.find((r) => r.type === "clock_out")?.created_at ?? "");
   const clockOutAt = todayShift?.entry?.clock_out_at;
   const clockOutDue = !attendanceError && openNow && !!clockOutAt && nowTick >= Date.parse(clockOutAt) - 30 * 60000;
   /* v1.133.2 — Clock in is offered only while there is a SHIFT to clock in
@@ -1032,6 +1037,11 @@ export function Dashboard({
      The worker decides (today_shift.can_clock_in); an older worker that does
      not say is treated as "yes" so the button never dies on a stale API. */
   const canClockIn = todayShift?.can_clock_in ?? true;
+  /* v1.176.0 - the server says WHY a clock-in is not possible; the button used
+     to swallow it as the label "All shifts clocked ✓" on a disabled control.
+     Now the control is simply not offered and this sentence says why, which is
+     the same rule stated once instead of twice. */
+  const whyNoClockIn = todayShift?.why_not ?? null;
   const shiftsLeft = (todayShift?.slots ?? []).filter((x) => !x.claimed).length;
   const hasOtIn = todayOt.some((r) => r.type === "ot_in");
   const hasOtOut = todayOt.some((r) => r.type === "ot_out");
@@ -1125,19 +1135,32 @@ export function Dashboard({
             since when, clocked out, or not yet in. Drawn only once the
             punches are KNOWN (v1.25.1). */}
         {attKnown && !attendanceError && (
+          /* v1.176.0 — THE ONE STATUS LINE. The owner, 22-09-2026: the same
+             fact was on screen three times — this chip, a disabled "Clocked
+             in ✓ 08:06" button, and the punch record underneath. This chip is
+             now the only place the CURRENT state and its time are stated; the
+             button below shows only the action that is available, and the
+             punch record appears only when it adds something this does not. */
           <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
             {openNow
-              ? L(`On shift since ${openSince}`, `Dalam syif sejak ${openSince}`)
-              : hasOut ? L("Clocked out", "Sudah daftar keluar") : L("Not clocked in yet", "Belum daftar masuk")}
+              ? L(`On shift · clocked in at ${openSince}`, `Dalam syif · daftar masuk ${openSince}`)
+              : hasOut
+                ? L(`Clocked out · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`, `Daftar keluar · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`)
+                : L("Not clocked in yet", "Belum daftar masuk")}
           </span>
         )}
         </div>
         {/* v1.172.1: a compact link beside the title on every width - as a
-            full-width pill it read as the first action on a phone. */}
-        <button type="button" className={btnSm} onClick={() => go(shiftOnly ? "Dashboard" : "On Shift")}>
-          <AppIcon name={shiftOnly ? "next" : "time"} className="erp-icon" />
-          {shiftOnly ? L("Dashboard", "Papan Pemuka") : L("On Shift", "Syif Saya")}
-        </button>
+            full-width pill it read as the first action on a phone.
+            v1.176.0: only in the Dashboard→On Shift direction. On the On Shift
+            tab it was a "Dashboard" button one thumb-width above the bottom
+            bar's own Dashboard stop. */}
+        {!shiftOnly && (
+          <button type="button" className={btnSm} onClick={() => go("On Shift")}>
+            <AppIcon name="time" className="erp-icon" />
+            {L("On Shift", "Syif Saya")}
+          </button>
+        )}
         </div>
         {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
@@ -1167,27 +1190,52 @@ export function Dashboard({
           <div className={shiftOnly ? css.actionsShift : css.actions}>
             {/* v1.172.1: one button height everywhere (the 44px contract) -
                 the On Shift tab used to grow its two buttons to 56px. */}
-            <button
-              type="button"
-              className={btnHeroPrimary}
-              disabled={!!busy || openNow || !canClockIn}
-              onClick={() => void punch("clock_in")}
-            >
-              {openNow
-                ? `${tr("Clocked in ✓", lang)} ${openSince}`
-                : !canClockIn
-                  ? L("All shifts clocked ✓", "Semua syif didaftar ✓")
-                : <><AppIcon name="place" />
-                    {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}</>}
-            </button>
-            <button
-              type="button"
-              className={btnHero}
-              disabled={!!busy}
-              onClick={() => void punch("clock_out", forgotArmed)}
-            >
-              {!openNow && hasOut ? tr("Clocked out ✓", lang) : tr("Clock out", lang)}
-            </button>
+            {/* v1.176.0 — THE RELEVANT ACTION, NOT EVERY ACTION. Clock in was
+                a full-width PRIMARY button that spent most of the day disabled
+                and restating the chip above it ("Clocked in ✓ 08:06"); Clock
+                out sat beside it saying "Clocked out ✓" after the fact. Now:
+                on shift → Clock out. Off shift with something left to clock →
+                Clock in. Nothing left to clock → neither, and the chip and the
+                scheduled-hours line say why. The punch handlers, the forgotten-
+                punch arming and every rule behind them are untouched. */}
+            {openNow ? (
+              <button
+                type="button"
+                className={btnHeroPrimary}
+                disabled={!!busy}
+                onClick={() => void punch("clock_out", forgotArmed)}
+              >
+                {tr("Clock out", lang)}
+              </button>
+            ) : canClockIn ? (
+              <button
+                type="button"
+                className={btnHeroPrimary}
+                disabled={!!busy}
+                onClick={() => void punch("clock_in")}
+              >
+                <AppIcon name="place" />
+                {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}
+              </button>
+            ) : (
+              /* nothing left to clock: say so in words rather than offering a
+                 disabled button that restates the chip above it */
+              <p className={css.shiftsNote} role="status">
+                {whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}
+              </p>
+            )}
+            {/* the forgotten-punch path: somebody who never clocked in still
+                needs a way to send a clock-out to the CEO to approve */}
+            {!openNow && canClockIn && !hasOut && (
+              <button
+                type="button"
+                className={btnHero}
+                disabled={!!busy}
+                onClick={() => void punch("clock_out", forgotArmed)}
+              >
+                {tr("Clock out", lang)}
+              </button>
+            )}
             <button
               type="button"
               className={btnHero}
@@ -1323,10 +1371,20 @@ export function Dashboard({
               )}
               {gpsCheck.state === "error" && (
                 <p className={css.fenceError}>
-                  {gpsCheck.message}
+                  {gpsCheck.message}{" "}
+                  {/* v1.176.0 - the "how do I turn location on" help moved here
+                      from the duplicate block that was removed. It belongs on
+                      the one error state, not on a second copy of it. */}
+                  {gpsCheck.denied && <LocationHelp lang={lang} />}
                 </p>
               )}
             </div>
+            {/* v1.176.0 — THE GUIDANCE, ONCE. This paragraph used to carry a
+                SECOND "Check my location" button and a SECOND verdict, right
+                under the note above that already has both: the same control
+                and the same distance twice in one card. The required-location
+                guidance is what belongs here and it stays; the control and the
+                verdict live in the note above. No fence rule is changed. */}
             <p className={css.fenceLine}>
               {tr("Office check-in is on", lang)} —{" "}
               {GEOFENCE_EXEMPT_ROLES.includes(user.role)
@@ -1335,53 +1393,20 @@ export function Dashboard({
                   : "your location is recorded with every punch."
                 : lang === "ms"
                   ? `punch memerlukan lokasi; di luar ${fence.radius_m ?? 120} m dari ${fence.label ?? "pejabat"} ia direkodkan dan ditandakan untuk HR.`
-                  : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}{" "}
-              <button
-                type="button"
-                className={css.fenceCheck}
-                onClick={() => void checkLocation()}
-                disabled={gpsCheck.state === "busy"}
-              >
-                {gpsCheck.state === "busy"
-                  ? lang === "ms"
-                    ? "Menyemak…"
-                    : "Checking…"
-                  : lang === "ms"
-                    ? "Semak lokasi saya"
-                    : "Check my location"}
-              </button>
-              {gpsCheck.state === "done" && (
-                <span
-                  className={`${css.fenceVerdict} ${gpsCheck.inside ? css.inside : css.outside}`}
-                >
-                  {gpsCheck.inside
-                    ? L(
-                        `✓ ${fmtDist(gpsCheck.distance_m)} — inside`,
-                        `✓ ${fmtDist(gpsCheck.distance_m)} — dalam kawasan`
-                      )
-                    : L(
-                        `${fmtDist(gpsCheck.distance_m)} — outside${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch will be flagged)"}`,
-                        `${fmtDist(gpsCheck.distance_m)} — luar kawasan${GEOFENCE_EXEMPT_ROLES.includes(user.role) ? "" : " (punch akan ditandakan)"}`
-                      )}
-                </span>
-              )}
-              {gpsCheck.state === "error" && (
-                <>
-                  <span className={css.fenceMessage}>
-                    {gpsCheck.message}
-                  </span>
-                  {/* v1.25.3: "tap the padlock" is impossible when the portal
-                      was opened from a home-screen icon — the steps below are
-                      chosen from what this phone actually is. */}
-                  {gpsCheck.denied && <LocationHelp lang={lang} />}
-                </>
-              )}
+                  : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}
             </p>
           </>
         )}
+        {/* v1.176.0 — THE DAY'S RECORD, ONLY WHEN IT ADDS SOMETHING. The status
+            chip above now carries the current state and its time (and both
+            times once a shift is finished), so for the ordinary day — one
+            clock-in, or one clean pair — this line was the third printing of
+            the same timestamp. It stays for the days it is the only answer:
+            more than one shift, any overtime, or a day with no punches at
+            all. Nothing is hidden that the chip does not already say. */}
         {!attKnown ? (
           <Skel className={css.punchesSkel} h={12} w={192} />
-        ) : (
+        ) : (today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
           <p className={css.punches}>
             {today.length === 0 && todayOt.length === 0
               ? L(
@@ -1414,19 +1439,13 @@ export function Dashboard({
           person, from every module. One quiet line when there is nothing.
           v1.115.0: it follows the Quick actions card - the CEO put the
           clock-in first - and stays above everything else. */}
-      {/* v1.171.0 — ONE FRAME for the executive tier (the CEO, 20-09-2026,
-          chose "One Desk + Watchers merged"): the desk first, the watchers'
-          findings under a rule in the same card. Everyone else sees the desk
-          alone, as before - its own card when it has work, one quiet line
-          when it has none. */}
-      {WATCHER_ROLES.includes(user.role) ? (
-        <div className={card}>
-          <OneDesk go={(t) => go(t as TabName)} userId={user.id} bare />
-          <WatchersCard role={user.role} go={(t) => go(t as TabName)} bare />
-        </div>
-      ) : (
-        <OneDesk go={(t) => go(t as TabName)} userId={user.id} />
-      )}
+      {/* v1.176.0 — A SUMMARY, NOT A COPY. This was the whole queue plus the
+          whole watchers list, and the Desk stop was this very zone reached by
+          an anchor. The Desk is a page now: here are the counts, the two
+          oldest things waiting, and the way in. One quiet line when there is
+          nothing. The card reads the SAME /staff/desk the Desk page does, so
+          the two can never disagree and the second view costs no request. */}
+      <DeskSummary go={(t) => go(t as TabName)} />
       </section>
   );
 

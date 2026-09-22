@@ -240,7 +240,14 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
      Portal UI V2 sidebar can cut ALL_TABS into SALES and OPERATIONS without
      resequencing it (tests/registry-parity.mjs). Still directly behind the
      Sales pair; the phone thumb row is still untouched. */
-  ok("ALL_TABS carries Sales Performance, behind the Sales pair, fifth (the phone thumb row is untouched)", allTabs.indexOf("Sales Performance") === 4 && allTabs[2] === "Sales" && allTabs[3] === "Enquiries");
+  /* v1.176.0 - Desk joined the registry behind Dashboard, so the absolute
+     index moved. What the rule was always about is the SALES RUN: Sales
+     Performance sits directly behind the Sales pair, and that run is still one
+     contiguous stretch the sidebar can cut without resequencing. */
+  ok("ALL_TABS carries Sales Performance directly behind the Sales pair (the phone thumb row is untouched)",
+     allTabs[allTabs.indexOf("Sales Performance") - 1] === "Enquiries"
+     && allTabs[allTabs.indexOf("Sales Performance") - 2] === "Sales"
+     && allTabs.indexOf("Sales Performance") === allTabs.indexOf("Ecommerce") + 3);
   const roles = [...(tabs.match(/"Sales Performance": \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
   const view = [...(perms.match(/sales_perf_view: \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
   ok("TAB_ROLES mirrors sales_perf_view exactly", JSON.stringify(roles) === JSON.stringify(view), `${roles} vs ${view}`);

@@ -223,7 +223,27 @@ function fakeEnv(fixture) {
   const roles = [...(perms.match(/export type Role =([\s\S]*?);/)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   for (const w of W.WATCHERS) ok(`${w.key} tells real roles`, w.audience.every((r) => roles.includes(r)), w.audience.join(","));
   ok("refs are stable per thing, not per run", W.WATCHERS.every((w) => /ref: `[a-z-]+:\$\{/.test(src.slice(src.indexOf(`key: "${w.key}"`), src.indexOf(`key: "${w.key}"`) + 1500))));
-  ok("the card follows the desk on the Dashboard", page.indexOf("<OneDesk") > 0 && page.indexOf("<WatchersCard") > page.indexOf("<OneDesk"));
+  /* v1.176.0 - the findings moved off the Dashboard and onto the Desk page,
+     where they are the "Needs attention" zone, GROUPED by rule. The rule
+     EDITOR moved with them but into the page's Setup zone, because management
+     configuration does not belong in an everyday queue. The Dashboard shows a
+     summary card and links. */
+  {
+    const deskPage = read("components/portal/desk-page.tsx");
+    ok("the findings are the Desk's attention zone, and the rules are its setup zone",
+       /<WatchersCard role=\{user\.role\} go=\{go\} section="findings" \/>/.test(deskPage)
+       && /<WatchersCard role=\{user\.role\} go=\{go\} section="rules" bare \/>/.test(deskPage)
+       && deskPage.indexOf('section="findings"') < deskPage.indexOf('section="rules"'));
+    ok("rule configuration is out of the queue: it is the last zone on the page",
+       deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Setup"')
+       && deskPage.indexOf('L("Needs attention"') < deskPage.indexOf('L("Setup"'));
+    ok("the Dashboard no longer carries the watchers list", !/<WatchersCard/.test(read("components/portal/dashboard.tsx")));
+    ok("findings are grouped by rule with a count, not one row per finding",
+       /\[\.\.\.new Set\(open\.map\(\(f\) => f\.watcher\)\)\]\.map/.test(card)
+       && /\{label\} — \{group\.length\}/.test(card)
+       && /aria-expanded=\{isOpen\}/.test(card),
+       "eleven low-stock SKUs were eleven rows of a queue meant to be read in one screen");
+  }
   ok("the card is remembered and live", /useCachedApi<Data>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(card) && /bumpVersion\(env, "watchers"\)/.test(src));
   ok("only the CEO changes a rule", /if \(user\.role !== "ceo" && user\.role !== "super_admin"\) return json\(\{ error: \{ code: "forbidden", message: "Only the CEO changes a watcher"/.test(src));
   ok("a rule change is audited", /audit\(env, user\.id, "watcher\.update", "watcher_settings"/.test(staff));

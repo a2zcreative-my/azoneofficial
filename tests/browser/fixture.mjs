@@ -223,28 +223,46 @@ export function fixture(p0, url) {
         title: "NUR NASUHA BINTI ZAINAL ABIDIN — annual leave, 3 days", sub: "24-09-2026 – 26-09-2026 · final approval",
         next: "Approve or reject", since: "2026-09-16 09:02:00", overdue: true },
       { bucket: "claims", id: "claim:8", tab: "Claims", kind: "decide", who: "NURUL FASEHAH BINTI SHAHRUDDIN",
-        title: "NURUL FASEHAH BINTI SHAHRUDDIN — RM 1,240.00", sub: "Client entertainment, Melaka · your decision",
+        title: "NURUL FASEHAH BINTI SHAHRUDDIN — RM 1,240.00", sub: "Client entertainment, Melaka · final approval",
         next: "Approve or reject", since: "2026-09-13 14:40:00", overdue: true },
       { bucket: "ot", id: "ot:9002:2026-09-21", tab: "Attendance", kind: "decide", who: "NUR NASUHA BINTI ZAINAL ABIDIN",
-        title: "NUR NASUHA BINTI ZAINAL ABIDIN — 1h07 overtime on 21-09-2026", sub: "approve or reject",
+        title: "NUR NASUHA BINTI ZAINAL ABIDIN — 1h07 overtime on 21-09-2026", sub: "both punches recorded, undecided",
         next: "Approve, give replacement leave, or reject", since: "2026-09-21 11:07:00", overdue: false },
       { bucket: "tasks", id: "task-close:4", tab: "Tasks", kind: "decide", who: "Farid Zulkifli",
-        title: "Refresh the ELFIA shopfront banners", sub: "Farid Zulkifli finished every item — review and close",
+        title: "Refresh the ELFIA shopfront banners", sub: "Farid Zulkifli finished every item",
         next: "Review the work and close it", since: "2026-09-19 08:00:00", overdue: false },
       { bucket: "tasks", id: "task:1", tab: "Tasks", kind: "do", who: null,
         title: "Check inventory delivery", sub: "overdue — due 14-09-2026",
         next: "Finish it", since: "2026-09-14 08:00:00", overdue: true },
       { bucket: "enquiries", id: "enquiry:31", tab: "Enquiries", kind: "do", who: "Nor Shah Enterprise Sdn Bhd",
-        title: "Nor Shah Enterprise Sdn Bhd (Cawangan Melaka) — live session", sub: "not yet answered — take it or reply",
+        title: "Nor Shah Enterprise Sdn Bhd (Cawangan Melaka) — live session", sub: "new, nobody has taken it",
         next: "Take it, or open it to reply", since: "2026-09-21 16:20:00", overdue: false, takeable: true },
       { bucket: "news", id: "announcement:6", tab: "Announcements", kind: "do", who: null,
-        title: "Raya schedule and the shop's closing days", sub: "not yet acknowledged",
+        title: "Raya schedule and the shop's closing days", sub: "announcement",
         next: "Read it and acknowledge", since: "2026-09-18 09:00:00", overdue: false },
     ];
     const deskCounts = {};
     for (const i of deskItems) deskCounts[i.bucket] = (deskCounts[i.bucket] ?? 0) + 1;
     data = { items: deskItems, counts: deskCounts, total: deskItems.length, missing: [] };
   }
+  /* v1.176.0 - the watchers, so the Desk page's "Needs attention" zone has
+     GROUPED findings to draw (eleven low-stock SKUs under one row). */
+  if (p === "/staff/watchers") data = {
+    watchers: [
+      { key: "low_stock", label: "Stock below the line", audience: ["ceo", "coo", "sales_marketing"], tab: "Inventory", threshold_label: "units", default_threshold: 5, enabled: true, threshold: 5, open: 11 },
+      { key: "order_stuck", label: "Paid web order not shipped", audience: ["ceo", "coo", "sales_marketing"], tab: "Web Orders", threshold_label: "days", default_threshold: 3, enabled: true, threshold: 3, open: 2 },
+      { key: "claim_aging", label: "Claim undecided", audience: ["ceo"], tab: "Claims", threshold_label: "days", default_threshold: 7, enabled: true, threshold: 7, open: 0 },
+      { key: "asset_warranty", label: "Asset warranty ending", audience: ["ceo", "hr_admin"], tab: "Assets", threshold_label: "days ahead", default_threshold: 30, enabled: false, threshold: 30, open: 0 },
+      { key: "leave_aging", label: "Leave request waiting too long", audience: ["ceo", "hr_admin"], tab: "Leave", threshold_label: "days", default_threshold: 3, enabled: true, threshold: 3, open: 1 },
+    ],
+    open: [
+      ...Array.from({ length: 11 }, (_, i) => ({ ref: `stock:${i + 1}`, watcher: "low_stock", title: `ELFIA Bawal Premium Extra Long ${i + 1} — ${i} left, below 5`, first_seen: `2026-09-${String(10 + (i % 9)).padStart(2, "0")} 08:00:00` })),
+      { ref: "order:1042", watcher: "order_stuck", title: "Web order #1042 — paid 4 days ago, not shipped", first_seen: "2026-09-18 08:00:00" },
+      { ref: "order:1051", watcher: "order_stuck", title: "Web order #1051 — paid 3 days ago, not shipped", first_seen: "2026-09-19 08:00:00" },
+      { ref: "leave:12", watcher: "leave_aging", title: "NUR NASUHA BINTI ZAINAL ABIDIN — leave waiting 6 days", first_seen: "2026-09-16 08:00:00" },
+    ],
+    pending_migration: false,
+  };
   if (p === "/staff/finance/pnl" || p === "/finance/pnl") data = { month: "2026-09", revenue_cents: 2000000, cogs_cents: 300000, expenses_cents: 1800000, net_cents: -100000, rows: [] };
   return data;
 }

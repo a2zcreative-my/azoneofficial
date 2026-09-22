@@ -241,8 +241,41 @@ ok("the shifts are the pattern PLUS the roster and the live board",
 ok("the refusal names the shifts", /every shift today \(\$\{slotsLabel\(slotsToday\)\}\)/.test(staff));
 ok("the phone is told whether a clock-in is possible, and why not",
    /can_clock_in: verdictT\.ok/.test(staff) && /why_not: verdictT\.ok \? null : verdictT\.reason/.test(staff));
-ok("...and disables Clock in on that answer",
-   /disabled=\{[^}]*openNow \|\| !canClockIn\}/.test(dash) && /All shifts clocked/.test(dash) && /No shift to clock in for/.test(dash));
+/* v1.176.0 - THE SAME RULE, STATED ONCE. Clock in used to be a permanently
+   rendered PRIMARY button that spent most of the day disabled and wearing the
+   answer as its label ("Clocked in ✓ 08:06", "All shifts clocked ✓") - the
+   third printing of a fact the status chip above it already gave. The rule is
+   unchanged; it is now expressed by what is OFFERED: on shift → Clock out;
+   off shift with a shift left → Clock in; nothing left → neither, and the
+   server's own `why_not` sentence says why. */
+ok("...and does not OFFER Clock in on that answer",
+   /\) : canClockIn \? \(/.test(dash)
+   && /const canClockIn = todayShift\?\.can_clock_in \?\? true;/.test(dash)
+   && /const whyNoClockIn = todayShift\?\.why_not \?\? null;/.test(dash)
+   && /\{whyNoClockIn \?\? L\("All shifts clocked/.test(dash)
+   && /No shift to clock in for/.test(dash));
+{
+  /* the CODE, not the prose explaining why the code is the way it is */
+  const dashCode = dash.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+  ok("the clock shows ONE status and ONE action - the fact is never printed twice",
+     /On shift · clocked in at \$\{openSince\}/.test(dashCode)
+     && !/Clocked in ✓/.test(dashCode)
+     && !/tr\("Clocked out ✓", lang\)/.test(dashCode),
+     "the chip carries the state and its time; the button carries only what you can do");
+  ok("a finished shift's two times are on the chip, so nothing below repeats them",
+     /Clocked out · \$\{firstIn\}\$\{lastOut \? ` → \$\{lastOut\}` : ""\}/.test(dashCode));
+  ok("the day's punch record is drawn only when it says something the chip does not",
+     /today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode),
+     "one clean pair is already on the chip; more than one shift, or any OT, is not");
+  ok("the On Shift tab carries no Dashboard shortcut - the bottom bar has one",
+     /\{!shiftOnly && \(\s*<button type="button" className=\{btnSm\} onClick=\{\(\) => go\("On Shift"\)\}/.test(dashCode));
+  ok("the location check is ONE control, and the guidance paragraph is guidance only",
+     (dashCode.match(/checkLocation\(\)/g) ?? []).length === 1
+     && !/fenceCheck/.test(dashCode) && !/fenceVerdict/.test(dashCode),
+     "the guidance paragraph used to carry a SECOND Check my location button and a SECOND distance, under a note that already had both");
+  ok("the required-location guidance itself is kept",
+     /Office check-in is on/.test(dashCode) && /flagged for HR/.test(dashCode) && /css\.fenceLine/.test(dashCode));
+}
 ok("a clock-out is refused only with nothing open, and says what to do next",
    /if \(body\.type === "clock_out" && !openNow\) \{/.test(staff) && /Clock in again when your next shift starts/.test(staff));
 ok("the forgotten-punch flow survives: a clock-out on a day with NO session is still taken as pending",
@@ -383,7 +416,10 @@ ok("the punches endpoint ships today's shifts, every block",
 ok("the dashboard uses server session state, with the latest punch as legacy fallback",
    /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = todayShift\?\.entry\?\.clocked_in \?\? \(latestPunch === "clock_in"\);/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
-ok("Clock in is offered whenever nothing is open AND a shift is left", /disabled=\{[^}]*openNow \|\| !canClockIn\}/.test(dash) && /Clock in · next shift/.test(dash));
+ok("Clock in is offered whenever nothing is open AND a shift is left, and never otherwise",
+   /\{openNow \? \(/.test(dash) && /\) : canClockIn \? \(/.test(dash) && /Clock in · next shift/.test(dash)
+   && /\{openNow \? \([\s\S]{0,400}?tr\("Clock out", lang\)/.test(dash),
+   "on shift the one action is Clock out; the disabled twin is gone");
 ok("the OT buttons are back, and disabled once the day's pair is done",
    /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
 ok("the card names today's shifts - pattern, roster and live board - and says the rule",

@@ -96,6 +96,8 @@ const blockOf = (tab) => {
 /* the file(s) that draw each tab's body; the page block itself counts */
 const BODY = {
   "Dashboard": ["components/portal/dashboard.tsx"],
+  /* v1.176.0 - the Desk is a page, not an anchor into the Dashboard */
+  "Desk": ["components/portal/desk-page.tsx"],
   "On Shift": ["components/portal/dashboard.tsx"],
   "Ecommerce": [],
   "Sales": ["components/portal/sales.tsx"],

@@ -35,9 +35,12 @@ for (const role of [...tabs.ASSIGNABLE_ROLES.map(([role]) => role), "super_admin
      && new Set(keys).size === keys.length);
   ok(`${role}: the clock stays one tap away`, keys.includes("On Shift"));
   if (MANAGERS.includes(role)) {
+    /* v1.176.0 - the Desk is a PAGE now, so the stop is a plain tab and the
+       header names the place the person is looking at. It was a Dashboard
+       anchor, which is why the header said the wrong thing. */
     const desk = stops.find((s) => s.key === "Desk");
-    ok(`${role}: pending decisions reuse One Desk on the Dashboard`,
-       Boolean(desk) && desk.tab === "Dashboard" && desk.anchor === "one-desk");
+    ok(`${role}: pending decisions open the Desk page, and the header matches`,
+       Boolean(desk) && desk.tab === "Desk" && desk.anchor === undefined);
   } else if (visible.includes("Sales")) {
     ok(`${role}: Sales is a stop`, keys.includes("Sales"));
   } else {

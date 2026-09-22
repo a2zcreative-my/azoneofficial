@@ -47,6 +47,14 @@
  *  System); see the note at Inventory for the one move that took. */
 export const ALL_TABS = [
   "Dashboard",
+  /* v1.176.0 - DESK IS A PAGE. It was a bottom-bar stop that scrolled the
+     Dashboard to its One Desk zone, which meant the header named the Dashboard while
+     the person was looking at their queue. A destination whose header names a
+     different place is a destination you cannot trust. It is the main queue
+     for decisions and operational exceptions now, and the Dashboard shows a
+     summary of it instead of a copy of it. Always visible: what is waiting on
+     you is not a permission, and the page shows only what you may act on. */
+  "Desk",
   "Ecommerce",
   /* v1.172.0 (Portal UI V2 - the CEO's target navigation: OVERVIEW, SALES,
      OPERATIONS, PEOPLE, FINANCE, ACCOUNT, SYSTEM): Inventory moved from third
@@ -182,10 +190,8 @@ export function mobileNavStops(
        reason to guess: fall back to the staff bar, which is the one every
        role could always read. */
     const salesLed = role !== "" && !manager && can("Sales");
-    if (manager && can("Dashboard")) {
-      /* pending decisions, reusing the Dashboard's own One Desk zone */
-      push({ key: "Desk", tab: "Dashboard", anchor: "one-desk", label: "Desk" });
-    }
+    /* v1.176.0 - a real page, so the header matches the stop */
+    if (manager && can("Desk")) push({ key: "Desk", tab: "Desk" });
     if (salesLed) push({ key: "Sales", tab: "Sales" });
     /* On Shift before Tasks for everyone: that is the order the bar has had
        since v1.168.0 and it is muscle memory. The role slot is inserted
@@ -216,7 +222,7 @@ export function mobilePrimaryTabs(
 
 /** Home and identity. Never hidden, never overridable — clocking in and
     reading your own payslip are not permissions. */
-export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Profile", "On Shift"];
+export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Desk", "Profile", "On Shift"];
 
 /**
  * PARKED — built, kept, and shown to nobody.

@@ -1,28 +1,37 @@
 "use client";
 
 /**
- * ONE DESK — v1.106.0 (roadmap phase 04), two lists since v1.175.0.
+ * ONE DESK — v1.106.0 (roadmap phase 04). A PAGE since v1.176.0.
  *
- * The reason to open the portal in the morning: everything waiting on the
- * person looking, from every module, in one place, oldest first, overdue on
- * top. What it lists is the WORKER's decision (worker/src/desk.ts), by the
- * same rules the acting routes enforce — this card only draws. It is
+ * What is waiting on the person looking, from every module, by the same rules
+ * the acting routes enforce (worker/src/desk.ts) — this file only draws. It is
  * remembered on the device (lib/cached-api) and refetches when any of its
- * topics moves, so a claim decided on another phone leaves this desk within
- * seconds.
+ * topics moves, so a claim decided on another phone leaves within seconds.
  *
- * v1.175.0 — TWO LISTS, BECAUSE THEY ARE TWO DIFFERENT JOBS.
- *   "Your decision"  someone else's item that cannot move until you sign it:
- *                    leave, claims, overtime, a forgotten punch, commission,
- *                    a task of yours whose scope is finished. Nobody else can
- *                    clear these.
- *   "Your work"      your own tasks, news you have not acknowledged, and the
- *                    enquiries you are answering — things that clear when you
- *                    do them.
- * Merged, a CEO with nine of his own tasks could not see the two approvals
- * holding other people up. Each row now also says, in words, what the next
- * action IS — "Approve or reject", "Review as HR" — so the desk answers the
- * question without being opened.
+ * v1.176.0 — ONE QUEUE, ONE HOME, THREE VIEWS OF THE SAME DATA.
+ * The owner, 22-09-2026, on duplicated information: the Dashboard was showing
+ * the whole queue, the Desk stop was the Dashboard scrolled down (so the
+ * header said "Today"), and his own open tasks appeared in six places. So:
+ *
+ *   `useDeskData()`  the ONE request. Everything below reads it; the shared
+ *                    cache means a second view costs no second fetch.
+ *   `DeskSummary`    the Dashboard's compact card — counts and at most two
+ *                    previews, then "Open the Desk". Never the whole queue.
+ *   `DeskQueue`      the Desk page's lists.
+ *   `DeskRow`        one row, used by both, so a status can only be written
+ *                    once.
+ *
+ * THE TWO LISTS, which are two different jobs:
+ *   "Needs your decision"  someone else's item that cannot move until you
+ *                          sign it. Nobody else can clear these.
+ *   "Needs attention"      operational exceptions and things that clear when
+ *                          you answer them.
+ * Your own tasks are NOT listed here at all — Tasks owns them, and this page
+ * shows a count and a link. A queue that also runs your to-do list is two
+ * products in one scroll.
+ *
+ * ONE STATUS, ONE NEXT ACTION per row: the worker's `sub` says what the item
+ * is and what state it is in, `next` says what you do. Never both.
  *
  * WHY ONLY ONE ROW ACTS IN PLACE. An unassigned new enquiry can be TAKEN from
  * here: the row shows everything that decision needs (who wrote in, what
@@ -32,11 +41,6 @@
  * punch's context — is NOT in a one-line row, so those rows only ever open
  * the record where the evidence is. A desk that approves what it cannot show
  * is worse than a desk that links.
- *
- * WHEN THERE IS NOTHING, it says so in one quiet line and takes no room. A
- * desk that shows an empty box with a heading is a desk asking to be
- * ignored; the whole value is that when it has something, it is the first
- * thing you see.
  */
 
 import { useMemo, useState } from "react";
@@ -62,7 +66,7 @@ export interface DeskItem {
   next?: string;
   takeable?: true;
 }
-interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
+export interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
 
 /* v1.154.0 - where inside the tab the decision is made. The tab alone left
    the CEO at the top of Attendance with five cards between him and the OT
@@ -86,13 +90,13 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
 
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
-   into "your work", read it from the bucket the same way the worker does. */
+   into the wrong list, read it from the bucket the same way the worker does. */
 const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "commission"];
-const kindOf = (i: DeskItem): "decide" | "do" =>
+export const kindOf = (i: DeskItem): "decide" | "do" =>
   i.kind ?? (DECIDE_BUCKETS.includes(i.bucket) || i.id.startsWith("task-close:") ? "decide" : "do");
 
 /** "3d", "5h", "just now" — how long it has waited, in one glance. */
-function waited(since: string | null): string {
+export function waited(since: string | null): string {
   if (!since) return "";
   const t = new Date(since.replace(" ", "T") + (since.endsWith("Z") ? "" : "Z")).getTime();
   if (Number.isNaN(t)) return "";
@@ -102,32 +106,82 @@ function waited(since: string | null): string {
   return `${Math.round(m / 1440)}${L("d", "h")}`;
 }
 
-const SHOW_FIRST = 8;
-
-/* v1.171.0 - `bare`: drawn inside a frame the Dashboard owns (the executive
-   tier's "Waiting on me" card, shared with the watchers), so the desk brings
-   no card of its own. Everything else - the quiet line, the list, the
-   order - is the same. */
-export function OneDesk({ go, userId, bare = false }: { go: (tab: string) => void; userId?: number; bare?: boolean }) {
+/**
+ * THE ONE REQUEST. Both the Dashboard summary and the Desk page call this;
+ * `useCachedApi` keys on the path, so the second caller is served from the
+ * same cache entry and the same live subscription — one fetch, two views,
+ * and they cannot disagree.
+ */
+export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
-  const desk = useCachedApi<DeskData>("/staff/desk", true,
+  return useCachedApi<DeskData>("/staff/desk", true,
     ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries"]);
-  const [all, setAll] = useState(false);
+}
+
+/** The three lists the surfaces need, split once so they cannot drift apart. */
+export function splitDesk(items: readonly DeskItem[]) {
+  const decide = items.filter((i) => kindOf(i) === "decide");
+  /* "attention": operational exceptions and things that clear when answered.
+     Your OWN tasks are deliberately absent - Tasks owns them, and the Desk
+     shows a count and a link instead of a second to-do list. */
+  const attention = items.filter((i) => kindOf(i) === "do" && i.bucket !== "tasks");
+  const myTasks = items.filter((i) => kindOf(i) === "do" && i.bucket === "tasks");
+  return { decide, attention, myTasks };
+}
+
+/* ===================== one row ===================== */
+
+export function DeskRow({ item, go, onTake, busy, failed, failWhy }: {
+  item: DeskItem;
+  go: (tab: string) => void;
+  onTake?: (i: DeskItem) => void;
+  busy?: boolean;
+  failed?: boolean;
+  failWhy?: string;
+}) {
+  const i = item;
+  const canTake = Boolean(i.takeable && onTake);
+  return (
+    <li className="erp-list-row">
+      <button type="button" className={`erp-row-lead ${css.open}`}
+        onClick={() => { go(i.tab); revealAnchor(ANCHOR[i.bucket]); }}
+        title={L(`Open in ${i.tab}`, `Buka dalam ${i.tab}`)}>
+        <span aria-hidden className={`erp-dot ${i.overdue ? "erp-dot-warning" : "erp-dot-brand"}`} />
+        <span className={css.lines}>
+          <span className={css.title}>{i.title}</span>
+          <span className="erp-meta">{i.sub}</span>
+          {i.next && <span className={css.next}>{i.next}</span>}
+        </span>
+      </button>
+      <span className="erp-row-actions">
+        <span className={`erp-num erp-nowrap erp-text-xs ${i.overdue ? "erp-warning erp-medium" : "erp-muted"}`}>
+          {waited(i.since)}
+        </span>
+        {canTake && (
+          <button type="button" className={btnSmQuiet} disabled={busy} aria-busy={busy}
+            onClick={() => onTake?.(i)}
+            title={L("Assign this enquiry to you — it stays on your desk until you answer it", "Tetapkan pertanyaan ini kepada anda — ia kekal di meja anda sehingga dijawab")}>
+            {busy ? L("Taking…", "Mengambil…") : failed ? L("Try again", "Cuba lagi") : L("Take it", "Ambil")}
+          </button>
+        )}
+        {!canTake && <AppIcon name="next" className="erp-muted" />}
+        {failed && <span className="erp-error" role="alert">{L("Not taken", "Tidak diambil")} — {failWhy}</span>}
+      </span>
+    </li>
+  );
+}
+
+/* v1.175.0 - the one action the desk performs, shared by every view of it. It
+   is the enquiries panel's own call (PATCH /enquiries/:id { assigned_to }), so
+   there is one way to take an enquiry, not two. On success the `enquiries`
+   topic is moved forward locally: every subscriber - this desk, the Dashboard
+   summary and the Enquiries tab - corrects itself without a reload. On failure
+   nothing is lost: the row stays, the reason is shown, the button says Try
+   again, and a second press while in flight is refused. */
+export function useTakeEnquiry(userId: number | undefined, refresh: () => void) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [failWhy, setFailWhy] = useState("");
-  const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
-  const counts = desk.data?.counts ?? {};
-  const decide = useMemo(() => items.filter((i) => kindOf(i) === "decide"), [items]);
-  const mine = useMemo(() => items.filter((i) => kindOf(i) !== "decide"), [items]);
-
-  /* v1.175.0 - the one action the desk performs. It is the enquiries panel's
-     own call (PATCH /enquiries/:id { assigned_to }), so there is one way to
-     take an enquiry, not two. On success the `enquiries` topic is moved
-     forward locally: this desk and the Enquiries tab both subscribe to it, so
-     the counts and the list correct themselves without a reload. On failure
-     nothing is lost - the row stays, the reason is shown, and the button
-     becomes Try again. */
   const take = async (i: DeskItem) => {
     if (!userId || busyId) return;
     const enquiryId = Number(i.id.split(":")[1]);
@@ -137,25 +191,133 @@ export function OneDesk({ go, userId, bare = false }: { go: (tab: string) => voi
       `/enquiries/${enquiryId}`, { method: "PATCH", body: JSON.stringify({ assigned_to: userId }) },
     );
     setBusyId(null);
-    if (r.ok) { applyVersions({ enquiries: getVersion("enquiries") + 1 }); desk.refresh(); return; }
+    if (r.ok) { applyVersions({ enquiries: getVersion("enquiries") + 1 }); refresh(); return; }
     setFailedId(i.id);
     setFailWhy(r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"));
   };
+  return { take: userId ? take : undefined, busyId, failedId, failWhy };
+}
+
+/* ===================== the Dashboard's compact card ===================== */
+
+/**
+ * v1.176.0 — THE DASHBOARD SHOWS A SUMMARY, NOT A COPY. Counts, the two
+ * oldest things waiting, and a way in. The full queue lives on the Desk page,
+ * and the person should not have to decide which of two identical lists is
+ * the real one.
+ */
+export function DeskSummary({ go, bare = false }: { go: (tab: string) => void; bare?: boolean }) {
+  const desk = useDeskData();
+  const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
+  const { decide, attention, myTasks } = useMemo(() => splitDesk(items), [items]);
+  const overdue = items.filter((i) => i.overdue).length;
 
   if (desk.loading) {
     return (
       <div className={bare ? "" : card} aria-busy="true">
         <Skel className="h-4 w-44" />
-        <div className="mt-3 space-y-2">
-          <Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" />
-        </div>
+        <div className="mt-3 space-y-2"><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /></div>
       </div>
     );
   }
+  if (items.length === 0) {
+    return (
+      <p className="text-muted-foreground flex items-center gap-2 px-1 text-xs" role="status">
+        <span aria-hidden className="bg-success inline-block h-1.5 w-1.5 rounded-full" />
+        {L("Nothing is waiting on you.", "Tiada apa yang menunggu anda.")}
+        <StaleHint show={desk.stale} />
+      </p>
+    );
+  }
 
+  /* the two oldest things waiting, decisions first - a preview, not a list */
+  const preview = [...decide, ...attention].slice(0, 2);
+  return (
+    <div className={bare ? "" : `${card} border-l-4`} style={bare ? undefined : { borderLeftColor: overdue ? "var(--warning)" : "var(--gold-solid)" }}>
+      <PanelTitle icon="orders" className="flex-wrap">
+        {L("Waiting on you", "Menunggu anda")}
+        <StaleHint show={desk.stale} className="ml-2" />
+      </PanelTitle>
+      <div className="erp-tiles erp-tiles-3 erp-mt-2">
+        <button type="button" className={`erp-stat erp-stat-button ${decide.length > 0 ? "erp-stat-warning" : ""}`}
+          onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
+          <span className="erp-stat-value">{decide.length}</span>
+          <span className="erp-stat-label">{L("Decisions", "Keputusan")}</span>
+        </button>
+        <button type="button" className="erp-stat erp-stat-button"
+          onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
+          <span className="erp-stat-value">{attention.length}</span>
+          <span className="erp-stat-label">{L("Attention", "Perhatian")}</span>
+        </button>
+        <button type="button" className="erp-stat erp-stat-button"
+          onClick={() => go("Tasks")} title={L("Open Tasks", "Buka Tugasan")}>
+          <span className="erp-stat-value">{myTasks.length}</span>
+          <span className="erp-stat-label">{L("My tasks", "Tugasan saya")}</span>
+        </button>
+      </div>
+      {preview.length > 0 && (
+        <ul className="erp-mt-2">
+          {preview.map((i) => <DeskRow key={i.id} item={i} go={go} />)}
+        </ul>
+      )}
+      <button type="button" className={`${btnSm} mt-3`} onClick={() => go("Desk")}>
+        {L(`Open the Desk — ${decide.length + attention.length}`, `Buka Meja — ${decide.length + attention.length}`)}
+      </button>
+    </div>
+  );
+}
+
+/* ===================== the Desk page's queue ===================== */
+
+const SHOW_FIRST = 8;
+
+/** One list, with its caption and its "show all". */
+function Group({ label, hint, list, go, take, busyId, failedId, failWhy }: {
+  label: string; hint: string; list: DeskItem[];
+  go: (tab: string) => void;
+  take?: (i: DeskItem) => void;
+  busyId: string | null; failedId: string | null; failWhy: string;
+}) {
+  const [all, setAll] = useState(false);
+  if (list.length === 0) return null;
+  const shown = all ? list : list.slice(0, SHOW_FIRST);
+  return (
+    <div className={card}>
+      <PanelTitle icon="orders">{label} — {list.length}</PanelTitle>
+      <p className="erp-meta">{hint}</p>
+      <ul className="erp-mt-2">
+        {shown.map((i) => (
+          <DeskRow key={i.id} item={i} go={go} onTake={take}
+            busy={busyId === i.id} failed={failedId === i.id} failWhy={failWhy} />
+        ))}
+      </ul>
+      {list.length > SHOW_FIRST && (
+        <button type="button" className={`${btnSm} mt-3`} onClick={() => setAll((v) => !v)}>
+          {all ? L("Show fewer", "Tunjuk kurang") : L(`Show all ${list.length}`, `Tunjuk semua ${list.length}`)}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The Desk page's two lists. The page owns the zones around them. */
+export function DeskQueue({ go, userId, which }: { go: (tab: string) => void; userId?: number; which: "decide" | "attention" }) {
+  const desk = useDeskData();
+  const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
+  const { decide, attention } = useMemo(() => splitDesk(items), [items]);
+  const { take, busyId, failedId, failWhy } = useTakeEnquiry(userId, desk.refresh);
+
+  if (desk.loading) {
+    return (
+      <div className={card} aria-busy="true">
+        <Skel className="h-4 w-44" />
+        <div className="mt-3 space-y-2"><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /><Skel className="h-9 rounded-lg" /></div>
+      </div>
+    );
+  }
   if (desk.failed && !desk.data) {
     return (
-      <div className={bare ? "" : card} role="alert">
+      <div className={card} role="alert">
         <p className="text-danger text-sm font-semibold">
           {L("Your work queue could not be loaded.", "Senarai kerja anda tidak dapat dimuatkan.")}
         </p>
@@ -169,106 +331,44 @@ export function OneDesk({ go, userId, bare = false }: { go: (tab: string) => voi
     );
   }
 
-  if (items.length === 0) {
+  const list = which === "decide" ? decide : attention;
+  if (list.length === 0) {
     return (
       <p className="text-muted-foreground flex items-center gap-2 px-1 text-xs" role="status">
         <span aria-hidden className="bg-success inline-block h-1.5 w-1.5 rounded-full" />
-        {L("Nothing is waiting on you.", "Tiada apa yang menunggu anda.")}
+        {which === "decide"
+          ? L("No decisions are waiting on you.", "Tiada keputusan menunggu anda.")
+          : L("Nothing needs your attention.", "Tiada apa memerlukan perhatian anda.")}
         <StaleHint show={desk.stale} />
       </p>
     );
   }
+  return which === "decide"
+    ? <Group label={L("Needs your decision", "Perlu keputusan anda")}
+        hint={L("Nobody else can move these.", "Tiada orang lain boleh menggerakkannya.")}
+        list={decide} go={go} busyId={busyId} failedId={failedId} failWhy={failWhy} />
+    : <Group label={L("Needs attention", "Perlu perhatian")}
+        hint={L("Answer, acknowledge or take these.", "Jawab, akui atau ambil yang ini.")}
+        list={attention} go={go} take={take} busyId={busyId} failedId={failedId} failWhy={failWhy} />;
+}
 
-  const overdue = items.filter((i) => i.overdue).length;
-
-  const row = (i: DeskItem) => {
-    const open = () => { go(i.tab); revealAnchor(ANCHOR[i.bucket]); };
-    const canTake = Boolean(i.takeable && userId);
-    return (
-      <li key={i.id} className="erp-list-row">
-        <button type="button" onClick={open} className={`erp-row-lead ${css.open}`}
-          title={L(`Open in ${i.tab}`, `Buka dalam ${i.tab}`)}>
-          <span aria-hidden className={`erp-dot ${i.overdue ? "erp-dot-warning" : "erp-dot-brand"}`} />
-          <span className={css.lines}>
-            <span className={css.title}>{i.title}</span>
-            <span className="erp-meta">{i.sub}</span>
-            {i.next && <span className={css.next}>{i.next}</span>}
-          </span>
-        </button>
-        <span className="erp-row-actions">
-          <span className={`erp-num erp-nowrap erp-text-xs ${i.overdue ? "erp-warning erp-medium" : "erp-muted"}`}>
-            {waited(i.since)}
-          </span>
-          {canTake && (
-            <button type="button" className={btnSmQuiet} disabled={busyId === i.id} aria-busy={busyId === i.id}
-              onClick={() => void take(i)}
-              title={L("Assign this enquiry to you — it stays on your desk until you answer it", "Tetapkan pertanyaan ini kepada anda — ia kekal di meja anda sehingga dijawab")}>
-              {busyId === i.id ? L("Taking…", "Mengambil…") : failedId === i.id ? L("Try again", "Cuba lagi") : L("Take it", "Ambil")}
-            </button>
-          )}
-          {!canTake && <AppIcon name="next" className="erp-muted" />}
-          {failedId === i.id && (
-            <span className="erp-error" role="alert">{L("Not taken", "Tidak diambil")} — {failWhy}</span>
-          )}
-        </span>
-      </li>
-    );
-  };
-
-  const group = (label: string, hint: string, list: DeskItem[]) => {
-    if (list.length === 0) return null;
-    const shown = all ? list : list.slice(0, SHOW_FIRST);
-    return (
-      <section className="erp-mt-3">
-        <p className="erp-eyebrow">{label} — {list.length}</p>
-        <p className="erp-meta">{hint}</p>
-        <ul className="erp-mt-2">{shown.map(row)}</ul>
-      </section>
-    );
-  };
-
+/** The bucket chips — one door per module, on the Desk page's figures zone. */
+export function DeskBucketChips({ go }: { go: (tab: string) => void }) {
+  const desk = useDeskData();
+  const items = desk.data?.items ?? [];
+  const counts = desk.data?.counts ?? {};
+  const keys = (Object.keys(BUCKET) as DeskItem["bucket"][]).filter((b) => counts[b]);
+  if (keys.length === 0) return null;
   return (
-    <div className={bare ? "" : `${card} border-l-4`} style={bare ? undefined : { borderLeftColor: overdue ? "var(--warning)" : "var(--gold-solid)" }}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <PanelTitle icon="orders" className="flex-wrap">
-            {L(`Waiting on you — ${items.length}`, `Menunggu anda — ${items.length}`)}
-            <StaleHint show={desk.stale} className="ml-2" />
-          </PanelTitle>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {overdue > 0
-              ? L(`${overdue} of these have waited longer than they should.`, `${overdue} daripadanya telah menunggu lebih lama daripada sepatutnya.`)
-              : L("Pending review and action", "Menunggu semakan dan tindakan")}
-          </p>
-        </div>
-        <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          {(Object.keys(BUCKET) as DeskItem["bucket"][]).filter((b) => counts[b]).map((b) => (
-            <button key={b} type="button"
-              className={`${chipNeutral} ${chipAction} text-foreground/80 tabular-nums hover:bg-secondary/70`}
-              onClick={() => { go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard"); revealAnchor(ANCHOR[b]); }}
-              title={L(`Open ${BUCKET[b][0]}`, `Buka ${BUCKET[b][1]}`)}>
-              {L(BUCKET[b][0], BUCKET[b][1])} {counts[b]}
-            </button>
-          ))}
-        </span>
-      </div>
-
-      {group(
-        L("Your decision", "Keputusan anda"),
-        L("Nobody else can move these.", "Tiada orang lain boleh menggerakkannya."),
-        decide,
-      )}
-      {group(
-        L("Your work", "Kerja anda"),
-        L("Yours to do, answer or acknowledge.", "Untuk anda lakukan, jawab atau akui."),
-        mine,
-      )}
-
-      {(decide.length > SHOW_FIRST || mine.length > SHOW_FIRST) && (
-        <button type="button" className={`${btnSm} mt-3`} onClick={() => setAll((v) => !v)}>
-          {all ? L("Show fewer", "Tunjuk kurang") : L(`Show all ${items.length}`, `Tunjuk semua ${items.length}`)}
+    <span className="erp-pill-row erp-mt-2">
+      {keys.map((b) => (
+        <button key={b} type="button"
+          className={`${chipNeutral} ${chipAction} text-foreground/80 tabular-nums hover:bg-secondary/70`}
+          onClick={() => { go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard"); revealAnchor(ANCHOR[b]); }}
+          title={L(`Open ${BUCKET[b][0]}`, `Buka ${BUCKET[b][1]}`)}>
+          {L(BUCKET[b][0], BUCKET[b][1])} {counts[b]}
         </button>
-      )}
-    </div>
+      ))}
+    </span>
   );
 }
