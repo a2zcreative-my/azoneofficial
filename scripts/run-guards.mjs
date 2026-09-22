@@ -240,4 +240,14 @@ if (failed.length) {
 console.log(`\n[OK] all ${GUARDS.length} guards passed.`);
 console.log("Not covered here (they need a real browser — run before a release):");
 console.log("  bm-coverage · leaderboard-sales-floor · location-scenarios · no-false-attendance");
-console.log("  plus scratch/: footer-e2e · nav-fit-e2e · a2z-bm-e2e · portfolio-click-e2e · sales-desc-typing-e2e\n");
+console.log("  plus scratch/: footer-e2e · nav-fit-e2e · a2z-bm-e2e · portfolio-click-e2e · sales-desc-typing-e2e");
+/* v1.175.0 - the two probes that caught what source-reading cannot: a grid
+   track that grew to its widest item, and a column narrower than its own
+   longest word (nothing overflows, so every width sweep is honestly clean).
+   They live in the repository now - tests/browser/ - with the fixtures they
+   need. See tests/browser/README.md. */
+console.log("  plus tests/browser/ (a rendered page, not source):");
+console.log("    pnpm build && node tests/browser/serve.mjs out 4177 &");
+console.log("    WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # past the page box");
+console.log("    xvfb-run -a python3 tests/browser/table-shred.py                 # a shredded column");
+console.log("    ROLE=ceo|sales_marketing|live_host on the server walks each dashboard order\n");

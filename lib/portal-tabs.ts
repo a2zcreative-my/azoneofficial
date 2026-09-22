@@ -120,13 +120,98 @@ export const MOBILE_PRIMARY_TABS: readonly TabName[] = [
   "Dashboard", "On Shift", "Tasks", "Profile",
 ];
 
-export function mobilePrimaryTabs(visible: readonly TabName[]): TabName[] {
-  const chosen = MOBILE_PRIMARY_TABS.filter((tab) => visible.includes(tab));
-  for (const tab of visible) {
-    if (chosen.length >= 4) break;
-    if (!chosen.includes(tab)) chosen.push(tab);
+/**
+ * v1.175.0 — A STOP ON THE PHONE BAR.
+ *
+ * Four stops plus More. A stop is normally a tab, but `anchor` lets one stop
+ * be a PLACE INSIDE a tab: the manager's "Desk" stop is the Dashboard scrolled
+ * to the One Desk zone (`id="one-desk"`). That is deliberate — the brief was
+ * "convenient access to pending decisions, reusing One Desk", and One Desk is
+ * a zone of the Dashboard, not a tab. Giving it a tab of its own would be a
+ * second inbox, which is the one thing not to build.
+ */
+export interface MobileStop {
+  /** stable identity — two stops may share a tab, so `tab` is not the key */
+  key: string;
+  tab: TabName;
+  /** element id to reveal inside the tab, for a stop that is a place not a page */
+  anchor?: string;
+  /** i18n key for the label; defaults to the tab's own name */
+  label?: string;
+}
+
+/* Who gets which third and fourth stop. The three names are the dashboard's
+   own (components/portal/dashboard.tsx, DASHBOARD_ZONES) so the bar and the
+   dashboard cannot disagree about who is a manager. */
+const MANAGER_ROLES: readonly string[] = ["ceo", "coo", "cco", "super_admin", "admin"];
+
+/**
+ * The phone bar, in order, for this person.
+ *
+ * Precedence: the person's own pins first (already permission-filtered by the
+ * caller), then the role defaults, then a back-fill from whatever else they
+ * can see — so the bar always has four stops and never a forbidden one.
+ *
+ * NOTHING HERE READS A COUNT. The bar is muscle memory: a stop must not move
+ * because four claims arrived overnight.
+ */
+export function mobileNavStops(
+  visible: readonly TabName[],
+  opts: { role?: string | null; favourites?: readonly string[] } = {},
+): MobileStop[] {
+  const can = (t: string): t is TabName => (visible as readonly string[]).includes(t);
+  const stops: MobileStop[] = [];
+  const push = (s: MobileStop) => {
+    if (stops.length >= 4 || stops.some((x) => x.key === s.key)) return;
+    stops.push(s);
+  };
+
+  /* Home is always first and is always the Dashboard — the one fixed point. */
+  if (can("Dashboard")) push({ key: "Dashboard", tab: "Dashboard" });
+
+  const pinned = (opts.favourites ?? []).filter(can);
+  if (pinned.length > 0) {
+    /* the person has chosen: their pins fill the rest of the bar, in order */
+    for (const tab of pinned) push({ key: tab, tab });
+  } else {
+    const role = opts.role ?? "";
+    const manager = MANAGER_ROLES.includes(role);
+    /* sales-led: they can open Sales and are not already on the manager bar.
+       Driven by the permission, not by a second role list. */
+    /* No role given (a preview, a test, the pre-auth skeleton) is NOT a
+       reason to guess: fall back to the staff bar, which is the one every
+       role could always read. */
+    const salesLed = role !== "" && !manager && can("Sales");
+    if (manager && can("Dashboard")) {
+      /* pending decisions, reusing the Dashboard's own One Desk zone */
+      push({ key: "Desk", tab: "Dashboard", anchor: "one-desk", label: "Desk" });
+    }
+    if (salesLed) push({ key: "Sales", tab: "Sales" });
+    /* On Shift before Tasks for everyone: that is the order the bar has had
+       since v1.168.0 and it is muscle memory. The role slot is inserted
+       before them, never between them. */
+    if (can("On Shift")) push({ key: "On Shift", tab: "On Shift" });
+    if (can("Tasks")) push({ key: "Tasks", tab: "Tasks" });
+    /* Profile keeps its stop only on the staff bar; for a manager or a
+       salesperson it moves into More, where the account already lives. */
+    if (!manager && !salesLed && can("Profile")) push({ key: "Profile", tab: "Profile" });
   }
-  return chosen;
+
+  /* back-fill: the defaults first, then anything else they can see */
+  for (const tab of MOBILE_PRIMARY_TABS) if (can(tab)) push({ key: tab, tab });
+  for (const tab of visible) push({ key: tab, tab });
+  return stops;
+}
+
+/** The distinct TABS the phone bar reaches — the access-review preview's view
+    of the same computation. Two stops on one tab count once. */
+export function mobilePrimaryTabs(
+  visible: readonly TabName[],
+  opts: { role?: string | null; favourites?: readonly string[] } = {},
+): TabName[] {
+  const seen: TabName[] = [];
+  for (const s of mobileNavStops(visible, opts)) if (!seen.includes(s.tab)) seen.push(s.tab);
+  return seen;
 }
 
 /** Home and identity. Never hidden, never overridable — clocking in and

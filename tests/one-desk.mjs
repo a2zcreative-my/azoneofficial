@@ -127,37 +127,116 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   const deskTabs = [...deskSrc.matchAll(/tab: "([^"]+)"/g)].map((m) => m[1]);
   ok("every tab the desk names is a real tab", deskTabs.length > 0 && deskTabs.every((t) => allTabs.includes(t)), deskTabs.filter((t) => !allTabs.includes(t)).join(", "));
   const dash = page.slice(page.indexOf("function Dashboard("), page.indexOf("\n}\n", page.indexOf("function Dashboard(")));
-  const ret = dash.slice(dash.indexOf("  return ("));
-  /* v1.115.0 - the CEO put Quick actions (clock in) first. v1.116.0 - the
-     Dashboard reads in four zones: MY DAY (quick actions, then the KPI tiles
-     that explain them) - WAITING ON ME (the desk, first in its zone, then the
-     watchers) - THE COMPANY (the sales floor) - AROUND ME. The desk is the
-     first thing after "my day" and stays above the company and the feeds.
-     v1.171.0 - the CEO, 20-09-2026: *"my dashboard on PWA seem sooooo much
-     messy!!! ... clean off my dashboard and resort it based on it own
-     function"*. Same order, five cards: the hero - the desk and the watchers
-     in ONE frame for the executive tier (his choice: "One Desk + Watchers
-     merged") - MY MONTH, one card - THE COMPANY, one card - the work
-     overview. */
-  const at = (needle) => ret.indexOf(needle);
-  const order = [at('tr("Quick actions", lang)'), at("<OneDesk"), at("<WatchersCard"), at('L("My month"'), at("<TradingDesk"), at('tr("Pending leave", lang)')];
-  ok("the Dashboard reads: quick actions, desk, watchers, my month, company, around me", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]),
-     `positions ${order.join(" < ")} - approved work-first order on web and phone`);
+  /* v1.115.0 - the CEO put Quick actions (clock in) first. v1.116.0 - four
+     zones. v1.171.0 - five cards, the desk and the watchers in ONE frame for
+     the executive tier.
+
+     v1.175.0 - THE ZONES ARE THE SAME FIVE; THE ORDER IS CHOSEN. The owner,
+     22-09-2026, on his own dashboard: business results and the decisions
+     waiting on him have to come before the large personal attendance card,
+     and a salesperson's follow-ups before both. So the five zones are named
+     elements and DASHBOARD_ZONES says which order each job reads them in.
+     This guard now asserts the MAP - which is the real rule - instead of the
+     position of a string in a file, and asserts that re-ordering grants
+     nothing: every zone still carries its own gate.
+
+     THE RULES THE MAP MUST KEEP:
+       - all three jobs render all five zones (a layout never hides a zone)
+       - "business" puts the company and the desk above the person's own day
+       - "shift" is unchanged: the clock first, as every staff member has had
+       - the desk is never below the person's month in any job */
+  const zonesM = page.match(/export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone\[\]> = \{([\s\S]*?)\n\};/);
+  const orderOf = (lead) => [...(zonesM?.[1] ?? "").matchAll(new RegExp(`${lead}: \\[([^\\]]*)\\]`, "g"))]
+    .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]));
+  const FIVE = ["day", "desk", "month", "company", "around"];
+  ok("the dashboard's reading order is a map, not a hard-coded sequence", Boolean(zonesM));
+  for (const lead of ["business", "sales", "shift"]) {
+    const o = orderOf(lead);
+    ok(`${lead}: every zone is rendered, none twice`,
+       o.length === 5 && FIVE.every((z) => o.includes(z)), o.join(" < "));
+    ok(`${lead}: the desk is never below the person's own month`, o.indexOf("desk") < o.indexOf("month"));
+  }
+  {
+    const b = orderOf("business");
+    ok("business: the company and the decisions come before the person's own day",
+       b.indexOf("company") < b.indexOf("day") && b.indexOf("desk") < b.indexOf("day"),
+       b.join(" < "));
+    ok("shift: the clock is still first for everybody else",
+       JSON.stringify(orderOf("shift")) === JSON.stringify(["day", "desk", "month", "company", "around"]));
+    const sl = orderOf("sales");
+    ok("sales: the follow-ups lead, and the clock stays above the month",
+       sl[0] === "desk" && sl.indexOf("day") < sl.indexOf("month"), sl.join(" < "));
+  }
+  ok("the order is applied by rendering the named zones, so no zone can be dropped",
+     /\{shiftOnly \? zoneDay : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash)
+     && /const ZONES: Record<DashboardZone, ReactNode> = \{\s*day: zoneDay, desk: zoneDesk, month: zoneMonth, company: zoneCompany, around: zoneAround,/.test(dash));
+  ok("which job a person is reading is decided by role AND by what they may open - never by the layout",
+     /WATCHER_ROLES\.includes\(user\.role\) \? "business"/.test(dash)
+     && /canOpen \? canOpen\("Sales"\) \|\| canOpen\("Ecommerce"\) : SALES_ROLES\.includes\(user\.role\)/.test(dash));
   ok("the zones are captioned, and the company caption lives inside the desk it captions",
-     ["My day", "Waiting on me", "My month", "Around me"].every((z) => ret.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !ret.includes('L("The company"'),
+     ["My day", "Waiting on me", "My month", "Around me"].every((z) => dash.includes(`<ZoneLabel>{L("${z}"`)) && /L\("The company", "Syarikat"\)/.test(read("components/portal/trading-desk.tsx")) && !dash.includes('L("The company"'),
      "a caption for a zone a role cannot see would be a heading over nothing");
   ok("the executive tier sees the desk and the watchers in one frame; everyone else the desk alone",
-     /WATCHER_ROLES\.includes\(user\.role\) \? \(\s*<div className=\{card\}>\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<WatchersCard role=\{user\.role\} go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<\/div>\s*\) : \(\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} \/>/.test(ret)
+     /WATCHER_ROLES\.includes\(user\.role\) \? \(\s*<div className=\{card\}>\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} userId=\{user\.id\} bare \/>\s*<WatchersCard role=\{user\.role\} go=\{\(t\) => go\(t as TabName\)\} bare \/>\s*<\/div>\s*\) : \(\s*<OneDesk go=\{\(t\) => go\(t as TabName\)\} userId=\{user\.id\} \/>/.test(dash)
      && /export const WATCHER_ROLES = \["ceo", "coo", "cco", "super_admin", "admin"\];/.test(read("components/portal/watchers-card.tsx")),
      "one list of who sees the watchers, used by the card and by the frame around it");
   ok("bare drops only the frame - the desk's quiet line, list and order are untouched",
      /bare \? "" : `\$\{card\} border-l-4`/.test(card) && /if \(items\.length === 0\) \{\s*return \(\s*<p className="text-muted-foreground flex items-center gap-2 px-1 text-xs" role="status">/.test(card));
   ok("the Dashboard shows the month ONCE (no four-tile strip, no bar chart behind a pill)",
-     !/erp-dashboard-stats/.test(ret) && !/deskTab/.test(dash) && /<MonthAttendanceCard days=\{monthDays\} month=\{mytToday\(\)\.slice\(0, 7\)\} lang=\{lang\} daysPresent=\{daysPresent\} hours=\{monthHours\} \/>/.test(ret));
+     !/erp-dashboard-stats/.test(dash) && !/deskTab/.test(dash) && /<MonthAttendanceCard days=\{monthDays\} month=\{mytToday\(\)\.slice\(0, 7\)\} lang=\{lang\} daysPresent=\{daysPresent\} hours=\{monthHours\} \/>/.test(dash));
   ok("the company is one card on the Dashboard (pulse); the Sales floor lives on Ecommerce",
-     /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(ret) && !/<NextEventCard/.test(ret)
+     /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash) && !/<NextEventCard/.test(dash)
      && /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="floor" \/>/.test(read("components/portal/trading-desk.tsx"))
      && /<RevenueAndHoursCard user=\{user\} go=\{setTab\} lang=\{lang\} \/>/.test(read("app/portal/page.tsx")));
+  /* ---- v1.175.0 — two lists, a next action, and exactly one inline act ----
+     The desk was one merged pile: a CEO with nine of his own tasks could not
+     see the two approvals holding other people up. The worker now says which
+     half each item is in, what the next action IS, and which single row may
+     be acted on in place.
+
+     THE EVIDENCE RULE, which is the whole reason there is only one: a row
+     shows a title, a status and how long it has waited. That is enough to
+     TAKE an unassigned enquiry (nobody owns it; taking is not an approval and
+     is undone by reassigning). It is NOT enough to approve leave (the dates
+     and who covers the shift), a claim (the receipt), overtime (the pair) or
+     a punch (its context). Those rows link to the record where the evidence
+     is. If a future change adds an approve button here, this guard fails. */
+  ok("the worker says which half of the desk each item is in",
+     /kind: "decide" \| "do";/.test(deskSrc)
+     && /next: string;/.test(deskSrc)
+     && (deskSrc.match(/kind: "decide"/g) ?? []).length >= 6
+     && (deskSrc.match(/kind: "do"/g) ?? []).length >= 3);
+  ok("an approval queue is a decision, and your own work is not",
+     /bucket: "leave"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     && /bucket: "claims"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     && /bucket: "ot"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     && /bucket: "punches"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     && /bucket: "commission"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     && /bucket: "news"[\s\S]{0,420}?kind: "do"/.test(deskSrc));
+  ok("only an UNCLAIMED, NEW enquiry may be acted on from the desk",
+     /takeable\?: true;/.test(deskSrc)
+     && /e\.status === "new" && !e\.assigned_to \? \{ takeable: true as const \} : \{\}/.test(deskSrc)
+     && (deskSrc.match(/takeable: true/g) ?? []).length === 1,
+     "a second takeable bucket would mean an action whose evidence is not on screen");
+  ok("the card draws two lists, and falls back by bucket when the payload is old",
+     /L\("Your decision", "Keputusan anda"\)/.test(card) && /L\("Your work", "Kerja anda"\)/.test(card)
+     && /const kindOf = \(i: DeskItem\): "decide" \| "do" =>/.test(card)
+     && /DECIDE_BUCKETS\.includes\(i\.bucket\) \|\| i\.id\.startsWith\("task-close:"\)/.test(card));
+  ok("the desk offers no approve or reject button of its own",
+     !/(Approve|Luluskan|Reject|Tolak)</.test(card)
+     && (card.match(/method: "(?:POST|PATCH|PUT|DELETE)"/g) ?? []).length === 1,
+     "one call only: PATCH /enquiries/:id { assigned_to }");
+  ok("taking an enquiry is the enquiries panel's own call, not a second workflow",
+     /`\/enquiries\/\$\{enquiryId\}`, \{ method: "PATCH", body: JSON\.stringify\(\{ assigned_to: userId \}\) \}/.test(card)
+     && /assigned_to: userId/.test(read("components/portal/enquiries-panel.tsx")),
+     "the panel and the desk must take an enquiry the same way, or one of them is wrong");
+  ok("a successful take refreshes the counts and the records without a reload",
+     /applyVersions\(\{ enquiries: getVersion\("enquiries"\) \+ 1 \}\); desk\.refresh\(\);/.test(card));
+  ok("a refused take keeps the row and offers a retry, and cannot be double-submitted",
+     /if \(!userId \|\| busyId\) return;/.test(card)
+     && /disabled=\{busyId === i\.id\}/.test(card)
+     && /failedId === i\.id \? L\("Try again", "Cuba lagi"\)/.test(card)
+     && /setFailWhy\(r\.data\?\.error\?\.message/.test(card));
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));
   ok("a missing table costs its bucket, not the desk", /if \(String\(e\)\.includes\("no such"\)\) missing\.push\(bucket\); else throw e;/.test(deskSrc));

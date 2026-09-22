@@ -76,7 +76,7 @@
   "components/portal/location-help.tsx": 14,
   "components/portal/mini-calendar.tsx": 36,
   "components/portal/next-event-card.tsx": 68,
-  "components/portal/one-desk.tsx": 53,
+  "components/portal/one-desk.tsx": 32,
   "components/portal/ops-map.tsx": 60,
   "components/portal/payroll-panel.tsx": 110,
   "components/portal/profile.tsx": 56,

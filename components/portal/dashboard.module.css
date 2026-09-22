@@ -37,6 +37,23 @@
     max-width: 48rem;
   }
 }
+/* v1.175.0 - THE CLOCK, WHEN THE CLOCK IS NOT THE POINT. For the executive
+   tier and for sales the shift hero is no longer the first thing on the
+   dashboard (components/portal/dashboard.tsx, DASHBOARD_ZONES), so it reads
+   as a smaller card: the same controls, the same 44px targets, less air. It
+   is never hidden and never moved off the screen - the CEO clocks in too. */
+.heroCompact {
+  padding: 0.75rem;
+}
+.heroCompact .heroHead {
+  margin-bottom: 0.125rem;
+}
+@media (min-width: 768px) {
+  .heroCompact {
+    padding: 0.875rem 1rem;
+  }
+}
+
 .heroHead {
   display: flex;
   flex-wrap: wrap;

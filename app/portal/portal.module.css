@@ -264,6 +264,45 @@
 .moreLabelPrefs {
   margin-top: 1rem;
 }
+/* v1.175.0 - a module tile in the More sheet, with its pin. The tile fills
+   the cell; the pin sits in the corner as a SIBLING button (never nested, so
+   both are reachable) with a hit area big enough for a thumb. */
+.moreCell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.morePin {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.75rem;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.morePin:disabled {
+  cursor: not-allowed;
+  opacity: 0.25;
+}
+.morePin:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.morePinOn {
+  color: var(--gold-solid, var(--primary));
+  opacity: 1;
+}
+
 .moreGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

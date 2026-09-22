@@ -16,6 +16,8 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Attendance": { en: "Attendance", ms: "Kehadiran" },
   "Leave": { en: "Leave", ms: "Cuti" },
   "Tasks": { en: "Tasks", ms: "Tugasan" },
+  /* v1.175.0 — the phone bar's pending-decisions stop (One Desk on the Dashboard) */
+  "Desk": { en: "Desk", ms: "Meja" },
   "Pipeline": { en: "Pipeline", ms: "Saluran Jualan" },
   "Content": { en: "Content", ms: "Kandungan" },
   "Claims": { en: "Claims", ms: "Tuntutan" },

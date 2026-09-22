@@ -51,6 +51,31 @@ export interface DeskItem {
   tab: string;
   /** true when it has waited longer than the bucket's comfortable window */
   overdue: boolean;
+  /**
+   * v1.175.0 — WHICH HALF OF THE DESK THIS IS.
+   *   "decide"  someone else's item and you are a signer on it: leave, claims,
+   *             overtime, a forgotten punch, commission, a task of yours whose
+   *             scope is finished. Nobody else can move it while it sits here.
+   *   "do"      your own work, or a thing that clears when you have read or
+   *             answered it: your open tasks, unacknowledged news, enquiries.
+   * The split is the whole point of the two lists on the client: a CEO opening
+   * the portal wants the first group, not a merged pile.
+   */
+  kind: "decide" | "do";
+  /** the person the item is ABOUT, when it is somebody else's — null for your own work */
+  who: string | null;
+  /** the next action, in words, imperative and short: "Approve or reject" */
+  next: string;
+  /**
+   * v1.175.0 — the ONE inline action the desk offers. An unassigned new
+   * enquiry can be TAKEN from here: the row already shows everything the
+   * decision needs (who wrote in, what about, that nobody owns it), taking is
+   * not an approval, and it is reversible by reassigning. Every other bucket
+   * is an approval whose evidence — leave dates and coverage, a claim's
+   * receipt, an overtime pair, a punch's context — is NOT visible in a
+   * one-line row, so those rows only ever open the record. See the client.
+   */
+  takeable?: true;
 }
 
 const json = (data: unknown, status = 200) =>
@@ -134,6 +159,8 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         title: `${r.name} — ${r.type} leave, ${r.days} day${r.days === 1 ? "" : "s"}`,
         sub: `${dmy(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ` – ${dmy(r.end_date)}` : ""} · ${r.stage === "applied" ? "HR review" : r.stage === "hr_reviewed" ? "pre-approval" : "final approval"}`,
         since: r.created_at, overdue: ageDays(r.created_at) > 3,
+        kind: "decide", who: r.name,
+        next: r.stage === "applied" ? "Review as HR" : r.stage === "hr_reviewed" ? "Pre-approve or reject" : "Approve or reject",
       });
     }
   });
@@ -155,6 +182,8 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         title: `${c.name} — ${rm(c.amount_cents)}`,
         sub: `${(c.description ?? "").slice(0, 60) || "claim"} · ${step === "hr_review" ? "HR review" : step === "pre_approve" ? "pre-approval" : "your decision"}`,
         since: c.created_at, overdue: ageDays(c.created_at) > 7,
+        kind: "decide", who: c.name,
+        next: step === "hr_review" ? "Review as HR" : step === "pre_approve" ? "Pre-approve or reject" : "Approve or reject",
       });
     }
   });
@@ -191,6 +220,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           bucket: "ot", id: `ot:${g.user_id}:${g.d}`, tab: "Attendance",
           title: `${g.name} — ${hm} overtime on ${dmy(g.d)}`,
           sub: "approve or reject", since: g.last!, overdue: ageDays(g.last!) > 3,
+          kind: "decide", who: g.name, next: "Approve, give replacement leave, or reject",
         });
       }
     });
@@ -211,6 +241,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           title: `${r.name} — ${r.type === "clock_in" ? "clock-in" : "clock-out"} to approve`,
           sub: r.offline_sent_at ? "sent late from offline" : "forgotten punch",
           since: r.created_at, overdue: ageDays(r.created_at) > 2,
+          kind: "decide", who: r.name, next: "Approve the time, or reject it",
         });
       }
     });
@@ -230,6 +261,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           bucket: "commission", id: `commission:${r.id}`, tab: "Commission",
           title: `${r.name} — ${rm(r.amount_cents)}`, sub: `commission for ${r.period}`,
           since: r.created_at, overdue: ageDays(r.created_at) > 14,
+          kind: "decide", who: r.name, next: "Approve or hold",
         });
       }
     });
@@ -249,6 +281,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         bucket: "tasks", id: `task:${t.id}`, tab: "Tasks", title: t.title,
         sub: late ? `overdue — due ${dmy(t.due_date!)}` : t.due_date ? `due ${dmy(t.due_date)}` : t.status === "in_progress" ? "in progress" : "open",
         since: t.created_at, overdue: late,
+        kind: "do", who: null, next: t.status === "in_progress" ? "Finish it" : "Start it",
       });
     }
     const { results: toClose } = await env.DB.prepare(
@@ -263,6 +296,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       items.push({
         bucket: "tasks", id: `task-close:${t.id}`, tab: "Tasks", title: t.title,
         sub: `${t.assignee} finished every item — review and close`, since: t.created_at, overdue: false,
+        kind: "decide", who: t.assignee, next: "Review the work and close it",
       });
     }
   });
@@ -284,6 +318,10 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           title: `${e.name}${e.company ? ` (${e.company})` : ""} — ${e.category ? e.category.replace(/_/g, " ") : "enquiry"}`,
           sub: e.status === "new" ? (e.assigned_to === user.id ? "yours, not yet answered" : "not yet answered — take it or reply") : `${e.status}, yours`,
           since: e.created_at, overdue: isEnquiryOverdue(e),
+          kind: "do", who: e.name,
+          next: e.status === "new" && !e.assigned_to ? "Take it, or open it to reply" : "Reply to the customer",
+          /* the only row the desk lets you act on in place: unclaimed and new */
+          ...(e.status === "new" && !e.assigned_to ? { takeable: true as const } : {}),
         });
       }
     });
@@ -302,6 +340,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       items.push({
         bucket: "news", id: `announcement:${a.id}`, tab: "Announcements", title: a.title,
         sub: "not yet acknowledged", since: a.created_at, overdue: ageDays(a.created_at) > 7,
+        kind: "do", who: null, next: "Read it and acknowledge",
       });
     }
   });

@@ -26,14 +26,18 @@ import { InstallCoach } from "@/components/ui/install-coach"; // v1.105.0 - iOS 
 import { enablePush, disablePush, pushPermission } from "@/lib/push-client";
 // v1.65.0 — live cards: the version store, and the hook that watches it.
 import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   ALL_TABS,
   canSeeTab,
+  mobileNavStops,
   mobilePrimaryTabs,
   type PersonAccess,
   type TabName,
 } from "@/lib/portal-tabs"; // v1.79.0 — ONE tab registry (page + 🔐 card)
+import { FAVOURITES_MAX, favouritesFull, favouritesServerSnapshot, favouritesSnapshot, readFavourites, subscribeFavourites, toggleFavourite } from "@/lib/favourites";
+import { revealAnchor } from "@/components/portal/page-shared";
+import { AppIcon } from "@/components/ui/app-icon";
 /* v1.28.0 — legal document identity: a STAMPED document (leave form, invoice
    chase) renders the issuer stored on its row via resolveIssuer(issuer_code);
    a document issued fresh TODAY (the SOA) carries DOCUMENT_ISSUER. */
@@ -140,6 +144,17 @@ export default function PortalPage() {
      if the saved tab isn't visible to this account (role change, 🔐 tab
      access change), the guard effect below falls back to Dashboard. */
   const [tab, setTab] = useState<TabName>("Dashboard");
+  /* v1.175.0 — which Dashboard stop the phone bar last used, so Home and Desk
+     (both the Dashboard) can each show as current when they are. */
+  const [deskStop, setDeskStop] = useState(false);
+  /* v1.175.0 — the pinned modules, read through the store so pinning one in
+     the More sheet re-renders the bar and the palette at once (and a second
+     open tab of the portal agrees, via the `storage` event). */
+  const pinnedRaw = useSyncExternalStore(
+    subscribeFavourites,
+    () => favouritesSnapshot(user?.id),
+    favouritesServerSnapshot,
+  );
   const [entryReady, setEntryReady] = useState(false);
   const [salesStart, setSalesStart] = useState<"documents" | "create">("documents");
   const [salesCreateRequest, setSalesCreateRequest] = useState(0);
@@ -783,12 +798,58 @@ export default function PortalPage() {
   const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
 
   const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
-  const mobilePrimary = mobilePrimaryTabs(tabs);
+  /* v1.175.0 — the person's own pinned modules. Read per account and clamped
+     to `tabs`, the same permission-filtered list everything else here uses,
+     so a pin can never open a module the access review has since closed. */
+  /* pinnedRaw is the store's snapshot — reading it here is what makes the bar
+     and the palette re-render the moment a pin moves. */
+  const favourites = pinnedRaw ? readFavourites(user?.id, tabs) : [];
+  const mobileStops = mobileNavStops(tabs, { role: user?.role, favourites });
+  const mobilePrimary = mobilePrimaryTabs(tabs, { role: user?.role, favourites });
   const mobileMore = tabs.filter((t) => !mobilePrimary.includes(t));
   const mobileGroups = SECTIONS.map((section) => ({
     ...section,
     tabs: section.tabs.filter((name): name is TabName => mobileMore.includes(name as TabName)),
   })).filter((section) => section.tabs.length > 0);
+  /* v1.175.0 — one module tile for the More sheet: the button that opens it,
+     plus a pin toggle in its corner. Two sibling buttons, never nested, so
+     both are reachable by keyboard and the pin never swallows the open. */
+  const moreTile = (t: TabName) => {
+    const pinned = favourites.includes(t);
+    const full = favouritesFull(user?.id, t);
+    return (
+      <span key={t} className={css.moreCell}>
+        <button
+          type="button"
+          onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
+          className={`${css.moreTab} ${tab === t ? css.moreTabOn : ""}`}
+        >
+          <span aria-hidden className="erp-center">
+            <TabIcon name={t} />
+          </span>
+          {tr(t, lang)}
+        </button>
+        <button
+          type="button"
+          aria-pressed={pinned}
+          disabled={!pinned && full}
+          className={`${css.morePin} ${pinned ? css.morePinOn : ""}`}
+          title={pinned
+            ? L(`Unpin ${tr(t, lang)}`, `Nyahsemat ${tr(t, lang)}`)
+            : full
+              ? L(`Six pinned already — unpin one first`, `Enam sudah disemat — nyahsemat satu dahulu`)
+              : L(`Pin ${tr(t, lang)} to the bottom bar`, `Semat ${tr(t, lang)} ke bar bawah`)}
+          aria-label={pinned
+            ? L(`Unpin ${tr(t, lang)}`, `Nyahsemat ${tr(t, lang)}`)
+            : L(`Pin ${tr(t, lang)}`, `Semat ${tr(t, lang)}`)}
+          onClick={() => toggleFavourite(user?.id, t)}
+        >
+          <AppIcon name="star" />
+        </button>
+      </span>
+    );
+  };
+
   return (
     /* Navigation receives the already permission-filtered registry. */
     <AppShell
@@ -819,6 +880,7 @@ export default function PortalPage() {
         tabs={navItems}
         canSeeClients={REVENUE_ROLES.includes(user.role)}
         onTab={(t) => setTab(t as TabName)}
+        pinned={favourites}
         extraActions={[
           {
             label: tr("Apply leave", lang),
@@ -1191,16 +1253,23 @@ export default function PortalPage() {
           {/* v1.10.0 (reference design): each tab shows its sidebar icon; the
             active one sits in a filled navy rounded square — same visual
             language as the desktop sidebar's gold square. */}
-          {mobilePrimary.map((t) => {
-            const active = tab === t && !moreOpen;
+          {mobileStops.map((stop) => {
+            const t = stop.tab;
+            /* v1.175.0 — two stops may share a tab (Home and Desk are both the
+               Dashboard), so the active stop is keyed on the stop, not the
+               tab. Nothing here reads a count: the bar never reorders. */
+            const onTab = tab === t && !moreOpen;
+            const active = onTab && (stop.anchor ? deskStop : !(deskStop && stop.key === "Dashboard"));
             return (
               <button
-                key={t}
+                key={stop.key}
                 type="button"
                 onClick={() => {
                   setTab(t);
                   setMoreOpen(false);
-                  window.scrollTo({ top: 0 });
+                  setDeskStop(Boolean(stop.anchor));
+                  if (stop.anchor) revealAnchor(stop.anchor);
+                  else window.scrollTo({ top: 0 });
                 }}
                 aria-current={active ? "page" : undefined}
                 className="erp-bottom-nav-item"
@@ -1210,12 +1279,12 @@ export default function PortalPage() {
                     the active stop is marked twice - a tinted well and a
                     gold hairline - so it reads without colour. */}
                 <span aria-hidden className="erp-bottom-nav-icon">
-                  <TabIcon name={t} />
+                  <TabIcon name={stop.label ?? t} />
                 </span>
                 {/* the label ellipsises: BM labels ("Papan Pemuka") must not
                   wrap and unbalance the row on narrow phones */}
                 <span className="erp-bottom-nav-label">
-                  {tr(t, lang)}
+                  {stop.label ? tr(stop.label, lang) : tr(t, lang)}
                 </span>
               </button>
             );
@@ -1273,29 +1342,29 @@ export default function PortalPage() {
                   <CloseX aria-hidden className="erp-icon" strokeWidth={1.75} />
                 </button>
               </div>
+              {/* v1.175.0 — PINNED. Up to six modules the person keeps on the
+                  phone bar, in the order they pinned them. It is the same
+                  sheet and the same tile as every other module here: pinning
+                  is a preference, not a second menu. A pinned module leaves
+                  the grouped lists below (it is already on the bar), so this
+                  section is also where it is unpinned. */}
+              {favourites.length > 0 && (
+                <section className={css.moreSection}>
+                  <p className={css.moreLabel}>
+                    {L("Pinned", "Disematkan")} — {favourites.length}/{FAVOURITES_MAX}
+                  </p>
+                  <div className={css.moreGrid}>
+                    {favourites.map((t) => moreTile(t as TabName))}
+                  </div>
+                </section>
+              )}
               {mobileGroups.map((section) => (
                 <section key={section.title} className={css.moreSection}>
                   <p className={css.moreLabel}>
                     {sectionTitle(section.title, lang)}
                   </p>
                   <div className={css.moreGrid}>
-                  {section.tabs.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setTab(t);
-                        setMoreOpen(false);
-                        window.scrollTo({ top: 0 });
-                      }}
-                      className={`${css.moreTab} ${tab === t ? css.moreTabOn : ""}`}
-                    >
-                      <span aria-hidden className="erp-center">
-                        <TabIcon name={t} />
-                      </span>
-                      {tr(t, lang)}
-                    </button>
-                  ))}
+                  {section.tabs.map((t) => moreTile(t))}
                   </div>
                 </section>
               ))}

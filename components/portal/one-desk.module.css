@@ -1,0 +1,54 @@
+/* v1.175.0 - the One Desk row's own layout. The card, the row frame
+   (.erp-list-row), the lead/actions pair (.erp-row-lead / .erp-row-actions)
+   and the type steps are the named classes in styles/erp-v3.css; this file
+   only holds the geometry of the three stacked lines inside a desk row.
+   Tokens only. */
+
+.open {
+  /* the whole left side of the row is the door onto the record */
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--erp-radius-panel, 10px);
+}
+
+.lines {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.0625rem;
+  min-width: 0;
+}
+
+.title {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  overflow-wrap: break-word;
+}
+
+/* The next action, in words. Deliberately quieter than the title and louder
+   than the status line: it is the answer to "so what do I do", and it should
+   read at a glance without competing with the name. */
+.next {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  overflow-wrap: break-word;
+}
+.next::before {
+  content: "→ ";
+  color: var(--muted-foreground);
+}

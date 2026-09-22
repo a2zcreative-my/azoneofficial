@@ -1080,6 +1080,21 @@
   @media (hover: hover) { .erp-list-row:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); } }
   @media (min-width: 640px) { .erp-list-row { padding-inline: 1.25rem; } }
   .erp-none { padding: 2rem 0; text-align: center; font-size: 0.875rem; line-height: 1.25rem; color: var(--muted-foreground); }
+  /* v1.175.0 - a status dot at the head of a row. Named, because it was being
+     spelled out as four utilities every time one was wanted, and a dot beside
+     a wrapping title must not shrink with it. */
+  .erp-dot {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-top: 0.4375rem;
+    border-radius: 9999px;
+    background: var(--muted-foreground);
+  }
+  .erp-dot-brand { background: var(--gold-solid, var(--primary)); }
+  .erp-dot-warning { background: var(--warning); }
+  .erp-dot-danger { background: var(--danger); }
+  .erp-dot-success { background: var(--success); }
   .erp-avatar { display: grid; place-items: center; width: 2rem; height: 2rem; flex-shrink: 0; border-radius: 9999px; background: var(--secondary); }
   /* the quiet card (page-shared.tsx QuietCard): one line until tapped */
   .erp-quiet-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.75rem; text-align: left; }

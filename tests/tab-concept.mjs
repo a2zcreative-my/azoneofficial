@@ -178,7 +178,12 @@ ok("the Dashboard's Work overview, the Sales work card and Inventory's Record ca
 const dash = read("components/portal/dashboard.tsx");
 ok("the Dashboard still reads in four zones", (dash.match(/<ZoneLabel>/g) ?? []).length >= 4);
 ok("the Dashboard's figures come before its records (the month card before Around me)", dash.indexOf("<MonthAttendanceCard") > 0 && dash.indexOf("<MonthAttendanceCard") < dash.indexOf('L("Around me"'));
-ok("the Dashboard's zones are the shared tight stack", (dash.match(/<section className="erp-stack-tight">/g) ?? []).length >= 4);
+/* v1.175.0 - one zone carries an id (#one-desk, the phone bar's Desk stop
+   reveals it), so the shape is "a section, optionally identified, on the
+   shared tight stack". */
+ok("the Dashboard's zones are the shared tight stack", (dash.match(/<section (?:id="[^"]+" )?className="erp-stack-tight">/g) ?? []).length >= 4);
+ok("the desk zone is addressable, so a nav stop can reveal it without a second inbox",
+   /<section id="one-desk" className="erp-stack-tight">/.test(dash));
 
 /* ---- the page ---- */
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));

@@ -104,12 +104,16 @@ function score(q: string, s: string): number {
   return i === query.length ? 30 : 0;
 }
 
-export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }: {
+export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], pinned = [] }: {
   open: boolean;
   onClose: () => void;
   tabs: { name: string; label: string }[];
   onTab: (name: string) => void;
   extraActions?: PaletteAction[];
+  /** v1.175.0 - the person's pinned modules, in their order, already filtered
+      against `tabs` by the shell. They lead the list while nothing is typed;
+      a query ranks on merit like everything else. */
+  pinned?: readonly string[];
   /** v1.107.0 - canSeeClients is gone: the worker decides per source what
       this role may find, by the same permissions its tabs use. */
   canSeeClients?: boolean;
@@ -163,7 +167,15 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
      resolved against `tabs` - the permission-filtered strip - so a tab this
      person can no longer see is silently dropped, never offered. */
   if (!query) {
+    /* v1.175.0 - pins first: they are the modules this person said they use.
+       Recents follow, minus anything already pinned, so the top of the list
+       is never the same module twice. */
+    for (const name of pinned) {
+      const t = tabs.find((x) => x.name === name);
+      if (t) push("Pinned", t.label, () => goTo(t.name), undefined, t.name);
+    }
     for (const name of recents) {
+      if (pinned.includes(name)) continue;
       const t = tabs.find((x) => x.name === name);
       if (t) push("Recent", t.label, () => goTo(t.name), undefined, t.name);
     }
@@ -179,7 +191,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [] }
       rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, icon: h.tab, run: () => goTo(h.tab) });
     }
   }
-  const GROUP_ORDER = ["Recent", "Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
+  const GROUP_ORDER = ["Pinned", "Recent", "Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
   const ranked = (query
     ? rows.sort((a, b) => {
         const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);

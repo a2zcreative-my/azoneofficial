@@ -318,9 +318,10 @@ export function TradingDesk({
             const up = todayTotal >= y;
             const ov = rev.overall;
             return (
+              <>
               <div className="grid gap-2 sm:grid-cols-3">
                 <div>
-                  <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{tr("Revenue", lang)} — {ym(rev.month)}</p>
+                  <p className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">{L("Sales", "Jualan")} — {ym(rev.month)}</p>
                   <p className="mt-1 text-xl leading-none font-semibold tracking-tight tabular-nums">{fmtRM(monthTotal)}</p>
                   <p className="text-muted-foreground mt-1 text-[11px]">
                     {target ? `${pct}% ${L("of target", "daripada sasaran")} · ${onPace ? L("on pace", "mengikut rentak") : L("behind pace", "ketinggalan rentak")}` : `${L("last month", "bulan lepas")} ${fmtRM(lastTotal)}`}
@@ -341,6 +342,16 @@ export function TradingDesk({
                   </div>
                 )}
               </div>
+              {/* v1.175.0 — SAY WHAT THIS IS. These figures add every channel
+                  the portal sees (TikTok Shop, invoices, web orders, manual
+                  entries) for the whole business; they are not one company's
+                  books and they are not cash collected. Naming the scope and
+                  the period is the difference between a number and a claim. */}
+              <p className="text-muted-foreground mt-2 text-[11px]">
+                {L("Whole business, every channel · ", "Seluruh perniagaan, semua saluran · ")}
+                {ym(rev.month)} {L("(Malaysia time). Sold, not collected — cash received is below.", "(waktu Malaysia). Dijual, bukan dikutip — tunai diterima di bawah.")}
+              </p>
+              </>
             );
           })() : null}
       {/* v1.77.0 — skeleton until the first fetch lands (pulse strip, six tiles). */}
@@ -398,13 +409,21 @@ export function TradingDesk({
             },
             {
               label: "Unpaid inv.",
-              show: L("Unpaid inv.", "Inv. belum bayar"),
+              /* v1.175.0 - this is a COUNT of documents, not a balance. It sat
+                 in a row of RM figures reading "Unpaid inv. 7", which invites
+                 the wrong reading; the amount is one tap away in the tile's
+                 own list (OutstandingDocsSummary). */
+              show: L("Unpaid invoices (no.)", "Invois belum bayar (bil.)"),
               value: sum.outstanding_invoices ?? 0,
               tab: "Sales",
             },
             {
               label: "Cash flow (mo)",
-              show: L("Cash flow (mo)", "Aliran tunai (bln)"),
+              /* v1.175.0 - money in minus money out for the month. It is not
+                 profit (no cost of goods, no accruals): the P&L behind this
+                 tile is where profit lives, and the label must not pretend
+                 otherwise. */
+              show: L("Cash in − out (mo)", "Tunai masuk − keluar (bln)"),
               value: (
                 <span className={net >= 0 ? "text-bull" : "text-bear"}>
                   {net >= 0 ? "" : "−"}

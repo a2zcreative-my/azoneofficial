@@ -42,6 +42,10 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   "On Shift": CalendarClock,
   Leave: Palmtree,
   Tasks: ListChecks,
+  /* v1.175.0 — not a tab: the phone bar's "Desk" stop, which is the Dashboard
+     scrolled to its One Desk zone. TAB_ICON is keyed by the name the nav
+     renders, and this is one of them. */
+  Desk: Inbox,
   Content: Clapperboard,
   Claims: Receipt,
   Payroll: Wallet,

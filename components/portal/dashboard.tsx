@@ -18,9 +18,27 @@ import { api } from "@/lib/api";
 import { cacheRead, cacheWrite } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
+
+/* ---- v1.175.0 — the dashboard's reading order, per job ----------------
+   The five zones never change; which comes first does. Exported so
+   tests/one-desk.mjs asserts the ORDER MAP rather than the position of a
+   string in this file, and so the phone's bottom bar leans on the same three
+   names (lib/portal-tabs.ts) instead of inventing a second idea of who is a
+   manager. */
+export type DashboardZone = "day" | "desk" | "month" | "company" | "around";
+export type DashboardLead = "business" | "sales" | "shift";
+export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = {
+  /* results and decisions first; the person's own day and month stay
+     together below them, the clock above the summary of it */
+  business: ["company", "desk", "day", "month", "around"],
+  /* the follow-ups they are judged on, then the target, then the clock */
+  sales: ["desk", "company", "day", "around", "month"],
+  /* the clock first — the order every staff member has had since v1.115.0 */
+  shift: ["day", "desk", "month", "company", "around"],
+};
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { btnHero, btnHeroPrimary, btnSm, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./dashboard.module.css";
 
@@ -1053,20 +1071,38 @@ export function Dashboard({
   })();
   const daysPresent = dayPairs.size;
   const monthHours = Array.from(dayPairs.values()).reduce((a, e) => a + e.hours, 0);
-  return (
-    <div className={css.page}>
-      {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
-          top of the reference's phone screen. Phones only; the desktop header
-          already greets. */}
-      <div className={css.greeting}>
-        <p className={css.greetingDate}>
-          {mytTodayLine(lang)}
-        </p>
-        <h2 className={css.greetingTitle}>
-          {mytGreeting(lang)}, {user.name.split(" ")[0]}
-        </h2>
-      </div>
-      {/* Daily actions and pending work precede metrics and company reporting. */}
+  /* ===================================================================
+     v1.175.0 — WHICH JOB THIS PERSON OPENED THE PORTAL TO DO.
+
+     The dashboard has always read in one order for everybody: clock in,
+     then what is waiting, then the month, then the company. That is the
+     right order for the person whose day starts with a punch, and the
+     wrong one for the person who signs things: the CEO, 22-09-2026, on
+     his own dashboard — *"attendance shouldn't dominate"*.
+
+     So the ZONES are unchanged and the ORDER is chosen:
+       business  the executive tier — the company first, then the
+                 decisions waiting on them, and their own attendance in a
+                 tighter card below it
+       sales     a salesperson — their follow-ups first, then the targets
+                 they are measured against, then the clock
+       shift     everybody else — the clock first, exactly as before
+
+     THIS GRANTS NOTHING. Every zone still asks its own question: the
+     company card returns null unless the viewer passes revenue_view or
+     the executive check inside trading-desk.tsx, the watchers card
+     returns null outside WATCHER_ROLES, and the desk lists only what the
+     worker says this person may act on. Re-ordering a list of elements
+     cannot widen any of that — which is exactly why the layout is a list
+     of elements and not a second set of role checks.
+     =================================================================== */
+  const lead: DashboardLead =
+    WATCHER_ROLES.includes(user.role) ? "business"
+      : (canOpen ? canOpen("Sales") || canOpen("Ecommerce") : SALES_ROLES.includes(user.role)) ? "sales"
+        : "shift";
+
+  /* Daily actions and pending work precede metrics and company reporting. */
+  const zoneDay = (
       <section className="erp-stack-tight">
         <ZoneLabel>{L("My day", "Hari saya")}</ZoneLabel>
       {/* v1.115.0 — QUICK ACTIONS FIRST. The CEO, 05-09-2026, with the
@@ -1076,7 +1112,7 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
-      <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : ""}`}>
+      <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : lead === "shift" ? "" : css.heroCompact}`}>
         {/* "On shift" once clocked in (the reference design's heading),
             "Quick actions" before that. */}
         <div className={css.heroHead}>
@@ -1369,8 +1405,10 @@ export function Dashboard({
       </div>
 
       </section>
-      {!shiftOnly && <>
-      <section className="erp-stack-tight">
+  );
+
+  const zoneDesk = (
+      <section id="one-desk" className="erp-stack-tight">
         <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
       {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
           person, from every module. One quiet line when there is nothing.
@@ -1383,13 +1421,16 @@ export function Dashboard({
           when it has none. */}
       {WATCHER_ROLES.includes(user.role) ? (
         <div className={card}>
-          <OneDesk go={(t) => go(t as TabName)} bare />
+          <OneDesk go={(t) => go(t as TabName)} userId={user.id} bare />
           <WatchersCard role={user.role} go={(t) => go(t as TabName)} bare />
         </div>
       ) : (
-        <OneDesk go={(t) => go(t as TabName)} />
+        <OneDesk go={(t) => go(t as TabName)} userId={user.id} />
       )}
       </section>
+  );
+
+  const zoneMonth = (
       <section className="erp-stack-tight">
         <ZoneLabel>{L("My month", "Bulan saya")}</ZoneLabel>
       {/* v1.171.0 — ONE card for the month. The four-tile strip (today's
@@ -1405,10 +1446,18 @@ export function Dashboard({
         <MonthAttendanceCard days={monthDays} month={mytToday().slice(0, 7)} lang={lang} daysPresent={daysPresent} hours={monthHours} />
       )}
       </section>
+  );
+
+  const zoneCompany = (
+    <>
       {/* v1.171.0 — THE COMPANY, one card (mode="pulse"). The Sales floor
           moved to Ecommerce, the attendance donut and today's assignments to
           Attendance, the bars with the floor. See trading-desk.tsx. */}
       <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
+    </>
+  );
+
+  const zoneAround = (
       <section className="erp-stack-tight">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>
       {/* v1.169.0: Tasks, leave and news are one work panel. The previous
@@ -1548,7 +1597,27 @@ export function Dashboard({
         </div>
       </div>
       </section>
-      </>}
+  );
+
+  const ZONES: Record<DashboardZone, ReactNode> = {
+    day: zoneDay, desk: zoneDesk, month: zoneMonth, company: zoneCompany, around: zoneAround,
+  };
+  return (
+    <div className={css.page}>
+      {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
+          top of the reference's phone screen. Phones only; the desktop header
+          already greets. */}
+      <div className={css.greeting}>
+        <p className={css.greetingDate}>
+          {mytTodayLine(lang)}
+        </p>
+        <h2 className={css.greetingTitle}>
+          {mytGreeting(lang)}, {user.name.split(" ")[0]}
+        </h2>
+      </div>
+      {/* v1.175.0 — one set of zones, the order chosen by what this person
+          came to do. On Shift stays a single zone: it is the clock, alone. */}
+      {shiftOnly ? zoneDay : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}
     </div>
   );
 }
