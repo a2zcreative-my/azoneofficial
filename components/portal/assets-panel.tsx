@@ -181,7 +181,7 @@ export function AssetsPanel() {
         {/* v1.77.0 — skeleton until the first fetch lands: the real header
             row over shimmering cells, same seven columns as the register. */}
         {!loaded ? (
-          <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1" aria-hidden>
+          <div className="tbl-sticky erp-table-scroll erp-mt-2" aria-hidden>
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="border-border text-left">
@@ -212,7 +212,8 @@ export function AssetsPanel() {
         ) : assets.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">{L("No assets yet — add the first one above.", "Belum ada aset — tambah yang pertama di atas.")}</p>
         ) : (
-          <div className="tbl-sticky -mx-1 mt-2 max-h-96 overflow-auto px-1">
+          /* v1.176.1 - sideways only; the page owns the vertical gesture. */
+          <div className="tbl-sticky erp-table-scroll erp-mt-2">
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="border-border text-left">

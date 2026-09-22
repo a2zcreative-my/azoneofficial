@@ -500,7 +500,9 @@ export function HankeisPanel() {
           <>
             <TabZone label={L("Today", "Hari ini")}>
             <section className={card}>
-              <PanelTitle icon="chart">{L("Today", "Hari ini")}</PanelTitle>
+              {/* v1.176.1 - the zone caption above already reads "Today"; this
+                  card says WHAT about today. */}
+              <PanelTitle icon="chart">{L("Today's takings", "Kutipan hari ini")}</PanelTitle>
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
                 <StatTile label={L("New orders today", "Pesanan baharu hari ini")} value={counts.new_today ?? 0} tone="brand" />
                 <StatTile label={L("Awaiting payment", "Menunggu bayaran")} value={counts.awaiting_payment ?? 0} tone="muted" />

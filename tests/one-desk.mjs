@@ -182,10 +182,32 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      that same zone reached by an anchor, so the header named the Dashboard
      while he was reading his queue. */
   ok("the Dashboard carries a summary card, never the queue itself",
-     /<DeskSummary go=\{\(t\) => go\(t as TabName\)\} \/>/.test(dash)
+     /<DeskSummary go=\{\(t\) => go\(t as TabName\)\} role=\{user\.role\} \/>/.test(dash)
      && !/<OneDesk/.test(dash) && !/<DeskQueue/.test(dash) && !/<WatchersCard/.test(dash)
      && /export const WATCHER_ROLES = \["ceo", "coo", "cco", "super_admin", "admin"\];/.test(read("components/portal/watchers-card.tsx")),
      "two identical lists means the reader has to work out which one is real");
+  /* v1.176.1 - AND THE TWO SURFACES COUNT THE SAME THINGS. The summary read
+     "Attention 0" while the Desk page one tap away read 4: the summary counted
+     the desk's own items and the page counted the watcher findings as well.
+     One hook, one request (useCachedApi keys on the path), one answer. */
+  {
+    const deskSrc = read("components/portal/one-desk.tsx");
+    const watchSrc = read("components/portal/watchers-card.tsx");
+    ok("the attention figure counts the watcher findings on BOTH surfaces",
+       /export function useWatcherOpenCount/.test(watchSrc)
+       && /useCachedApi<Data>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(watchSrc)
+       && /const attentionCount = watching == null \? null : attention\.length \+ watching;/.test(deskSrc)
+       && /const attentionCount = watching == null \? null : attention\.length \+ watching;/.test(read("components/portal/desk-page.tsx")),
+       "a figure that ignores what is rendered under it is a wrong figure");
+    ok("neither figure strip strands a tile on a row of its own",
+       !/erp-tiles-3/.test(deskSrc) && /erp-tiles-2/.test(deskSrc)
+       && /cols=\{2\}/.test(read("components/portal/desk-page.tsx")),
+       "three tiles wrap to 2 + 1 at 390px; the third sat alone at half width");
+    ok("a zone caption and the card title inside it are never the same words",
+       /bare\?: boolean;/.test(deskSrc) && /\{!bare && <PanelTitle icon="orders">/.test(deskSrc)
+       && /which="decide" bare/.test(read("components/portal/desk-page.tsx")),
+       "\"NEEDS YOUR DECISION\" printed directly above \"Needs your decision - 1\"");
+  }
   {
     const deskPage = read("components/portal/desk-page.tsx");
     ok("the Desk is a registered tab with its own page, so its header names it",

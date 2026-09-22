@@ -32,10 +32,15 @@
 .mono {
   font-family: var(--font-mono);
 }
+/* v1.176.1 - an order reference is an IDENTIFIER: one row, one line, and the
+   reader scrolls the table. "ELF-1001" was breaking at the hyphen into a
+   28px-wide two-line stack on the owner's phone. Same rule as
+   .erp-td-oneline, kept here because this span is inside a DataTable cell. */
 .monoXs {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1rem;
+  white-space: nowrap;
 }
 .phone {
   margin-left: 0.25rem;

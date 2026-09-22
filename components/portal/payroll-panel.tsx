@@ -1062,7 +1062,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           ? L("Released", "Dikeluarkan")
           : L(`Available from ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`, `Tersedia dari ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`)}
       </p>}
-      <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
+      {/* v1.176.1 - ONE SCROLLER, SIDEWAYS. The owner, 22-09-2026: "payroll
+          tabs like that stuck". This box was `max-h-[30rem] overflow-y-auto`
+          as well as `overflow-x-auto`, so on a phone a thumb anywhere over the
+          table drove the TABLE's own vertical scroller and the page underneath
+          refused to move. The register is a record, not a widget: the page
+          scrolls it, and only the money slides sideways past the pinned name
+          column. `.erp-table-scroll` is the system's name for that. */}
+      <div className="erp-table-scroll erp-mt-3">
         <table className="tbl-sticky tbl-sticky-lead w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
@@ -1072,7 +1079,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 ["comm", L("Commission", "Komisen")],
                 ["allow", L("Allowance", "Elaun")],
                 ["ot", L("OT (hrs)", "OT (jam)")],
-                ["deduct", L("Deduction", "Potongan")],
+                /* v1.176.1 - SAY WHICH DEDUCTION THIS IS. The owner read the
+                   empty box as "nothing will be deducted" and asked for it to
+                   auto-fill. It is the MANUAL late/other deduction and always
+                   has been; the automatic ones - unpaid leave, incomplete
+                   month, salary advance - are computed by the server and
+                   already itemised under Net. No figure or rule changes: the
+                   heading now says what the box is for. */
+                ["deduct", L("Deduction (manual)", "Potongan (manual)")],
                 ["net", L("Net", "Bersih")]
               ] as [PrCol, string][]).map(([col, label]) => (
                 <th key={col} className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none"

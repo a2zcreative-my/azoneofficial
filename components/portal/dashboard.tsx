@@ -37,7 +37,7 @@ export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = 
   shift: ["day", "desk", "month", "company", "around"],
 };
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnHero, btnHeroPrimary, btnSm, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./dashboard.module.css";
@@ -1143,24 +1143,24 @@ export function Dashboard({
              punch record appears only when it adds something this does not. */
           <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
             {openNow
-              ? L(`On shift · clocked in at ${openSince}`, `Dalam syif · daftar masuk ${openSince}`)
+              /* v1.176.1 - the title beside this chip already says "On shift";
+                 the chip carries the TIME and the tone carries the state. The
+                 owner, 22-09-2026: "On shift" was printed three times in one
+                 row - the title, this chip and an "On Shift" link button. */
+              ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
               : hasOut
                 ? L(`Clocked out · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`, `Daftar keluar · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`)
                 : L("Not clocked in yet", "Belum daftar masuk")}
           </span>
         )}
         </div>
-        {/* v1.172.1: a compact link beside the title on every width - as a
-            full-width pill it read as the first action on a phone.
-            v1.176.0: only in the Dashboard→On Shift direction. On the On Shift
-            tab it was a "Dashboard" button one thumb-width above the bottom
-            bar's own Dashboard stop. */}
-        {!shiftOnly && (
-          <button type="button" className={btnSm} onClick={() => go("On Shift")}>
-            <AppIcon name="time" className="erp-icon" />
-            {L("On Shift", "Syif Saya")}
-          </button>
-        )}
+        {/* v1.176.1 - THE LINK IS THE NAVIGATION'S JOB. This pill sat beside a
+            title that already read "On shift", one thumb-width above the phone
+            bar's own On Shift stop (and beside the rail's, on a desktop). A
+            shortcut to a destination the shell already offers on every screen
+            is a third printing of the same word, not a convenience. Removed in
+            both directions now - the On Shift tab lost its "Dashboard" twin in
+            v1.176.0. */}
         </div>
         {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
@@ -1305,16 +1305,33 @@ export function Dashboard({
             {/* v1.133.2 — the SHIFTS, including roster and live-board
                 assignments, not only the pattern. One clock-in per shift;
                 a day with none has nothing to clock in for. */}
-            {shiftOnly ? (todayShift.entry?.work_label === "" ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
-                : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}`, `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}`))
-              : (todayShift.slots?.length ?? todayShift.windows.length) === 0
-              ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
-                  "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
-              : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
-                  `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
+            {/* v1.176.1 - THE RULE IS STATED WHERE THE CLOCK LIVES. Both cards
+                printed a paragraph about the shift; the Dashboard's was the
+                LONGER one, which is backwards. On Shift owns the punch, so it
+                carries the rule in full; the Dashboard carries the SUMMARY -
+                the hours, and how many are left. No rule is changed. */}
+            {!shiftOnly
+              ? (todayShift.slots?.length ?? todayShift.windows.length) === 0
+                ? L("Rest day on your pattern.", "Hari rehat pada corak anda.")
+                : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}`,
+                    `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}`)
+              : todayShift.entry?.work_label === ""
+                ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
+                : (todayShift.slots?.length ?? todayShift.windows.length) === 0
+                  ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
+                      "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
+                  : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
+                      `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
           </p>
         )}
-        {fence?.configured && (
+        {/* v1.176.1 - THE LOCATION STRIP HAS ONE HOME. It is configuration, not
+            a live probe, and it was drawn in full on the Dashboard AND on On
+            Shift - the same shield, the same button, the same sentence, twice
+            a day. On Shift owns the punch, so it owns the readiness strip.
+            Nothing is lost from the Dashboard punch: the real check is
+            server-side AT the punch, and its failure still renders
+            LocationHelp below. */}
+        {shiftOnly && fence?.configured && (
           <>
             {/* v1.15.0 — phone: the reference's readiness strip. Config only,
                 deliberately NOT a live GPS probe: reading the position here
@@ -1406,7 +1423,7 @@ export function Dashboard({
             all. Nothing is hidden that the chip does not already say. */}
         {!attKnown ? (
           <Skel className={css.punchesSkel} h={12} w={192} />
-        ) : (today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
+        ) : (shiftOnly || today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
           <p className={css.punches}>
             {today.length === 0 && todayOt.length === 0
               ? L(
@@ -1445,7 +1462,7 @@ export function Dashboard({
           oldest things waiting, and the way in. One quiet line when there is
           nothing. The card reads the SAME /staff/desk the Desk page does, so
           the two can never disagree and the second view costs no request. */}
-      <DeskSummary go={(t) => go(t as TabName)} />
+      <DeskSummary go={(t) => go(t as TabName)} role={user.role} />
       </section>
   );
 

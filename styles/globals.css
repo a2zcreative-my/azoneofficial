@@ -706,6 +706,17 @@ input[type="time"]:not(.erp-input-sm) {
   background: var(--card);
   box-shadow: inset -1px 0 0 0 var(--border);
 }
+/* v1.176.1 — every cell in the pinned-lead register reads from the same top
+   line. The name cell was `align-top` and the money cells fell back to
+   `vertical-align: middle`, so a two-line name (name over job title) pushed
+   its own row's inputs half a row down and the register looked shuffled on
+   the owner's phone, 22-09-2026. Alignment only; no column, figure or rule
+   changes. */
+.tbl-sticky-lead tbody td,
+.tbl-sticky-lead tbody th,
+.tbl-sticky-lead tfoot td,
+.tbl-sticky-lead tfoot th { vertical-align: top; }
+
 .tbl-sticky-lead thead th:first-child {
   position: sticky;
   left: 0;

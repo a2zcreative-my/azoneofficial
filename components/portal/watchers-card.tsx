@@ -72,6 +72,23 @@ export const WATCHER_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
  *               Setup zone at the foot of the page, per the tab concept's
  *               figures → work → records → setup order.
  */
+/**
+ * v1.176.1 - HOW MANY THINGS THE RULES CURRENTLY FIND. The Desk's "Needs
+ * attention" figure read 0 while the watchers card two inches below it read
+ * "4 open", because the figure counted only the desk's own items. Both now
+ * come from here, and `useCachedApi` keys on the path, so this shares the
+ * request the card itself makes - no extra fetch, and the two cannot part
+ * company. Returns null while the answer is not KNOWN, so the tile shows
+ * "···" rather than a false zero (v1.25.1).
+ */
+export function useWatcherOpenCount(role: string): number | null {
+  const exec = WATCHER_ROLES.includes(role);
+  const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
+  if (!exec) return 0;
+  if (!view.data) return null;
+  return view.data.open.length;
+}
+
 export function WatchersCard({ role, go, bare = false, section = "both" }: { role: string; go: (tab: string) => void; bare?: boolean; section?: "both" | "findings" | "rules" }) {
   const exec = WATCHER_ROLES.includes(role);
   const canEdit = role === "ceo" || role === "super_admin";

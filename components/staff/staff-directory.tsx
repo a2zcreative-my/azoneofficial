@@ -1337,8 +1337,17 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
         if (!open.has(u.id)) return null;
         return (
           <div key={u.id} className={card}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-sm font-medium">
+            {/* v1.176.1 - THE ROW CONTRACT, ON A RECORD HEADER. The owner's
+                phone, 22-09-2026: the role beside his name came out as "c / e
+                / o", one letter per line. This inner span was `flex
+                items-center` with no wrap and no `min-width: 0`, so on a
+                390px screen it was squeezed under its own content and every
+                child fell back to its MINIMUM contribution - which for a bare
+                word is one character. Same rule as v1.174.3: the words are
+                `.erp-row-lead` (shrinkable, wrapping), the controls are
+                `.erp-row-actions`. */}
+            <div className="erp-flex erp-flex-wrap erp-flex-between erp-gap-2">
+              <span className="erp-flex erp-flex-wrap erp-row-lead text-sm font-medium">
                 {selectMode && (
                 <input
                   type="checkbox"
@@ -1408,7 +1417,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                   details — and without flex-wrap the row ran past the
                   right edge of the phone screen (Hide details clipped).
                   flex-wrap + justify-end = v1.4.154 phone standard. */}
-              <span className="flex flex-wrap items-center justify-end gap-2">
+              <span className="erp-row-actions">
                 {saved === u.id && <span className="text-xs font-medium text-success">{L("Saved ✓","Disimpan ✓")}</span>}
                 {rowMsg[u.id] && <span className="text-destructive text-xs font-medium">{rowMsg[u.id]}</span>}
                 {open.has(u.id) && !readOnly && (

@@ -2617,7 +2617,8 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             {L("No documents yet.", "Tiada dokumen lagi.")}
           </p>
         )}
-        <div className="max-h-96 overflow-y-auto">
+        {/* v1.176.1 - the page scrolls this list, not a 384px window inside it. */}
+        <div>
           {loaded && docs.map((d) => (
             <div
               key={d.id}

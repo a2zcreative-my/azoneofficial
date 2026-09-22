@@ -270,7 +270,8 @@ export function VerificationCard() {
       {err && <p className="text-danger mt-2 text-xs font-medium">{err}</p>}
       <StaleHint show={report.stale} className="mt-2" />
 
-      <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
+      {/* v1.176.1 - sideways only; the page owns the vertical gesture. */}
+      <div className="erp-table-scroll erp-mt-3">
         <table className="tbl-sticky w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">

@@ -250,4 +250,5 @@ console.log("  plus tests/browser/ (a rendered page, not source):");
 console.log("    pnpm build && node tests/browser/serve.mjs out 4177 &");
 console.log("    WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # past the page box");
 console.log("    xvfb-run -a python3 tests/browser/table-shred.py                 # a shredded column");
+  console.log("    xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps");
 console.log("    ROLE=ceo|sales_marketing|live_host on the server walks each dashboard order\n");

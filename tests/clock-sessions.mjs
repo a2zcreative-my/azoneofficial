@@ -257,18 +257,35 @@ ok("...and does not OFFER Clock in on that answer",
 {
   /* the CODE, not the prose explaining why the code is the way it is */
   const dashCode = dash.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+  /* v1.176.1 - the chip no longer repeats the WORD the title beside it already
+     says ("On shift"); it carries the TIME, and the chip's tone carries the
+     state. The owner counted "On shift" three times in that one row. */
   ok("the clock shows ONE status and ONE action - the fact is never printed twice",
-     /On shift · clocked in at \$\{openSince\}/.test(dashCode)
+     /L\(`Clocked in at \$\{openSince\}`/.test(dashCode)
+     && !/On shift · clocked in at/.test(dashCode)
      && !/Clocked in ✓/.test(dashCode)
      && !/tr\("Clocked out ✓", lang\)/.test(dashCode),
-     "the chip carries the state and its time; the button carries only what you can do");
+     "the chip carries the time and the tone carries the state; the title says 'On shift' once");
   ok("a finished shift's two times are on the chip, so nothing below repeats them",
      /Clocked out · \$\{firstIn\}\$\{lastOut \? ` → \$\{lastOut\}` : ""\}/.test(dashCode));
   ok("the day's punch record is drawn only when it says something the chip does not",
-     /today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode),
-     "one clean pair is already on the chip; more than one shift, or any OT, is not");
-  ok("the On Shift tab carries no Dashboard shortcut - the bottom bar has one",
-     /\{!shiftOnly && \(\s*<button type="button" className=\{btnSm\} onClick=\{\(\) => go\("On Shift"\)\}/.test(dashCode));
+     /shiftOnly \|\| today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode),
+     "one clean pair is already on the chip; more than one shift, or any OT, is not - and On Shift owns the record, so it always shows it");
+  /* v1.176.1 - and no shortcut in the OTHER direction either. A pill reading
+     "On Shift", beside a title reading "On shift", one thumb above the bottom
+     bar's own On Shift stop, is the same word three times, not a convenience.
+     The shell navigates; a card does not need to. */
+  ok("neither card carries a shortcut to the other - the bottom bar and the rail navigate",
+     !/go\("On Shift"\)/.test(dashCode) && !/go\("Dashboard"\)\}>/.test(dashCode),
+     "the Dashboard lost its On Shift pill in v1.176.1; On Shift lost its Dashboard twin in v1.176.0");
+  /* v1.176.1 - the rule paragraph and the office-location strip are drawn on
+     the page that OWNS the punch, not on both. The Dashboard keeps a summary
+     line (the hours, and how many are left) and the punch buttons. */
+  ok("the shift RULE is stated once, where the clock lives",
+     /\{shiftOnly && fence\?\.configured && \(/.test(dashCode)
+     && /One clock in and out per shift/.test(dashCode)
+     && (dashCode.match(/One clock in and out per shift/g) ?? []).length === 1,
+     "both cards printed a paragraph about the shift, and the Dashboard's was the longer one");
   ok("the location check is ONE control, and the guidance paragraph is guidance only",
      (dashCode.match(/checkLocation\(\)/g) ?? []).length === 1
      && !/fenceCheck/.test(dashCode) && !/fenceVerdict/.test(dashCode),

@@ -186,7 +186,8 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
           {L("No tasks.", "Tiada tugasan.")}
         </p>
       )}
-      <div className="max-h-96 overflow-y-auto">
+      {/* v1.176.1 - the page scrolls this list, not a 384px window inside it. */}
+      <div>
         {rows.map((t) => {
           /* v1.42.0: the list is a monitoring surface — an overdue task is
              RED before anyone reads a date, an unacknowledged assignment
@@ -274,7 +275,7 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
                     </option>
                   ))}
                 </select>
-                <span className="text-muted-foreground text-xs">
+                <span className="erp-nowrap text-muted-foreground text-xs">
                   {t.progress}%
                 </span>
                 {canDelete && (

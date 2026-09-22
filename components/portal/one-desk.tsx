@@ -50,6 +50,7 @@ import { makeApi } from "@/lib/api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { btnSm, btnSmQuiet, card, chipAction, chipNeutral } from "@/lib/ui-styles";
+import { useWatcherOpenCount } from "@/components/portal/watchers-card";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
 import css from "./one-desk.module.css";
@@ -206,11 +207,20 @@ export function useTakeEnquiry(userId: number | undefined, refresh: () => void) 
  * and the person should not have to decide which of two identical lists is
  * the real one.
  */
-export function DeskSummary({ go, bare = false }: { go: (tab: string) => void; bare?: boolean }) {
+export function DeskSummary({ go, role = "", bare = false }: { go: (tab: string) => void; role?: string; bare?: boolean }) {
   const desk = useDeskData();
   const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
-  const { decide, attention, myTasks } = useMemo(() => splitDesk(items), [items]);
+  const { decide, attention } = useMemo(() => splitDesk(items), [items]);
   const overdue = items.filter((i) => i.overdue).length;
+  /* v1.176.1 - THE SAME TWO FIGURES THE DESK PAGE SHOWS, FROM THE SAME TWO
+     REQUESTS. This card read "Attention 0" while the Desk page one tap away
+     read 4, because this one counted the desk's items and the page counted
+     the watcher findings as well. Both now add the findings; `useCachedApi`
+     keys on the path, so neither card costs a request the other did not
+     already make. My tasks left the strip: Tasks owns that number, and an
+     odd tile stranded the third one on a row of its own. */
+  const watching = useWatcherOpenCount(role);
+  const attentionCount = watching == null ? null : attention.length + watching;
 
   if (desk.loading) {
     return (
@@ -238,21 +248,16 @@ export function DeskSummary({ go, bare = false }: { go: (tab: string) => void; b
         {L("Waiting on you", "Menunggu anda")}
         <StaleHint show={desk.stale} className="ml-2" />
       </PanelTitle>
-      <div className="erp-tiles erp-tiles-3 erp-mt-2">
+      <div className="erp-tiles erp-tiles-2 erp-mt-2">
         <button type="button" className={`erp-stat erp-stat-button ${decide.length > 0 ? "erp-stat-warning" : ""}`}
           onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
           <span className="erp-stat-value">{decide.length}</span>
-          <span className="erp-stat-label">{L("Decisions", "Keputusan")}</span>
+          <span className="erp-stat-label">{L("Needs your decision", "Perlu keputusan anda")}</span>
         </button>
         <button type="button" className="erp-stat erp-stat-button"
           onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
-          <span className="erp-stat-value">{attention.length}</span>
-          <span className="erp-stat-label">{L("Attention", "Perhatian")}</span>
-        </button>
-        <button type="button" className="erp-stat erp-stat-button"
-          onClick={() => go("Tasks")} title={L("Open Tasks", "Buka Tugasan")}>
-          <span className="erp-stat-value">{myTasks.length}</span>
-          <span className="erp-stat-label">{L("My tasks", "Tugasan saya")}</span>
+          <span className="erp-stat-value">{attentionCount == null ? <span className="erp-stat-busy" aria-hidden>···</span> : attentionCount}</span>
+          <span className="erp-stat-label">{L("Needs attention", "Perlu perhatian")}</span>
         </button>
       </div>
       {preview.length > 0 && (
@@ -261,7 +266,7 @@ export function DeskSummary({ go, bare = false }: { go: (tab: string) => void; b
         </ul>
       )}
       <button type="button" className={`${btnSm} mt-3`} onClick={() => go("Desk")}>
-        {L(`Open the Desk — ${decide.length + attention.length}`, `Buka Meja — ${decide.length + attention.length}`)}
+        {L(`Open the Desk — ${decide.length + (attentionCount ?? attention.length)}`, `Buka Meja — ${decide.length + (attentionCount ?? attention.length)}`)}
       </button>
     </div>
   );
@@ -272,18 +277,23 @@ export function DeskSummary({ go, bare = false }: { go: (tab: string) => void; b
 const SHOW_FIRST = 8;
 
 /** One list, with its caption and its "show all". */
-function Group({ label, hint, list, go, take, busyId, failedId, failWhy }: {
+function Group({ label, hint, list, go, take, busyId, failedId, failWhy, bare = false }: {
   label: string; hint: string; list: DeskItem[];
   go: (tab: string) => void;
   take?: (i: DeskItem) => void;
   busyId: string | null; failedId: string | null; failWhy: string;
+  /** v1.176.1 - the caller's zone caption already says this group's name and
+      its count, so the card must not print the heading a second time. See
+      desk-page.tsx: a zone label and the card title inside it were the same
+      six words, one above the other, on every zone of the page. */
+  bare?: boolean;
 }) {
   const [all, setAll] = useState(false);
   if (list.length === 0) return null;
   const shown = all ? list : list.slice(0, SHOW_FIRST);
   return (
     <div className={card}>
-      <PanelTitle icon="orders">{label} — {list.length}</PanelTitle>
+      {!bare && <PanelTitle icon="orders">{label} — {list.length}</PanelTitle>}
       <p className="erp-meta">{hint}</p>
       <ul className="erp-mt-2">
         {shown.map((i) => (
@@ -301,7 +311,7 @@ function Group({ label, hint, list, go, take, busyId, failedId, failWhy }: {
 }
 
 /** The Desk page's two lists. The page owns the zones around them. */
-export function DeskQueue({ go, userId, which }: { go: (tab: string) => void; userId?: number; which: "decide" | "attention" }) {
+export function DeskQueue({ go, userId, which, bare = false }: { go: (tab: string) => void; userId?: number; which: "decide" | "attention"; bare?: boolean }) {
   const desk = useDeskData();
   const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
   const { decide, attention } = useMemo(() => splitDesk(items), [items]);
@@ -344,10 +354,10 @@ export function DeskQueue({ go, userId, which }: { go: (tab: string) => void; us
     );
   }
   return which === "decide"
-    ? <Group label={L("Needs your decision", "Perlu keputusan anda")}
+    ? <Group bare={bare} label={L("Needs your decision", "Perlu keputusan anda")}
         hint={L("Nobody else can move these.", "Tiada orang lain boleh menggerakkannya.")}
         list={decide} go={go} busyId={busyId} failedId={failedId} failWhy={failWhy} />
-    : <Group label={L("Needs attention", "Perlu perhatian")}
+    : <Group bare={bare} label={L("Needs attention", "Perlu perhatian")}
         hint={L("Answer, acknowledge or take these.", "Jawab, akui atau ambil yang ini.")}
         list={attention} go={go} take={take} busyId={busyId} failedId={failedId} failWhy={failWhy} />;
 }

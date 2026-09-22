@@ -28,17 +28,30 @@
  * is drawn entirely from `/staff/desk` and `/staff/watchers`, both of which the
  * Dashboard's summary card already reads — `useCachedApi` keys on the path, so
  * this page costs no extra request and the two can never disagree.
+ *
+ * v1.176.1 — TWO THINGS THE OWNER CAUGHT ON THE PHONE.
+ *   1. Every zone printed its name twice: the small-caps zone caption, then
+ *      the card's own title one line below it ("NEEDS YOUR DECISION" over
+ *      "Needs your decision — 1"). The COUNT is the only part the caption was
+ *      missing, so the caption carries it and the cards are `bare`.
+ *   2. "NEEDS ATTENTION 0" sat directly above "Watchers — 4 open". The figure
+ *      counted the desk's own items and ignored the findings rendered beneath
+ *      it. One number now covers everything in the zone.
  */
 
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { DeskBucketChips, DeskQueue, splitDesk, useDeskData, waited } from "@/components/portal/one-desk";
 import { SummaryStat, SummaryStrip } from "@/components/portal/tab-concept";
-import { WATCHER_ROLES, WatchersCard } from "@/components/portal/watchers-card";
+import { WATCHER_ROLES, WatchersCard, useWatcherOpenCount } from "@/components/portal/watchers-card";
 import { PanelTitle } from "@/components/ui/app-icon";
 import { btnSm, card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+
+/** "Needs your decision" + the count, as ONE caption. The count is what the
+    reader came for and the card below no longer repeats the words. */
+const withCount = (label: string, n: number | null) => (n == null ? label : `${label} — ${n}`);
 
 export function DeskPage({ user, go }: {
   user: { id: number; role: string };
@@ -48,14 +61,24 @@ export function DeskPage({ user, go }: {
   const items = desk.data?.items ?? [];
   const { decide, attention, myTasks } = splitDesk(items);
   const exec = WATCHER_ROLES.includes(user.role);
+  const watching = useWatcherOpenCount(user.role);
+  /* one figure for the whole zone: the desk's own exceptions PLUS what the
+     company's rules currently find true, because both are rendered in it */
+  const attentionCount = watching == null ? null : attention.length + watching;
   /* the oldest thing waiting on a decision — the one number that says whether
      this queue is under control, and the only place the page states it */
   const oldest = decide.length > 0 ? waited(decide[decide.length - 1]?.since ?? null) : "";
+  const known = !desk.loading;
+  const overdue = myTasks.filter((t) => t.overdue).length;
 
   return (
     <TabPage>
       <TabZone label={L("At a glance", "Sepintas lalu")}>
-        <SummaryStrip cols={3} ariaLabel={L("Desk summary", "Ringkasan meja")}>
+        {/* two figures, two columns: a three-tile strip on a 390px phone wraps
+            to 2 + 1 and leaves the third stranded on a row of its own. The
+            tasks count is not a third tile — it is stated once, in its own
+            zone caption below. */}
+        <SummaryStrip cols={2} ariaLabel={L("Desk summary", "Ringkasan meja")}>
           <SummaryStat
             label={L("Needs your decision", "Perlu keputusan anda")}
             value={decide.length}
@@ -65,42 +88,34 @@ export function DeskPage({ user, go }: {
           />
           <SummaryStat
             label={L("Needs attention", "Perlu perhatian")}
-            value={attention.length}
-            tone={attention.length > 0 ? "brand" : "neutral"}
-            busy={desk.loading}
-          />
-          <SummaryStat
-            label={L("Your tasks", "Tugasan anda")}
-            value={myTasks.length}
-            busy={desk.loading}
-            onClick={() => go("Tasks")}
-            title={L("Open Tasks — the full list lives there", "Buka Tugasan — senarai penuh ada di sana")}
+            value={attentionCount ?? 0}
+            tone={(attentionCount ?? 0) > 0 ? "brand" : "neutral"}
+            busy={desk.loading || attentionCount == null}
           />
         </SummaryStrip>
         <DeskBucketChips go={go} />
       </TabZone>
 
-      <TabZone label={L("Needs your decision", "Perlu keputusan anda")}>
-        <DeskQueue go={go} userId={user.id} which="decide" />
+      <TabZone label={withCount(L("Needs your decision", "Perlu keputusan anda"), known ? decide.length : null)}>
+        <DeskQueue go={go} userId={user.id} which="decide" bare />
       </TabZone>
 
-      <TabZone label={L("Needs attention", "Perlu perhatian")}>
-        <DeskQueue go={go} userId={user.id} which="attention" />
+      <TabZone label={withCount(L("Needs attention", "Perlu perhatian"), known ? attentionCount : null)}>
+        <DeskQueue go={go} userId={user.id} which="attention" bare />
         {/* what the company's rules currently find true, grouped by rule */}
         {exec && <WatchersCard role={user.role} go={go} section="findings" />}
       </TabZone>
 
-      <TabZone label={L("Your tasks", "Tugasan anda")}>
+      <TabZone label={withCount(L("Your tasks", "Tugasan anda"), known ? myTasks.length : null)}>
         {/* v1.176.0 — a COUNT AND A LINK, never the list. Tasks owns the list,
             the detail, the scope checklist and the progress actions; repeating
             them here is how the same task ended up on six screens. */}
         <div className={card}>
-          <PanelTitle icon="assignment">{L("Your tasks", "Tugasan anda")}</PanelTitle>
           <p className="erp-meta">
             {myTasks.length === 0
               ? L("Nothing assigned to you is open.", "Tiada tugasan anda yang terbuka.")
-              : L(`${myTasks.length} open${myTasks.filter((t) => t.overdue).length > 0 ? `, ${myTasks.filter((t) => t.overdue).length} overdue` : ""}. They are worked on the Tasks tab.`,
-                  `${myTasks.length} terbuka${myTasks.filter((t) => t.overdue).length > 0 ? `, ${myTasks.filter((t) => t.overdue).length} lewat` : ""}. Ia diuruskan pada tab Tugasan.`)}
+              : L(`${overdue > 0 ? `${overdue} overdue. ` : ""}They are worked on the Tasks tab.`,
+                  `${overdue > 0 ? `${overdue} lewat. ` : ""}Ia diuruskan pada tab Tugasan.`)}
           </p>
           <button type="button" className={`${btnSm} erp-mt-2`} onClick={() => go("Tasks")}>
             {L("Open Tasks", "Buka Tugasan")}

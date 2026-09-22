@@ -2,6 +2,113 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.176.1] - 2026-09-22 - The same interface on every tab
+
+The owner, 22-09-2026, on his phone after v1.176.0: *"I observed with repeat
+function on different tabs, also I noticed that payroll tabs like that stuck
+and the deduction should auto filled. For staff data was not aligned well.
+Audit all to ensure that the tabs and interface are globally same and nice!"*
+
+### The audit is in the repository
+
+`tests/browser/ui-audit.py` walks all 32 tabs in WebKit at 390px and reports
+five kinds of defect, none of which the overflow sweep can see, because nothing
+overflows:
+
+| | what it finds | what it found first |
+| --- | --- | --- |
+| ECHO | a zone caption and the card title under it are the same words | "NEEDS YOUR DECISION" over "Needs your decision — 1" |
+| REPEAT | one card prints the same phrase twice | "On shift" as the title, the chip AND a link button |
+| SHRED | an element rendering under ~3 characters per line | the role beside a name as "c / e / o" |
+| TRAP | a scroll container nested inside the page on a phone | Payroll: a thumb on the table would not move the page |
+| ORPHAN | a tile grid whose last row holds one narrow tile | three figures wrapping to 2 + 1 |
+
+First run: **40 findings across 13 tabs.** After the changes below: **0**, in
+EN light, EN dark and BM light.
+
+### The design system, so the class of defect cannot come back
+
+- **`.erp-chip` is `white-space: nowrap`.** A chip is a short state on a pill;
+  inside a narrow column it was free to wrap, so Finance's "In" and Inventory's
+  "low" came out as two one-letter lines in a pill two characters wide.
+- **`.erp-nowrap`, and `.erp-row-actions > span` by rule.** A figure and its
+  unit are one word: "1 QT", "0 live", "20%", "· 0.25" were all breaking at
+  their single space. v1.174.3 already says the GROUP wraps and the item does
+  not; this states the second half in CSS.
+- **No stranded tile.** On a phone `.erp-tiles > :last-child:nth-child(odd)`
+  takes the whole row, so an odd set ends on a footing instead of a gap.
+- **`.tbl-sticky-lead` cells are top-aligned.** The name cell was `align-top`
+  and the money cells fell back to `middle`, so a two-line name pushed its own
+  row's inputs half a row down.
+- **A hand-rolled pill became `.erp-chip`** (`role-panels.tsx` `Badge`).
+
+### One home per workflow, continued
+
+- **The shift card stopped being two cards.** The Dashboard and On Shift both
+  drew the full punch card. On Shift owns the punch, so it carries the rule
+  paragraph and the office-location readiness strip; the Dashboard carries the
+  status, the one clock action and a summary line (the hours, how many are
+  left). The Dashboard's "On Shift" pill is gone — the bottom bar and the rail
+  both already have that stop, and beside a title reading "On shift" it was the
+  same word three times. The status chip now reads "Clocked in at 08:06": the
+  title says the state, the chip says the time, the tone says the rest.
+- **The Desk's zone captions carry the count, the cards no longer repeat the
+  caption.** `DeskQueue`/`Group` gained `bare`.
+- **The attention figure counts what is rendered under it.** "NEEDS ATTENTION
+  0" sat directly above "Watchers — 4 open"; both surfaces now add the watcher
+  findings through `useWatcherOpenCount`, which shares the card's own request.
+- **The Dashboard summary and the Desk page show the same two figures.** My
+  tasks left the strip — Tasks owns that number.
+- **Two labels disambiguated:** Inventory's second filter strip opens with "All
+  categories" rather than a second "All 2"; Finance's payroll button reads
+  "Mark salary paid".
+
+### Payroll and Staff
+
+- **The register is no longer "stuck".** The table was `max-h-[30rem]
+  overflow-y-auto` as well as `overflow-x-auto`, so on a phone a thumb over it
+  drove the table and the page underneath refused to move. It is
+  `.erp-table-scroll` now: sideways only, the page owns the vertical gesture.
+  The same nested scroller was removed from Attendance, Assets, Sales, Tasks
+  and the verification card.
+- **"Deduction" is now "Deduction (manual)".** The empty box read as "nothing
+  will be deducted". It is the manual late/other deduction and always has been;
+  unpaid leave, incomplete month and salary advance are computed by the server
+  and already itemised under Net. **No payroll figure or rule was changed** —
+  KWSP/SOCSO/EIS are still not implemented because the registration is pending,
+  which the panel's own help paragraph has said since v1.77.0.
+- **The staff record header stopped shredding.** Its inner span was `flex
+  items-center` with no wrap and no `min-width: 0`, so at 390px every child
+  fell back to its minimum contribution and the role rendered one letter per
+  line. It is `.erp-row-lead` + `.erp-row-actions` now, the v1.174.3 contract.
+- **An order reference is one line** (`web-orders-panel.module.css .monoXs`):
+  "ELF-1001" was breaking at the hyphen into a 28px two-line stack.
+
+### Verification
+
+95/95 guards (one-desk 80 → 83, clock-sessions 117 → 118), portal and worker
+typecheck clean, lint 0 errors / 147 warnings, legacy-utility budget 6,949 →
+6,921 with no file rising, `next build` clean. In WebKit at 390px: ui-audit 0
+findings in EN light, EN dark and BM light; overflow sweep 0; shredding probe
+0. **No migration, no permission change, no approval-chain change.**
+
+### Known limitations
+
+- `ui-audit.py` clicks tabs by their ENGLISH label, so a BM run covers the
+  bottom bar's stops and skips what sits behind the More sheet. Pass a Malay
+  `TABS=` list to walk those.
+- The REPEAT check tells a list apart from a real repeat by looking at the
+  containers, so a card whose rows are built from differently-classed wrappers
+  can still produce a false positive; two were investigated by hand this round
+  and both turned out to be real.
+- The deduction column still shows nothing for a person whose only deductions
+  are automatic. The figures are correct and visible under Net; a column that
+  shows the TOTAL the payslip will use is a payroll change, not a layout one,
+  and was deliberately left for its own release.
+- Inventory's and Attendance's filter strips are still hand-rolled pills rather
+  than `tabPill` / `tabPillOn`. They are consistent with each other and pass
+  every guard; converting them is a v1.173.0 tab-concept job.
+
 ## [1.176.0] - 2026-09-22 - One home per workflow
 
 The owner, 22-09-2026: remove duplicated information and overlapping workflows. The map that came out of reading the code first:

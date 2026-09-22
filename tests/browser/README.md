@@ -18,6 +18,7 @@ node tests/browser/serve.mjs out 4177 &
 
 WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # anything past the page box
 xvfb-run -a python3 tests/browser/table-shred.py                 # a column narrower than its own longest word
+xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps, stranded tiles
 ```
 
 `ROLE=` on the server swaps the signed-in role, which is how the role-aware

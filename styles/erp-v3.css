@@ -1196,6 +1196,32 @@
   .erp-pane[hidden] { display: none; }
   /* a table inside a card scrolls inside the card, never the page */
   .erp-table-scroll { overflow-x: auto; margin-inline: -0.25rem; padding-inline: 0.25rem; -webkit-overflow-scrolling: touch; }
+  /* v1.176.1 - A CHIP IS ONE LINE. A chip is a short state - "In", "low",
+     "Paid", "approved" - set on a coloured pill. Inside a narrow table cell
+     or a right-aligned column it was allowed to wrap, so a two-letter word
+     came out as two one-letter lines inside a pill two characters wide
+     (Finance "In", Inventory "low", on the owner's phone 22-09-2026). If a
+     chip cannot fit, its column scrolls - the text does not shred. Same rule
+     as .erp-td-oneline, applied to the vocabulary instead of the cell. */
+  .erp-chip { white-space: nowrap; }
+  /* v1.176.1 - A FIGURE AND ITS UNIT ARE ONE WORD. "1 QT", "0 live", "20%",
+     "· 0.25" all broke at their single space into two lines about twenty
+     pixels wide. Wherever one of these sits, the GROUP around it already
+     wraps, so keeping the pair together costs nothing and stops the shred.
+     Two ways in: the named class, and - by rule, since v1.174.3 says the
+     group wraps and the item does not - any short label sitting directly
+     among a row's actions. */
+  .erp-nowrap { white-space: nowrap; }
+  .erp-row-actions > span:not(.erp-input-sm) { white-space: nowrap; }
+  /* v1.176.1 - NO STRANDED TILE. Two tiles across is the phone layout, so an
+     ODD number of them left the last one alone on a row half the width of
+     the one above it - the Desk's three figures, News's three, Hotels's five.
+     The last tile of an odd set takes the whole row instead, which reads as
+     a deliberate footing rather than a gap. Two across from 640px, where
+     three and four fit, so this only ever applies to the phone. */
+  @media (max-width: 639px) {
+    .erp-tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
 }
 
 /* =====================================================================

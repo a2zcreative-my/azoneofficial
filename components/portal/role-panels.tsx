@@ -170,8 +170,12 @@ function Badge({ value }: { value: string }) {
       : ["ok", "delivered", "closed_won", "done", "in_stock", "approved"].includes(value)
         ?"bg-success-soft text-success"
         : "bg-secondary text-muted-foreground";
+  /* v1.176.1 - on the system's chip, not a hand-rolled pill. As a bare
+     `rounded px-1.5` span it was free to WRAP, so "low" came out as a 32px
+     two-line stack in the right-hand column of Inventory on the owner's
+     phone. `.erp-chip` is one line by rule; the tone stays as it was. */
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>
+    <span className={`erp-chip ${tone}`}>
       {statusLabel(value)}
     </span>
   );
@@ -1126,7 +1130,11 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span className="text-muted-foreground mr-0.5 text-[11px] font-medium uppercase tracking-wide">{L("Category", "Kategori")}</span>
             <span role="tablist" aria-label={L("Show one category", "Tunjuk satu kategori")} className="flex flex-wrap gap-1.5">
-              {([["", L("All", "Semua"), items.length] as const,
+              {/* v1.176.1 - "All categories", not "All". The status strip above
+                  opens with its own "All" button and the two sat inches apart
+                  reading the same word and the same number; which list each
+                  one cleared was anybody's guess. */}
+              {([["", L("All categories", "Semua kategori"), items.length] as const,
                  ...invCats.map((c) => [c, c, items.filter((it) => catOf(it).toLowerCase() === c.toLowerCase()).length] as const),
                  ...(uncatCount > 0 ? [["\u0000none", L("Uncategorised", "Tanpa kategori"), uncatCount] as const] : [])])
                 .map(([k, label, n]) => (
@@ -3878,7 +3886,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
       {/* The records themselves are always here — the chooser above decides
           which FORM is open, never whether he can see the month. */}
-      <div className="mt-3 max-h-[26rem] overflow-x-auto overflow-y-auto">
+      {/* v1.176.1 - see payroll-panel.tsx: a nested vertical scroller steals
+          the phone's scroll gesture from the page. Sideways only. */}
+      <div className="erp-table-scroll erp-mt-3">
         <table className="tbl-sticky w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
@@ -3925,7 +3935,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 <td className={`${td} whitespace-nowrap`}>
                   {dmy(l.date)}
                   {l.days !== 1 && (
-                    <span className="text-muted-foreground ml-1.5 text-xs">
+                    <span className="erp-nowrap text-muted-foreground ml-1.5 text-xs">
                       · {l.days === 0.5 ? L("half day", "setengah hari") : `${l.days}`}
                     </span>
                   )}
@@ -5383,7 +5393,9 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                           onClick={async () => {
                             const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
                             if (res.ok) { showToast(L("Saved", "Disimpan"), L("Payroll payment recorded", "Bayaran gaji direkodkan")); void load(); }
-                          }}>{L("Mark paid", "Tanda dibayar")}</button>
+                          /* v1.176.1 - say WHAT is being marked paid: this card
+                             carries more than one thing that can be. */
+                          }}>{L("Mark salary paid", "Tanda gaji dibayar")}</button>
                       </>
                     )}
                 </span>
