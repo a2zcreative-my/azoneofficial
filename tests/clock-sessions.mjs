@@ -257,30 +257,35 @@ ok("...and does not OFFER Clock in on that answer",
 {
   /* the CODE, not the prose explaining why the code is the way it is */
   const dashCode = dash.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
-  /* v1.176.1 - the chip no longer repeats the WORD the title beside it already
-     says ("On shift"); it carries the TIME, and the chip's tone carries the
-     state. The owner counted "On shift" three times in that one row. */
+  /* v1.176.2 - the Dashboard is a summary and On Shift is the punch page.
+     Dashboard therefore uses the neutral title "Attendance" plus a status chip
+     and navigation CTA; On Shift says "On Shift" in the title and keeps only
+     the time in its chip. */
   ok("the clock shows ONE status and ONE action - the fact is never printed twice",
-     /L\(`Clocked in at \$\{openSince\}`/.test(dashCode)
-     && !/On shift · clocked in at/.test(dashCode)
+     /L\("Attendance", "Kehadiran"\)/.test(dashCode)
+     && /L\(`On shift · clocked in at \$\{openSince\}`/.test(dashCode)
+     && /L\(`Clocked in at \$\{openSince\}`/.test(dashCode)
      && !/Clocked in ✓/.test(dashCode)
      && !/tr\("Clocked out ✓", lang\)/.test(dashCode),
-     "the chip carries the time and the tone carries the state; the title says 'On shift' once");
+     "Dashboard states attendance; On Shift states the punch page and carries the time");
   ok("a finished shift's two times are on the chip, so nothing below repeats them",
      /Clocked out · \$\{firstIn\}\$\{lastOut \? ` → \$\{lastOut\}` : ""\}/.test(dashCode));
   ok("the day's punch record is drawn only when it says something the chip does not",
-     /shiftOnly \|\| today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode),
-     "one clean pair is already on the chip; more than one shift, or any OT, is not - and On Shift owns the record, so it always shows it");
-  /* v1.176.1 - and no shortcut in the OTHER direction either. A pill reading
-     "On Shift", beside a title reading "On shift", one thumb above the bottom
-     bar's own On Shift stop, is the same word three times, not a convenience.
-     The shell navigates; a card does not need to. */
-  ok("neither card carries a shortcut to the other - the bottom bar and the rail navigate",
-     !/go\("On Shift"\)/.test(dashCode) && !/go\("Dashboard"\)\}>/.test(dashCode),
-     "the Dashboard lost its On Shift pill in v1.176.1; On Shift lost its Dashboard twin in v1.176.0");
+     /today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode)
+     && !/shiftOnly \|\| today\.length \+ todayOt\.length/.test(dashCode),
+     "one clean pair is already on the chip; more than one shift, or any OT, is not");
+  /* v1.176.2 - the Dashboard may LINK to the clock workflow, but it must not
+     execute that workflow. On Shift also stays put after a clock-in instead of
+     bouncing back to Dashboard. */
+  ok("Dashboard links into On Shift, and On Shift is the only punch surface",
+     /onClick=\{\(\) => go\("On Shift"\)\}/.test(dashCode)
+     && /const showOt = shiftOnly && otEligible/.test(dashCode)
+     && /\{shiftOnly && !openNow && canClockIn && !hasOut && \(/.test(dashCode)
+     && !/go\("Dashboard"\)/.test(dashCode),
+     "the Dashboard summary is a handoff, not a second clock-in / clock-out card");
   /* v1.176.1 - the rule paragraph and the office-location strip are drawn on
      the page that OWNS the punch, not on both. The Dashboard keeps a summary
-     line (the hours, and how many are left) and the punch buttons. */
+     line (the hours, and how many are left) and a link into On Shift. */
   ok("the shift RULE is stated once, where the clock lives",
      /\{shiftOnly && fence\?\.configured && \(/.test(dashCode)
      && /One clock in and out per shift/.test(dashCode)
@@ -365,7 +370,8 @@ ok("the same eligibility as before: not executives, not part-timers",
    /Executive roles \(CEO\/COO\/CCO\) are not eligible for OT punches/.test(staff) && /meO\?\.employment_status === "part_time"/.test(staff));
 ok("OT out delivers straight to the approvers", /after the working schedule\)\.`,\s*\n\s*`ot:\$\{user\.id\}:\$\{todayO\}`/.test(staff));
 ok("the phone offers OT only after the schedule",
-   /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash));
+   /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = shiftOnly && otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash),
+   "Dashboard links to On Shift; the OT controls render only where punches live");
 /* ---- v1.134.2 — a rest day worked is ONE decision, the CEO's ---------------
    CEO: "OT cant be editable? and cant be remove if it is not valid??? this
    one she work after working day which is supposed for me to decide either
@@ -433,12 +439,14 @@ ok("the punches endpoint ships today's shifts, every block",
 ok("the dashboard uses server session state, with the latest punch as legacy fallback",
    /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = todayShift\?\.entry\?\.clocked_in \?\? \(latestPunch === "clock_in"\);/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
-ok("Clock in is offered whenever nothing is open AND a shift is left, and never otherwise",
-   /\{openNow \? \(/.test(dash) && /\) : canClockIn \? \(/.test(dash) && /Clock in · next shift/.test(dash)
-   && /\{openNow \? \([\s\S]{0,400}?tr\("Clock out", lang\)/.test(dash),
-   "on shift the one action is Clock out; the disabled twin is gone");
-ok("the OT buttons are back, and disabled once the day's pair is done",
-   /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
+ok("On Shift offers Clock in whenever nothing is open AND a shift is left, while Dashboard links in",
+   /\{!shiftOnly \? \(/.test(dash) && /onClick=\{\(\) => go\("On Shift"\)\}/.test(dash)
+   && /\) : openNow \? \(/.test(dash) && /\) : canClockIn \? \(/.test(dash) && /Clock in · next shift/.test(dash)
+   && /\) : openNow \? \([\s\S]{0,400}?tr\("Clock out", lang\)/.test(dash),
+   "on Dashboard the action is a handoff; on On Shift the one action is Clock out");
+ok("the OT buttons are on On Shift, and disabled once the day's pair is done",
+   /const showOt = shiftOnly && otEligible/.test(dash)
+   && /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
 ok("the card names today's shifts - pattern, roster and live board - and says the rule",
    /Today's shifts: \$\{todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Syif hari ini/.test(dash) && /sent to the CEO as overtime/.test(dash));
 ok("a clock-out that produced overtime says so, in hours",

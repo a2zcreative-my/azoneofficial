@@ -755,7 +755,6 @@ export function Dashboard({
         return;
       }
       if (res0.ok) {
-        if (shiftOnly && type === "clock_in" && !res0.data?.pending) { go("Dashboard"); return; }
         setPunchToast({
           title:
             type === "clock_in"
@@ -855,7 +854,6 @@ export function Dashboard({
       return;
     }
     if (res.ok && res.data?.flag) {
-      if (shiftOnly && type === "clock_in") { go("Dashboard"); return; }
       const label: Record<string, string> = {
         ok: L("On time", "Tepat masa"),
         late: L("Marked late", "Ditanda lewat"),
@@ -1048,7 +1046,7 @@ export function Dashboard({
   /* OT is offered after the schedule (nothing open, nothing left to clock in
      for), to eligible staff, until the day's pair is complete. Kept visible
      once an OT in exists so the OT out can never lose its button. */
-  const showOt = otEligible && !openNow && ((todayShift?.can_ot ?? false) || (hasOtIn && !hasOtOut));
+  const showOt = shiftOnly && otEligible && !openNow && ((todayShift?.can_ot ?? false) || (hasOtIn && !hasOtOut));
 
   /* v1.15.0 — personal month stats from the punches already fetched.
      v1.133.0 — hours are the SUM OF THE DAY'S SHIFTS, paired in the order
@@ -1111,6 +1109,14 @@ export function Dashboard({
       : (canOpen ? canOpen("Sales") || canOpen("Ecommerce") : SALES_ROLES.includes(user.role)) ? "sales"
         : "shift";
 
+  const dashboardClockCta = openNow
+    ? L("Open On Shift to clock out", "Buka Syif Saya untuk daftar keluar")
+    : canClockIn
+      ? (shiftsToday > 0
+        ? L("Open On Shift for next shift", "Buka Syif Saya untuk syif seterusnya")
+        : L("Open On Shift to clock in", "Buka Syif Saya untuk daftar masuk"))
+      : L("Open On Shift", "Buka Syif Saya");
+
   /* Daily actions and pending work precede metrics and company reporting. */
   const zoneDay = (
       <section className="erp-stack-tight">
@@ -1123,12 +1129,11 @@ export function Dashboard({
           moved - on every screen size, since the phone view is the same
           tree. */}
       <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : lead === "shift" ? "" : css.heroCompact}`}>
-        {/* "On shift" once clocked in (the reference design's heading),
-            "Quick actions" before that. */}
+        {/* The Dashboard summarises attendance; On Shift names the punch page. */}
         <div className={css.heroHead}>
         <div className={css.heroTitleRow}>
         <PanelTitle icon="time" className={css.heroTitle} tone="inherit">
-          {shiftOnly ? L("On Shift", "Syif Saya") : openNow ? tr("On shift", lang) : tr("Quick actions", lang)}
+          {shiftOnly ? L("On Shift", "Syif Saya") : L("Attendance", "Kehadiran")}
         </PanelTitle>
         {/* v1.172.1 (Interface System V3): the state of the day, said once
             as a chip a member of staff can read at arm's length - on shift
@@ -1143,24 +1148,21 @@ export function Dashboard({
              punch record appears only when it adds something this does not. */
           <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
             {openNow
-              /* v1.176.1 - the title beside this chip already says "On shift";
-                 the chip carries the TIME and the tone carries the state. The
-                 owner, 22-09-2026: "On shift" was printed three times in one
-                 row - the title, this chip and an "On Shift" link button. */
-              ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
+              /* v1.176.2 - on the Dashboard the title is neutral
+                 ("Attendance"), so the chip says the state and the time. On
+                 Shift already names the state, so its chip carries the time. */
+              ? shiftOnly
+                ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
+                : L(`On shift · clocked in at ${openSince}`, `Sedang syif · daftar masuk ${openSince}`)
               : hasOut
                 ? L(`Clocked out · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`, `Daftar keluar · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`)
                 : L("Not clocked in yet", "Belum daftar masuk")}
           </span>
         )}
         </div>
-        {/* v1.176.1 - THE LINK IS THE NAVIGATION'S JOB. This pill sat beside a
-            title that already read "On shift", one thumb-width above the phone
-            bar's own On Shift stop (and beside the rail's, on a desktop). A
-            shortcut to a destination the shell already offers on every screen
-            is a third printing of the same word, not a convenience. Removed in
-            both directions now - the On Shift tab lost its "Dashboard" twin in
-            v1.176.0. */}
+        {/* The page header and bottom bar still handle navigation globally; the
+            Dashboard CTA below is specifically the handoff into the clock
+            workflow, not a second punch surface. */}
         </div>
         {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
         {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
@@ -1190,15 +1192,20 @@ export function Dashboard({
           <div className={shiftOnly ? css.actionsShift : css.actions}>
             {/* v1.172.1: one button height everywhere (the 44px contract) -
                 the On Shift tab used to grow its two buttons to 56px. */}
-            {/* v1.176.0 — THE RELEVANT ACTION, NOT EVERY ACTION. Clock in was
-                a full-width PRIMARY button that spent most of the day disabled
-                and restating the chip above it ("Clocked in ✓ 08:06"); Clock
-                out sat beside it saying "Clocked out ✓" after the fact. Now:
-                on shift → Clock out. Off shift with something left to clock →
-                Clock in. Nothing left to clock → neither, and the chip and the
-                scheduled-hours line say why. The punch handlers, the forgotten-
-                punch arming and every rule behind them are untouched. */}
-            {openNow ? (
+            {/* v1.176.2 — DASHBOARD SUMMARISES, ON SHIFT PUNCHES. Dashboard
+                used to execute the same punch buttons as On Shift, which made
+                the workflow look duplicated. The Dashboard now links to the
+                clock home; On Shift keeps the real punch controls. */}
+            {!shiftOnly ? (
+              <button
+                type="button"
+                className={btnHeroPrimary}
+                onClick={() => go("On Shift")}
+              >
+                <AppIcon name="time" />
+                {dashboardClockCta}
+              </button>
+            ) : openNow ? (
               <button
                 type="button"
                 className={btnHeroPrimary}
@@ -1224,9 +1231,17 @@ export function Dashboard({
                 {whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}
               </p>
             )}
+            {/* v1.176.0 — ON SHIFT'S RELEVANT ACTION, NOT EVERY ACTION. Clock in was
+                a full-width PRIMARY button that spent most of the day disabled
+                and restating the chip above it ("Clocked in ✓ 08:06"); Clock
+                out sat beside it saying "Clocked out ✓" after the fact. Now:
+                on shift → Clock out. Off shift with something left to clock →
+                Clock in. Nothing left to clock → neither, and the chip and the
+                scheduled-hours line say why. v1.176.2 keeps those buttons only
+                on the On Shift page. */}
             {/* the forgotten-punch path: somebody who never clocked in still
                 needs a way to send a clock-out to the CEO to approve */}
-            {!openNow && canClockIn && !hasOut && (
+            {shiftOnly && !openNow && canClockIn && !hasOut && (
               <button
                 type="button"
                 className={btnHero}
@@ -1292,7 +1307,7 @@ export function Dashboard({
         {clockOutDue && (
           <p className="erp-note erp-note-warning erp-mt-2">
             <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
-            — {tr("tap Clock out before you leave.", lang)}
+            — {shiftOnly ? tr("tap Clock out before you leave.", lang) : L("open On Shift to clock out before you leave.", "buka Syif Saya untuk daftar keluar sebelum pulang.")}
           </p>
         )}
         {/* v1.133.0 — the shifts this person is due to clock for today, from
@@ -1420,10 +1435,11 @@ export function Dashboard({
             clock-in, or one clean pair — this line was the third printing of
             the same timestamp. It stays for the days it is the only answer:
             more than one shift, any overtime, or a day with no punches at
-            all. Nothing is hidden that the chip does not already say. */}
+            all. v1.176.2 removes the On Shift override, so a normal single
+            punch or clean pair is not repeated under the chip. */}
         {!attKnown ? (
           <Skel className={css.punchesSkel} h={12} w={192} />
-        ) : (shiftOnly || today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
+        ) : (today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
           <p className={css.punches}>
             {today.length === 0 && todayOt.length === 0
               ? L(

@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.176.2] - 2026-09-22 - Attendance has one action home
+
+The Dashboard no longer performs attendance punches. Its shift card is now a
+summary: title `Attendance`, current status, today's shift summary, and one CTA
+into **On Shift** for the actual clock-in, clock-out, forgotten-punch and OT
+controls. On Shift also stays on On Shift after a successful clock-in instead
+of bouncing back to Dashboard.
+
+The ordinary On Shift timestamp repeat is gone: one clean clock-in or one clean
+clock-in/out pair is stated by the status chip only. The punch record still
+appears when it adds information the chip cannot carry: no punches yet, multiple
+shift punches, or any OT punch. No attendance, geofence, overtime, payroll,
+permission or approval rule changed.
+
+Verification: `tests/clock-sessions.mjs` 118/118, `tests/one-desk.mjs` 83/83,
+portal and worker typecheck clean, **95/95 guards**, lint 0 errors / 147
+warnings. Browser probes were not run in this working copy.
+
 ## [1.176.1] - 2026-09-22 - The same interface on every tab
 
 The owner, 22-09-2026, on his phone after v1.176.0: *"I observed with repeat
