@@ -666,7 +666,7 @@ export function HotelsPanel() {
                     )}
                   </button>
                   {canManage && (
-                    <span className="flex shrink-0 flex-wrap gap-1.5">
+                    <span className="erp-row-actions">
                       <button type="button" className={rowBtn} onClick={() => { setDraft({ ...h, contacts: h.contacts.length ? h.contacts.map((c) => ({ ...c })) : [{ person_name: "", phone: "", phone2: "", email: "" }] }); setOpen(h.id); }}>
                         {L("Edit", "Sunting")}
                       </button>

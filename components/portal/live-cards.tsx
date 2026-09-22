@@ -215,7 +215,7 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
               key={`${p.user_id}:${p.d}`}
               className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-4 py-3 sm:px-5" : "py-2"}`}
             >
-              <span className="min-w-0">
+              <span className="erp-row-lead">
                 <span className="font-medium">{properName(p.name)}</span>{" "}
                 <span className="text-muted-foreground text-xs">
                   {dmy(p.d)} · {p.ot_in}–{p.ot_out}
@@ -229,9 +229,9 @@ export function OtApprovalsCard({ inModal }: { inModal?: boolean } = {}) {
                   )}
                 </span>
               </span>
-              <span className="flex items-center gap-1.5">
+              <span className="erp-row-actions">
                 <input
-                  className={`${inputClassSm} w-36`}
+                  className={inputClassSm}
                   placeholder={L("Note (optional)", "Catatan (pilihan)")}
                   value={note[`${p.user_id}:${p.d}`] ?? ""}
                   onChange={(e) =>
@@ -589,7 +589,7 @@ export function LiveScheduleCard({
               key={sn.id}
               className={`border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-2" : ""}`}
             >
-              <span className="min-w-0">
+              <span className="erp-row-lead">
                 <span className="font-medium">{dmy(sn.session_date)}</span>{" "}
                 <span className="text-muted-foreground">
                   {sn.start_time}

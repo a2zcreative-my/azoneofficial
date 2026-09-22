@@ -2,6 +2,26 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.174.3] - 2026-09-22 - A row's actions wrap; an empty date says what it is for
+
+Four phone screenshots from the owner, 21-09-2026, of the deployed build.
+
+**"Overflow!" (Attendance) and the Sales rows cut at "Report li".** Two shapes of one bug, and the width sweeps had reported 0 on both tabs.
+- *A group that cannot wrap.* The overtime approval row laid a 9rem note field and four buttons out in a single non-wrapping flex line - about 400px of controls inside a 370px card - so **Reject** hung off the edge.
+- *A wrapping group pinned with `shrink-0`.* A flex item that may not shrink is sized by its **one-line max-content**, so its own `flex-wrap` never gets the chance to act. Nine groups across Sales, Enquiries, Hotels, Hankei's and the roster carried it; the Sales client row is the one he photographed.
+
+The system already had the right name - `.erp-row-actions` (wraps; left-aligned on a phone, right-aligned from 640px) - and nothing used it. It now also carries `min-width: 0`, so it can never be pinned, and a note or search field among the actions gets `flex: 0 1 9rem` - same width on the desk, shrinks on a phone instead of pushing the buttons out. The date family is deliberately left out of that rule (below). Fifteen groups across nine panels are now `.erp-row-actions` paired with `.erp-row-lead` on the words, including the five right-aligned ones where a wrapped **Delete** used to strand alone on its own line.
+
+**"Net pay should be based on the complete working day which is I should be able to view the exactly amount" (Payroll).** The calculation is untouched - that is a business rule and he has not given one. What he could not do was *read* it: the payroll table is 820px wide inside a sideways scroller, so he was looking at "RM 1,826.92 / unpaid 2.25d" with the NAME column scrolled off the left. New opt-in modifier beside `.tbl-sticky`: `.tbl-sticky-lead` pins the **first column** to the left edge while the money scrolls past it, exactly as the header row already pins to the top. Applied to the payroll table.
+
+**"Observed the calendar like this!!" (Leave).** The month filter on *Leave - whole company* is empty on purpose ("every month"), and iOS draws **nothing at all** inside an empty date, month or time control - no digits, no placeholder - so it was a blank pill beside RECENTLY DECIDED. Two fixes, both in the system: a control that carries a `placeholder` now shows it while it is empty and not focused (generated content; the engine's own segment placeholders step aside and return on focus, so the keyboard still types a date - verified in Chromium and WebKit), and the small auto-width date controls get a width floor the size of the value they will hold, since an empty one has almost no intrinsic width. The unlayered v1.4.186 cap (`min-width: 0`) now excludes `.erp-input-sm` so the floor can apply; the full-width control is as wide as its column and keeps the cap alone. The Leave filter reads **Every month**.
+
+**Why the probes missed two of these, and what changed.** `/staff/attendance/ot/pending` and `/staff/clients/summary` had no fixture, so both cards rendered EMPTY and a sweep of every tab at every phone width legitimately found nothing. The harness now serves both - with the owner's real shape of data, long Malaysian names, which is what actually overflowed. The WebKit probe also had a bug of its own: `A or B or (None)` returned `None` and crashed the tally, and a tab that failed to render its app shell at all was being counted as a pass; a missing shell is now a finding.
+
+**Guards.** #94 `tab-concept` grew by 13 checks (240): the actions group wraps, shrinks, and breaks left on a phone and right on the desk; a note field among the actions shrinks; the date family is excluded from that rule so it keeps its floor; no screen anywhere reintroduces `shrink-0` on a wrapping group or a row of controls that cannot wrap; the two rows he photographed are lead + actions by name; the sales document rows carry no stranded `justify-end`; a sticky-lead table pins its first column and the payroll table uses it. Against the code as it stands on his PC, 11 of them fail. 95/95 pass. `tests/legacy-utility-budget.json` ratcheted 6,999 -> 6,993; no file rose.
+
+**Verification** (offline sandbox): WebKitGTK (Safari's engine) at 402px across all 27 live tabs with the populated fixtures - 0 past the page's content box, and the overtime and client rows measured inside the card (381px and 374/344/341px against a 431px edge) where before they ran past it; Chromium at 360 / 390 / 430 - only the pre-existing benign ELFIA Traffic artefact, no page overflow; typecheck clean; lint 0 errors / 147 warnings (unchanged); `next build` 31 routes. **No business logic, no migration, no worker change.** `PUSH.bat` NOT run - **nothing deployed.** v1.174.0 (migration 0137), v1.174.1, v1.174.2 and v1.174.3 ship together.
+
 ## [1.174.2] - 2026-09-21 - The toast is a page surface
 
 The owner, 21-09-2026, an iPhone 16 Pro screenshot of the deployed build: tapping **Clocked out** on the Dashboard drew *"Already clocked out"* as a see-through band the full width of the screen, its text tangled with the shift card underneath - *"Why like this? Should globally css style!!"*

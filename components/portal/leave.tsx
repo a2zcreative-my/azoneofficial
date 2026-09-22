@@ -1316,6 +1316,13 @@ export function Leave({ user }: { user: User }) {
                       type="month"
                       className={inputClassSm}
                       value={leaveMonth}
+                      /* v1.174.3 - empty means "every month", and the control
+                         says so: iOS draws nothing inside an empty month
+                         control, and this one was a blank pill on the CEO's
+                         phone. styles/erp-v3.css shows the placeholder
+                         while it is empty (an empty date control says what
+                         it is for). */
+                      placeholder={L("Every month", "Setiap bulan")}
                       aria-label={L("Filter by month", "Tapis ikut bulan")}
                       title={L("Show every leave taken in this month. A leave spanning two months appears under both.", "Tunjuk setiap cuti yang diambil dalam bulan ini. Cuti merentasi dua bulan muncul pada kedua-duanya.")}
                       onChange={(e) => setLeaveMonth(e.target.value)}

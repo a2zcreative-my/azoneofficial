@@ -2165,7 +2165,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                       <span className="text-muted-foreground"> · {L(...(PURPOSE_LABEL[r.purpose ?? ""] ?? ["", ""]))}</span>
                       {r.out_date && <span className="text-muted-foreground"> · {L("out", "keluar")} {dmy(r.out_date)}</span>}
                     </span>
-                    <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    <span className="erp-row-actions">
                       <span className="text-muted-foreground text-[10px] tabular-nums">
                         {r.item_cost_cents != null
                           ? `RM ${rmBare(r.item_cost_cents * r.qty)} ${L("at cost", "pada kos")}`
@@ -2369,7 +2369,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   {/* v1.4.251: direction is the first thing you should see */}
                   <span className={o.direction ==="in" ?"font-medium text-success" :""}> · {o.direction ==="in" ?"+" :"−"}{o.qty} pcs</span>
                 </span>
-                <span className="flex flex-wrap items-center justify-end gap-1.5">
+                <span className="erp-row-actions">
                   {o.reverted ? (
                     <span className={chipSmInfo}>{L("↩ reverted — stock restored","↩ dikembalikan — stok dipulihkan")}</span>
                   ) : o.returned_at ? (

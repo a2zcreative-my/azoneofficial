@@ -357,7 +357,8 @@
     min-width: 0;
     max-width: 100%;
     min-height: var(--erp-control-h, 44px);
-    padding: 0.5rem 0.875rem;
+    --erp-input-pad-x: 0.875rem; /* v1.174.3 - read by the empty-date text below */
+    padding: 0.5rem var(--erp-input-pad-x);
     font-size: 1rem; /* 16px: iOS does not zoom a field this size */
     line-height: 1.4;
     color: var(--foreground);
@@ -383,7 +384,8 @@
   .erp-input-sm {
     width: auto;
     min-height: var(--erp-control-h-sm, 36px);
-    padding: 0.25rem 0.625rem;
+    --erp-input-pad-x: 0.625rem;
+    padding: 0.25rem var(--erp-input-pad-x);
     font-size: 0.8125rem;
   }
   /* A select needs a fixed height where an input takes padding, and its own
@@ -427,7 +429,44 @@
   .erp-input[type="date"], .erp-input[type="month"], .erp-input[type="time"], .erp-input[type="datetime-local"] {
     -webkit-appearance: none;
     appearance: none;
+    position: relative; /* v1.174.3 - the empty-state text below sits in it */
   }
+  /* v1.174.3 - AN EMPTY DATE CONTROL SAYS WHAT IT IS FOR. iOS draws nothing
+     inside a date, month or time control with no value - no digits, no
+     placeholder - so the Leave board's month filter, empty on purpose
+     ("every month"), was a blank pill beside RECENTLY DECIDED on the CEO's
+     phone (21-09-2026). A control that carries a `placeholder` shows it
+     while it is empty and not focused, drawn as generated content, which
+     every engine renders on a date control (Chromium and WebKit alike). The
+     engine's own segment placeholders ("--------", "mm/dd/yyyy") step aside
+     for it, and come back on focus so the keyboard still types a date. The
+     value attribute is the empty test: React keeps a controlled input's
+     attribute in step with its value, both ways (measured, v1.174.3).
+     A control WITHOUT a placeholder is untouched. */
+  .erp-input:is([type="date"], [type="month"], [type="time"], [type="datetime-local"])[placeholder][value=""]:not(:focus)::before {
+    content: attr(placeholder);
+    position: absolute;
+    inset-inline-start: var(--erp-input-pad-x);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted-foreground);
+    opacity: 0.8;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .erp-input:is([type="date"], [type="month"], [type="time"], [type="datetime-local"])[placeholder][value=""]:not(:focus)::-webkit-datetime-edit {
+    display: none;
+  }
+  /* v1.174.3 - and the small (auto-width) control gets a floor the size of
+     the value it will hold: an EMPTY date control on iOS has almost no
+     intrinsic width, and the month filter above was a 48px blank pill. The
+     unlayered cap in globals.css (v1.4.186, `min-width: 0; max-width: 100%`)
+     leaves .erp-input-sm out so this can apply; the full-width control is
+     as wide as its column and keeps the cap alone. */
+  .erp-input-sm[type="time"] { min-width: 6.5rem; }
+  .erp-input-sm[type="date"] { min-width: 8rem; }
+  .erp-input-sm[type="month"] { min-width: 9.5rem; }
+  .erp-input-sm[type="datetime-local"] { min-width: 12rem; }
   .erp-input[type="file"] { padding: 0.5rem 0.625rem; font-size: 0.8125rem; }
   .erp-input[type="file"]::file-selector-button {
     margin-right: 0.75rem;
@@ -506,8 +545,22 @@
   .erp-button.erp-button-off:disabled { pointer-events: none; }
   /* v1.172.2 - the wrapper every row's action group uses: left-aligned on a
      phone (the buttons sit under the text), right-aligned from `sm` up. */
-  .erp-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0.375rem; }
+  /* v1.174.3 - THE ACTIONS BESIDE A ROW'S WORDS. It wraps, and - the part
+     that was missing - it can SHRINK. A wrapping group pinned with
+     `shrink-0` is sized by its one-line max-content and never gets the
+     chance to wrap: that is why the Sales client rows were cut off at
+     "Report li" and the Attendance overtime buttons ran off the edge on
+     the CEO's phone (21-09-2026). Pair it with .erp-row-lead on the words. */
+  .erp-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0.375rem; min-width: 0; }
   @media (min-width: 640px) { .erp-row-actions { justify-content: flex-end; } }
+  /* A note or search field among the actions keeps its width on the desk and
+     shrinks on a phone instead of pushing the buttons out. The date family
+     is left out: an empty one collapses on iOS, so it keeps the floor above
+     and wraps onto its own line instead. */
+  .erp-row-actions > .erp-input-sm:not([type="date"]):not([type="month"]):not([type="time"]):not([type="datetime-local"]) {
+    flex: 0 1 9rem;
+    min-width: 0;
+  }
   /* Borderless, for the quiet third command in a row. */
   .erp-button-ghost {
     border: 1px solid transparent;

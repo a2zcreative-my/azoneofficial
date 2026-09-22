@@ -537,7 +537,7 @@ export function HankeisPanel() {
                       <span className="block text-sm font-medium">{o.order_no}</span>
                       <span className="text-muted-foreground block text-xs">{o.customer_name} · {mytDateTime(o.created_at)}</span>
                     </button>
-                    <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <span className="erp-row-actions">
                       <span className="text-sm font-semibold tabular-nums">{fmtRM(o.total_cents)}</span>
                       {chipFor(PAY_CHIP, o.payment_state)}
                     </span>
@@ -573,7 +573,7 @@ export function HankeisPanel() {
                     <span className="text-muted-foreground block text-xs">{o.customer_name}{o.customer_phone ? ` · ${o.customer_phone}` : ""}</span>
                     <span className="text-muted-foreground mt-0.5 block text-[11px] tabular-nums">{mytDateTime(o.created_at)} · {o.receipts} {L("receipt(s)", "resit")}</span>
                   </button>
-                  <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  <span className="erp-row-actions">
                     <span className="text-sm font-semibold tabular-nums">{fmtRM(o.total_cents)}</span>
                     {chipFor(PAY_CHIP, o.payment_state)}
                     <button type="button" className={btnSm} onClick={() => setOpenOrder(o.id)}>{L("Open", "Buka")}</button>
@@ -605,7 +605,7 @@ export function HankeisPanel() {
                     <span className="block text-sm font-medium">{o.order_no}</span>
                     <span className="text-muted-foreground block text-xs">{o.customer_name} · {o.channel} · {mytDateTime(o.created_at)}</span>
                   </button>
-                  <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  <span className="erp-row-actions">
                     {(o.exceptions ?? 0) > 0 && <span className={chipSmDanger}>{L("exception", "pengecualian")}</span>}
                     <span className="text-sm font-semibold tabular-nums">{fmtRM(o.total_cents)}</span>
                     {chipFor(PAY_CHIP, o.payment_state)}
@@ -638,7 +638,7 @@ export function HankeisPanel() {
                     <span className="text-muted-foreground block text-xs">{o.customer_name}</span>
                     <span className="text-muted-foreground mt-0.5 block text-[11px]">{[o.line1, o.city].filter(Boolean).join(", ") || L("no address on file", "tiada alamat")}</span>
                   </button>
-                  <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  <span className="erp-row-actions">
                     {o.open_exceptions > 0 && <span className={chipSmDanger}>{L("on hold", "ditahan")}</span>}
                     {chipFor(FUL_CHIP, o.fulfilment_state)}
                     {can.pack && o.open_exceptions === 0 && o.fulfilment_state !== "shipped" && (

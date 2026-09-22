@@ -644,11 +644,14 @@ html {
    have an INTRINSIC minimum width and refuse to shrink inside flex/grid
    columns — they were overflowing card edges on phones (Leave end date,
    Tasks deadline, Attendance back-entry rows). Cap them to their container
-   everywhere; width itself still comes from each form's classes. */
-input[type="date"],
-input[type="datetime-local"],
-input[type="month"],
-input[type="time"] {
+   everywhere; width itself still comes from each form's classes.
+   v1.174.3 - the SMALL (auto-width) system control is left out: it never
+   spans a column, and an empty one on iOS has almost no intrinsic width, so
+   styles/erp-v3.css gives it a floor instead (see "an empty date control"). */
+input[type="date"]:not(.erp-input-sm),
+input[type="datetime-local"]:not(.erp-input-sm),
+input[type="month"]:not(.erp-input-sm),
+input[type="time"]:not(.erp-input-sm) {
   min-width: 0;
   max-width: 100%;
   -webkit-appearance: none;
@@ -682,6 +685,33 @@ input[type="time"] {
   z-index: 10;
   background: var(--card);
   box-shadow: inset 0 1px 0 0 var(--border);
+}
+
+/* v1.174.3 (CEO, 21-09-2026, of the Payroll tab on his phone: "Net pay
+   should be based on the complete working day which is I should be able to
+   view the exactly amount"). The payroll table is 820px wide inside a
+   sideways scroller, so on a phone he was reading "RM 1,826.92 / unpaid
+   2.25d" with the NAME column scrolled off the left - a net figure he could
+   not attach to a person. Opt-in modifier beside .tbl-sticky: the FIRST
+   column pins to the left edge while the money scrolls past it, exactly as
+   the header row already pins to the top. Same inset-shadow divider trick
+   (a real border scrolls away under border-collapse). The header's own
+   corner cell has to out-rank both, hence the third rung. */
+.tbl-sticky-lead tbody td:first-child,
+.tbl-sticky-lead tfoot td:first-child,
+.tbl-sticky-lead tfoot th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 11;
+  background: var(--card);
+  box-shadow: inset -1px 0 0 0 var(--border);
+}
+.tbl-sticky-lead thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  background: var(--card);
+  box-shadow: inset -1px 0 0 0 var(--border), inset 0 -1px 0 0 var(--border);
 }
 
 /* v1.8.0 — sidebar scroll area hides its scrollbar (icons only, no track). */

@@ -1063,7 +1063,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           : L(`Available from ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`, `Tersedia dari ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`)}
       </p>}
       <div className="mt-3 max-h-[30rem] overflow-x-auto overflow-y-auto">
-        <table className="tbl-sticky w-full min-w-[820px] border-collapse text-sm">
+        <table className="tbl-sticky tbl-sticky-lead w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-border border-b">
               {([

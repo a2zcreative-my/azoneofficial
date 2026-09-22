@@ -217,7 +217,7 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
                       {e.assigned_name ? ` · ${mine ? L("yours", "anda") : e.assigned_name}` : e.status === "new" ? ` · ${L("nobody has taken it", "belum diambil siapa")}` : ""}
                     </span>
                   </button>
-                  <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  <span className="erp-row-actions">
                     {e.status === "new" && !mine && (
                       <button type="button" className={btnSmPrimary} disabled={busy === e.id}
                         onClick={() => void patch(e, { assigned_to: userId }, ["You took it — it is on your desk until answered", "Anda mengambilnya — ia di meja anda sehingga dijawab"], ["Not taken", "Tidak diambil"])}>

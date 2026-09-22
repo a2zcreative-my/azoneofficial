@@ -902,8 +902,8 @@ export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boole
             key={c.id}
             className={`border-border flex flex-wrap items-center justify-between gap-2 border-b text-sm last:border-0 ${inModal ? "hover:bg-muted/50 px-4 py-3 transition-colors sm:px-5" : "py-2"}`}
           >
-            <span className="min-w-0 font-medium">{c.company}</span>
-            <span className="text-muted-foreground flex shrink-0 flex-wrap items-center gap-2 text-xs">
+            <span className="erp-row-lead font-medium">{c.company}</span>
+            <span className="text-muted-foreground erp-row-actions text-xs">
               <span
                 title={L(
                   "Invoiced total (all INV)",
@@ -2563,7 +2563,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                           · {n} {L("days", "hari")}
                         </span>
                       </span>
-                      <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                      <span className="erp-row-actions">
                         <span
                           className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}
                         >
@@ -2671,7 +2671,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   )}{" "}
                   · {d.company} · {fmtRM(d.total_cents)}
                 </span>
-                <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                <span className="erp-row-actions">
                   {d.doc_type === "INV" && canInvoice && (
                     <select
                       className={selectClassSm}
@@ -3355,7 +3355,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       </span>
                     )}
                   </span>
-                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                  <span className="erp-row-actions">
                     {docs.some(
                       (d) => d.doc_type === "INV" && d.company === c.company
                     ) && (

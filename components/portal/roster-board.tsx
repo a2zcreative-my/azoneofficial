@@ -2027,7 +2027,7 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                   )}
                 </span>
                 {(canManage || onOpenRegister) && (
-                  <span className="flex shrink-0 flex-wrap items-center gap-2">
+                  <span className="erp-row-actions">
                     {onOpenRegister && <button type="button" className={btnSm} onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>{L("Open the register", "Buka daftar")}</button>}
                     {canManage && <button type="button" className={btnSm} onClick={() => openEditShift(sh)}>{L("Edit", "Sunting")}</button>}
                     {canManage && <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>}
@@ -2083,7 +2083,7 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                     </span>
                   )}
                 </span>
-                <span className="flex shrink-0 flex-wrap items-center gap-2">
+                <span className="erp-row-actions">
                   {/* v1.67.0 — the daily tick. This records THE DAY, not the
                       task: a standing duty is finished on Wednesday and open
                       again on Thursday, and one status on the task can never

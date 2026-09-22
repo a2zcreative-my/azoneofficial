@@ -33,12 +33,16 @@
  *   6. THE REFERENCE (the Dashboard) still reads in zones with a pill row.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, globSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
+/* v1.174.3 - block and line comments blanked, so a class name quoted in a
+   comment is never mistaken for a live one (line numbers hold). */
+const stripComments = (s) =>
+  s.replace(/(?<![\w"'])\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
 
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
@@ -213,6 +217,79 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
   ok("the phone workspace fills the screen (no white band under a short tab)", /@media \(max-width: 767px\) \{[\s\S]*?\.workspace \{\s*min-height: 100dvh;/.test(shell));
   ok("the document behind the workspace is the workspace grey", /body:has\(\.erp-workspace\) \{\s*background-color: var\(--secondary\);/.test(read("styles/globals.css")));
   ok("a card breaks an unbreakable run inside itself (anywhere: the minimum shrinks too)", /\.erp-card \{[\s\S]*?overflow-wrap: anywhere;/.test(v3));
+}
+
+/* ---- 8. a row's actions wrap, and are never pinned (v1.174.3) ----------
+   The CEO's phone, 21-09-2026: the Attendance overtime buttons ran off the
+   right edge ("Overflow!") and the Sales client rows were cut at "Report
+   li". Two shapes of the same bug, and BOTH are invisible to a width sweep
+   whose fixtures render the card empty:
+     a) a flex group that cannot wrap at all - it lays its controls out on
+        one line whatever the width;
+     b) a WRAPPING group pinned with `shrink-0` - a flex item that may not
+        shrink is sized by its one-line max-content, so its own flex-wrap
+        never gets the chance to act.
+   The system's answer to both is .erp-row-actions (wraps, shrinks,
+   left-aligned on a phone and right-aligned from 640px) beside
+   .erp-row-lead on the words. */
+{
+  const v3 = read("styles/erp-v3.css");
+  const actions = v3.match(/\.erp-row-actions \{([^}]*)\}/)?.[1] ?? "";
+  ok("the actions group wraps", /flex-wrap: wrap;/.test(actions));
+  ok("the actions group can SHRINK (never pinned at one-line max-content)", /min-width: 0;/.test(actions));
+  ok("it is left-aligned on a phone and right-aligned from the desk",
+     /justify-content: flex-start;/.test(actions)
+     && /@media \(min-width: 640px\) \{ \.erp-row-actions \{ justify-content: flex-end; \} \}/.test(v3));
+  ok("a note field among the actions shrinks instead of pushing the buttons out",
+     /\.erp-row-actions > \.erp-input-sm:not\(\[type="date"\]\)[^{]*\{\s*flex: 0 1 9rem;\s*min-width: 0;/.test(v3));
+  /* The date family keeps the width floor v1.174.3 gave it - an empty one
+     collapses on iOS - so it must NOT be caught by the shrink rule above. */
+  ok("the date family is left out of the shrink rule (it keeps its floor)",
+     /:not\(\[type="month"\]\)/.test(v3.match(/\.erp-row-actions > \.erp-input-sm[^{]*/)?.[0] ?? ""));
+
+  /* No screen may reintroduce either shape. */
+  const screens = [...new Set([
+    ...globSync("components/portal/*.tsx"), ...globSync("components/staff/*.tsx"),
+    ...globSync("components/ui/*.tsx"), ...globSync("app/portal/*.tsx"),
+  ])];
+  const pinned = [], unwrapped = [];
+  for (const f of screens) {
+    const src = stripComments(read(f));
+    for (const m of src.matchAll(/className="([^"]*)"/g)) {
+      const c = m[1];
+      if (!/\bflex\b/.test(c) || /\berp-/.test(c)) continue;
+      if (/\bflex-wrap\b/.test(c) && /\bshrink-0\b/.test(c)) pinned.push(`${f}: "${c}"`);
+    }
+    /* (b) is the one a regex can see; (a) needs the control count, so it is
+       held for the two rows the CEO reported, by name. */
+    if (/live-cards|sales/.test(f)) {
+      for (const m of src.matchAll(/<span className="(?:[^"]*\s)?flex items-center gap-1\.5">\s*<input/g)) unwrapped.push(f);
+    }
+  }
+  ok("no wrapping group is pinned with shrink-0 anywhere in the portal", pinned.length === 0, pinned.slice(0, 4).join(" | "));
+  ok("no row of controls is laid out in a group that cannot wrap", unwrapped.length === 0, unwrapped.join(", "));
+
+  /* The two rows he photographed, by name, so a later edit cannot quietly
+     walk them back to a hand-rolled group. */
+  const ot = read("components/portal/live-cards.tsx");
+  ok("the overtime approval row is lead + actions", /<span className="erp-row-lead">/.test(ot) && /<span className="erp-row-actions">/.test(ot));
+  ok("its note field is the plain small input (no fixed w-36 that cannot shrink)",
+     /className=\{inputClassSm\}\s*\n?\s*placeholder=/.test(ot) && !/\$\{inputClassSm\} w-36/.test(ot));
+  const sales = read("components/portal/sales.tsx");
+  ok("the Sales client row is lead + actions (\"Report link\" survives a long company name)",
+     /<span className="erp-row-lead font-medium">\{c\.company\}<\/span>/.test(sales)
+     && /<span className="text-muted-foreground erp-row-actions text-xs">/.test(sales));
+  ok("the sales document rows use the system's actions group (Delete no longer strands on its own line)",
+     !/justify-end gap-1\.5/.test(sales));
+
+  /* The PAYROLL table: 820px wide inside a sideways scroller, so the net
+     figure scrolled away from the name (CEO: "I should be able to view the
+     exactly amount"). The first column pins. */
+  const globals = read("styles/globals.css");
+  ok("a sticky-lead table pins its first column while the money scrolls",
+     /\.tbl-sticky-lead tbody td:first-child[\s\S]*?position: sticky;[\s\S]*?left: 0;/.test(globals)
+     && /\.tbl-sticky-lead thead th:first-child \{[\s\S]*?z-index: 12;/.test(globals));
+  ok("the payroll table uses it", /className="tbl-sticky tbl-sticky-lead /.test(read("components/portal/payroll-panel.tsx")));
 }
 
 /* ---- registration ---- */
