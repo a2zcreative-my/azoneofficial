@@ -72,7 +72,14 @@ const v3Body = stripComments(v3).replace(/url\("data:[^"]*"\)/g, "");
 const rawHex = v3Body.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
 ok("the V3 layer states no colour of its own - every fill and ink is a semantic token", rawHex.filter((h) => h !== "#fff").length === 0, [...new Set(rawHex)].join(", "));
 ok("the control height is one token, 44px, and the dense control 36px", /--erp-control-h: 44px;/.test(v3) && /--erp-control-h-sm: 36px;/.test(v3));
-ok("the card radius is one token (12px) and the workspace utilities read the same value", /--erp-radius-card: 12px;/.test(v3) && /\.erp-workspace \{\s*--surface-radius: 12px;/.test(globals));
+/* v1.177.0 - the family may MOVE (12px -> 14px with the command deck); what
+   it may never do is disagree with itself. Read both and compare. */
+{
+  const cardR = v3.match(/--erp-radius-card: (\d+)px;/)?.[1];
+  const surfR = globals.match(/\.erp-workspace \{\s*--surface-radius: (\d+)px;/)?.[1];
+  ok("the card radius is ONE token and the workspace utilities read the same value",
+     !!cardR && cardR === surfR, `erp-v3 ${cardR ?? "?"}px vs globals ${surfR ?? "?"}px`);
+}
 ok("the 44px button contract still lives in globals.css (tests/interface-system.mjs reads it there)", /\.erp-button \{[\s\S]*?min-height: 44px;/.test(globals) && !/\.erp-button \{[^}]*min-height/.test(v3));
 ok("the busy state is a real state, not a prop somebody has to remember", /\.erp-button\[aria-busy="true"\]/.test(v3) && /erp-spin/.test(v3));
 ok("an input reads 16px on a phone (iOS does not zoom it) and 14px on the desk", /\.erp-input \{[\s\S]*?font-size: 1rem;/.test(v3) && /@media \(min-width: 768px\) \{ \.erp-input \{ font-size: 0\.875rem; \} \}/.test(v3));

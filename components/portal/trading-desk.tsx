@@ -476,8 +476,23 @@ export function TradingDesk({
                   {/* v1.172.1 (Interface System V3): the stat tile's own
                       value/label classes - one figure, one caption, the same
                       on every tile of the portal. */}
+                  {/* v1.177.0 - A FIGURE TILE IS NEVER BLANK. The owner's
+                      Dashboard, 22-09-2026: the CLIENTS tile rendered its
+                      caption over empty space, and `sum.clients ?? 0` did not
+                      catch it - because the value was neither null nor
+                      undefined. It was an ARRAY. React renders `[]` as
+                      nothing at all, so a field that arrives as a list where a
+                      count was expected produces a tile with a caption and no
+                      figure, which the reader cannot tell from a tile that is
+                      still loading. A list IS a count, so it is counted; a
+                      value that can produce no text at all says "not known"
+                      out loud instead. A real 0 still prints as 0. */}
                   <p className="erp-stat-value">
-                    {t.value}
+                    {Array.isArray(t.value)
+                      ? t.value.length
+                      : t.value === null || t.value === undefined || t.value === "" || typeof t.value === "boolean"
+                        ? <span className="text-muted-foreground" title={L("No figure for this month yet", "Tiada angka untuk bulan ini lagi")}>—</span>
+                        : t.value}
                   </p>
                   <p className="erp-stat-label">
                     {t.show ?? t.label}

@@ -21,6 +21,16 @@
 .workspace {
   background: var(--secondary);
 }
+/* v1.177.0 - THE DECK'S GROUND. `--secondary` is the correct ground on light:
+   it is the grey a white card sits on. On dark it is #1c2942 and a card is
+   #16213a, so every card in the portal was DARKER than the surface behind it.
+   The eye reads that as a hole punched in the page, not as an object standing
+   on it - which is why the shadows were doing nothing. The ground is now the
+   darkest thing on the screen and the ladder runs the right way up:
+   #0a1120 ground, #16213a card, #1d2b47 raised. */
+:global(.dark) .workspace {
+  background: var(--background);
+}
 .canvasFrame {
   /* phone: nothing */
 }

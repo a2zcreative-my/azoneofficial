@@ -344,7 +344,11 @@ export default function PortalPage() {
   }, [moreOpen]);
 
   useEffect(() => {
-    setDark(localStorage.getItem("azone-theme") === "dark");
+    /* v1.177.0 - dark is the portal's ground now, so an account that has
+       never touched the toggle gets the deck. Only an explicit "light" opts
+       out, which is the same test the pre-paint script in app/layout.tsx
+       makes - the two must agree or the theme flips after hydration. */
+    setDark(localStorage.getItem("azone-theme") !== "light");
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data) {
         setUser(r.data.user);

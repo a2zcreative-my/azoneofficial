@@ -157,6 +157,37 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className={poppins.variable} data-scroll-behavior="smooth">
       <body className={poppins.variable}>
+        {/* v1.177.0 - THE THEME, BEFORE THE FIRST PAINT, AND ONLY FOR THE
+            PORTAL.
+
+            Two separate bugs fixed by one script. (1) The class was applied in
+            a `useEffect` in app/portal/page.tsx, which runs after hydration -
+            so every single load of a dark portal flashed the LIGHT theme
+            first. On a phone that white flash is the most visible thing about
+            opening the app. (2) The default was light; the deck is the portal's
+            look now, so an account that has never touched the toggle gets dark.
+
+            `location.pathname` gates it: this same stylesheet dresses the
+            PUBLIC site (a2zcreative.my, the landing pages, the document
+            viewer), and those stay light. A `dark` class on <html> would take
+            the marketing site with it.
+
+            An explicit saved choice always wins - `=== "light"` and not
+            `!== "dark"` - so the toggle in the portal keeps meaning what it
+            says, and somebody who chose light keeps light. The meta tag is
+            rewritten here too, otherwise the phone's status bar sits brand
+            navy above a #0a1120 app until lib/theme-color.ts catches up. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{
+  if(location.pathname.indexOf('/portal')!==0)return;
+  if(localStorage.getItem('azone-theme')==='light')return;
+  document.documentElement.classList.add('dark');
+  var m=document.querySelector('meta[name="theme-color"]');
+  if(m)m.setAttribute('content','#0a1120');
+}catch(e){}})();`,
+          }}
+        />
         <MsBoot />
         <OfflineBanner />
         <PwaRegister />

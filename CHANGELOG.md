@@ -2,6 +2,112 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.177.0] - 2026-09-22 - The command deck
+
+The owner, 22-09-2026: *"why interface still not looks nice eh? something
+terrible with no futuristic and not friendly for PWA"*.
+
+He was right, and the reason is worth recording. Every release from v1.174.1 to
+v1.176.1 fixed **correctness** — duplicated information, shredded text, scroll
+traps, counts that disagreed — and not one of them touched how the portal
+looks. `ui-audit.py` reports zero findings on a screen that is still a flat
+white form, because it measures defects, not character. Four things were
+missing, and all four are here.
+
+### Depth — nothing was ever above anything else
+
+The ladder was **upside down on dark**: the workspace ground was `--secondary`
+(#1c2942) and a card was `--card` (#16213a), so every card in the portal was
+*darker* than the page behind it. The eye reads that as a hole punched in the
+page, which is why no amount of shadow ever made anything look lifted. The deck
+runs the right way up now:
+
+| | token | dark |
+| --- | --- | --- |
+| ground | `--background` | `#0a1120` |
+| card | `--card` | `#16213a` |
+| raised | `--erp-surface-raised` | `#1d2b47` |
+
+The ground went deeper (#10192b → #0a1120) and the card stayed put, so the two
+are fourteen points of luminance apart instead of six. Text contrast only rises
+— #eef1f6 on #0a1120 is 17.4:1. The shadows lost their blue (a blue-black
+shadow greys the ground it falls on) and gained the thing that actually sells
+elevation on a dark screen: `inset 0 1px 0` of light along the top edge, as
+`--erp-hairline`. A stat tile is now the most raised surface on the page,
+because it is what the reader came for.
+
+### The brand — navy and gold were on exactly one card
+
+The shift hero was the only place the identity appeared; the other thirty-one
+tabs were grey text on white. The small-caps **zone caption** is on every tab
+of every screen all day, so it carries the gold now, and its rule fades out as
+a gradient rather than stopping at a border. A figure that is not zero gets a
+gold glow behind it. No card was recoloured to get either.
+
+### Feedback — a tap changed a colour and nothing else
+
+`transform` and `opacity` only, so it stays on the compositor and never costs a
+layout on a five-year-old phone: 96% scale on press (60ms down, 140ms back),
+lift on hover for a stat, and a focus **glow** behind the 2px outline — the
+outline stays, because that is what carries the accessibility contract.
+
+### Arrival — and no more white flash
+
+A tab lifts 8px into place over 200ms. More importantly the theme now applies
+**before the first paint**: it was set in a `useEffect`, so every single load of
+a dark portal flashed the light theme first, which on a phone is the most
+visible thing about opening the app. A pre-paint script in `app/layout.tsx`
+does it instead, and **dark is the portal's default** — only an explicit saved
+"light" opts out. The script is gated on `location.pathname` so the public site
+at a2zcreative.my stays light; a `dark` class on `<html>` would take the
+marketing site with it.
+
+Every moving part is off under `prefers-reduced-motion`, with all colours,
+shadows and the focus ring unchanged.
+
+### Also
+
+- **A figure tile is never blank.** The Dashboard’s CLIENTS tile rendered its
+  caption over empty space, and `sum.clients ?? 0` did not catch it, because
+  the value was neither null nor undefined — it was an **array**. React draws
+  an empty array as nothing at all, so a field arriving as a list where a
+  count was expected produces a tile the reader cannot tell from one that is
+  still loading. A list is counted; anything that can produce no text says
+  "not known" out loud; a real 0 still prints as 0.
+- **And the fixture is why nobody saw it.** `tests/browser/` had no row for
+  `/staff/dashboard/summary`, so the catch-all default answered and its
+  `clients: []` — a list, for the panels that want one — reached a tile that
+  wanted a count. On every sweep. And every sweep passed. The standing rule
+  since v1.175.0 is that a clean sweep means nothing if the card rendered
+  empty; this is the third time it has caught something. The endpoint has its
+  own fixture row now.
+- **The card radius family moved 12px → 14px**, and `tests/interface-v3.mjs`
+  now holds `--erp-radius-card` and `--surface-radius` *equal to each other*
+  rather than pinned to a number, so the family can move again.
+
+### Verification
+
+95/95 guards, portal and worker typecheck clean, lint 0 errors / 147 warnings,
+`next build` clean. In WebKit at 390px: `ui-audit.py` **0 findings** in EN dark,
+EN light and BM dark; overflow sweep 0; shredding probe 0. Read as rendered on
+the Dashboard, Desk, On Shift and Payroll. **No migration, no permission
+change, no approval-chain change, no business rule touched.**
+
+### Known limitations
+
+- The deck is **dark**. Light is complete and correct, and the toggle still
+  works, but light no longer gets the ground/card/raised ladder tuned for it —
+  it keeps the flat card-on-grey it has always had.
+- **Accounts that never touched the toggle flip to dark on their next load.**
+  Anyone who prefers light sets it once in the portal and it sticks.
+- The charts, the map tiles and the document/print surfaces were not
+  re-pitched for the deeper ground. They were already dark-mode correct and
+  they still pass, but they were tuned against #10192b, not #0a1120.
+- `.erp-note` uses `--secondary`, which on dark is *lighter* than the card it
+  sits inside. It reads as a raised strip rather than an inset one. Left alone
+  deliberately this round: it is legible and consistent, and changing it moves
+  every note in the portal.
+
 ## [1.176.2] - 2026-09-22 - Attendance has one action home
 
 The Dashboard no longer performs attendance punches. Its shift card is now a

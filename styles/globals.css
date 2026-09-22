@@ -28,11 +28,16 @@
    it reads a token, and the token already knows the theme. */
 
 /* Operational workspace: scoped so document and public-site surfaces stay independent.
-   v1.172.1 - one 12px card radius for the whole workspace (was 8px): the V3
+   v1.172.1 - one card radius for the whole workspace (was 8px): the V3
    card, panel and control radii are one family, read by rounded-card and
-   rounded-panel utilities as well as by the .erp-* surfaces. */
+   rounded-panel utilities as well as by the .erp-* surfaces.
+   v1.177.0 - 12px -> 14px. Two points, and it is the cheapest of the deck's
+   changes, but a 12px corner on a 390px screen reads as a bordered box and a
+   14px one reads as a surface. It must stay equal to --erp-radius-card in
+   styles/erp-v3.css; tests/interface-v3.mjs holds the two together rather
+   than pinning either to a number, so the family can move again. */
 .erp-workspace {
-  --surface-radius: 12px;
+  --surface-radius: 14px;
 }
 /* v1.174.1 - while the portal workspace is on screen the document behind it
    is the workspace grey, not the page white: a short tab no longer shows a
@@ -42,6 +47,19 @@
    and keep their white. */
 body:has(.erp-workspace) {
   background-color: var(--secondary);
+}
+/* v1.177.0 - THE LADDER WAS UPSIDE DOWN ON DARK. `--secondary` is the right
+   ground on light: it is the grey a white card sits ON. On dark it is #1c2942
+   and the card is #16213a, so every card in the portal was DARKER than the
+   page behind it - which the eye reads as a hole, not as a surface, and which
+   is why no amount of shadow made anything look lifted. The deck's ground is
+   the darkest thing on the screen, and everything stands up from it:
+       ground  --background        #0a1120
+       card    --card              #16213a
+       raised  --erp-surface-raised #1d2b47
+   Nothing else needs to change; every card already reads --card. */
+.dark body:has(.erp-workspace) {
+  background-color: var(--background);
 }
 .erp-workspace :where(h1, h2, h3, p, button, label, th) {
   letter-spacing: 0;
@@ -438,7 +456,16 @@ body:has(.erp-workspace) {
 }
 
 .dark {
-  --background: #10192b;
+  /* v1.177.0 - THE COMMAND DECK. The ground goes DEEPER (#10192b -> #0a1120)
+     while the card stays where it was (#16213a). Nothing about the palette is
+     re-invented: every colour below was already chosen and contrast-checked
+     for this surface in v1.124.0. What changes is the DISTANCE between the
+     ground and the things standing on it. At six points of luminance apart a
+     card was a slightly different rectangle; at fourteen it reads as lifted,
+     which is what lets a shadow do its job and what makes the gold look like
+     a light rather than a highlighter. Text contrast only goes UP: #eef1f6 on
+     #0a1120 is 17.4:1, against 15.9:1 before. */
+  --background: #0a1120;
   --foreground: #eef1f6;
   --card: #16213a;
   --card-foreground: #eef1f6;
@@ -476,7 +503,7 @@ body:has(.erp-workspace) {
   /* v1.124.0 — dark chrome matches the dark page ground (--background above),
      not the brand navy: navy is LIGHTER than the dark app, so the old static
      meta drew a bright band across the top of a dark screen. */
-  --browser-theme-color: #10192b;
+  --browser-theme-color: #0a1120;
 
   /* v1.12.0 shell + chart steps, selected for the dark card surface #16213a
      (not an automatic flip of the light values — re-validated as a set). */
@@ -484,6 +511,17 @@ body:has(.erp-workspace) {
   --brand-primary-soft: #28395c;
   --tint-navy: rgba(255, 255, 255, 0.05);
   --tint-gold: rgba(212, 181, 122, 0.14);
+
+  /* v1.177.0 - the deck's own three properties.
+     RAISED is the surface for anything that floats above a card (a sheet, a
+     menu, the figures strip) - one step further from the ground again.
+     HAIRLINE is the 1px of light along a lifted surface's top edge: on a dark
+     ground a shadow alone reads as a smudge, and it is that highlight, not the
+     shadow, that the eye reads as "this is above that".
+     GLOW is the gold at the strength a focus ring and an active figure use. */
+  --erp-surface-raised: #1d2b47;
+  --erp-hairline: rgba(255, 255, 255, 0.06);
+  --erp-accent-glow: rgba(212, 181, 122, 0.30);
   --ring-ontime: #23773d;
   --ring-late: #af8c28;
   --ring-absent: #d22023;

@@ -188,6 +188,17 @@ export function fixture(p0, url) {
     { user_id: 9004, name: "NURUL FASEHAH BINTI SHAHRUDDIN", d: "2026-09-20", ot_in: "19:00", ot_out: "19:32", minutes: 32, assigned: "ELFIA" },
     { user_id: 9005, name: "NURFARAH SUAIDAH BINTI MOHD SAIFUDDIN", d: "2026-09-19", ot_in: "18:30", ot_out: "21:15", minutes: 165 },
   ] };
+  /* v1.177.0 - the Dashboard's six company figures. Without this row the
+     catch-all default answered, and its `clients: []` (a LIST, for the panels
+     that want one) reached a tile that wanted a COUNT - so the CLIENTS tile
+     drew its caption over empty space on every sweep, and every sweep passed.
+     The figures here are counts, which is what /staff/dashboard/summary
+     actually returns. */
+  if (p === "/staff/dashboard/summary") data = {
+    clients: 14, active_stokis: 3, lives_today: 2, in_today: 6,
+    unpaid_invoices: 4, cash_in_cents: 1_284_000, cash_out_cents: 902_500,
+    sales_cents: 325_000, target_cents: 300_000, today_sales_cents: 0,
+  };
   if (p === "/staff/clients/summary" || p === "/staff/clients") data = { sessions: { "1": 0, "2": 2, "3": 0 }, clients: [
     { id: 1, company: "Bambijan Food Empire", invoiced_cents: 45000, paid_cents: 45000, quotations: 1 },
     { id: 2, company: "Madam Jariah", invoiced_cents: 0, paid_cents: 0, quotations: 4 },

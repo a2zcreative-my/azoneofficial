@@ -47,9 +47,15 @@
 @layer components {
   /* ---------- tokens ---------- */
   .erp-workspace {
-    --erp-radius-card: 12px;
-    --erp-radius-panel: 10px;
+    --erp-radius-card: 14px;
+    --erp-radius-panel: 12px;
     --erp-radius-control: 10px;
+    /* v1.177.0 - light mode has no deck of its own: these three exist so a
+       rule can name them unconditionally and get something sensible on both
+       themes. On light, "raised" is simply the card. */
+    --erp-surface-raised: var(--card);
+    --erp-hairline: transparent;
+    --erp-accent-glow: color-mix(in srgb, var(--brand-accent-deep) 28%, transparent);
     --erp-control-h: 44px;
     --erp-control-h-sm: 36px;
     --erp-card-pad: 1rem;
@@ -62,9 +68,21 @@
   @media (min-width: 768px) {
     .erp-workspace { --erp-card-pad: 1.25rem; }
   }
+  /* v1.177.0 - THE DECK'S DEPTH. Two things make a surface read as lifted on
+     a dark ground, and the shadow is the lesser of them: the `inset` hairline
+     along the top edge is the light catching the surface's near corner, and
+     without it a dark shadow on a dark ground is just a smudge. Both shadows
+     also lost their blue: on #0a1120 a blue-black shadow greys the ground it
+     falls on. */
   .dark .erp-workspace, .dark.erp-workspace {
-    --erp-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
-    --erp-shadow-lift: 0 12px 32px rgba(0, 0, 0, 0.45);
+    --erp-shadow-card:
+      inset 0 1px 0 0 var(--erp-hairline),
+      0 1px 2px rgba(0, 0, 0, 0.40),
+      0 4px 14px rgba(0, 0, 0, 0.32);
+    --erp-shadow-lift:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+      0 2px 6px rgba(0, 0, 0, 0.45),
+      0 22px 52px rgba(0, 0, 0, 0.60);
     --erp-inset-bg: color-mix(in srgb, var(--secondary) 55%, var(--card));
   }
 
@@ -1221,6 +1239,98 @@
      three and four fit, so this only ever applies to the phone. */
   @media (max-width: 639px) {
     .erp-tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
+
+  /* =====================================================================
+     THE COMMAND DECK - v1.177.0.
+
+     The owner, 22-09-2026: *"why interface still not looks nice eh? something
+     terrible with no futuristic and not friendly for PWA"*. He was right, and
+     the reason is worth writing down: every release from v1.174.1 to v1.176.1
+     fixed CORRECTNESS - duplication, shredded text, scroll traps, counts that
+     disagreed - and none of it touched how the thing looks. A screen can pass
+     every probe with zero findings and still be a flat white form.
+
+     Four things were missing, and all four are here:
+
+       DEPTH      nothing was ever above anything else. One card colour, one
+                  border, one radius, edge to edge. The eye had no way to tell
+                  the figure it must read from the note it may skip.
+       THE BRAND  navy and gold appeared on exactly one card - the shift hero -
+                  and the other thirty-one tabs were grey text on white.
+       FEEDBACK   a tap changed a background colour and nothing else. No press,
+                  no lift, no sense that the surface answered.
+       ARRIVAL    tabs cut. A page that replaces another instantly reads as a
+                  document reloading, not an app moving.
+
+     Everything below is tokens and named classes; no component was rewritten
+     to get it, which is the whole reason the system was built this way.
+     ===================================================================== */
+
+  /* THE CAPTION IS THE BRAND'S. Small-caps zone labels are on every tab, on
+     every screen, all day - so this one change puts the gold in front of the
+     reader everywhere, without a single card being recoloured. The rule after
+     it fades the hairline out from the caption so the line reads as light
+     falling away, not as a border drawn to a stop. */
+  .dark .erp-zone-label { color: var(--brand-accent-deep); }
+  .dark .erp-zone::after {
+    background: linear-gradient(to right, var(--erp-accent-glow), transparent);
+  }
+
+  /* THE FIGURES STAND ON THE DECK. A stat tile is the thing a person came to
+     read; it is now the most raised surface on the page, and the only one that
+     carries the hairline by default. */
+  .dark .erp-stat {
+    background: var(--erp-surface-raised);
+    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+    box-shadow: inset 0 1px 0 0 var(--erp-hairline), 0 2px 10px rgba(0, 0, 0, 0.28);
+  }
+  .dark .erp-stat-value { letter-spacing: -0.01em; }
+  /* the figure that is not zero is the one worth a light on it */
+  .dark .erp-stat-warning .erp-stat-value,
+  .dark .erp-stat-brand .erp-stat-value { text-shadow: 0 0 18px var(--erp-accent-glow); }
+
+  /* FEEDBACK: the surface answers. 60ms in, 140ms back - fast enough that it
+     reads as the object moving under the thumb rather than an animation
+     playing at it. `transform` and `opacity` only, so it stays on the
+     compositor and never costs a layout on a mid-range phone. */
+  .erp-button, .erp-icon-button, .erp-stat-button, .erp-chip-action, .erp-list-row {
+    transition: transform 140ms cubic-bezier(0.2, 0, 0, 1),
+                box-shadow 140ms cubic-bezier(0.2, 0, 0, 1),
+                background-color 140ms linear,
+                border-color 140ms linear;
+  }
+  .erp-button:active, .erp-icon-button:active, .erp-chip-action:active {
+    transform: scale(0.96);
+    transition-duration: 60ms;
+  }
+  .erp-stat-button:active { transform: scale(0.985); transition-duration: 60ms; }
+  .erp-stat-button:hover { box-shadow: inset 0 1px 0 0 var(--erp-hairline), 0 6px 18px rgba(0, 0, 0, 0.34); }
+
+  /* THE FOCUS RING IS A LIGHT, NOT A BOX. The 2px outline stays - it is what
+     carries the accessibility contract and it is what a keyboard user needs -
+     and the glow sits behind it. */
+  .erp-button:focus-visible, .erp-icon-button:focus-visible,
+  .erp-stat-button:focus-visible, .erp-input:focus-visible, .erp-chip-action:focus-visible {
+    box-shadow: 0 0 0 4px var(--erp-accent-glow);
+  }
+
+  /* ARRIVAL. A tab lifts a few pixels into place. Two-hundred milliseconds is
+     under the threshold where a person starts waiting for it. */
+  .erp-tab-page { animation: erp-deck-in 200ms cubic-bezier(0.2, 0, 0, 1) both; }
+  @keyframes erp-deck-in {
+    from { opacity: 0; transform: translate3d(0, 8px, 0); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* NOT EVERY PERSON WANTS THE MOVEMENT, and on this app some of them are
+     clocking in on a five-year-old phone. One block turns all of it off and
+     leaves every colour, every shadow and the focus ring exactly as they are. */
+  @media (prefers-reduced-motion: reduce) {
+    .erp-tab-page { animation: none; }
+    .erp-button, .erp-icon-button, .erp-stat-button, .erp-chip-action, .erp-list-row { transition: none; }
+    .erp-button:active, .erp-icon-button:active,
+    .erp-chip-action:active, .erp-stat-button:active { transform: none; }
   }
 }
 
