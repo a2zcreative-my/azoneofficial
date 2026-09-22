@@ -198,6 +198,10 @@ export const th = "erp-th";
 export const td = "erp-td";
 export const thR2 = "erp-th erp-th-num";
 export const tdR2 = "erp-td erp-td-num";
+/* An identifier in a table that scrolls - a name, an account code, a
+   document reference: one line, and the table scrolls. */
+export const thOneLine = "erp-th erp-th-oneline";
+export const tdOneLine = "erp-td erp-td-oneline";
 
 /* ===================== v1.5.0 — global style consolidation =====================
    These strings existed as copy-pasted literals across the portal, admin and

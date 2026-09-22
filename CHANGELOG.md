@@ -2,6 +2,24 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.174.4] - 2026-09-22 - A table cell breaks on words
+
+Three phone screenshots from the owner, 22-09-2026: the Attendance register with **STAFF** running down the page as S/T/A/F/F and "Nur Nasuha binti Zainal Abidin" one letter per line; the per-person summary with **DAYS** as D/A/Y/S and "21" split across two lines; the Payroll table with the same crush. *"All this area observed with not fit to my PWA screen."*
+
+**This one was mine.** v1.174.1 put `overflow-wrap: anywhere` on `.erp-card` so an unbreakable run - an 18-digit order number, a URL - wraps inside the card instead of pushing it off the phone. That is right for a flex row and **destructive inside a table**: `anywhere` drops a cell's MINIMUM content contribution to a single character, and the automatic table layout is then free to squeeze that column to one character wide. Measured in WebKit on the register: the STAFF column **84px wide with a 216px-tall cell**, its header 50px. Nothing was wrong with the tables; the rule underneath them was.
+
+**The fix, in the system.**
+- `.erp-card th, .erp-card td, .erp-th, .erp-td { overflow-wrap: break-word; }` - a table cell breaks on WORDS. `break-word` still breaks a genuinely unbreakable run, but leaves the minimum at the longest word, so the column keeps a sane width. Same table, measured: **103px wide, 96px tall, header back on one line**. The card itself keeps `anywhere` - v1.174.1 is not undone.
+- `.erp-td-oneline` / `.erp-th-oneline` (`tdOneLine` / `thOneLine` in the vocabulary): an **identifier** in a table that already scrolls - a person's name, an account code, a document reference - stays on one line and the reader scrolls, because a four-line name tower beside a one-line row is not a table. Applied to the attendance register's two name columns (**291px, one line**) and the accounting code column, which a 61px share had been breaking in half. Numbers already did this (`.erp-td-num`).
+
+**A probe for it, because a width sweep cannot see this.** Every column stayed inside the page the whole time - the text was being shredded *within* its column, so the overflow sweeps were right to report 0. New `table-probe.py` measures each cell against the **longest word it holds**: a column narrower than its own longest word is being broken mid-word. Cells that may not wrap are skipped - `nowrap` makes shredding impossible by definition - and the ruler copies `font-variant-numeric`, since tabular digits are wider. All 12 table-bearing tabs: **0 shredded columns**; with the v1.174.1 rule put back at runtime, **50**.
+
+Also new in the harness: a fixture for `/staff/attendance/report`, the third endpoint in two days whose absence left a card empty and a sweep meaningless.
+
+**Guards.** #94 `tab-concept` grew by 8 checks (248): a table cell breaks on words; the card still breaks an unbreakable run; the one-line cell exists and is in the vocabulary; the three cells the owner photographed carry it by name; and no stylesheet anywhere may put `overflow-wrap: anywhere` back on a `th`, `td` or table selector. Against the code as it stands on his PC, 3 of them fail. 95/95 pass; budget unchanged at 6,993, no file rose.
+
+**Verification** (offline sandbox): WebKitGTK at 447px, every table-bearing tab - 0 shredded columns, and the register measured 84px/216px before the fix against 291px/one line after; the 402px overflow sweep across all 27 live tabs still 0; typecheck clean; lint 0 errors / 147 warnings (unchanged); `next build` 31 routes. **No business logic, no migration, no worker change.** `PUSH.bat` NOT run - **nothing deployed.** v1.174.0 (migration 0137) through v1.174.4 ship together.
+
 ## [1.174.3] - 2026-09-22 - A row's actions wrap; an empty date says what it is for
 
 Four phone screenshots from the owner, 21-09-2026, of the deployed build.

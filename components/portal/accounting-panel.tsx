@@ -22,7 +22,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { makeApi } from "@/lib/api";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, card, chipNeutral, fieldLabel, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2 } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipNeutral, fieldLabel, fieldRow, inputClass, inputClassSm, td, tdOneLine, tdR2, th, thR2 } from "@/lib/ui-styles";
 
 const api = makeApi("/staff/erp");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -150,7 +150,7 @@ export function AccountingPanel() {
             ))}
             {loaded && trial.filter((t) => (t.debit_cents ?? 0) !== 0 || (t.credit_cents ?? 0) !== 0).map((t) => (
               <tr key={t.id} className="border-border border-t">
-                <td className={`${td} tabular-nums`}>{t.code}</td>
+                <td className={`${tdOneLine} tabular-nums`}>{t.code}</td>
                 <td className={td}>{t.name}</td>
                 <td className={td}><span className={chipNeutral}>{t.type}</span></td>
                 <td className={tdR2}>{(t.debit_cents ?? 0) > 0 ? fmtRM(t.debit_cents ?? 0) : ""}</td>

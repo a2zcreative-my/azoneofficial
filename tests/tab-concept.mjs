@@ -292,6 +292,46 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
   ok("the payroll table uses it", /className="tbl-sticky tbl-sticky-lead /.test(read("components/portal/payroll-panel.tsx")));
 }
 
+/* ---- 9. a table cell breaks on WORDS (v1.174.4) ------------------------
+   v1.174.1 put `overflow-wrap: anywhere` on .erp-card so an unbreakable run
+   wraps inside the card instead of pushing it off the phone. Inside a TABLE
+   that same property is destructive: it drops a cell's MINIMUM content
+   contribution to a single character, and the automatic table layout is
+   then free to squeeze the column to one character wide. On the CEO's phone
+   (21-09-2026) the Attendance register rendered "STAFF" as S/T/A/F/F down
+   the page and "Nur Nasuha binti Zainal Abidin" one letter per line, in an
+   84px column whose cell was 216px tall. Measured after the fix: 103px and
+   96px with the header back on one line, and 291px on one line once the
+   name cell was told not to wrap at all. */
+{
+  const v3 = read("styles/erp-v3.css");
+  ok("a table cell breaks on words, never anywhere",
+     /\.erp-card th, \.erp-card td, \.erp-th, \.erp-td \{ overflow-wrap: break-word; \}/.test(v3));
+  ok("the card itself still breaks an unbreakable run (v1.174.1 is not undone)",
+     /\.erp-card \{[\s\S]*?overflow-wrap: anywhere;/.test(v3));
+  ok("an identifier in a scrolling table stays on one line",
+     /\.erp-td-oneline, \.erp-th-oneline \{ white-space: nowrap; \}/.test(v3));
+  ok("a number in a table already stays on one line", /\.erp-th-num, \.erp-td-num \{ text-align: right; white-space: nowrap; \}/.test(v3));
+  const styles = read("lib/ui-styles.ts");
+  ok("the vocabulary exposes the one-line cell", /export const tdOneLine = "erp-td erp-td-oneline";/.test(styles) && /export const thOneLine = "erp-th erp-th-oneline";/.test(styles));
+  /* The cells the CEO photographed, by name. */
+  const rp = stripComments(read("components/portal/role-panels.tsx"));
+  ok("the attendance register's two name cells are one-line cells",
+     (rp.match(/<td className=\{tdOneLine\}>\{properName\((?:l|r)\.name\)\}<\/td>/g) ?? []).length === 2);
+  ok("the accounting code column is a one-line cell", /className=\{`\$\{tdOneLine\} tabular-nums`\}>\{t\.code\}/.test(stripComments(read("components/portal/accounting-panel.tsx"))));
+  /* Nobody may put `anywhere` back on a cell from a module either. */
+  const modules = globSync("components/**/*.module.css").concat(globSync("app/**/*.module.css"), globSync("styles/*.css"));
+  const offenders = [];
+  for (const f of modules) {
+    if (f.endsWith("legacy-utilities.css")) continue;  /* frozen, shrink-only */
+    const css = stripComments(read(f));
+    for (const m of css.matchAll(/([^{}]*(?:\bth\b|\btd\b|table)[^{}]*)\{([^}]*)\}/g)) {
+      if (/overflow-wrap:\s*anywhere/.test(m[2])) offenders.push(`${f}: ${m[1].trim().slice(0, 40)}`);
+    }
+  }
+  ok("no stylesheet puts overflow-wrap: anywhere on a table cell", offenders.length === 0, offenders.join(" | "));
+}
+
 /* ---- registration ---- */
 const runner = read("scripts/run-guards.mjs");
 ok("tab-concept is registered in the guard runner", /\["tab-concept", "/.test(runner));

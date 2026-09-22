@@ -44,7 +44,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, thR2, tdR2, selectClass, selectClassSm, tabPill, tabPillOn, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, tabPill, tabPillOn, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -3918,7 +3918,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 missing beneath it. */}
             {visibleLeave().map((l) => (
               <tr key={`lv-${l.id}-${l.date}`} className="border-border bg-info-soft/30 border-b last:border-0">
-                <td className={td}>{properName(l.name)}</td>
+                <td className={tdOneLine}>{properName(l.name)}</td>
                 <td className={`${td} whitespace-nowrap`}>
                   <span className="text-info font-medium">{L("Leave", "Cuti")}</span>
                 </td>
@@ -3944,7 +3944,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
             ))}
             {exportRows().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
-                <td className={td}>{properName(r.name)}</td>
+                <td className={tdOneLine}>{properName(r.name)}</td>
                 <td className={td}>{r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar")}</td>
                 <td className={td}>
                   <input

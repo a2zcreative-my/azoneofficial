@@ -119,9 +119,32 @@
        email) wraps inside the card instead of running past the phone.
        `anywhere`, not `break-word`: only `anywhere` lets a flex or grid
        item's minimum shrink below the run, so a long word in a wrapped row
-       breaks instead of pushing the row out of the card. */
+       breaks instead of pushing the row out of the card.
+       v1.174.4: NOT inside a table - see the rule below. */
     overflow-wrap: anywhere;
   }
+  /* v1.174.4 - A TABLE CELL BREAKS ON WORDS, NEVER ANYWHERE. The same
+     property that saves a flex row destroys a table: `anywhere` drops a
+     cell's MINIMUM content contribution to a single character, and the
+     automatic table layout is free to squeeze that column to one character
+     wide. On the CEO's phone (21-09-2026) the Attendance register did
+     exactly that - "STAFF" came out as S/T/A/F/F down the page and "Nur
+     Nasuha binti Zainal Abidin" one letter per line, in a 84px column whose
+     cell was 216px tall. `break-word` still breaks a genuinely unbreakable
+     run, but leaves the minimum at the longest WORD, so the column keeps a
+     sane width: the same table measures 103px wide and 96px tall, its
+     header back on one line. A table that needs more width than the phone
+     has scrolls inside its card - that is what the min-width is for. */
+  .erp-card th, .erp-card td, .erp-th, .erp-td { overflow-wrap: break-word; }
+  /* v1.174.4 - AN IDENTIFIER STAYS ON ONE LINE: a person's name, an account
+     code, a document reference. Even with words kept whole, "Nur Nasuha
+     binti Zainal Abidin" in the 103px share the automatic layout gave it
+     was a four-line tower beside a one-line row, and a 61px column broke
+     the account code "4000" in half. A table that carries a min-width
+     scrolls inside its card, so the honest answer is to let the identifier
+     claim its width and let the reader scroll - one row, one line. Numbers
+     already do this (.erp-td-num above). */
+  .erp-td-oneline, .erp-th-oneline { white-space: nowrap; }
   .erp-card-compact { padding: 0.75rem; }
   .erp-card-accent { border-top-width: 2px; }
   /* Inside a card. Filled, not white; smaller radius; no shadow - it reads as
