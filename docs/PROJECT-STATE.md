@@ -2,9 +2,9 @@
 
 **Last reviewed:** 22 September 2026  
 **Workspace:** `a2zcreative-official`  
-**Production:** `a2zcreative.my` — the owner's phone showed `v1.169.0` in the More sheet on 20 September 2026 (commit `8580913`, "portal deploy", pushed 20:31 MYT). Not re-verified with a health check by the v1.170.0 author.
+**Production:** `a2zcreative.my` — `v1.176.2` deployed on 22 September 2026 by `PUSH.bat allow-dirty` from portal commit `af86f40`; production health returned `{"ok":true,"db":true,"version":"1.176.2","elfia_bridge":{"configured":true,"orders_configured":true}}`.
 **Local package metadata:** `1.176.2`
-**Release status:** the owner's iPhone screenshots of 21 September show **v1.173.0 is DEPLOYED** (the AT A GLANCE / THE INBOX zones are on the phone); `v1.172.0` was committed on 21 September 2026 (commit `2c00419`, "portal deploy", 10:53 MYT) and the later deploy was not recorded here - the owner should confirm the commit. Local `v1.172.1` (Portal Interface System V3), `v1.172.2` (Tailwind retired), `v1.173.0` (every tab on the Dashboard's tab concept) `v1.174.0` (roles and responsibilities on the Staff tab — **carries migration 0137**), `v1.174.1` (phone overflow fenced), `v1.174.2` (the toast is a page surface) `v1.174.3` (a row's actions wrap; an empty date control) `v1.174.4` (a table cell breaks on words) `v1.175.0` (the dashboard reads in the order of your job) and `v1.176.0` (one home per workflow) passed every offline gate (below). **`v1.176.0` IS DEPLOYED** — the owner ran `PUSH.bat` himself on 22 September 2026 and `GET https://a2zcreative.my/api/v1/health` returns `{"ok":true,"db":true,"version":"1.176.0","elfia_bridge":{"configured":true,"orders_configured":true}}`. That deploy carried everything up to and including v1.176.0, **including migration 0137** (v1.174.0). `v1.176.1` (the same interface on every tab) passed every offline gate and is **not deployed**: the desktop link dropped before its files could be written, so the working copy the owner released from was still at v1.176.0. `v1.176.2` (Attendance has one action home) is local only and not deployed. The `version` in the health response is the repo ROOT `package.json` read at bundle time (`worker/src/index.ts`, `WORKER_VERSION`) — it is the version that was ON DISK when `PUSH.bat` ran, which is exactly why it read `1.176.0`. `PUSH.bat` has not been run for v1.176.1 or v1.176.2. v1.172.2 changes `package.json` and `pnpm-lock.yaml` (removals only): the release commit must include the lockfile, and a `pnpm install --frozen-lockfile` on the CEO's PC is the first thing to run after pulling it.
+**Release status:** **`v1.176.2` IS DEPLOYED.** The 22 September 2026 release ran the full portal pipeline: dependency install, cleanup, engine typecheck, 95 guards, D1 migration check (none to apply), Worker deploy, website lint/build, static asset upload, GitHub push, and production health check. This deploy carried `v1.176.1` (the same interface on every tab) and `v1.176.2` (Attendance has one action home). The paired store release also completed from store commit `7cf611e`; `https://elfiaofficialstore.my/api/v1/health` returned `{"ok":true,"version":"1.48.3","db":true,"r2":true,"migrations_current":true,"admin_key_configured":false,"bank_line_configured":true,"gateway_configured":false,"gateway_signature_configured":false,"store_url":"https://elfiaofficialstore.my","order_hold_hours":12,"shipping_cents":600,"free_above_cents":4500,"delivery_from":"portal","bridge_pull_configured":true,"bridge_push_configured":true}`.
 
 ## Read First
 
@@ -12,7 +12,7 @@ This is the current coordination record for Claude, Codex, and any other contrib
 
 **A stash exists** (`refs/stash`, 19:27 MYT on 20 September, "reset: moving to HEAD" in the reflog beside it). It is another contributor's parked work. v1.170.0 did not touch, apply or drop it.
 
-## Current Local Work — v1.176.2 — Attendance has one action home
+## Current Release — v1.176.2 — Attendance has one action home
 
 The owner, 22-09-2026, after reading the latest project and comparing it with his phone screenshots: *"seem duplication conflict which is occur multiple, I think need properly flow it"* and then *"help me to do necessary improvement"*.
 
@@ -20,7 +20,7 @@ The owner, 22-09-2026, after reading the latest project and comparing it with hi
 
 **The ordinary timestamp repeat is removed.** The punch record under the hero no longer renders merely because the current page is On Shift. It appears only when it adds something the chip does not: no punches yet, multiple shift punches, or any OT punch. One clean clock-in and one clean clock-in/out pair are stated once by the chip.
 
-Verification for `v1.176.2`: `tests/clock-sessions.mjs` **118/118**, `tests/one-desk.mjs` **83/83**, portal and worker typecheck clean, **95/95 guards**, lint **0 errors / 147 warnings**. Browser probes were not run in this working copy. No migration, no permission change, no approval-chain change, no payroll rule. **Dirty-tree approval for v1.176.2: given by the owner on 22 September 2026** (`Run now`) for release through `PUSH.bat allow-dirty`.
+Verification for `v1.176.2`: `tests/clock-sessions.mjs` **118/118**, `tests/one-desk.mjs` **83/83**, portal and worker typecheck clean, **95/95 guards**, lint **0 errors / 147 warnings**, `next build` clean, no D1 migrations to apply, Worker deploy completed, website asset deploy completed, production health returned `version: "1.176.2"`. Browser probes were not run in this working copy. No migration, no permission change, no approval-chain change, no payroll rule. **Dirty-tree approval for v1.176.2: given by the owner on 22 September 2026** (`Run now`) for release through `PUSH.bat allow-dirty`.
 
 ## Previous Local Work — v1.176.1 — The same interface on every tab
 
