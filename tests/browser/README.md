@@ -18,7 +18,7 @@ node tests/browser/serve.mjs out 4177 &
 
 WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # anything past the page box
 xvfb-run -a python3 tests/browser/table-shred.py                 # a column narrower than its own longest word
-xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps, stranded tiles
+xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps, stranded tiles, clipped labels, caged dialogs
 xvfb-run -a python3 tests/browser/a11y-audit.py                  # a control with no name, a keyboard with nowhere to stand
 ```
 

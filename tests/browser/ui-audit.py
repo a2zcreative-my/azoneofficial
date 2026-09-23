@@ -19,6 +19,13 @@ because nothing overflowed:
                   will not move — "payroll tabs like that stuck".
   5. ORPHAN       a tile grid whose last row holds one lone tile, because a
                   three-tile strip wraps to 2 + 1 at 390px.
+  6. CLIP         (v1.181.2) a button whose own label or icon is drawn
+                  outside its own box - "Open On Shift to clock out" in a
+                  half-width cell on his iPhone, 23-09-2026.
+  7. CAGE         (v1.181.3) an element at rest whose transform, filter or
+                  containment would capture a `position: fixed` dialog, so
+                  the backdrop greys only that box and the dialog lands
+                  off-screen - Claims on his iPhone, 23-09-2026.
 
 Run it the same way as the other two probes:
 
@@ -177,7 +184,78 @@ for (const grid of main.querySelectorAll(".erp-tiles, .erp-cols-2, .erp-cols-3, 
   if (counts.length > 1 && counts[counts.length - 1] === 1 && counts[0] > 1 && !full)
     findings.push({ kind: "ORPHAN", detail: `${kids.length} tiles wrap to ${counts.join("+")}, last is ${Math.round(last.width)}px of ${Math.round(grid.getBoundingClientRect().width)}px`, path: path(grid) });
 }
-return { findings };
+
+/* 6. CLIP - v1.181.2. A control whose own label or icon is drawn outside
+      its own box. The owner's iPhone, 23-09-2026: "Open On Shift to clock
+      out" in a half-width Dashboard cell, the icon hanging off the button's
+      left edge and the words cut at its right. Nothing crossed the PAGE edge,
+      so the overflow sweep passed it, and scrollWidth cannot see it either:
+      a centred flex row that is too wide spills to BOTH sides, and the left
+      half is not scrollable overflow. So a Range is drawn around the
+      control's contents and the browser is asked where the ink actually is. */
+for (const el of main.querySelectorAll("button, a.erp-button, [role=button], .erp-chip")) {
+  const r = el.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) continue;
+  /* Ink that an element INSIDE the control deliberately clips - a label
+     span that ellipsises, which is the .erp-button contract for a long
+     label - is not a spill: it is cut to that element's box first. The
+     control's own box is never used as a clip, because ink cut there is
+     exactly the defect. */
+  const ink = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    let rects;
+    if (n.nodeType === 3) {
+      if (!n.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      rects = [...range.getClientRects()];
+    } else if (n.tagName === "svg" || n.tagName === "IMG") {
+      rects = [n.getBoundingClientRect()];
+    } else continue;
+    let lo = -Infinity, hi = Infinity;
+    for (let a = n.nodeType === 3 ? n.parentElement : n.parentElement; a && a !== el; a = a.parentElement) {
+      if (getComputedStyle(a).overflowX !== "visible") {
+        const ar = a.getBoundingClientRect();
+        lo = Math.max(lo, ar.left); hi = Math.min(hi, ar.right);
+      }
+    }
+    for (const q of rects) {
+      if (q.width <= 0 || q.height <= 0) continue;
+      const l = Math.max(q.left, lo), rr = Math.min(q.right, hi);
+      if (rr > l) ink.push({ left: l, right: rr });
+    }
+  }
+  if (!ink.length) continue;
+  const left = Math.min(...ink.map((q) => q.left));
+  const right = Math.max(...ink.map((q) => q.right));
+  const over = Math.max(r.left - left, right - r.right);
+  if (over > 1) findings.push({ kind: "CLIP", detail: `"${(el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 34)}" spills ${Math.round(over)}px past a ${Math.round(r.width)}px control`, path: path(el) });
+}
+
+/* 7. CAGE - v1.181.3. An element AT REST that would capture a fixed overlay.
+      `position: fixed` means "the viewport" only while no ancestor has a
+      transform, filter, backdrop-filter, perspective, paint/layout
+      containment or a will-change on one of them. With one, the dialog's
+      `fixed inset-0` backdrop is sized to THAT ancestor and the dialog is
+      centred in it. The owner's iPhone, 23-09-2026, on Claims: the whole
+      tab greyed and blurred inside its own gutters, and the confirm box
+      itself centred ~1000px down the page, out of sight. The cage was
+      .erp-tab-page, whose arrival animation kept its last frame (`both`) -
+      an identity matrix, which is still a transform. Only a cage that holds
+      a control counts: nothing inside anything else can open an overlay. */
+const CAGE = (cs) => cs.transform !== "none" || cs.perspective !== "none" || cs.filter !== "none"
+  || (cs.backdropFilter && cs.backdropFilter !== "none") || (cs.webkitBackdropFilter && cs.webkitBackdropFilter !== "none")
+  || /transform|filter|perspective/.test(cs.willChange || "") || /paint|layout|strict|content/.test(cs.contain || "");
+for (const el of main.querySelectorAll("*")) {
+  if (el.closest("[role=dialog], [role=alertdialog], dialog")) continue;
+  const cs = getComputedStyle(el);
+  if (cs.position === "fixed" || !CAGE(cs)) continue;
+  if (!el.querySelector("button, a[href], [role=button]")) continue;
+  const r = el.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) continue;
+  findings.push({ kind: "CAGE", detail: `${Math.round(r.width)}x${Math.round(r.height)} holds controls under transform=${cs.transform} filter=${cs.filter} contain=${cs.contain} will-change=${cs.willChange}`, path: path(el) });
+}return { findings };
 """
 
 

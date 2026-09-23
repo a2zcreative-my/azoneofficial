@@ -599,6 +599,23 @@
      row action from `md` up (was `w-full md:w-auto` on btnQuick/btnHero). */
   .erp-button-quick { width: 100%; }
   @media (min-width: 768px) { .erp-button-quick { width: auto; } }
+  /* v1.181.2 - A QUICK ACTION'S LABEL WRAPS; IT NEVER SPILLS. The pill
+     contract is `nowrap` + centred, and a quick action's label is a bare
+     text node, so the ellipsis rule for `> span` below never reached it:
+     "Open On Shift to clock out" in a half-width Dashboard cell on a phone
+     centred itself wider than the button and spilled out of BOTH sides -
+     the icon off the left edge, the words cut at the right (the owner's
+     iPhone, 23-09-2026; BM "Buka Syif Saya untuk daftar keluar" is worse).
+     A quick action is a full-width touch target whose words are the point,
+     so it takes a second line instead of losing them. One line still fits
+     inside the 44px floor, so nothing that fitted before moves. */
+  .erp-button.erp-button-quick {
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+    text-wrap: balance;
+    line-height: 1.25;
+  }
   /* v1.172.2 - the tab pill's resting tone and the muted row action */
   .erp-button.erp-tab-pill { color: var(--muted-foreground); }
   .erp-icon-button.erp-icon-button-muted { color: var(--muted-foreground); }
@@ -1446,7 +1463,18 @@
 
   /* ARRIVAL. A tab lifts a few pixels into place. Two-hundred milliseconds is
      under the threshold where a person starts waiting for it. */
-  .erp-tab-page { animation: erp-deck-in 200ms cubic-bezier(0.2, 0, 0, 1) both; }
+  /* v1.181.3 - `backwards`, NEVER `both` or `forwards`. A fill that holds
+     the last frame keeps a transform on the tab for good (WebKit reports it
+     as an identity matrix, which is still a transform), and a transformed
+     element becomes the box that every `position: fixed` inside it is
+     measured from. Every confirm, prompt and toast opened from a tab was
+     then sized to the TAB instead of the screen: the backdrop greyed and
+     blurred only the tab's own column, and the dialog was centred halfway
+     down a page two to five screens tall - out of sight (Claims on the
+     owner's iPhone, 23-09-2026; live since v1.177.0). With `backwards` the
+     animation lets go when it ends and the tab is an ordinary box again.
+     tests/tab-arrival.mjs pins this; ui-audit.py's CAGE check measures it. */
+  .erp-tab-page { animation: erp-deck-in 200ms cubic-bezier(0.2, 0, 0, 1) backwards; }
   @keyframes erp-deck-in {
     from { opacity: 0; transform: translate3d(0, 8px, 0); }
     to   { opacity: 1; transform: none; }

@@ -134,6 +134,7 @@ const GUARDS = [
   ["interface-v3", "Portal Interface System V3: the named-class design system exists once and in tokens, the vocabulary resolves to it, the migrated surfaces stay migrated, the PWA shell keeps its safe areas, and the three retired tabs stay retired"],
   ["tailwind-retired", "Tailwind is retired and stays retired: no engine, plugin or tailwind-merge in the pipeline, no Tailwind at-rule in a stylesheet, the frozen legacy sheet only shrinks (a per-file budget that can only fall, no utility it does not define), and the migrated surfaces reference none"],
   ["tab-concept", "every tab reads like the Dashboard: a stack of captioned zones on the shared classes, the figures before the records, several things on one topic behind the shared pill row with the panes hidden and never unmounted, one column on a phone and side by side from 1024px - and no tab root is a bare legacy stack"],
+  ["tab-arrival", "no animation holds a transform on a container, so a confirm, prompt or toast opened from a tab is sized to the screen and not to the tab (Claims on the CEO's iPhone, 23-09-2026)"],
   ["staff-responsibilities", "roles and responsibilities on the Staff tab: one permission on both sides (the CEO and the HR tier write, everyone reads), its own route with no fill-once lock and working staff only, the change audited before and after, migration 0137 registered in all three places with a skew rung so the tab never goes blank, the block on the record card with the button hidden from those who may not write, and the read-only view on the Profile"],
   ["month-days", "the Dashboard's month is the payroll's month, run against a real SQLite database: on time, late and half day are judged against the block the punch was for, a rest day worked is never late, today is never absent before it is over, and a punch awaiting the CEO is neither present nor absent"],
   ["event-attendees", "an event can name who has to be there - only they are told, an empty list still means everyone, and the whole floor still sees the event"],
@@ -253,6 +254,6 @@ console.log("  plus tests/browser/ (a rendered page, not source):");
 console.log("    pnpm build && node tests/browser/serve.mjs out 4177 &");
 console.log("    WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # past the page box");
 console.log("    xvfb-run -a python3 tests/browser/table-shred.py                 # a shredded column");
-  console.log("    xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps");
+  console.log("    xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps, clipped labels, caged dialogs");
   console.log("    xvfb-run -a python3 tests/browser/a11y-audit.py                  # a control with no name, a keyboard with nowhere to stand");
 console.log("    ROLE=ceo|sales_marketing|live_host on the server walks each dashboard order\n");

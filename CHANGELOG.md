@@ -2,6 +2,83 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.3] - 2026-09-23 - Dialogs that opened off the screen
+
+**Bug fix, live since v1.177.0, on 27 of the 29 tabs.** The CEO's iPhone,
+23-09-2026, on Claims: the tab turned grey and blurred inside its own
+gutters and nothing else appeared. The dialog **had** opened, but about 1,000px
+down the page, where he couldn't see it.
+
+### Why
+
+`position: fixed` means "pinned to the screen" only while no ancestor has a
+transform. v1.177.0 gave every tab root (`.erp-tab-page`) its 200ms arrival
+lift, with the fill mode `both`, which **holds the last frame for good**. The
+last frame says `transform: none`, but an interpolated transform is held as an
+identity matrix, and that still counts as a transform. So every tab root
+stayed the box its fixed children are measured from, and every confirm,
+prompt and save toast opened from a tab (they all render `fixed inset-0`
+inside the tab) was sized to the TAB: 415 x 1,932px on Claims, 415 x 5,109px
+on Attendance. The dark backdrop covered the tab's column only, and the
+dialog was centred in the middle of that column, off the screen. Dashboard and
+On Shift were spared because they don't use the shared tab root.
+
+### Fix
+
+One word in `styles/erp-v3.css`: the arrival animation now fills `backwards`.
+It still lifts in exactly the same way, then lets go when it ends, so the tab
+is an ordinary box again and a dialog is sized to the screen. Measured in
+WebKit on Claims: the save toast's layer went from 415 x 1,916px starting at
+the tab to 447 x 878px starting at the top-left corner of the screen.
+
+### So it stays fixed
+
+- **New guard `tab-arrival`** (#99). It reads every stylesheet and fails on
+  any animation that holds (`both` / `forwards`) a frame that moves a
+  transform, filter or perspective. It tests itself against eight planted
+  stylesheets first. Putting `both` back on the real rule makes it fail.
+- **New browser check, CAGE** (`tests/browser/ui-audit.py`). It flags any
+  element that, once the page has settled, would trap a fixed dialog while
+  holding a control. Before: 29 findings, one per tab. After: 0 at 390px
+  light and 430px dark.
+
+## [1.181.2] - 2026-09-23 - A button label that spilled out of its button
+
+**Bug fix, live on the Dashboard since the quick actions were introduced.** The
+CEO's iPhone, 23-09-2026: the gold "Open On Shift to clock out" button in the
+Dashboard's attendance card showed its clock icon hanging off the button's
+left edge and its words cut off at the right.
+
+### Why
+
+The labelled-button contract (`.erp-button`, globals.css) is one line,
+`nowrap`, centred. A quick action is `width: 100%` of a half-width grid cell
+on a phone - about 190px - and its label is a bare text node, so the
+ellipsis rule that protects `.erp-button > span` never reached it. A centred
+row that is wider than its box spills out of BOTH sides. In Malay ("Buka Syif
+Saya untuk daftar keluar") it was worse: about 50px over.
+
+### Fix
+
+`.erp-button.erp-button-quick` (styles/erp-v3.css) now wraps: `white-space:
+normal`, `text-wrap: balance`, `line-height: 1.25`, `min-width: 0`. The words
+are the point of a quick action, so it takes a second line instead of losing
+them. One line still sits inside the 44px floor, so every quick action that
+fitted before is unchanged; the one that did not now reads, in full, on two
+lines (three in Malay), and its row partner grows to match. Fixed at the
+primitive, so all ten quick actions are covered, not only this one.
+
+### Why no probe caught it
+
+Nothing crossed the page edge, so the overflow sweep passed, and
+`scrollWidth` cannot see the left-hand half of a centred spill. The UI audit
+(`tests/browser/ui-audit.py`) gains a sixth check, **CLIP**: it measures where
+a control's text and icons are actually drawn and reports any that land
+outside the control's own box. Ink that an element inside the control clips
+on purpose (an ellipsising label span) is cut to that element first, so the
+contract's own truncation is not reported. Before the fix it reported this
+button at 360, 390 and 430px in English and Malay; after, 0 findings.
+
 ## [1.181.1] - 2026-09-23 - A guard that only worked on Linux
 
 **Test-only. No application code changed.** `PUSH.bat` stopped the 22-09-2026
