@@ -206,7 +206,43 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("the replay sends the SAME key and pressed-at, and says it IS a replay",
      /"Idempotency-Key": e\.id,\s*\n?\s*"X-Client-At": e\.clientAt, "X-Outbox-Replay": "1"/.test(apiSrc));
   ok("a network failure stops the drain and keeps the entry", /if \(r === null\) \{ await bumpAttempts\(e\); break; \}/.test(clientSrc));
-  ok("a refusal removes the entry AND tells the person", /else if \(r\.status >= 400 && r\.status < 500\) \{[\s\S]{0,300}?onRefused\?\.\(/.test(clientSrc),
+
+  /* v1.177.1 - THE QUEUE MAY NOT LIE, AND MAY NOT LOSE.
+     Two defects shipped together and both are held here.
+     (1) `enqueue` returned `ok !== undefined || true` - always true - so a
+         device that could not open IndexedDB dropped the write while the
+         caller told the person it was safe on the phone.
+     (2) a 5xx was REMOVED from the queue, on the reasoning that the
+         idempotency key would only replay a stored answer. The worker does
+         the opposite on purpose, and the check above this one says so:
+         "a 5xx is not stored, so the retry really retries". */
+  ok("enqueue reports the truth: the write completed AND can be read back",
+     /function txOk\(/.test(clientSrc)
+     && /const written = await txOk\("readwrite"/.test(clientSrc)
+     && /const back = await tx<OutboxEntry \| undefined>\("readonly", \(s\) => s\.get\(full\.id\)\);/.test(clientSrc)
+     && /return back\?\.id === full\.id;/.test(clientSrc)
+     && !/\|\| true;/.test(clientSrc),
+     "a put has no request result, so the old check could never be true");
+  ok("a write the queue could not keep is NOT reported as kept",
+     /const kept = await enqueue\(/.test(apiSrc)
+     && /if \(!kept\) \{ reportDropped\(kind!, path\); return \{ ok: false, status: 0, data: null, dropped: true \}; \}/.test(apiSrc)
+     && /export function reportDropped\(/.test(clientSrc),
+     "\"Kept - sent when you are back online\" over a dropped punch is the v1.105.0 failure in a new coat");
+  ok("a dropped write is announced through the SAME surface as a refusal",
+     /onRefused\?\.\(\{[\s\S]{0,240}?could not store it/.test(clientSrc)
+     && /if \(res0\.dropped\)/.test(read("components/portal/dashboard.tsx")),
+     "one report site covers every caller; the punch also says it plainly, because that one ends in a payslip");
+  ok("a 5xx is RETRIED with backoff, not dropped",
+     /if \(e\.attempts \+ 1 >= MAX_ATTEMPTS\)/.test(clientSrc)
+     && /await bumpAttempts\(e, Date\.now\(\) \+ backoffMs\(e\.attempts \+ 1\)\);/.test(clientSrc)
+     && /if \(\(e\.nextAt \?\? 0\) > now\) continue;/.test(clientSrc),
+     "the worker does not store a 5xx precisely so the client can try again");
+  ok("the retry gives up out loud rather than looping",
+     /const MAX_ATTEMPTS = 6;/.test(clientSrc)
+     && /gaveUp: true/.test(clientSrc)
+     && /gaveUp\?: boolean/.test(clientSrc),
+     "attempts was written and never read - no cap, no backoff, no end");
+  ok("a refusal removes the entry AND tells the person", /if \(r\.status >= 400 && r\.status < 500\) \{[\s\S]{0,400}?onRefused\?\.\(/.test(clientSrc),
      "dropping it silently would be the old failure in a new coat");
   ok("the queue is per account", /e\.scope === scope/.test(clientSrc) && /setOutboxScope\(r\.data\.user\.id\)/.test(page));
   ok("the drain starts once the account is known", /startOutbox\(sendOutboxEntry\)/.test(page));
@@ -268,6 +304,97 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("0114 is registered", index.includes('"0114_outbox",'));
   ok("0114 is probed", /\["0114 \(the outbox\)", `SELECT key FROM idempotency_keys LIMIT 1`\]/.test(index));
   ok("keys are purged nightly", /await purgeIdempotencyKeys\(env\);/.test(index) && /-7 days/.test(serverSrc));
+}
+
+/* ===================================================================
+   v1.177.1 - THE QUEUE, RUN FOR REAL.
+   Everything above reads the source. This runs it. The bug that shipped -
+   `enqueue` returning true for every input - was invisible to a source read
+   precisely because the shape looked right; only calling it exposes it.
+   A ~40-line in-memory IndexedDB is enough for put/get/getAll/delete, which
+   is the whole surface lib/outbox.ts touches.
+   =================================================================== */
+{
+  const store = new Map();
+  let failWrites = false;
+  const req = (result) => { const r = { result, onsuccess: null, onerror: null }; queueMicrotask(() => r.onsuccess?.()); return r; };
+  const fakeIdb = {
+    open() {
+      const r = { result: null, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null };
+      queueMicrotask(() => {
+        r.result = {
+          objectStoreNames: { contains: () => true },
+          createObjectStore: () => ({ createIndex() {} }),
+          close() {},
+          transaction() {
+            const t = { oncomplete: null, onerror: null, onabort: null, objectStore: () => os };
+            const os = {
+              put(v) { if (failWrites) { queueMicrotask(() => t.onerror?.()); return req(undefined); } store.set(v.id, v); return req(undefined); },
+              get(id) { return req(store.get(id)); },
+              getAll() { return req([...store.values()]); },
+              delete(id) { store.delete(id); return req(undefined); },
+            };
+            if (!failWrites) queueMicrotask(() => queueMicrotask(() => t.oncomplete?.()));
+            return t;
+          },
+        };
+        r.onsuccess?.();
+      });
+      return r;
+    },
+  };
+
+  const entry = (id) => ({ id, path: "/staff/attendance", method: "POST", body: "{}", kind: "punch", clientAt: new Date().toISOString() });
+
+  /* --- 1. NO IndexedDB at all: the exact case that dropped the punch --- */
+  delete globalThis.indexedDB;
+  client.setOutboxScope(7);
+  ok("with no IndexedDB, enqueue reports FALSE", (await client.enqueue(entry("k-none"))) === false,
+     "this returned true for eighteen days and the caller said \"Kept\"");
+
+  /* --- 2. a working store: it keeps, and says so --- */
+  globalThis.indexedDB = fakeIdb;
+  ok("with a working store, enqueue reports TRUE", (await client.enqueue(entry("k-ok"))) === true);
+  ok("...and the row is really there", (await client.outboxAll()).some((e) => e.id === "k-ok"));
+
+  /* --- 3. the write aborts: reported, not swallowed --- */
+  failWrites = true;
+  ok("an aborted write reports FALSE", (await client.enqueue(entry("k-abort"))) === false);
+  failWrites = false;
+
+  /* --- 4. a 5xx stays queued and backs off; a 4xx leaves and is reported --- */
+  store.clear();
+  await client.enqueue(entry("k-500"));
+  let refusals = [];
+  client.setRefusalHandler((r) => refusals.push(r));
+  await client.drainOutbox(async () => ({ status: 503, data: null }));
+  ok("a 5xx keeps the entry in the queue", (await client.outboxAll()).some((e) => e.id === "k-500"),
+     "the worker does not store a 5xx, so dropping it here loses the write for good");
+  const after500 = (await client.outboxAll()).find((e) => e.id === "k-500");
+  ok("...counts the attempt and sets a future due time", after500.attempts === 1 && after500.nextAt > Date.now());
+  ok("...and says nothing yet - it is still trying", refusals.length === 0);
+
+  store.clear();
+  await client.enqueue(entry("k-400"));
+  refusals = [];
+  await client.drainOutbox(async () => ({ status: 409, data: { error: { message: "already clocked in" } } }));
+  ok("a 4xx removes the entry and tells the person", (await client.outboxAll()).length === 0 && refusals.length === 1 && /already clocked in/.test(refusals[0].message));
+
+  /* --- 5. it gives up out loud rather than looping for ever --- */
+  store.clear();
+  await client.enqueue(entry("k-give"));
+  refusals = [];
+  for (let i = 0; i < 8; i++) {
+    for (const e of await client.outboxAll()) e.nextAt = 0;        // fast-forward the backoff
+    const rows = [...store.values()]; rows.forEach((r) => { r.nextAt = 0; });
+    await client.drainOutbox(async () => ({ status: 500, data: null }));
+  }
+  ok("after MAX_ATTEMPTS the queue stops and SAYS it stopped",
+     (await client.outboxAll()).length === 0 && refusals.some((r) => r.gaveUp === true),
+     "attempts was written and never read, so nothing ever ended");
+
+  client.setRefusalHandler(null);
+  delete globalThis.indexedDB;
 }
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }

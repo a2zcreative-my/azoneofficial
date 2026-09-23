@@ -26,13 +26,22 @@ import {
   daySlots, canClockIn, claimedSlots, slotsLabel,
   type Punch, type Session,
 } from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
-import { logError as sharedLogError, postJournal, readVersions } from "./shared";
+import { logError as sharedLogError, postJournal, readVersions, putGuarded } from "./shared";
 import { fillM2eTemplate, type M2eRow } from "./m2e";
-import { createPasswordHash, primaryOrigin, totpVerifyOnce } from "./index"; // v1.127.0 - step-up before a signature is attached
+import { createPasswordHash, primaryOrigin, totpVerifyOnce, checkRateLimit } from "./index"; // v1.127.0 - step-up before a signature is attached; v1.177.2 - budget the overflow reporter
 import { sendPush, type PushKeys } from "./webpush";
 import { shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
 import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, computed in JS and bound as a value (AUDIT M8)
+
+/* v1.177.2 - THE OT DECISION HAS ONE DEFINITION. It was a role array written
+   inline at /attendance/ot/pending; the dashboard summary needs exactly the
+   same answer for its `pending_ot` figure, and two copies of an authority
+   list is how a dashboard quietly becomes a softer route to something. There
+   is no named permission for this in permissions.ts and inventing one for a
+   summary field would be the wrong way round - the route owns the rule, this
+   is simply that rule with a name. */
+export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
 import { Role, can } from "./permissions";
 
@@ -2524,7 +2533,12 @@ export async function handleStaff(
     const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : "jpg";
     // private/ prefix: serving requires staff auth (badge preview/print run signed in)
     const key = `private/staff-photos/${id}-${Date.now()}.${ext}`;
-    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    /* v1.177.2 - 5 MB. This is a head-and-shoulders badge photo printed nine
+       to an A4 sheet; the ELFIA product photo next door has the same cap, and
+       a phone camera's largest JPEG sits comfortably under it. Streamed and
+       counted, and the leading bytes must agree with the declared type. */
+    const photoRejected = await putGuarded(env.MEDIA, key, request, { max: 5 * 1024 * 1024, contentType: ct });
+    if (photoRejected) return photoRejected;
     await env.DB.prepare(`UPDATE users SET photo_key = ?1 WHERE id = ?2`).bind(key, id).run();
     await audit(env, user.id, "staff.photo", "users", id);
     return json({ photo_key: key, url: `/api/v1/media/file/${encodeURIComponent(key)}` }, 201);
@@ -2545,50 +2559,108 @@ export async function handleStaff(
      COUNTs, each armored per table so a pending migration can never blank
      the band (the v1.4.218 lesson applied to a new surface). Counts are
      universal facts; the CARD decides per role what to show. */
+  /* =====================================================================
+     THE DASHBOARD IS A PROJECTION OF EXISTING AUTHORITY — v1.177.2.
+
+     This route used to return everything to anyone signed in and not a
+     customer. Its own comment said why: "Counts are universal facts; the CARD
+     decides per role what to show." The card is a React component. curl does
+     not run React. A `live_host` — a role holding neither `revenue_view` nor
+     `finance`, whose portal shows no finance tab at all — could read the
+     month's cash in and cash out with their own valid cookie, and
+     `trading-desk.tsx` fetched this UNCONDITIONALLY, so those figures were
+     written into every staff member's localStorage whether or not anything
+     was drawn. This is the exact class of bug tests/authz-guard.mjs exists
+     for: the gate lived in the UI, where curl does not go.
+
+     THE RULE, chosen by the owner 22-09-2026: a summary field may never
+     reveal what the same person cannot get from the feature that OWNS it. So
+     every field below carries the authority of its authoritative endpoint —
+     no new permission was invented for the dashboard, and the dashboard is
+     not allowed to become a softer route to anything.
+
+       field                  authority                    owning endpoint
+       clients                sales || exec_view           /customers
+       active_stokis          inventory                    /stokis
+       low_stock              inventory || exec_view       /inventory
+       open_quotations        sales || exec_view           /docs
+       outstanding_invoices   sales || exec_view           /docs
+       attendance_*           hr_manage || exec_view       /attendance/monitor
+       pending_leave          hr_manage || exec_view       /leave?all=1
+       pending_claims         claims_decide                /claims (full list)
+       pending_ot             OT_DECIDE_ROLES              /attendance/ot/pending
+       cash_in_cents          revenue_view                 /revenue
+       cash_out_cents         expenses                     /expenses, /finance/pnl
+       today, lives_today,    none — /roster and /staff-list are open to every
+       staff_total            staff role and give the same figures
+
+     AN ABSENT FIELD IS OMITTED, NEVER ZEROED. A 0 asserts "the authorised
+     answer is zero", which is a different and false statement; the portal
+     already renders an unknown figure as "—" (v1.177.0). And the whole
+     summary never 403s: a person entitled to some of it still gets that part.
+     ===================================================================== */
   if (path === "/dashboard/summary" && method === "GET") {
     const n = async (sql: string): Promise<number | null> => {
       try { return (await env.DB.prepare(sql).first<{ c: number }>())?.c ?? 0; }
       catch { return null; }
     };
+    /* only run the query when the answer may be given: an omitted field
+       costs nothing to compute and tells nothing to anyone */
+    const gated = async (allowed: boolean, sql: string): Promise<number | null | undefined> =>
+      allowed ? n(sql) : undefined;
+
     const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    return json({
+    const sales = can(user.role, "sales") || can(user.role, "exec_view");
+    const stock = can(user.role, "inventory") || can(user.role, "exec_view");
+    const people = can(user.role, "hr_manage") || can(user.role, "exec_view");
+    /* the same four roles /attendance/ot/pending enforces, and for the same
+       reason — it is the OT decision, not a general management figure */
+    const otDecide = OT_DECIDE_ROLES.includes(user.role);
+
+    const out: Record<string, unknown> = {
       today: todayS,
-      // real schema: table `claims`, and both flows keep status='pending'
-      // through the review chain (0010/0038 track the chain in columns).
-      pending_leave: await n(`SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
-      pending_claims: await n(`SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
-      pending_ot: await n(`SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
-      low_stock: await n(`SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
-      // v1.4.280: open quotations = QT docs not yet converted to an invoice
+      /* open by design: /roster and /staff-list are reachable by every staff
+         role and yield these two exactly, so gating them here would be a
+         gesture rather than a control */
+      lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
+
+      pending_leave: await gated(people, `SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
+      pending_claims: await gated(can(user.role, "claims_decide"), `SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
+      pending_ot: await gated(otDecide, `SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
+
+      low_stock: await gated(stock, `SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
       /* v1.154.0 - OPEN means not yet invoiced. converted_from lives on the
          INVOICE, so "QT with converted_from IS NULL" was every quotation ever
          written, invoiced or not. */
-      open_quotations: await n(`SELECT COUNT(*) AS c FROM sales_documents q WHERE q.doc_type = 'QT'
+      open_quotations: await gated(sales, `SELECT COUNT(*) AS c FROM sales_documents q WHERE q.doc_type = 'QT'
         AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')`),
-      // v1.7.0 company-pulse tiles for the dashboard
-      clients: await n(`SELECT COUNT(*) AS c FROM customers WHERE COALESCE(company, '') != 'Walk-in Customer'`),
-      active_stokis: await n(`SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
-      lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
-      attendance_today: await n(`SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`),
+      outstanding_invoices: await gated(sales, `SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
+      clients: await gated(sales, `SELECT COUNT(*) AS c FROM customers WHERE COALESCE(company, '') != 'Walk-in Customer'`),
+      active_stokis: await gated(can(user.role, "inventory"), `SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
+
+      attendance_today: await gated(people, `SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`),
       /* v1.8.0 — the attendance donut: on-time (first clock-in <= 10:00 MYT,
-         same rule the punch flag uses), late (after 10:00), and the active
-         staff headcount so "not clocked in" is derivable. */
-      attendance_on_time: await n(`SELECT COUNT(*) AS c FROM (
+         same rule the punch flag uses), late (after 10:00). */
+      attendance_on_time: await gated(people, `SELECT COUNT(*) AS c FROM (
         SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
       ) WHERE t <= '10:00'`),
-      attendance_late: await n(`SELECT COUNT(*) AS c FROM (
+      attendance_late: await gated(people, `SELECT COUNT(*) AS c FROM (
         SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
       ) WHERE t > '10:00'`),
-      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
-      outstanding_invoices: await n(`SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
+
       // Cash flow proxy for the month: cash IN (paid invoices) - cash OUT (expenses).
-      cash_in_cents: await n(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
-      cash_out_cents: await n(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '+8 hours')`),
-    });
+      cash_in_cents: await gated(can(user.role, "revenue_view"), `SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
+      cash_out_cents: await gated(can(user.role, "expenses"), `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '+8 hours')`),
+    };
+    /* drop the undefined keys rather than serialising them: JSON.stringify
+       would omit them anyway, and being explicit keeps the intent readable */
+    for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+    return json(out);
   }
 
   /* v1.5.0: /trends/my removed with the Social tab. */
@@ -3333,7 +3405,7 @@ export async function handleStaff(
   }
 
   if (path === "/attendance/ot/pending" && method === "GET") {
-    if (!["ceo", "coo", "super_admin", "admin"].includes(user.role)) {
+    if (!OT_DECIDE_ROLES.includes(user.role)) {
       return err("forbidden", "OT approvals are for the CEO/COO", 403);
     }
     try {
@@ -3496,7 +3568,20 @@ export async function handleStaff(
      which element it is — every sandbox engine here renders clean. The
      portal measures itself after each tab render and reports offenders to
      the error_log (admin → Audit → System health), tagged ui_overflow.
-     Auth-gated, capped, once per tab per session per build. */
+
+     v1.177.2 - THE CAP WAS ON THE WRONG SIDE. "Once per tab per session per
+     build" was a sessionStorage key in the browser, which is a courtesy, not
+     a limit: any authenticated account could POST this in a loop. Each call
+     did a RAW INSERT, bypassing logError's 6-hour dedupe and 500-row trim, so
+     roughly twenty forged posts pushed every genuine error out of the panel
+     that shows the newest twenty - and the same rows fire the admin bell.
+     Three changes, all reusing what exists: a server-side daily budget per
+     account, the deduping logger instead of the raw INSERT, and the email
+     dropped (the id identifies the device well enough, and this panel has a
+     lower bar than the HR tabs). Deliberately NOT role-gated: every staff
+     role runs the portal and the whole point is to catch the clipping on
+     whichever phone meets it - a role gate would silence exactly the people
+     the reports come from. */
   if (path === "/debug/overflow" && method === "POST") {
     const tab = typeof body?.tab === "string" ? body.tab.slice(0, 40) : "?";
     const v = typeof body?.v === "string" ? body.v.slice(0, 20) : "?";
@@ -3506,11 +3591,17 @@ export async function handleStaff(
     /* v1.88.1 - the desktop report measures HEIGHT; say which axis so the two
        kinds of overflow are not read as one. */
     const axis = body?.axis === "y" ? "y" : "x";
-    try {
-      await env.DB.prepare(
-        `INSERT INTO error_log (source, message, path) VALUES ('ui_overflow', ?1, ?2)`,
-      ).bind(`v${v} ${user.email} tab=${tab} axis=${axis} viewport=${vw} document=${dw} :: ${els.join(" | ") || (axis === "y" ? "(document taller than viewport, no element outside the shell found)" : "(document wider than viewport, no single element found)")}`, "/portal").run();
-    } catch { /* pre-error_log schema — diagnostics never fail the request */ }
+    /* 20 reports per account per day: a real device sends one per tab per
+       build, so a working day of genuine browsing stays well inside it. Over
+       budget answers ok and writes nothing - a diagnostic must never tell a
+       caller how to tune its own flood, and the portal ignores the reply. */
+    if (!(await checkRateLimit(env, `ovf:${user.id}`, 20, 86_400))) return json({ ok: true });
+    await sharedLogError(
+      env,
+      "ui_overflow",
+      `v${v} user=${user.id} tab=${tab} axis=${axis} viewport=${vw} document=${dw} :: ${els.join(" | ") || (axis === "y" ? "(document taller than viewport, no element outside the shell found)" : "(document wider than viewport, no single element found)")}`,
+      "/portal",
+    );
     return json({ ok: true });
   }
 
@@ -4162,7 +4253,12 @@ export async function handleStaff(
       const fnameD = (request.headers.get("X-Doc-Filename") ?? "document").slice(0, 160);
       const labelD = (request.headers.get("X-Doc-Label") ?? "").slice(0, 160) || null;
       const keyD = `private/staff-docs/${mDoc[1]}-${Date.now()}-${fnameD.replace(/[^A-Za-z0-9._-]/g, "_")}`;
-      await env.MEDIA.put(keyD, request.body, { httpMetadata: { contentType: ctD } });
+      /* v1.177.2 - 20 MB. A signed employment contract arrives as a phone
+         scan or a 300dpi multi-page PDF, which the catalogue's 10 MB would
+         refuse for no good reason; 20 MB covers the real documents HR upload
+         and still bounds the route. Streamed and counted. */
+      const docRejected = await putGuarded(env.MEDIA, keyD, request, { max: 20 * 1024 * 1024, contentType: ctD });
+      if (docRejected) return docRejected;
       const head = await env.MEDIA.head(keyD);
       await env.DB.prepare(
         `INSERT INTO staff_documents (user_id, kind, label, r2_key, filename, size, uploaded_by)
@@ -5984,7 +6080,11 @@ export async function handleStaff(
     if (lenP > 8 * 1024 * 1024) return err("too_large", "Payment proof too large — maximum 8 MB.", 413);
     if (!request.body) return err("invalid_input", "Payment proof body required", 400);
     const keyP = `claims/${claimProof[1]}-proof-${Date.now()}`;
-    await env.MEDIA.put(keyP, request.body, { httpMetadata: { contentType: ctP } });
+    /* v1.177.2 - the 8 MB above was read from Content-Length, which the
+       client writes and may omit. Same limit, now enforced on the bytes that
+       actually arrive, and the opening must match the declared type. */
+    const proofRejected = await putGuarded(env.MEDIA, keyP, request, { max: 8 * 1024 * 1024, contentType: ctP });
+    if (proofRejected) return proofRejected;
     await env.DB.prepare(`UPDATE claims SET payment_proof_key = ?1 WHERE id = ?2`).bind(keyP, claimProof[1]).run();
     await notify(env, rowP.user_id, "claim", "Payment proof for your claim has been attached — view it on your claim", `claim:${claimProof[1]}`);
     await audit(env, user.id, "claim.payment_proof", "claims", claimProof[1]!);
@@ -6122,7 +6222,10 @@ export async function handleStaff(
     }
     if (!request.body) return err("invalid_input", "Receipt body required", 400);
     const key = `claims/${clMatch[1]}-${Date.now()}`;
-    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    /* v1.177.2 - as above: the Content-Length test stays as the friendly fast
+       path (it carries the WhatsApp tip) and the real count now backs it. */
+    const receiptRejected = await putGuarded(env.MEDIA, key, request, { max: 8 * 1024 * 1024, contentType: ct });
+    if (receiptRejected) return receiptRejected;
     await env.DB.prepare(`UPDATE claims SET receipt_key = ?1 WHERE id = ?2`).bind(key, clMatch[1]).run();
     // v1.4.117: attaching a receipt to a REJECTED claim resubmits it — the
     // missing receipt was the fix, so the claim goes straight back through
@@ -7892,7 +7995,13 @@ export async function handleStaff(
     }
     const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : ct.includes("svg") ? "svg" : "jpg";
     const key = `uploads/client-logos/${id}-${Date.now()}.${ext}`;
-    await env.MEDIA.put(key, request.body, { httpMetadata: { contentType: ct } });
+    /* v1.177.2 - this one had no limit of any kind. 2 MB: a customer logo is
+       printed on a quotation header at a few hundred pixels. SVG is allowed
+       here and is exempt from the byte-signature check (it is text, and it is
+       already forced to download rather than render by the media route's
+       Content-Disposition rule, which is what makes it safe to accept). */
+    const logoRejected = await putGuarded(env.MEDIA, key, request, { max: 2 * 1024 * 1024, contentType: ct });
+    if (logoRejected) return logoRejected;
     try {
       await env.DB.prepare(`UPDATE customers SET logo_key = ?1 WHERE id = ?2`).bind(key, id).run();
     } catch {

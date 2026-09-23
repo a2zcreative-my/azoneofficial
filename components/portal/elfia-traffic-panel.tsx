@@ -306,7 +306,7 @@ export function ElfiaTrafficPanel() {
                     aria-pressed={isSel}
                     onClick={() => toggle(s.name)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(s.name); } }}
-                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    className="cursor-pointer transition-opacity hover:opacity-75 focus-visible:opacity-75"
                     fill={v ? "var(--gold-solid)" : "var(--secondary)"}
                     fillOpacity={v ? 0.3 + 0.55 * ratio : 1}
                     stroke={isSel ? "var(--primary)" : "var(--border)"}

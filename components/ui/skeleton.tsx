@@ -120,38 +120,6 @@ export function SkelTable({ rows = 5, cols = 4, className = "" }: { rows?: numbe
   );
 }
 
-/** Donut / ring card (attendance today). */
-export function SkelDonut() {
-  return (
-    <div className={card} aria-hidden>
-      <Skel h={16} w={144} />
-      <div className={s.donut}>
-        <Skel className="erp-fixed" h={112} w={112} round="full" />
-        <div className={s.donutLines}>
-          <Skel h={12} w="100%" />
-          <Skel h={12} w="100%" />
-          <Skel h={12} w="66.666667%" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Bar-chart block (sales by month). Heights vary so it reads as a chart. */
-const BAR_H = [32, 56, 40, 64, 48, 80, 44, 64];
-export function SkelChart({ bars = 6 }: { bars?: number }) {
-  return (
-    <div className={card} aria-hidden>
-      <SkelHead />
-      <div className={s.bars}>
-        {Array.from({ length: bars }, (_, i) => (
-          <Skel key={i} className={s.bar} h={BAR_H[i % BAR_H.length]} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* v1.25.0 — the "updating…" hint. Per the CEO's choice, cards that show
    MONEY render their remembered figures instantly but say so until the
    fresh numbers land, so nobody acts on a stale amount. */

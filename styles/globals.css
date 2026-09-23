@@ -455,6 +455,234 @@ body:has(.erp-workspace) {
   --shadow-shell: 0 24px 60px rgba(8, 14, 26, 0.28);
 }
 
+/* =====================================================================
+   V2 DESIGN TOKENS — P0.2, 22 September 2026.
+
+   THE TOKEN LAYER IS THE SOURCE OF TRUTH FOR INTERFACE DECISIONS.
+
+   Everything above this block is the V1 palette and it stays: `--card`,
+   `--foreground`, `--border`, the status colours and the validated dark set
+   are consumed by 128 files and by the guards, and renaming them would be a
+   hundred-file rewrite for no gain. What was MISSING is everything below —
+   the audit found five token groups with no scale at all (spacing, type,
+   z-index, motion, breakpoints) and two that were stubs (radius, shadow).
+   That absence is why `.erp-heading`, `.erp-panel-title` and `.erp-card-title`
+   all resolve to 14px/600: the system had no way to say "this is a page".
+
+   ADOPTION IS INCREMENTAL, BY DESIGN. New V2 work reads these; a module that
+   still spells a literal keeps working and is migrated in P2. The semantic
+   ALIASES in §3 point at the V1 tokens rather than replacing them, so both
+   names describe the same colour and neither can drift from the other.
+   ===================================================================== */
+
+:root {
+  /* ---- §1 TYPOGRAPHY -------------------------------------------------
+     Six roles for prose and two for figures. The rule a module follows:
+     pick the role by WHAT THE TEXT IS, never by the size you want. A card's
+     heading is `card` on every tab, at every width, and if it should look
+     different the role changes here, once.
+
+     Sizes are a 1.125–1.25 ratio off a 14px body, which is the density this
+     product needs — a business screen reading at 16px body wastes a third of
+     a phone. Poppins is geometric and reads tight at small sizes, so the
+     small roles open the tracking slightly and the display roles close it. */
+  --type-display-size: 1.75rem;   --type-display-weight: 650;
+  --type-display-lh: 2.125rem;    --type-display-tracking: -0.02em;
+
+  --type-page-size: 1.25rem;      --type-page-weight: 600;
+  --type-page-lh: 1.75rem;        --type-page-tracking: -0.01em;
+
+  --type-section-size: 1rem;      --type-section-weight: 600;
+  --type-section-lh: 1.5rem;      --type-section-tracking: -0.005em;
+
+  --type-card-size: 0.875rem;     --type-card-weight: 600;
+  --type-card-lh: 1.25rem;        --type-card-tracking: 0;
+
+  --type-body-size: 0.875rem;     --type-body-weight: 400;
+  --type-body-lh: 1.375rem;       --type-body-tracking: 0;
+
+  --type-body-sm-size: 0.8125rem; --type-body-sm-weight: 400;
+  --type-body-sm-lh: 1.125rem;    --type-body-sm-tracking: 0;
+
+  --type-caption-size: 0.75rem;   --type-caption-weight: 400;
+  --type-caption-lh: 1rem;        --type-caption-tracking: 0.005em;
+
+  /* the small-caps caption over a zone or a field */
+  --type-label-size: 0.6875rem;   --type-label-weight: 600;
+  --type-label-lh: 1rem;          --type-label-tracking: 0.08em;
+
+  /* A FIGURE IS NOT A HEADING. KPI roles are tabular by rule (the class sets
+     font-variant-numeric) so a column of money lines up, and they carry
+     negative tracking because large digits in Poppins read loose. */
+  --type-kpi-lg-size: 1.875rem;   --type-kpi-lg-weight: 650;
+  --type-kpi-lg-lh: 2.25rem;      --type-kpi-lg-tracking: -0.02em;
+
+  --type-kpi-md-size: 1.25rem;    --type-kpi-md-weight: 600;
+  --type-kpi-md-lh: 1.5rem;       --type-kpi-md-tracking: -0.015em;
+
+  /* ---- §2 SPACING ----------------------------------------------------
+     One 4px-based scale. These are the values the interface already used —
+     naming them changes nothing on screen and gives P2 something to migrate
+     TO. Use the step, never a literal; if a gap needs 7px, the design is
+     wrong before the CSS is. */
+  --space-0: 0;
+  --space-half: 0.125rem;   /*  2px - hairline separation inside a line     */
+  --space-1: 0.25rem;       /*  4px - icon to its label                     */
+  --space-2: 0.5rem;        /*  8px - inside a control, between chips       */
+  --space-3: 0.75rem;       /* 12px - between rows, card padding on a phone */
+  --space-4: 1rem;          /* 16px - card padding, between cards           */
+  --space-5: 1.25rem;       /* 20px - card padding on the desk              */
+  --space-6: 1.5rem;        /* 24px - between zones                         */
+  --space-8: 2rem;          /* 32px - between major page regions            */
+  --space-12: 3rem;         /* 48px - page top/bottom on a wide screen      */
+
+  /* ---- §3 SEMANTIC SURFACE, TEXT AND BORDER --------------------------
+     Aliases onto the V1 palette. Two names for one colour is deliberate:
+     `--card` says what it IS, `--surface` says what it is FOR, and new work
+     reads the second so a future retheme moves one line instead of 128
+     files. Nothing is redefined here — every value is an existing token. */
+  --surface: var(--card);
+  --surface-subtle: var(--secondary);      /* an inset strip inside a card  */
+  --surface-hover: var(--secondary);       /* a row under the pointer       */
+  --surface-raised: var(--card);           /* above a card; dark overrides  */
+
+  --text-primary: var(--foreground);
+  --text-secondary: color-mix(in srgb, var(--foreground) 78%, transparent);
+  --text-muted: var(--muted-foreground);
+  --text-inverse: var(--primary-foreground);
+
+  --border-subtle: color-mix(in srgb, var(--border) 60%, transparent);
+  --border-strong: color-mix(in srgb, var(--border) 60%, var(--foreground));
+
+  /* BRAND. Navy anchors, gold accents. Gold is NOT the default for anything
+     interactive — a button, a link and a row hover are navy or neutral, and
+     gold is kept for the one thing on a screen that is the brand speaking:
+     the primary action, the active figure, the focus glow. An interface
+     where everything is gold has no accent at all. */
+  --brand-anchor: var(--brand-primary);
+  --brand-accent-ink: var(--brand-accent-deep);
+
+  --selected: color-mix(in srgb, var(--primary) 10%, transparent);
+  --selected-strong: color-mix(in srgb, var(--primary) 18%, transparent);
+
+  /* ---- §4 RADIUS -----------------------------------------------------
+     A hierarchy, not one number. The complaint that everything has equal
+     rounded weight is what this fixes: a chip is a pill, a card is not. */
+  --radius-xs: 4px;        /* a swatch, a progress bar                      */
+  --radius-sm: 8px;        /* a tag, a small inset                          */
+  --radius-control: 10px;  /* input, select, button                         */
+  --radius-card-v2: 14px;  /* card, panel - matches --surface-radius        */
+  --radius-overlay: 18px;  /* sheet, modal, menu - one step above the card  */
+  --radius-full: 9999px;   /* ONLY: status chip, filter chip, segmented,
+                              avatar, icon button. Not cards. Not inputs.   */
+
+  /* ---- §5 ELEVATION --------------------------------------------------
+     BORDERS BEFORE SHADOWS. A dashboard where every card floats has no
+     hierarchy and reads as noise. `subtle` is the resting card; `raised` is
+     a card the pointer is on or a figure that matters; `overlay` means the
+     surface is genuinely above the page and the page should feel behind it:
+     dropdown, drawer, modal, toast. Dark-mode values are re-stated in the
+     .dark block because a shadow on a dark ground needs the light hairline,
+     not a darker blur (v1.177.0). */
+  --elev-none: none;
+  --elev-subtle: 0 1px 2px rgba(13, 21, 38, 0.04), 0 1px 1px rgba(13, 21, 38, 0.02);
+  --elev-raised: 0 2px 6px rgba(13, 21, 38, 0.06), 0 8px 24px rgba(13, 21, 38, 0.08);
+  --elev-overlay: 0 4px 12px rgba(13, 21, 38, 0.10), 0 24px 56px rgba(13, 21, 38, 0.18);
+
+  /* ---- §6 Z-INDEX ----------------------------------------------------
+     Semantic layers replacing magic numbers. The order is the answer to
+     "what may cover what": a drawer covers the navigation, a modal covers
+     the drawer, a toast is seen over everything because it reports what just
+     happened. Gaps of 10 leave room for a component to sit just above its
+     neighbour without a new layer. The offline banner was `z-50` and covered
+     the topbar (audit finding); it belongs at `--z-toast`. */
+  --z-base: 0;
+  --z-raised: 1;        /* a sticky table header inside its own scroller    */
+  --z-sticky: 10;       /* sticky column/row chrome                         */
+  --z-nav: 30;          /* side rail, bottom bar                            */
+  --z-topbar: 40;       /* the page header, above the nav it sits across    */
+  --z-dropdown: 50;     /* menu, popover, command palette                   */
+  --z-drawer: 60;       /* side drawer / bottom sheet and its scrim         */
+  --z-modal: 70;        /* dialog and its scrim                             */
+  --z-toast: 80;        /* always visible: it says what just happened       */
+
+  /* ---- §7 MOTION -----------------------------------------------------
+     Three durations and two curves. `fast` is a press answering the thumb;
+     `base` is a panel arriving; `slow` is reserved for something entering
+     from off-screen. Anything longer is an animation the user waits for. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);      /* arriving: decelerate      */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);       /* leaving: accelerate       */
+
+  /* ---- §8 FOCUS AND STATE -------------------------------------------- */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--ring);
+  --focus-glow: var(--erp-accent-glow, transparent);
+  --disabled-opacity: 0.55;
+
+  /* ---- §9 CONTENT MEASURE --------------------------------------------
+     NOT one max-width for everything. `.erp-page` carries `max-width: none`
+     today under a comment promising 1600px, which is how a settings form
+     ends up 2400px wide on a monitor. Four measures, chosen by what the page
+     IS: a form is read in a column, a roster needs the glass. */
+  --measure-prose: 68ch;    /* help text, a policy, an announcement         */
+  --measure-standard: 56rem;/* a form, settings, a single record            */
+  --measure-wide: 90rem;    /* a dashboard, a list with a side panel        */
+  --measure-full: 100rem;   /* roster, payroll - the data IS the page       */
+
+  /* ---- §9b BREAKPOINTS ------------------------------------------------
+     Stated here so the scale is visible where the rest of the system is, and
+     so a guard can compare these against lib/breakpoints.ts. Custom
+     properties CANNOT be used inside @media, so the numbers are necessarily
+     written twice — `tests/interface-v3.mjs` failing the build when the two
+     disagree is what makes that safe.
+
+     A breakpoint is a change of SHAPE, not a number:
+       <640   phone   bottom bar, one column, sheets, record cards
+       >=640  large phone  still the phone shell; two things side by side
+       >=768  tablet  side rail, drawers, two-up zones
+       >=1024 desktop tables, module toolbars, three-up zones
+       >=1280 large   context panel, right rail, master-detail, measures
+       >=1600 wide    the same shape, wider gutters, full workspace measure */
+  --bp-sm: 640;
+  --bp-md: 768;
+  --bp-lg: 1024;
+  --bp-xl: 1280;
+  --bp-xxl: 1600;
+
+  /* ---- §10 DENSITY ---------------------------------------------------
+     Two intentional contexts. Comfortable is the default and the only one a
+     touch surface uses: 44px targets are the accessibility floor and are not
+     negotiable on a phone. Compact is for a management surface being read
+     with a mouse - DataTable rows, an admin list. Set by
+     `[data-density="compact"]` on a container, never globally, and never on
+     a phone. No user-facing setting in P0.2. */
+  --density-control-h: 44px;
+  --density-control-h-sm: 36px;
+  --density-row-y: var(--space-2);
+  --density-card-pad: var(--space-4);
+}
+
+[data-density="compact"] {
+  --density-control-h: 36px;
+  --density-control-h-sm: 30px;
+  --density-row-y: var(--space-1);
+  --density-card-pad: var(--space-3);
+}
+
+/* A touch device gets comfortable whatever a container asked for: a 30px row
+   is not a 44px target, and the accessibility floor outranks the density. */
+@media (pointer: coarse) {
+  [data-density="compact"] {
+    --density-control-h: 44px;
+    --density-control-h-sm: 36px;
+  }
+}
+
+
 .dark {
   /* v1.177.0 - THE COMMAND DECK. The ground goes DEEPER (#10192b -> #0a1120)
      while the card stays where it was (#16213a). Nothing about the palette is
@@ -522,6 +750,50 @@ body:has(.erp-workspace) {
   --erp-surface-raised: #1d2b47;
   --erp-hairline: rgba(255, 255, 255, 0.06);
   --erp-accent-glow: rgba(212, 181, 122, 0.30);
+
+  /* ---- V2 tokens, restated for the dark ground (P0.2) ----------------
+     NOT an inversion. Three groups genuinely differ on dark and the rest
+     inherit from :root because they are already written as references.
+
+     SURFACES. `--secondary` (#1c2942) is LIGHTER than `--card` (#16213a) on
+     dark — correct for an inset strip, wrong for a hover, which must read as
+     the row lifting rather than sinking. Hover therefore mixes toward the
+     hairline instead of reusing the inset colour. */
+  --surface-raised: var(--erp-surface-raised);
+  --surface-hover: color-mix(in srgb, var(--card) 88%, #ffffff);
+
+  /* TEXT. A 78% mix of white on a dark ground goes grey faster than 78% of
+     near-black on white does; secondary ink holds at 82% to stay above 7:1
+     against #16213a. */
+  --text-secondary: color-mix(in srgb, var(--foreground) 82%, transparent);
+
+  /* ELEVATION. On #0a1120 a bigger blur is a smudge; what reads as "above"
+     is the 1px of light along the top edge (v1.177.0's `--erp-hairline`).
+     Each step therefore gains the inset highlight and keeps the shadow
+     tight, and the shadows carry no blue — a blue-black shadow greys the
+     ground it falls on. */
+  --elev-subtle:
+    inset 0 1px 0 0 var(--erp-hairline),
+    0 1px 2px rgba(0, 0, 0, 0.40),
+    0 4px 14px rgba(0, 0, 0, 0.32);
+  --elev-raised:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 10px 28px rgba(0, 0, 0, 0.42);
+  --elev-overlay:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 22px 52px rgba(0, 0, 0, 0.60);
+
+  /* BORDERS. `--border` on dark is already a lifted line rather than a
+     shadow, so "strong" moves toward white, not toward the ink. */
+  --border-strong: color-mix(in srgb, var(--border) 55%, #ffffff);
+
+  /* SELECTION. `--primary` on dark is near-white (#eef1f6): a 10% wash of it
+     is a visible tint, where on light it is a navy wash. Same intent, and
+     the mix has to be stated for each ground to keep it. */
+  --selected: color-mix(in srgb, var(--primary) 12%, transparent);
+  --selected-strong: color-mix(in srgb, var(--primary) 20%, transparent);
   --ring-ontime: #23773d;
   --ring-late: #af8c28;
   --ring-absent: #d22023;

@@ -520,3 +520,93 @@ export function accessOf(
     return { tab, sees, reason };
   });
 }
+
+/* =====================================================================
+   P1.0 — THE URL HALF OF THE REGISTRY.
+
+   The portal has been one route and one `useState` since v1.4.x: 33
+   `activeTab === "…"` branches off a single state variable, with the address
+   bar saying `/portal` whatever you are looking at. P1 gives every module a
+   real URL. This is the data half of that, and it lives HERE — beside the
+   names, the roles and the rails — because a slug is part of a tab's
+   identity, and a second file holding a second list is exactly the drift
+   v1.79.0 existed to end.
+
+   TWO RULES.
+
+   1. A PARKED TAB HAS NO ROUTE. `canSeeTab` answers no for Threads, Stokis
+      and Content above even the super_admin bypass. A slug for one of them
+      would be an address that resolves for nobody, which is worse than no
+      address: it invites a route file, a menu entry and a bug report.
+      Un-parking stays one deletion from PARKED_TABS, plus the route file the
+      guard will then demand.
+
+   2. THE DASHBOARD IS NOT A SPECIAL CASE. Its slug is "home", and
+      `/portal` is NOT a destination — it is an entry resolver (see
+      lib/portal-routes.ts). The owner found the bug in the first draft,
+      which had `/portal` be both: a person standing on /portal/sales, with
+      Sales remembered, presses Home, lands on /portal, and the resolver
+      sends them straight back to Sales. Home did nothing. So entry and home
+      are two URLs with two jobs, and `pathOf(Dashboard)` is "/portal/home"
+      by the same rule as every other module rather than by an exception.
+   ===================================================================== */
+
+/** What a module's address looks like. */
+export interface TabRoute {
+  /** the one segment under /portal. Lowercase kebab, frozen once shipped:
+      a slug is a public identifier the moment somebody bookmarks it. */
+  slug: string;
+  /** the query key that addresses ONE record inside this module, where the
+      module has a record view, a stable id and an endpoint that already
+      retrieves it. Query, not path: `output: "export"` cannot pre-render a
+      D1 id (docs/P1-ARCHITECTURE.md §8). Consumed from P1.4. */
+  record?: string;
+  /** which large-desktop shape this destination asks for. Consumed from
+      P1.5; "none" is the default and most modules keep it. */
+  context?: "none" | "detail" | "rail";
+}
+
+/**
+ * Every ACTIVE tab's route. Parked tabs are deliberately absent, and
+ * tests/portal-routes.mjs fails the build if that stops being true in
+ * either direction.
+ *
+ * Two slugs do not match their tab id, on purpose: `Announcements` is
+ * labelled "News" and `Staff Details` is labelled "Staff" in the product, and
+ * a URL a person reads aloud should match the word they are looking at.
+ */
+export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
+  Dashboard: { slug: "home", context: "rail" },
+  Desk: { slug: "desk" },
+  Ecommerce: { slug: "ecommerce" },
+  Sales: { slug: "sales" },
+  Enquiries: { slug: "enquiries", record: "enquiry", context: "detail" },
+  "Sales Performance": { slug: "sales-performance" },
+  Hankeis: { slug: "hankeis", record: "order", context: "detail" },
+  Inventory: { slug: "inventory" },
+  Assets: { slug: "assets" },
+  Hotels: { slug: "hotels", record: "hotel", context: "detail" },
+  /* v1.180.0 - FLAT, by the owner's ruling of 22-09-2026. The three ELFIA
+     views are one external system and nesting them at /portal/elfia/* is
+     defensible, but the store-bridge work has not settled the shape of that
+     workspace and a nested URL is the expensive kind to change later. */
+  "ELFIA Store": { slug: "elfia-store" },
+  "Web Orders": { slug: "web-orders" },
+  "ELFIA Traffic": { slug: "elfia-traffic" },
+  HR: { slug: "hr" },
+  Attendance: { slug: "attendance" },
+  "On Shift": { slug: "on-shift" },
+  Tasks: { slug: "tasks", record: "task", context: "detail" },
+  Announcements: { slug: "news" },
+  "Staff Details": { slug: "staff", record: "staff", context: "detail" },
+  Leave: { slug: "leave", record: "leave", context: "detail" },
+  Claims: { slug: "claims", record: "claim", context: "detail" },
+  Payroll: { slug: "payroll" },
+  Finance: { slug: "finance" },
+  Commission: { slug: "commission" },
+  Accounting: { slug: "accounting" },
+  Companies: { slug: "companies" },
+  Cards: { slug: "cards" },
+  Profile: { slug: "profile" },
+  Users: { slug: "users" },
+};

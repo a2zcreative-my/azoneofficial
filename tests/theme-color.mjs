@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { fileURLToPath } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 /* v1.139.1 - fileURLToPath, NOT .pathname.
    On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
@@ -48,7 +49,7 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 const css = read("styles/globals.css");
 const layout = read("app/layout.tsx");
 const lib = read("lib/theme-color.ts");
-const portal = read("app/portal/page.tsx");
+const portal = readPortalPage(root);
 
 /* ---- the source declares one value per theme ------------------------- */
 const decls = [...css.matchAll(/--browser-theme-color:\s*(#[0-9a-fA-F]{6});/g)].map((m) => m[1].toLowerCase());

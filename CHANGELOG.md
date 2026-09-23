@@ -2,6 +2,629 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.1] - 2026-09-23 - A guard that only worked on Linux
+
+**Test-only. No application code changed.** `PUSH.bat` stopped the 22-09-2026
+release on the CEO's Windows machine at guard 38 of 98, and it was right to:
+`tests/cached-api.mjs` could not run there at all.
+
+### What broke
+
+The guard bundles a copy of `lib/cached-api.ts` with its `react` import
+repointed at the strict hooks runtime, and marks that runtime **external** so
+the bundle and the test share one module instance - one dispatcher, or every
+hook call throws. It wrote the external's specifier as a bare absolute path.
+
+An external specifier is resolved by **Node**, not by esbuild. On Linux
+`/root/work/p4/tests/lib/mini-react.mjs` is a legal specifier. On Windows
+`C:/Users/...` reads as the protocol `c:`, and Node refuses it:
+
+    ERR_UNSUPPORTED_ESM_URL_SCHEME - Received protocol 'c:'
+
+This is the same fault, in the same shape, that hit five guards on
+08-09-2026 and that `importPath()` / `stubUrl()` exist to prevent. The fix is
+the one already documented in `tests/enquiries.mjs`: an external specifier is
+a `file://` URL (`stubUrl`), and the flag is the readable wildcard spelling.
+The intermediate `react.js` shim is gone with it - the module under test now
+imports the runtime directly, by the same URL the test itself uses.
+
+### The guard that should have caught it, and now does
+
+`tests/registry-parity.mjs` holds every generated specifier to the spelling
+its own `--external` list asks for. It reads that list with one pattern - the
+wildcard spelling - so `--external:"<absolute path>"` was **invisible to it**,
+the external set came back empty, and it concluded the stub was bundled and
+approved the wrong helper. A check that silently declines to classify
+something is worse than no check, because it reports PASS.
+
+Three changes, all in the same block:
+
+1. **An `--external` this check cannot read is now a failure.** The wildcard
+   spelling is the only one that can be classified, so it is the only one
+   allowed.
+2. The specifier patterns no longer require the generated import to sit at
+   the START of a template literal, so `export * from "${...}"` is checked
+   like `from "${...}"` always was.
+3. The block excludes itself by name, stated plainly: this file quotes every
+   flag it looks for and bundles nothing, so it can never be classified by
+   them.
+
+Negative-tested by restoring the exact absolute-path `--external`: the guard
+names the file, the count and the wrong helper.
+
+### Also recorded
+
+Production health answers `"version":"1.177.0"`, not the `1.176.2` this
+repository's handoff recorded. **v1.177.0 - the dark command deck - is live**;
+a release went out without being written down. `docs/PROJECT-STATE.md` now
+says so. The four releases after it (`1.177.1`, `1.177.2`, `1.178.0`,
+`1.179.0`) and the three new ones are still undeployed.
+
+## [1.181.0] - 2026-09-22 - The shell leaves the page (P1.1)
+
+**No URL changes meaning in this release.** The navigation is still
+`useState`, the sessionStorage memory is the same key with the same
+semantics, `?tab=` deep links behave exactly as they did, and every module
+renders the same markup. What moved is WHERE the shell lives.
+
+### Why it ships alone
+
+Extracting 1,917 lines into a layout plus a provider is the change in P1 most
+likely to break something quietly - a hook order, an effect that assumed it
+ran once, the SSE stream, the outbox scope, the per-account cache. Doing it
+while the old navigation still drives the product means a regression here is
+provably not a routing bug. P1.2, which does change what a URL means, starts
+from a shell that has already been proven.
+
+### What moved, verbatim
+
+| From `app/portal/page.tsx` | To |
+| --- | --- |
+| auth, permissions, tab state, theme, language, notifications + SSE, outbox and cache scope, sound/push, favourites, the gates | `components/portal/portal-provider.tsx` |
+| rail, topbar, notification panel, bottom bar, More sheet, command palette, `<main>` | `components/portal/portal-shell.tsx` |
+| the thirty-three-branch module switch | stays in `app/portal/page.tsx` |
+| composition | `app/portal/layout.tsx`, still a server component so it keeps `metadata` |
+
+`app/portal/page.tsx`: **1,917 -> 424 lines.** Not one class name, handler or
+comment was rewritten on the way across: the diff a reviewer needs to read is
+a MOVE, and a move that also edits is two changes wearing one commit.
+
+The gates live in the provider rather than the shell so that
+`usePortal().user` is a `User` and never `User | null` - while the auth check
+is in flight the provider returns the skeleton, and the shell and the module
+page are never rendered at all.
+
+### The guards had to move with it
+
+Twenty guards read `app/portal/page.tsx` as text. Left alone, they would have
+silently stopped checking the topbar, the bottom bar and the More sheet on
+the day those moved - and reported PASS. `tests/lib/portal-source.mjs` gains
+`readPortalPage()`, the three files that were one file, and the eight guards
+that meant "the page" now read that. `readPortalSource()` (the whole portal,
+fourteen domain files) is unchanged and still used by the twelve guards that
+meant the portal. The distinction matters: widening a NEGATIVE assertion -
+"the page does not do X" - to fourteen other files turns it into a much
+weaker claim, and `sales-performance` caught exactly that.
+
+`tests/shell-scroll.mjs` now looks for `<AppShell>` and the sticky-header
+safe-area inset in `portal-shell.tsx`, which is where they are.
+
+### Verified in WebKit, not asserted
+
+Twelve modules opened from the rail, each rendering its data and naming
+itself in the topbar; the phone bar's four stops plus More; the More sheet's
+seven sections, preferences, sign-out and build stamp; a module opened from
+More; dark mode toggled; Ctrl+K opening the palette and navigating; the bell
+opening the notification panel; `?tab=Leave` landing on Leave with the query
+scrubbed; a refresh restoring it from `azone-tab:9001`.
+
+## [1.180.0] - 2026-09-22 - The portal's addresses (P1.0)
+
+**Registry metadata and a pure resolver. No UI, no route file, nothing
+imports it yet.** P1.2 is what connects it.
+
+### Added
+
+- **`TAB_ROUTE`** in `lib/portal-tabs.ts` - a slug for each of the 29 active
+  modules, beside the names and the roles, because a slug is part of a tab's
+  identity and a second file holding a second list is the drift v1.79.0
+  existed to end. A **parked** tab has no route: an address that resolves for
+  nobody is worse than no address.
+- **`lib/portal-routes.ts`** - `pathOf`, `tabOfPath`, `isKnownTab`,
+  `resolveLegacyTab`, `resolveEntry`, `rememberedIsStale`, `permittedTabs`.
+  Pure functions: no React, no storage, no fetch, no router, so a guard can
+  RUN the precedence rules instead of reading them.
+
+### Entry is not Home
+
+The first architecture draft made `/portal` both the Dashboard and the entry
+resolver. The owner found what that costs: a person on `/portal/sales`, with
+Sales remembered, presses Home, arrives at `/portal`, and the resolver sends
+them back to Sales. Home did nothing.
+
+So `/portal` is an **entry resolver only** and `/portal/home` is the
+Dashboard, which consults nothing. `Dashboard` carries `{ slug: "home" }`
+like any other module - it is not a special case in `pathOf()` - and the
+guard fails the build if its slug is ever empty again.
+
+### Routing is not authorization
+
+Every function that can name a tab takes the already permission-filtered list
+and can only return something from it. A property test runs 500 random
+permitted subsets against every input, including junk, and asserts no leak;
+underneath it all the worker still gates every byte per endpoint.
+
+### The entry precedence is v1.179.0's, including the part nobody wrote down
+
+`?tab=` > remembered > `launch_shift` > home. And, found by the WebKit probe
+rather than by reading: **a `?tab=` naming a real tab is an instruction**
+(answered, with home when the person may not open it, and the remembered tab
+is never consulted), while **a `?tab=` naming nothing falls through** to the
+remembered tab. The first draft consumed both, which would have cost a person
+with a stale bookmark the place they were.
+
+### Guards
+
+`tests/portal-routes.mjs`, 569 checks, registered. It is written so that
+**no stage is ever intentionally red** (the owner's Correction 3): route
+directory parity passes with zero route files, passes with all 29, and fails
+only for a partial set - which is the only genuinely broken state and the one
+the obvious formulation could not tell apart from "not yet".
+
+Negative-tested by six mutations, each caught: Dashboard's slug back to `""`;
+a parked tab given a slug; a duplicate slug; the remembered tab put above the
+legacy `?tab=`; `resolveLegacyTab` trusting its input; one route directory
+created.
+
+One pre-existing finding, pinned rather than quietly tolerated: the worker's
+`PUSH_TAB` maps `content` to **Content**, which is PARKED - so a push of that
+kind arrives, is tapped, and lands on the Dashboard with no word why. It is a
+dead deep link, it predates P1, and fixing it is a worker deploy. The guard
+allows exactly that one and fails on any new one.
+
+## [1.179.0] - 2026-09-22 - The data layer tells two answers apart
+
+**P0.4, P0.5 and P0.6 of the V2 programme.** No business logic, no API, no
+database, no calculation and no visual change. One deliberate behaviour
+change, named below.
+
+### P0.4 - the remembered-view layer, rebuilt on React 19's own contract
+
+`lib/cached-api.ts` is what every remembered view in the portal reads through:
+the dashboard's money, the roster, the hotel directory, Hankei's queues. It
+fetched from an effect and pushed each part of the answer into component state
+with a synchronous setState. Three consequences, in increasing order of how
+much they matter:
+
+1. A React 19 warning on the hook itself.
+2. **It could not tell two answers apart.** Two requests for the same view -
+   a mount and a save's refresh - settled in whichever order the network
+   chose, and **the last to arrive won**, whether or not it was the newest.
+   An older answer could overwrite a newer one on screen AND in the cache,
+   where it then survived a reload.
+3. **A request begun as one person could land after another signed in** on
+   the same phone, and be written under the new person's key.
+
+Three facts that are external to React are now read as such. The cache is an
+external store (`useSyncExternalStore`), so a remembered view is read DURING
+RENDER and paints on the first frame instead of after an effect. The in-flight
+registry is a second store, so two cards on one path - `/staff/desk` is read
+by the Desk tab and the Dashboard, `/staff/dashboard/summary` by three - share
+**one** request. Only the outcome of the last settled request is React state,
+and it is set from a promise callback, never synchronously from an effect.
+
+Every request carries a sequence number, the account it began in and the cache
+generation it began in, and refuses to apply if any of the three has moved. An
+explicit `refresh()` never joins a request that was already in flight when it
+was asked for, because an answer that predates the save it is refreshing for
+is worse than no answer.
+
+`getSnapshot` returns **a string** - the raw stored entry, and the
+scope-qualified key - never a parsed object. React compares snapshots with
+`Object.is`; a fresh object every call is an infinite render loop. The parse is
+memoised on that string, and it is **pure**: the old reader DELETED an expired
+entry while reading it, which is a write during render.
+
+Two render-time ref writes are gone, replaced by React 19's `useEffectEvent`:
+`hooks/use-live-refresh.ts` (`cb.current = reload`) and
+`components/ui/record-detail.tsx` (`close.current = onClose`). A render that is
+thrown away - Strict Mode, a suspended transition, an aborted concurrent
+render - used to leave those refs pointing at a callback from a render that
+never committed. `components/ui/offline-banner.tsx` reads the connection
+through `useSyncExternalStore` instead of seeding state from inside an effect,
+which is also one frame more honest: the first painted frame no longer claims
+the phone is online before checking.
+
+**Sign-out now empties the screen.** `clearApiCache()` and a change of account
+notify every mounted consumer and move the cache generation, so the previous
+person's figures are gone immediately rather than staying painted until
+something else happens to re-render.
+
+**The one behaviour change:** a card whose `enabled` flag goes from true to
+false now reports `data: null` instead of keeping the last value it had. Every
+call site in the repository passes `path: null` alongside `enabled: false`, or
+a role flag that is constant for the session, so nothing on screen changes -
+and for a role-gated card, forgetting is the safer direction.
+
+**Proven by running it, not by reading it.** `tests/cached-api.mjs` (45
+checks) drives the real module with a strict hooks runtime
+(`tests/lib/mini-react.mjs`), a localStorage with a real quota and an `api`
+whose every response the test settles by hand, so it can say "let the second
+answer arrive first". **17 of its checks fail against the previous code**,
+including both money-relevant races. The runtime calls `getSnapshot` twice per
+render and fails if the two results are not `Object.is`-equal, and counts
+every subscribe and unsubscribe, so "it resubscribes on every render" is a
+number rather than an impression.
+
+### P0.5 - dead code, and one deletion NOT made
+
+Removed: `components/staff/leave-review-card.tsx` (277 lines) and
+`components/portal/next-event-card.tsx` (139), both unreachable from source,
+tests and dynamic imports; `SkelDonut` and `SkelChart` with their four orphan
+CSS-module rules; `SISTER_COMPANIES`.
+
+**`components/ui/avatar.tsx` was NOT adopted and NOT deleted.** It was meant to
+replace five hand-rolled avatars. It cannot, without changing how four screens
+look: all five hand-rolled versions show **one** initial and `Avatar` shows
+two; none of them is one of `Avatar`'s three sizes; the topbar's is on a CSS
+Module and adopting a utility-class component there would push retired
+utilities back into a file that has left them. Making one shared avatar is a
+design decision for P1, not a refactor.
+
+### P0.6 - a keyboard can see where it is
+
+Fixed at the shared level, and found by **walking the real Tab order of the
+rendered portal** (`tests/browser/a11y-audit.py`), not by reading source:
+
+- **WebKit gives date, month and time inputs no focus ring at all.** They are
+  shadow-DOM widgets, not text fields, so the host never matches
+  `:focus-visible`. Chromium does, which is why it survived. Four fields -
+  Leave's start and end, Tasks' deadline, Payroll's month - could be tabbed
+  onto with **nothing changing on screen**, on the engine the portal actually
+  runs on as a PWA. Those types now take the ring on plain `:focus`.
+- **A focusable shape inside a drawing gets the same ring.** The sales, hotels,
+  traffic and operations maps make `<g>` and `<path>` into controls, and a
+  `<g>` is not in the element list the workspace focus rule names.
+- **Nine controls switched the shared ring off** with a bare `outline-none` and
+  replaced it with nothing (or with a 25% opacity change, which is a shade,
+  not an indicator). Removed; `focus:outline-none` paired with a real
+  replacement is untouched. A guard now refuses the unconditional form.
+- Two unlabelled fields named: the inventory stock-move quantity and the
+  payroll month.
+
+### Verification
+
+97/97 guards (`cached-api` new with 45 checks, `interface-v3` 266 -> 269,
+`remembered-views` 47). Typecheck clean. Lint 0 errors, 147 -> 141 warnings,
+none new. `next build` clean. In WebKit: every tab loads its data through the
+rebuilt hook; overflow 0 at 402px; table shredding 0; ui-audit 0; a11y-audit
+clean at 1280px across nine tabs, where before it reported two unnamed fields
+and four unfocusable ones.
+
+**The remaining 74 `set-state-in-effect` warnings are NOT in the data layer.**
+26 are consumer components copying `useCachedApi`'s output into their own
+state; the other 48 are panels that fetch directly and have never used the
+hook. Both are a separate piece of work across roughly fifty business screens
+and are not bundled into a data-layer refactor.
+
+## [1.178.0] - 2026-09-22 - The V2 token foundation
+
+**P0.2. A foundation, deliberately not a visual rewrite.** Two classes in the
+shell adopt the new scale; every module is untouched and migrates in P2.
+
+### The problem it solves
+
+The audit found **five token groups with no scale at all** — spacing,
+typography, z-index, motion, breakpoints — and two that were stubs. The
+visible consequence: `.erp-heading`, `.erp-panel-title` and `.erp-card-title`
+all resolved to **14px / 600**, so the design system had a heading hierarchy of
+**one** and could not express "this is a page".
+
+### Introduced
+
+- **Typography — roles, not sizes.** Ten semantic roles (`display`, `page`,
+  `section`, `card`, `body`, `body-sm`, `caption`, `label`, `kpi-lg`,
+  `kpi-md`), each a size/weight/line-height/tracking quartet with an
+  `.erp-type-*` class. Pick by **what the text is**, never by the size you
+  want. The KPI roles are tabular by rule, so a column of money lines up
+  without every caller remembering `.erp-num`. Poppins unchanged; the scale is
+  a 1.125–1.25 ratio off a **14px** body, because a business screen reading at
+  16px wastes a third of a phone.
+- **Spacing** — one 4px scale, `--space-half` … `--space-12`.
+- **Semantic colour** — `--surface{,-raised,-subtle,-hover}`,
+  `--text-{primary,secondary,muted,inverse}`, `--border-{subtle,strong}`,
+  `--brand-anchor`, `--brand-accent-ink`, `--selected{,-strong}`. **Aliases
+  onto the V1 palette, not replacements**: `--card` says what it *is*,
+  `--surface` says what it is *for*, so a retheme moves one line instead of
+  128 files and the two names cannot drift.
+- **Radius** — a hierarchy (`xs`/`sm`/`control`/`card`/`overlay`/`full`).
+  `full` is **only** for chips, segmented controls and avatars; equal rounded
+  weight everywhere is why the interface read flat.
+- **Elevation** — `none`/`subtle`/`raised`/`overlay`, with **borders before
+  shadows**. A dashboard where every card floats has no hierarchy.
+- **Z-index** — nine semantic layers replacing magic numbers, ordered so a
+  drawer covers the navigation, a modal covers the drawer and a toast is seen
+  over everything. **A guard asserts the ordering.**
+- **Motion** — `--dur-fast|base|slow` and two easings.
+- **Breakpoints** — `lib/breakpoints.ts` is the source of truth, with
+  `up()`, `atLeast()` and `onBreakpoint()` so no component re-types a number.
+- **Density** — `comfortable` and `compact` via `[data-density]` on a
+  container. **A touch device reverts compact to the 44px floor**; the
+  accessibility rule outranks the density. No user-facing setting.
+- **Focus and state** — ring width, offset, colour, glow, disabled opacity.
+- **Content measure** — prose / standard / wide / full, with classes.
+
+### Gold is not the default
+
+Navy anchors, gold accents. A button, a link and a row hover are navy or
+neutral; gold is kept for the one thing on a screen that is the brand
+speaking. *An interface where everything is gold has no accent at all.*
+
+### Dark mode is restated, not inverted
+
+Three groups cannot be derived and are written for the dark ground:
+`--surface-hover` (on dark `--secondary` is *lighter* than `--card`, right for
+an inset strip and wrong for a hover, which must read as the row **lifting**);
+`--elev-*` (on `#0a1120` a bigger blur is a smudge — what reads as "above" is
+the 1px of light along the top edge, and the shadows carry no blue because a
+blue-black shadow greys the ground it falls on); and `--text-secondary`,
+`--border-strong`, `--selected`, whose mixes behave differently against a dark
+ground.
+
+### Two things found while building it
+
+- **640px is a real tier, not an orphan.** The first draft of the scale omitted
+  it; the new guard immediately found **16 uses** across the sheet and the
+  modules, all meaning the same thing — *still the phone shell, but wide enough
+  for two things side by side*. Named rather than pretended away.
+- **The raw-font-size budget was a guess.** It was written as 47 and the guard
+  counted **52**. Set to the true figure; it falls only.
+
+### Adopted (two classes, on purpose)
+
+`.erp-topbar-title` → the `page` role, and `.erp-zone-label` → `label`. The
+topbar title is the **only** heading in the product that names the destination
+and it was one step from a card title, which is why the hierarchy read flat.
+Everything else keeps its size until P2.
+
+### Development specimen
+
+`tests/browser/tokens.html`, served at `/__tokens` by the existing fixture
+server against the **built** stylesheet. **Not a route** — nothing was added
+under `app/`, so no production build contains it. A token scale is the one kind
+of change that is invisible in a diff and obvious on a page.
+
+### Documentation
+
+`docs/DESIGN-TOKENS-V2.md` — purpose, semantics, when to use and when **not**
+to use each group, so a future session does not reinvent the system.
+
+### Verification
+
+96/96 guards (`interface-v3` 243 → 266 checks), portal and worker typecheck
+clean, lint 0 errors / 147 warnings, `next build` clean. ui-audit **0** in EN
+dark, EN light and BM dark; overflow **0** at 390px **and at 1280px**;
+shredding 0. Both themes read on the specimen.
+
+### Behaviour change
+
+The page title in the topbar is two pixels larger with slightly tighter
+tracking. Nothing else moves. No business logic, no API, no database.
+
+## [1.177.2] - 2026-09-22 - The dashboard grants no authority of its own
+
+**P0.3 — the security fixes. No interface change beyond figures a person was
+never entitled to no longer appearing.**
+
+### 1. `GET /staff/dashboard/summary` was ungated
+
+The only check was "signed in and not a customer". The handler had no `can()`
+call and returned the month's `cash_in_cents` and `cash_out_cents`, unpaid
+invoices, client count and company-wide attendance punctuality. Its own comment
+explained the reasoning — *"Counts are universal facts; the CARD decides per
+role what to show"* — and the card is a React component. **curl does not run
+React.** A `live_host`, holding neither `revenue_view` nor `finance` and with no
+finance tab in their portal at all, could read the lot with their own cookie.
+
+This is the class of bug `tests/authz-guard.mjs` was written for: the gate lived
+in the UI, where curl does not go.
+
+**The rule, chosen by the owner:** *the dashboard is a projection of existing
+authority, not a source of new authority.* A summary field may never reveal what
+the same person cannot get from the feature that owns it. Every field now
+carries its authoritative endpoint's permission. **No new permission was
+invented** — inventing one for a summary field would be the wrong way round.
+
+| field | authority | owning endpoint |
+| --- | --- | --- |
+| `clients`, `open_quotations`, `outstanding_invoices` | `sales \|\| exec_view` | `/customers`, `/docs` |
+| `low_stock` | `inventory \|\| exec_view` | `/inventory` |
+| `active_stokis` | `inventory` | `/stokis` |
+| `pending_leave`, `attendance_today/_on_time/_late` | `hr_manage \|\| exec_view` | `/leave?all=1`, `/attendance/monitor` |
+| `pending_claims` | `claims_decide` | `/claims` |
+| `pending_ot` | `OT_DECIDE_ROLES` | `/attendance/ot/pending` |
+| `cash_in_cents` | `revenue_view` | `/revenue` |
+| `cash_out_cents` | `expenses` | `/expenses`, `/finance/pnl` |
+| `today`, `lives_today`, `staff_total` | open | `/roster`, `/staff-list` are open to every staff role and give the same figures |
+
+**An absent field is omitted, never zeroed.** A `0` asserts *"the authorised
+answer is zero"*, which is a different and false statement. The whole summary
+never 403s: a person entitled to part of it still gets that part, and the
+portal renders an unknown figure as an em dash (v1.177.0).
+
+The owner chose **strict ownership over preserving accidental visibility**:
+`cco` and `hr_admin` lose `cash_out_cents` and `pending_ot`; `admin`, `coo`,
+`cco` and `hr_admin` lose `pending_claims`. If those roles genuinely need
+company-wide claim review, that is an RBAC decision to be made in
+`permissions.ts` — not through a summary endpoint.
+
+`OT_DECIDE_ROLES` now has **one definition**, used by the OT route and the
+summary. Two copies of an authority list is how a dashboard quietly becomes a
+softer route to something.
+
+**Three front-end consequences of the same rule:**
+- The **cash tile needs both halves or it does not appear.** `revenue_view` and
+  `expenses` are held by different sets of roles; four hold the first without
+  the second, and `?? 0` would have subtracted a zero and presented **revenue
+  as net cash** — wrong by exactly the month's expenses, and entirely
+  plausible-looking.
+- The **attendance donut draws nothing** without the figures, rather than a
+  0/0/0 ring claiming nobody clocked in.
+- An unauthorised attention counter never becomes a tile.
+
+### 2. The cached copies, which securing the route does not reach
+
+`components/portal/trading-desk.tsx` fetched the summary **unconditionally** —
+before the role check that decides whether anything is drawn — so those figures
+were written into the `localStorage` of **every** staff member who ever opened
+the Dashboard. Gating the route stops new copies and does nothing about the
+ones already on the phones, which `lib/cached-api.ts` would serve as `stale`
+data for 24 hours, and for ever if the person never regains network.
+
+The cache now carries an **epoch**. When the stored epoch is not the current
+one, every `azone-cache:` entry is dropped on the first import after the
+deploy — before any component can read one. Bump it whenever a release changes
+what an endpoint is *allowed* to return.
+
+### 3. R2 was a free file host
+
+Three routes streamed `request.body` into the bucket with no byte cap. **The new
+guard found three more** the audit had missed: claim payment proof and claim
+receipt (capped only by `Content-Length`, which the client writes and may omit)
+and customer logo (**no limit at all**).
+
+Rather than buffering — fine at 5 MB, not at 64 MB inside a 128 MB Worker — the
+body streams through a counting transform that aborts the moment the cap is
+passed, and the partial object is deleted on rejection. And because a
+Content-Type header is the client's word, **the leading bytes must agree with
+the declared type** (JPEG, PNG, GIF, RIFF, `%PDF`, EBML, `ftyp`, PK/OLE). SVG is
+exempt: it is text, and the media route already forces it to download.
+
+| route | cap | reasoning |
+| --- | --- | --- |
+| `/media` image · logo · document · video | 5 · 2 · 20 · **64 MB** | one number would strangle the video or licence a 64 MB "logo" |
+| staff photo | 5 MB | a badge photo printed nine to an A4 sheet; the ELFIA precedent |
+| staff document | 20 MB | a 300dpi scanned contract legitimately passes the catalogue's 10 MB |
+| claim proof, claim receipt | 8 MB | their existing intent, now enforced on real bytes |
+| customer logo | 2 MB | printed at a few hundred pixels on a quotation header |
+
+### 4. `POST /debug/overflow`
+
+**Kept** — live telemetry with two real call sites, and the only signal for
+clipping that no sandbox reproduces. Deliberately **not** role-gated: every
+staff role runs the portal, and a role gate would silence exactly the people the
+reports come from. Instead: a **server-side** budget of 20 per account per day
+(the old "cap" was a `sessionStorage` key — a courtesy, not a limit), routed
+through the deduping `logError` instead of the raw INSERT that bypassed its
+6-hour dedupe and 500-row trim, and `user.email` replaced with `user.id`. The
+budget reuses the existing `rate_limits` table, which is keyed and upserted, so
+it holds **one row per account** — bounded by headcount, not by traffic.
+
+### 5. Changing an authentication factor revokes the others
+
+`/auth/change-password` has revoked sibling sessions since it was written;
+`2fa/enable` and `2fa/disable` did not, so a session issued while the account
+had no second factor outlived the account gaining one. Both now mirror that
+handler exactly: delete every session, mint a fresh one for this browser.
+Neither was ever drivable by a stolen cookie alone — both already require the
+current password.
+
+*(The audit's claim that password changes did **not** revoke siblings was wrong;
+it is corrected in `docs/V2-MIGRATION.md`.)*
+
+### Verification
+
+New guard `tests/dashboard-authz.mjs` — **157 checks that RUN the handler**
+against a stub D1 as eight different roles and assert the JSON an attacker would
+see, plus the cache transition executed for real. Reverting the gate fails
+**77** of them. `tests/authz-guard.mjs` gained 14 checks covering the upload
+guard, the debug budget and the 2FA revocation.
+
+**96/96 guards** (95 → 96), portal and worker typecheck clean, lint 0 errors /
+147 warnings, `next build` clean; ui-audit 0 in EN dark and EN light, overflow
+0, shredding 0.
+
+### Behaviour change
+
+Only in what is no longer shown. After deployment **every staff member's cached
+dashboard data is discarded once**, so the first Dashboard open after the update
+fetches fresh. Roles losing a figure see the tile disappear, not a zero.
+
+## [1.177.1] - 2026-09-22 - The queue tells the truth
+
+**A data-integrity fix, released alone.** No interface change, no V2 work.
+
+### What was wrong
+
+`lib/outbox.ts` kept a write on the device when the server could not be
+reached — a clock-in pressed in a lift, sent when the signal returns. The
+function that does the keeping could not report failure:
+
+```ts
+return ok !== undefined || true;   // true for every input
+```
+
+`tx()` resolves the IndexedDB *request's* result, and a `put` has no result,
+so the check could never be true and the `|| true` hid that it never was. When
+IndexedDB was unavailable — Safari private browsing, storage pressure, a locked
+database — the punch was **dropped** and `lib/api.ts` still returned
+`{ ok: true, status: 202, queued: true }`, so the person was told:
+
+> Kept — no signal. Sent the moment you are back online.
+
+Nothing was kept. It surfaced weeks later as a missing attendance record, and
+from there as a wrong payslip. That is precisely the failure this file was
+written in v1.105.0 to prevent.
+
+A second defect sat beside it: a queued write that came back **5xx was removed
+from the queue** and never retried, on the reasoning that the idempotency key
+would only replay a stored answer. The worker does the opposite deliberately,
+and its own guard has always said so — *"a 5xx is not stored, so the retry
+really retries"* (`tests/outbox.mjs`). A server error usually means the write
+never landed, so dropping it lost exactly the punches the queue exists to
+protect. `attempts` was written on every failure and **never read**: no cap, no
+backoff, no end.
+
+### What changed
+
+- **`enqueue` verifies persistence.** A new `txOk()` reports whether the
+  transaction *completed*, and the row is then **read back**. Both must be true
+  before it returns true. The read-back is a second transaction and it is worth
+  it: this is somebody's attendance, and a quota error can abort a write that
+  every other signal calls successful.
+- **`park()` no longer claims success it cannot back up.** A write the device
+  could not keep returns `{ ok: false, dropped: true }`.
+- **Every caller is covered by one report site.** `reportDropped()` raises it
+  through the same surface that already shows a refused write, so the person is
+  told whether or not that particular caller renders its own error.
+- **The punch says the right thing.** It used to fall through to "Location
+  needed", blaming GPS for a storage failure and leaving the person believing a
+  retry near a window would fix it. It now reads *"Not saved — this phone could
+  not store the punch and there is no signal to send it. Nothing was
+  recorded."*
+- **A 5xx is retried** with doubling backoff (30s → 8m), skipped while not due,
+  and after **6 attempts** the queue stops and *says* it stopped (`gaveUp`)
+  rather than looping. A 4xx still leaves immediately and is reported: the
+  server has seen it and repeating cannot change the answer.
+
+### Verification
+
+`tests/outbox.mjs` grew from 76 to **86 checks**, and ten of them **run the
+queue for real** against a small in-memory IndexedDB rather than reading the
+source — the original bug was invisible to a source read because the shape
+looked right. Reverting the fix fails three of them, including *"with no
+IndexedDB, enqueue reports FALSE"*.
+
+95/95 guards, portal and worker typecheck clean, lint 0 errors / 147 warnings,
+`next build` clean.
+
+### Behaviour change staff will notice
+
+Only in failure. A punch that the phone genuinely cannot store now says so
+instead of claiming it was kept — the person retries rather than discovering it
+at payroll. A queued write that meets a server error now keeps trying for about
+half an hour before reporting that it gave up.
+
 ## [1.177.0] - 2026-09-22 - The command deck
 
 The owner, 22-09-2026: *"why interface still not looks nice eh? something

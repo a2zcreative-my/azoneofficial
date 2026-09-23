@@ -1460,6 +1460,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                   <td className={td}>
                     <span className="flex items-center gap-1">
                       <input type="number" min={1} className={`${inputClassSm} w-14`}
+                        aria-label={L(`Quantity to move for ${it.name}`, `Kuantiti untuk dipindahkan bagi ${it.name}`)}
                         value={adjQty[it.id] ?? 1}
                         onChange={(e) => setAdjQty((q) => ({ ...q, [it.id]: Math.max(1, Number(e.target.value)) }))} />
                       {/* v1.4.251: an IN is a movement like any other — same

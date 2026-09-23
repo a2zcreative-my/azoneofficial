@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>V2 token specimen — A2Z</title>
+<!--
+  THE TOKEN SPECIMEN — P0.2, a DEVELOPMENT file.
+
+  It lives in tests/browser/ and is served by tests/browser/serve.mjs from the
+  built `out/` directory, exactly like the fixtures and the three probes. It is
+  NOT a route: nothing under app/ was added, so a production build does not
+  contain it and no URL on a2zcreative.my can reach it.
+
+      pnpm build && node tests/browser/serve.mjs out 4177 &
+      open http://127.0.0.1:4177/__tokens
+
+  It renders the V2 tokens against the REAL stylesheet the build produced, so
+  a specimen that looks right here looks right in the product. Toggle the
+  theme with the button - it sets the same `dark` class on <html> the portal
+  uses, so both grounds are judged with the tokens that actually ship.
+
+  Why a specimen at all: a token scale is the one kind of change that is
+  invisible in a diff and obvious on a page. Five minutes here catches a
+  heading role that reads the same as the one above it, a hover that sinks
+  instead of lifting, and a focus ring that vanishes on the dark ground.
+-->
+<style>
+  body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans, system-ui); }
+  .wrap { max-width: var(--measure-wide); margin-inline: auto; padding: var(--space-6) var(--space-4) var(--space-12); }
+  h2 { font-size: var(--type-section-size); font-weight: var(--type-section-weight);
+       line-height: var(--type-section-lh); letter-spacing: var(--type-section-tracking);
+       margin: var(--space-8) 0 var(--space-3); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  .grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .spec { background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius-card-v2); padding: var(--space-4); }
+  .note { font-size: var(--type-caption-size); color: var(--text-muted); margin-top: var(--space-1); }
+  .sw { height: 54px; border-radius: var(--radius-sm); border: 1px solid var(--border); display: grid;
+        place-items: end start; padding: var(--space-1) var(--space-2);
+        font-size: var(--type-caption-size); }
+  .bar { position: sticky; top: 0; z-index: var(--z-topbar); background: var(--surface);
+         border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4);
+         display: flex; gap: var(--space-3); align-items: center; }
+  button.t { min-height: var(--density-control-h); padding: 0 var(--space-4);
+             border-radius: var(--radius-control); border: 1px solid var(--border);
+             background: var(--surface); color: var(--text-primary); font: inherit; cursor: pointer;
+             transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+  button.t:active { transform: scale(0.96); }
+  button.t:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color);
+                           outline-offset: var(--focus-ring-offset); box-shadow: 0 0 0 4px var(--focus-glow); }
+  button.gold { background: var(--brand-accent-ink); color: var(--text-inverse); border-color: transparent; }
+  .chip { border-radius: var(--radius-full); padding: var(--space-1) var(--space-3);
+          font-size: var(--type-caption-size); white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: var(--density-row-y) var(--space-2); border-bottom: 1px solid var(--border); }
+  th { font-size: var(--type-label-size); font-weight: var(--type-label-weight);
+       letter-spacing: var(--type-label-tracking); text-transform: uppercase; color: var(--text-muted); }
+  tbody tr:hover { background: var(--surface-hover); }
+  tbody tr[aria-selected="true"] { background: var(--selected); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <strong class="erp-topbar-title">V2 token specimen</strong>
+  <button class="t" id="theme" type="button">Toggle theme</button>
+  <span class="note" id="mode"></span>
+</div>
+<div class="wrap">
+
+  <h2>Typography — roles, not sizes</h2>
+  <div class="spec">
+    <p class="erp-type-display" style="margin:0">Display — a number on a wall</p>
+    <p class="erp-type-page" style="margin:var(--space-3) 0 0">Page title — where am I</p>
+    <p class="erp-type-section" style="margin:var(--space-3) 0 0">Section title</p>
+    <p class="erp-type-card" style="margin:var(--space-3) 0 0">Card title</p>
+    <p class="erp-type-body" style="margin:var(--space-2) 0 0">Body — the sentence a person reads. Poppins at 14px with a 1.375 line height, which is the density a business screen needs without becoming a document.</p>
+    <p class="erp-type-body-sm" style="margin:var(--space-2) 0 0">Body small — a secondary line under a row.</p>
+    <p class="erp-type-caption" style="margin:var(--space-2) 0 0">Caption — metadata, a timestamp, a hint.</p>
+    <p class="erp-type-label" style="margin:var(--space-3) 0 0">Label — a zone caption</p>
+    <div class="row" style="margin-top:var(--space-4)">
+      <span class="erp-type-kpi-lg">RM 48,620</span>
+      <span class="erp-type-kpi-md">32 orders</span>
+    </div>
+    <p class="note">Each role must be legible as a different thing from the one above it. If two read the same, the scale is wrong here, not in the module.</p>
+  </div>
+
+  <h2>Surfaces — the ladder</h2>
+  <div class="grid">
+    <div class="spec" style="background:var(--background)"><strong class="erp-type-card">background</strong><p class="note">the ground; the darkest thing on dark</p></div>
+    <div class="spec"><strong class="erp-type-card">surface</strong><p class="note">a card standing on it</p></div>
+    <div class="spec" style="background:var(--surface-raised)"><strong class="erp-type-card">surface-raised</strong><p class="note">above a card: a figure, a menu</p></div>
+    <div class="spec" style="background:var(--surface-subtle)"><strong class="erp-type-card">surface-subtle</strong><p class="note">an inset strip inside a card</p></div>
+  </div>
+
+  <h2>Elevation — borders before shadows</h2>
+  <div class="grid">
+    <div class="spec" style="box-shadow:var(--elev-none)"><strong class="erp-type-card">none</strong><p class="note">the default card</p></div>
+    <div class="spec" style="box-shadow:var(--elev-subtle)"><strong class="erp-type-card">subtle</strong><p class="note">resting</p></div>
+    <div class="spec" style="box-shadow:var(--elev-raised)"><strong class="erp-type-card">raised</strong><p class="note">hovered, or a figure that matters</p></div>
+    <div class="spec" style="box-shadow:var(--elev-overlay)"><strong class="erp-type-card">overlay</strong><p class="note">menu, drawer, modal, toast</p></div>
+  </div>
+
+  <h2>Radius — a hierarchy, not one number</h2>
+  <div class="row">
+    <div class="spec" style="border-radius:var(--radius-xs);padding:var(--space-2)">xs</div>
+    <div class="spec" style="border-radius:var(--radius-sm);padding:var(--space-2)">sm</div>
+    <div class="spec" style="border-radius:var(--radius-control);padding:var(--space-2)">control</div>
+    <div class="spec" style="border-radius:var(--radius-card-v2);padding:var(--space-2)">card</div>
+    <div class="spec" style="border-radius:var(--radius-overlay);padding:var(--space-2)">overlay</div>
+    <div class="spec" style="border-radius:var(--radius-full);padding:var(--space-2) var(--space-4)">full</div>
+  </div>
+
+  <h2>Colour — navy anchors, gold accents</h2>
+  <div class="grid">
+    <div class="sw" style="background:var(--brand-anchor);color:#fff">brand-anchor</div>
+    <div class="sw" style="background:var(--brand-accent-ink);color:var(--text-inverse)">brand-accent-ink</div>
+    <div class="sw" style="background:var(--success-soft);color:var(--success)">success</div>
+    <div class="sw" style="background:var(--warning-soft);color:var(--warning)">warning</div>
+    <div class="sw" style="background:var(--danger-soft);color:var(--danger)">danger</div>
+    <div class="sw" style="background:var(--info-soft);color:var(--info)">info</div>
+    <div class="sw" style="background:var(--selected)">selected</div>
+    <div class="sw" style="background:var(--surface);border-color:var(--border-strong)">border-strong</div>
+  </div>
+  <p class="note">Exactly one gold button below. If a screen has three, gold has stopped being an accent.</p>
+
+  <h2>Controls, focus and state</h2>
+  <div class="spec">
+    <div class="row">
+      <button class="t gold" type="button">Primary action</button>
+      <button class="t" type="button">Secondary</button>
+      <button class="t" type="button" disabled style="opacity:var(--disabled-opacity)">Disabled</button>
+      <span class="chip" style="background:var(--success-soft);color:var(--success)">Paid</span>
+      <span class="chip" style="background:var(--warning-soft);color:var(--warning)">Pending</span>
+    </div>
+    <p class="note">Tab to each control: the ring must be visible on both grounds. The gold glow sits BEHIND the 2px outline, never instead of it.</p>
+  </div>
+
+  <h2>Text hierarchy on the surface</h2>
+  <div class="spec">
+    <p class="erp-type-body" style="margin:0;color:var(--text-primary)">text-primary — the sentence itself</p>
+    <p class="erp-type-body" style="margin:var(--space-1) 0 0;color:var(--text-secondary)">text-secondary — supporting detail</p>
+    <p class="erp-type-body" style="margin:var(--space-1) 0 0;color:var(--text-muted)">text-muted — metadata</p>
+  </div>
+
+  <h2>Density — comfortable vs compact</h2>
+  <div class="grid">
+    <div class="spec">
+      <strong class="erp-type-card">comfortable</strong>
+      <table><thead><tr><th>Staff</th><th>Net</th></tr></thead>
+        <tbody><tr><td>Nur Nasuha</td><td>RM 2,480</td></tr>
+        <tr aria-selected="true"><td>Zolkefli bin Sahdi</td><td>RM 4,100</td></tr>
+        <tr><td>Farid Zulkifli</td><td>RM 1,960</td></tr></tbody></table>
+    </div>
+    <div class="spec" data-density="compact">
+      <strong class="erp-type-card">compact</strong>
+      <table><thead><tr><th>Staff</th><th>Net</th></tr></thead>
+        <tbody><tr><td>Nur Nasuha</td><td>RM 2,480</td></tr>
+        <tr aria-selected="true"><td>Zolkefli bin Sahdi</td><td>RM 4,100</td></tr>
+        <tr><td>Farid Zulkifli</td><td>RM 1,960</td></tr></tbody></table>
+    </div>
+  </div>
+  <p class="note">On a touch device compact reverts to the 44px floor — the accessibility rule outranks the density.</p>
+
+  <h2>Spacing</h2>
+  <div class="spec">
+    <div class="row" style="align-items:flex-end">
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-1);width:48px"></div><span class="note">1 / 4px</span></div>
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-2);width:48px"></div><span class="note">2 / 8px</span></div>
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-3);width:48px"></div><span class="note">3 / 12px</span></div>
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-4);width:48px"></div><span class="note">4 / 16px</span></div>
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-6);width:48px"></div><span class="note">6 / 24px</span></div>
+      <div><div style="background:var(--brand-accent-ink);height:var(--space-8);width:48px"></div><span class="note">8 / 32px</span></div>
+    </div>
+  </div>
+
+</div>
+<script>
+  const root = document.documentElement;
+  const mode = document.getElementById("mode");
+  const paint = () => { mode.textContent = root.classList.contains("dark") ? "dark" : "light"; };
+  root.classList.add("erp-workspace");     /* the token scope the portal uses */
+  document.getElementById("theme").addEventListener("click", () => { root.classList.toggle("dark"); paint(); });
+  paint();
+</script>
+</body>
+</html>

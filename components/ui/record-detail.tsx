@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { btnHdr } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
@@ -10,8 +10,12 @@ export function RecordDetail({ title, children, onClose }: {
   title: string; children: ReactNode; onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  /* P0.4 — `const close = useRef(onClose); close.current = onClose;` wrote a
+     ref during render. The mount effect must never re-run (it pushes a
+     history entry and opens the dialog), so the handler cannot be a
+     dependency; `useEffectEvent` gives the effect the newest `onClose`
+     without one, and without the render-time write. */
+  const close = useEffectEvent(() => { onClose(); });
   const label = useId();
   useEffect(() => {
     const node = dialog.current;
@@ -25,7 +29,7 @@ export function RecordDetail({ title, children, onClose }: {
       window.history.pushState({ ...window.history.state, recordDetail: marker }, "");
       pushed = true;
     }, 0);
-    const back = () => { if (window.history.state?.recordDetail !== marker) close.current(); };
+    const back = () => { if (window.history.state?.recordDetail !== marker) close(); };
     window.addEventListener("popstate", back);
     document.body.style.overflow = "hidden";
     node.showModal();

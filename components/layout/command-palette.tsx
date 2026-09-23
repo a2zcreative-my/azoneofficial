@@ -230,7 +230,7 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
           ref={inputRef}
           role="combobox" aria-expanded aria-controls="palette-listbox" aria-autocomplete="list"
           aria-activedescendant={ranked[clampedSel] ? optionId(clampedSel) : undefined}
-          className="text-foreground placeholder:text-muted-foreground w-full rounded-t-2xl border-b border-border bg-transparent px-4 py-3 text-sm outline-none"
+          className="text-foreground placeholder:text-muted-foreground w-full rounded-t-2xl border-b border-border bg-transparent px-4 py-3 text-sm"
           placeholder={L("Search anything — a name, a hotel, a phone number, an order…  (Esc to close)", "Cari apa sahaja — nama, hotel, nombor telefon, pesanan…  (Esc untuk tutup)")}
           value={q}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}

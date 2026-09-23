@@ -211,8 +211,12 @@ REM  Migration 0125 stays: a migration that has run is history, and the two
 REM  tables it made sit unused until a later migration drops them.
 REM  v1.172.0 - purchasing-panels.tsx: Purchasing is retired and the
 REM  Accounting half of that file now lives in accounting-panel.tsx.
+REM  v1.179.0 (P0.5) - leave-review-card.tsx and next-event-card.tsx:
+REM  both unreachable from source, tests and dynamic imports. They no
+REM  longer have a legacy-utility budget entry, so a stale copy left on a
+REM  working machine would FAIL tailwind-retired rather than sit quietly.
 echo   [3c/7] Removing the files of retired features...
-for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx") do (
+for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx" "components\staff\leave-review-card.tsx" "components\portal\next-event-card.tsx") do (
   if exist %%F del /f /q %%F
 )
 

@@ -68,7 +68,7 @@ export function StatCard({ label, value, sub, bar, solid = false, accent, onClic
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:border-primary focus:border-primary outline-none ${baseClasses}`}>
+      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:border-primary focus:border-primary ${baseClasses}`}>
         {inner}
       </button>
     );

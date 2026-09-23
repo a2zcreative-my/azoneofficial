@@ -11,7 +11,7 @@
  * endpoint and its own permissions; this only decides WHEN to call it.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { getVersion, subscribeVersions } from "@/lib/live";
 
 export function useLiveRefresh(
@@ -24,11 +24,17 @@ export function useLiveRefresh(
      resubscribes forever and the baseline below never settles. */
   const key = topics.join(",");
 
-  /* The latest loader, without making it an effect dependency. A card's
-     loader is often recreated each render; re-subscribing for that would
-     reset the baseline and lose the very change it was waiting for. */
-  const cb = useRef(reload);
-  cb.current = reload;
+  /* P0.4 — the latest loader, without making it an effect dependency. A
+     card's loader is often recreated each render; re-subscribing for that
+     would reset the baseline and lose the very change it was waiting for.
+     This used to be `const cb = useRef(reload); cb.current = reload;` — a
+     WRITE DURING RENDER, which React 19 warns about because a render that is
+     thrown away (Strict Mode, a suspended transition, an aborted concurrent
+     render) leaves the ref pointing at a callback from a render that never
+     committed. `useEffectEvent` is the language's own answer: the function
+     below always sees the newest `reload`, is never a dependency, and is only
+     callable from inside an effect — which is the only place it is used. */
+  const fire = useEffectEvent(() => { void reload(); });
 
   useEffect(() => {
     if (!enabled) return;
@@ -57,7 +63,7 @@ export function useLiveRefresh(
           changed = true;
         }
       }
-      if (changed) void cb.current();
+      if (changed) fire();
     });
   }, [key, enabled]);
 }

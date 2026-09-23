@@ -800,7 +800,7 @@ export function HotelsPanel() {
                     aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    className="cursor-pointer transition-opacity hover:opacity-75 focus-visible:opacity-75"
                     fill={has ? "var(--gold-solid)" : "var(--secondary)"}
                     fillOpacity={has ? 0.3 + 0.55 * w : 1}
                     stroke={isSel ? "var(--primary)" : "var(--border)"}
@@ -833,7 +833,7 @@ export function HotelsPanel() {
                     aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                    className="cursor-pointer outline-none">
+                    className="cursor-pointer">
                     <circle cx={sh.cx} cy={sh.cy} r={r}
                       fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"}
                       strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />

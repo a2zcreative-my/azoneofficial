@@ -43,6 +43,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { fileURLToPath } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 /* v1.139.1 - fileURLToPath, NOT .pathname.
    On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
@@ -107,7 +108,7 @@ const codeOnly = (src) => src
 {
   const shell = read("components/layout/app-shell.tsx");
   const skel = read("components/portal/portal-skeleton.tsx");
-  const page = read("app/portal/page.tsx");
+  const page = readPortalPage(root);
   ok("the skeleton and portal reuse AppShell's workspace geometry",
      /<AppShell\s+navigation=/.test(skel) && /<AppShell\s+navigation=/.test(page));
   ok("the workspace navigation has a dedicated slot", /\{navigation\}/.test(shell));

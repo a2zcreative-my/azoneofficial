@@ -114,11 +114,15 @@
     gap: 0.75rem;
     padding-inline: 0.125rem;
   }
+  /* P0.2 - the zone caption IS the `label` role: same four values it always
+     had, now stated once in the token layer so a field label and a zone
+     caption cannot drift apart. */
   .erp-zone-label {
     flex: 0 0 auto;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    line-height: var(--type-label-lh);
+    letter-spacing: var(--type-label-tracking);
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
@@ -420,6 +424,25 @@
   .erp-input:read-only:not(select):not([type="date"]):not([type="month"]):not([type="time"]) { background: var(--secondary); }
   .erp-input[aria-invalid="true"], .erp-input:user-invalid { border-color: var(--danger); }
   .erp-input[aria-invalid="true"]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+  /* P0.6 - THE ONE INPUT KIND WEBKIT DOES NOT GIVE A RING.
+
+     A keyboard walk of the rendered portal found four date and month fields -
+     Leave's start and end, Tasks' deadline, Payroll's month - that a person
+     could Tab onto with NOTHING changing on screen. They are not styled
+     differently: WebKit renders date, month, time and week as shadow-DOM
+     widgets rather than text fields, and does not set :focus-visible on the
+     host when the keyboard lands there. Chromium does, which is why this
+     survived. The portal runs as a PWA on iPhone, so WebKit is the engine
+     that decides whether the CEO's staff can see where they are.
+
+     These types therefore take the ring on plain :focus. Safe, because a
+     date picker is never focused by a pointer without the person meaning to
+     open it - there is no "clicked, so hide the ring" case to protect. */
+  .erp-input:is([type="date"], [type="month"], [type="time"], [type="week"], [type="datetime-local"]):focus {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent);
+    outline: none;
+  }
   /* The dense control keeps its own width (a caller's w-20 still wins) and
      never grows past the column it sits in. */
   .erp-input-sm {
@@ -759,7 +782,8 @@
   .erp-topbar {
     position: sticky;
     top: 0;
-    z-index: 30;
+    /* P0.2 - above the nav it sits across, below any overlay */
+    z-index: var(--z-topbar);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -795,7 +819,20 @@
     text-transform: uppercase;
     color: var(--brand-accent-deep);
   }
-  .erp-topbar-title { font-size: 1.125rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+  /* P0.2 - THE PAGE TITLE IS A ROLE NOW. This is the only heading in the
+     product that names the destination, and it was 1.125rem/600 — one step
+     from a card title, which is why the hierarchy read flat. It takes the
+     `page` role, and every other heading keeps its size until P2. The two
+     values differ by two pixels and a little tracking; what changes is that
+     the system can now SAY "page", and P1's PageHeader has something to
+     use. */
+  .erp-topbar-title {
+    font-size: var(--type-page-size);
+    font-weight: var(--type-page-weight);
+    line-height: var(--type-page-lh);
+    letter-spacing: var(--type-page-tracking);
+    overflow-wrap: anywhere;
+  }
 
   /* The phone's bottom navigation. The fixed position, top border and the
      safe-area padding come from lib/ui-styles.ts mobileBottomNav (tests/
@@ -812,7 +849,8 @@
     position: fixed;
     inset-inline: 0;
     bottom: 0;
-    z-index: 40;
+    /* P0.2 - navigation: a drawer, a modal and a toast all cover it */
+    z-index: var(--z-nav);
     display: flex;
     border-top: 1px solid var(--border);
     background: var(--card);
@@ -950,7 +988,8 @@
   .erp-rail-item-label { min-width: 0; flex: 1 1 auto; text-align: left; overflow-wrap: anywhere; }
   .erp-rail-tip {
     position: fixed;
-    z-index: 40;
+    /* P0.2 - a tooltip belongs with the menus, above its own rail */
+    z-index: var(--z-dropdown);
     transform: translateY(-50%);
     pointer-events: none;
     white-space: nowrap;
@@ -971,7 +1010,8 @@
   .erp-rail-item-signout { border-radius: var(--radius); }
 
   /* The contextual drawer (components/ui/side-drawer.tsx). */
-  .erp-drawer-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: flex-end; }
+  /* P0.2 - the drawer and its scrim are one layer, above the navigation */
+  .erp-drawer-backdrop { position: fixed; inset: 0; z-index: var(--z-drawer); display: flex; align-items: flex-end; justify-content: flex-end; }
   @media (min-width: 768px) { .erp-drawer-backdrop { align-items: stretch; } }
   .erp-drawer-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
   .erp-drawer {
@@ -1073,6 +1113,77 @@
   .erp-text-sm { font-size: 0.875rem; line-height: 1.25rem; }
   .erp-text-base { font-size: 1rem; line-height: 1.5rem; }
   .erp-text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+  /* ===== THE V2 TYPE SCALE (P0.2) =====================================
+     `.erp-text-xs/sm/base/lg` above are SIZES — they say how big, not what
+     the text is, which is why three different heading classes drifted to the
+     same 14px/600 and the system lost the ability to say "this is a page".
+     The classes below are ROLES. New work picks by what the text IS; the
+     size roles stay for the unmigrated modules and are not deprecated so
+     much as demoted.
+
+     Deliberately NOT retrofitted onto `.erp-heading`, `.erp-panel-title` and
+     `.erp-card-title` in P0.2: those three appear on every tab and changing
+     them is a visual rewrite of the whole product, which is P2's job. The
+     shell adopts the scale now (the topbar title becomes a real page title)
+     so the hierarchy is visible where "where am I" is answered. */
+  .erp-type-display {
+    font-size: var(--type-display-size); font-weight: var(--type-display-weight);
+    line-height: var(--type-display-lh); letter-spacing: var(--type-display-tracking);
+  }
+  .erp-type-page {
+    font-size: var(--type-page-size); font-weight: var(--type-page-weight);
+    line-height: var(--type-page-lh); letter-spacing: var(--type-page-tracking);
+  }
+  .erp-type-section {
+    font-size: var(--type-section-size); font-weight: var(--type-section-weight);
+    line-height: var(--type-section-lh); letter-spacing: var(--type-section-tracking);
+  }
+  .erp-type-card {
+    font-size: var(--type-card-size); font-weight: var(--type-card-weight);
+    line-height: var(--type-card-lh); letter-spacing: var(--type-card-tracking);
+  }
+  .erp-type-body {
+    font-size: var(--type-body-size); font-weight: var(--type-body-weight);
+    line-height: var(--type-body-lh); letter-spacing: var(--type-body-tracking);
+  }
+  .erp-type-body-sm {
+    font-size: var(--type-body-sm-size); font-weight: var(--type-body-sm-weight);
+    line-height: var(--type-body-sm-lh); letter-spacing: var(--type-body-sm-tracking);
+  }
+  .erp-type-caption {
+    font-size: var(--type-caption-size); font-weight: var(--type-caption-weight);
+    line-height: var(--type-caption-lh); letter-spacing: var(--type-caption-tracking);
+    color: var(--text-muted);
+  }
+  .erp-type-label {
+    font-size: var(--type-label-size); font-weight: var(--type-label-weight);
+    line-height: var(--type-label-lh); letter-spacing: var(--type-label-tracking);
+    text-transform: uppercase;
+  }
+  /* A FIGURE IS NOT A HEADING: tabular by rule, so a column of money lines
+     up without every caller remembering `.erp-num`. */
+  .erp-type-kpi-lg {
+    font-size: var(--type-kpi-lg-size); font-weight: var(--type-kpi-lg-weight);
+    line-height: var(--type-kpi-lg-lh); letter-spacing: var(--type-kpi-lg-tracking);
+    font-variant-numeric: tabular-nums;
+  }
+  .erp-type-kpi-md {
+    font-size: var(--type-kpi-md-size); font-weight: var(--type-kpi-md-weight);
+    line-height: var(--type-kpi-md-lh); letter-spacing: var(--type-kpi-md-tracking);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ===== V2 ELEVATION AND MEASURE, as classes ========================= */
+  .erp-elev-subtle { box-shadow: var(--elev-subtle); }
+  .erp-elev-raised { box-shadow: var(--elev-raised); }
+  .erp-elev-overlay { box-shadow: var(--elev-overlay); }
+  /* the four page measures (§9). `.erp-page` itself stays uncapped until P1
+     gives the shell a PageHeader that chooses one. */
+  .erp-measure-prose { max-width: var(--measure-prose); }
+  .erp-measure-standard { max-width: var(--measure-standard); margin-inline: auto; }
+  .erp-measure-wide { max-width: var(--measure-wide); margin-inline: auto; }
+  .erp-measure-full { max-width: var(--measure-full); margin-inline: auto; }
+
   .erp-muted { color: var(--muted-foreground); }
   .erp-strong { font-weight: 600; }
   .erp-medium { font-weight: 500; }
@@ -1306,6 +1417,24 @@
   }
   .erp-stat-button:active { transform: scale(0.985); transition-duration: 60ms; }
   .erp-stat-button:hover { box-shadow: inset 0 1px 0 0 var(--erp-hairline), 0 6px 18px rgba(0, 0, 0, 0.34); }
+
+  /* P0.6 - AND THE SAME RING INSIDE A DRAWING.
+
+     The sales map, the hotels map, the traffic map and the operations map
+     are all the same shape: an <svg> whose states and bubbles carry
+     role="button", tabIndex={0}, an aria-label and a keyboard handler. They
+     are controls. But a <g> and a <path> are not in the element list the
+     workspace's focus rule names, so a keyboard user tabbing across a map
+     had nothing to see; four of those shapes additionally wore a bare
+     `outline-none`, which switched off even the browser's own ring, and the
+     `focus-visible:opacity-75` some of them carried instead is a shade, not
+     an indicator.
+
+     One rule, four maps, and any map added later. */
+  .erp-workspace svg :where([role="button"], [tabindex]):not([tabindex="-1"]):focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
 
   /* THE FOCUS RING IS A LIGHT, NOT A BOX. The 2px outline stays - it is what
      carries the accessibility contract and it is what a keyboard user needs -

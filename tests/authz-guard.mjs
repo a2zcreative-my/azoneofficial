@@ -28,6 +28,8 @@ import { readFileSync } from "node:fs";
 let failed = 0;
 const fail = (msg) => { console.log(`FAIL ${msg}`); failed++; };
 const ok = (msg) => console.log(`ok   ${msg}`);
+const ok2 = (msg, cond, why = "") => { if (cond) ok(msg); else fail(`${msg}${why ? ` — ${why}` : ""}`); };
+
 
 const index = readFileSync("worker/src/index.ts", "utf8");
 const staff = readFileSync("worker/src/staff.ts", "utf8");
@@ -197,6 +199,89 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
     }
   }
   ok("every hand-built print document imports the HTML escaper (or has stopped hand-building)");
+}
+
+/* ===================================================================
+   v1.177.2 — R2 IS NOT A FREE FILE HOST.
+
+   Three routes streamed `request.body` straight into the bucket with no byte
+   cap while their buffered siblings all capped: the limit was intended and
+   missed wherever streaming was used. An authenticated account could put a
+   multi-gigabyte body into R2, repeatedly, and the only check on what the
+   bytes actually were was the client's own Content-Type header.
+   =================================================================== */
+{
+  const shared = readFileSync("worker/src/shared.ts", "utf8");
+  ok2("the guarded put exists, counts the bytes and sniffs the opening",
+    /export function guardedBody\(/.test(shared)
+    && /export async function putGuarded\(/.test(shared)
+    && /seen > maxBytes/.test(shared)
+    && /leadingBytesAgree\(head, contentType\)/.test(shared),
+    "a cap enforced only by Content-Length is enforced by the client");
+  ok2("a rejected upload does not leave its fragment behind",
+    /await bucket\.delete\(key\);/.test(shared),
+    "a bucket full of half-written rejects is the same bill by another route");
+  ok2("the guard refuses to leak infrastructure detail on its own failure",
+    /"upload_failed", "the file could not be stored — try again", 500/.test(shared));
+
+  /* every streaming put in the worker must go through the guard */
+  for (const [file, src] of [["worker/src/index.ts", index], ["worker/src/staff.ts", staff]]) {
+    const raw = [...src.matchAll(/MEDIA\.put\(\s*[^,]+,\s*request\.body/g)];
+    if (raw.length) fail(`${file} streams request.body into R2 directly ${raw.length} time(s) — use putGuarded() so the upload is capped and sniffed`);
+  }
+  ok("no route streams an unbounded request body into R2");
+
+  ok2("each upload route states its own limit rather than sharing one number",
+    /MEDIA_MAX: Record<string, number>/.test(index)
+    && /video: 64 \* 1024 \* 1024/.test(index)
+    && /max: 5 \* 1024 \* 1024, contentType: ct/.test(staff)
+    && /max: 20 \* 1024 \* 1024, contentType: ctD/.test(staff),
+    "a badge photo and a product video do not deserve the same allowance");
+}
+
+/* ===================================================================
+   v1.177.2 — THE UI OVERFLOW REPORTER IS BUDGETED ON THE SERVER.
+
+   "Capped, once per tab per session per build" was a sessionStorage key in
+   the browser. Each call did a raw INSERT, bypassing logError's dedupe and
+   trim, so ~20 forged posts emptied the admin panel that shows the newest 20
+   — and fired the admin bell each time.
+   =================================================================== */
+{
+  const h = staff.slice(staff.indexOf('if (path === "/debug/overflow"'));
+  const body = h.slice(0, h.indexOf('if (path ===', 40));   // to the NEXT route
+  ok2("the overflow reporter has a server-side budget",
+    /checkRateLimit\(env, `ovf:\$\{user\.id\}`, 20, 86_400\)/.test(body),
+    "a client-side cap is a courtesy, not a limit");
+  ok2("...and writes through the DEDUPING logger, not a raw INSERT",
+    /await sharedLogError\(/.test(body) && !/INSERT INTO error_log/.test(body),
+    "the raw INSERT skipped the 6-hour dedupe and the 500-row trim");
+  ok2("...and no longer puts an email address in the audit panel",
+    !/user\.email/.test(body) && /user=\$\{user\.id\}/.test(body));
+}
+
+/* ===================================================================
+   v1.177.2 — CHANGING AN AUTHENTICATION FACTOR REVOKES THE OTHERS.
+
+   /auth/change-password has revoked every sibling session since it was
+   written. Turning the second factor on or off did not: a session issued
+   while the account had no 2FA outlived the account gaining it, and one
+   issued under 2FA outlived its removal. Both handlers already require the
+   current password, so this was never drivable by a stolen cookie alone —
+   but a session should not outlive the rule it was issued under.
+   =================================================================== */
+{
+  for (const [marker, what] of [["auth.2fa_enabled", "enabling 2FA"], ["auth.2fa_disabled", "disabling 2FA"]]) {
+    const at = index.indexOf(`"${marker}"`);
+    const window = index.slice(Math.max(0, at - 1200), at);
+    ok2(`${what} revokes sibling sessions`,
+      /DELETE FROM sessions WHERE user_id = \?1/.test(window),
+      "a session issued under the old factor rule outlived the change");
+    ok2(`...and re-issues one for this browser, so the person is not signed out by their own change`,
+      /const fresh2fa = await createSession\(env, me\.id\);/.test(window)
+      && /sessionHeaders\(fresh2fa\)/.test(index.slice(at, at + 200)),
+      "mirrors /auth/change-password exactly");
+  }
 }
 
 if (failed) { console.error(`\n${failed} authorization check(s) failed.`); process.exit(1); }

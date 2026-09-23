@@ -40,6 +40,7 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
@@ -233,7 +234,7 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   const i18n = read("lib/i18n.ts");
   const icons = read("components/layout/nav-icons.tsx");
   const lazy = read("components/portal/lazy-panels.tsx");
-  const page = read("app/portal/page.tsx");
+  const page = readPortalPage(root);
   const panel = read("components/portal/sales-performance-panel.tsx");
   const allTabs = [...(tabs.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   /* v1.172.0 - fifth, not sixth: Inventory moved behind Hankei's so the
@@ -299,7 +300,7 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
    Sales link is offered only when it says yes; and a roster Sales-duty note
    opens the register on that person and that day. */
 {
-  const page = read("app/portal/page.tsx");
+  const page = readPortalPage(root);
   const panel = read("components/portal/sales-performance-panel.tsx");
   const roster = read("components/portal/roster-board.tsx");
   const dash = read("components/portal/dashboard.tsx");
@@ -318,7 +319,7 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
 
 {
   ok("no Criscikee file remains", !has("components/portal/criscikee-panel.tsx") && !has("lib/criscikee.ts") && !has("worker/src/criscikee.ts") && !has("tests/criscikee.mjs"));
-  const tabs = read("lib/portal-tabs.ts"), staff = read("worker/src/staff.ts"), perms = read("worker/src/permissions.ts"), nav = read("components/layout/side-nav.tsx"), page = read("app/portal/page.tsx"), lazy = read("components/portal/lazy-panels.tsx"), guards = read("scripts/run-guards.mjs");
+  const tabs = read("lib/portal-tabs.ts"), staff = read("worker/src/staff.ts"), perms = read("worker/src/permissions.ts"), nav = read("components/layout/side-nav.tsx"), page = readPortalPage(root), lazy = read("components/portal/lazy-panels.tsx"), guards = read("scripts/run-guards.mjs");
   ok("no tab, no door, no permission, no section, no render, no lazy wrapper, no guard entry", ![tabs, staff, perms, nav, page, lazy].some((s) => /riscikee/.test(s)) && !/\["criscikee",/.test(guards));
   ok("PUSH.bat removes the retired files on the CEO's machine before anything is checked", /Removing the files of retired features/.test(read("PUSH.bat")) && /"components\\portal\\criscikee-panel\.tsx" "lib\\criscikee\.ts" "worker\\src\\criscikee\.ts" "tests\\criscikee\.mjs"/.test(read("PUSH.bat")));
   ok("migration 0125 stays - history is not rewritten", has("worker/migrations/0125_criscikee.sql") && /"0125_criscikee",/.test(read("worker/src/index.ts")));

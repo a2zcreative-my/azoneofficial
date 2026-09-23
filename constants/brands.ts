@@ -103,11 +103,6 @@ export const PUBLISHABLE_CLIENTS: readonly Brand[] = BRANDS.filter(
   (b) => b.kind === "client" && b.permissionOnFile === true
 );
 
-/** Everything except us — the "other companies" a visitor can jump to. */
-export const SISTER_COMPANIES: readonly Brand[] = OUR_COMPANIES.filter(
-  (b) => b.code !== "a2z"
-);
-
 export function brandByCode(code: string): Brand | undefined {
   return BRANDS.find((b) => b.code === code);
 }

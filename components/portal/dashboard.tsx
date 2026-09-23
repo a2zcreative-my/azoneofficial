@@ -226,10 +226,12 @@ export function PunchToast({
 }: {
   title: string;
   sub: string;
-  variant?: "success" | "notice";
+  /* v1.177.1 - "danger" is a punch that did NOT happen: the device could not
+     keep it and there was no signal to send it. It is not a notice. */
+  variant?: "success" | "notice" | "danger";
 }) {
   /* v1.124.0 — see SaveToast: the ring follows the theme now. */
-  const colour = variant === "success" ? "var(--primary)" : "var(--warning)";
+  const colour = variant === "success" ? "var(--primary)" : variant === "danger" ? "var(--danger)" : "var(--warning)";
   return (
     <div className={css.toastLayer}>
       <style>{`
@@ -470,7 +472,7 @@ export function Dashboard({
   const [punchToast, setPunchToast] = useState<{
     title: string;
     sub: string;
-    variant?: "success" | "notice";
+    variant?: "success" | "notice" | "danger";
   } | null>(null);
   const [punchError, setPunchError] = useState("");
   /* v1.76.0 — the second tap. Armed by the first one, which explained what
@@ -742,6 +744,20 @@ export function Dashboard({
         }
       );
       setBusy("");
+      /* v1.177.1 - the device could not keep it either. Falling through to the
+         "Location needed" toast below would blame the GPS for a storage
+         failure and leave the person believing a retry near a window fixes
+         it. Nothing was saved, and that is what it says. */
+      if (res0.dropped) {
+        setPunchToast({
+          title: L("Not saved", "Tidak disimpan"),
+          sub: L("This phone could not store the punch and there is no signal to send it. Nothing was recorded — try again, and tell HR if it keeps happening.",
+                 "Telefon ini tidak dapat menyimpan punch dan tiada isyarat untuk menghantarnya. Tiada apa direkodkan — cuba lagi, dan beritahu HR jika ia berterusan."),
+          variant: "danger",
+        });
+        window.setTimeout(() => setPunchToast(null), 8000);
+        return;
+      }
       if (res0.queued) {
         setPunchToast({
           title: L("Kept — no signal", "Disimpan — tiada isyarat"),
@@ -1744,13 +1760,21 @@ export interface RevenueData {
    number, white + gold for the rest — the v1.4.253 one-fill rule applied to
    cards. Renders progressively: each card appears when its data arrives, and
    a role that can't see revenue simply gets the cards it can see. */
+/**
+ * v1.177.2 - EVERY FIGURE IS OPTIONAL, because the server now sends only the
+ * ones this person is entitled to (worker/src/staff.ts, /dashboard/summary).
+ * An absent field means NOT AUTHORISED; a `null` means the query could not
+ * answer. Neither is 0 — reading either as 0 would assert that the authorised
+ * answer is zero, which is a different and false statement. Render an absent
+ * figure the way v1.177.0 renders any unknown one: an em dash.
+ */
 export interface DashSummary {
   today: string;
-  pending_leave: number | null;
-  pending_claims: number | null;
-  pending_ot: number | null;
-  low_stock: number | null;
-  open_quotations: number | null;
+  pending_leave?: number | null;
+  pending_claims?: number | null;
+  pending_ot?: number | null;
+  low_stock?: number | null;
+  open_quotations?: number | null;
   // v1.7.0 company pulse
   clients?: number | null;
   active_stokis?: number | null;

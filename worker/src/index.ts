@@ -10,7 +10,7 @@ import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified p
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
 import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
-import { bumpVersion, topicOf } from "./shared";
+import { bumpVersion, topicOf, putGuarded } from "./shared";
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
@@ -1602,7 +1602,10 @@ async function runBackup(env: Env, actorId: number | null): Promise<
 
 /* ---------------- rate limiting (fixed window, D1-backed) ----------------- */
 
-async function checkRateLimit(
+/* v1.177.2 - exported so staff.ts can budget the UI-overflow reporter. The
+   circular import is the established pattern here (staff.ts already takes
+   createPasswordHash, primaryOrigin and totpVerifyOnce from this module). */
+export async function checkRateLimit(
   env: Env,
   key: string,
   limit: number,
@@ -3667,8 +3670,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         `INSERT INTO twofa_backup_codes (user_id, code_hash) VALUES (?1, ?2)`,
       ).bind(me.id, await createPasswordHash(c.toUpperCase(), env.SESSION_PEPPER)).run();
     }
+    /* v1.177.2 - CHANGING A FACTOR REVOKES THE OTHERS. Exactly the pattern
+       /auth/change-password has used since it was written (see that handler):
+       drop every session for this account, then mint one for THIS browser so
+       the person who just made the change is not signed out by their own
+       action. Turning the second factor on or off changes what it takes to
+       hold this account; a session issued under the old rule should not
+       outlive it. Both handlers already demand the current password, so this
+       cannot be driven by a stolen cookie alone. */
+    await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(me.id).run();
+    const fresh2fa = await createSession(env, me.id);
     await audit(env, me.id, "auth.2fa_enabled");
-    return json({ ok: true, backup_codes: codes });
+    return json({ ok: true, backup_codes: codes }, 200, sessionHeaders(fresh2fa));
   }
 
   if (path === "/api/v1/auth/2fa/disable" && method === "POST") {
@@ -3685,8 +3698,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     await env.DB.prepare(`UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?1`).bind(me.id).run();
     await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(me.id).run();
+    /* v1.177.2 - CHANGING A FACTOR REVOKES THE OTHERS. Exactly the pattern
+       /auth/change-password has used since it was written (see that handler):
+       drop every session for this account, then mint one for THIS browser so
+       the person who just made the change is not signed out by their own
+       action. Turning the second factor on or off changes what it takes to
+       hold this account; a session issued under the old rule should not
+       outlive it. Both handlers already demand the current password, so this
+       cannot be driven by a stolen cookie alone. */
+    await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(me.id).run();
+    const fresh2fa = await createSession(env, me.id);
     await audit(env, me.id, "auth.2fa_disabled");
-    return json({ ok: true });
+    return json({ ok: true }, 200, sessionHeaders(fresh2fa));
   }
 
   if (path === "/api/v1/auth/logout" && method === "POST") {
@@ -5154,10 +5177,28 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("invalid_input", `File type ${contentType} is not allowed`, 400);
     }
 
+    /* v1.177.2 - A CAP PER KIND, not one number for everything. This route
+       takes photos, product video and documents through one door, and a
+       single limit would either strangle the video or licence a 64 MB
+       "logo". The numbers: an image matches the 5 MB the ELFIA store already
+       enforces when it copies the file (a photo accepted here that the store
+       then refuses would look synced and never arrive); a document gets
+       20 MB because a scanned multi-page contract at 300dpi legitimately
+       passes the catalogue PDF's 10 MB; video gets 64 MB, which is a short
+       product clip and stays well inside the Worker's memory ceiling
+       BECAUSE the body is streamed and counted rather than buffered. */
+    const MEDIA_MAX: Record<string, number> = {
+      image: 5 * 1024 * 1024,
+      logo: 2 * 1024 * 1024,
+      document: 20 * 1024 * 1024,
+      video: 64 * 1024 * 1024,
+    };
     const key = `uploads/${Date.now()}-${filename}`;
-    await env.MEDIA.put(key, request.body, {
-      httpMetadata: { contentType },
+    const rejected = await putGuarded(env.MEDIA, key, request, {
+      max: MEDIA_MAX[kind] ?? 5 * 1024 * 1024,
+      contentType,
     });
+    if (rejected) return rejected;
     const res = await env.DB.prepare(
       `INSERT INTO media (r2_key, kind, alt, uploaded_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
     )

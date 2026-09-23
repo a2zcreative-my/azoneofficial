@@ -14,7 +14,7 @@
  * No dependencies: plain Node.
  */
 import http from "node:http";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fixture } from "./fixture.mjs";
 
@@ -37,6 +37,21 @@ http.createServer((req, res) => {
       const data = req.method === "GET" ? fixture(p, url.toString()) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
       res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(data));
     });
+    return;
+  }
+  /* P0.2 - THE TOKEN SPECIMEN. A development page, not a route: it lives in
+     tests/browser/ so no production build contains it and no URL on the live
+     site can reach it. Served here because it must be judged against the CSS
+     the build ACTUALLY produced, whose filenames are content-hashed - so the
+     stylesheets are discovered and injected rather than named. */
+  if (url.pathname === "/__tokens") {
+    const cssDir = join(dir, "_next", "static", "chunks");
+    const sheets = existsSync(cssDir)
+      ? readdirSync(cssDir).filter((f) => f.endsWith(".css")).map((f) => `<link rel="stylesheet" href="/_next/static/chunks/${f}">`).join("\n")
+      : "";
+    const html = readFileSync(join(import.meta.dirname, "tokens.html"), "utf8").replace("</head>", `${sheets}\n</head>`);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
   let file = join(dir, decodeURIComponent(url.pathname.replace(/\/+$/, "") || "/"));

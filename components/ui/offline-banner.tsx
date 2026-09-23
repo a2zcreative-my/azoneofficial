@@ -24,9 +24,32 @@
  * the phone is offline, exactly as before.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { outboxCount, subscribeOutbox, setRefusalHandler, type Refusal } from "@/lib/outbox";
 import { getLang } from "@/lib/i18n";
+
+/* P0.4 — the connection is an external store, not component state.
+ *
+ * It used to be a `useState` seeded by `setIsOffline(!navigator.onLine)`
+ * SYNCHRONOUSLY INSIDE the mount effect, which is the pattern React 19 warns
+ * about and which also meant the first painted frame always claimed the phone
+ * was online. Reading `navigator.onLine` during render through
+ * `useSyncExternalStore` is both warning-free and one frame more honest.
+ *
+ * The snapshot is a boolean, so Object.is compares it by value; the server
+ * snapshot is a module constant, because a static export renders this on a
+ * machine that has no navigator and React requires the same value every call.
+ */
+function subscribeConnection(fn: () => void): () => void {
+  window.addEventListener("online", fn);
+  window.addEventListener("offline", fn);
+  return () => {
+    window.removeEventListener("online", fn);
+    window.removeEventListener("offline", fn);
+  };
+}
+const isOfflineNow = () => typeof navigator !== "undefined" && navigator.onLine === false;
+const ASSUME_ONLINE = () => false;
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -46,18 +69,14 @@ function hhmm(iso: string): string {
 }
 
 export function OfflineBanner() {
-  const [isOffline, setIsOffline] = useState(false);
+  const isOffline = useSyncExternalStore(subscribeConnection, isOfflineNow, ASSUME_ONLINE);
   const [waiting, setWaiting] = useState(0);
   const [refused, setRefused] = useState<Refusal[]>([]);
 
   useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    setIsOffline(!navigator.onLine);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
     let alive = true;
+    /* the count is asynchronous (IndexedDB), so it is set from the promise —
+       never synchronously from this effect */
     const recount = () => { void outboxCount().then((n) => { if (alive) setWaiting(n); }); };
     recount();
     const unsub = subscribeOutbox(recount);
@@ -65,8 +84,6 @@ export function OfflineBanner() {
 
     return () => {
       alive = false;
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
       unsub();
       setRefusalHandler(null);
     };

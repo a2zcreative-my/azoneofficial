@@ -3,11 +3,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (path) => readFileSync(join(root, path), "utf8");
 const tabs = await import(pathToFileURL(join(root, "lib/portal-tabs.ts")).href);
-const page = read("app/portal/page.tsx");
+const page = readPortalPage(root);
 const staff = read("components/staff/staff-directory.tsx");
 const users = read("components/portal/users-panel.tsx");
 const review = read("components/portal/access-review-card.tsx");

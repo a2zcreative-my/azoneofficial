@@ -17,7 +17,7 @@
  * - network failure yields { ok: false, status: 0, data: null }.
  */
 
-import { queueableKind, newIdempotencyKey, enqueue, type OutboxEntry } from "@/lib/outbox";
+import { queueableKind, newIdempotencyKey, enqueue, reportDropped, type OutboxEntry } from "@/lib/outbox";
 
 const API = "/api/v1";
 
@@ -37,6 +37,10 @@ export interface ApiResult<T> {
       "saved" and "saved on this phone, sending when you are back online" are
       different sentences, and the difference is the point. */
   queued?: boolean;
+  /** v1.177.1 - the write could not reach the server AND the device could not
+      keep it either. `ok` is false and NOTHING was saved. Distinct from an
+      ordinary network failure only in that the caller may want to say why. */
+  dropped?: boolean;
 }
 
 /**
@@ -102,10 +106,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
   const idem = kind ? newIdempotencyKey() : null;
   const clientAt = kind ? new Date().toISOString() : null;
   const park = async (): Promise<ApiResult<T>> => {
-    await enqueue({
+    const kept = await enqueue({
       id: idem!, path, method: init!.method!, kind: kind!, clientAt: clientAt!,
       body: typeof init?.body === "string" ? init.body : init?.body ? JSON.stringify(init.body) : null,
     });
+    /* v1.177.1 - ONLY SAY "KEPT" IF IT WAS KEPT. `enqueue` used to return true
+       unconditionally, so a device that could not open IndexedDB (Safari
+       private browsing, storage pressure) dropped the write and the caller
+       still told the person it was safe on the phone. A queue that cannot
+       store is the same outcome as no queue at all, and the honest answer is
+       the one the portal gave before v1.105.0: it did not save. */
+    if (!kept) { reportDropped(kind!, path); return { ok: false, status: 0, data: null, dropped: true }; }
     return { ok: true, status: 202, data: null, queued: true };
   };
   /* offline for certain: do not even try - a fetch that is going to fail

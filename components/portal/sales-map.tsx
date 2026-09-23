@@ -143,7 +143,7 @@ export function SalesMap() {
                   <path d={sh.d} transform={h ? `translate(0 ${-h})` : undefined} role="button" tabIndex={0} aria-pressed={isSel} aria-label={label}
                     onClick={() => setState(isSel ? "" : key)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                    className="cursor-pointer outline-none transition-opacity hover:opacity-75 focus-visible:opacity-75"
+                    className="cursor-pointer transition-opacity hover:opacity-75 focus-visible:opacity-75"
                     fill={n > 0 ? "var(--gold-solid)" : "var(--secondary)"} fillOpacity={n > 0 ? 0.3 + 0.55 * (n / max) : 1}
                     stroke={isSel ? "var(--primary)" : "var(--border)"} strokeWidth={isSel ? 2.5 : 1} strokeLinejoin="round">
                     <title>{label}</title>
@@ -165,7 +165,7 @@ export function SalesMap() {
                   transform={h ? `translate(0 ${-h})` : undefined}
                   onClick={() => setState(isSel ? "" : key)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setState(isSel ? "" : key); } }}
-                  className="cursor-pointer outline-none">
+                  className="cursor-pointer">
                   <circle cx={sh.cx} cy={sh.cy} r={r} fill="var(--brand-primary)" stroke={isSel ? "var(--primary)" : "var(--gold-solid)"} strokeWidth={isSel ? 2.5 : 1.5} opacity="0.92" />
                   <text x={sh.cx} y={sh.cy + 3} textAnchor="middle" style={{ font: "700 9px sans-serif", fill: "#fff" }}>{n}</text>
                   <title>{label}</title>

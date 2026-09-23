@@ -70,11 +70,16 @@ export function CompanyAttendanceToday({ canManage = false }: { canManage?: bool
       {!s ? (
         <div className={card} aria-busy="true"><SkelRows rows={3} /></div>
       ) : (
+        /* v1.177.2 - the donut needs all three to mean anything; without the
+           attendance permission the server sends none of them, and drawing a
+           0/0/0 ring would claim nobody clocked in. Say nothing instead. */
+        s.attendance_on_time == null || s.attendance_late == null ? null : (
         <AttendanceDonutCard
-          onTime={s.attendance_on_time ?? 0}
-          late={s.attendance_late ?? 0}
+          onTime={s.attendance_on_time}
+          late={s.attendance_late}
           staffTotal={s.staff_total ?? 0}
         />
+        )
       )}
       <TodayAssignmentsCard canManage={canManage} onOpenRoster={() => revealAnchor("roster-board")} />
     </div>

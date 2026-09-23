@@ -30,7 +30,7 @@ const ok = (label, cond, why = "") => {
 
 const styles = read("lib/ui-styles.ts");
 const pages = [
-  "app/portal/page.tsx",
+  "components/portal/portal-shell.tsx",
   "components/portal/portal-skeleton.tsx",
   "app/account/page.tsx",
   "app/admin/page.tsx",
@@ -48,7 +48,12 @@ ok("the PWA shell exposes one named bottom clearance",
   && /\.erp-page-clearance \{ padding-bottom: calc\(5rem \+ max\(env\(safe-area-inset-bottom, 0px\), 6px\)\); \}/.test(v3));
 ok("the PWA bottom nav exposes one named safe-area style",
   /export const mobileBottomNav = "erp-bottom-nav";/.test(styles)
-  && /\.erp-bottom-nav \{[^}]*position: fixed;[^}]*inset-inline: 0;[^}]*bottom: 0;[^}]*z-index: 40;[^}]*display: flex;[^}]*border-top: 1px solid var\(--border\);[^}]*background: var\(--card\);[^}]*padding-bottom: max\(env\(safe-area-inset-bottom, 0px\), 6px\);/.test(v3)
+  /* P0.2 - the bar's LAYER is now semantic (--z-nav), not the literal 40.
+     What matters has never been the number: it is that the bar is pinned to
+     the bottom edge, clears the home indicator, and sits below anything that
+     covers the page. Asserting the token also catches a future edit that
+     moves the bar above a drawer or a modal. */
+  && /\.erp-bottom-nav \{[^}]*position: fixed;[^}]*inset-inline: 0;[^}]*bottom: 0;[^}]*z-index: var\(--z-nav\);[^}]*display: flex;[^}]*border-top: 1px solid var\(--border\);[^}]*background: var\(--card\);[^}]*padding-bottom: max\(env\(safe-area-inset-bottom, 0px\), 6px\);/.test(v3)
   && /@media \(min-width: 768px\) \{ \.erp-bottom-nav \{ display: none; \} \}/.test(v3));
 for (const [file, src] of pages) {
   ok(`${file} uses the shared mobile bottom clearance`, src.includes("mobileAppBottomClearance"));

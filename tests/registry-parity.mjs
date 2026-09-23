@@ -346,8 +346,32 @@ if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); pro
     /* v1.139.2 - every generated import specifier, held to the spelling its
        own --external list asks for (see the note above). */
     const externals = new Set([...code.matchAll(/--external:\*\/([\w.-]+)/g)].map((m) => m[1]));
+    /* v1.181.1 - AN --external THIS CHECK CANNOT READ IS AN --external NOBODY
+       IS CHECKING. tests/cached-api.mjs shipped `--external:"<absolute
+       path>"`: the set above stayed empty, the specifier check below
+       concluded the stub was BUNDLED, approved importPath() for it, and the
+       release died on the CEO's Windows machine with
+       ERR_UNSUPPORTED_ESM_URL_SCHEME - the same fault this whole block was
+       written for on 08-09-2026, walking straight past it.
+       The wildcard spelling is the only one that can be read, so it is the
+       only one allowed. */
+    /* only a guard that actually BUNDLES has externals to classify; this file
+       itself merely quotes the flag inside the patterns above. */
+    /* THIS FILE QUOTES EVERY FLAG IT LOOKS FOR, so it can never be classified
+       by them - and it bundles nothing, so there is nothing to classify. A
+       guard that inspects guards has to exclude itself, and saying so beats
+       a cleverer needle that the next reader has to decode. */
+    const inspectsOthers = f === "registry-parity.mjs";
+    const bundles = !inspectsOthers && code.includes("--bundle");
+    const allExternals = bundles ? (code.match(/--external:/g) || []).length : externals.size;
+    if (allExternals !== externals.size) {
+      badSpec.push(`${f}: ${allExternals - externals.size} --external flag(s) not in the readable wildcard spelling - this check cannot classify their specifiers`);
+    }
     let seen = 0;
-    for (const m of code.matchAll(/`from "\$\{(\w+)\((?:join|path\.join)\(\s*\w+\s*,\s*"([^"]+)"\s*\)\)\}"`/g)) {
+    /* v1.181.1 - not anchored on the backtick any more: a generated
+       specifier inside a longer template (`export * from "${...}"`) is the
+       same decision and was not being read. */
+    for (const m of code.matchAll(/from "\$\{(\w+)\((?:join|path\.join)\(\s*\w+\s*,\s*"([^"]+)"\s*\)\)\}"/g)) {
       seen += 1;
       const helper = m[1], base = m[2].split("/").pop();
       if (externals.has(base) && helper !== "stubUrl") badSpec.push(`${f}: ${base} is --external, so Node resolves it - stubUrl, not ${helper}`);
@@ -355,7 +379,7 @@ if (failed) { console.error(`\n${failed} registry-parity check(s) failed.`); pro
     }
     /* anything of that shape the pattern above could not read is a specifier
        nobody is checking, which is how both faults reached a deploy. */
-    const shaped = (code.match(/`from "\$\{/g) || []).length;
+    const shaped = (code.match(/from "\$\{/g) || []).length;
     if (shaped !== seen) badSpec.push(`${f}: ${shaped - seen} generated specifier(s) in a shape this check cannot read`);
     if (/importPath\(\s*(join|path\.join)\(/.test(code) && !code.includes('replace(/\\\\/g, "/")')) badHelper.push(`${f} (importPath)`);
     if (/stubUrl\(\s*(join|path\.join)\(/.test(code) && !code.includes("pathToFileURL(p).href")) badHelper.push(`${f} (stubUrl)`);

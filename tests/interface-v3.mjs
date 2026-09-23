@@ -24,9 +24,10 @@
  *
  * Run: node tests/interface-v3.mjs
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n");
@@ -71,6 +72,97 @@ ok("no V3 class is ALSO defined in globals.css (one owner per name)", dup.length
 const v3Body = stripComments(v3).replace(/url\("data:[^"]*"\)/g, "");
 const rawHex = v3Body.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
 ok("the V3 layer states no colour of its own - every fill and ink is a semantic token", rawHex.filter((h) => h !== "#fff").length === 0, [...new Set(rawHex)].join(", "));
+/* =====================================================================
+   P0.2 — THE TOKEN LAYER IS THE SOURCE OF TRUTH.
+
+   These four checks stop NEW drift; they do not demand that the existing
+   sheet be migrated. That is the whole point of doing the foundation first:
+   the rules apply from here, and P2 migrates the modules at its own pace.
+
+   GRANDFATHERED, DELIBERATELY:
+     - `styles/legacy-utilities.css` — frozen Tailwind output, shrink-only,
+       budgeted per file in tests/legacy-utility-budget.json. Not read here.
+     - the `.erp-text-xs/sm/base/lg` SIZE utilities and the three 14px/600
+       heading classes (`.erp-heading`, `.erp-panel-title`, `.erp-card-title`)
+       — they appear on every tab and retyping them is a product-wide visual
+       change, which is P2's job, not P0.2's.
+     - every existing `font-size` in the sheet. The check below counts them
+       and fails only when the count RISES, exactly like the utility budget.
+   ===================================================================== */
+{
+  const v3body = stripComments(v3);
+
+  /* 1. THE TYPE SCALE EXISTS AND IS SEMANTIC. Roles, not sizes — the audit's
+        sharpest finding was that three heading classes all resolved to
+        14px/600, so the system could not express "this is a page". */
+  const ROLES = ["display", "page", "section", "card", "body", "body-sm", "caption", "label", "kpi-lg", "kpi-md"];
+  const missingRole = ROLES.filter((r) => !new RegExp(`\\.erp-type-${r.replace("-", "\\-")}\\s*\\{`).test(v3body));
+  ok("every V2 type role has a class", missingRole.length === 0, missingRole.join(", "));
+  const missingTok = ROLES.filter((r) => !new RegExp(`--type-${r}-size:`).test(globals));
+  ok("...and a token quartet behind it", missingTok.length === 0, missingTok.join(", "));
+  ok("a type role reads its tokens rather than restating a size",
+     !/\.erp-type-[a-z-]+ \{[^}]*font-size: [0-9]/.test(v3body),
+     "a role that hard-codes its size is a fourth heading class waiting to happen");
+
+  /* 2. NO NEW RAW FONT SIZES. Counted, not banned: the sheet has a history
+        and P0.2 is not a rewrite. The floor only falls. */
+  /* the sheet's history, counted honestly on the day the rule arrived */
+  const FONT_SIZE_BUDGET = 52;
+  const sizes = (v3body.match(/font-size:\s*[0-9.]+(rem|px|em)/g) ?? []).length;
+  ok(`raw font sizes in erp-v3.css do not increase (${sizes}/${FONT_SIZE_BUDGET})`,
+     sizes <= FONT_SIZE_BUDGET,
+     `new type must use a --type-* role; lower FONT_SIZE_BUDGET to ${sizes} when you remove one`);
+
+  /* 3. NO NEW MAGIC Z-INDEX. The shell's stacking is semantic now, so an
+        overlay cannot accidentally appear beneath the navigation. */
+  const rawZ = [...v3body.matchAll(/z-index:\s*(-?\d+)/g)].map((m) => m[1]);
+  ok("no raw z-index survives in the V3 sheet", rawZ.length === 0,
+     `found ${rawZ.join(", ")} — use --z-base/raised/sticky/nav/topbar/dropdown/drawer/modal/toast`);
+  const LAYERS = ["base", "raised", "sticky", "nav", "topbar", "dropdown", "drawer", "modal", "toast"];
+  ok("every semantic layer is defined", LAYERS.every((l) => new RegExp(`--z-${l}:`).test(globals)));
+  ok("the layers are ordered so an overlay always covers the navigation",
+     (() => {
+       const val = (l) => Number(globals.match(new RegExp(`--z-${l}:\\s*(\\d+)`))?.[1] ?? NaN);
+       return val("nav") < val("topbar") && val("topbar") < val("dropdown")
+         && val("dropdown") < val("drawer") && val("drawer") < val("modal") && val("modal") < val("toast");
+     })(),
+     "a drawer beneath the bottom bar is the bug this ordering exists to prevent");
+
+  /* 4. ONE BREAKPOINT SCALE, and CSS must agree with TypeScript. Custom
+        properties cannot be used inside @media, so the numbers are written
+        twice; this is what makes that safe. */
+  const ts = read("lib/breakpoints.ts");
+  const tsBp = Object.fromEntries([...ts.matchAll(/^\s{2}(sm|md|lg|xl|xxl): (\d+),/gm)].map((m) => [m[1], Number(m[2])]));
+  const cssBp = Object.fromEntries([...globals.matchAll(/--bp-(sm|md|lg|xl|xxl):\s*(\d+);/g)].map((m) => [m[1], Number(m[2])]));
+  ok("the breakpoint scale is defined in TypeScript", Object.keys(tsBp).length === 5, JSON.stringify(tsBp));
+  ok("...and CSS states the same numbers",
+     ["sm", "md", "lg", "xl", "xxl"].every((k) => tsBp[k] === cssBp[k]),
+     `ts ${JSON.stringify(tsBp)} vs css ${JSON.stringify(cssBp)}`);
+  const scale = new Set([...Object.values(tsBp), 639, 767, 1023, 1279, 1599]);   // and their max- twins
+  const offScale = [...v3body.matchAll(/@media \((?:min|max)-width:\s*(\d+)px\)/g)]
+    .map((m) => Number(m[1])).filter((n) => !scale.has(n));
+  const OFF_SCALE_BUDGET = 1;   // .erp-bottom-nav-label at 400px, pre-dating the scale
+  ok(`V3 media queries stay on the scale (${offScale.length}/${OFF_SCALE_BUDGET} off it)`,
+     offScale.length <= OFF_SCALE_BUDGET,
+     `off-scale widths: ${[...new Set(offScale)].join(", ")} — add a tier to lib/breakpoints.ts or use one`);
+
+  /* 5. THE FOUNDATION GROUPS THE AUDIT FOUND MISSING ALL EXIST. */
+  for (const [group, probe] of [
+    ["spacing", /--space-4:/], ["radius", /--radius-control:/], ["elevation", /--elev-overlay:/],
+    ["motion", /--dur-base:/], ["focus", /--focus-ring-width:/], ["density", /--density-control-h:/],
+    ["measure", /--measure-wide:/], ["surface", /--surface-raised:/], ["text", /--text-secondary:/],
+  ]) {
+    ok(`the ${group} scale exists`, probe.test(globals));
+  }
+  ok("dark restates the groups that cannot be inverted",
+     /--elev-subtle:\s*\n?\s*inset 0 1px 0 0 var\(--erp-hairline\)/.test(globals)
+     && /--surface-hover: color-mix\(in srgb, var\(--card\) 88%, #ffffff\)/.test(globals),
+     "on a dark ground the light hairline is what reads as elevation, not a bigger blur");
+  ok("a touch device keeps the 44px floor whatever density asked for",
+     /@media \(pointer: coarse\) \{\s*\[data-density="compact"\] \{[\s\S]{0,160}?--density-control-h: 44px;/.test(globals),
+     "the accessibility floor outranks the density");
+}
+
 ok("the control height is one token, 44px, and the dense control 36px", /--erp-control-h: 44px;/.test(v3) && /--erp-control-h-sm: 36px;/.test(v3));
 /* v1.177.0 - the family may MOVE (12px -> 14px with the command deck); what
    it may never do is disagree with itself. Read both and compare. */
@@ -144,6 +236,8 @@ ok("every plain-string vocabulary entry is erp-* names only (Tailwind retired)",
 /* ---- 3. the migrated surfaces stay migrated --------------------------- */
 const MIGRATED = [
   "app/portal/page.tsx",
+  "components/portal/portal-provider.tsx",
+  "components/portal/portal-shell.tsx",
   "components/layout/side-nav.tsx",
   "components/layout/command-palette.tsx",
   "components/ui/data-table.tsx",
@@ -175,7 +269,7 @@ for (const f of MIGRATED) {
   }
 }
 /* The specific surfaces V3 rebuilt use their names. */
-const page = stripComments(read("app/portal/page.tsx"));
+const page = stripComments(readPortalPage(root));
 ok("the portal header is the V3 topbar", /<header className="erp-topbar[^"]*"/.test(page));
 ok("the bottom nav items are V3 items", /className="erp-bottom-nav-item"/.test(page) && /className="erp-bottom-nav-icon"/.test(page) && /className="erp-bottom-nav-label"/.test(page));
 const rail = stripComments(read("components/layout/side-nav.tsx"));
@@ -204,6 +298,50 @@ ok("the drawer's footer clears the inset", /\.erp-drawer-foot \{[^}]*env\(safe-a
 ok("the topbar pads by the status-bar inset (kept inline for tests/shell-scroll.mjs)", /<header className="erp-topbar[^"]*"\s*\n?\s*style=\{\{ paddingTop: "calc\(var\(--hdr-pt\) \+ env\(safe-area-inset-top, 0px\)\)" \}\}/.test(page));
 ok("the bottom-nav item is a 60px stop with an ellipsised label", /\.erp-bottom-nav-item \{[\s\S]*?min-height: 60px;/.test(v3) && /\.erp-bottom-nav-label \{[\s\S]*?text-overflow: ellipsis;/.test(v3));
 
+/* ---- 4b. a keyboard can always see where it is (P0.6) ----------------- */
+/* Found by walking the real Tab order of the rendered portal
+   (tests/browser/a11y-audit.py), not by reading source. Both findings are
+   held here so they cannot come back in a diff nobody runs a browser on. */
+{
+  ok("WebKit's date, month and time widgets get the ring on :focus",
+     /\.erp-input:is\(\[type="date"\], \[type="month"\], \[type="time"\], \[type="week"\], \[type="datetime-local"\]\):focus \{[\s\S]{0,200}?box-shadow: 0 0 0 3px/.test(v3),
+     "WebKit does not set :focus-visible on those hosts, and the portal runs as a PWA on iPhone - four date fields had NO indicator at all");
+  ok("a focusable shape inside a drawing gets the same ring",
+     /\.erp-workspace svg :where\(\[role="button"\], \[tabindex\]\):not\(\[tabindex="-1"\]\):focus-visible \{[\s\S]{0,160}?outline: var\(--focus-ring-width\)/.test(v3),
+     "the four maps make <g> and <path> into controls; a <g> is not in the element list the workspace focus rule names");
+
+  /* A BARE `outline-none` SWITCHES OFF THE SHARED RING. `focus:outline-none`
+     and `focus-visible:outline-none` are legitimate when a ring replaces
+     them - the unconditional form is not, and it is what left the command
+     palette's search box and eight map shapes with nothing to show. */
+  const sources = [];
+  (function walk(dir) {
+    for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (/\.tsx$/.test(e.name)) sources.push(rel);
+    }
+  })("components");
+  (function walk(dir) {
+    for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (/\.tsx$/.test(e.name)) sources.push(rel);
+    }
+  })("app");
+  const offenders = [];
+  for (const f of sources) {
+    for (const line of read(f).split("\n")) {
+      if (!/\boutline-none\b/.test(line)) continue;
+      if (/(?:focus|focus-visible|group-focus-visible):outline-none/.test(line)) continue;  // paired with a ring
+      if (/focus(?:-visible)?:(?:ring|outline|border|opacity|shadow)/.test(line)) continue;  // a replacement on the same element
+      offenders.push(`${f}: ${line.trim().slice(0, 70)}`);
+    }
+  }
+  ok("no control switches the focus ring off without replacing it",
+     offenders.length === 0, offenders.join(" | "));
+}
+
 /* ---- 5. the retired tabs stay retired --------------------------------- */
 const RETIRED = ["Reconciliation", "Ads Fund", "Purchasing"];
 const registries = {
@@ -222,6 +360,15 @@ for (const [f, re] of Object.entries(registries)) {
 ok("the page draws no retired panel", !/activeTab === "(?:Reconciliation|Ads Fund|Purchasing)"/.test(page));
 ok("the retired panel file is gone", !existsSync(join(root, "components/portal/purchasing-panels.tsx")));
 ok("PUSH.bat still deletes it on release", /components\\portal\\purchasing-panels\.tsx/.test(read("PUSH.bat")));
+/* v1.179.0 (P0.5) - the same rule for the two components this release
+   removed. A stale copy on a working machine has no budget entry and would
+   fail tailwind-retired, which is a confusing way to learn a file is dead. */
+ok("the two P0.5 components are gone",
+   !existsSync(join(root, "components/staff/leave-review-card.tsx"))
+   && !existsSync(join(root, "components/portal/next-event-card.tsx")));
+ok("PUSH.bat deletes them on release too",
+   /components\\staff\\leave-review-card\.tsx/.test(read("PUSH.bat"))
+   && /components\\portal\\next-event-card\.tsx/.test(read("PUSH.bat")));
 
 /* ---- 6. nothing was removed to make room ------------------------------ */
 const registry = read("scripts/run-guards.mjs");

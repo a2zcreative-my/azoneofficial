@@ -201,3 +201,145 @@ export async function readVersions(env: Env): Promise<Record<string, number>> {
                 degrades to the manual behaviour that came before. */ }
   return out;
 }
+
+/* =====================================================================
+   UPLOAD LIMITS — v1.177.2.
+
+   Three routes streamed `request.body` straight into R2 with NO byte cap:
+   POST /api/v1/media, POST /users/:id/photo and POST /users/:id/documents.
+   Their buffered siblings all cap (5 MB for an ELFIA photo, 10 MB for a
+   catalogue PDF) — the cap was intended and missed wherever streaming was
+   used. An authenticated account could put a multi-gigabyte body into R2 and
+   repeat it, and nothing said no.
+
+   Two things are wrong with the obvious fixes, so this does neither:
+
+     - Content-Length is ADVISORY. A client may omit it or lie. It is a useful
+       FAST path (refuse before reading a byte) and worthless as the only one.
+     - Buffering with arrayBuffer() to measure honestly is what the capped
+       siblings do, and it is fine for 5 MB. It is not fine for a 64 MB video
+       in a Worker with a 128 MB memory ceiling.
+
+   So the body is passed through a counting stream that aborts the moment the
+   cap is passed: the real length is enforced, nothing is buffered, and an
+   over-size upload dies mid-flight instead of completing.
+
+   MAGIC BYTES. The declared Content-Type was the only check, and a header is
+   the client's word. The first bytes of a file are the file's own word, so
+   for every type these routes accept, the leading bytes must agree with the
+   declared type. This is not a virus scanner - it stops the mundane case of
+   an arbitrary blob stored under image/jpeg, which is what makes a bucket a
+   free file host.
+   ===================================================================== */
+
+/** The signature(s) that may open a file of this type. `null` = no check. */
+const MAGIC: Record<string, readonly (readonly number[])[] | null> = {
+  "image/jpeg": [[0xff, 0xd8, 0xff]],
+  "image/png": [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  "image/gif": [[0x47, 0x49, 0x46, 0x38]],                      // GIF8
+  "image/webp": [[0x52, 0x49, 0x46, 0x46]],                     // RIFF; "WEBP" at byte 8
+  "application/pdf": [[0x25, 0x50, 0x44, 0x46]],                // %PDF
+  "video/webm": [[0x1a, 0x45, 0xdf, 0xa3]],                     // EBML
+  "video/mp4": [[0x66, 0x74, 0x79, 0x70]],                      // "ftyp" at byte 4 - offset handled below
+  /* The OOXML/DOC family is a ZIP or an OLE compound file; both are checked,
+     and a .doc from Word 97 is the OLE one. */
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [[0x50, 0x4b, 0x03, 0x04]],
+  "application/msword": [[0xd0, 0xcf, 0x11, 0xe0], [0x50, 0x4b, 0x03, 0x04]],
+  "application/octet-stream": null,
+  "image/svg+xml": null,          // text, and the media route forces it to download
+};
+
+/** mp4 carries its signature at byte 4, not byte 0. */
+const MAGIC_OFFSET: Record<string, number> = { "video/mp4": 4 };
+
+export class UploadRejected extends Error {
+  constructor(readonly code: "too_large" | "content_mismatch", message: string) {
+    super(message);
+  }
+}
+
+function leadingBytesAgree(head: Uint8Array, contentType: string): boolean {
+  const sigs = MAGIC[contentType];
+  if (sigs === null || sigs === undefined) return true;      // nothing to check against
+  const off = MAGIC_OFFSET[contentType] ?? 0;
+  return sigs.some((sig) => sig.every((b, i) => head[off + i] === b));
+}
+
+/**
+ * The request body, capped and sniffed. The returned stream is what goes to
+ * R2; it errors with an `UploadRejected` if the cap is passed or the leading
+ * bytes disagree with `contentType`, which makes `MEDIA.put` reject — see
+ * `putGuarded` for the caller's side.
+ *
+ * `maxBytes` is per route and per kind: a badge photo and a product video do
+ * not deserve the same allowance.
+ */
+export function guardedBody(body: ReadableStream<Uint8Array>, maxBytes: number, contentType: string): ReadableStream<Uint8Array> {
+  let seen = 0;
+  let head = new Uint8Array(0);
+  let checked = false;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      seen += chunk.byteLength;
+      if (seen > maxBytes) {
+        controller.error(new UploadRejected("too_large",
+          `the file is larger than the ${Math.round(maxBytes / 1048576)} MB limit for this kind of upload`));
+        return;
+      }
+      /* collect enough of the opening to judge it, then judge it once */
+      if (!checked) {
+        const merged = new Uint8Array(head.byteLength + chunk.byteLength);
+        merged.set(head); merged.set(chunk, head.byteLength);
+        head = merged;
+        if (head.byteLength >= 12) {
+          checked = true;
+          if (!leadingBytesAgree(head, contentType)) {
+            controller.error(new UploadRejected("content_mismatch",
+              "the file's contents do not match the type it was sent as"));
+            return;
+          }
+        }
+      }
+      controller.enqueue(chunk);
+    },
+    flush(controller) {
+      /* a file shorter than 12 bytes never reached the check above; judge what
+         there is rather than letting a 3-byte body through unexamined */
+      if (!checked && head.byteLength > 0 && !leadingBytesAgree(head, contentType)) {
+        controller.error(new UploadRejected("content_mismatch",
+          "the file's contents do not match the type it was sent as"));
+      }
+    },
+  }));
+}
+
+/** Declared length, when the client offers one. A fast refusal costs nothing. */
+export function declaredTooLarge(request: Request, maxBytes: number): boolean {
+  const len = Number(request.headers.get("Content-Length") ?? "");
+  return Number.isFinite(len) && len > maxBytes;
+}
+
+/**
+ * Put a capped, sniffed body into R2. On rejection the partial object is
+ * removed - a stream that errors mid-put can leave one behind, and a bucket
+ * full of half-written rejects is the same bill by another route.
+ * Returns null on success, or the Response to send.
+ */
+export async function putGuarded(
+  bucket: R2Bucket, key: string, request: Request, opts: { max: number; contentType: string },
+): Promise<Response | null> {
+  if (declaredTooLarge(request, opts.max)) {
+    return err("too_large", `the file is larger than the ${Math.round(opts.max / 1048576)} MB limit for this kind of upload`, 413);
+  }
+  try {
+    await bucket.put(key, guardedBody(request.body!, opts.max, opts.contentType), {
+      httpMetadata: { contentType: opts.contentType },
+    });
+    return null;
+  } catch (e) {
+    try { await bucket.delete(key); } catch { /* nothing to clean up */ }
+    if (e instanceof UploadRejected) return err(e.code, e.message, e.code === "too_large" ? 413 : 400);
+    /* anything else is ours, not the client's: say so without the detail */
+    return err("upload_failed", "the file could not be stored — try again", 500);
+  }
+}

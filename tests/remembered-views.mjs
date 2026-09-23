@@ -27,7 +27,7 @@
  * setLoaded] = useState(false)` back into hotels-panel (3 fails); removing
  * StaleHint from verification-card (4 fails).
  */
-import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,7 +68,11 @@ const ok = (label, cond, why = "") => {
   const dir = mkdtempSync(join(tmpdir(), "cache-"));
   /* React and the two internal imports are stubbed: only the storage half is
      exercised here, and the hook half is checked by reading, below. */
-  writeFileSync(join(dir, "react.js"), "export const useState=()=>[null,()=>{}];export const useEffect=()=>{};export const useCallback=(f)=>f;export const useRef=(v)=>({current:v});");
+  writeFileSync(join(dir, "react.js"), [
+    "export const useState=(v)=>[typeof v==='function'?v():v,()=>{}];",
+    "export const useEffect=()=>{};export const useCallback=(f)=>f;export const useMemo=(f)=>f();",
+    "export const useRef=(v)=>({current:v});export const useSyncExternalStore=(s,g)=>g();",
+  ].join(""));
   writeFileSync(join(dir, "api.js"), "export const api=async()=>({ok:false});");
   writeFileSync(join(dir, "live.js"), "export const useLiveRefresh=()=>{};");
   /* esbuild aliases are package names, not paths, so the three imports are
@@ -140,15 +144,30 @@ const ok = (label, cond, why = "") => {
   Date.now = realNow;
 }
 
-/* ---- 2. the hook is live and honest ---- */
+/* ---- 2. the hook is live and honest ----
+   P0.4 note: the BEHAVIOUR of the hook - remembered-first on the first
+   render, the loading/stale/failed contract, the four response races, the
+   shared in-flight request - is now RUN rather than read, in
+   tests/cached-api.mjs. What stays here is the wiring that guard cannot see
+   from the outside, plus the storage rules above. */
 {
   ok("the hook accepts topics", /export function useCachedApi<T>\(path: string \| null, enabled = true, topics: string\[\] = \[\]\)/.test(cache));
-  ok("and hands them to useLiveRefresh", /useLiveRefresh\(topics, run, enabled && Boolean\(path\)\)/.test(cache),
+  ok("and hands them to useLiveRefresh", /useLiveRefresh\(topics, refresh, active\);/.test(cache),
      "a remembered view with no way to learn it is stale is a view that lies politely");
-  ok("the hook reports failure", /failed: boolean;/.test(cache) && /setFailed\(true\)/.test(cache) && /refresh: run \}/.test(cache) && /failed, refresh/.test(cache));
+  ok("the hook reports failure", /failed: boolean;/.test(cache) && /failed: settled && last\.failed,/.test(cache));
   ok("a failure keeps the remembered data on screen",
-     /if \(r\.ok && r\.data != null\) \{[\s\S]{0,200}?\} else \{\s*setFailed\(true\);\s*\}/.test(cache),
+     /value: o\.ok \? o\.data : \(prev && prev\.key === o\.key \? prev\.value : null\)/.test(cache),
      "showing yesterday's list with a mark beats a blank card");
+  ok("the remembered value is read during render, not pushed in by an effect",
+     /useSyncExternalStore\(\s*subscribeCache/.test(cache) && !/useEffect\(\(\) => \{ run\(\); \}, \[run\]\)/.test(cache),
+     "the fetch-in-effect cascade is what put a setState warning on every call site of this hook");
+  ok("getSnapshot returns a string, never a fresh object",
+     /rawCache\(path\) : null\),/.test(cache) && /function rawCache\(path: string\): string \| null/.test(cache),
+     "React compares snapshots with Object.is; a new object every call is an infinite render loop");
+  ok("the behavioural guard exists and is registered",
+     existsSync(join(root, "tests/cached-api.mjs"))
+     && /\["cached-api", /.test(read("scripts/run-guards.mjs")),
+     "the races are only proven by running them");
   ok("the ceiling fits a real directory", /const MAX_BYTES = 400_000;/.test(cache));
   /* (the eviction itself is proven above, on a real quota; this only pins
      that it is oldest-first and a single retry) */

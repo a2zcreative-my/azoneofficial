@@ -37,29 +37,6 @@
 .cell {
   flex: 1 1 0%;
 }
-.donut {
-  margin-top: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.donutLines {
-  min-width: 0;
-  flex: 1 1 0%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-}
-.bars {
-  margin-top: 0.75rem;
-  display: flex;
-  height: 5rem;
-  align-items: flex-end;
-  gap: 0.375rem;
-}
-.bar {
-  flex: 1 1 0%;
-}
 .stale {
   display: inline-flex;
   align-items: center;

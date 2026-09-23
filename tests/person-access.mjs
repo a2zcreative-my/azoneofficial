@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 
 import { fileURLToPath } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 /* v1.139.1 - fileURLToPath, NOT .pathname.
    On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
@@ -135,7 +136,7 @@ const ok = (label, cond, extra = "") => {
 
 /* ---- C. the portal draws from the same rule ---- */
 {
-  const page = read("app/portal/page.tsx");
+  const page = readPortalPage(root);
   ok("the tab strip passes the personal entry to canSeeTab", /canSeeTab\(user\?\.role, t, tabOverrides, myTabAccess\)/.test(page),
      "a grant the strip ignores is a grant nobody receives");
   const cardSrc = read("components/portal/access-review-card.tsx");

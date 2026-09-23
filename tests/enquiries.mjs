@@ -28,6 +28,7 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 /* v1.139.1 - fileURLToPath, NOT .pathname.
    On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
@@ -68,7 +69,7 @@ const staff = read("worker/src/staff.ts");
 const desk = read("worker/src/desk.ts");
 const deskCard = read("components/portal/one-desk.tsx");
 const panel = read("components/portal/enquiries-panel.tsx");
-const page = read("app/portal/page.tsx");
+const page = readPortalPage(root);
 const tabs = read("lib/portal-tabs.ts");
 const perms = read("worker/src/permissions.ts");
 const lazy = read("components/portal/lazy-panels.tsx");

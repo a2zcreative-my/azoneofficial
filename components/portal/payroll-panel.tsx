@@ -906,6 +906,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           <input
             type="month"
             className={inputClassSm}
+            aria-label={L("Payroll month", "Bulan gaji")}
             value={month}
             onChange={(e) => setMonth(e.target.value)}
           />

@@ -372,9 +372,17 @@ export function TradingDesk({
       {canStatus &&
         sum &&
         (() => {
-          const cashIn = sum.cash_in_cents ?? 0;
-          const cashOut = sum.cash_out_cents ?? 0;
-          const net = cashIn - cashOut;
+          /* v1.177.2 - CASH IN AND CASH OUT NOW CARRY DIFFERENT AUTHORITY.
+             `cash_in_cents` needs `revenue_view`, `cash_out_cents` needs
+             `expenses`, and four roles hold the first without the second. For
+             them the server sends money in and not money out — and `?? 0`
+             would have subtracted a zero and presented REVENUE as NET CASH,
+             a figure that is wrong by exactly the month's expenses and looks
+             entirely plausible. The tile needs both halves or it does not
+             belong on the page. */
+          const cashIn = sum.cash_in_cents;
+          const cashOut = sum.cash_out_cents;
+          const net = cashIn != null && cashOut != null ? cashIn - cashOut : null;
           /* label = the EN modal-routing key (NEVER translated); show = display only. */
           const tiles: {
             label: string;
@@ -417,7 +425,7 @@ export function TradingDesk({
               value: sum.outstanding_invoices ?? 0,
               tab: "Sales",
             },
-            {
+            ...(net === null ? [] : [{
               label: "Cash flow (mo)",
               /* v1.175.0 - money in minus money out for the month. It is not
                  profit (no cost of goods, no accruals): the P&L behind this
@@ -430,8 +438,8 @@ export function TradingDesk({
                   {fmtRM(Math.abs(net))}
                 </span>
               ),
-              tab: "Finance",
-            },
+              tab: "Finance" as TabName,
+            }]),
             // v1.8.0 (reference "Peak activity time"): the week's best-selling hour
             ...(peakBucket && peakBucket.cents > 0
               ? [
@@ -452,7 +460,12 @@ export function TradingDesk({
           /* v1.171.0 - what used to be the "Needs attention" ticker card:
              the same five counters, as tiles in this grid, only when
              non-zero. A zero is not news. */
-          const attention: [string, string, number | null, TabName][] = [
+          /* v1.177.2 - `undefined` here means the server did not send the
+             figure because this person is not entitled to it. It falls out of
+             the same `v > 0` test that already hides a zero, so an
+             unauthorised counter simply never becomes a tile — no 0, no
+             placeholder, nothing to read anything into. */
+          const attention: [string, string, number | null | undefined, TabName][] = [
             ["Leave pending", L("Leave pending", "Cuti menunggu"), sum.pending_leave, "HR"],
             ["Claims pending", L("Claims pending", "Tuntutan menunggu"), sum.pending_claims, "Claims"],
             ["OT pending", L("OT pending", "OT menunggu"), sum.pending_ot, "Attendance"],
@@ -460,7 +473,7 @@ export function TradingDesk({
             ["Quotations open", L("Quotations open", "Sebut harga terbuka"), sum.open_quotations, "Sales"],
           ];
           for (const [label, show, v, tab] of attention) {
-            if (v !== null && v > 0) tiles.push({ label, show, value: <span className="text-warning">{v}</span>, tab });
+            if (v != null && v > 0) tiles.push({ label, show, value: <span className="text-warning">{v}</span>, tab });
           }
           return (
             <div

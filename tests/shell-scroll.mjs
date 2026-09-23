@@ -26,6 +26,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { fileURLToPath } from "node:url";
+import { readPortalPage } from "./lib/portal-source.mjs";
 
 /* v1.139.1 - fileURLToPath, NOT .pathname.
    On Windows `new URL("..", import.meta.url).pathname` is "/C:/Users/..." -
@@ -47,7 +48,7 @@ const ok = (label, cond, extra = "") => {
 
 const shell = read("components/layout/app-shell.tsx");
 const shellCss = read("components/layout/app-shell.module.css");
-const page = read("app/portal/page.tsx");
+const page = readPortalPage(root);
 const staff = read("worker/src/staff.ts");
 const v3 = read("styles/erp-v3.css");
 
@@ -89,7 +90,9 @@ ok("the worker records which axis the report is about",
    and read as three products. The public documents (/doc, /report) and the
    sign-in page are NOT app views and are deliberately not listed here. */
 {
-  const APP_VIEWS = ["app/portal/page.tsx", "app/admin/page.tsx", "app/admin/permissions/page.tsx", "app/account/page.tsx"];
+  /* v1.182.0 (P1.1): the portal's AppShell moved into the persistent
+     shell component; page.tsx is the module underneath it now. */
+  const APP_VIEWS = ["components/portal/portal-shell.tsx", "app/admin/page.tsx", "app/admin/permissions/page.tsx", "app/account/page.tsx"];
   for (const f of APP_VIEWS) {
     const src = read(f);
     ok(`${f} renders the shell`, /<AppShell/.test(src),
@@ -118,7 +121,7 @@ ok("the worker records which axis the report is about",
   ok("the V3 topbar is sticky at the top and owns its --hdr-pt",
      /\.erp-topbar \{[^}]*position: sticky;[^}]*top: 0;[^}]*--hdr-pt: 0\.5rem;/.test(v3)
      && /@media \(min-width: 768px\) \{\s*\.erp-topbar \{\s*--hdr-pt: 0\.75rem;/.test(v3));
-  for (const f of ["app/portal/page.tsx", "app/admin/page.tsx", "app/account/page.tsx"]) {
+  for (const f of ["components/portal/portal-shell.tsx", "app/admin/page.tsx", "app/account/page.tsx"]) {
     const src = read(f);
     const headers = [...src.matchAll(/<header className="(?:[^"]*sticky top-0[^"]*|erp-topbar[^"]*)"(?:\s*\n?\s*style=\{\{[^}]*\}\})?/g)].map((m) => m[0]);
     ok(`${f} has sticky mobile headers to check`, headers.length > 0);

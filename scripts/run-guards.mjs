@@ -73,6 +73,7 @@ const GUARDS = [
   ["bridge-idempotency", "a store movement applies exactly once, however often it retries"],
   ["traffic-contract", "a re-sent traffic day REPLACES the day we hold, never adds to it"],
   ["authz-guard", "the authorization rules the 27-08 security audit found broken stay fixed"],
+  ["dashboard-authz", "the dashboard summary grants no authority of its own: every field carries its owning endpoint's permission, and a pre-fix cached copy does not survive the upgrade"],
   ["no-public-signatures", "no real signature image is publicly downloadable"],
   ["live-topics", "every live card watches a topic that actually exists, and the bump plumbing is intact"],
   ["roster-tasks", "a task block can never reach the sales attribution that pays commission"],
@@ -102,6 +103,7 @@ const GUARDS = [
   ["org-chart", "who reports to whom is one field, assigned only by the CEO, COO and CCO, drawn as a tree with no cycles"],
   ["lazy-panels", "every tab's panel arrives when the tab is opened, none of them twice, and the first screen is untouched"],
   ["remembered-views", "a view paints from the device first and refetches behind, on the topics that move it"],
+  ["cached-api", "the data layer keeps its contract when answers arrive out of order, an account changes mid-flight or a card closes first"],
   ["outbox", "only the named routes queue offline, every queued write carries an idempotency key, and the phone's time is recorded as pending"],
   ["one-desk", "the desk shows each person exactly what they may act on, by the rules the routes enforce"],
   ["search-everything", "one query over eight sources, each gated by its own tab's permission, phone numbers matched by digits"],
@@ -159,6 +161,7 @@ const GUARDS = [
   ["paper-one-page", "every A4 print window is laid out on the paper (794px viewport, 210mm body, print min-height from the printable page), so a phone prints the same one page as a desk; on a phone the PDF button opens the real one-page file"],
   ["hankeis", "Hankei's ordering and MANUAL payment verification, run against a real SQLite database: a receipt or an OCR result never verifies a payment, only finance can approve, one bank transaction cannot pay for two orders, concurrent approvals produce one verification, retries produce one order, stock cannot be oversold, unverified orders cannot ship, a notification failure changes nothing"],
   ["registry-parity", "tabs, migrations, crons and version gates agree everywhere"],
+  ["portal-routes", "one registry, one slug per module, and no URL outranks a permission - the entry resolver is not the Dashboard"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
 ];
@@ -251,4 +254,5 @@ console.log("    pnpm build && node tests/browser/serve.mjs out 4177 &");
 console.log("    WIDTH=402 xvfb-run -a python3 tests/browser/webkit-overflow.py   # past the page box");
 console.log("    xvfb-run -a python3 tests/browser/table-shred.py                 # a shredded column");
   console.log("    xvfb-run -a python3 tests/browser/ui-audit.py                    # repeated headings, shredded labels, scroll traps");
+  console.log("    xvfb-run -a python3 tests/browser/a11y-audit.py                  # a control with no name, a keyboard with nowhere to stand");
 console.log("    ROLE=ceo|sales_marketing|live_host on the server walks each dashboard order\n");
