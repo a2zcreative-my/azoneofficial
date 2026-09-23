@@ -2279,11 +2279,17 @@ export async function handleStaff(
   if (path === "/profile" && method === "GET") {
     /* v1.174.0 - the person's own role title and responsibilities (0137),
        read-only here: what is expected of them, as the Staff tab wrote it.
-       Skew armor as GET /users: before 0137 applies the profile still loads. */
+       Skew armor as GET /users: before 0137 applies the profile still loads.
+       v1.181.4 - and photo_key. The Profile card has drawn the photo from
+       `profile.photo_key` since v1.4.141, but this SELECT never named the
+       column, so the card always fell back to the initial while the topbar
+       above it - fed by /auth/me, which does select it - showed the real
+       photo (the CEO's phone, 23-09-2026). photo_key predates 0137, so the
+       fallback SELECT carries it too. */
     let row: Record<string, unknown> | null;
     try {
       row = await env.DB.prepare(
-        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status,
+        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status, photo_key,
                 role_title, responsibilities, responsibilities_updated_at
          FROM users WHERE id = ?1`,
       ).bind(user.id).first();
@@ -2291,7 +2297,7 @@ export async function handleStaff(
       if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
       await logError(env, "migration_skew", "GET /profile: 0137 responsibilities columns missing - run wrangler d1 migrations apply");
       row = await env.DB.prepare(
-        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status
+        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status, photo_key
          FROM users WHERE id = ?1`,
       ).bind(user.id).first();
     }

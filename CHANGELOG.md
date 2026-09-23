@@ -2,6 +2,140 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.4] - 2026-09-23 - Uploads reach R2 again
+
+**Production bug fix. Every file upload has failed since v1.177.2 went live**
+(deployed with v1.181.3 on 23-09-2026). The CEO, on Claims: "When I add
+attachments it doesn't uploaded into the R2". It didn't, and it wasn't only
+Claims. Claim receipts, payment proofs (bank slips), staff photos, documents,
+company logos and the media library all run through one function,
+`putGuarded()` in `worker/src/shared.ts`, and every one of them answered
+500 "the file could not be stored - try again".
+
+### Why
+
+v1.177.2 hardened uploads. It counts the bytes that actually arrive, and it
+checks the file's first bytes against its declared type. It does both by
+piping the request through a `TransformStream`, and it handed that piped
+stream straight to R2. A piped stream has no length, and R2's `put()` only
+accepts a stream whose length it knows:
+
+    TypeError: Provided readable stream must have a known length
+    (request/response body or readable half of FixedLengthStream)
+
+`putGuarded` caught the TypeError and turned it into the 500. Every guard
+passed, because every guard *read* the file. None of them *ran* it in the
+Workers runtime, and only the runtime knows what `put()` accepts. I
+reproduced it in local workerd: the same PNG was stored raw and refused
+piped.
+
+### Fix
+
+The counted, sniffed stream now feeds a `FixedLengthStream` of the declared
+`Content-Length`, which is the kind of stream R2 accepts. Everything v1.177.2
+added still holds:
+
+- **Nothing is buffered.** A 64 MB video still streams.
+- **The size cap is enforced twice.** Our counter trips at the cap, and the
+  FixedLengthStream refuses a body longer or shorter than it declared.
+- **The first bytes are still checked** against the declared type.
+
+A body that declares no length is read into memory under the same cap, and
+only for the small kinds (20 MB and under). A large one is refused with 411.
+Browsers always declare the length. The reason for a refusal is now captured
+where the stream refuses, not guessed from `put()`'s error. Unexpected
+failures are logged.
+
+### Claims said the wrong thing when an upload failed
+
+- **"Saved" hid the failure.** Submitting or editing a claim showed the
+  receipt's failure toast, then immediately replaced it with "Saved" (one
+  toast slot, last one wins), so a failed receipt looked like a saved one.
+  Now exactly one toast appears, and it's the true one.
+- **Every failure blamed file size.** All upload failures said "Receipt too
+  large - send it to yourself on WhatsApp", whatever the server had said. The
+  new `uploadFailure()` shows the server's own message, and keeps the
+  WhatsApp tip for the one answer it fits: 413.
+- **No sign of progress.** "Attach receipt" and "Attach payment receipt
+  (bank slip)" now read "Uploading…" while the file is going up, and can't
+  be tapped twice.
+
+### The notice toast now stays long enough to read (added the same day)
+
+The CEO's screenshot at 13:15 is still production v1.181.3: the old wording,
+"No changes - Payment proof upload failed", from the `putGuarded` fault
+above. The toast card itself sits correctly now, pinned to the screen, which
+confirms v1.181.3's fix. I measured it at 360, 390 and 430px inside a true
+phone-width frame, and did the same for the confirm dialog. I used the
+longest new English and Malay messages and an 80-character unbroken token.
+Every card stays inside the screen, and nothing inside a card spills out of
+it.
+
+What the measurement did turn up: a notice explaining a failure is around
+thirty words, and it vanished after 2.6 seconds.
+
+- `useSaveToast` now holds a **notice** for as long as its words take to
+  read (`toastHoldMs`: 2.6 s to 9 s). "Saved" still leaves at 2.6 s.
+- The server's message now gets a full stop before the next sentence is
+  added ("...try again. Use Attach receipt...").
+
+### Profile shows your real photo (added the same day, still v1.181.4)
+
+The CEO, on Profile: the card showed a navy circle with an "A" directly under
+a topbar that showed his real photo. The card has drawn the photo from
+`profile.photo_key` since v1.4.141. But `GET /staff/profile` never selected
+`photo_key`, so the value always arrived empty and the card always fell back
+to the initial. The topbar is fed by `/auth/me`, which does select it.
+
+- `GET /staff/profile` now selects `photo_key`, in the full SELECT and the
+  pre-0137 fallback.
+- A photo that won't load falls back to the initial, as the topbar's does,
+  instead of a broken-image box.
+- **New guard `profile-fields` (#101)**: every field the Profile card reads
+  must be one the endpoint actually selects. Taking `photo_key` back out
+  makes it fail.
+
+### The bottom bar comes back when the keyboard goes (added the same day, still v1.181.4)
+
+The CEO, on Profile after typing a new password: the bottom bar was floating
+a third of the way up the screen, the topbar was gone, the page carried on
+underneath the bar, and there was a grey gap past the end of it.
+
+On a phone the portal scrolls the whole page. The topbar sticks to the top
+and the bottom bar is fixed to the bottom of what Safari calls the *layout*
+viewport. When the keyboard opens, iOS shrinks the *visual* viewport (the
+part you actually see) and slides it down so the field stays in view. In an
+installed PWA it sometimes doesn't slide it back after the keyboard closes,
+so both bars are drawn one keyboard-height too high. In the screenshot the
+bar sits almost exactly one keyboard-height (~336pt) above the bottom.
+
+`lib/viewport-settle.ts`, installed once by the portal shell, fixes it. When
+the keyboard closes (the viewport resizes, or a field loses focus), it
+scrolls the page to where you are actually looking. The offset collapses and
+both bars return to the edges. It never acts while a field is focused (the
+keyboard is up, and the offset is Safari doing its job) or under a pinch
+zoom.
+
+**New guard `viewport-settle` (#102).** No browser in the sandbox has an iOS
+keyboard, so it runs the installer against a fake window that reproduces the
+stuck state. It checks 12 things, including all of the cases above.
+Disabling the fix makes it fail.
+
+### So it stays fixed
+
+**New guard `upload-stream` (#100).** It runs the real `putGuarded()` inside
+wrangler's local workerd against a local R2 bucket, with real requests.
+
+- A PNG and a PDF are stored byte for byte.
+- Text sent as `image/png` is refused 400, and nothing is left behind.
+- A declared length over the cap is refused 413.
+- A body with no declared length is refused 413 over the cap and stored
+  under it.
+
+The v1.177.2 body put back fails 7 of its 8 checks with the same "could not
+be stored" that production gives. It takes about 2 seconds. If workerd can't
+start, the guard **fails**; it never skips itself.
+
 ## [1.181.3] - 2026-09-23 - Dialogs that opened off the screen
 
 **Bug fix, live since v1.177.0, on 27 of the 29 tabs.** The CEO's iPhone,

@@ -165,6 +165,9 @@ const GUARDS = [
   ["portal-routes", "one registry, one slug per module, and no URL outranks a permission - the entry resolver is not the Dashboard"],
   ["sql-schema-check", "migrations and the code agree about the schema"],
   ["worker-compile-gate", "the API code actually compiles (the 19-08 outage)"],
+  ["upload-stream", "an upload actually reaches R2: putGuarded runs inside the real Workers runtime and a file is stored byte for byte, a lie about its type or size is refused, and nothing half-written is left behind (every upload failed from v1.177.2 to v1.181.3)"],
+  ["profile-fields", "every field the Profile card reads is one GET /staff/profile actually selects - the card has asked for photo_key since v1.4.141 and the SELECT never named it"],
+  ["viewport-settle", "after the phone keyboard closes the layout viewport is put back under the visual one, so the bottom bar and topbar return to the screen edges - never while a field is focused, never under a pinch zoom"],
 ];
 
 /* worker-compile-gate needs the API's type definitions. Installing them here

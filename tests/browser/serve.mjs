@@ -26,6 +26,14 @@ http.createServer((req, res) => {
   if (url.pathname.startsWith("/api/v1/")) {
     const p = url.pathname.replace("/api/v1", "");
     if ((req.headers.accept ?? "").includes("text/event-stream")) { res.writeHead(200, { "content-type": "text/event-stream" }); res.write(": fixture\n\n"); return; }
+    /* v1.181.4 - a stored photo is an IMAGE, not JSON: answer every media
+       file with the app icon, so an avatar drawn from a photo_key renders in
+       the probes instead of silently falling back to the initial. */
+    if (req.method === "GET" && p.startsWith("/media/file/")) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(readFileSync(join(dir, "icon-192.png")));
+      return;
+    }
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {

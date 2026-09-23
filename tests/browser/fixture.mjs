@@ -153,7 +153,7 @@ export function fixture(p0, url) {
   if (p === "/staff/tasks") data = { tasks };
   if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
   if (p === "/staff/users") data = { users: staff, staff };
-  if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
+  if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
   if (p === "/staff/announcements") data = { announcements };
   if (p === "/staff/leave") data = { leave: q.get("all") ? leave : leave.filter((l) => l.user_id === 9001) };
   if (p === "/staff/leave/balance") data = { balances: { annual: { entitled: 14, used: 2, accrued: 10.5 }, medical: { entitled: 14, used: 0, accrued: 14 }, emergency: { entitled: 3, used: 0, accrued: 3 }, unpaid: { entitled: 0, used: 0 }, replacement: { entitled: 0, used: 0, accrued: 1 } }, hourly: false };

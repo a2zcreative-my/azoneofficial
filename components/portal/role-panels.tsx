@@ -4094,6 +4094,23 @@ const claimNoOf = (c: Claim) => {
    WhatsApp compresses hard — then upload that copy. */
 const MAX_RECEIPT_MB = 8;
 const receiptTooBig = () => L(`Receipt too large — the maximum is ${MAX_RECEIPT_MB} MB. Easy fix: send the photo to yourself on WhatsApp, save it from the chat back to your gallery (WhatsApp shrinks it a lot), then upload that copy.`, `Resit terlalu besar — maksimum ${MAX_RECEIPT_MB} MB. Cara mudah: hantar foto itu kepada diri sendiri di WhatsApp, simpan semula dari sembang ke galeri (WhatsApp memampatkannya banyak), kemudian muat naik salinan itu.`);
+/* v1.181.4 - WHY AN UPLOAD FAILED, in the server's own words. Every failure
+   used to be reported as "Receipt too large ... send it to yourself on
+   WhatsApp", whatever the server had actually said - so when every upload
+   failed with a 500 (putGuarded, v1.177.2 to v1.181.3) the app told people
+   to shrink files that were already small. The WhatsApp tip is now kept for
+   the one answer it fits, 413. */
+async function uploadFailure(up: Response): Promise<string> {
+  if (up.status === 413) return receiptTooBig();
+  let m = "";
+  try { m = ((await up.json()) as { error?: { message?: string } })?.error?.message ?? ""; } catch { /* not JSON */ }
+  /* the server's sentences often end without a full stop ("...try again"),
+     and the caller appends another sentence straight after */
+  if (m && !/[.!?]$/.test(m.trim())) m = `${m.trim()}.`;
+  return m
+    ? L(`The server said: ${m}`, `Pelayan menjawab: ${m}`)
+    : L(`The upload failed (HTTP ${up.status}) - try again.`, `Muat naik gagal (HTTP ${up.status}) - cuba lagi.`);
+}
 
 /* v1.4.106: which chain a claimant's role follows (mirrors the leave chain). */
 const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
@@ -4318,6 +4335,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   // v1.4.104: edit-before-approval / resubmit-after-rejection.
   const [editingClaim, setEditingClaim] = useState<{ id: number; no: string; wasRejected: boolean } | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
+  /* v1.181.4 - which claim's file is on its way up. A photo on 5G takes a
+     few seconds, and the label used to sit there unchanged, which read as
+     "nothing happened" and invited a second pick. */
+  const [uploading, setUploading] = useState<number | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm(); // v1.4.142: branded dialog
@@ -4377,20 +4398,26 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         method: "POST", body: JSON.stringify(payloadC),
       });
       if (!resE.ok) { setMsg(resE.data?.error?.message ?? L("Could not update the claim", "Tidak dapat mengemas kini tuntutan")); return; }
+      /* v1.181.4 - the receipt's failure used to be shown and then, on the
+         very next line, replaced by "Saved": one toast slot, last one wins,
+         so a failed receipt always looked like a saved one. Now the toast
+         says the one true thing. */
+      let receiptProblemE = "";
       if (receipt) {
         const compressedE = await compressImage(receipt);
         if (compressedE.size > MAX_RECEIPT_MB * 1024 * 1024) {
-          showToast(L("No changes", "Tiada perubahan"), `${L("Claim updated WITHOUT the receipt.", "Tuntutan dikemas kini TANPA resit.")} ${receiptTooBig()}`, "notice");
+          receiptProblemE = `${L("Claim updated WITHOUT the receipt.", "Tuntutan dikemas kini TANPA resit.")} ${receiptTooBig()}`;
         } else {
           const up = await csrfFetch(`/api/v1/staff/claims/${editingClaim.id}/receipt`, {
             method: "POST",
             headers: { "Content-Type": compressedE.type || receipt.type || "image/jpeg" },
             body: compressedE,
           });
-          if (!up.ok) showToast(L("No changes", "Tiada perubahan"), `${L("Claim updated, but the receipt failed to upload.", "Tuntutan dikemas kini, tetapi resit gagal dimuat naik.")} ${receiptTooBig()}`, "notice");
+          if (!up.ok) receiptProblemE = `${L("Claim updated, but the receipt did NOT upload.", "Tuntutan dikemas kini, tetapi resit TIDAK dimuat naik.")} ${await uploadFailure(up)} ${L("Use Attach receipt on the claim to try again.", "Guna Lampirkan resit pada tuntutan untuk cuba lagi.")}`;
         }
       }
-      showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
+      if (receiptProblemE) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblemE, "notice");
+      else showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
       setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
       void load();
       revealAnchor("claims-list"); // v1.172.1 - back to the list
@@ -4416,23 +4443,26 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       return;
     }
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? L("Could not submit the claim", "Tidak dapat menghantar tuntutan")); return; }
+    /* v1.181.4 - one toast, the true one: see the edit branch above. */
+    let receiptProblem = "";
     if (receipt) {
       const compressed = await compressImage(receipt); // PDFs pass through untouched
       if (compressed.size > MAX_RECEIPT_MB * 1024 * 1024) {
-        showToast(L("No changes", "Tiada perubahan"), `${L("Claim submitted WITHOUT the receipt.", "Tuntutan dihantar TANPA resit.")} ${receiptTooBig()} ${L("Then use Edit on your claim to attach it.", "Kemudian guna Sunting pada tuntutan anda untuk melampirkannya.")}`, "notice");
+        receiptProblem = `${L("Claim submitted WITHOUT the receipt.", "Tuntutan dihantar TANPA resit.")} ${receiptTooBig()} ${L("Then use Attach receipt on your claim.", "Kemudian guna Lampirkan resit pada tuntutan anda.")}`;
       } else {
       const up = await csrfFetch(`/api/v1/staff/claims/${res.data.id}/receipt`, {
         method: "POST",
         headers: { "Content-Type": compressed.type || receipt.type || "image/jpeg" },
         body: compressed,
       });
-      if (!up.ok) showToast(L("No changes", "Tiada perubahan"), `${L("Claim submitted, but the receipt failed to upload.", "Tuntutan dihantar, tetapi resit gagal dimuat naik.")} ${receiptTooBig()} ${L("Then use Edit on your claim to attach it.", "Kemudian guna Sunting pada tuntutan anda untuk melampirkannya.")}`, "notice");
+      if (!up.ok) receiptProblem = `${L("Claim submitted, but the receipt did NOT upload.", "Tuntutan dihantar, tetapi resit TIDAK dimuat naik.")} ${await uploadFailure(up)} ${L("Use Attach receipt on your claim to try again.", "Guna Lampirkan resit pada tuntutan anda untuk cuba lagi.")}`;
       }
     }
     setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
     setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
     setReceipt(null);
-    showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
+    if (receiptProblem) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblem, "notice");
+    else showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
     revealAnchor("claims-list"); // v1.172.1 - back to the list, where the new claim now sits
     } finally {
@@ -4565,32 +4595,31 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <span>{dmy(c.claim_date)}</span>
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
             <>
-              <label className={`${rowBtn} ${cl.pointer}`} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
-                <><AppIcon name="attach" className={cl.chipIcon} />{L("Attach receipt", "Lampirkan resit")}</>
-                <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
+              <label className={`${rowBtn} ${cl.pointer}`} aria-busy={uploading === c.id || undefined} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
+                <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach receipt", "Lampirkan resit")}</>
+                <input type="file" accept="image/*,application/pdf" className={cl.fileInput} disabled={uploading !== null}
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";
                     if (!f) return;
-                    if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                    if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                    const comp = await compressImage(f);
-                    if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                    const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/receipt`, {
-                      method: "POST",
-                      headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
-                    });
-                    if (up.ok) {
-                      let resub = false;
-                      try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
-                      showToast(L("Saved", "Disimpan"), resub ? L("Receipt attached — claim RESUBMITTED for approval", "Resit dilampirkan — tuntutan DIHANTAR SEMULA untuk kelulusan") : L("Receipt attached to your claim", "Resit dilampirkan pada tuntutan anda"));
-                      void load();
-                    }
-                    else {
-                      let m = "";
-                      try { m = ((await up.json()) as { error?: { message?: string } })?.error?.message ?? ""; } catch { /* not JSON */ }
-                      showToast(L("No changes", "Tiada perubahan"), m || receiptTooBig(), "notice");
-                    }
+                    setUploading(c.id);
+                    try {
+                      if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                      if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                      const comp = await compressImage(f);
+                      if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                      const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/receipt`, {
+                        method: "POST",
+                        headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
+                      });
+                      if (up.ok) {
+                        let resub = false;
+                        try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
+                        showToast(L("Saved", "Disimpan"), resub ? L("Receipt attached — claim RESUBMITTED for approval", "Resit dilampirkan — tuntutan DIHANTAR SEMULA untuk kelulusan") : L("Receipt attached to your claim", "Resit dilampirkan pada tuntutan anda"));
+                        void load();
+                      }
+                      else showToast(L("Receipt not attached", "Resit tidak dilampirkan"), await uploadFailure(up), "notice");
+                    } finally { setUploading(null); }
                   }} />
               </label>
             </>
@@ -4706,23 +4735,26 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </p>
           )}
           {canDecide && c.paid_at && !c.payment_proof_key && (
-            <label className={`${rowBtn} erp-mt-2 ${cl.pointer}`}
+            <label className={`${rowBtn} erp-mt-2 ${cl.pointer}`} aria-busy={uploading === c.id || undefined}
               title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
-              <><AppIcon name="attach" className={cl.chipIcon} />{L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
-              <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
+              <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
+              <input type="file" accept="image/*,application/pdf" className={cl.fileInput} disabled={uploading !== null}
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
                   if (!f) return;
-                  if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
-                  const comp = await compressImage(f);
-                  if (comp.size > 8 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
-                  const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
-                    method: "POST",
-                    headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
-                  });
-                  if (up.ok) { showToast(L("Saved", "Disimpan"), L("Payment receipt attached — claimant notified", "Resit bayaran dilampirkan — penuntut dimaklumkan")); void load(); }
-                  else showToast(L("No changes", "Tiada perubahan"), L("Payment proof upload failed", "Muat naik bukti bayaran gagal"), "notice");
+                  setUploading(c.id);
+                  try {
+                    if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
+                    const comp = await compressImage(f);
+                    if (comp.size > 8 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB."), "notice"); return; }
+                    const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/payment-proof`, {
+                      method: "POST",
+                      headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
+                    });
+                    if (up.ok) { showToast(L("Saved", "Disimpan"), L("Payment receipt attached — claimant notified", "Resit bayaran dilampirkan — penuntut dimaklumkan")); void load(); }
+                    else showToast(L("Payment receipt not attached", "Resit bayaran tidak dilampirkan"), up.status === 413 ? L("Payment proof too large — maximum 8 MB.", "Bukti bayaran terlalu besar — maksimum 8 MB.") : await uploadFailure(up), "notice");
+                  } finally { setUploading(null); }
                 }} />
             </label>
           )}

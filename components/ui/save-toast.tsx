@@ -10,7 +10,18 @@
 import { useCallback, useRef, useState } from "react";
 import { toastCard } from "@/lib/ui-styles";
 
-export function SaveToast({ title, sub = "", variant = "success" }: { title: string; sub?: string; variant?: "success" | "notice" }) {
+/* v1.181.4 - HOW LONG A TOAST STAYS. "Saved ✓" reads in a glance, so 2.6 s
+   is right for it. A notice that explains a failure - "the receipt did NOT
+   upload; the server said...; use Attach receipt to try again" - is thirty
+   words, and it vanished before the CEO had read half of it (Claims,
+   23-09-2026). A notice now stays for the time its words take to read,
+   between the old 2.6 s and 9 s. */
+export function toastHoldMs(title: string, sub = "", variant: "success" | "notice" = "success"): number {
+  if (variant !== "notice") return 2600;
+  return Math.min(9000, Math.max(2600, 1200 + (title.length + sub.length) * 45));
+}
+
+export function SaveToast({ title, sub = "", variant = "success", holdMs = 2600 }: { title: string; sub?: string; variant?: "success" | "notice"; holdMs?: number }) {
   /* v1.124.0 — was a hard-coded navy/amber pair. The ring is app UI, not
      paper, so it follows the theme: --primary flips light on dark cards,
      --warning is the audited amber that stays separable from danger. */
@@ -25,7 +36,7 @@ export function SaveToast({ title, sub = "", variant = "success" }: { title: str
       `}</style>
       <div
         className={toastCard}
-        style={{ animation: "save-pop .45s cubic-bezier(.2,.9,.3,1.2) both, save-fade .4s ease .2s forwards", animationDelay: "0s, 2.2s" }}
+        style={{ animation: "save-pop .45s cubic-bezier(.2,.9,.3,1.2) both, save-fade .4s ease .2s forwards", animationDelay: `0s, ${(holdMs - 400) / 1000}s` }}
         role="status"
         aria-live="polite"
       >
@@ -51,17 +62,18 @@ export function SaveToast({ title, sub = "", variant = "success" }: { title: str
 }
 
 export function useSaveToast() {
-  const [toast, setToast] = useState<{ title: string; sub?: string; variant?: "success" | "notice" } | null>(null);
+  const [toast, setToast] = useState<{ title: string; sub?: string; variant?: "success" | "notice"; holdMs: number } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const show = useCallback((title: string, sub = "", variant: "success" | "notice" = "success") => {
     window.clearTimeout(timer.current);
     setToast(null);
     // Re-mount on next frame so back-to-back saves replay the animation.
     window.requestAnimationFrame(() => {
-      setToast({ title, sub, variant });
-      timer.current = window.setTimeout(() => setToast(null), 2600);
+      const holdMs = toastHoldMs(title, sub, variant);
+      setToast({ title, sub, variant, holdMs });
+      timer.current = window.setTimeout(() => setToast(null), holdMs);
     });
   }, []);
-  const node = toast ? <SaveToast title={toast.title} sub={toast.sub} variant={toast.variant} /> : null;
+  const node = toast ? <SaveToast title={toast.title} sub={toast.sub} variant={toast.variant} holdMs={toast.holdMs} /> : null;
   return { show, node };
 }

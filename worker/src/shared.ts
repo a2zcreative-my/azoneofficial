@@ -274,15 +274,25 @@ function leadingBytesAgree(head: Uint8Array, contentType: string): boolean {
  * `maxBytes` is per route and per kind: a badge photo and a product video do
  * not deserve the same allowance.
  */
-export function guardedBody(body: ReadableStream<Uint8Array>, maxBytes: number, contentType: string): ReadableStream<Uint8Array> {
+export function guardedBody(
+  body: ReadableStream<Uint8Array>, maxBytes: number, contentType: string,
+  /* v1.181.4 - told the reason the moment the stream refuses. Once this
+     stream is piped into a FixedLengthStream the error R2 sees is the pipe's,
+     not ours, so putGuarded learns WHY from here and not from put(). */
+  onReject?: (e: UploadRejected) => void,
+): ReadableStream<Uint8Array> {
   let seen = 0;
+  const refuse = (controller: TransformStreamDefaultController<Uint8Array>, e: UploadRejected) => {
+    onReject?.(e);
+    controller.error(e);
+  };
   let head = new Uint8Array(0);
   let checked = false;
   return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       seen += chunk.byteLength;
       if (seen > maxBytes) {
-        controller.error(new UploadRejected("too_large",
+        refuse(controller, new UploadRejected("too_large",
           `the file is larger than the ${Math.round(maxBytes / 1048576)} MB limit for this kind of upload`));
         return;
       }
@@ -294,7 +304,7 @@ export function guardedBody(body: ReadableStream<Uint8Array>, maxBytes: number, 
         if (head.byteLength >= 12) {
           checked = true;
           if (!leadingBytesAgree(head, contentType)) {
-            controller.error(new UploadRejected("content_mismatch",
+            refuse(controller, new UploadRejected("content_mismatch",
               "the file's contents do not match the type it was sent as"));
             return;
           }
@@ -306,7 +316,7 @@ export function guardedBody(body: ReadableStream<Uint8Array>, maxBytes: number, 
       /* a file shorter than 12 bytes never reached the check above; judge what
          there is rather than letting a 3-byte body through unexamined */
       if (!checked && head.byteLength > 0 && !leadingBytesAgree(head, contentType)) {
-        controller.error(new UploadRejected("content_mismatch",
+        refuse(controller, new UploadRejected("content_mismatch",
           "the file's contents do not match the type it was sent as"));
       }
     },
@@ -331,15 +341,47 @@ export async function putGuarded(
   if (declaredTooLarge(request, opts.max)) {
     return err("too_large", `the file is larger than the ${Math.round(opts.max / 1048576)} MB limit for this kind of upload`, 413);
   }
+  /* v1.181.4 - R2 ONLY TAKES A STREAM WHOSE LENGTH IT KNOWS. v1.177.2 handed
+     put() the counting stream straight from pipeThrough(), and a piped stream
+     has no length, so EVERY put threw "Provided readable stream must have a
+     known length" and every upload through this function - claim receipts,
+     payment proofs, staff photos, documents, logos, the media library -
+     answered 500 "could not be stored" from the moment v1.177.2 went live.
+     Nothing in the sandbox noticed: the guards read this file, and no guard
+     ran it inside workerd. tests/upload-stream.mjs now does.
+
+     The counted, sniffed stream is piped into a FixedLengthStream of the
+     declared length, which is the one kind of stream put() accepts. That
+     keeps everything v1.177.2 wanted: nothing is buffered (a 64 MB video
+     still streams), the byte count is enforced twice (our cap, and the
+     FixedLengthStream refuses a body longer or shorter than it said), and the
+     leading bytes are still judged. A body with NO declared length - no
+     browser sends one, but a script might - is read into memory under the
+     same cap, and only for the small kinds; a large one is refused. */
+  let rejection: UploadRejected | null = null;
+  const guarded = guardedBody(request.body!, opts.max, opts.contentType, (e) => { rejection = e; });
+  const declared = Number(request.headers.get("Content-Length") ?? "");
   try {
-    await bucket.put(key, guardedBody(request.body!, opts.max, opts.contentType), {
-      httpMetadata: { contentType: opts.contentType },
-    });
+    if (Number.isFinite(declared) && declared > 0) {
+      const fixed = new FixedLengthStream(declared);
+      const piping = guarded.pipeTo(fixed.writable).catch((e: unknown) => e);
+      await bucket.put(key, fixed.readable, { httpMetadata: { contentType: opts.contentType } });
+      const pipeErr = await piping;
+      if (pipeErr) throw pipeErr;
+    } else if (opts.max <= 20 * 1024 * 1024) {
+      const buf = await new Response(guarded).arrayBuffer();
+      await bucket.put(key, buf, { httpMetadata: { contentType: opts.contentType } });
+    } else {
+      return err("length_required", "the upload did not say how large it is - try again from the app", 411);
+    }
     return null;
   } catch (e) {
     try { await bucket.delete(key); } catch { /* nothing to clean up */ }
-    if (e instanceof UploadRejected) return err(e.code, e.message, e.code === "too_large" ? 413 : 400);
-    /* anything else is ours, not the client's: say so without the detail */
+    const why: UploadRejected | null = rejection ?? (e instanceof UploadRejected ? e : null);
+    if (why) return err(why.code, why.message, why.code === "too_large" ? 413 : 400);
+    /* anything else is ours, not the client's: say so without the detail,
+       and keep the detail where the owner can find it */
+    console.error("putGuarded", key, e instanceof Error ? e.message : String(e));
     return err("upload_failed", "the file could not be stored — try again", 500);
   }
 }

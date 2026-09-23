@@ -25,6 +25,10 @@ export function Profile() {
   /* v1.77.0 — skeleton until the first fetch lands: a "—" for every field
      while loading read as a blank profile. */
   const [loaded, setLoaded] = useState(false);
+  /* v1.181.4 - a photo that will not load (deleted from R2, or a key from a
+     restore) falls back to the initial, as the topbar's does, instead of
+     leaving a broken-image box in the card. */
+  const [photoFailed, setPhotoFailed] = useState(false);
   useEffect(() => {
     void api<{ profile: Record<string, string | null> }>(`/staff/profile`).then(
       (r) => {
@@ -67,9 +71,10 @@ export function Profile() {
     <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
       <div className={card}>
         <div className="border-border flex items-center gap-3 border-b pb-4">
-          {loaded && profile.photo_key ? (
+          {loaded && profile.photo_key && !photoFailed ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={`/api/v1/media/file/${encodeURIComponent(profile.photo_key)}`} alt="" className="ring-gold h-16 w-16 shrink-0 rounded-full object-cover ring-2" />
+            <img src={`/api/v1/media/file/${encodeURIComponent(profile.photo_key)}`} alt="" className="ring-gold h-16 w-16 shrink-0 rounded-full object-cover ring-2"
+              onError={() => setPhotoFailed(true)} />
           ) : (
             <span className="bg-primary text-primary-foreground ring-gold grid h-16 w-16 shrink-0 place-items-center rounded-full text-xl font-semibold ring-2">
               {(profile.name ?? "?").trim().charAt(0).toUpperCase() || "?"}

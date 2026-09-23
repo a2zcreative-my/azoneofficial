@@ -38,6 +38,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import Link from "next/link";
+import { installViewportSettle } from "@/lib/viewport-settle";
 
 import { api, sendOutboxEntry } from "@/lib/api";
 import { setOutboxScope, startOutbox } from "@/lib/outbox";
@@ -130,6 +131,12 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(true);
+  /* v1.181.4 - after the phone keyboard closes, put the layout viewport back
+     under the visual one, so the bottom bar and the topbar return to the
+     screen's edges instead of floating a keyboard-height up (Profile, the
+     CEO's iPhone, 23-09-2026). lib/viewport-settle.ts has the why. Here in
+     the provider because it mounts once for the whole portal. */
+  useEffect(() => installViewportSettle(window), []);
   useEffect(() => {
     /* v1.172.0 - the rail remembers. A saved choice wins on any width that
        draws the rail; with nothing saved, the rail opens on wide desktops
