@@ -387,3 +387,30 @@
   font-size: 0.75rem;
   line-height: 1rem;
 }
+
+/* v1.181.5 - the salary advance request: amount, payroll month and reason
+   side by side on a desk, stacked on a phone; the note underneath says when
+   the deduction happens and where it will be seen. */
+.advanceFields {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem 1rem;
+}
+.advanceField {
+  display: block;
+  min-width: 0;
+}
+.advanceNote {
+  margin-top: 0;
+}
+@media (min-width: 768px) {
+  .advanceFields {
+    grid-template-columns: minmax(0, 12rem) minmax(0, 14rem) minmax(0, 1fr);
+    align-items: start;
+  }
+  .advanceField { grid-row: 1; }
+  .advanceMonth { grid-column: 2; }
+  .advanceReason { grid-column: 3; }
+  .advanceNote { grid-column: 1 / -1; max-width: 72ch; }
+}

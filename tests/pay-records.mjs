@@ -27,6 +27,11 @@
  *   B2 the table only offers Edit/Undo on those rows, for that role;
  *   C1 the drill-down is gated like the donut and uses the donut's rules
  *      (10:00 cutoff, same staff filter), so names and numbers agree.
+ *   D  (v1.181.5, "salary advance seem like incorrect flow for claim") an
+ *      advance is one amount and a reason: the server refuses anything else
+ *      and dates it itself, the form shows no expense lines, mileage or
+ *      receipt, and it prints as a Salary Advance Request carrying the
+ *      employee's authority for the deduction.
  */
 
 import { readFileSync } from "node:fs";
@@ -116,6 +121,31 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
     /JOIN users u ON u\.id = a\.user_id AND u\.is_active = 1 AND u\.role NOT IN \('customer', 'super_admin', 'admin'\)/.test(drill));
   ok("C1. the card asks for the names", /api<AttWho>\("\/dashboard\/attendance-today"\)/.test(cards));
   ok("C1. the old do-nothing card button is gone", !/export function AttendanceDonutCard/.test(cards));
+}
+
+/* ---- D. v1.181.5: an advance is not an expense claim ---- */
+{
+  const formPdf = read("lib/form-pdf.ts");
+  ok("D1. the server has one shape rule for an advance", /const advanceShape = \(items: ClaimItem\[\] \| null, reason: string \| null\): string \| null =>/.test(staff));
+  ok("D1. ...one line, no mileage, a reason",
+    /items\.length !== 1/.test(staff) && /items\[0\]!\.km !== undefined/.test(staff) && /reason\.trim\(\)\.length < 3/.test(staff));
+  ok("D1. creating an advance applies it and dates it today",
+    /const advBad = advanceShape\(advItems, purpose\);[\s\S]{0,120}claimDate = mytTodayW\(\);/.test(staff));
+  ok("D1. editing an advance applies it and keeps the day it was asked for",
+    /const advBadE = advanceShape\(parsedE, purposeE\);[\s\S]{0,160}editClaimDate = cur\.claim_date/.test(staff));
+  ok("D2. the advance form has no expense lines, mileage or receipt",
+    /\{claimType !== "salary_advance" && \(<>\s*\{\/\* v1\.150\.0: the company mileage rate/.test(panels)
+    && /\{claimType !== "salary_advance" && \(\s*<label className=\{`\$\{btnSm\} \$\{cl\.pointer\}/.test(panels));
+  ok("D2. the advance form asks for an amount and a reason",
+    /value=\{advAmount\} onChange=\{\(e\) => setAdvAmount/.test(panels) && /L\("Reason \(printed on the request\)"/.test(panels));
+  ok("D2. submitting an advance sends exactly one line",
+    /filled = \[\{ claim_date: advDate \|\| mytToday\(\), category: "other", description: purpose\.trim\(\)/.test(panels));
+  ok("D3. the printed request (HTML) is a Salary Advance Request with the deduction authority",
+    /const formTitle = isAdv \? "Salary Advance Request" : "Employee Claim Form";/.test(panels)
+    && /authorise the Company to deduct RM \$\{rmv\(c\.amount_cents\)\} in full from my salary/.test(panels));
+  ok("D3. ...and so is the PDF",
+    /isAdv \? "Salary Advance Request" : "Employee Claim Form"/.test(formPdf)
+    && /authorise the Company to deduct RM \$\{rmv\(c\.amount_cents\)\} in full from my salary/.test(formPdf));
 }
 
 if (failed) {

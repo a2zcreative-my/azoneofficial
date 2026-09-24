@@ -2,6 +2,71 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.6] - 2026-09-24 - A salary advance is not an expense claim
+
+The CEO, on the v1.181.5 form: "salary advance seem like incorrect flow for
+claim". It was. Choosing **Salary advance** only added a payroll-month box to
+the reimbursement form. Everything else stayed: a purpose "e.g. Office
+pantry restock", the mileage rate, dated expense lines with a category and a
+Grab-ride placeholder, "+ Add item", and "Attach receipt". The printed form
+said *Employee Claim Form* and had the employee certify that "the above
+expenses were incurred for official Company business", which is untrue of an
+advance and was the only thing they signed.
+
+### The form
+
+A salary advance now asks for what an advance is:
+
+- **Amount needed**, **Recover from payroll month** (this month or later),
+  and a **Reason**. The reason is required, and it is printed on the request.
+- It is dated the day it's asked for, and shown as "Requested on 24-09-2026".
+  There is no receipt.
+- The note underneath says nothing is deducted until the advance is approved
+  and paid, and that it then appears on the chosen month's payslip as SALARY
+  ADVANCE with the request's number.
+- The title reads **Request a salary advance**, and the button **Request
+  advance**.
+- HR's "Pay claim to" becomes **Advance for**. It is the person whose payroll
+  gets deducted, which is what the payroll deduction already used.
+- In the claims list, an advance shows its **Reason**. It no longer shows a
+  fake "Other" expense line, "No receipt attached", or an "Attach receipt"
+  button.
+
+### The server holds the same shape (create and edit)
+
+- An advance is exactly one line, with no mileage and a reason of at least 3
+  characters.
+- On create it is dated **today (MYT)**, whatever date the browser sends. On
+  edit it keeps **the day it was asked for**. Its category is stored as
+  `other`.
+- A cached old form, or a script, can't file an advance as a list of Grab
+  rides.
+
+### The printed request (HTML and PDF)
+
+An advance now prints as a **Salary Advance Request**:
+
+- The Reason, and "Recovered from: Sep 2026 payroll - deducted in full".
+- The line reads "Salary advance", and the total reads "Total Requested".
+- The declaration now says: *"I request this salary advance and authorise
+  the Company to deduct RM 350.00 in full from my salary in the Sep 2026
+  payroll."* That is the employee's written authority for the deduction,
+  which the old wording never gave.
+
+Reimbursements print exactly as before.
+
+### Verified
+
+- In Chromium at 1600px and 390px, the advance form shows no mileage,
+  category, "+ Add item" or receipt, and nothing runs off the screen.
+- Submitting sent exactly: one line dated 2026-09-24, category `other`, the
+  reason, amount 350, `claim_type: salary_advance`, `payroll_month: 2026-09`.
+- The PDF was drawn for an advance and for a reimbursement. Each carries its
+  own title, recovery line and declaration.
+- The `pay-records` guard adds 9 checks (now 36): the server shape rule and
+  the dates it applies, the form's missing expense fields, the one-line
+  payload, and both printed variants.
+
 ## [1.181.5] - 2026-09-24 - Rows that line up, names behind the numbers, and pay records you can fix
 
 Six requests from the CEO on 24-09-2026. Each one is fixed at its cause.

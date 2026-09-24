@@ -6083,6 +6083,23 @@ export async function handleStaff(
     }
     return { ok: true, items };
   };
+  /* v1.181.5 - A SALARY ADVANCE IS ONE AMOUNT AND A REASON. The CEO,
+     24-09-2026: "salary advance seem like incorrect flow for claim". The
+     advance rode the reimbursement form - dated expense lines, categories,
+     mileage, receipts - none of which an advance has. The form is its own
+     now; this holds the server to the same shape, so an old cached form or
+     a script cannot file an advance as a list of Grab rides:
+       - exactly one line, no mileage;
+       - a reason (it is printed on the request the employee signs);
+       - dated the day it is ASKED FOR (create), or the day it was asked for
+         (edit) - never a date the browser chose. */
+  const advanceShape = (items: ClaimItem[] | null, reason: string | null): string | null => {
+    if (items && items.length !== 1) return "A salary advance is one amount, not a list of expenses";
+    if (items && items[0]!.km !== undefined) return "A salary advance has no mileage";
+    if (!reason || reason.trim().length < 3) return "Say why the advance is needed - it is printed on the request";
+    return null;
+  };
+  const mytTodayW = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
   /* the setting itself: anyone who can claim may READ it (the form computes
      with it); only the claims decider (the CEO) may SET it. Audited. */
@@ -6112,8 +6129,8 @@ export async function handleStaff(
     // the CEO is notified of the resubmission. APPROVED claims are locked.
     if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cur = await env.DB.prepare(
-      `SELECT user_id, status, paid_at FROM claims WHERE id = ?1`,
-    ).bind(claimEdit[1]).first<{ user_id: number; status: string; paid_at: string | null }>();
+      `SELECT user_id, status, paid_at, claim_date FROM claims WHERE id = ?1`,
+    ).bind(claimEdit[1]).first<{ user_id: number; status: string; paid_at: string | null; claim_date: string | null }>();
     if (!cur) return err("not_found", "Claim not found", 404);
     if (cur.user_id !== user.id) return err("forbidden", "Only the claimant edits their claim", 403);
     if (cur.status === "approved" || cur.paid_at) return err("invalid_state", "Approved claims are locked — submit a new claim instead", 400);
@@ -6122,10 +6139,16 @@ export async function handleStaff(
     if (!pE.ok) return err("invalid_input", pE.msg, 400);
     const parsedE = pE.items;
     const centsE = parsedE.reduce((a, i) => a + i.amount_cents, 0);
-    const editClaimDate = parsedE[0]?.claim_date;
+    let editClaimDate = parsedE[0]?.claim_date;
     if (!editClaimDate) return err("invalid_input", "Every claim item needs a date", 400);
     const purposeE = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000) : null;
     const claimTypeE = body?.claim_type === "salary_advance" ? "salary_advance" : "reimbursement";
+    if (claimTypeE === "salary_advance") {
+      const advBadE = advanceShape(parsedE, purposeE);
+      if (advBadE) return err("invalid_input", advBadE, 400);
+      editClaimDate = cur.claim_date && /^\d{4}-\d{2}-\d{2}$/.test(cur.claim_date) ? cur.claim_date : mytTodayW();
+      parsedE[0] = { ...parsedE[0]!, claim_date: editClaimDate, category: "other" };
+    }
     const payrollMonthE = claimTypeE === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
       ? body.payroll_month : null;
     if (claimTypeE === "salary_advance" && !payrollMonthE) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);
@@ -6280,6 +6303,14 @@ export async function handleStaff(
     const purpose = typeof body?.purpose === "string" ? body.purpose.slice(0, 1000)
       : typeof body?.description === "string" ? body.description.slice(0, 1000) : null;
     const claimType = body?.claim_type === "salary_advance" ? "salary_advance" : "reimbursement";
+    if (claimType === "salary_advance") {
+      const advItems = itemsJson ? (JSON.parse(itemsJson) as ClaimItem[]) : null;
+      const advBad = advanceShape(advItems, purpose);
+      if (advBad) return err("invalid_input", advBad, 400);
+      claimDate = mytTodayW();
+      category = "other";
+      if (advItems) itemsJson = JSON.stringify([{ ...advItems[0]!, claim_date: claimDate, category: "other" }]);
+    }
     const payrollMonth = claimType === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
       ? body.payroll_month : null;
     if (claimType === "salary_advance" && !payrollMonth) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);

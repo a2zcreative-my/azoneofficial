@@ -122,7 +122,17 @@ export interface ClaimLike {
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
+  /* v1.181.5 - an advance prints as a Salary Advance Request */
+  claim_type?: string | null;
+  payroll_month?: string | null;
 }
+
+/** "2026-09" -> "Sep 2026" */
+const monthWords = (ym: string | null | undefined): string => {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym ?? "";
+  const n = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(ym.slice(5, 7)) - 1] ?? "";
+  return `${n} ${ym.slice(0, 4)}`;
+};
 
 const SIG_FILE: Record<string, string> = {
   ceo: "ceo-sign.png", coo: "coo-sign.png", cco: "cco-sign.png",
@@ -134,7 +144,8 @@ type Placed = Record<string, { w: number; h: number }>;
 export function drawClaim(c: ClaimLike, claimNo: string, imgs: Placed): string {
   const cv = new Canvas();
   const issuer = resolveIssuer(c.issuer_code);
-  let y = letterhead(cv, issuer, "Employee Claim Form");
+  const isAdv = c.claim_type === "salary_advance";
+  let y = letterhead(cv, issuer, isAdv ? "Salary Advance Request" : "Employee Claim Form");
 
   /* An A2Z form is a DIFFERENT controlled document from an AZ ONE form — the
      letterhead names the employer — so the document number and version come
@@ -143,12 +154,14 @@ export function drawClaim(c: ClaimLike, claimNo: string, imgs: Placed): string {
     ["Document No.", issuer.claimFormNo, "Version", issuer.claimFormVersion],
     ["Claim No.", claimNo, "Date", myt(c.created_at)],
     ["Employee", (c.claimant_full || c.claimant || "").toUpperCase(), "Department", (c.claimant_department ?? "").toUpperCase()],
-    ["Position", (c.claimant_position ?? "").toUpperCase(), "Purpose", c.description ?? ""],
-    ["Receipt", c.receipt_key ? "[x] Yes (attached in system)   [ ] No" : "[ ] Yes   [x] No", "", ""],
+    ["Position", (c.claimant_position ?? "").toUpperCase(), isAdv ? "Reason" : "Purpose", c.description ?? ""],
+    isAdv
+      ? ["Recovered from", `${monthWords(c.payroll_month)} payroll - deducted in full`, "", ""]
+      : ["Receipt", c.receipt_key ? "[x] Yes (attached in system)   [ ] No" : "[ ] Yes   [x] No", "", ""],
   ], true);
 
   y += 10;
-  cv.text("Claim Details", FM, y, 8.25, { bold: true, colour: GOLD, spacing: 0.8 }); y += 6;
+  cv.text(isAdv ? "Advance Details" : "Claim Details", FM, y, 8.25, { bold: true, colour: GOLD, spacing: 0.8 }); y += 6;
 
   let its: { claim_date: string; category: string; description?: string; amount_cents: number }[] = [];
   try { its = c.items ? JSON.parse(c.items) : []; } catch { its = []; }
@@ -170,15 +183,20 @@ export function drawClaim(c: ClaimLike, claimNo: string, imgs: Placed): string {
     for (let k = 0; k < 4; k++) cv.box(edge[k]!, y, edge[k + 1]! - edge[k]!, h, HAIR, 0.5);
     if (it) {
       cv.text(dmy(it.claim_date), edge[0]! + 5, y + 11, 7.5);
-      cv.text(it.category ? it.category[0]!.toUpperCase() + it.category.slice(1) : "", edge[1]! + 5, y + 11, 7.5);
+      cv.text(isAdv ? "Salary advance" : it.category ? it.category[0]!.toUpperCase() + it.category.slice(1) : "", edge[1]! + 5, y + 11, 7.5);
       cv.text(it.description ?? "", edge[2]! + 5, y + 11, 7.5);
       cv.text(rmv(it.amount_cents), edge[4]! - 5, y + 11, 7.5, { align: "r" });
     }
     y += h;
   }
   y += 9;
-  cv.text(`Total Claimed: RM ${rmv(c.amount_cents)}`, FM + FW, y, 9.75, { bold: true, align: "r" }); y += 12;
-  cv.text("Declaration: I certify the above expenses were incurred for official Company business.", FM, y, 7.5, { colour: SLATE }); y += 11;
+  cv.text(`${isAdv ? "Total Requested" : "Total Claimed"}: RM ${rmv(c.amount_cents)}`, FM + FW, y, 9.75, { bold: true, align: "r" }); y += 12;
+  if (isAdv) {
+    y = cv.wrap(`Declaration: I request this salary advance and authorise the Company to deduct RM ${rmv(c.amount_cents)} in full from my salary in the ${monthWords(c.payroll_month)} payroll.`,
+      FM, y, FW, 7.5, 9.5, { colour: SLATE }) + 1.5;
+  } else {
+    cv.text("Declaration: I certify the above expenses were incurred for official Company business.", FM, y, 7.5, { colour: SLATE }); y += 11;
+  }
 
   const sys = c.status === "approved"
     ? `APPROVED IN SYSTEM${c.decided_by_name ? ` by ${c.decided_by_name}` : ""}${c.decided_at ? ` on ${myt(c.decided_at)}` : ""}`

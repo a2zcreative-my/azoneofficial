@@ -4267,6 +4267,11 @@ async function printClaimForm(c: Claim) {
   const issuer = resolveIssuer(c.issuer_code);
   const rmv = rmBare; // v1.4.272: global (bare number, caller places "RM")
   const claimNo = claimNoOf(c); // v1.4.118: CLM-AZOO{DDMMYY}-{n}
+  /* v1.181.5 - an advance prints as what it is: a Salary Advance Request,
+     with the reason, the payroll month that recovers it, and the employee's
+     authority for that deduction - not an expense declaration. */
+  const isAdv = c.claim_type === "salary_advance";
+  const formTitle = isAdv ? "Salary Advance Request" : "Employee Claim Form";
   // v1.4.137: one signature file per role — used for the EMPLOYEE cell too
   // when the claimant's role has an uploaded signature; script e-sig is the
   // fallback for roles without one.
@@ -4320,7 +4325,7 @@ async function printClaimForm(c: Claim) {
       : "PENDING SYSTEM APPROVAL";
   return { html: `<!doctype html><html><head><meta charset="utf-8">
   <meta name="viewport" content="width=794">
-  <title>${esc(claimNo)} — Employee Claim Form</title>
+  <title>${esc(claimNo)} — ${formTitle}</title>
   <style>
     /* v1.4.117: the whole form — receipt included — fits ONE A4 page. */
     /* v1.158.1 - the viewport is the paper (794px), so a phone prints the same one page as a desk; see lib/doc-template.ts */
@@ -4365,15 +4370,17 @@ async function printClaimForm(c: Claim) {
   </style></head><body onload="setTimeout(function(){window.print()}, 350)">
   <div class="goldbar"></div>
   <h1>${issuer.name}<small>LIVE &nbsp;·&nbsp; CONNECT &nbsp;·&nbsp; GROW</small></h1>
-  <h2>Employee Claim Form</h2>
+  <h2>${formTitle}</h2>
   <table class="meta">
     <tr><td class="k">Document No.</td><td class="v">${issuer.claimFormNo}</td><td class="k">Version</td><td class="v">${issuer.claimFormVersion}</td></tr>
     <tr><td class="k">Claim No.</td><td class="v">${esc(claimNo)}</td><td class="k">Date</td><td class="v">${mytStamp(c.created_at)}${c.created_at && c.created_at.length > 10 ? " MYT" : ""}</td></tr>
     <tr><td class="k">Employee</td><td class="v">${esc((c.claimant_full || c.claimant || "").toUpperCase())}</td><td class="k">Department</td><td class="v">${esc((c.claimant_department ?? "").toUpperCase())}</td></tr>
-    <tr><td class="k">Position</td><td class="v">${esc((c.claimant_position ?? "").toUpperCase())}</td><td class="k">Purpose</td><td class="v">${esc(c.description ?? "")}</td></tr>
-    <tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>
+    <tr><td class="k">Position</td><td class="v">${esc((c.claimant_position ?? "").toUpperCase())}</td><td class="k">${isAdv ? "Reason" : "Purpose"}</td><td class="v">${esc(c.description ?? "")}</td></tr>
+    ${isAdv
+      ? `<tr><td class="k">Recovered from</td><td class="v" colspan="3">${esc(payMonthLabel(c.payroll_month))} payroll - deducted in full</td></tr>`
+      : `<tr><td class="k">Receipt</td><td class="v" colspan="3">${c.receipt_key ? "☑ Yes (attached in system)" : "☐ Yes"} ${c.receipt_key ? "☐ No" : "☑ No"}</td></tr>`}
   </table>
-  <p class="sect">Claim Details</p>
+  <p class="sect">${isAdv ? "Advance Details" : "Claim Details"}</p>
   <table class="det">
     <thead><tr><th style="width:18%">Date</th><th style="width:20%">Category</th><th>Description</th><th style="width:18%">Amount (RM)</th></tr></thead>
     <tbody>
@@ -4383,14 +4390,16 @@ async function printClaimForm(c: Claim) {
         if (its.length === 0) its = [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
         // v1.150.0: a mileage line prints its basis (km x rate) so the paper
         // form is checkable against Google Maps without opening the system.
-        const rows = its.map((it) => `<tr><td>${esc(dmy(it.claim_date))}</td><td style="text-transform:capitalize">${esc(it.category)}</td><td>${esc(it.description ?? "")}${it.km != null ? ` <span style="color:${DOC.muted}">(${it.km} km x RM ${rmv(it.rate_cents_per_km ?? 0)}/km)</span>` : ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
+        const rows = its.map((it) => `<tr><td>${esc(dmy(it.claim_date))}</td><td style="text-transform:capitalize">${esc(isAdv ? "salary advance" : it.category)}</td><td>${esc(it.description ?? "")}${it.km != null ? ` <span style="color:${DOC.muted}">(${it.km} km x RM ${rmv(it.rate_cents_per_km ?? 0)}/km)</span>` : ""}</td><td class="r">${rmv(it.amount_cents)}</td></tr>`);
         while (rows.length < 4) rows.push("<tr><td></td><td></td><td></td><td></td></tr>");
         return rows.join("");
       })()}
     </tbody>
   </table>
-  <p class="total">Total Claimed: RM ${rmv(c.amount_cents)}</p>
-  <p class="decl">Declaration: I certify the above expenses were incurred for official Company business.</p>
+  <p class="total">${isAdv ? "Total Requested" : "Total Claimed"}: RM ${rmv(c.amount_cents)}</p>
+  <p class="decl">${isAdv
+    ? `Declaration: I request this salary advance and authorise the Company to deduct RM ${rmv(c.amount_cents)} in full from my salary in the ${esc(payMonthLabel(c.payroll_month))} payroll.`
+    : "Declaration: I certify the above expenses were incurred for official Company business."}</p>
   <p class="sys">System status: ${esc(sysLine)}${c.decision_note ? " · Note: " + esc(c.decision_note) : ""}${chainLine ? " · " + esc(chainLine) : ""}</p>
   <table class="sig" style="margin-top:10px">
     <tr>
@@ -4437,6 +4446,10 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   // v1.4.95: one claim form, several expense lines — like the paper form.
   const emptyItem = { claim_date: "", category: "travel", description: "", amount: "", km: "" };
   const [purpose, setPurpose] = useState("");
+  /* v1.181.5 - a salary advance is ONE amount and a reason, dated the day it
+     is asked for (advDate is set only when editing an existing request). */
+  const [advAmount, setAdvAmount] = useState("");
+  const [advDate, setAdvDate] = useState("");
   const [items, setItems] = useState([{ ...emptyItem }]);
   const currentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
   const [claimType, setClaimType] = useState<"reimbursement" | "salary_advance">("reimbursement");
@@ -4446,7 +4459,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
      stored: the month shown, sent and printed follows the date as it is
      typed, and a month picked by hand is kept whenever it is later. */
   const advanceMinMonth = (() => {
-    const first = items.map((i) => i.claim_date).filter(Boolean).sort()[0];
+    const first = claimType === "salary_advance"
+      ? (advDate || mytToday())
+      : items.map((i) => i.claim_date).filter(Boolean).sort()[0];
     const m = first ? first.slice(0, 7) : currentMonth;
     return m > currentMonth ? m : currentMonth;
   })();
@@ -4514,9 +4529,19 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const rmc = (c: number) => `RM ${rmBare(c)}`;
 
   const submit = async () => {
-    const filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
-    if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
-    if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
+    const isAdv = claimType === "salary_advance";
+    let filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
+    if (isAdv) {
+      /* v1.181.5 - an advance is not an expense list: one amount, one
+         reason, today's date (or the original date when editing). */
+      const advCents = Math.round(Number(advAmount) * 100);
+      if (!(advCents > 0)) { setMsg(L("Enter the amount you need in advance.", "Masukkan amaun pendahuluan yang diperlukan.")); return; }
+      if (purpose.trim().length < 3) { setMsg(L("Say why the advance is needed - it is printed on the request.", "Nyatakan sebab pendahuluan diperlukan - ia dicetak pada permohonan.")); return; }
+      filled = [{ claim_date: advDate || mytToday(), category: "other", description: purpose.trim(), amount: (advCents / 100).toFixed(2), km: "" }];
+    } else {
+      if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
+      if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
+    }
     if (claimType === "salary_advance" && !/^\d{4}-\d{2}$/.test(recoverMonth)) { setMsg(L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.")); return; }
     if (submitLock.current) return;
     submitLock.current = true;
@@ -4541,7 +4566,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
          so a failed receipt always looked like a saved one. Now the toast
          says the one true thing. */
       let receiptProblemE = "";
-      if (receipt) {
+      if (receipt && !isAdv) {
         const compressedE = await compressImage(receipt);
         if (compressedE.size > MAX_RECEIPT_MB * 1024 * 1024) {
           receiptProblemE = `${L("Claim updated WITHOUT the receipt.", "Tuntutan dikemas kini TANPA resit.")} ${receiptTooBig()}`;
@@ -4556,7 +4581,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       }
       if (receiptProblemE) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblemE, "notice");
       else showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
-      setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
+      setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
       void load();
       revealAnchor("claims-list"); // v1.172.1 - back to the list
       return;
@@ -4575,7 +4600,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           ? L("The claim is saved on this phone and will be sent when you are back online. Attach the receipt then, with Edit on your claim.", "Tuntutan disimpan pada telefon ini dan akan dihantar apabila anda kembali dalam talian. Lampirkan resit kemudian, dengan Sunting pada tuntutan anda.")
           : L("The claim is saved on this phone and will be sent when you are back online.", "Tuntutan disimpan pada telefon ini dan akan dihantar apabila anda kembali dalam talian."),
         "notice");
-      setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
+      setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setPayeeId(0);
       setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
       setReceipt(null);
       return;
@@ -4583,7 +4608,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? L("Could not submit the claim", "Tidak dapat menghantar tuntutan")); return; }
     /* v1.181.4 - one toast, the true one: see the edit branch above. */
     let receiptProblem = "";
-    if (receipt) {
+    if (receipt && !isAdv) {
       const compressed = await compressImage(receipt); // PDFs pass through untouched
       if (compressed.size > MAX_RECEIPT_MB * 1024 * 1024) {
         receiptProblem = `${L("Claim submitted WITHOUT the receipt.", "Tuntutan dihantar TANPA resit.")} ${receiptTooBig()} ${L("Then use Attach receipt on your claim.", "Kemudian guna Lampirkan resit pada tuntutan anda.")}`;
@@ -4596,7 +4621,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       if (!up.ok) receiptProblem = `${L("Claim submitted, but the receipt did NOT upload.", "Tuntutan dihantar, tetapi resit TIDAK dimuat naik.")} ${await uploadFailure(up)} ${L("Use Attach receipt on your claim to try again.", "Guna Lampirkan resit pada tuntutan anda untuk cuba lagi.")}`;
       }
     }
-    setPurpose(""); setItems([{ ...emptyItem }]); setPayeeId(0);
+    setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setPayeeId(0);
     setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
     setReceipt(null);
     if (receiptProblem) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblem, "notice");
@@ -4735,7 +4760,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             group — no more underlined words strung together with dots. */}
         <div className={`${rowActions} ${cl.rowActions}`}>
           <span>{dmy(c.claim_date)}</span>
-          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && (
+          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && c.claim_type !== "salary_advance" && (
             <>
               <label className={`${rowBtn} ${cl.pointer}`} aria-busy={uploading === c.id || undefined} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
                 <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach receipt", "Lampirkan resit")}</>
@@ -4788,6 +4813,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                   setClaimType(c.claim_type === "salary_advance" ? "salary_advance" : "reimbursement");
                   setPayrollMonth(c.payroll_month ?? currentMonth);
                   setPurpose(c.description ?? "");
+                  /* v1.181.5 - an advance edits as an amount and a reason */
+                  setAdvAmount(c.claim_type === "salary_advance" ? (c.amount_cents / 100).toFixed(2) : "");
+                  setAdvDate(c.claim_type === "salary_advance" ? (c.claim_date ?? c.created_at.slice(0, 10)) : "");
                   setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
                   setReceipt(null);
                   requestAnimationFrame(() => document.getElementById("claim-form")?.scrollIntoView({ block: "start" }));
@@ -4848,15 +4876,17 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <button type="button" className={cl.inlineLink} onClick={() => setPayeeEdit({ claimId: c.id, value: 0 })}>{L("✎ set payee", "✎ tetapkan penerima bayaran")}</button>
             </p>
           )}
-          {c.description && <p className="erp-meta erp-mt-1">{L("Purpose:", "Tujuan:")} {c.description}</p>}
-          <div className={cl.items}>
+          {c.description && <p className="erp-meta erp-mt-1">{c.claim_type === "salary_advance" ? L("Reason:", "Sebab:") : L("Purpose:", "Tujuan:")} {c.description}</p>}
+          {/* v1.181.5 - an advance has no expense lines to list: its one
+              line would only repeat the reason as "Other". */}
+          {c.claim_type !== "salary_advance" && <div className={cl.items}>
             {claimItems(c).map((it, i) => (
               <p key={i} className="erp-meta">
                 {dmy(it.claim_date)} · <span className={cl.capitalize}>{catLabel(it.category)}</span>
                 {it.description ? ` · ${it.description}` : ""}{it.km != null ? ` · ${it.km} km × RM ${rmBare(it.rate_cents_per_km ?? 0)}/km` : ""} · {rmc(it.amount_cents)}
               </p>
             ))}
-          </div>
+          </div>}
           {/* v1.4.253 (CEO: "Claim also need to use global button but ensure
               that minimalist"): the record's actions are real buttons in the
               standard row group, not a run-on sentence of underlined words —
@@ -4864,6 +4894,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           <div className={`${rowActions} ${cl.record}`}>
             {c.receipt_key
               ? <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}>{L("View receipt", "Lihat resit")}</button>
+              : c.claim_type === "salary_advance" ? null /* v1.181.5 - an advance has no receipt to miss */
               : <span className="erp-meta">{L("No receipt attached", "Tiada resit dilampirkan")}</span>}
             <button type="button" className={rowBtn} title={L("Claim form as PDF — HR prints it, signatures are collected in ink; the system decision stays authoritative", "Borang tuntutan sebagai PDF — HR mencetaknya, tandatangan dikumpul dengan dakwat; keputusan sistem kekal muktamad")}
               onClick={() => void printClaimForm(c)}>{L("Print form", "Cetak borang")}</button>
@@ -5010,8 +5041,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
         <p className="erp-heading">
           {editingClaim
-            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setPurpose(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
-            : L("Submit a claim", "Hantar tuntutan")}
+            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
+            : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit a claim", "Hantar tuntutan")}
         </p>
         <p className="erp-meta erp-mt-half">
           {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
@@ -5024,33 +5055,56 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </button>
           ))}
         </div>
-        {claimType === "salary_advance" && (
-          <label className={`${cl.fieldBlock} ${cl.fieldNarrow}`}>
-            <span className={cl.fieldLabel}>{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
-            <input type="month" min={advanceMinMonth}
-              className={inputClass} value={recoverMonth}
-              onChange={(e) => setPayrollMonth(e.target.value < advanceMinMonth ? advanceMinMonth : e.target.value)} />
-            <span className={cl.fieldHelp}>{L(
-              `Recovered from the ${payMonthLabel(recoverMonth)} payroll - the month of the request or a later one. Nothing is deducted until it is approved and marked paid; then it appears on the ${payMonthLabel(recoverMonth)} payslip as SALARY ADVANCE with this request's claim number.`,
-              `Dipotong daripada gaji ${payMonthLabel(recoverMonth)} - bulan permohonan atau selepasnya. Tiada potongan sehingga diluluskan dan ditanda dibayar; kemudian ia dipapar pada slip gaji ${payMonthLabel(recoverMonth)} sebagai SALARY ADVANCE dengan nombor tuntutan permohonan ini.`)}</span>
-          </label>
-        )}
+        {/* v1.181.5 (CEO: "salary advance seem like incorrect flow for
+            claim") - an advance is not an expense: no dated lines, no
+            categories, no mileage, no receipt. One amount, one reason (it is
+            printed on the request), the payroll month that recovers it. It is
+            dated the day it is asked for. The server holds the same shape. */}
+        {claimType === "salary_advance" ? (
+          <div className={cl.advanceFields}>
+            <label className={cl.advanceField}>
+              <span className={cl.fieldLabel}>{L("Amount needed (RM)", "Amaun diperlukan (RM)")}</span>
+              <input type="number" min={0.01} step="0.01" inputMode="decimal" className={inputClass} placeholder="0.00"
+                value={advAmount} onChange={(e) => setAdvAmount(e.target.value)} />
+            </label>
+            <label className={`${cl.advanceField} ${cl.advanceReason}`}>
+              <span className={cl.fieldLabel}>{L("Reason (printed on the request)", "Sebab (dicetak pada permohonan)")}</span>
+              <input className={inputClass} maxLength={300} placeholder={L("e.g. Car repair before payday", "cth. Baiki kereta sebelum hari gaji")}
+                value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+            </label>
+            <label className={`${cl.advanceField} ${cl.advanceMonth}`}>
+              <span className={cl.fieldLabel}>{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
+              <input type="month" min={advanceMinMonth}
+                className={inputClass} value={recoverMonth}
+                onChange={(e) => setPayrollMonth(e.target.value < advanceMinMonth ? advanceMinMonth : e.target.value)} />
+              <span className={cl.fieldHelp}>{L("This month or a later one.", "Bulan ini atau selepasnya.")}</span>
+            </label>
+            <p className={`${cl.fieldHelp} ${cl.advanceNote}`}>
+              {L(`Requested on ${dmy(advDate || mytToday())} · no receipt needed. Nothing is deducted until it is approved and paid; then it appears on the ${payMonthLabel(recoverMonth)} payslip as SALARY ADVANCE with this request's number. Signing the printed request authorises that deduction.`,
+                 `Dimohon pada ${dmy(advDate || mytToday())} · tiada resit diperlukan. Tiada potongan sehingga diluluskan dan dibayar; kemudian ia dipapar pada slip gaji ${payMonthLabel(recoverMonth)} sebagai SALARY ADVANCE dengan nombor permohonan ini. Menandatangani permohonan bercetak membenarkan potongan itu.`)}
+            </p>
+          </div>
+        ) : (
         <label className={cl.fieldBlockWide}><span className={cl.fieldLabel}>{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
         <input className={inputClass} placeholder={L("e.g. Office pantry restock", "cth. Tambah stok pantri pejabat")}
           value={purpose} onChange={(e) => setPurpose(e.target.value)} /></label>
+        )}
         {/* v1.4.173 (CEO): who the payment actually goes to when this claim
             is raised on behalf of someone. Internal remark — CEO pays by it,
             HR keeps it for records; NEVER printed on the claim form. */}
         {canPayee && (
           <label className={`${cl.fieldBlock} ${cl.fieldMedium}`}>
-            <span className={cl.fieldLabelPlain}>{L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
+            <span className={cl.fieldLabelPlain}>{claimType === "salary_advance"
+              ? L("Advance for (optional — only when HR raises it for a staff member; that person's payroll is the one deducted)", "Pendahuluan untuk (pilihan — hanya apabila HR memohon bagi pihak kakitangan; gaji orang itu yang dipotong)")
+              : L("Pay claim to (optional — only when raised on behalf of someone; remark for CEO & HR, not printed on the form)", "Bayar tuntutan kepada (pilihan — hanya apabila dibuat bagi pihak seseorang; catatan untuk CEO & HR, tidak dicetak pada borang)")}</span>
             <select className={selectClass} value={payeeId}
               onChange={(e) => setPayeeId(Number(e.target.value))}>
-              <option value={0}>{L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
+              <option value={0}>{claimType === "salary_advance" ? L("— myself —", "— diri sendiri —") : L("— pay the submitter (normal claim) —", "— bayar penghantar (tuntutan biasa) —")}</option>
               {staffOptions.map((u) => <option key={u.id} value={u.id}>{properName(u.full_name || u.name)} · {u.role.replace(/_/g, " ")}</option>)}
             </select>
           </label>
         )}
+        {claimType !== "salary_advance" && (<>
         {/* v1.150.0: the company mileage rate — read by everyone who claims,
             changed only by the claims decider (the CEO); every change is audited. */}
         <p className={cl.rateLine}>
@@ -5140,7 +5194,9 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             {L("Total: RM", "Jumlah: RM")} {rmBare(items.reduce((a, i) => a + lineCents(i), 0))}
           </p>
         </div>
+        </>)}
         <div className={cl.submitRow}>
+          {claimType !== "salary_advance" && (
           <label className={`${btnSm} ${cl.pointer} ${cl.startLeft}`}>
             {receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}
             <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
@@ -5164,6 +5220,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
                 setReceipt(f);
               }} />
           </label>
+          )}
           <button type="button" disabled={submitting} className={`${btnClass} ${cl.startLeft}`}
             onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>
         </div>
