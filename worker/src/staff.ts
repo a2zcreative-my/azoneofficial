@@ -102,6 +102,52 @@ async function salaryAdvanceResolver(env: Env, month: string) {
   return (userId: number) => byUser.get(userId) ?? 0;
 }
 
+/** v1.181.4 - WHICH REQUESTS the advance line on a payslip is made of. The
+    CEO, 24-09-2026: an advance "need to link with the deduction of the
+    payroll in the month or the date of the request and the payslip to be
+    appear the request". The payslip said only "SALARY ADVANCE (2026-09)" -
+    a sum with nothing to check it against. Same predicate as
+    salaryAdvanceCents, so the items always add up to the line's total; the
+    claim number is built exactly as the Claims tab prints it
+    (CLM-AZOO{DDMMYY}-{running no. that day}, role-panels.tsx claimNoOf). */
+async function salaryAdvanceItems(env: Env, userId: number, month: string): Promise<
+  { claim_no: string; requested_on: string; paid_on: string; amount_cents: number }[]
+> {
+  const { results } = await env.DB.prepare(
+    `SELECT c.claim_date, c.created_at, c.paid_at, c.amount_cents,
+            'CLM-AZOO' || strftime('%d%m', c.created_at) || substr(strftime('%Y', c.created_at), 3, 2) || '-' ||
+              (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS claim_no
+       FROM claims c
+      WHERE COALESCE(c.payee_user_id, c.user_id) = ?1
+        AND c.claim_type = 'salary_advance' AND c.payroll_month = ?2
+        AND c.status = 'approved' AND c.paid_at IS NOT NULL
+      ORDER BY c.created_at, c.id`,
+  ).bind(userId, month).all<{ claim_date: string | null; created_at: string; paid_at: string; amount_cents: number; claim_no: string }>();
+  return results.map((r) => ({
+    claim_no: r.claim_no,
+    requested_on: (r.claim_date || r.created_at).slice(0, 10),
+    paid_on: r.paid_at.slice(0, 10),
+    amount_cents: r.amount_cents,
+  }));
+}
+
+/** v1.181.4 - an advance is recovered from a payroll month that has not
+    happened yet and has not been released. The form already stopped a month
+    before the request's own date; the server said nothing, so a stale form
+    or a script could name last April and the deduction would land in a
+    payslip nobody would read again. */
+async function advanceMonthProblem(env: Env, month: string): Promise<Response | null> {
+  const nowMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+  if (month < nowMonth) {
+    return err("invalid_input", `A salary advance is recovered from this month (${nowMonth}) or a later one, not ${month}`, 400);
+  }
+  const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(month).first().catch(() => null);
+  if (released) {
+    return err("month_released", `Payslips for ${month} have already been released - choose a later month to recover the advance from`, 409);
+  }
+  return null;
+}
+
 /** v1.8.0: "HH:MM" + n minutes → "HH:MM" (same day, clamped). */
 function addMinutes(hhmm: string, mins: number): string {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
@@ -2605,6 +2651,51 @@ export async function handleStaff(
      already renders an unknown figure as "—" (v1.177.0). And the whole
      summary never 403s: a person entitled to some of it still gets that part.
      ===================================================================== */
+  /* v1.181.4 - WHO is behind the attendance donut. The CEO, 24-09-2026:
+     "attendance today cant see the data ... I want to view the data by
+     clickable without go to the actual tabs". The ring said 3 on time,
+     2 late, 2 not clocked in, and nothing on the card could say who. This
+     answers with the three lists, built on the SAME predicates as the
+     summary's counts beside it (the donut's numbers and these lists must
+     never disagree): active staff, customer/super_admin/admin excluded,
+     first clock-in of the MYT day, on time at or before 10:00. "Not
+     clocked in" is today's staff (the summary's staff_total rule) with no
+     clock-in, each marked when an approved leave covers today - so the
+     list separates the absent from the excused. Same readers as the
+     donut: hr_manage or exec_view. */
+  if (path === "/dashboard/attendance-today" && method === "GET") {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
+      return err("forbidden", "HR access required", 403);
+    }
+    const { results: inRows } = await env.DB.prepare(
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.position,
+              MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS first_in
+         FROM attendance_records a
+         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours')
+        GROUP BY u.id
+        ORDER BY first_in`,
+    ).all<{ id: number; name: string; position: string | null; first_in: string }>();
+    const clockedIn = new Set(inRows.map((r) => r.id));
+    const { results: staffRows } = await env.DB.prepare(
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.position,
+              (SELECT l.type FROM leave_requests l
+                WHERE l.user_id = u.id AND l.status = 'approved'
+                  AND date('now', '+8 hours') BETWEEN l.start_date AND l.end_date
+                LIMIT 1) AS leave_type
+         FROM users u
+        WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        ORDER BY ${STAFF_ORDER_SQL}`,
+    ).all<{ id: number; name: string; position: string | null; leave_type: string | null }>();
+    return json({
+      date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
+      cutoff: "10:00",
+      on_time: inRows.filter((r) => r.first_in <= "10:00"),
+      late: inRows.filter((r) => r.first_in > "10:00"),
+      not_in: staffRows.filter((r) => !clockedIn.has(r.id)),
+    });
+  }
+
   if (path === "/dashboard/summary" && method === "GET") {
     const n = async (sql: string): Promise<number | null> => {
       try { return (await env.DB.prepare(sql).first<{ c: number }>())?.c ?? 0; }
@@ -5066,17 +5157,30 @@ export async function handleStaff(
      * the same rule the pending punch follows. */
     let leave: Record<string, unknown>[] = [];
     try {
-      const { results: lv } = await env.DB.prepare(
+      /* v1.181.4 - recorded_direct rides along, so the table knows which
+         unpaid days the COMPANY recorded (and may therefore edit or undo
+         right here) from the ones a person applied for (decided on the
+         Leave tab, through its chain). Pre-0097 it reads as 0: nothing is
+         editable, nothing is lost. */
+      const LV = (rd: string) =>
         `SELECT l.id, l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
-                u.email, u.role, l.type, l.start_date, l.end_date, l.days, l.reason
+                u.email, u.role, l.type, l.start_date, l.end_date, l.days, l.reason, ${rd} AS recorded_direct
            FROM leave_requests l JOIN users u ON u.id = l.user_id
           WHERE l.status = 'approved'
             AND l.start_date <= ?1 || '-31' AND l.end_date >= ?1 || '-01'
-          ORDER BY l.start_date, name`,
-      ).bind(month).all<{
+          ORDER BY l.start_date, name`;
+      type LvRow = {
         id: number; user_id: number; name: string; email: string | null; role: string;
         type: string; start_date: string; end_date: string; days: number | null; reason: string | null;
-      }>();
+        recorded_direct: number | null;
+      };
+      let lv: LvRow[];
+      try {
+        lv = (await env.DB.prepare(LV("COALESCE(l.recorded_direct, 0)")).bind(month).all<LvRow>()).results;
+      } catch (eLv) {
+        if (!String(eLv).includes("no such column")) throw eLv;
+        lv = (await env.DB.prepare(LV("0")).bind(month).all<LvRow>()).results;
+      }
       /* ONE ROW PER DAY IN THE MONTH, not one per request. A CSV is only
          useful if a row is a person-day - the same shape as a punch - so a
          three-day leave can be counted, filtered and totalled beside the
@@ -5095,6 +5199,7 @@ export async function handleStaff(
           leave.push({
             id: l.id, user_id: l.user_id, name: l.name, email: l.email, role: l.role,
             leave_type: l.type, date: iso, reason: l.reason,
+            recorded_direct: l.recorded_direct ? 1 : 0,
             days: l.start_date === l.end_date ? (l.days ?? 1) : 1,
             day_kind: sh.kind, shift_label: shiftLabel(sh),
           });
@@ -6024,6 +6129,10 @@ export async function handleStaff(
     const payrollMonthE = claimTypeE === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
       ? body.payroll_month : null;
     if (claimTypeE === "salary_advance" && !payrollMonthE) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);
+    if (claimTypeE === "salary_advance" && payrollMonthE) {
+      const monthBadE = await advanceMonthProblem(env, payrollMonthE);
+      if (monthBadE) return monthBadE;
+    }
     if (payrollMonthE && payrollMonthE < editClaimDate.slice(0, 7)) return err("invalid_input", "A salary advance cannot be recovered from a month before it was requested", 400);
     if (payrollMonthE) {
       const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(payrollMonthE).first();
@@ -6174,6 +6283,10 @@ export async function handleStaff(
     const payrollMonth = claimType === "salary_advance" && typeof body?.payroll_month === "string" && /^\d{4}-\d{2}$/.test(body.payroll_month)
       ? body.payroll_month : null;
     if (claimType === "salary_advance" && !payrollMonth) return err("invalid_input", "Choose the payroll month that will recover this salary advance", 400);
+    if (claimType === "salary_advance" && payrollMonth) {
+      const monthBad = await advanceMonthProblem(env, payrollMonth);
+      if (monthBad) return monthBad;
+    }
     if (payrollMonth && payrollMonth < claimDate.slice(0, 7)) return err("invalid_input", "A salary advance cannot be recovered from a month before it was requested", 400);
     if (payrollMonth) {
       const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(payrollMonth).first();
@@ -9794,6 +9907,95 @@ export async function handleStaff(
     return json({ ok: true, id: idU, days: daysU }, 201);
   }
 
+  /* v1.181.4 - EDIT AN UNPAID DAY. The CEO, 24-09-2026: "I should be able
+     to edit the unpaid leave". A day recorded here could only be undone (on
+     the Staff tab) and recorded again, and from the corrections table it
+     could not be touched at all - the row said "on Leave tab". Now the day,
+     how much of it, and the reason can be changed in place.
+     The same fences as recording and undoing, every one of them:
+       - only `unpaid_leave` (the CEO), because it moves money;
+       - only a day the COMPANY recorded (recorded_direct = 1) - a leave the
+         person applied for is their record and its chain decides it;
+       - never into, or out of, a month whose payslips are already out
+         without force_released, audited;
+       - never onto a day that is already unpaid, or has an open application.
+     The person is told what changed, from what to what. */
+  if (path === "/attendance/unpaid" && method === "PATCH") {
+    if (!can(user.role, "unpaid_leave")) {
+      return err("forbidden", "Only the CEO can change unpaid leave", 403);
+    }
+    const idP = Number(new URL(request.url).searchParams.get("id"));
+    if (!Number.isFinite(idP) || idP <= 0) return err("invalid_input", "id is required", 400);
+    const rowP = await env.DB.prepare(
+      `SELECT l.user_id, l.start_date, l.days, l.reason, u.name FROM leave_requests l JOIN users u ON u.id = l.user_id
+       WHERE l.id = ?1 AND l.type = 'unpaid' AND l.recorded_direct = 1 AND l.status = 'approved'`,
+    ).bind(idP).first<{ user_id: number; start_date: string; days: number; reason: string | null; name: string }>().catch(() => null);
+    if (!rowP) return err("not_found", "No management-recorded unpaid day with that id - a leave the staff member applied for is changed on the Leave tab", 404);
+
+    const newDate = body?.date === undefined ? rowP.start_date : (str(body.date, 10) ? String(body.date) : "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate) || !Number.isFinite(Date.parse(`${newDate}T00:00:00Z`))) {
+      return err("invalid_input", "date must be YYYY-MM-DD", 400);
+    }
+    if (Math.abs(Date.parse(`${newDate}T00:00:00Z`) - Date.now()) > 400 * 86400 * 1000) {
+      return err("invalid_input", "That date is more than a year away - check the year", 400);
+    }
+    let newDays = rowP.days;
+    if (body?.days !== undefined) {
+      if (typeof body.days !== "number" || !Number.isFinite(body.days)) return err("invalid_input", "days must be a number", 400);
+      newDays = Math.round(body.days * 4) / 4;
+    }
+    if (!(newDays > 0) || newDays > 1) {
+      return err("invalid_input", "A day can be unpaid for a quarter of it up to all of it", 400);
+    }
+    const newReason = body?.reason === undefined ? rowP.reason
+      : body.reason === null || body.reason === "" ? null
+      : str(body.reason, 500) ? String(body.reason) : rowP.reason;
+    if (newDate === rowP.start_date && newDays === rowP.days && newReason === rowP.reason) {
+      return json({ ok: true, unchanged: true });
+    }
+    /* both ends of a move are payroll months; either may be released */
+    for (const d of new Set([rowP.start_date, newDate])) {
+      const rel = await releasedMonthBlock(env, d, body?.force_released, "Changing an unpaid day");
+      if (rel) return rel;
+    }
+    if (newDate !== rowP.start_date) {
+      const clashP = await env.DB.prepare(
+        `SELECT id FROM leave_requests
+         WHERE user_id = ?1 AND id != ?3 AND ${unpaidLeaveSql()} AND status = 'approved'
+           AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
+      ).bind(rowP.user_id, newDate, idP).first<{ id: number }>();
+      if (clashP) return err("invalid_input", "That day is already unpaid leave", 400);
+      const openP = await env.DB.prepare(
+        `SELECT type FROM leave_requests
+         WHERE user_id = ?1 AND status NOT IN ('approved', 'rejected', 'cancelled')
+           AND start_date <= ?2 AND end_date >= ?2 LIMIT 1`,
+      ).bind(rowP.user_id, newDate).first<{ type: string }>();
+      if (openP) {
+        return err("invalid_input", `${rowP.name} has applied for ${openP.type} leave on that day and it is still waiting on a decision - decide the leave first`, 409);
+      }
+    }
+    await env.DB.prepare(
+      `UPDATE leave_requests SET start_date = ?2, end_date = ?2, days = ?3, reason = ?4
+       WHERE id = ?1 AND type = 'unpaid' AND recorded_direct = 1`,
+    ).bind(idP, newDate, newDays, newReason).run();
+    const amt = (d: number) => d === 1 ? "a full day" : d === 0.5 ? "half a day"
+      : d === 0.25 ? "a quarter of a day" : d === 0.75 ? "three quarters of a day" : `${d} of a day`;
+    const was = `${rowP.start_date} (${amt(rowP.days)})`;
+    const now = `${newDate} (${amt(newDays)})`;
+    await notify(env, rowP.user_id, "leave",
+      was === now
+        ? `The reason on your unpaid leave for ${newDate} was updated.`
+        : `Your unpaid leave was changed from ${was} to ${now}. Pay follows the new record.`,
+      `unpaid:edit:${idP}:${newDate}:${newDays}`);
+    await audit(env, user.id, "leave.unpaid_edit", "leave_requests", String(idP), {
+      user_id: rowP.user_id,
+      from: { date: rowP.start_date, days: rowP.days, reason: rowP.reason },
+      to: { date: newDate, days: newDays, reason: newReason },
+      forced: body?.force_released === true,
+    });
+    return json({ ok: true, date: newDate, days: newDays });
+  }
+
   if (path === "/attendance/unpaid" && method === "DELETE") {
     if (!can(user.role, "unpaid_leave")) {
       return err("forbidden", "Only the CEO can record unpaid leave", 403);
@@ -10516,6 +10718,7 @@ export async function handleStaff(
       hourly: who?.role === "live_host" && who?.employment_status === "part_time",
     });
     const salaryAdvance = await salaryAdvanceCents(env, uid, month);
+    const salaryAdvanceList = salaryAdvance > 0 ? await salaryAdvanceItems(env, uid, month) : [];
     return {
       working_day: wd?.n ?? 0,
       /* v1.75.0: what the month owed them, and what it owes a mid-month
@@ -10552,6 +10755,8 @@ export async function handleStaff(
       unpaid_leave: ub.days,
       unpaid_deduction_cents: unpaidDeduction,
       salary_advance_cents: salaryAdvance,
+      /* v1.181.4 - the requests behind that figure, one payslip line each */
+      salary_advance_items: salaryAdvanceList,
       annual_bal: await bal("annual"),
       sick_bal: await bal("medical"),
     };

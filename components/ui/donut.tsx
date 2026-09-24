@@ -7,11 +7,14 @@
 
 export interface DonutSlice { label: string; value: number; color: string }
 
-export function Donut({ slices, centerLabel, centerSub, size = 120 }: {
+export function Donut({ slices, centerLabel, centerSub, size = 120, hideLegend = false }: {
   slices: DonutSlice[];
   centerLabel: string;
   centerSub?: string;
   size?: number;
+  /* v1.181.4 - the caller draws its own legend (the Attendance today card's
+     lines are buttons that open who is behind each number). */
+  hideLegend?: boolean;
 }) {
   const total = Math.max(1, slices.reduce((a, s) => a + s.value, 0));
   const r = 42;
@@ -40,7 +43,7 @@ export function Donut({ slices, centerLabel, centerSub, size = 120 }: {
         <text x="50" y="48" textAnchor="middle" className="fill-foreground" style={{ font: "700 16px var(--font-sans, sans-serif)" }}>{centerLabel}</text>
         {centerSub && <text x="50" y="62" textAnchor="middle" style={{ font: "500 7px var(--font-sans, sans-serif)", fill: "var(--muted-foreground)" }}>{centerSub}</text>}
       </svg>
-      <div className="space-y-1">
+      {!hideLegend && <div className="space-y-1">
         {slices.map((s) => (
           <p key={s.label} className="flex items-center gap-2 text-xs">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.color }} aria-hidden />
@@ -48,7 +51,7 @@ export function Donut({ slices, centerLabel, centerSub, size = 120 }: {
             <span className="ml-auto pl-3 font-semibold tabular-nums">{s.value}</span>
           </p>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

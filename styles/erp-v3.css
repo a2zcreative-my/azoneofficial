@@ -637,9 +637,26 @@
   /* A note or search field among the actions keeps its width on the desk and
      shrinks on a phone instead of pushing the buttons out. The date family
      is left out: an empty one collapses on iOS, so it keeps the floor above
-     and wraps onto its own line instead. */
-  .erp-row-actions > .erp-input-sm:not([type="date"]):not([type="month"]):not([type="time"]):not([type="datetime-local"]) {
-    flex: 0 1 9rem;
+     and wraps onto its own line instead.
+     v1.181.4 - the 9rem is a WIDTH now, not a flex-basis, and a status
+     picker is left out. A group sizes itself from its children's natural
+     widths, and a flex-basis is not one: with `flex: 0 1 9rem` Chrome
+     measured the paid/unpaid picker at its ~100px content, laid it out at
+     144px, and the group came up ~45px short - so every invoice row on
+     Sales wrapped "Delete" onto a second line while the quotation rows
+     beside them stayed on one (the CEO's desktop, 24-09-2026). A width is
+     what the group measures, so it now measures true; a <select> keeps its
+     own natural width, which is all a status picker needs. */
+  /* v1.181.4 - a row whose FIRST action is its state or its next step (the
+     Sales documents list: paid/unpaid, or → Invoice) gives it the whole line
+     on a phone, so the commands beneath line up the same on every row. From
+     640px the row is one line and this does nothing. */
+  @media (max-width: 639px) {
+    .erp-row-actions-lead > :first-child { flex: 1 0 100%; }
+  }
+  .erp-row-actions > .erp-input-sm:not([type="date"]):not([type="month"]):not([type="time"]):not([type="datetime-local"]):not(.erp-select) {
+    flex: 0 1 auto;
+    width: 9rem;
     min-width: 0;
   }
   /* Borderless, for the quiet third command in a row. */

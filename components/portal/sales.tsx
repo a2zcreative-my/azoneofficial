@@ -2670,9 +2670,13 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
                     </span>
                   )}{" "}
-                  · {d.company} · {fmtRM(d.total_cents)}
+                  · {d.company} · <span className="erp-nowrap">{fmtRM(d.total_cents)}</span>
                 </span>
-                <span className="erp-row-actions">
+                {/* v1.181.4 - erp-row-actions-lead: on a phone the status
+                    picker (or → Invoice) takes its own line and the four
+                    document buttons sit together beneath it, on every row -
+                    instead of Delete dropping alone onto a third line. */}
+                <span className="erp-row-actions erp-row-actions-lead">
                   {d.doc_type === "INV" && canInvoice && (
                     <select
                       className={selectClassSm}

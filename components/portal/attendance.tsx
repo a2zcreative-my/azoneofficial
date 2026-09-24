@@ -253,6 +253,7 @@ export function Attendance({ user }: { user: User }) {
 
             <input
               type="month"
+              aria-label={L("Month", "Bulan")}
               className={`${inputClass} ${css.monthField}`}
               value={month}
               onChange={(e) => setMonth(e.target.value)}

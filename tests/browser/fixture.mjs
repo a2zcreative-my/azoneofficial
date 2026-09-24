@@ -198,6 +198,9 @@ export function fixture(p0, url) {
     clients: 14, active_stokis: 3, lives_today: 2, in_today: 6,
     unpaid_invoices: 4, cash_in_cents: 1_284_000, cash_out_cents: 902_500,
     sales_cents: 325_000, target_cents: 300_000, today_sales_cents: 0,
+    /* v1.181.4 - the donut's three, so the Attendance today card draws (and
+       agrees with /staff/dashboard/attendance-today below: 3 + 2 + 2 = 7) */
+    attendance_on_time: 3, attendance_late: 2, staff_total: 7,
   };
   if (p === "/staff/clients/summary" || p === "/staff/clients") data = { sessions: { "1": 0, "2": 2, "3": 0 }, clients: [
     { id: 1, company: "Bambijan Food Empire", invoiced_cents: 45000, paid_cents: 45000, quotations: 1 },
@@ -219,11 +222,28 @@ export function fixture(p0, url) {
       ]);
     }),
     leave: [
-      { id: 1, user_id: 9002, name: "NUR NASUHA BINTI ZAINAL ABIDIN", role: "Sales Executive", leave_type: "unpaid", date: "2026-09-08", days: 0.25, reason: "Short day - clocked 5h of 8h" },
+      { id: 1, user_id: 9002, name: "NUR NASUHA BINTI ZAINAL ABIDIN", role: "Sales Executive", leave_type: "unpaid", date: "2026-09-08", days: 0.25, reason: "Short day - clocked 5h of 8h", recorded_direct: 1 },
       { id: 2, user_id: 9002, name: "NUR NASUHA BINTI ZAINAL ABIDIN", role: "Sales Executive", leave_type: "emergency", date: "2026-09-09", days: 1, reason: "Family matter" },
       { id: 3, user_id: 9004, name: "NURUL FASEHAH BINTI SHAHRUDDIN", role: "Administrative Executive", leave_type: "annual", date: "2026-09-21", days: 1, reason: "Vacation" },
     ],
     overtime: [],
+  };
+  /* v1.181.4 - the names behind the Attendance today donut. */
+  if (p === "/staff/dashboard/attendance-today") data = {
+    date: "2026-09-24", cutoff: "10:00",
+    on_time: [
+      { id: 9007, name: "MOHD ALIF FARHAN BIN NAZARUDIN", position: "Chief Executive Officer", first_in: "08:24" },
+      { id: 9005, name: "NURFARAH SUAIDAH BINTI MOHD SAIFUDDIN", position: "Designer", first_in: "09:41" },
+      { id: 9003, name: "Farid Zul", position: "Live Host", first_in: "09:58" },
+    ],
+    late: [
+      { id: 9002, name: "NUR NASUHA BINTI ZAINAL ABIDIN", position: "Sales Executive", first_in: "10:07" },
+      { id: 9004, name: "NURUL FASEHAH BINTI SHAHRUDDIN", position: "Administrative Executive", first_in: "11:32" },
+    ],
+    not_in: [
+      { id: 9006, name: "MOHAMAD IZZUDIN BIN AMDAN", position: "Chief Commercial Officer", leave_type: null },
+      { id: 9008, name: "Mei Ling", position: "HR Executive", leave_type: "medical" },
+    ],
   };
   /* v1.175.0 - the desk with BOTH halves populated, so the two lists, the
      next-action line and the one inline action are all on screen. The base

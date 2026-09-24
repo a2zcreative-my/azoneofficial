@@ -59,7 +59,7 @@
   "components/portal/company-monitor.tsx": 68,
   "components/portal/connection-status-card.tsx": 27,
   "components/portal/content-panel.tsx": 57,
-  "components/portal/dashboard-cards.tsx": 70,
+  "components/portal/dashboard-cards.tsx": 67,
   "components/portal/documents-panel.tsx": 43,
   "components/portal/elfia-store-panel.tsx": 130,
   "components/portal/elfia-traffic-panel.tsx": 102,

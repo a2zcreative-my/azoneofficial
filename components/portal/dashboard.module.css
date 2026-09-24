@@ -30,11 +30,19 @@
     display: none;
   }
   .heroNarrow {
-    /* a grid item with auto margins shrinks to its content; the width keeps
-       it the full column up to the cap, as the block layout it replaced */
+    /* v1.181.4 - THE WHOLE COLUMN, LIKE EVERY OTHER TAB. This was capped at
+       48rem and centred, so on a desktop or in a browser window On Shift was
+       a small dark box floating in the middle of an empty page (the CEO,
+       24-09-2026: "not suitable in webview"). The card now takes the column
+       the way every other tab's cards do; what stays capped is what reads
+       badly when stretched - the two buttons, and the lines of text. */
     width: 100%;
-    margin-inline: auto;
-    max-width: 48rem;
+  }
+  .heroNarrow .actionsShift {
+    max-width: 40rem;
+  }
+  .heroNarrow > p {
+    max-width: 72ch;
   }
 }
 /* v1.175.0 - THE CLOCK, WHEN THE CLOCK IS NOT THE POINT. For the executive

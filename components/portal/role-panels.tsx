@@ -20,7 +20,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
 
 import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
@@ -57,6 +57,7 @@ import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import cl from "./claims.module.css"; // v1.172.2 - the Claims flow's own layout (Tailwind retired)
+import cx from "./corrections.module.css"; // v1.181.4 - the corrections card: the filter bar, the unpaid-day editor
 import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
@@ -2700,6 +2701,9 @@ type LeaveDay = {
   id: number; user_id: number; name: string; role: string;
   leave_type: string; date: string; days: number;
   reason?: string | null; shift_label?: string | null;
+  /* v1.181.4 - 1 when the company recorded it (Unpaid leave pill): only
+     those may be edited or undone here; an applied-for leave is its own. */
+  recorded_direct?: number;
 };
 /* The leave types this company records. Anything unrecognised prints its own
    name rather than being hidden — a type added to the server and not here
@@ -2788,6 +2792,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      fractional `days` since v1.75.0, and the Staff tab already prints the
      fraction; there was simply no way to say it. */
   const [ul, setUl] = useState({ user_id: 0, date: "", reason: "", days: 1 });
+  /* v1.181.4 (CEO, 24-09-2026: "I should be able to edit the unpaid leave") -
+     the unpaid day being changed in place, in the records table. */
+  const [ulEdit, setUlEdit] = useState<{ id: number; date: string; days: number; reason: string } | null>(null);
   /* v1.76.0 — schedules, and the forgotten punches waiting on the CEO. */
   const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
   const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
@@ -2974,6 +2981,36 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      Failures now go through the SAME toast as successes, which appears where
      the eye is regardless of scroll, and `msg` is red when it is bad news. */
   const [msgBad, setMsgBad] = useState(false);
+  /* v1.181.4 - save an edited unpaid day. A released month is not refused
+     silently: the server says when the payslips went out, and the CEO can
+     choose to change it anyway (audited), exactly as for overtime. */
+  const saveUlEdit = async (force = false): Promise<void> => {
+    if (!ulEdit) return;
+    const res = await api<{ unchanged?: boolean; error?: { code?: string; message?: string } }>(`/attendance/unpaid?id=${ulEdit.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ date: ulEdit.date, days: ulEdit.days, reason: ulEdit.reason.trim() || null, ...(force ? { force_released: true } : {}) }),
+    });
+    if (res.ok) {
+      setUlEdit(null);
+      showToast(L("Saved", "Disimpan"), res.data?.unchanged
+        ? L("Nothing was different, so nothing changed.", "Tiada perbezaan, jadi tiada perubahan.")
+        : L("Unpaid leave updated - the staff member is told, and pay follows the new record.", "Cuti tanpa gaji dikemas kini - kakitangan dimaklumkan, dan gaji mengikut rekod baharu."));
+      void load();
+      return;
+    }
+    if (res.data?.error?.code === "month_released" && !force) {
+      const ok = await askPat({
+        title: L("Payslips already released", "Slip gaji sudah dikeluarkan"),
+        message: res.data.error.message ?? "",
+        confirmLabel: L("Change it anyway", "Ubah juga"),
+        variant: "danger",
+      });
+      if (ok) await saveUlEdit(true);
+      return;
+    }
+    showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Action failed - check access", "Tindakan gagal - semak akses"), "notice");
+  };
+
   const act = async (path: string, init: RequestInit, okMsg: string) => {
     setMsg("");
     const res = await api<{ error?: { message?: string } }>(path, init);
@@ -3887,6 +3924,24 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
       {/* The records themselves are always here — the chooser above decides
           which FORM is open, never whether he can see the month. */}
+      {/* v1.181.4 - ...so a filter set under Find & filter must be SAID when
+          its controls are out of sight (corrections.module.css has the why). */}
+      {section !== "find" && filtersOn && (
+        <div className={cx.filterBar} role="status">
+          <span className={cx.filterLead}>{L("Filtered:", "Ditapis:")}</span>
+          {q.trim() && <span className="erp-chip erp-chip-sm erp-chip-neutral">“{q.trim()}”</span>}
+          {typeF !== "all" && <span className="erp-chip erp-chip-sm erp-chip-neutral">{typeF === "clock_in" ? L("In only", "Masuk sahaja") : L("Out only", "Keluar sahaja")}</span>}
+          {markF !== "all" && <span className="erp-chip erp-chip-sm erp-chip-neutral">{markF.replace(/_/g, " ")}</span>}
+          {dayF && <span className="erp-chip erp-chip-sm erp-chip-neutral">{dmy(dayF)}</span>}
+          <span className={cx.filterCount}>
+            {L(`${rows.filter(matches).length} of ${rows.length} records`, `${rows.filter(matches).length} daripada ${rows.length} rekod`)}
+          </span>
+          <span className={cx.filterActions}>
+            <button type="button" className={rowBtn} onClick={() => setSection("find")}>{L("Change", "Ubah")}</button>
+            <button type="button" className={rowBtn} onClick={clearFilters}>{L("Clear", "Kosongkan")}</button>
+          </span>
+        </div>
+      )}
       {/* v1.176.1 - see payroll-panel.tsx: a nested vertical scroller steals
           the phone's scroll gesture from the page. Sideways only. */}
       <div className="erp-table-scroll erp-mt-3">
@@ -3928,7 +3983,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 punches because an absence explains the punches that are
                 missing beneath it. */}
             {visibleLeave().map((l) => (
-              <tr key={`lv-${l.id}-${l.date}`} className="border-border bg-info-soft/30 border-b last:border-0">
+              <Fragment key={`lv-${l.id}-${l.date}`}>
+              <tr className="border-border bg-info-soft/30 border-b last:border-0">
                 <td className={tdOneLine}>{properName(l.name)}</td>
                 <td className={`${td} whitespace-nowrap`}>
                   <span className="text-info font-medium">{L("Leave", "Cuti")}</span>
@@ -3947,11 +4003,73 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                   </span>
                   {l.reason && <span className="text-muted-foreground ml-1.5">· {l.reason}</span>}
                 </td>
+                {/* v1.181.4 - an unpaid day the COMPANY recorded is the CEO's
+                    own record and can be changed or undone right here. A leave
+                    the person applied for stays with the Leave tab and its
+                    chain - that rule (v1.82.0) is unchanged. */}
+                {canUnpaid && l.leave_type === "unpaid" && l.recorded_direct === 1 ? (
+                  <td className={td}>
+                    <span className="erp-row-actions">
+                      <button type="button" className={rowBtn} aria-expanded={ulEdit?.id === l.id}
+                        onClick={() => setUlEdit(ulEdit?.id === l.id ? null : { id: l.id, date: l.date, days: l.days, reason: l.reason ?? "" })}>
+                        {L("Edit", "Sunting")}
+                      </button>
+                      <button type="button" className={rowBtnDanger}
+                        onClick={async () => {
+                          const ok = await askPat({
+                            title: L("Undo this unpaid day?", "Buat asal hari tanpa gaji ini?"),
+                            message: `${properName(l.name)} - ${dmy(l.date)}. ${L("The day is paid again and the staff member is told.", "Hari itu dibayar semula dan kakitangan dimaklumkan.")}`,
+                            confirmLabel: L("Undo", "Buat asal"),
+                            variant: "danger",
+                          });
+                          if (ok) void act(`/attendance/unpaid?id=${l.id}`, { method: "DELETE" },
+                            L("Unpaid day undone - it is paid again.", "Hari tanpa gaji dibuat asal - ia dibayar semula."));
+                        }}>
+                        {L("Undo", "Buat asal")}
+                      </button>
+                    </span>
+                  </td>
+                ) : (
                 <td className={`${td} text-muted-foreground text-xs whitespace-nowrap`}
                   title={L("Leave is approved and undone on the Leave tab, where it has its own approval chain", "Cuti diluluskan dan dibuat asal pada tab Cuti, di mana ia mempunyai rantaian kelulusan sendiri")}>
                   {L("on Leave tab", "di tab Cuti")}
                 </td>
+                )}
               </tr>
+              {ulEdit?.id === l.id && (
+                <tr className={cx.ulRow}>
+                  <td className={td} colSpan={5}>
+                    <div className={cx.ulEditor}>
+                      <label className={cx.ulField}>{L("Date", "Tarikh")}
+                        <input type="date" className={inputClassSm} value={ulEdit.date}
+                          onChange={(e) => setUlEdit({ ...ulEdit, date: e.target.value })} />
+                      </label>
+                      <label className={cx.ulField}>{L("How much", "Berapa banyak")}
+                        <select className={selectClassSm} value={ulEdit.days}
+                          onChange={(e) => setUlEdit({ ...ulEdit, days: Number(e.target.value) })}>
+                          <option value={1}>{L("Full day", "Sehari penuh")}</option>
+                          <option value={0.75}>{L("Three quarters", "Tiga suku")}</option>
+                          <option value={0.5}>{L("Half day", "Setengah hari")}</option>
+                          <option value={0.25}>{L("Quarter day", "Suku hari")}</option>
+                        </select>
+                      </label>
+                      <label className={cx.ulField}>{L("Reason (optional)", "Sebab (pilihan)")}
+                        <input className={inputClassSm} value={ulEdit.reason} maxLength={500}
+                          onChange={(e) => setUlEdit({ ...ulEdit, reason: e.target.value })} />
+                      </label>
+                      <span className={cx.ulButtons}>
+                        <button type="button" className={rowBtnPrimary} disabled={!ulEdit.date}
+                          onClick={() => void saveUlEdit()}>{L("Save", "Simpan")}</button>
+                        <button type="button" className={rowBtn} onClick={() => setUlEdit(null)}>{L("Cancel", "Batal")}</button>
+                      </span>
+                      <p className={cx.ulNote}>
+                        {L("Deducted at monthly wage ÷ 26 per full day. The staff member is told what changed.", "Dipotong pada gaji bulanan ÷ 26 sehari penuh. Kakitangan dimaklumkan apa yang berubah.")}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {exportRows().map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
@@ -3960,6 +4078,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 <td className={td}>
                   <input
                     type="datetime-local"
+                    aria-label={`${properName(r.name)} - ${r.type === "clock_in" ? L("clock in", "daftar masuk") : L("clock out", "daftar keluar")} ${L("time", "masa")}`}
                     className={inputClassSm}
                     value={edit[r.id] ?? utcToMytLocal(r.created_at)}
                     onChange={(e) => setEdit((s) => ({ ...s, [r.id]: e.target.value }))}
@@ -4100,6 +4219,15 @@ const receiptTooBig = () => L(`Receipt too large — the maximum is ${MAX_RECEIP
    failed with a 500 (putGuarded, v1.177.2 to v1.181.3) the app told people
    to shrink files that were already small. The WhatsApp tip is now kept for
    the one answer it fits, 413. */
+/* v1.181.4 - "2026-09" as people say it, for the salary-advance lines. */
+const payMonthLabel = (ym: string | null | undefined): string => {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym ?? "";
+  const en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const ms = ["Jan", "Feb", "Mac", "Apr", "Mei", "Jun", "Jul", "Ogo", "Sep", "Okt", "Nov", "Dis"];
+  const i = Number(ym.slice(5, 7)) - 1;
+  return `${L(en[i] ?? "", ms[i] ?? "")} ${ym.slice(0, 4)}`;
+};
+
 async function uploadFailure(up: Response): Promise<string> {
   if (up.status === 413) return receiptTooBig();
   let m = "";
@@ -4313,6 +4441,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const currentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
   const [claimType, setClaimType] = useState<"reimbursement" | "salary_advance">("reimbursement");
   const [payrollMonth, setPayrollMonth] = useState(currentMonth);
+  /* v1.181.4 - an advance is recovered from the month of the request or a
+     later one, never an earlier one (the server says the same). Derived, not
+     stored: the month shown, sent and printed follows the date as it is
+     typed, and a month picked by hand is kept whenever it is later. */
+  const advanceMinMonth = (() => {
+    const first = items.map((i) => i.claim_date).filter(Boolean).sort()[0];
+    const m = first ? first.slice(0, 7) : currentMonth;
+    return m > currentMonth ? m : currentMonth;
+  })();
+  const recoverMonth = payrollMonth < advanceMinMonth ? advanceMinMonth : payrollMonth;
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
   const submissionKey = useRef(crypto.randomUUID());
@@ -4379,7 +4517,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
     const filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
     if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
     if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
-    if (claimType === "salary_advance" && !/^\d{4}-\d{2}$/.test(payrollMonth)) { setMsg(L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.")); return; }
+    if (claimType === "salary_advance" && !/^\d{4}-\d{2}$/.test(recoverMonth)) { setMsg(L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.")); return; }
     if (submitLock.current) return;
     submitLock.current = true;
     setSubmitting(true);
@@ -4389,7 +4527,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       purpose: purpose || undefined,
       items: filled.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description || undefined, amount: lineCents(i) / 100, ...(isMileage(i) ? { km: Math.round(Number(i.km) * 10) / 10 } : {}) })),
       claim_type: claimType,
-      ...(claimType === "salary_advance" ? { payroll_month: payrollMonth } : {}),
+      ...(claimType === "salary_advance" ? { payroll_month: recoverMonth } : {}),
       // v1.4.173: 0 on edit explicitly clears the remark; undefined on create = none
       ...(canPayee ? { payee_user_id: editingClaim ? payeeId : (payeeId > 0 ? payeeId : undefined) } : {}),
     };
@@ -4570,7 +4708,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {claimItems(c).length > 1
             ? <span className={chipNeutral}>{claimItems(c).length} {L("items", "item")}</span>
             : <span className={`${chipNeutral} ${cl.capitalize}`}>{catLabel(c.category)}</span>}{" "}
-          {c.claim_type === "salary_advance" && <span className={chipInfo}>{L("Salary advance", "Pendahuluan gaji")} · {c.payroll_month}</span>}{" "}
+          {/* v1.181.4 - the advance says WHICH payslip recovers it, and once
+              paid, that it is on it (as SALARY ADVANCE {this claim number}). */}
+          {c.claim_type === "salary_advance" && <span className={chipInfo}>{L("Salary advance", "Pendahuluan gaji")} · {c.paid_at
+            ? L(`deducted on the ${payMonthLabel(c.payroll_month)} payslip`, `dipotong pada slip gaji ${payMonthLabel(c.payroll_month)}`)
+            : L(`to be recovered from ${payMonthLabel(c.payroll_month)} payroll`, `akan dipotong daripada gaji ${payMonthLabel(c.payroll_month)}`)}</span>}{" "}
           <span className={`${chip} ${cl.capitalize} ${badgeCls[c.status] ?? "erp-chip-neutral"}`}>{statusLabel(c.status)}</span>
           {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
             <span className={`${chipSmInfo} ${cl.chipGap}`}
@@ -4885,10 +5027,12 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         {claimType === "salary_advance" && (
           <label className={`${cl.fieldBlock} ${cl.fieldNarrow}`}>
             <span className={cl.fieldLabel}>{L("Recover from payroll month", "Potong daripada bulan gaji")}</span>
-            <input type="month" min={items.find((i) => i.claim_date)?.claim_date.slice(0, 7) || currentMonth}
-              className={inputClass} value={payrollMonth}
-              onChange={(e) => setPayrollMonth(e.target.value)} />
-            <span className={cl.fieldHelp}>{L("The deduction starts only after this advance is approved and marked paid.", "Potongan bermula hanya selepas pendahuluan diluluskan dan ditanda dibayar.")}</span>
+            <input type="month" min={advanceMinMonth}
+              className={inputClass} value={recoverMonth}
+              onChange={(e) => setPayrollMonth(e.target.value < advanceMinMonth ? advanceMinMonth : e.target.value)} />
+            <span className={cl.fieldHelp}>{L(
+              `Recovered from the ${payMonthLabel(recoverMonth)} payroll - the month of the request or a later one. Nothing is deducted until it is approved and marked paid; then it appears on the ${payMonthLabel(recoverMonth)} payslip as SALARY ADVANCE with this request's claim number.`,
+              `Dipotong daripada gaji ${payMonthLabel(recoverMonth)} - bulan permohonan atau selepasnya. Tiada potongan sehingga diluluskan dan ditanda dibayar; kemudian ia dipapar pada slip gaji ${payMonthLabel(recoverMonth)} sebagai SALARY ADVANCE dengan nombor tuntutan permohonan ini.`)}</span>
           </label>
         )}
         <label className={cl.fieldBlockWide}><span className={cl.fieldLabel}>{L("Purpose (shown on the printed form, optional)", "Tujuan (dipapar pada borang bercetak, pilihan)")}</span>
@@ -4942,7 +5086,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
               <input type="date" className={`${inputClass} ${cl.phoneControl}`}
                 value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             </label>
-            <input type="date" className={`${inputClass} ${cl.deskControl}`}
+            <input type="date" aria-label={L("Date", "Tarikh")} className={`${inputClass} ${cl.deskControl}`}
               value={it.claim_date} onChange={(e) => setItems((a) => a.map((x, xi) => xi === i ? { ...x, claim_date: e.target.value } : x))} />
             <label className={cl.phoneField}>{L("Category", "Kategori")}
               <select className={`${selectClass} ${cl.phoneControl} ${cl.capitalize}`} value={it.category}

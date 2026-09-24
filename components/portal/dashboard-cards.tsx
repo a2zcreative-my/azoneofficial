@@ -18,37 +18,117 @@ import { givenNames } from "@/lib/names";
 import { AppIcon } from "@/components/ui/app-icon";
 import { revealAnchor } from "@/components/portal/page-shared";
 import type { DashSummary } from "@/components/portal/dashboard";
+import attCss from "@/components/portal/attendance-today.module.css";
 
 const api = makeApi("/staff");
 /* EN/BM at the display point only — getLang() re-reads per call, and the
    portal's language toggle re-renders the whole tree. */
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-/* ---- Attendance today (donut) ---- */
-export function AttendanceDonutCard({ onTime, late, staffTotal, onOpen }: {
-  onTime: number; late: number; staffTotal: number; onOpen?: () => void;
+/* ---- v1.181.4: Attendance today, with its people ----
+   The CEO, 24-09-2026: "attendance today cant see the data which is I want
+   to view the data by clickable without go to the actual tabs". The card
+   was one big <button> with no action behind it on the Attendance tab - it
+   looked tappable and did nothing, and nothing on it could say WHO the 3,
+   the 2 and the 2 were. Each legend line is now its own control and opens
+   the names inside the card: first clock-in for on time and late, and for
+   "not clocked in" the ones on approved leave are marked, so the absent
+   and the excused are told apart at a glance. The names are fetched on the
+   first tap (and again after a minute), from the endpoint built on the
+   same rules as the counts beside it. */
+type AttKind = "on_time" | "late" | "not_in";
+interface AttPerson { id: number; name: string; position: string | null; first_in?: string; leave_type?: string | null }
+interface AttWho { date: string; cutoff: string; on_time: AttPerson[]; late: AttPerson[]; not_in: AttPerson[] }
+
+const LEAVE_WORD: Record<string, [string, string]> = {
+  annual: ["annual leave", "cuti tahunan"], medical: ["medical leave", "cuti sakit"],
+  emergency: ["emergency leave", "cuti kecemasan"], unpaid: ["unpaid leave", "cuti tanpa gaji"],
+  replacement: ["replacement leave", "cuti ganti"],
+};
+
+export function AttendanceTodayCard({ onTime, late, staffTotal }: {
+  onTime: number; late: number; staffTotal: number;
 }) {
   const notIn = Math.max(0, staffTotal - onTime - late);
+  const [open, setOpen] = useState<AttKind | null>(null);
+  const [who, setWho] = useState<AttWho | null>(null);
+  const [loadedAt, setLoadedAt] = useState(0);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const slices: { key: AttKind; label: string; value: number; color: string }[] = [
+    { key: "on_time", label: L("On time", "Tepat masa"), value: onTime, color: "var(--ring-ontime)" },
+    { key: "late", label: L("Late", "Lewat"), value: late, color: "var(--ring-late)" },
+    { key: "not_in", label: L("Not clocked in", "Belum daftar masuk"), value: notIn, color: "var(--ring-absent)" },
+  ];
+  const pick = async (k: AttKind) => {
+    const next = open === k ? null : k;
+    setOpen(next);
+    if (!next || state === "loading") return;
+    if (who && Date.now() - loadedAt < 60_000) return;
+    setState("loading");
+    const r = await api<AttWho>("/dashboard/attendance-today");
+    if (r.ok && r.data) { setWho(r.data); setLoadedAt(Date.now()); setState("idle"); }
+    else setState("error");
+  };
+  const list = open && who ? who[open] : [];
+  const openLabel = slices.find((x) => x.key === open)?.label ?? "";
   return (
-    <button type="button" onClick={onOpen} className={`${card} block w-full text-left transition-colors hover:border-primary`}>
-      <p className="text-sm font-semibold">{L("Attendance today", "Kehadiran hari ini")}</p>
-      <div className="mt-2">
+    <div className={card}>
+      <p className={attCss.title}>{L("Attendance today", "Kehadiran hari ini")}</p>
+      <div className={attCss.body}>
         <Donut
+          hideLegend
           centerLabel={String(staffTotal)}
           centerSub={L("staff", "kakitangan")}
-          /* v1.15.0: the ring uses the VALIDATED chart steps, not the status
-             text tokens. Two reasons: --warning/--danger are not separable
-             from each other (dE 2.8 deuteranopia, 9.9 normal vision), and in
-             dark mode --success flips to a light text-grade green that reads
-             wrong as a fill. --ring-* passes every check in both themes. */
-          slices={[
-            { label: L("On time", "Tepat masa"), value: onTime, color: "var(--ring-ontime)" },
-            { label: L("Late", "Lewat"), value: late, color: "var(--ring-late)" },
-            { label: L("Not clocked in", "Belum daftar masuk"), value: notIn, color: "var(--ring-absent)" },
-          ]}
+          /* v1.15.0: the validated chart steps, not the status text tokens -
+             see the note that used to sit here; the colours are unchanged. */
+          slices={slices.map(({ label, value, color }) => ({ label, value, color }))}
         />
+        <ul className={attCss.legend}>
+          {slices.map((x) => (
+            <li key={x.key}>
+              <button type="button" className={attCss.line}
+                aria-expanded={open === x.key} aria-controls="att-today-who"
+                onClick={() => void pick(x.key)}>
+                <span className={attCss.dot} style={{ background: x.color }} aria-hidden />
+                <span className={attCss.label}>{x.label}</span>
+                <span className={attCss.count}>{x.value}</span>
+                <span className={attCss.chev} aria-hidden>{open === x.key ? "▴" : "▾"}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
-    </button>
+      {!open && <p className={attCss.hint}>{L("Tap a line to see who.", "Ketik satu baris untuk lihat siapa.")}</p>}
+      {open && (
+        <div id="att-today-who" className={attCss.who} role="region" aria-label={openLabel} aria-busy={state === "loading" || undefined}>
+          <p className={attCss.whoHead}>
+            <span>{openLabel}</span>
+            {open !== "not_in" && who && <span>{L(`on time = in by ${who.cutoff}`, `tepat masa = masuk sebelum ${who.cutoff}`)}</span>}
+          </p>
+          {state === "loading" && !who && <SkelRows rows={3} />}
+          {state === "error" && <p className="erp-meta">{L("Could not load the names - tap the line again.", "Tidak dapat memuatkan nama - ketik baris itu sekali lagi.")}</p>}
+          {who && (list.length === 0
+            ? <p className="erp-meta">{L("Nobody.", "Tiada sesiapa.")}</p>
+            : (
+              <ul className={attCss.people}>
+                {list.map((p) => {
+                  const leave = p.leave_type ? LEAVE_WORD[p.leave_type] : null;
+                  return (
+                    <li key={p.id} className={attCss.person}>
+                      <span className={attCss.name}>{p.name}</span>
+                      {open === "not_in"
+                        ? <span className={`${attCss.meta} ${leave ? attCss.excused : ""}`}>
+                            {leave ? L(`On ${leave[0]}`, `Sedang ${leave[1]}`) : (p.position ?? "")}
+                          </span>
+                        : <span className={attCss.meta}>{L("in", "masuk")} {p.first_in}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -74,7 +154,7 @@ export function CompanyAttendanceToday({ canManage = false }: { canManage?: bool
            attendance permission the server sends none of them, and drawing a
            0/0/0 ring would claim nobody clocked in. Say nothing instead. */
         s.attendance_on_time == null || s.attendance_late == null ? null : (
-        <AttendanceDonutCard
+        <AttendanceTodayCard
           onTime={s.attendance_on_time}
           late={s.attendance_late}
           staffTotal={s.staff_total ?? 0}

@@ -163,6 +163,8 @@ export type SlipExtras = { working_day: number; public_holiday: number; annual_l
   /* v1.77.0 — the public-holiday premium, from the server. */
   ph_worked?: number; ph_worked_dates?: string[]; ph_worked_minutes?: number; ph_worked_cents?: number;
   salary_advance_cents?: number;
+  /* v1.181.4 - the advance requests that make up salary_advance_cents */
+  salary_advance_items?: { claim_no: string; requested_on: string; paid_on: string; amount_cents: number }[];
   joined_on?: string | null; left_on?: string | null } | null;
 
 /* v1.28.0: issuerCode is the month's payslip_releases.issuer_code — NULL or
@@ -208,7 +210,19 @@ export function payslipData(
 
   const deductions: [string, number][] = [];
   if (e.deduction_cents > 0) deductions.push(["LATE / OTHER DEDUCTION", e.deduction_cents]);
-  if (salaryAdvance > 0) deductions.push([`SALARY ADVANCE (${month})`, salaryAdvance]);
+  /* v1.181.4 - ONE LINE PER REQUEST, naming it. The CEO wanted the payslip
+     to "appear the request": each advance prints the claim number the staff
+     member was given on the Claims tab - CLM-AZOO{DDMMYY}-{n}, so the day
+     it was requested is IN the number. Deliberately not longer: the PDF's
+     deduction column is 31% of the page, and "SALARY ADVANCE CLM-AZOO230926-12"
+     is what still fits at 6pt without being cut (a "(REQUESTED ..., PAID
+     ...)" suffix was measured and truncated). Only when the items add up to
+     the total does the slip itemise; anything else (an older server) prints
+     the single line it always did, so the net can never move. */
+  const advItems = x?.salary_advance_items ?? [];
+  if (salaryAdvance > 0 && advItems.length > 0 && advItems.reduce((a, i) => a + i.amount_cents, 0) === salaryAdvance) {
+    for (const it of advItems) deductions.push([`SALARY ADVANCE ${it.claim_no}`, it.amount_cents]);
+  } else if (salaryAdvance > 0) deductions.push([`SALARY ADVANCE (${month})`, salaryAdvance]);
   if (unpaidDed > 0) {
     /* v1.75.0: fractions are real now — half a day, or the hours somebody
        was short of eight. n2v already prints two decimals.

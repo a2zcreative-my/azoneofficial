@@ -247,8 +247,15 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
   ok("it is left-aligned on a phone and right-aligned from the desk",
      /justify-content: flex-start;/.test(actions)
      && /@media \(min-width: 640px\) \{ \.erp-row-actions \{ justify-content: flex-end; \} \}/.test(v3));
+  /* v1.181.4 - the 9rem is a WIDTH, not a flex-basis: a group measures its
+     children's widths, and a basis it cannot see left every invoice row on
+     Sales one button short (Delete wrapped). Status pickers are left out. */
   ok("a note field among the actions shrinks instead of pushing the buttons out",
-     /\.erp-row-actions > \.erp-input-sm:not\(\[type="date"\]\)[^{]*\{\s*flex: 0 1 9rem;\s*min-width: 0;/.test(v3));
+     /\.erp-row-actions > \.erp-input-sm:not\(\[type="date"\]\)[^{]*\{\s*flex: 0 1 auto;\s*width: 9rem;\s*min-width: 0;/.test(v3));
+  ok("...and its 9rem is never a flex-basis the group cannot measure",
+     !/\.erp-row-actions > \.erp-input-sm[^{]*\{[^}]*flex: 0 1 9rem/.test(v3));
+  ok("...and a status picker keeps its natural width",
+     /:not\(\.erp-select\)/.test(v3.match(/\.erp-row-actions > \.erp-input-sm[^{]*/)?.[0] ?? ""));
   /* The date family keeps the width floor v1.174.3 gave it - an empty one
      collapses on iOS - so it must NOT be caught by the shrink rule above. */
   ok("the date family is left out of the shrink rule (it keeps its floor)",

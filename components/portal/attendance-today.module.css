@@ -1,0 +1,129 @@
+/* v1.181.4 - the Attendance today card, with its people. The CEO,
+   24-09-2026: "I want to view the data by clickable without go to the
+   actual tabs". Each legend line is a button that opens WHO, inside the
+   card. Geometry only; cards, metas and skeletons are the shared named
+   classes. Tokens only, both themes. */
+
+.title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.body {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+.legend {
+  flex: 1 1 11rem;
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* A legend line is a real control: 44px tall, the whole width, a visible
+   state when open, and a chevron that says it opens. */
+.line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 0.625rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+@media (hover: hover) {
+  .line:hover { background: var(--secondary); }
+}
+.line[aria-expanded="true"] {
+  background: var(--secondary);
+  border-color: var(--border);
+}
+.line:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.dot {
+  flex: 0 0 auto;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+}
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+.count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chev {
+  flex: 0 0 auto;
+  width: 1rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.hint {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.who {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.whoHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.people {
+  margin: 0.375rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 0.75rem;
+  row-gap: 0.125rem;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+}
+.person + .person {
+  border-top: 1px solid var(--border);
+}
+.name {
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.meta {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.excused {
+  color: var(--success);
+}

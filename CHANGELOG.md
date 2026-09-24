@@ -2,6 +2,114 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.5] - 2026-09-24 - Rows that line up, names behind the numbers, and pay records you can fix
+
+Six requests from the CEO on 24-09-2026. Each one is fixed at its cause.
+
+### Sales: every document row on one line
+
+On desktop, every invoice row dropped "Delete" onto a second line, while the
+quotation rows beside it fitted on one. The reason: a small field in a row's
+action group was sized with `flex: 0 1 9rem`, a size the group can't see
+when it measures itself. Chrome measured the paid/unpaid picker at its
+~100px content, drew it at 144px, and the group came up ~45px short.
+
+- The 9rem is now a plain **width**, which the group can measure, and a
+  status picker keeps its natural width (`styles/erp-v3.css`; the
+  `tab-concept` guard is updated to pin the new rule).
+- Measured in Chromium at 1815px and 1280px: every row is one line, 44px
+  tall, with Edit, PDF, Send PDF and Delete in the same columns on every row.
+- **On a phone** the status picker (or → Invoice) takes its own line, and
+  the four document buttons sit together beneath it on every row, instead of
+  "Delete" hanging alone on a third line (`.erp-row-actions-lead`).
+- The amount no longer breaks between "RM" and the figure.
+
+### Attendance today: tap a line to see who
+
+The card was one big button with nothing behind it on the Attendance tab.
+It looked tappable and did nothing, and nothing on it said who the numbers
+were.
+
+- Each line (On time, Late, Not clocked in) is now its own control and opens
+  the names **inside the card**.
+- On time and Late show each person's first clock-in.
+- Not clocked in marks anyone on approved leave, so the absent and the
+  excused are told apart.
+- The names come from a new endpoint, `GET /staff/dashboard/attendance-today`.
+  It uses the same rules as the donut's counts (in by 10:00, the same staff
+  filter), so the names and the numbers can't disagree. It's visible to the
+  same people who see the donut.
+
+### Corrections: a filter you couldn't see
+
+The records table stays under every pill: Find & filter, Add record, Unpaid
+leave, Working hours and Overtime. But the search box lives only under Find
+& filter. After searching for someone and switching to Add record, the table
+stayed filtered to that one person, with nothing on screen saying so.
+
+- A bar above the table now says **Filtered: "name" · 6 of 30 records**,
+  with Change and Clear, whenever a filter is on and its controls are out
+  of sight.
+
+### Corrections: edit an unpaid day in place
+
+- A day the **company** recorded as unpaid now has **Edit** and **Undo**
+  right in the records table. Edit changes the date, how much of the day
+  (full, three quarters, half or a quarter) and the reason.
+- New route: `PATCH /attendance/unpaid`. It keeps every fence the record and
+  undo routes already had:
+  - CEO only.
+  - Only rows the company recorded. A leave the person applied for still
+    belongs to the Leave tab and its approval chain.
+  - A payroll month that's already been released can't be changed on either
+    side of a move without "Change it anyway", and that override is audited.
+  - It refuses a day that's already unpaid, or one with an open leave
+    application.
+- The staff member is told what changed, from what to what.
+- On a phone the editor stays in view while the table scrolls sideways.
+
+### Salary advance: the payslip names the request
+
+The advance flow already existed: request → approval chain → paid → deducted
+from the chosen payroll month. What was missing is what the CEO asked for.
+
+- **The payslip names the request.** "SALARY ADVANCE (2026-09)" is now one
+  line per advance, printed with the claim number the staff member was given
+  (`SALARY ADVANCE CLM-AZOO230926-1`). The request date is inside that
+  number. A longer "(REQUESTED …, PAID …)" label was measured against the
+  PDF's deduction column and got cut off, so it wasn't used.
+- **The lines always add up to the deduction.** They're built with the
+  deduction's own rule, and the slip only itemises when they sum to it.
+  Otherwise it prints the old single line, so the net can't move.
+- **Recovered from the request's month or later.** The form derives the
+  recovery month from the request's date and never sends an earlier one. The
+  server now refuses a past or already-released month when an advance is
+  created or edited. Before, only the form's `min` stopped it.
+- **The claim says which payslip.** "to be recovered from Sep 2026 payroll",
+  then "deducted on the Sep 2026 payslip" once it's paid. The help text
+  under the month says the same.
+
+### On Shift: fits the desktop
+
+On a desktop, On Shift was a 48rem card centred in an empty page. It now
+takes the full column, like every other tab. The buttons and the lines of
+text stay capped so they don't stretch. No sideways scrolling at 390px in
+the phone app.
+
+### Guards and probes
+
+- **New guard `pay-records` (#103), 27 checks.** It holds the advance lines
+  to the deduction's rule and the claim-number scheme, the itemise-or-fall-
+  back rule, the month checks on create and edit, every fence on the
+  unpaid-day edit, and the drill-down's gate and rules. Loosening the
+  advance rule (dropping `paid_at`) makes it fail.
+- **Three unlabelled inputs now have names:** the Attendance month picker,
+  the punch time boxes, and the claim item date. The keyboard audit found
+  them on the Attendance and Claims tabs, which it hadn't been run on
+  before.
+- **Measurements:** UI audit 0 new findings at 390px in English and Malay.
+  WebKit overflow 0 at 402px.
+
 ## [1.181.4] - 2026-09-23 - Uploads reach R2 again
 
 **Production bug fix. Every file upload has failed since v1.177.2 went live**
