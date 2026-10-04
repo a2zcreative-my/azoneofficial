@@ -141,8 +141,12 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
 }
 
 /* ---- 6. the money: one rate, in every place that computes it ----
-   Employment Act 1955 s.60I — monthly wages ÷ 26 per day. A FIXED divisor,
-   deliberately not the month's working days. */
+   Employment Act 1955 s.60I — monthly wages ÷ 26 per day is the ordinary rate
+   of pay, a FIXED divisor. v1.181.8: from the September 2026 payroll the
+   unpaid-leave deduction itself follows s.18A (monthly wages ÷ the calendar
+   days of the month) and reaches its divisor through prorationDays; every
+   LITERAL divisor left in the code is still 26. tests/payroll-days.mjs 4C
+   runs the new figures. */
 {
   /* v1.77.0 — the five scattered copies of this rate became ONE resolver in
      the worker plus its runnable twin in lib/payroll-days.ts, so this section
@@ -152,7 +156,8 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
      went red the moment the duplication it was policing was removed — a
      guard should fail when the BEHAVIOUR breaks, not when the code improves. */
   ok("the payslip and the recompute share one unpaid-leave rate",
-     /const orp = opts\.orpBase \/ 26;/.test(staff),
+     /const orp = opts\.orpBase \/ unpaidDivisor;/.test(staff)
+     && /if \(month < PRORATION_18A_FROM\) return \{ basis: "working", list: working, divisor: 26 \};/.test(staff),
      "one resolver, called by the payslip, the panel's figures and /payroll/recompute");
   {
     /* EVERY ordinary-rate divisor in every file that computes pay. A first
@@ -184,14 +189,14 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
      !/workD - \(e\.worked_days as number\)/.test(staff),
      "prorating on days clocked is what deducted approved paid leave as absence");
   ok("proration is computed from employment dates (server)",
-     /const payable = employedDays\(monthDayList, e\.joined_on, e\.left_on, e\.rejoined_on\)\.length;/.test(staff),
+     /const payable = employedDays\(proR\.list, e\.joined_on, e\.left_on, e\.rejoined_on\)\.length;/.test(staff),
      "v1.77.0 added the re-join date — without it somebody who left and came back is prorated away from their old leaving date");
   ok("proration never reads the attendance clock (browser)",
      !/incompleteMonthAdj\([^)]*worked_days/.test(payroll),
      "the panel POSTs the net it computed — if it still prorates on attendance the saved net is wrong");
   ok("the payslip shows the deduction as its own line, and what it is made of",
      /`UNPAID LEAVE \(\$\{parts\.join\("; "\)\}\)`/.test(payroll) &&
-     /\$\{n2v\(d\)\} DAY\$\{d === 1 \? "" : "S"\} × 1\/26 MONTHLY WAGE/.test(payroll),
+     /\$\{n2v\(d\)\} DAY\$\{d === 1 \? "" : "S"\} × 1\/\$\{x\?\.unpaid_divisor \?\? 26\} MONTHLY WAGE/.test(payroll),
      "a smaller number with no line explaining it is what makes staff distrust a payslip");
 }
 

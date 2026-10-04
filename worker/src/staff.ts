@@ -282,6 +282,51 @@ export function employedDays(
   });
 }
 
+/** SECTION 18A - v1.181.8.
+ *
+ * Employment Act 1955 s.18A (in force 01-01-2023): where a monthly-rated
+ * employee has not completed a whole month of service - they started after
+ * the first day, left before the last, or took leave of absence without pay -
+ * the wages due are
+ *
+ *     monthly wages / number of days of that wage period x eligible days
+ *
+ * and "days of the wage period" are CALENDAR days, 30 for September, not the
+ * month's working days and not 26. Until this version the payroll took
+ * unpaid leave at 1/26 (which is s.60I, the ordinary rate of pay - the right
+ * divisor for overtime and for work on a holiday, the wrong one here) and an
+ * incomplete month on working days. On RM 2,000 one unpaid day in September
+ * cost RM 76.92 where the Act says RM 66.67.
+ *
+ * The CEO, 04-10-2026, approved the change for both deductions and from the
+ * September 2026 payroll, the first one not yet released. EARLIER MONTHS ARE
+ * NOT TOUCHED: their payslips are issued, and a recompute of one of them
+ * must still arrive at the figure that was paid.
+ *
+ * What does NOT change: overtime and the public-holiday premium stay on
+ * monthly wages / 26 (s.60I), a week whose every working day is unpaid still
+ * loses its rest days, and the public holidays stay paid. */
+export const PRORATION_18A_FROM = "2026-09";
+
+/** Every calendar day of a month, as ISO dates. */
+export function calendarDayList(month: string): string[] {
+  const y = Number(month.slice(0, 4));
+  const mo = Number(month.slice(5, 7));
+  const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const out: string[] = [];
+  for (let d = 1; d <= last; d++) out.push(new Date(Date.UTC(y, mo - 1, d)).toISOString().slice(0, 10));
+  return out;
+}
+
+/** The days a month is prorated over, and what one unpaid day is a fraction
+    of. From PRORATION_18A_FROM: the calendar days of the month, for both.
+    Before it: the month's working days, and the fixed 26. */
+export function prorationDays(month: string, working: string[]): { basis: "calendar" | "working"; list: string[]; divisor: number } {
+  if (month < PRORATION_18A_FROM) return { basis: "working", list: working, divisor: 26 };
+  const list = calendarDayList(month);
+  return { basis: "calendar", list, divisor: list.length };
+}
+
 /** STILL ON STAFF TODAY — v1.87.0.
  *
  * CEO, 03-09-2026: *"If staff already resigned after that day, the day after
@@ -6346,7 +6391,18 @@ export async function handleStaff(
     if (!res) {
       res = await env.DB.prepare(`SELECT id FROM claims WHERE user_id = ?1 AND submission_key = ?2`)
         .bind(user.id, submissionKey).first<{ id: number }>();
-      if (!res) return err("conflict", "The claim could not be created", 409);
+      if (!res) {
+        /* v1.181.7 - INSERT OR IGNORE ignores a broken CONSTRAINT exactly as
+           quietly as it ignores a repeated submission key. That is how every
+           Stationery and Client meeting claim vanished (the table's CHECK
+           still had six categories; migration 0138) and the only trace was
+           this 409. Neither a duplicate nor saved means the database refused
+           the row: say so in the error log, with what was refused, and tell
+           the person plainly that nothing was submitted. */
+        await logError(env, "claim_insert_refused",
+          `POST /claims refused by the database: user ${user.id}, category "${category}", type ${claimType}, ${cents} cents`);
+        return err("not_saved", "The claim was not saved - nothing was submitted. Try again, and tell the CEO if it happens again.", 500);
+      }
       return json({ id: res.id, duplicate: true });
     }
     // v1.4.106: tell the FIRST stage of this claimant's chain.
@@ -10439,6 +10495,7 @@ export async function handleStaff(
 
   const unpaidResolver = async (month: string) => {
     const monthDayList = await workingDayList(month);
+    const unpaidDivisor = prorationDays(month, monthDayList).divisor;
     const workingSet = new Set(monthDayList);
     let hols = new Set<string>();
     try {
@@ -10485,7 +10542,11 @@ export async function handleStaff(
       opts: { joined?: string | null; left?: string | null; rejoined?: string | null; orpBase: number; incompleteCents: number; phCount: number },
     ): UnpaidBreakdown => {
       const days = totals.get(userId) ?? 0;
-      const orp = opts.orpBase / 26;
+      /* v1.181.8 - one unpaid day is 1/26 of the month before September
+         2026 and one calendar day of it from then on (s.18A). The week rule,
+         the holiday floor and the cap below read the same rate, so a month
+         that is wholly unpaid still comes to the basic less its holidays. */
+      const orp = opts.orpBase / unpaidDivisor;
       if (days <= 0) return { days: 0, rest_days: 0, cents: 0, capped: false };
 
       /* The person's own working days, and the rest days beside them. */
@@ -10730,7 +10791,11 @@ export async function handleStaff(
         `SELECT basic_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`,
       ).bind(uid, month).first<{ basic_cents: number }>())?.basic_cents ?? 0;
     }
-    const incompleteDed = incompleteCents(incBase, monthDays.length, mine.length);
+    /* v1.181.8 - prorated over calendar days from September 2026 (s.18A),
+       over working days before it. */
+    const proX = prorationDays(month, monthDays);
+    const proMine = employedDays(proX.list, who?.joined_on, who?.left_on, who?.rejoined_on).length;
+    const incompleteDed = incompleteCents(incBase, proX.list.length, proMine);
     /* v1.77.0 — the week rule, the public-holiday floor and the cap, all in
        the one place /payroll/recompute also calls. */
     const unpaidAt = await unpaidResolver(month);
@@ -10759,6 +10824,12 @@ export async function handleStaff(
       joined_on: who?.joined_on ?? null,
       left_on: who?.left_on ?? null,
       incomplete_deduction_cents: incompleteDed,
+      /* v1.181.8 - what the two deductions were measured in, so the slip can
+         say "20 OF 30 CALENDAR DAYS" and "1/30" rather than assume. */
+      proration_basis: proX.basis,
+      proration_month_days: proX.list.length,
+      proration_days: proMine,
+      unpaid_divisor: proX.divisor,
       public_holiday: phCount,
       /* v1.77.0 — what the deduction is MADE OF, so the payslip can say it
          rather than print one number and hope. */
@@ -11149,9 +11220,14 @@ export async function handleStaff(
       `SELECT id, joined_on, left_on, rejoined_on FROM users
         WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA)}`,
     ).all<{ id: number; joined_on: string | null; left_on: string | null; rejoined_on: string | null }>();
+    /* v1.181.8 - the days the incomplete month is prorated over. The panel
+       still does the multiplication (the basic is an editable box) but it
+       no longer chooses the days: it is handed them. */
+    const proA = prorationDays(mA, dayListA);
     const employed = peopleA.map((u) => ({
       user_id: u.id,
       payable_days: employedDays(dayListA, u.joined_on, u.left_on, u.rejoined_on).length,
+      proration_days: employedDays(proA.list, u.joined_on, u.left_on, u.rejoined_on).length,
       partial: Boolean(
         (u.joined_on && u.joined_on.slice(0, 7) === mA) || (u.left_on && u.left_on.slice(0, 7) === mA),
       ),
@@ -11213,7 +11289,8 @@ export async function handleStaff(
         (!u.left_on || h <= u.left_on.slice(0, 10))).length;
       const b = unpaidAtA(u.id, {
         joined: u.joined_on, left: u.left_on, rejoined: u.rejoined_on, orpBase: basic,
-        incompleteCents: incompleteCents(basic, dayListA.length, payable),
+        incompleteCents: incompleteCents(basic, proA.list.length,
+          employedDays(proA.list, u.joined_on, u.left_on, u.rejoined_on).length),
         phCount: ph,
       });
       /* v1.77.0 — the premium for working a public holiday, from the same
@@ -11240,7 +11317,8 @@ export async function handleStaff(
       };
     }).filter((r) => r.days > 0 || r.clocked_beyond_employment || r.ph_worked > 0 || r.salary_advance_cents > 0);
 
-    return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed, ot_approved: otApproved });
+    return json({ month: mA, days: results, unpaid, unpaid_detail: unpaidDetail, working_days: workingDays, employed, ot_approved: otApproved,
+      proration: { basis: proA.basis, month_days: proA.list.length, unpaid_divisor: proA.divisor } });
   }
 
   /* v1.75.0 (CEO: "Unpaid will be count based on their no data in") — the
@@ -11626,6 +11704,8 @@ export async function handleStaff(
        public-holiday floor and the cap. This route is the one that WRITES
        net_cents, so a formula here that disagreed with the payslip would be
        a number in the bank that no slip can explain. */
+    /* v1.181.8 - calendar days from September 2026 (s.18A). */
+    const proR = prorationDays(monthR, monthDayList);
     const unpaidAtR = await unpaidResolver(monthR);
     const phAtR = await phWorkResolver(monthR);
     /* The month's holidays, read ONCE. Counting them per person inside the
@@ -11671,8 +11751,8 @@ export async function handleStaff(
          everyone except a mid-month joiner or leaver. `worked_days` stays on
          the row as information; it no longer moves money, which is what
          stopped approved paid leave being deducted as if it were absence. */
-      const payable = employedDays(monthDayList, e.joined_on, e.left_on, e.rejoined_on).length;
-      const adj = incompleteCents(e.basic_cents, monthDayList.length, payable);
+      const payable = employedDays(proR.list, e.joined_on, e.left_on, e.rejoined_on).length;
+      const adj = incompleteCents(e.basic_cents, proR.list.length, payable);
       const ulDed = unpaidAtR(e.user_id, {
         joined: e.joined_on, left: e.left_on, rejoined: e.rejoined_on,
         orpBase: e.base_salary_cents || e.basic_cents,

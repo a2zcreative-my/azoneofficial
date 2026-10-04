@@ -64,7 +64,8 @@ try {
   process.exit(1);
 }
 const { incompleteCents, unpaidDaysFromHours, unpaidCents, WORK_DAY_MINUTES, unpaidDeduction,
-        publicHolidayWorkedCents, partTimeHolidayPremiumCents } =
+        publicHolidayWorkedCents, partTimeHolidayPremiumCents,
+        PRORATION_18A_FROM, calendarDaysIn, unpaidDivisorFor } =
   await import(pathToFileURL(out).href);
 
 /* August 2026 — the real month the CEO was looking at. 21 weekdays, two
@@ -304,6 +305,129 @@ const AUG = (() => {
   ok("the hourly rate constant is at module scope",
      /^export const PART_TIME_LH_RATE_CENTS = 1500;/m.test(staff),
      "phWorkResolver runs from payslipExtras, above where the constant used to be declared — a TDZ waiting to happen");
+}
+
+/* ---- 4C. SECTION 18A: CALENDAR DAYS, FROM SEPTEMBER 2026 (v1.181.8) ----
+
+   The CEO, 04-10-2026, brought a review of the September payroll: one unpaid
+   day on RM 2,000 was being charged RM 76.92 (1/26) where Employment Act 1955
+   s.18A says monthly wages / days of the wage period x eligible days - the
+   CALENDAR days, 30 in September, so RM 66.67. The same section governs a
+   month somebody joined or left in, which was being prorated on working
+   days. He approved: both deductions on calendar days, from the September
+   2026 payroll (the first not yet released), the fully-unpaid-week rule and
+   the public-holiday floor kept, overtime and holiday work left on / 26.
+
+   Run, not read: these are figures that reach a bank account. */
+{
+  const B = 200000; // RM 2,000
+  /* September 2026: 30 days, Malaysia Day on Wednesday the 16th. */
+  const SEP = (() => {
+    const HOL = new Set(["2026-09-16"]);
+    const working = [], rest = [], all = [];
+    for (let n = 1; n <= 30; n++) {
+      const d = new Date(Date.UTC(2026, 8, n));
+      const iso = d.toISOString().slice(0, 10);
+      all.push(iso);
+      if (HOL.has(iso)) continue;
+      const w = d.getUTCDay();
+      if (w >= 1 && w <= 5) working.push(iso); else rest.push(iso);
+    }
+    return { working, rest, all };
+  })();
+  ok("September 2026 is 21 working days, 8 rest days and one holiday",
+     SEP.working.length === 21 && SEP.rest.length === 8 && SEP.all.length === 30,
+     `got ${SEP.working.length} / ${SEP.rest.length} / ${SEP.all.length}`);
+
+  ok("the rule starts with the September 2026 payroll", PRORATION_18A_FROM === "2026-09");
+  ok("August 2026 and everything before it keeps 1/26",
+     unpaidDivisorFor("2026-08") === 26 && unpaidDivisorFor("2025-12") === 26,
+     "those payslips are issued - a recompute must land on the figure that was paid");
+  ok("September is a thirtieth, October a thirty-first",
+     unpaidDivisorFor("2026-09") === 30 && unpaidDivisorFor("2026-10") === 31);
+  ok("February follows the calendar, leap year included",
+     unpaidDivisorFor("2027-02") === 28 && unpaidDivisorFor("2028-02") === 29 && calendarDaysIn("2026-12") === 31);
+
+  const sep = (extra) => unpaidDeduction({
+    basicCents: B, workingDays: SEP.working, restDays: SEP.rest, publicHolidays: 1,
+    fullyUnpaid: [], unpaidDays: 0, incompleteCents: 0, divisor: unpaidDivisorFor("2026-09"), ...extra,
+  });
+
+  /* THE CASE HE BROUGHT. */
+  const one = sep({ fullyUnpaid: ["2026-09-10"], unpaidDays: 1 });
+  ok("one unpaid day in September on RM 2,000 is RM 66.67", one.cents === 6667, `got ${one.cents}`);
+  ok("...where 1/26 charged RM 76.92", unpaidCents(B, 1) === 7692 && unpaidCents(B, 1, 30) === 6667);
+  ok("...so that payslip is RM 10.25 better off", 7692 - one.cents === 1025);
+  ok("the same day in October is a thirty-first", unpaidCents(B, 1, unpaidDivisorFor("2026-10")) === 6452);
+
+  /* A JOINER. Started Friday 11 September: the 11th to the 30th is twenty of
+     the month's thirty days, whatever falls on them. */
+  const inc = incompleteCents(B, 30, 20);
+  ok("joining on the 11th earns twenty thirtieths", B - inc === 133333, `got ${B - inc}`);
+  ok("...where working days gave fourteen of twenty-one, by chance the same fraction here",
+     B - incompleteCents(B, 21, 14) === 133333,
+     "the two bases agree only when the days missed happen to be in proportion - joining on Monday the 7th they do not");
+  ok("joining on Monday the 7th: 24 of 30 calendar days, not 17 of 21 working days",
+     B - incompleteCents(B, 30, 24) === 160000 && B - incompleteCents(B, 21, 17) === 161905);
+  /* ...and 2.5 unpaid days on top: 17.5 eligible days of 30. */
+  const jw = SEP.working.filter((d) => d >= "2026-09-11");
+  const jr = SEP.rest.filter((d) => d >= "2026-09-11");
+  const joiner = unpaidDeduction({
+    basicCents: B, workingDays: jw, restDays: jr, publicHolidays: 1,
+    fullyUnpaid: ["2026-09-14", "2026-09-22"], unpaidDays: 2.5, incompleteCents: inc, divisor: 30,
+  });
+  ok("2.5 unpaid days are 2.5 thirtieths", joiner.cents === 16667 && joiner.restDays === 0, `got ${joiner.cents}`);
+  ok("that joiner is paid for 17.5 of 30 days, to the sen of two rounded lines",
+     Math.abs((B - inc - joiner.cents) - Math.round((B * 17.5) / 30)) <= 1,
+     `got ${B - inc - joiner.cents}`);
+
+  /* THE RULES THAT WERE KEPT. A wholly unpaid month: 21 working days and the
+     8 rest days of those weeks are 29 of 30 - what is left is exactly the
+     public holiday, which on calendar days no longer needs the cap to get there. */
+  const gone = sep({ fullyUnpaid: SEP.working, unpaidDays: SEP.working.length });
+  ok("a wholly unpaid September still loses its rest days", gone.restDays === 8, `got ${gone.restDays}`);
+  ok("...and still pays the public holiday and nothing else", B - gone.cents === 6667, `got ${B - gone.cents}`);
+  ok("a scattered day still costs no rest days", one.restDays === 0);
+  ok("the deductions can still never exceed the basic",
+     unpaidDeduction({
+       basicCents: B, workingDays: jw, restDays: jr, publicHolidays: 1,
+       fullyUnpaid: jw, unpaidDays: jw.length, incompleteCents: inc, divisor: 30,
+     }).cents <= B - inc);
+  ok("no divisor given is still the old rule - August's guard above runs unchanged",
+     unpaidDeduction({ basicCents: B, workingDays: AUG.working, restDays: AUG.rest, publicHolidays: 2,
+       fullyUnpaid: ["2026-08-06"], unpaidDays: 1, incompleteCents: 0 }).cents === 7692);
+
+  /* WHAT DID NOT MOVE: the ordinary rate of pay, s.60I. */
+  ok("work on a public holiday is still two days at 1/26", publicHolidayWorkedCents(B, 1) === 15385);
+
+  /* The worker is the one that pays people, and cannot import the library. */
+  const staff = read("worker/src/staff.ts");
+  const panel = read("components/portal/payroll-panel.tsx");
+  ok("the worker starts the rule in the same month",
+     /^export const PRORATION_18A_FROM = "2026-09";/m.test(staff));
+  ok("before it: working days and 26. From it: the calendar days of the month, for both",
+     /if \(month < PRORATION_18A_FROM\) return \{ basis: "working", list: working, divisor: 26 \};\s*const list = calendarDayList\(month\);\s*return \{ basis: "calendar", list, divisor: list\.length \};/.test(staff));
+  ok("the unpaid resolver takes its rate from there",
+     /const unpaidDivisor = prorationDays\(month, monthDayList\)\.divisor;/.test(staff)
+     && /const orp = opts\.orpBase \/ unpaidDivisor;/.test(staff));
+  ok("all three incomplete-month sites prorate over those days",
+     (staff.match(/incompleteCents\([\w.]+, pro[XAR]\.list\.length,/g) ?? []).length === 3
+     && !/incompleteCents\([\w.]+, (?:monthDays|dayListA|monthDayList)\.length/.test(staff),
+     "the payslip, /payroll/attendance-days and /payroll/recompute - one left on working days is a slip that disagrees with the net");
+  ok("the overtime and holiday-work rate was left alone",
+     /: Math\.round\(\(opts\.orpBase \/ 26\) \* 2 \* mine\.length\);/.test(staff)
+     && /return Math\.round\(\(basicCents \/ 26 \/ 8\) \* 1\.5 \* hours\);/.test(panel));
+  ok("the panel is handed the days and no longer chooses them",
+     /proration: \{ basis: proA\.basis, month_days: proA\.list\.length, unpaid_divisor: proA\.divisor \}/.test(staff)
+     && /proration_days: employedDays\(proA\.list, u\.joined_on, u\.left_on, u\.rejoined_on\)\.length,/.test(staff)
+     && /\? incompleteCents\(basicCents, proration\.month_days, proDays\[id\] \?\? proration\.month_days\)/.test(panel)
+     && (panel.match(/incFor\((?:id|u\.id), e\.basic_cents\)/g) ?? []).length === 3
+     && !/incompleteMonthAdj\(e\.basic_cents/.test(panel),
+     "netFor, the row and the totals - the net the panel POSTs is the one that is saved");
+  ok("the payslip says which fraction and which days",
+     /× 1\/\$\{x\?\.unpaid_divisor \?\? 26\} MONTHLY WAGE/.test(panel)
+     && /\$\{x\.proration_days \?\? 0\} OF \$\{x\.proration_month_days \?\? 0\} CALENDAR DAYS/.test(panel)
+     && /unpaid_divisor: proX\.divisor,/.test(staff));
 }
 
 /* ---- 5. the worker computes it the same way ----

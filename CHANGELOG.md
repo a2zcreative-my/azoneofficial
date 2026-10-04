@@ -2,6 +2,117 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [1.181.8] - 2026-10-04 - Unpaid leave and an incomplete month follow s.18A
+
+The CEO brought a review of the September payroll. One unpaid day on a
+RM 2,000 salary was being charged RM 76.92; the Employment Act says RM 66.67.
+
+### Root cause
+
+- Unpaid leave was deducted at **monthly wage / 26**. That is the ordinary
+  rate of pay (s.60I) - the right divisor for overtime and for work on a
+  public holiday, and the wrong one here. **Section 18A** (in force
+  01-01-2023) says a monthly-rated employee who has not completed a whole
+  month - started late, left early, or took leave without pay - is paid
+  `monthly wages / days of the wage period x eligible days`, and the days
+  of the wage period are **calendar days**: 30 in September.
+- A month somebody joined or left in was prorated on the month's
+  **working days**. The same section applies.
+
+### Changed (approved by the CEO, 04-10-2026)
+
+- **From the September 2026 payroll**, both deductions are measured in
+  calendar days of the month: one unpaid day is 1/30 in September, 1/31 in
+  October; somebody who joined on 11 September is paid 20 of 30 days.
+  One place decides it (`prorationDays` in the worker) and the payslip, the
+  payroll panel's figures and `/payroll/recompute` all go through it.
+- **Months before September 2026 are not touched.** Their payslips are
+  issued, and a recompute of one still arrives at the figure that was paid.
+- **Kept, as chosen:** a week in which every working day is unpaid still
+  loses that week's rest days, and public holidays stay paid. On calendar
+  days a wholly unpaid September now comes to exactly the public holiday
+  without needing the cap to get there.
+- **Not changed:** overtime (basic / 26 / 8 x 1.5) and the public-holiday
+  premium (2 x basic / 26) stay on the ordinary rate of pay.
+- **Left out for now:** EPF, SOCSO and EIS. The panel still says
+  "registration pending".
+- The payslip prints the fraction it used ("1.00 DAY x 1/30 MONTHLY WAGE")
+  and "20 OF 30 CALENDAR DAYS" for an incomplete month. The payroll panel is
+  handed the days by the server instead of choosing them, and its help text
+  and the unpaid-leave forms state the new rate in English and Malay.
+
+### After deploying - before payslips release on 05-10-2026 10:00
+
+Open Payroll for **September 2026** and press **Re-fill days**, then
+**Save all** (or Recompute). Saved nets still hold the old figures until
+then. Rounding note: an incomplete month and unpaid leave are two lines,
+each rounded to the sen, so a slip can differ by one sen from a single
+`17.5 / 30` sum.
+
+### Guard
+
+- `payroll-days` section 4C runs the figures (RM 66.67, the joiner, the
+  wholly unpaid month, February, August unchanged) and holds the worker to
+  the same rule at all three incomplete-month sites. `unpaid-leave` follows
+  the resolver's new divisor.
+
+## [1.181.7] - 2026-09-29 - Stationery claims are saved again
+
+hr_admin reported that she could not claim for stationery. Nobody could:
+every claim whose **first line** was *Stationery* or *Client meeting* has
+been refused since v1.150.0.
+
+### Root cause
+
+- v1.150.0 made the form and the API offer eight categories. Before that,
+  "stationery" and "client meeting" had been silently rewritten to "other"
+  on save.
+- The `claims` table was never told. Migration 0026 gave its `category`
+  column `CHECK (category IN ('travel','meal','accommodation','equipment',
+  'medical','other'))`, which is six values. SQLite cannot alter a CHECK,
+  and nobody rebuilt the table.
+- The column holds the claim's first category, so a Stationery claim broke
+  the constraint. Since claims became idempotent (`INSERT OR IGNORE`, migration 0136),
+  the database ignored that refusal as quietly as it ignores a double tap.
+  The route then found no saved row and answered 409 "The claim could not be
+  created". Before 0136 the same claim failed with a 500.
+- Reproduced on the real worker, in local workerd, against a local D1 built
+  from all 137 migrations, signed in as an hr_admin:
+  - Before the fix, a Stationery claim was refused and a Meal claim saved.
+  - After migration 0138, the same Stationery claim saved.
+  - The guards compared code with code, so none of them saw it.
+
+### Fix
+
+- **Migration `0138_claim_categories`** rebuilds `claims` with the full
+  eight-value CHECK, the same way 0021 rebuilt `users`.
+  - It keeps every column added since 0026, in order.
+  - It recreates all four indexes, plus `idx_claims_category`.
+  - It carries the id high-water mark over with a placeholder row, so the id
+    of a deleted claim is never reused.
+  - Tested on a local D1 with existing rows and a deleted top id: all rows
+    were kept, the next id continued correctly, and Stationery and Client
+    meeting were both accepted.
+- **A refused insert now reports itself.** If the database ever refuses a
+  claim again, the error log records `claim_insert_refused` with the
+  category, type and amount. The person is told "The claim was not saved -
+  nothing was submitted", not a misleading "conflict".
+- **Health:** a `/system/health` probe for 0138 now exists. A CHECK can't be
+  seen by a column probe, so it looks for the new index. The probe matcher
+  now also recognises "no such index". `LATEST_MIGRATION` and
+  `EXPECTED_MIGRATIONS` are updated.
+
+### So it stays fixed
+
+**New guard `claim-categories` (#104).** It checks that the categories the
+form offers, the API accepts, and the table's latest CHECK allows are the
+same set, and that each one has a Malay label. With 0138 removed it fails,
+naming exactly the two missing categories.
+
+**Deploy note:** the fix is the migration. `PUSH.bat` applies it in its
+"Database changes" step. Until then, Stationery and Client meeting claims
+keep failing.
+
 ## [1.181.6] - 2026-09-24 - A salary advance is not an expense claim
 
 The CEO, on the v1.181.5 form: "salary advance seem like incorrect flow for

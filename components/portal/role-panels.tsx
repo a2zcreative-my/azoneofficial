@@ -3288,8 +3288,8 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           </span>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "Mark a day nobody applied for — absent, or agreed unpaid time off, a full day or half of one. The payslip deducts it at the statutory rate (monthly wage ÷ 26 per full day, Employment Act 1955 s.60I), shows it as its own line, and leaves Basic full. The staff member is notified the moment you record it, and the day is excluded from the incomplete-month proration so nothing is deducted twice. Undo removes it from that month's pay.",
-              "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui, sehari penuh atau setengah hari. Slip gaji memotong pada kadar statutori (gaji bulanan ÷ 26 sehari penuh, Akta Kerja 1955 s.60I), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
+              "Mark a day nobody applied for — absent, or agreed unpaid time off, a full day or half of one. The payslip deducts it at the statutory rate (monthly wage ÷ the calendar days of that month per full day, Employment Act 1955 s.18A), shows it as its own line, and leaves Basic full. The staff member is notified the moment you record it, and the day is excluded from the incomplete-month proration so nothing is deducted twice. Undo removes it from that month's pay.",
+              "Tandakan hari yang tiada permohonan — tidak hadir, atau cuti tanpa gaji yang dipersetujui, sehari penuh atau setengah hari. Slip gaji memotong pada kadar statutori (gaji bulanan ÷ hari kalendar bulan itu sehari penuh, Akta Kerja 1955 s.18A), menunjukkannya sebagai baris tersendiri, dan mengekalkan Gaji pokok penuh. Kakitangan dimaklumkan sebaik sahaja anda merekodkannya, dan hari itu dikecualikan daripada pengiraan bulan tidak lengkap supaya tiada potongan dua kali. Buat asal mengeluarkannya daripada gaji bulan tersebut."
             )}
           </p>
           <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -3311,7 +3311,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                 decision in the click, where nobody can check it first. */}
             <SubR t={L("How much", "Berapa banyak")}>
               <select className={inputClass} value={ul.days}
-                title={L("A full day is deducted at monthly wage ÷ 26. A half day is half of that.", "Sehari penuh dipotong pada gaji bulanan ÷ 26. Setengah hari ialah separuh daripadanya.")}
+                title={L("A full day is deducted at monthly wage ÷ the days in that month (1/30 in a 30-day month). A half day is half of that.", "Sehari penuh dipotong pada gaji bulanan ÷ bilangan hari bulan itu (1/30 bagi bulan 30 hari). Setengah hari ialah separuh daripadanya.")}
                 onChange={(e) => setUl((d) => ({ ...d, days: Number(e.target.value) }))}>
                 <option value={1}>{L("Full day", "Sehari penuh")}</option>
                 <option value={0.5}>{L("Half day", "Setengah hari")}</option>
@@ -4063,7 +4063,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
                         <button type="button" className={rowBtn} onClick={() => setUlEdit(null)}>{L("Cancel", "Batal")}</button>
                       </span>
                       <p className={cx.ulNote}>
-                        {L("Deducted at monthly wage ÷ 26 per full day. The staff member is told what changed.", "Dipotong pada gaji bulanan ÷ 26 sehari penuh. Kakitangan dimaklumkan apa yang berubah.")}
+                        {L("Deducted at monthly wage ÷ the days in that month per full day. The staff member is told what changed.", "Dipotong pada gaji bulanan ÷ bilangan hari bulan itu sehari penuh. Kakitangan dimaklumkan apa yang berubah.")}
                       </p>
                     </div>
                   </td>

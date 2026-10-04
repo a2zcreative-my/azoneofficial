@@ -156,6 +156,9 @@ export type SlipExtras = { working_day: number; public_holiday: number; annual_l
   /* v1.75.0 — the employment-date figures. The server computes the
      incomplete-month deduction once and the slip prints THAT number. */
   month_working_days?: number; payable_days?: number; incomplete_deduction_cents?: number;
+  /* v1.181.8 - what the two deductions were measured in. From September
+     2026 both are calendar days of the month (Employment Act s.18A). */
+  proration_basis?: "calendar" | "working"; proration_month_days?: number; proration_days?: number; unpaid_divisor?: number;
   /* v1.77.0 — what the unpaid deduction is MADE of, so the slip can say it:
      the rest days lost to fully-unpaid weeks, and whether the cap that keeps
      public holidays paid actually bit. */
@@ -233,7 +236,9 @@ export function payslipData(
        unable to check the one number that changed their pay. */
     const d = x?.unpaid_leave ?? 0;
     const rest = x?.unpaid_rest_days ?? 0;
-    const parts = [`${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/26 MONTHLY WAGE`];
+    /* v1.181.8 - the fraction is the one the server used: 1/26 before
+       September 2026, one calendar day of the month from then on (s.18A). */
+    const parts = [`${n2v(d)} DAY${d === 1 ? "" : "S"} × 1/${x?.unpaid_divisor ?? 26} MONTHLY WAGE`];
     /* v1.148.0: when some of those days were EMERGENCY days, the line says
        so. Somebody who applied for emergency leave and never for unpaid
        leave would otherwise read a deduction headed UNPAID LEAVE and have no
@@ -255,7 +260,9 @@ export function payslipData(
   if (incompAdj > 0) {
     const when = x?.joined_on && x.joined_on.slice(0, 7) === month ? `JOINED ${x.joined_on}`
       : x?.left_on && x.left_on.slice(0, 7) === month ? `LEFT ${x.left_on}` : "PART MONTH";
-    deductions.push([`INCOMPLETE MONTH (${when} — EMPLOYED ${x?.payable_days ?? 0} OF ${x?.month_working_days ?? 0} WORKING DAYS)`, incompAdj]);
+    deductions.push([x?.proration_basis === "calendar"
+      ? `INCOMPLETE MONTH (${when} — ${x.proration_days ?? 0} OF ${x.proration_month_days ?? 0} CALENDAR DAYS)`
+      : `INCOMPLETE MONTH (${when} — EMPLOYED ${x?.payable_days ?? 0} OF ${x?.month_working_days ?? 0} WORKING DAYS)`, incompAdj]);
   }
 
   const others: [string, number][] = [];
@@ -563,6 +570,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.4.124: the net this panel displays, computed once and SAVED with the
   // entry — /expenses sums these stored figures, so the Expenses card and
   // this total always tally after Save all.
+  /* v1.181.8 - the incomplete-month deduction for one row. The days come
+     from the server (calendar days from September 2026, s.18A); a month
+     before that, or a server that has not said, keeps the working-day sum. */
+  const incFor = (id: number, basicCents: number): number =>
+    proration !== null && proration.basis === "calendar"
+      ? incompleteCents(basicCents, proration.month_days, proDays[id] ?? proration.month_days)
+      : incompleteMonthAdj(basicCents, payableDays[id] ?? monthDays, monthDays);
   const netFor = (id: number, override?: Entry): number => {
     /* v1.97.1 — `override` lets a caller price a row it is ABOUT to write
        (Save base salaries re-filling Basic) without waiting for React state
@@ -579,7 +593,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     }
     /* v1.77.0 — the server's figure, not a second copy of the formula. */
     const ulDed = unpaidInfo[id]?.cents ?? 0;
-    const adj = incompleteMonthAdj(e.basic_cents, payableDays[id] ?? monthDays, monthDays);
+    const adj = incFor(id, e.basic_cents);
     const ot = otPay(e.basic_cents, e.ot_hours);
     const phW = unpaidInfo[id]?.ph_worked_cents ?? 0; // v1.77.0: 2 days' ORP per public holiday worked
     const advance = unpaidInfo[id]?.salary_advance_cents ?? 0;
@@ -661,6 +675,17 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
      clock, is what prorates a basic. Absent = the same for everyone except a
      mid-month joiner or leaver. */
   const [payableDays, setPayableDays] = useState<Record<number, number>>({});
+  /* v1.181.8 - THE DAYS THE INCOMPLETE MONTH IS PRORATED OVER, from the
+     server. From September 2026 that is calendar days (Employment Act
+     s.18A): 20 of 30 for somebody who joined on the 11th. Before it, the
+     month's working days, as it always was - so an old month still adds up
+     to the payslip that was issued. The browser multiplies, because the
+     basic is a box somebody can type in; it does not choose the days. */
+  const [proration, setProration] = useState<{ basis: "calendar" | "working"; month_days: number; unpaid_divisor: number } | null>(null);
+  const [proDays, setProDays] = useState<Record<number, number>>({});
+  const calendarBasis = proration !== null && proration.basis === "calendar";
+  /** What one unpaid day is a fraction of, as the server computed it. */
+  const ulRate = `1/${proration?.unpaid_divisor ?? 26}`;
   /* CEO: "Unpaid will be count based on their no data in." The scan finds
      them; a person decides. Marking is CEO-only on the server (unpaid_leave),
      so the card is too — a button that 403s is worse than no button. */
@@ -732,6 +757,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       emap[r.user_id] = r.payable_days;
     }
     setPayableDays(emap);
+    const pr = (a.data as { proration?: { basis: "calendar" | "working"; month_days: number; unpaid_divisor: number } } | null)?.proration ?? null;
+    const pmap: Record<number, number> = {};
+    for (const r of (a.data as { employed?: { user_id: number; proration_days?: number }[] } | null)?.employed ?? []) {
+      if (typeof r.proration_days === "number") pmap[r.user_id] = r.proration_days;
+    }
+    setProration(pr);
+    setProDays(pmap);
     setUnpaidDays(umap);
     /* The proposal list. Read-only viewers and non-CEOs never see it, so it
        is not fetched for them either.
@@ -901,8 +933,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">{L("Payroll calculation details", "Butiran pengiraan gaji")}</summary>
 <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (1/26 of monthly wage per day, Employment Act — a FIXED divisor; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × working days not yet employed ÷ this month's working days — joiners, leavers and re-joiners only). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
-              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (1/26 gaji bulanan sehari, Akta Kerja — pembahagi TETAP; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari bekerja belum diambil bekerja ÷ hari bekerja bulan ini — pekerja baharu, berhenti dan kembali sahaja). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (monthly wage ÷ the calendar days of the month, per day — Employment Act s.18A, so 1/30 in September and 1/31 in October; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × calendar days not employed ÷ the calendar days of the month, s.18A — joiners, leavers and re-joiners only). Months before September 2026 keep the rule their payslips were issued on: unpaid leave at 1/26 and an incomplete month on working days. Overtime and holiday work stay on ÷ 26, the ordinary rate of pay (s.60I). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
+              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (gaji bulanan ÷ hari kalendar bulan itu, bagi setiap hari — Akta Kerja s.18A, jadi 1/30 pada September dan 1/31 pada Oktober; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari kalendar tidak bekerja ÷ hari kalendar bulan itu, s.18A — pekerja baharu, berhenti dan kembali sahaja). Bulan sebelum September 2026 kekal dengan peraturan slip gajinya dikeluarkan: cuti tanpa gaji pada 1/26 dan bulan tidak lengkap mengikut hari bekerja. OT dan kerja pada cuti umum kekal ÷ 26, iaitu kadar gaji biasa (s.60I). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
             )}
           </p>
           </details>
@@ -1009,7 +1041,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             </p>
           )}
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Working days in this month with no clock-in and no approved leave, and days clocked short of the hours that person's schedule owes — the unpaid break is already taken off, so a 10:00–18:00 day owes 7 hours, not 8. Marking one records it as unpaid leave at 1/26 of the monthly wage per day — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada jam yang dijadualkan untuk orang itu — rehat tanpa gaji sudah ditolak, jadi hari 10:00–18:00 memerlukan 7 jam, bukan 8. Menandakannya merekodkannya sebagai cuti tanpa gaji pada 1/26 gaji bulanan sehari — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
+            {L("Working days in this month with no clock-in and no approved leave, and days clocked short of the hours that person's schedule owes — the unpaid break is already taken off, so a 10:00–18:00 day owes 7 hours, not 8. Marking one records it as unpaid leave, deducted at one calendar day of the month's wage (monthly wage ÷ the days in that month, Employment Act s.18A; 1/26 for months before September 2026) — a short day is charged only for the hours missed, rounded to a quarter day.", "Hari bekerja dalam bulan ini tanpa daftar masuk dan tanpa cuti diluluskan, serta hari yang kurang daripada jam yang dijadualkan untuk orang itu — rehat tanpa gaji sudah ditolak, jadi hari 10:00–18:00 memerlukan 7 jam, bukan 8. Menandakannya merekodkannya sebagai cuti tanpa gaji, dipotong pada satu hari kalendar daripada gaji bulan itu (gaji bulanan ÷ bilangan hari bulan itu, Akta Kerja s.18A; 1/26 bagi bulan sebelum September 2026) — hari pendek dikenakan hanya untuk jam yang kurang, dibundarkan kepada suku hari.")}
           </p>
           <div className="mt-2 space-y-2">
             {absences.map((a) => (
@@ -1153,7 +1185,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const ud = unpaidInfo[u.id];
               const ulDed = hourlyRow ? 0 : (ud?.cents ?? 0);
               const advance = ud?.salary_advance_cents ?? 0;
-              const adj = hourlyRow ? 0 : incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
+              const adj = hourlyRow ? 0 : incFor(u.id, e.basic_cents);
               const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
               const net = netFor(u.id);
               return (
@@ -1280,16 +1312,22 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         <span className="whitespace-nowrap">−{rm(adj + ulDed)}</span>
                         {adj > 0 && (
                           <span className="block"
-                            title={L(`Incomplete month: employed for ${payableDays[u.id] ?? monthDays} of this month's ${monthDays} working days. Only a joiner, a leaver or a re-joiner is prorated.`,
-                                     `Bulan tidak lengkap: bekerja ${payableDays[u.id] ?? monthDays} daripada ${monthDays} hari bekerja bulan ini. Hanya pekerja baharu, berhenti atau kembali dikira prorata.`)}>
-                            {L(`incomplete month · ${payableDays[u.id] ?? monthDays}/${monthDays} days`,
-                               `bulan tidak lengkap · ${payableDays[u.id] ?? monthDays}/${monthDays} hari`)}
+                            title={calendarBasis
+                              ? L(`Incomplete month: employed for ${proDays[u.id] ?? proration.month_days} of this month's ${proration.month_days} calendar days (Employment Act s.18A). Only a joiner, a leaver or a re-joiner is prorated.`,
+                                  `Bulan tidak lengkap: bekerja ${proDays[u.id] ?? proration.month_days} daripada ${proration.month_days} hari kalendar bulan ini (Akta Kerja s.18A). Hanya pekerja baharu, berhenti atau kembali dikira prorata.`)
+                              : L(`Incomplete month: employed for ${payableDays[u.id] ?? monthDays} of this month's ${monthDays} working days. Only a joiner, a leaver or a re-joiner is prorated.`,
+                                  `Bulan tidak lengkap: bekerja ${payableDays[u.id] ?? monthDays} daripada ${monthDays} hari bekerja bulan ini. Hanya pekerja baharu, berhenti atau kembali dikira prorata.`)}>
+                            {calendarBasis
+                              ? L(`incomplete month · ${proDays[u.id] ?? proration.month_days}/${proration.month_days} calendar days`,
+                                  `bulan tidak lengkap · ${proDays[u.id] ?? proration.month_days}/${proration.month_days} hari kalendar`)
+                              : L(`incomplete month · ${payableDays[u.id] ?? monthDays}/${monthDays} days`,
+                                  `bulan tidak lengkap · ${payableDays[u.id] ?? monthDays}/${monthDays} hari`)}
                           </span>
                         )}
                         {ulDed > 0 && (
                           <span className="block"
-                            title={L(`Unpaid leave: ${ud?.days ?? ul} day(s) at 1/26 of the monthly wage${(ud?.rest_days ?? 0) > 0 ? `, plus ${ud?.rest_days} rest day(s) lost because every working day in those weeks was unpaid` : ""}${ud?.capped ? ". Capped so the month's public holidays stay paid." : "."}`,
-                                     `Cuti tanpa gaji: ${ud?.days ?? ul} hari pada 1/26 gaji bulanan${(ud?.rest_days ?? 0) > 0 ? `, campur ${ud?.rest_days} hari rehat yang hilang kerana semua hari bekerja minggu itu tanpa gaji` : ""}${ud?.capped ? ". Dihadkan supaya cuti umum bulan itu kekal dibayar." : "."}`)}>
+                            title={L(`Unpaid leave: ${ud?.days ?? ul} day(s) at ${ulRate} of the monthly wage${(ud?.rest_days ?? 0) > 0 ? `, plus ${ud?.rest_days} rest day(s) lost because every working day in those weeks was unpaid` : ""}${ud?.capped ? ". Capped so the month's public holidays stay paid." : "."}`,
+                                     `Cuti tanpa gaji: ${ud?.days ?? ul} hari pada ${ulRate} gaji bulanan${(ud?.rest_days ?? 0) > 0 ? `, campur ${ud?.rest_days} hari rehat yang hilang kerana semua hari bekerja minggu itu tanpa gaji` : ""}${ud?.capped ? ". Dihadkan supaya cuti umum bulan itu kekal dibayar." : "."}`)}>
                             {L(`unpaid · ${ud?.days ?? ul}d`, `tanpa gaji · ${ud?.days ?? ul}h`)}
                             {(ud?.rest_days ?? 0) > 0 && L(` + ${ud?.rest_days} rest`, ` + ${ud?.rest_days} rehat`)}
                             {ud?.capped && L(" · capped", " · dihad")}
@@ -1339,7 +1377,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         {(unpaidDays[u.id] ?? 0) > 0 && (
                           <span
                             className="ml-1 text-[10px] font-semibold text-danger"
-                            title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at basic ÷ 26 per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada pokok ÷ 26 sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
+                            title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at ${ulRate} of the monthly wage per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada ${ulRate} gaji bulanan sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
                           >
                             UL:{unpaidDays[u.id]}
                           </span>
@@ -1405,7 +1443,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     return a;
                   }
                   const ulDed = unpaidInfo[u.id]?.cents ?? 0;
-                  const adj = incompleteMonthAdj(e.basic_cents, payableDays[u.id] ?? monthDays, monthDays);
+                  const adj = incFor(u.id, e.basic_cents);
                   const ot = otPay(e.basic_cents, e.ot_hours);
                   const phW = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
                   const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;

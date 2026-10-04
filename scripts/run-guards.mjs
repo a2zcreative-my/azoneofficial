@@ -169,6 +169,7 @@ const GUARDS = [
   ["profile-fields", "every field the Profile card reads is one GET /staff/profile actually selects - the card has asked for photo_key since v1.4.141 and the SELECT never named it"],
   ["viewport-settle", "after the phone keyboard closes the layout viewport is put back under the visual one, so the bottom bar and topbar return to the screen edges - never while a field is focused, never under a pinch zoom"],
   ["pay-records", "a salary advance names its request on the payslip and is recovered from the request month or later, an unpaid day is edited only by the CEO and only if the company recorded it, and the attendance donut's names follow the donut's own rules"],
+  ["claim-categories", "the claim form, the API and the claims table allow the same categories - a category the table refuses is a claim silently never saved (stationery, 29-09-2026)"],
 ];
 
 /* worker-compile-gate needs the API's type definitions. Installing them here

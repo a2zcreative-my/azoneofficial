@@ -61,11 +61,41 @@ export function unpaidDaysFromHours(hoursWorked: number): number {
   return Math.round((shortMins / WORK_DAY_MINUTES) * 4) / 4;
 }
 
-/** The unpaid-leave deduction, in sen. Employment Act 1955 s.60I: monthly
-    wages ÷ 26 per day, a FIXED divisor and deliberately not the month's
-    working days. Days may be fractional. */
-export function unpaidCents(monthlyWageCents: number, days: number): number {
-  return days > 0 ? Math.round((monthlyWageCents / 26) * days) : 0;
+/**
+ * SECTION 18A (v1.181.8).
+ *
+ * Employment Act 1955 s.18A: where a monthly-rated employee has not completed
+ * a whole month of service - started after the first day, left before the
+ * last, or took leave without pay - the wages due are
+ *
+ *     monthly wages ÷ days of that wage period × eligible days
+ *
+ * and the days of the wage period are CALENDAR days: 30 in September. From
+ * the September 2026 payroll both the unpaid-leave deduction and the
+ * incomplete month are measured that way. Months before it keep the rule
+ * their payslips were issued on (1/26, and working days), so a recompute of
+ * an old month still lands on the figure that was paid.
+ *
+ * ÷ 26 has not gone: it is the ordinary rate of pay (s.60I) and is still what
+ * overtime and work on a public holiday are paid on.
+ */
+export const PRORATION_18A_FROM = "2026-09";
+
+/** Calendar days in a YYYY-MM month. */
+export function calendarDaysIn(month: string): number {
+  return new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+}
+
+/** What one unpaid day is a fraction of, for a payroll month. */
+export function unpaidDivisorFor(month: string): number {
+  return month < PRORATION_18A_FROM ? 26 : calendarDaysIn(month);
+}
+
+/** The unpaid-leave deduction, in sen: monthly wages ÷ divisor per day. The
+    divisor is 26 for months before September 2026 and the calendar days of
+    the month from then on (unpaidDivisorFor). Days may be fractional. */
+export function unpaidCents(monthlyWageCents: number, days: number, divisor = 26): number {
+  return days > 0 ? Math.round((monthlyWageCents / divisor) * days) : 0;
 }
 
 /** Monday of the week a date falls in. */
@@ -89,6 +119,8 @@ export interface UnpaidInput {
   unpaidDays: number;
   /** The incomplete-month deduction already being taken, in sen. */
   incompleteCents: number;
+  /** What one unpaid day is a fraction of (unpaidDivisorFor). 26 if absent. */
+  divisor?: number;
 }
 
 export interface UnpaidResult { days: number; restDays: number; cents: number; capped: boolean }
@@ -115,7 +147,7 @@ export interface UnpaidResult { days: number; restDays: number; cents: number; c
  * they could before — and would have printed a negative payslip.
  */
 export function unpaidDeduction(inp: UnpaidInput): UnpaidResult {
-  const orp = inp.basicCents / 26;
+  const orp = inp.basicCents / (inp.divisor ?? 26);
   if (!(inp.unpaidDays > 0)) return { days: 0, restDays: 0, cents: 0, capped: false };
   const fully = new Set(inp.fullyUnpaid);
   const byWeek = new Map<string, string[]>();
