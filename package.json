@@ -1,6 +1,6 @@
 {
   "name": "azone-official",
-  "version": "1.181.8",
+  "version": "1.181.9",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "engines": {
@@ -10,6 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "guard": "node scripts/run-guards.mjs",
+    "test:browser": "node scripts/run-browser-checks.mjs",
     "ci": "npm run typecheck && npm run lint && npm run guard && npm run build",
     "start": "next start",
     "lint": "eslint app components lib hooks constants types",

@@ -89,3 +89,7 @@ public/signatures/*
 # has no gate at all. PUSH.bat points git at it (core.hooksPath) every run.
 !.githooks/
 !.githooks/pre-commit
+
+# Local browser validation evidence
+browser-results/
+__pycache__/

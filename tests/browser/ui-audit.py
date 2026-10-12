@@ -34,18 +34,17 @@ Run it the same way as the other two probes:
 
     PREVIEW_URL=  the server           (default http://127.0.0.1:4177)
     WIDTH=        viewport width       (default 390 — the owner's iPhone)
-    LANG=         en | ms              (default en; BM wraps differently)
+    LANG_UI=      en | ms              (default en; BM wraps differently)
     THEME=        light | dark         (default light)
     TABS=         comma-separated      (default: every tab in the bar + More)
 
-Exit code is the number of findings, so it can gate a release the moment the
-team wants it to.
+Exit code is nonzero on findings or an incomplete probe.
 
-KNOWN LIMIT: the tab walker clicks by the ENGLISH label, so a `LANG_UI=ms` run
-covers the bottom bar's own stops and skips whatever sits behind the More
-sheet, whose labels are in Malay. Pass a Malay `TABS=` list to walk those.
+The matrix runner supplies translated labels from the application registry.
+Missing requested tabs fail the probe.
 """
 import os, sys, time
+from probe_common import prepare, click_tab as navigate, complete
 from selenium import webdriver
 
 BASE = os.environ.get("PREVIEW_URL", "http://127.0.0.1:4177")
@@ -64,15 +63,7 @@ opts = webdriver.WebKitGTKOptions()
 opts.binary_location = "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser"
 opts.add_argument("--automation")
 driver = webdriver.WebKitGTK(options=opts)
-driver.set_window_size(WIDTH, 900)
-driver.get(BASE + "/portal")
-driver.execute_script(
-    "try{localStorage.setItem('azone-install-dismissed','1');"
-    "localStorage.setItem('azone-lang',arguments[0]);"
-    "localStorage.setItem('azone-theme',arguments[1])}catch(e){}",
-    LANG, THEME)
-driver.get(BASE + "/portal")
-time.sleep(4)
+prepare(driver, BASE, WIDTH)
 inner = driver.execute_script("return window.innerWidth")
 if inner != WIDTH:
     driver.set_window_size(WIDTH + (WIDTH - inner), 900)
@@ -260,27 +251,7 @@ for (const el of main.querySelectorAll("*")) {
 
 
 def click_tab(name):
-    js = r"""
-    const name = arguments[0];
-    const btns = [...document.querySelectorAll('nav button')].filter((b) => b.textContent.trim() === name);
-    if (btns.length) { btns[0].click(); return "primary"; }
-    const more = [...document.querySelectorAll('button')].find((b) => /^(More|Lagi)$/.test(b.textContent.trim()));
-    if (!more) return "no-more";
-    more.click();
-    return "more-opened";
-    """
-    r = driver.execute_script(js, name)
-    if r == "more-opened":
-        time.sleep(0.8)
-        return driver.execute_script(r"""
-        const name = arguments[0];
-        const dlg = document.querySelector('[role=dialog]');
-        if (!dlg) return "no-dialog";
-        const b = [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
-        if (!b) { const c = [...dlg.querySelectorAll('button')].find((b) => /close|tutup/i.test(b.getAttribute('aria-label') || '')); if (c) c.click(); return "not-in-more"; }
-        b.click(); return "clicked";
-        """, name)
-    return r
+    return navigate(driver, name)
 
 
 def audit(tab):
@@ -306,4 +277,5 @@ for t in TABS:
 
 print(f"\n{total} finding(s) at {WIDTH}px, {LANG}, {THEME}")
 driver.quit()
-sys.exit(min(total, 120))
+complete(total)
+sys.exit(1 if total else 0)

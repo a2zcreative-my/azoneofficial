@@ -13,15 +13,14 @@ word, which is how "Nur Nasuha binti Zainal Abidin" became one letter per
 line on the CEO's phone. Intended multi-line content (a reason string, a
 three-line NET stack) is NOT shredding - its words still fit.
 env: TABS, WIDTH, PORT."""
-import os, time
+import os, time, sys
+from probe_common import prepare, click_tab, complete
 from selenium import webdriver
 TABS=os.environ.get("TABS","Attendance,Payroll,Finance,Commission,Accounting,Staff,Users,Claims,Inventory,Sales,Hankei's,Leave").split(",")
 W=int(os.environ.get("WIDTH","447")); PORT=os.environ.get("PORT","4177")
 o=webdriver.WebKitGTKOptions(); o.binary_location="/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser"; o.add_argument("--automation")
-d=webdriver.WebKitGTK(options=o); d.set_window_size(W,900)
-d.get(f"http://127.0.0.1:{PORT}/portal")
-d.execute_script("try{localStorage.setItem('azone-install-dismissed','1');localStorage.setItem('azone-lang','en');localStorage.setItem('azone-theme','light')}catch(e){}")
-d.get(f"http://127.0.0.1:{PORT}/portal"); time.sleep(4)
+d=webdriver.WebKitGTK(options=o)
+prepare(d, os.environ.get("PREVIEW_URL", f"http://127.0.0.1:{PORT}"), W)
 MEASURE = r"""
  const ruler=document.createElement('span');
  ruler.style.cssText='position:absolute;visibility:hidden;white-space:nowrap;left:-9999px';
@@ -51,8 +50,7 @@ MEASURE = r"""
  ruler.remove();
  return out;"""
 def go(tab):
-    d.execute_script("[...document.querySelectorAll('button')].find((b)=>/^(More|Lagi)$/.test(b.textContent.trim())).click()"); time.sleep(0.8)
-    return d.execute_script("const g=document.querySelector('[role=dialog]'); if(!g) return 0; const b=[...g.querySelectorAll('button')].find((x)=>x.textContent.trim()===arguments[0]); if(!b){const c=[...g.querySelectorAll('button')].find((x)=>/close|tutup/i.test(x.getAttribute('aria-label')||'')); if(c)c.click(); return 0;} b.click(); return 1;", tab)
+    return click_tab(d, tab)
 bad=0
 for tab in TABS:
     if not go(tab): print(f"skip {tab}"); continue
@@ -66,3 +64,5 @@ for tab in TABS:
         print(f"[{W}] {tab}: ok")
 print(f"\n{bad} tab(s) with a shredded table column at {W}px")
 d.quit()
+complete(bad)
+sys.exit(1 if bad else 0)

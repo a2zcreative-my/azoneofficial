@@ -34,6 +34,7 @@ import os
 import sys
 import time
 
+from probe_common import prepare, click_tab, complete
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
@@ -156,17 +157,10 @@ def main() -> int:
     d = webdriver.WebKitGTK(options=opts)
     unnamed, unfocusable = [], []
     try:
-        d.set_window_size(WIDTH, 950)
-        d.get(f"{BASE}/portal")
-        time.sleep(7)
+        prepare(d, BASE, WIDTH)
         for tab in TABS:
-            if tab != "Dashboard":
-                hits = [e for e in d.find_elements(By.TAG_NAME, "button") if e.text.strip() == tab]
-                if not hits:
-                    print(f"  (no sidebar entry named {tab!r} at this width — skipped)")
-                    continue
-                d.execute_script("arguments[0].click()", hits[0])
-                time.sleep(3.5)
+            click_tab(d, tab)
+            time.sleep(3.5)
             for row in d.execute_script(SCRIPT) or []:
                 where = f"{tab}: <{row['tag']}{(' role=' + row['role']) if row['role'] else ''}>"
                 if not row["name"]:
@@ -181,12 +175,10 @@ def main() -> int:
             # keyboard focus: activeElement is still set, but :focus matches
             # NOTHING, and every control then looks like it has no ring. That
             # is the probe being wrong, not the product, so it says so and
-            # judges nothing rather than printing a page of false findings.
+            # fails as incomplete rather than printing false findings or a pass.
             d.execute_script("try { window.focus(); } catch (e) {}")
             if not d.execute_script("return document.hasFocus()"):
-                print(f"  ({tab}: the browser window never took keyboard focus — "
-                      f"focus rings not judged on this tab; names still checked)")
-                continue
+                raise RuntimeError(f"{tab}: keyboard focus unavailable; audit incomplete")
             seen = set()
             for _ in range(int(os.environ.get("TABS_DEPTH", "140"))):
                 body = d.switch_to.active_element
@@ -211,8 +203,10 @@ def main() -> int:
         for where, name, markup in unfocusable:
             print(f"  {where} {name!r}\n      {markup}")
     if not unnamed and not unfocusable:
+        complete(0)
         print("\nPASS — every visible control has a name, and shows where the keyboard is.")
         return 0
+    complete(len(unnamed) + len(unfocusable))
     return 1
 
 

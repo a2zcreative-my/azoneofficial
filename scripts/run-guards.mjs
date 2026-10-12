@@ -62,6 +62,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /* Order matters only for readability — each of these is independent. */
 const GUARDS = [
+  ["browser-harness", "browser orchestration fails closed on skipped probes, unavailable tools, timeouts and missing fixtures"],
+  ["backup-restore", "backup recovery metadata and checksums survive an isolated SQLite restore; corrupted exports fail verification"],
+  ["backup-completeness", "a capped export fails before publishing or pruning backups; exact-limit exports preserve their rows"],
   ["brands-guard", "brand registry, client-permission gate, no hardcoded domains"],
   ["csrf-guard", "every state-changing endpoint is CSRF-protected"],
   ["doc-issuer-render", "quotations/DOs/invoices render under the right letterhead"],

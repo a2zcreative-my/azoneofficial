@@ -2,6 +2,14 @@
 
 Read this file before making any implementation change in this repository.
 
+## Current review and continuation scope - 12 October 2026
+
+Read [the proposed improvement plan](docs/IMPROVEMENT-PLAN-2026-10-12.md) and the current summary at the top of `docs/PROJECT-STATE.md`. After the documentation review, the user said "proceed". Local increments verify release evidence, prevent silently truncated backups, and add a recovery manifest, read-only verifier and synthetic SQLite restore drill; see PROJECT-STATE for completed checks and remaining work. Public API health and login report `1.181.8`; the backup improvements are unreleased. The manifest explicitly records sequential reads, not snapshot consistency; its checksums are not authentication. No deployment or payroll change was performed. Older version-specific deployment statements below are historical and must not override that summary.
+
+Browser validation now has `pnpm test:browser` (Linux WebKitGTK; see `tests/browser/README.md`). The local Windows run failed prerequisite detection; no browser sweep passed. Guard-suite success is not browser-matrix success. Preserve strict missing-fixture/tab and keyboard-focus failures. `.github/workflows/browser-validation.yml` now configures the Linux job, but has not been pushed/run and is not yet a required branch or deployment check. CI uses `BROWSER_PYTHON=/usr/bin/python3`; do not silently change to a Python without Selenium.
+
+For each authorised implementation, keep its module docs and PROJECT-STATE in sync with actual scope, checks and remaining tasks; update CHANGELOG for user-visible or operational changes. Record deployed status only from successful release evidence. Do not treat proposed work as implemented or a historical approval as approval for a new release.
+
 ## Required preflight
 
 1. Read `docs/PROJECT-STATE.md`, `CHANGELOG.md`, and the relevant module documentation.

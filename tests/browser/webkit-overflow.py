@@ -12,6 +12,7 @@ walk the tabs, report every element past the page's content box - the check
 Chromium cannot stand in for. Needs: serve-mock.mjs on PORT, Xvfb (run via
 xvfb-run), WebKitWebDriver + MiniBrowser (webkit2gtk-driver)."""
 import json, os, sys, time
+from probe_common import prepare, click_tab as navigate, complete
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
@@ -24,18 +25,7 @@ opts = webdriver.WebKitGTKOptions()
 opts.binary_location = "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser"
 opts.add_argument("--automation")
 driver = webdriver.WebKitGTK(options=opts)
-driver.set_window_size(WIDTH, 900)
-driver.get(BASE + "/portal")
-driver.execute_script("try{localStorage.setItem('azone-install-dismissed','1');localStorage.setItem('azone-lang','en');localStorage.setItem('azone-theme','light')}catch(e){}")
-driver.get(BASE + "/portal")
-time.sleep(4)
-inner = driver.execute_script("return [window.innerWidth, document.documentElement.clientWidth]")
-print("viewport", inner, "ua", driver.execute_script("return navigator.userAgent")[:80])
-if inner[0] != WIDTH:
-    # the window includes MiniBrowser chrome; correct so the CONTENT is WIDTH wide
-    driver.set_window_size(WIDTH + (WIDTH - inner[0]), 900)
-    time.sleep(1)
-    print("viewport now", driver.execute_script("return [window.innerWidth, document.documentElement.clientWidth]"))
+prepare(driver, BASE, WIDTH)
 
 MEASURE = r"""
 const w0 = window.innerWidth;
@@ -75,28 +65,8 @@ def measure(tab):
     return bad
 
 def click_tab(name):
-    js = r"""
-    const name = arguments[0];
-    const btns = [...document.querySelectorAll('nav button')].filter((b) => b.textContent.trim() === name);
-    if (btns.length) { btns[0].click(); return "primary"; }
-    const more = [...document.querySelectorAll('button')].find((b) => /^(More|Lagi)$/.test(b.textContent.trim()));
-    if (!more) return "no-more";
-    more.click();
-    return "more-opened";
-    """
-    r = driver.execute_script(js, name)
-    if r == "more-opened":
-        time.sleep(0.8)
-        r2 = driver.execute_script(r"""
-        const name = arguments[0];
-        const dlg = document.querySelector('[role=dialog]');
-        if (!dlg) return "no-dialog";
-        const b = [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
-        if (!b) { const c = [...dlg.querySelectorAll('button')].find((b) => /close|tutup/i.test(b.getAttribute('aria-label') || '')); if (c) c.click(); return "not-in-more"; }
-        b.click(); return "clicked";
-        """, name)
-        return r2
-    return r
+    return navigate(driver, name)
+
 
 total = 0
 total += measure("Dashboard")
@@ -109,3 +79,5 @@ for t in TABS:
     total += measure(t)
 print(f"\n{total} tab(s) with overflow in WebKit at {WIDTH}px")
 driver.quit()
+complete(total)
+sys.exit(1 if total else 0)

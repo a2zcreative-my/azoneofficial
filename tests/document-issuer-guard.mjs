@@ -189,6 +189,24 @@ if (!existsSync(ISSUERS)) {
   }
 }
 
+/* ---- v1.181.9: AZ ONE OFFICIAL sells no products ----
+   The CEO, 12-10-2026: "AZ ONE OFFICIAL doesnt sell a product. the
+   description should manually insert by staff instead." The form offered the
+   Inventory picker under AZ ONE's letterhead; an AZ ONE document is
+   consultancy work, typed by the staff member. */
+{
+  const staffA = readFileSync('worker/src/staff.ts', 'utf8');
+  const salesA = readFileSync('components/portal/sales.tsx', 'utf8');
+  if (!/const kindD = [^\n]*: azooD \? "service" : "product";/.test(staffA))
+    errors.push('worker/src/staff.ts: an AZ ONE document no longer defaults to service lines');
+  if (!/if \(azooD && kindD !== "service"\) \{\s*return err\("invalid_input", "AZ ONE OFFICIAL sells no products/.test(staffA))
+    errors.push('worker/src/staff.ts: a product document under AZ ONE OFFICIAL is no longer refused - the form is not the only client of /docs');
+  if (!/v === "azoo"\s*\?\s*\{[\s\S]{0,120}?kind: "service",[\s\S]{0,200}?items: d\.items\.map\(\(it\) =>\s*it\.sku \? \{ name: "", qty: it\.qty, unit_price_cents: 0 \} : it/.test(salesA))
+    errors.push('components/portal/sales.tsx: choosing AZ ONE no longer switches the document to typed service lines');
+  if (!/doc\.issuer === "azoo" && doc\.kind === "service" \? \(/.test(salesA))
+    errors.push('components/portal/sales.tsx: the Product option is offered again under AZ ONE OFFICIAL');
+}
+
 /* ---- v1.85.0: the payslip employer ----
    The CEO, on his August payslip: "payslip capture AZ ONE OFFICIAL instead
    of A2Z Creative Marketing". The mechanism was right since v1.28.0; the

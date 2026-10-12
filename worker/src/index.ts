@@ -1,3 +1,4 @@
+import { backupManifest } from "./backup-manifest";
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
@@ -1556,9 +1557,8 @@ async function logError(env: Env, source: string, message: string, path?: string
 /** v1.4.72: nightly database backup to R2. Dumps every application table as
     JSON to backups/db-YYYY-MM-DD.json (MYT date) and keeps the newest 30 —
     a bad migration or accidental delete is recoverable from any of them.
-    Row cap per table guards against a runaway payload; audit_log is the only
-    table anywhere near it. */
-async function runBackup(env: Env, actorId: number | null): Promise<
+    Exceeding the row cap fails before publishing or pruning any backup. */
+export async function runBackup(env: Env, actorId: number | null): Promise<
   | { ok: true; key: string; tables: number; rows: number; bytes: number }
   | { ok: false; message: string }
 > {
@@ -1573,15 +1573,21 @@ async function runBackup(env: Env, actorId: number | null): Promise<
     const dump: Record<string, unknown[]> = {};
     let rowCount = 0;
     for (const t of tables) {
-      if (!/^[A-Za-z0-9_]+$/.test(t.name)) continue; // defence in depth
-      const { results } = await env.DB.prepare(`SELECT * FROM "${t.name}" LIMIT 50000`).all();
+      if (!/^[A-Za-z0-9_]+$/.test(t.name)) throw new Error("Backup encountered an unsupported table name; no backup was published.");
+      // Read one sentinel row beyond the bounded export. Never publish a
+      // truncated table as a successful backup or replace the previous copy.
+      const { results } = await env.DB.prepare(`SELECT * FROM "${t.name}" LIMIT 50001`).all();
+      if (results.length > 50000) {
+        throw new Error(`Backup incomplete: table ${t.name} exceeds the 50000-row export limit. No backup was published; use a full database export.`);
+      }
       dump[t.name] = results;
       rowCount += results.length;
     }
     const mytDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     // v1.4.76: gzip the dump (R2 free tier) — JSON compresses ~85–90%.
     const key = `backups/db-${mytDate}.json.gz`;
-    const raw = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump });
+    const manifest = await backupManifest(env.DB, dump, WORKER_VERSION);
+    const raw = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump, manifest });
     const gzipped = new Response(
       new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")),
     );

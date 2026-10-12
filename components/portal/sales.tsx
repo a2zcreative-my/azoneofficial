@@ -1799,9 +1799,30 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     <select
                       className={inputClass}
                       value={doc.issuer}
-                      onChange={(e) =>
-                        setDoc((d) => ({ ...d, issuer: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        /* v1.181.9 (CEO: "AZ ONE OFFICIAL doesnt sell a
+                           product. the description should manually insert
+                           by staff instead") - choosing AZ ONE turns the
+                           document into service lines. A line already
+                           picked from Inventory is A2Z's stock, not AZ ONE
+                           work, so it is emptied for the staff member to
+                           describe; a line somebody typed is kept. */
+                        setDoc((d) =>
+                          v === "azoo"
+                            ? {
+                                ...d,
+                                issuer: v,
+                                kind: "service",
+                                doc_type: d.doc_type === "DO" ? "QT" : d.doc_type,
+                                delivery_cents: 0,
+                                items: d.items.map((it) =>
+                                  it.sku ? { name: "", qty: it.qty, unit_price_cents: 0 } : it
+                                ),
+                              }
+                            : { ...d, issuer: v }
+                        );
+                      }}
                     >
                       <option value="a2z">
                         {L("A2Z CREATIVE MARKETING — default", "A2Z CREATIVE MARKETING — lalai")}
@@ -1813,8 +1834,8 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     {doc.issuer === "azoo" && (
                       <span className="text-warning mt-1 block text-[11px] leading-snug">
                         {L(
-                          "This document will carry AZ ONE OFFICIAL's letterhead and instruct payment to AZ ONE's Maybank account. Use only for consultancy work done as AZ ONE.",
-                          "Dokumen ini akan membawa kepala surat AZ ONE OFFICIAL dan mengarahkan bayaran ke akaun Maybank AZ ONE. Guna hanya untuk kerja perundingan sebagai AZ ONE."
+                          "This document will carry AZ ONE OFFICIAL's letterhead and instruct payment to AZ ONE's Maybank account. Use only for consultancy work done as AZ ONE. AZ ONE sells no products, so every line is a service you describe.",
+                          "Dokumen ini akan membawa kepala surat AZ ONE OFFICIAL dan mengarahkan bayaran ke akaun Maybank AZ ONE. Guna hanya untuk kerja perundingan sebagai AZ ONE. AZ ONE tidak menjual produk, jadi setiap baris ialah perkhidmatan yang anda huraikan."
                         )}
                       </span>
                     )}
@@ -1852,6 +1873,16 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     choice tags the document, steers the item placeholder, and
                     removes Delivery Order for services. v1.27.0: the labels
                     name the KIND of line, not one client. */}
+                {doc.issuer === "azoo" && doc.kind === "service" ? (
+                  /* v1.181.9 - AZ ONE has one line of business, so there is
+                     nothing to choose: the toggle becomes a statement. */
+                  <p className="erp-note erp-note-info erp-mt-2">
+                    {L(
+                      "Service — consultancy work. Type each line's description.",
+                      "Perkhidmatan — kerja perundingan. Taip huraian setiap baris."
+                    )}
+                  </p>
+                ) : (
                 <div className="mt-1.5 flex gap-2">
                   {(
                     [
@@ -1889,6 +1920,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     </button>
                   ))}
                 </div>
+                )}
               </div>
             </div>
 

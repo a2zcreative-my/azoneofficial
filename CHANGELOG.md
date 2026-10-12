@@ -2,6 +2,65 @@
 
 All notable changes to the AZ ONE OFFICIAL platform.
 
+## [Unreleased]
+
+### Linux browser CI configuration - 12 October 2026
+
+- Added a pull-request/manual GitHub Actions job for locked dependency installation, types, lint, guards and the full WebKitGTK matrix on Ubuntu 24.04, with retained evidence and pinned action commits.
+- Added `BROWSER_PYTHON` so CI uses Ubuntu's Selenium-enabled system interpreter.
+- Static workflow validation and orchestration tests passed locally. The workflow is not pushed or remotely verified; branch/deployment rules and production are unchanged.
+
+### Browser validation harness - 12 October 2026
+
+- Added `pnpm test:browser`: fresh-build Linux WebKitGTK matrix across three roles, two widths, two languages and two themes, using the existing tab/translation registries.
+- Overflow and table-shredding probes now fail on findings. Shared navigation/setup rejects missing tabs; unavailable keyboard focus fails the accessibility audit. Unknown fixture GET routes are recorded and fail the runner.
+- Added bounded process execution, cleanup, per-probe logs, a machine-readable result and browser-free orchestration regression tests. Existing CI/release commands are unchanged; the Linux environment must invoke this standalone gate.
+- Windows prerequisite detection was verified; no WebKit sweep was completed locally.
+
+### Backup integrity - 12 October 2026
+
+- Database JSON exports now reject tables above the 50,000-row limit instead of publishing truncated backups as successful. The rejection happens before R2 publication or retention, preserving existing copies and reporting the failure through the existing error log.
+- Added the executable `backup-completeness` guard and a backup recovery runbook.
+- Added an additive versioned recovery manifest with row counts/checksums, schema, applied migrations and ID sequences. A read-only verifier detects corruption; an isolated synthetic SQLite restore guard checks recovered rows, totals, constraints and sequence continuity. Larger exports, aggregate memory, snapshot consistency, real D1/R2 recovery and attachments remain follow-up work.
+- Public API health and login reported 1.181.8; migration health reported no pending latest migration. This local fix is not deployed, and payroll completion remains unverified.
+
+### Documentation - 12 October 2026
+
+- Added a proposed project improvement plan with evidence, acceptance criteria and targeted check results.
+- Updated README, CLAUDE guidance and the current handoff summary to distinguish local version 1.181.8 from unverified production status and historical release notes.
+- Flagged the past September payroll follow-up deadline for verification. No application code, configuration, database, payroll records or deployment changed.
+
+## [1.181.9] - 2026-10-12 - AZ ONE OFFICIAL documents are typed service lines
+
+The CEO: "AZ ONE OFFICIAL doesnt sell a product. the description should
+manually insert by staff instead."
+
+### Root cause
+
+- The Issued-by choice and the Product / Service choice were independent.
+  A new document defaults to Product, so picking AZ ONE OFFICIAL left the
+  Inventory picker ("pick a product") on a consultancy document - A2Z's
+  stock offered under AZ ONE's letterhead and bank account.
+
+### Changed
+
+- Choosing **AZ ONE OFFICIAL** turns the document into service lines: the
+  description is a box the staff member types in, the price is editable,
+  and Delivery Order and the delivery fee are gone (nothing ships). The
+  Product / Service buttons are replaced by a note saying so.
+- A line already picked from Inventory before switching is emptied for the
+  staff member to describe; a line somebody typed is kept.
+- The server refuses a product document under AZ ONE OFFICIAL and, when no
+  kind is sent, files an AZ ONE document as a service - the form is not the
+  only thing that can call `/docs`.
+- A2Z CREATIVE MARKETING documents are unchanged: Product still picks from
+  Inventory with the locked list price.
+- Existing documents are not touched.
+
+### Guard
+
+- `document-issuer-guard` holds the server rule and the form's switch.
+
 ## [1.181.8] - 2026-10-04 - Unpaid leave and an incomplete month follow s.18A
 
 The CEO brought a review of the September payroll. One unpaid day on a

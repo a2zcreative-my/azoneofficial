@@ -8297,7 +8297,17 @@ export async function handleStaff(
        details"): every document is for ONE line, product or service.
        Delivery Orders are product-only — a service delivers nothing
        physical, so a service DO is refused outright. */
-    const kindD = typeof body.kind === "string" && ["product", "service"].includes(body.kind) ? body.kind : "product";
+    /* v1.181.9 (CEO, 12-10-2026: "AZ ONE OFFICIAL doesnt sell a product.
+       the description should manually insert by staff instead") - an AZ ONE
+       document is consultancy work, so every line is a service the staff
+       member types. A product document under AZ ONE would print stock A2Z
+       sells on AZ ONE's letterhead and send the client to AZ ONE's bank
+       account for it, so it is refused here, not only hidden in the form. */
+    const azooD = body.issuer === "azoo";
+    const kindD = typeof body.kind === "string" && ["product", "service"].includes(body.kind) ? body.kind : azooD ? "service" : "product";
+    if (azooD && kindD !== "service") {
+      return err("invalid_input", "AZ ONE OFFICIAL sells no products - its documents are service lines typed by hand. Choose Service, or issue the product document as A2Z CREATIVE MARKETING.", 400);
+    }
     if (docType === "DO" && kindD === "service") {
       return err("invalid_input", "A Delivery Order is for goods — services have nothing to physically deliver. Use a Quotation or Invoice for the service.", 400);
     }

@@ -2,12 +2,14 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Documentation baseline reviewed on 20 September 2026: release **1.166.0**; previous production **1.165.0**.
+Repository review: **12 October 2026**, local source **1.181.8**. Public API health and login both report **1.181.8**; the local backup improvements are unreleased; see the current summary in [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md).
 The Hankeis/Telegram server and portal work passed the release gates; the external Telegram adapter remains separate work. See [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md) before editing or deploying.
 
 Claude and other contributors must read [CLAUDE.md](CLAUDE.md), [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md), and the latest [CHANGELOG.md](CHANGELOG.md) entry before implementation. `PUSH.bat` now refuses dirty worktrees by default so one contributor cannot silently clean, commit, or deploy another contributor's changes.
 
 ## Current Plan
+
+Read the [12 October improvement plan](docs/IMPROVEMENT-PLAN-2026-10-12.md) for the latest review, priorities, acceptance criteria and Claude handoff. Implementation has begun with release verification, backup completeness checks, a recovery manifest and an isolated synthetic restore drill. Remaining phases are pending; see the current handoff for evidence and limitations. The earlier plans below remain background for their respective programmes.
 
 Start with [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md#current-erp-plan---17-september-2026)
 for the ERP review, phased implementation, two-company requirements, verified
@@ -45,8 +47,9 @@ Open http://localhost:3000.
 - `pnpm build` — production build
 - `pnpm lint` — ESLint
 - `pnpm typecheck` — TypeScript check (no emit)
+- `pnpm test:browser` — Linux WebKitGTK matrix; see [browser checks](tests/browser/README.md). Invoked by the new Linux GitHub workflow; not part of local `pnpm ci`. Remote validation is pending.
 - `pnpm guard` — repository checks listed in `scripts/run-guards.mjs`
-- `pnpm ci` — typecheck, guards, and production build
+- `pnpm ci` — typecheck, lint, guards, and production build
 - `pnpm format` — Prettier
 
 ## Structure

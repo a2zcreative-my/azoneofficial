@@ -1,5 +1,7 @@
 # Database
 
+Current backup limits, validation and recovery follow-up: [Backup recovery](BACKUP-RECOVERY.md). The local 12 October improvements reject oversized exports and attach schema/migration/sequence metadata and checksums. A read-only verifier and synthetic SQLite restore drill are available; these changes are not yet deployed.
+
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
 

@@ -29,6 +29,7 @@ const items = [
 const queue = [{ id: "task:1", bucket: "tasks", title: "Check inventory delivery", sub: "Nur Aisyah", since: "2026-09-14 08:00:00", tab: "Tasks", overdue: true }];
 function baseFixture(p) {
   let data = { records: [], tasks: [], leave: [], leaves: [], announcements: [], events: [], sessions: [], items: [], rows: [], findings: [], open: [], watchers: [], notifications: [], users: [], versions: {}, materials: [], returns: [], outs: [], birthdays: [], holidays: [], lines: [], buckets: [], staff: [], customers: [], docs: [], clients: [], hosts: [], cities: [], orders: [], rules: [], assets: [], hotels: [], states: [], by_state: {}, reports: [], claims: [], can_decide: true, expenses: [], accounts: [], rates: [], balances: {}, days: [], base: [], entries: [], banks: [], people: {}, overrides: {}, mine: { allow: [], deny: [] }, punches: [], requests: [], memberships: [], setup: [], summary: {}, counts: {}, total: 0, missing: [], targets: [], daily: [], products: [], skus: [], videos: [], lives: [], series: [], points: [], months: [] };
+  const fallback = data;
   if (p === "/auth/me") data = { user: { id: 9001, name: "Fixture Person", role: ROLE, email: "fixture@example.test", status: "active" } };
   if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 } };
   if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {} };
@@ -45,7 +46,7 @@ function baseFixture(p) {
   if (p === "/staff/hankeis/catalogue") data = { products: [], packages: [] };
   if (p === "/staff/hankeis/customers") data = { customers: [] };
   if (p === "/staff/sales-performance/overview") Object.assign(data, { me: 9001, can_manage: true, today: "2026-09-16", days: 1, tiktok_orders: [], range: { from: "2026-09-16", to: "2026-09-16", label: "today" } });
-  return data;
+  return data === fallback ? undefined : data;
 }
 
 
@@ -145,7 +146,7 @@ const accounts = [
   { id: 4, code: "3000", name: "Capital", type: "equity", debit_cents: 0, credit_cents: 1950000 },
 ];
 
-export function fixture(p0, url) {
+export function fixture(p0, url, { onMissing = () => {} } = {}) {
   let data = baseFixture(p0);
   const q = url ? new URL(url).searchParams : new URLSearchParams();
   /* the panels' own prefixes: makeApi("/staff"), makeApi("/staff/erp"), makeApi("/staff/companies") */
@@ -295,5 +296,6 @@ export function fixture(p0, url) {
     pending_migration: false,
   };
   if (p === "/staff/finance/pnl" || p === "/finance/pnl") data = { month: "2026-09", revenue_cents: 2000000, cogs_cents: 300000, expenses_cents: 1800000, net_cents: -100000, rows: [] };
+  if (data === undefined) { onMissing(p0); return {}; }
   return data;
 }
