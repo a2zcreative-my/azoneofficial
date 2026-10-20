@@ -174,6 +174,7 @@ const GUARDS = [
   ["pay-records", "a salary advance names its request on the payslip and is recovered from the request month or later, an unpaid day is edited only by the CEO and only if the company recorded it, and the attendance donut's names follow the donut's own rules"],
   ["claim-categories", "the claim form, the API and the claims table allow the same categories - a category the table refuses is a claim silently never saved (stationery, 29-09-2026)"],
   ["quotation-revisions", "a quotation revised at the customer's request keeps its number, prints REV n dated the day it was revised, and keeps every version it replaced (20-10-2026)"],
+  ["business-joins", "the ERP roadmap only adds: no phase writes to a table that carries today's money, pay or people, part payments never mark an invoice paid, and each join keeps its source screen's authority (20-10-2026)"],
 ];
 
 /* worker-compile-gate needs the API's type definitions. Installing them here

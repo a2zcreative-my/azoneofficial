@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { StatStrip, StatTile } from "@/components/ui/stat-tile";
+import { BooksPanel } from "@/components/portal/books-panel"; // v1.181.15
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
@@ -171,6 +172,12 @@ export function AccountingPanel() {
         </table>
       </div>
       </div>
+      </TabZone>
+
+      {/* v1.181.15 (ERP roadmap phase 3) - month end, position and the audit
+          trail. Reads, plus a snapshot when a month is closed; nothing locks. */}
+      <TabZone label={L("Month end", "Hujung bulan")}>
+        <BooksPanel />
       </TabZone>
 
       <TabZone label={L("Adjustments", "Pelarasan")}>

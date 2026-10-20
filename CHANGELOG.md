@@ -10,6 +10,311 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.181.17] - 2026-10-20 - ERP roadmap phase 5: joining and leaving, probation, HR letters, training, team leave calendar, quotation approval limit
+
+Phase 5 of five (`docs/ERP-ROADMAP.md`), the last.
+
+### Added
+
+- **HR -> Joining, leaving and letters** (a new zone after Administration,
+  HR managers only), one card with four panes:
+  - **Joining & leaving**: everyone who joined in the last 90 days with
+    joining steps still open (the existing checklist in Staff Details, read
+    only), and everyone leaving or who left in the last 60 days, with a
+    leaving checklist (assets returned, access removed, claims settled,
+    final pay, exit letter, WhatsApp groups) and how many company assets
+    they still hold.
+  - **Probation**: everyone whose status is Probation, with the day it ends
+    (suggested three months after joining) and Confirm / Extend (new end
+    date) / End. The decision is recorded; the employment status is still
+    changed in Staff Details. After a decision, Letters opens on the
+    matching letter.
+  - **Letters**: offer, confirmation, probation extension, warning,
+    resignation acceptance, employment verification. Drafted from the
+    person's record, edited, numbered A2Z/HR/YYYY/NNN, printed on the
+    letterhead and signed by hand (no signature image). A letter with
+    [blanks] left in cannot be issued. Reprint and void (with a reason).
+  - **Training**: course, provider, date, hours, cost and who paid.
+- **Leave -> Team leave** (in The company, for the roles that decide
+  leave): one month, a row per person, approved leave filled and pending
+  outlined; the Away row marks a day when two people of the same
+  department are away.
+- **The Desk** gains **People** for HR (probation ending within 14 days or
+  undecided past its end, open joining steps for someone who joined in the
+  last 60 days, open leaving steps) and **Quotations to approve** for the
+  CEO.
+- **Quotation approval limit** (Sales -> Documents, the CEO's own switch;
+  OFF by default). With a limit, a quotation raised or revised after it was
+  turned on with a total above it shows "Awaiting CEO approval" in place of
+  Send PDF until the CEO approves that revision (Approve on the row, and
+  the Desk). PDF printing is unchanged. Turning it off removes every effect.
+
+### Unchanged, on purpose
+
+- No employment status, leave record, payroll figure or document is
+  changed by anything in this phase. The joining checklist is still ticked
+  in Staff Details.
+- Training paid by the company is still claimed or paid through Claims or
+  Finance.
+- With the approval limit off (the default) Sales behaves exactly as before.
+
+### Database
+
+- Migration `0144_people`: tables `leaving_checklists`, `probation_reviews`,
+  `hr_letters`, `training_records`, `business_settings`,
+  `quotation_approvals`. Nothing is seeded. Registered as the latest
+  migration with a health probe.
+
+### Guards
+
+- `business-joins` phase 5 block (102 checks in all, with the docs block): phase 5 writes only its
+  own six tables and never an employment status; HR routes use hr_manage and
+  the calendar team_manage (read only); the joining keys are exactly Staff
+  Details' own; letters are voided not deleted and carry no signature image;
+  a letter with blanks cannot be issued; the approval limit is off until set,
+  CEO or super admin only, per revision, only for quotations after it was
+  turned on (revised_at is Malaysia time, pinned); with it off Send PDF is
+  unchanged; 0144 only adds.
+- `business-joins` docs block: `AGENTS.md`, `CLAUDE.md` and
+  `docs/ERP-ROADMAP.md` must name the latest migration and the business.ts
+  door, so the documents every AI tool reads cannot fall behind the code.
+
+### Release
+
+- `PUSH.bat` now also removes the "-3" and "-4" twins of a file (and the
+  CSS, Markdown and JSON twins, in docs, tests/browser, components/public
+  and components/staff too) before the guards run, and `.gitignore` lists
+  them. The 20-10-2026 pushes were refused by registry-parity because files
+  delivered in chat had been downloaded a second time into the folder as
+  `tests/business-joins-3.mjs` and nine others.
+
+### Documentation
+
+- New `AGENTS.md`: one contract for every AI tool (Codex, Copilot, Cursor,
+  Gemini CLI, Claude) - what the repository is, what to read first, the
+  rules that are never broken, the gate, and where each ERP module lives.
+  `GEMINI.md` and `.github/copilot-instructions.md` point to it; `CLAUDE.md`
+  gains the ERP programme section; `README.md` points to both and its
+  documentation table now lists only files that exist.
+
+## [1.181.16] - 2026-10-20 - ERP roadmap phase 4: the client file, follow-ups, monthly invoices, acceptance on the link
+
+Phase 4 of five (`docs/ERP-ROADMAP.md`). Everything sits beside the customer
+record and the documents, never inside them.
+
+### Added
+
+- **Sales -> Customers -> File** on a client's row (a dialog), with:
+  - **Tags** (up to 12 per client). Tags show beside the client's name, and
+    the list can be filtered by a tag.
+  - **Credit terms** (7 to 90 days, or none). With terms set, a NEW invoice
+    for that client is created with its due date (invoice date + terms); the
+    form and its preview say so before saving. Without terms nothing
+    changes ("Payment due: On receipt", as today). Issued invoices are never
+    touched, and editing an invoice never sets a due date.
+  - **Contacts**: more than one person per company, with role, phone (a
+    WhatsApp button) and email. Removing one keeps it on record.
+  - **Follow-ups**: a day, a note and an owner from the sales team. Due and
+    overdue ones show on the owner's **Desk** (unowned ones on every sales
+    desk). Done or cancelled, never deleted.
+  - **Monthly invoice**: pick one of the client's invoices and a day of the
+    month. Nothing raises it by itself. On its day it shows on the **Desk**
+    and at the top of **Sales -> The work**; **Fill the form** loads its
+    lines into the normal Create document form with the reference
+    "Recurring R-n · YYYY-MM", and the person reviews and saves it as any
+    invoice. Once saved, the month counts as raised.
+- **Enquiries -> Make quotation** on an enquiry marked "Became business"
+  (for roles that can open Sales): opens Sales -> Create document with the
+  client picked (or the new-customer form filled) and the reference
+  "Enquiry #n", through the existing quotation handoff.
+- **Accept on the shared link**: a shared quotation now has an "Accept this
+  quotation" card (name, optional position, a tick box). It records who
+  accepted which revision, when and from which address - once per revision -
+  and says on the page that it is not a payment. The quotation shows
+  **Customer acceptance** in its details, and says when an earlier revision
+  was accepted but the current one is not. The customer history shows
+  acceptances and follow-ups.
+
+### Unchanged, on purpose
+
+- No status changes on acceptance; no document is created by a machine; no
+  existing invoice changes. The customers table is not altered.
+- The prospects pipeline stays retired (owner, v1.21.0). Enquiries remain
+  the funnel.
+- The quotation handoff behaves as before when it carries no source; it now
+  waits for the customer list to load before matching the company.
+
+### Database
+
+- Migration `0143_customer_joins`: tables `customer_contacts`,
+  `customer_tags`, `customer_followups`, `customer_terms`,
+  `recurring_invoices`, `quotation_acceptances`. Registered as the latest
+  migration with a health probe.
+
+### Guards
+
+- `business-joins` phase 4 block (80 checks in all): phase 4 writes only its
+  own six tables; reads need Sales, writes the sales permission; contacts and
+  follow-ups are stamped, never deleted; follow-up owners are sales staff;
+  nothing schedules a recurring invoice and business.ts creates no document;
+  credit terms reach only a new unpaid invoice of a client with terms;
+  acceptance writes one table, only for a quotation, once per revision,
+  rate-limited per address; the Desk only reads; prospects stay retired;
+  the enquiry handoff needs "Became business" and access to Sales; 0143 only
+  adds.
+
+## [1.181.15] - 2026-10-20 - ERP roadmap phase 3: month end, position, audit trail, stock take
+
+Phase 3 of five (`docs/ERP-ROADMAP.md`). Everything here reads, except a
+month close (a snapshot) and posting a stock take (stock moves by the counted
+difference, like a manual correction).
+
+### Added
+
+- **Accounting -> Month end** (a new zone between The books and
+  Adjustments), three panes in one card:
+  - **Month end**: the last six months with the figures the portal's own
+    screens compute - invoiced, received (invoices marked paid, by paid
+    date), part payments, expenses, stock received at cost, payroll net,
+    documents. **Close month** (only a month that has ended) keeps a copy of
+    those figures with an optional note. Nothing is locked. If anything dated
+    in a closed month changes later, the month shows "changed since close"
+    and each figure's difference. **Reopen** needs a reason; every close is
+    kept, reopened ones marked.
+  - **Position**: customers owe (unpaid invoices less part payments, with
+    due date and what was received), we owe suppliers (bills recorded on
+    Receive stock and not yet paid), stock at cost by category, and how many
+    items on the shelf have no unit cost.
+  - **Audit trail** (CEO and super admin only; the pane appears only for
+    them): the latest 100 actions, filtered by area and by text in the
+    record or detail.
+- **Inventory -> Stock take** (a new zone after Receive stock): start a
+  count of every item or one category; the portal notes what it held for
+  each item at that moment. Type counts as you go, save as often as you
+  like, filter by uncounted or different. **Post differences** moves each
+  counted item by (counted - held at start) and logs it in What moved as a
+  stock count variance (found / missing), the same reasons a manual
+  correction uses. Blank lines are not touched. A difference that would take
+  the shelf below zero is refused with the item named, to be recounted.
+  **Cancel** leaves stock as it is. One count open at a time.
+
+### Unchanged, on purpose
+
+- Closing a month locks nothing: no route other than the books reads
+  `period_closes`, so every save, release and report works exactly as before.
+- Sales, receipts and manual movements carry on during a stock take; the
+  difference is taken against the snapshot, so a piece sold mid-count is
+  never counted twice.
+- The stock status rule and the low-stock alert reset are staff.ts's, word
+  for word.
+
+### Database
+
+- Migration `0142_books_stock_take`: tables `period_closes`, `stock_counts`,
+  `stock_count_lines`. Registered as the latest migration with a health
+  probe.
+
+### Guards
+
+- `business-joins` phase 3 block (60 checks in all): the books write only
+  `period_closes`, nothing else reads it, only an ended month closes, reopen
+  needs a reason, the books use `accounting_manage`, the audit trail is
+  CEO / super admin with bound filters, a stock take uses `inventory`, one
+  open at a time, posts relative differences as variances in one batch,
+  refuses a shelf below zero, never touches a blank line, cancel moves no
+  stock, 0142 only adds.
+
+## [1.181.14] - 2026-10-20 - ERP roadmap phase 2: receive stock from suppliers
+
+Phase 2 of five (`docs/ERP-ROADMAP.md`). Purchasing stays retired, as the
+owner decided on 20-10-2026; stock comes in through a form instead.
+
+### Added
+
+- **Inventory -> Receive stock** (a new zone between Record and What moved),
+  three panes in one card:
+  - **Receive**: supplier (suggests past suppliers), day it arrived, the
+    supplier's DO / invoice number, and up to 30 lines of item, quantity and
+    unit cost. Each line raises the shelf and appears in What moved as a
+    restock, written by the same movement log a manual stock in uses. A box
+    (ticked by default) moves each item's unit cost to the moving average of
+    what was on the shelf and what arrived; a zero-cost line never drags the
+    average down. An optional supplier bill due date records what is owed.
+  - **Received**: every receipt (GRN-00001 ...) with lines, total, who
+    received it and the bill status; **Bill paid** records when the supplier
+    was paid; **Void** takes the stock back out as a correction (refused if
+    the stock has already left) and restores the unit cost only if no later
+    receipt has averaged over it.
+  - **Reorder**: an optional reorder level and usual order quantity per item,
+    and the list of items at or under their level.
+
+### Unchanged, on purpose
+
+- Receiving writes no expense, no cash entry and no journal line: the profit
+  and loss and the cash book read exactly as before. Marking a supplier bill
+  paid records it on the receipt only; the payment is recorded in Finance as
+  today.
+- The stock status rule (0 out, 5 or fewer low) and the low-stock alert are
+  the existing ones. A reorder level changes no alert.
+- Manual stock in / out, supplier returns and every other movement are
+  untouched.
+
+### Database
+
+- Migration `0141_stock_receipts`: tables `stock_receipts`,
+  `stock_receipt_lines`; nullable `inventory_items.reorder_level` and
+  `reorder_qty`. Registered as the latest migration with a health probe.
+
+### Guards
+
+- `business-joins` phase 2 block: the movement row matches a manual stock
+  in, stock moves relatively, the status and low-alert rules are staff.ts's,
+  the receipt is all-or-nothing, nothing reaches Finance, void refuses stock
+  already gone, the watcher is unchanged, Purchasing stays retired.
+
+## [1.181.13] - 2026-10-20 - ERP roadmap phase 1: customer history and part payments
+
+The owner asked for the portal to become a joined HRM, CRM, inventory, sales
+and recording system, "phase by phase, and also do not change any logic since
+my system are currently use by staff". This is phase 1 of five. Plan and
+status: `docs/ERP-ROADMAP.md`.
+
+### Added
+
+- **Customer history.** Sales -> Customers -> **History** on a client's row
+  opens everything with that client, newest first: quotations and their
+  revisions, invoices, invoices marked paid, part payments, receipts, credit
+  notes - and enquiries, engagements and live sessions for the roles whose own
+  screens show them. What a role may not see is not fetched; the dialog says
+  what was left out. A pure read.
+- **Part payments.** An invoice's details now have a Part payments panel:
+  record an amount, the day it was received and the bank reference; see
+  total, received and what is left; void a part with a reason (it stays on
+  record, struck through). Unpaid invoices with parts show a "Part paid · RM x
+  left" chip in Documents and in the aging list.
+
+### Unchanged, on purpose
+
+- A part payment does **not** mark the invoice paid, and does not touch aging,
+  revenue, commission, the cash book or the journal. Marking paid works
+  exactly as before. When the parts reach the total, the panel says so and
+  points at the existing status picker with the last part's date.
+- No existing route, figure or permission changed. The new routes live in
+  `worker/src/business.ts` behind one door in `staff.ts`.
+
+### Database
+
+- Migration `0140_part_payments`: table `invoice_payments` only. Registered
+  as the latest migration with a health probe.
+
+### Guards
+
+- New `business-joins` (#109): `business.ts` never writes to a table that
+  carries money, pay or people; part payments refuse a paid invoice, an
+  overpayment and a future date, are audited and never deleted; the history
+  asks each source only for the roles that source's own screen serves.
+- `api-routes` reads `business.ts` so every new button is proven answered.
+
 ## [1.181.12] - 2026-10-20 - Sales count on the date the invoice was paid
 
 The CEO: "for the sales, it doesnt reflected to the correct date which is

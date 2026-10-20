@@ -31,6 +31,7 @@ import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "
 import { DOC } from "@/lib/doc-theme";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { isPartialLeave, savedCoverage } from "@/lib/leave-coverage";
+import { LeaveCalendar } from "@/components/portal/leave-calendar"; // v1.181.17
 
 function coverageLabel(l: LeaveReq): string {
   if (!isPartialLeave(l)) return "";
@@ -1442,6 +1443,9 @@ export function Leave({ user }: { user: User }) {
             </div>
           );
         })()}
+        {/* v1.181.17 (ERP roadmap phase 5) - who is away this month, so a
+            clash shows before a decision; managers only */}
+        <LeaveCalendar />
       </TabZone>
       )}
     {!hourly && (

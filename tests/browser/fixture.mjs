@@ -178,6 +178,101 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/staff/docs/1") data = { doc: { ...docs[0], customer_id: 1, salesperson_id: 9002, contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
     items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),
     discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", created_by_role: "sales_marketing", signer_name: "Nur Aisyah", signer_position: "Sales Executive" } };
+  /* v1.181.14 - stock received from suppliers, reorder levels */
+  if (p === "/staff/inventory/receipts") data = { can_write: true, suppliers: ["Kilang Tudung Sdn Bhd", "Syarikat Fabrik Maju"],
+    receipts: [
+      { id: 3, supplier: "Kilang Tudung Sdn Bhd", received_on: D + "18", reference: "DO-7781", note: null, total_cents: 104000, bill_due_on: "2026-10-18", bill_paid_on: null, voided_at: null, void_reason: null, received_by: "Nur Aisyah", lines: 2, created_at: D + "18 03:00:00" },
+      { id: 2, supplier: "Syarikat Fabrik Maju", received_on: D + "11", reference: "INV-55120", note: null, total_cents: 36000, bill_due_on: null, bill_paid_on: null, voided_at: null, void_reason: null, received_by: "Fixture Person", lines: 1, created_at: D + "11 03:00:00" },
+      { id: 1, supplier: "Kilang Tudung Sdn Bhd", received_on: D + "02", reference: null, note: null, total_cents: 20000, bill_due_on: "2026-09-30", bill_paid_on: D + "29", voided_at: D + "03 02:00:00", void_reason: "Entered twice", received_by: "Nur Aisyah", lines: 1, created_at: D + "02 03:00:00" }],
+    reorder: [{ id: 1, sku: "BWL-001", name: "ELFIA Bawal Premium Extra Long 1", stock: 3, reorder_level: 12, reorder_qty: 40 }],
+    levels: [{ id: 1, sku: "BWL-001", name: "ELFIA Bawal Premium Extra Long 1", stock: 3, reorder_level: 12, reorder_qty: 40 }] };
+  /* v1.181.17 - people: a joiner with steps open, a leaver, two on probation, letters, training; the leave month; the approval limit on */
+  if (p === "/staff/people/overview") data = { today: D + "18", joining_keys: ["offer_letter", "contract", "bank", "twofa", "badge", "groups"],
+    leaving_keys: ["assets_returned", "access_removed", "claims_settled", "final_pay", "exit_letter", "groups_removed"],
+    joining: [{ id: 9005, name: "Siti Nur Aisyah binti Abdullah", position: "Live Host", joined_on: D + "01", open: ["badge", "groups"] }],
+    leaving: [{ id: 9006, name: "Hafiz Kamal", position: "Video Editor", left_on: D + "30", items: { access_removed: true }, open: ["assets_returned", "claims_settled", "final_pay", "exit_letter", "groups_removed"], assets_held: 2 }],
+    probation: [{ id: 9005, name: "Siti Nur Aisyah binti Abdullah", position: "Live Host", joined_on: "2026-07-01", suggested_ends_on: "2026-10-01", review: { id: 3, ends_on: D + "30", outcome: null } },
+      { id: 9007, name: "Farid Zulkifli", position: "Sales Executive", joined_on: D + "01", suggested_ends_on: "2026-12-01", review: null }],
+    decided: [{ id: 1, user_id: 9002, name: "Nur Aisyah", ends_on: "2026-08-31", outcome: "confirmed", note: null, decided_at: "2026-08-30 03:00:00", decided_by_name: "Fixture Person" }],
+    letters: [{ id: 2, user_id: 9002, kind: "confirmation", ref_no: "A2Z/HR/2026/002", issued_on: "2026-09-01", subject: "Confirmation of employment - Sales Executive", voided_at: null, void_reason: null, name: "Nur Aisyah", issued_by_name: "Fixture Person" },
+      { id: 1, user_id: 9007, kind: "offer", ref_no: "A2Z/HR/2026/001", issued_on: "2026-08-20", subject: "Offer of employment - Sales Executive", voided_at: "2026-08-21 02:00:00", void_reason: "Wrong salary", name: "Farid Zulkifli", issued_by_name: "Fixture Person" }],
+    training: [{ id: 1, user_id: 9003, name: "Farid Zul", title: "TikTok Shop live selling masterclass", provider: "TikTok Shop Academy", on_date: D + "12", hours: 6, cost_cents: 45000, paid_by: "company" }],
+    staff: staff.map((x) => ({ id: x.id, name: x.name, position: x.position ?? null })) };
+  if (/^\/staff\/people\/\d+\/letter-fields$/.test(p)) data = { person: { id: 9005, name: "Siti Nur Aisyah binti Abdullah", ic_number: "990101-01-1234", position: "Live Host", department: "Live", employment_status: "probation", joined_on: "2026-07-01", left_on: null, base_salary_cents: 220000, address: null } };
+  if (p === "/staff/people/leave-calendar") {
+    /* the month asked for, with the same three people in it */
+    const m = q.get("month") ?? "2026-09";
+    const last = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    data = { month: m, first: `${m}-01`, last, leave: [
+      { id: 1, user_id: 9002, name: "Nur Aisyah", department: "Sales", type: "annual", start_date: `${m}-08`, end_date: `${m}-10`, days: 3, status: "approved" },
+      { id: 2, user_id: 9007, name: "Farid Zulkifli", department: "Sales", type: "annual", start_date: `${m}-10`, end_date: `${m}-11`, days: 2, status: "pending" },
+      { id: 3, user_id: 9003, name: "Farid Zul", department: "Live", type: "medical", start_date: `${m}-22`, end_date: `${m}-22`, days: 1, status: "approved" }] };
+  }
+  if (p === "/staff/quotes/approval") data = { limit_cents: 400000, pending: [{ id: 1 }], approved: [], can_set: true, can_approve: true };
+  /* v1.181.16 - client files: tags, terms, a follow-up, a monthly invoice due; Aina Boutique's file; an acceptance */
+  if (p === "/staff/customers/crm") data = { today: D + "18", can_write: true,
+    tags: [{ customer_id: 1, tag: "retainer" }, { customer_id: 1, tag: "hijab" }, { customer_id: 2, tag: "f&b" }],
+    terms: [{ customer_id: 1, terms_days: 30 }],
+    followups: [{ id: 1, customer_id: 1, company: "Aina Boutique", due_on: D + "18", note: "Ask about the Raya live package", owner_id: 9002, owner_name: "Nur Aisyah" }],
+    recurring: [{ id: 2, customer_id: 1, company: "Aina Boutique", source_doc_id: 3, source_number: "INV-AZO050926-3", total_cents: 300000, day_of_month: 5, note: null, due_on: D + "05", raised: false, raised_number: null, due: true }] };
+  if (p === "/staff/customers/1/file") data = { customer: { id: 1, company: "Aina Boutique", contact_person: "Aina Rahman", phone: "0174761019", email: null },
+    contacts: [{ id: 1, name: "Aina Rahman", role: "Owner", phone: "0174761019", email: null, note: null }, { id: 2, name: "Hafiz Kamal", role: "Finance", phone: "0123344556", email: "accounts@ainaboutique.test", note: null }],
+    tags: ["hijab", "retainer"], all_tags: ["f&b", "hijab", "retainer"], terms_days: 30,
+    followups: [{ id: 1, due_on: D + "18", note: "Ask about the Raya live package", owner_id: 9002, owner_name: "Nur Aisyah", created_at: D + "10 02:00:00", done_at: null, done_note: null, cancelled_at: null, done_by_name: null },
+      { id: 3, due_on: D + "22", note: "Send the September report", owner_id: 9001, owner_name: "Fixture Person", created_at: D + "10 02:00:00", done_at: null, done_note: null, cancelled_at: null, done_by_name: null },
+      { id: 2, due_on: D + "02", note: "Confirm the hosting schedule", owner_id: 9002, owner_name: "Nur Aisyah", created_at: D + "01 02:00:00", done_at: D + "02 06:00:00", done_note: null, cancelled_at: null, done_by_name: "Nur Aisyah" }],
+    recurring: [{ id: 2, customer_id: 1, source_doc_id: 3, source_number: "INV-AZO050926-3", total_cents: 300000, day_of_month: 5, note: null, due_on: D + "05", raised: false, raised_number: null, due: true }],
+    invoices: [{ id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, created_at: D + "05 02:00:00" }],
+    owners: [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }], me: 9001, today: D + "18", can_write: true };
+  /* v1.181.16 - a shared quotation the customer can accept (the public page) */
+  if (/^\/public\/doc\/[a-f0-9]{32}$/.test(p)) data = { doc: { ...docs[0], company: "Aina Boutique", contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
+    items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),
+    discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", kind: "service", signer_role: null, signer_name: "Nur Aisyah", signer_position: "Sales Executive", can_accept: true, acceptance: null } };
+  if (p === "/staff/docs/1/acceptance") data = { acceptances: [{ revision: 0, accepted_name: "Aina Rahman", accepted_position: "Owner", accepted_at: D + "16 04:12:00", ip: "203.0.113.9" }] };
+  /* v1.181.15 - the books: six months (August closed and changed since), the position, the audit trail */
+  if (p === "/staff/books/months") {
+    const f = (inv, rec, exp, pay) => ({ invoiced_cents: inv, received_cents: rec, part_payments_cents: 0, expenses_cents: exp, stock_received_cents: 36000, payroll_net_cents: pay, documents: 14 });
+    data = { current_month: "2026-09", months: [
+      { month: "2026-09", figures: { ...f(1890000, 1250000, 412000, 0), part_payments_cents: 400000, stock_received_cents: 160000 }, closed: null, changed_since_close: null, history: [] },
+      { month: "2026-08", figures: f(2140000, 1980000, 388000, 1625000), closed: { id: 2, at: "2026-09-02 02:10:00", by: "Fixture Person", note: "Checked with the bank statement" }, changed_since_close: { received_cents: 450000, documents: 1 }, history: [{ id: 2, at: "2026-09-02 02:10:00", by: "Fixture Person", reopened_at: null, reopen_reason: null }] },
+      { month: "2026-07", figures: f(1760000, 1700000, 365000, 1610000), closed: { id: 1, at: "2026-08-03 01:00:00", by: "Fixture Person", note: null }, changed_since_close: {}, history: [{ id: 1, at: "2026-08-03 01:00:00", by: "Fixture Person", reopened_at: null, reopen_reason: null }] },
+      { month: "2026-06", figures: f(1530000, 1490000, 341000, 1598000), closed: null, changed_since_close: null, history: [] },
+      { month: "2026-05", figures: f(1210000, 1180000, 330000, 1598000), closed: null, changed_since_close: null, history: [] },
+      { month: "2026-04", figures: f(980000, 950000, 322000, 1540000), closed: null, changed_since_close: null, history: [] }] };
+  }
+  if (p === "/staff/books/position") data = { as_of: D + "18",
+    debtors: [{ id: 3, doc_number: "INV-AZO050926-3", company: "Casa del Rio Melaka Boutique Hotel Sdn Bhd", total_cents: 990000, created_at: D + "05 02:00:00", due_date: D + "30", received_cents: 400000, balance_cents: 590000 },
+      { id: 7, doc_number: "INV-AZO120926-7", company: "Aina Boutique", total_cents: 240000, created_at: D + "12 02:00:00", due_date: null, received_cents: 0, balance_cents: 240000 }],
+    debtors_cents: 830000, creditors: [{ id: 3, supplier: "Kilang Tudung Sdn Bhd", received_on: D + "18", bill_due_on: "2026-10-18", total_cents: 104000 }], creditors_cents: 104000,
+    stock: [{ category: "Bawal", items: 12, units: 340, value_cents: 1530000, uncosted: 0 }, { category: "Shawl", items: 8, units: 120, value_cents: 612000, uncosted: 2 }],
+    stock_value_cents: 2142000, uncosted_items: 2 };
+  if (p === "/staff/books/audit") data = { areas: [{ area: "invoice", n: 41 }, { area: "inventory", n: 22 }, { area: "books", n: 3 }],
+    rows: [{ id: 903, action: "books.close", entity: "period_closes", entity_id: "2", detail: "{\"month\":\"2026-08\",\"invoiced_cents\":2140000,\"received_cents\":1980000}", created_at: "2026-09-02 02:10:00", who: "Fixture Person" },
+      { id: 902, action: "invoice.part_payment", entity: "sales_documents", entity_id: "3", detail: "{\"amount_cents\":150000,\"received_on\":\"2026-09-16\"}", created_at: D + "16 03:00:00", who: "Nur Aisyah" },
+      { id: 901, action: "inventory.receive", entity: "stock_receipts", entity_id: "3", detail: null, created_at: D + "18 03:00:00", who: "Nur Aisyah" }] };
+  /* v1.181.15 - one stock take open on Bawal, two earlier */
+  if (p === "/staff/stock-counts") data = { counts: [
+    { id: 4, category: "Bawal", note: null, status: "open", started_at: D + "18 01:00:00", posted_at: null, cancelled_at: null, started_by_name: "Nur Aisyah", lines: 3, counted: 2, variances: 1 },
+    { id: 3, category: null, note: null, status: "posted", started_at: "2026-08-31 01:00:00", posted_at: "2026-08-31 09:00:00", cancelled_at: null, started_by_name: "Nur Aisyah", lines: 20, counted: 20, variances: 3 },
+    { id: 2, category: "Shawl", note: null, status: "cancelled", started_at: "2026-08-20 01:00:00", posted_at: null, cancelled_at: "2026-08-20 02:00:00", started_by_name: "Fixture Person", lines: 8, counted: 2, variances: 0 }] };
+  if (p === "/staff/stock-counts/4") data = { count: { id: 4, category: "Bawal", note: null, status: "open", started_at: D + "18 01:00:00", posted_at: null }, lines: [
+    { id: 1, item_id: 1, sku: "BWL-001", item_name: "ELFIA Bawal Premium Extra Long 1", system_qty: 3, counted_qty: 2, posted_delta: null, stock_now: 3, unit_cost_cents: 4500 },
+    { id: 2, item_id: 2, sku: "BWL-002", item_name: "ELFIA Bawal Cotton Voile Printed Raya Edition", system_qty: 24, counted_qty: 24, posted_delta: null, stock_now: 22, unit_cost_cents: 3800 },
+    { id: 3, item_id: 3, sku: "BWL-003", item_name: "ELFIA Bawal Satin Silk", system_qty: 15, counted_qty: null, posted_delta: null, stock_now: 15, unit_cost_cents: null }] };
+  /* v1.181.13 - part payments on the unpaid Casa del Rio invoice, and one client's history */
+  if (p === "/staff/docs/part-payments") data = { invoices: [{ invoice_id: 3, received_cents: 400000, parts: 2, last_received_on: D + "16" }] };
+  if (p === "/staff/docs/3/payments") data = { invoice: { id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, payment_status: "unpaid" }, can_record: true,
+    received_cents: 400000, balance_cents: 590000, payments: [
+      { id: 1, amount_cents: 250000, received_on: D + "08", method: "bank_transfer", reference: "MBB080926-4471", note: null, created_at: D + "08 03:00:00", voided_at: null, void_reason: null, recorded_by: "Nur Aisyah", voided_by_name: null },
+      { id: 2, amount_cents: 150000, received_on: D + "16", method: "bank_transfer", reference: "MBB160926-1180", note: null, created_at: D + "16 03:00:00", voided_at: null, void_reason: null, recorded_by: "Nur Aisyah", voided_by_name: null },
+      { id: 3, amount_cents: 50000, received_on: D + "12", method: "bank_transfer", reference: "CHQ 001244", note: null, created_at: D + "12 03:00:00", voided_at: D + "13 02:00:00", void_reason: "Cheque bounced", recorded_by: "Nur Aisyah", voided_by_name: "Fixture Person" }] };
+  if (p === "/staff/customers/1/timeline") data = { customer: { id: 1, company: "Aina Boutique" }, hidden: [], events: [
+      { at: D + "18 11:20", kind: "revision", title: "QT-AZO150926-1 revised to REV 1", detail: "REV original kept in History" },
+      { at: D + "16", kind: "part_payment", title: "Part payment on INV-AZO050926-3", amount_cents: 150000, detail: "MBB160926-1180" },
+      { at: D + "15 18:00", kind: "doc_qt", title: "Quotation QT-AZO150926-1", amount_cents: 450000 },
+      { at: D + "14 10:12", kind: "enquiry", title: "Enquiry from Aina Rahman", detail: "new · Can you quote live hosting for our Raya collection, 8 sessions?" },
+      { at: D + "12 14:00", kind: "live", title: "Live session with Farid Zul", detail: "14:00-16:00 · completed" },
+      { at: D + "10 09:30", kind: "engagement", title: "Nur Aisyah: whatsapp · follow_up", detail: "interested · verified" }] };
   if (p === "/staff/docs/1/revisions") data = { revisions: [{ revision: 0, total_cents: 300000, replaced_at: D + "18 03:20:00", replaced_by_name: "Nur Aisyah",
     doc: { items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }]), discount_cents: 0, tax_percent: 0, delivery_cents: 0, total_cents: 300000, created_at: D + "15 10:00:00", revision: 0, revised_at: null, kind: "service" } }] };
   if (p === "/staff/customers") data = { customers };

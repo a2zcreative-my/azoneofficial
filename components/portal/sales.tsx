@@ -24,7 +24,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -32,6 +32,13 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { DocRevisions, RevisionChip } from "@/components/portal/doc-revisions";
+import { InvoicePayments, PartPaidChip } from "@/components/portal/invoice-payments";
+import { openCustomerTimeline } from "@/components/portal/customer-timeline";
+import { openCustomerFile } from "@/components/portal/customer-file"; // v1.181.16
+import { QuotationAcceptance } from "@/components/portal/quotation-acceptance"; // v1.181.16
+import { RecurringDue, type RecurringRow } from "@/components/portal/recurring-due"; // v1.181.16
+import bizCss from "@/components/portal/business.module.css"; // v1.181.16
+import { QuoteApprovalLimit, type QuoteApproval } from "@/components/portal/quote-approval"; // v1.181.17
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -1034,7 +1041,7 @@ export function stockToastLine(
    phone keeps its one column. Scaled to the box it is given (A4 at 96dpi is
    794px wide), so nothing scrolls sideways. Module scope (house rule #30).
    ====================================================================== */
-export function DocPreview({ doc, docDate, customers, staffList, user, docNumber, revision = 0, revisedAt = null }: {
+export function DocPreview({ doc, docDate, customers, staffList, user, docNumber, revision = 0, revisedAt = null, dueDate = null }: {
   doc: { doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean; reference: string; delivery_address: string; issuer: string };
   docDate: string;
   customers: Customer[];
@@ -1044,6 +1051,9 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   /** v1.181.11 - the revision being drawn; a new one is dated today */
   revision?: number;
   revisedAt?: string | null;
+  /** v1.181.16 - the due date credit terms give a new invoice, so the
+      preview prints what the invoice will */
+  dueDate?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -1091,6 +1101,7 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
     signer_name: user.name,
     signer_position: user.role.replace(/_/g, " ").toUpperCase(),
     issuer_code: doc.issuer,
+    ...(dueDate ? { due_date: dueDate } : {}),
   };
   const html = buildDocHtml(full, false);
   const sheet = (
@@ -1129,6 +1140,17 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
   }, [initialView, createRequest]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<SalesDoc[]>([]);
+  /* v1.181.13 - part payments received on each unpaid invoice (invoice id
+     -> sen). Display only: an invoice is paid when it is marked paid. */
+  const [partPaid, setPartPaid] = useState<Record<number, number>>({});
+  /* v1.181.16 - the client file beside each customer: tags (the list
+     filters by them), credit terms (a NEW invoice takes its due date from
+     them) and the monthly invoices due. Nothing here changes a customer. */
+  const [crm, setCrm] = useState<{ tags: { customer_id: number; tag: string }[]; terms: { customer_id: number; terms_days: number }[]; recurring: (RecurringRow & { customer_id: number })[] }>({ tags: [], terms: [], recurring: [] });
+  const [tagFilter, setTagFilter] = useState("");
+  /* v1.181.17 - the CEO's quotation approval limit; off (null) changes nothing */
+  const [qa, setQa] = useState<QuoteApproval>({ limit_cents: null, pending: [], approved: [], can_set: false });
+  const awaiting = (d: { id: number; doc_type: string }) => d.doc_type === "QT" && qa.limit_cents != null && qa.pending.some((p) => p.id === d.id);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [cust, setCust] = useState({
     company: "",
@@ -1183,66 +1205,6 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
   >([]);
   const { show: showToast, node: toastNode } = useSaveToast();
 
-  /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
-     a prefill into localStorage and jumped here; we either pick the existing
-     customer by company name or pre-fill the new-customer form, and stamp
-     the reference so the QT says where it came from. */
-  useEffect(() => {
-    let raw: string | null = null;
-    try {
-      raw = localStorage.getItem("azone-qt-prefill");
-    } catch {
-      return;
-    }
-    if (!raw) return;
-    try {
-      localStorage.removeItem("azone-qt-prefill");
-    } catch {
-      /* fine */
-    }
-    try {
-      const pf = JSON.parse(raw) as {
-        company?: string;
-        contact_person?: string;
-        phone?: string;
-        reference?: string;
-      };
-      const existing = customers.find(
-        (c) =>
-          c.company.trim().toLowerCase() ===
-          (pf.company ?? "").trim().toLowerCase()
-      );
-      setDoc((d) => ({
-        ...d,
-        doc_type: "QT",
-        reference: pf.reference ?? d.reference,
-        customer_id: existing ? existing.id : d.customer_id,
-      }));
-      if (!existing)
-        setCust((c) => ({
-          ...c,
-          company: pf.company ?? "",
-          contact_person: pf.contact_person ?? "",
-          phone: pf.phone ?? "",
-        }));
-      showToast(
-        L("Prefilled from prospect", "Diisi awal daripada prospek"),
-        existing
-          ? L(
-              `${existing.company} selected — add the package lines and save the quotation`,
-              `${existing.company} dipilih — tambah baris pakej dan simpan sebut harga`
-            )
-          : L(
-              `Add ${pf.company ?? "the client"} as a customer first, then the quotation form is ready`,
-              `Tambah ${pf.company ?? "pelanggan itu"} sebagai pelanggan dahulu, kemudian borang sebut harga sedia`
-            )
-      );
-    } catch {
-      /* malformed handoff — ignore */
-    }
-    // customers in deps: on a cold open the list arrives after mount and the
-    // company match must run against the LOADED list.
-  }, [customers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* v1.4.240 (CEO: "why the popup card was not standardize like the current
      use"): the Sales tab was the last place still raising the browser's own
@@ -1299,6 +1261,14 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     );
     setDocs(d.data?.docs ?? []);
     setLoaded(true);
+    const pp = await api<{ invoices?: { invoice_id: number; received_cents: number }[] }>(`/staff/docs/part-payments`);
+    const ppMap: Record<number, number> = {};
+    for (const r of pp.data?.invoices ?? []) ppMap[r.invoice_id] = r.received_cents;
+    setPartPaid(ppMap);
+    const cr = await api<{ tags?: { customer_id: number; tag: string }[]; terms?: { customer_id: number; terms_days: number }[]; recurring?: (RecurringRow & { customer_id: number })[] }>(`/staff/customers/crm`);
+    if (cr.ok && cr.data) setCrm({ tags: cr.data.tags ?? [], terms: cr.data.terms ?? [], recurring: cr.data.recurring ?? [] });
+    const qr = await api<QuoteApproval>(`/staff/quotes/approval`);
+    if (qr.ok && qr.data) setQa(qr.data);
     setDocsError(
       d.ok
         ? null
@@ -1447,6 +1417,120 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     setEditingDoc(null);
   };
 
+  /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
+     a prefill into localStorage and jumped here; we either pick the existing
+     customer by company name or pre-fill the new-customer form, and stamp
+     the reference so the QT says where it came from.
+     v1.181.16 (ERP roadmap phase 4): the same handoff now also carries an
+     ENQUIRY (Enquiries -> Make quotation) and a client's MONTHLY INVOICE
+     (the recurring list below), both opening the Create form. A prefill
+     with no `source` behaves exactly as before. */
+  type Prefill = {
+    company?: string; contact_person?: string; phone?: string; reference?: string;
+    source?: "enquiry" | "recurring";
+    customer_id?: number; doc_type?: string; kind?: string; items?: DocItem[];
+    discount_cents?: number; tax_percent?: number; delivery_cents?: number; issuer?: string; salesperson_id?: number;
+  };
+  const applyPrefill = (pf: Prefill) => {
+    if (pf.source === "recurring" && pf.customer_id) {
+      resetDocForm();
+      setDoc((d) => ({
+        ...d,
+        doc_type: "INV",
+        customer_id: pf.customer_id!,
+        kind: pf.kind ?? d.kind,
+        items: Array.isArray(pf.items) && pf.items.length ? pf.items : d.items,
+        discount_cents: pf.discount_cents ?? 0,
+        tax_percent: pf.tax_percent ?? 0,
+        delivery_cents: pf.delivery_cents ?? 0,
+        issuer: pf.issuer ?? d.issuer,
+        salesperson_id: pf.salesperson_id ?? 0,
+        reference: pf.reference ?? "",
+      }));
+      setWorkTab("create");
+      requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" }));
+      showToast(
+        L("Form filled", "Borang diisi"),
+        L("Check the lines and the date, then create the invoice.", "Semak baris dan tarikh, kemudian buat invois.")
+      );
+      return;
+    }
+    const existing = customers.find(
+      (c) =>
+        c.company.trim().toLowerCase() ===
+        (pf.company ?? "").trim().toLowerCase()
+    );
+    setDoc((d) => ({
+      ...d,
+      doc_type: "QT",
+      reference: pf.reference ?? d.reference,
+      customer_id: existing ? existing.id : d.customer_id,
+    }));
+    if (!existing)
+      setCust((c) => ({
+        ...c,
+        company: pf.company ?? "",
+        contact_person: pf.contact_person ?? "",
+        phone: pf.phone ?? "",
+      }));
+    if (pf.source === "enquiry") {
+      setWorkTab("create");
+      if (!existing) setCustTab("add");
+      requestAnimationFrame(() => document.getElementById(existing ? "sales-work" : "sales-customers")?.scrollIntoView({ block: "start" }));
+    }
+    showToast(
+      pf.source === "enquiry"
+        ? L("Prefilled from the enquiry", "Diisi awal daripada pertanyaan")
+        : L("Prefilled from prospect", "Diisi awal daripada prospek"),
+      existing
+        ? L(
+            `${existing.company} selected — add the package lines and save the quotation`,
+            `${existing.company} dipilih — tambah baris pakej dan simpan sebut harga`
+          )
+        : L(
+            `Add ${pf.company ?? "the client"} as a customer first, then the quotation form is ready`,
+            `Tambah ${pf.company ?? "pelanggan itu"} sebagai pelanggan dahulu, kemudian borang sebut harga sedia`
+          )
+    );
+  };
+  /* v1.181.16 - wait for the first customer load before reading the
+     handoff: read on mount, it matched against an empty list and always
+     fell to the new-customer form */
+  const firstCustomers = useRef(customers);
+  useEffect(() => {
+    if (customers === firstCustomers.current) return;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem("azone-qt-prefill");
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      localStorage.removeItem("azone-qt-prefill");
+    } catch {
+      /* fine */
+    }
+    try {
+      applyPrefill(JSON.parse(raw) as Prefill);
+    } catch {
+      /* malformed handoff — ignore */
+    }
+    // customers in deps: on a cold open the list arrives after mount and the
+    // company match must run against the LOADED list.
+  }, [customers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* v1.181.16 - the due date credit terms give a new invoice, if any */
+  const termsDue = (() => {
+    if (doc.doc_type !== "INV" || doc.paid_received || editingDoc) return null;
+    const t = crm.terms.find((x) => x.customer_id === doc.customer_id);
+    if (!t) return null;
+    const base = docDate || mytToday();
+    const d = new Date(`${base}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + t.terms_days);
+    return { on: d.toISOString().slice(0, 10), days: t.terms_days };
+  })();
+
   const createDoc = async () => {
     // v1.4.94: silent returns were why "nothing saved" — every stop now says why.
     if (doc.customer_id === -1) {
@@ -1537,6 +1621,9 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
       paid_date: doc.paid_received
         ? paidDate || docDate || undefined
         : undefined,
+      /* v1.181.16 - a NEW invoice for a client with credit terms carries its
+         due date; no terms, no due date, exactly as before */
+      due_date: !editingDoc && termsDue ? termsDue.on : undefined,
     };
     if (editingDoc) {
       const res = await api<{
@@ -1836,6 +1923,14 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
       <section id="sales-work" className="erp-stack-tight erp-tab-zone scroll-mt-36">
         <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
         <div className={card}>
+          {/* v1.181.16 - monthly invoices whose day has come; a person
+              fills the normal form from one and saves it */}
+          <RecurringDue rows={crm.recurring} onFill={(id) => {
+            void api<{ prefill?: Prefill; error?: { message?: string } }>(`/staff/customers/recurring/${id}/prefill`).then((r) => {
+              if (r.ok && r.data?.prefill) applyPrefill(r.data.prefill);
+              else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Could not load that invoice", "Tidak dapat memuatkan invois itu"), "notice");
+            });
+          }} />
           <SectionTabs value={workTab} onChange={setWorkTab} tabs={[
             ["documents", L("Documents", "Dokumen")],
             ["receipts", L("Receipts, credit notes & outstanding", "Resit, nota kredit & tertunggak")],
@@ -2606,6 +2701,12 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
               </div>
             </div>
             <p className="text-muted-foreground mt-2 text-[10px]">{L("The SST note, bank details and footer print exactly as on the real document.", "Nota SST, butiran bank dan pengaki dicetak seperti pada dokumen sebenar.")}</p>
+            {termsDue && (
+              <p className="erp-note erp-note-info erp-mt-3">
+                {L(`Payment due ${dmy(termsDue.on)} - this client has ${termsDue.days}-day credit terms (set in the client's File).`,
+                  `Perlu dibayar ${dmy(termsDue.on)} - klien ini mempunyai terma kredit ${termsDue.days} hari (ditetapkan dalam Fail klien).`)}
+              </p>
+            )}
             <button
               type="button"
               className={`${btnClass} mt-3`}
@@ -2634,10 +2735,13 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             docNumber={editingDoc?.doc_number ?? null}
             revision={editingDoc ? (editingDoc.revise ? (editingDoc.revision ?? 0) + 1 : editingDoc.revision ?? 0) : 0}
             revisedAt={editingDoc?.revise ? null : editingDoc?.revised_at ?? null}
+            dueDate={termsDue?.on ?? null}
           />
           </div>
           </div>
           <div className={workTab === "documents" ? "mt-3" : "hidden"}>
+          {/* v1.181.17 - the CEO's own switch; renders for nobody else */}
+          <QuoteApprovalLimit qa={qa} onChanged={() => void load()} />
       {(() => {
         // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
         const todayMs = Date.now() + 8 * 3600 * 1000;
@@ -2709,6 +2813,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                           {" "}
                           · {n} {L("days", "hari")}
                         </span>
+                        <PartPaidChip totalCents={d.total_cents} receivedCents={partPaid[d.id]} />
                       </span>
                       <span className="erp-row-actions">
                         <span
@@ -2790,6 +2895,9 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                     {d.doc_number}
                   </RecordToggle>
                   <RevisionChip revision={d.revision} />
+                  {d.doc_type === "INV" && d.payment_status !== "paid" && (
+                    <PartPaidChip totalCents={d.total_cents} receivedCents={partPaid[d.id]} />
+                  )}
                   {/* v1.30.1 — which entity's letterhead this document carries.
                   Only the exception is tagged: A2Z is the default and a chip
                   on every row would be noise. NULL (legacy) and "azoo" both
@@ -3053,6 +3161,28 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   {/* v1.4.258: NOT primary. A quotation row already has → Invoice
                 filled, and v1.4.253's own rule is at most ONE fill per row —
                 two dark blocks and neither reads as the main action. */}
+                  {/* v1.181.17 - over the CEO's approval limit (only when he has
+                      set one): the CEO approves here, anyone else waits */}
+                  {awaiting(d) ? (
+                    qa.can_approve ? (
+                      <button
+                        type="button"
+                        className={rowBtn}
+                        onClick={() => {
+                          void api<{ error?: { message?: string } }>(`/staff/docs/${d.id}/approve`, { method: "POST", body: "{}" }).then((r) => {
+                            if (r.ok) { showToast(L("Saved", "Disimpan"), L(`${d.doc_number} approved — it can be sent`, `${d.doc_number} diluluskan — boleh dihantar`)); void load(); }
+                            else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Not approved", "Tidak diluluskan"), "notice");
+                          });
+                        }}
+                      >
+                        {L("Approve", "Luluskan")}
+                      </button>
+                    ) : (
+                      <span className={chipSmNeutral} title={L("Over the CEO's approval limit — it can be sent once he approves it", "Melebihi had kelulusan CEO — boleh dihantar selepas beliau meluluskannya")}>
+                        {L("Awaiting CEO approval", "Menunggu kelulusan CEO")}
+                      </span>
+                    )
+                  ) : (
                   <button
                     type="button"
                     className={rowBtn}
@@ -3064,6 +3194,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   >
                     {L("Send PDF", "Hantar PDF")}
                   </button>
+                  )}
                   {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is
                 refused by the server. Aging recomputes from this list, so
                 a deleted unpaid invoice drops out of it immediately. */}
@@ -3125,6 +3256,24 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       label: L("Date", "Tarikh"),
                       value: dmy(d.created_at.slice(0, 10)),
                     },
+                    /* v1.181.13 - part payments on an invoice: recorded and
+                       shown, never marking it paid */
+                    ...(d.doc_type === "INV"
+                      ? [{
+                          label: L("Part payments", "Bayaran separa"),
+                          wide: true,
+                          value: <InvoicePayments docId={d.id} onChanged={() => void load()} />,
+                        }]
+                      : []),
+                    /* v1.181.16 - what the customer accepted on the shared
+                       link: recorded, never a status */
+                    ...(d.doc_type === "QT"
+                      ? [{
+                          label: L("Customer acceptance", "Penerimaan pelanggan"),
+                          wide: true,
+                          value: <QuotationAcceptance docId={d.id} revision={d.revision ?? 0} />,
+                        }]
+                      : []),
                     /* v1.181.11 - every version a revised quotation replaced,
                        each printable as the customer received it */
                     ...((d.revision ?? 0) > 0
@@ -3457,6 +3606,15 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                 : L("Save customer", "Simpan pelanggan")}
             </button>
           </div>
+          {/* v1.181.16 - filter the clients by a tag from their files */}
+          {crm.tags.length > 0 && (
+            <label className={`${bizCss.field} erp-mt-3`}>{L("Show clients tagged", "Papar klien bertag")}
+              <select className={selectClassSm} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+                <option value="">{L("Every client", "Semua klien")}</option>
+                {[...new Set(crm.tags.map((t) => t.tag))].sort().map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          )}
           <div className="mt-3 max-h-56 overflow-y-auto">
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={3} />}
@@ -3465,7 +3623,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                 {L("No customers yet.", "Tiada pelanggan lagi.")}
               </p>
             )}
-            {loaded && customers.map((c) => (
+            {loaded && customers.filter((c) => !tagFilter || crm.tags.some((t) => t.customer_id === c.id && t.tag === tagFilter)).map((c) => (
               <div
                 key={c.id}
                 className="border-border border-b py-1.5 text-sm last:border-0"
@@ -3489,8 +3647,36 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                         · {c.contact_person}
                       </span>
                     )}
+                    {/* v1.181.16 - the client's tags, from its file */}
+                    {crm.tags.some((t) => t.customer_id === c.id) && (
+                      <span className={bizCss.tagRow}>
+                        {crm.tags.filter((t) => t.customer_id === c.id).map((t) => <span key={t.tag} className={chipSmNeutral}>{t.tag}</span>)}
+                      </span>
+                    )}
                   </span>
                   <span className="erp-row-actions">
+                    {/* v1.181.16 - contacts, tags, credit terms, follow-ups,
+                        monthly invoice: beside the record, never in it */}
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      title={L("Contacts, tags, credit terms, follow-ups and a monthly invoice for this client", "Orang hubungan, tag, terma kredit, susulan dan invois bulanan untuk klien ini")}
+                      onClick={() => openCustomerFile(c.id, c.company, () => void load())}
+                    >
+                      {L("File", "Fail")}
+                    </button>
+                    {/* v1.181.13 - one client's whole story, in a dialog */}
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      title={L(
+                        "Everything with this client, newest first — documents, revisions, payments, receipts, and what your role may see of enquiries, engagements and live sessions",
+                        "Semua dengan klien ini, terbaru dahulu — dokumen, semakan, bayaran, resit, dan apa yang peranan anda boleh lihat daripada pertanyaan, penglibatan dan sesi live"
+                      )}
+                      onClick={() => openCustomerTimeline(c.id, c.company)}
+                    >
+                      {L("History", "Sejarah")}
+                    </button>
                     {docs.some(
                       (d) => d.doc_type === "INV" && d.company === c.company
                     ) && (

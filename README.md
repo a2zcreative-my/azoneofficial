@@ -5,7 +5,17 @@ Public website, staff portal, admin tools, and business operations for A2Z CREAT
 Repository rechecked on **12 October 2026** after the user's changes: local/GitHub main is **3e42644**, package version **1.181.9**, and public API health/login report **1.181.9**. The backup/browser infrastructure is committed. The first Linux browser result is still pending; see [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md).
 The Hankeis/Telegram server and portal work passed the release gates; the external Telegram adapter remains separate work. See [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md) before editing or deploying.
 
-Claude and other contributors must read [CLAUDE.md](CLAUDE.md), [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md), and the latest [CHANGELOG.md](CHANGELOG.md) entry before implementation. `PUSH.bat` now refuses dirty worktrees by default so one contributor cannot silently clean, commit, or deploy another contributor's changes.
+Every contributor, human or AI, starts with [AGENTS.md](AGENTS.md) (the one contract for every AI tool), then [CLAUDE.md](CLAUDE.md), [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md), and the latest [CHANGELOG.md](CHANGELOG.md) entry before implementation. `PUSH.bat` now refuses dirty worktrees by default so one contributor cannot silently clean, commit, or deploy another contributor's changes.
+
+## ERP programme - 20 October 2026
+
+The portal is being completed into joined HRM, CRM, inventory, sales and finance systems without
+changing what staff already rely on. Five phases are built locally (1.181.13 to 1.181.17, migrations
+0140 to 0144): customer history and part payments; receive stock and reorder levels; month end,
+position, audit trail and stock take; the client file, follow-ups, monthly invoices and acceptance on
+the shared link; joining and leaving, probation, HR letters, training, the team leave calendar and a
+quotation approval limit that is off by default. Status and routes:
+[docs/ERP-ROADMAP.md](docs/ERP-ROADMAP.md). Nothing is live until `PUSH.bat` runs.
 
 ## Current Plan
 
@@ -75,23 +85,22 @@ scripts/      Build and release helpers
 
 | File | Purpose |
 |---|---|
-| IMPLEMENTATION-PLAN.md | Current ERP scope, evidence, acceptance criteria, decisions; older tracks are labeled historical |
-| docs/ERP-WORKFLOW-BASELINE.md | Phase 0 source map, company gaps, walkthrough script, and exit criteria |
-| docs/UIUX-IMPLEMENTATION-PLAN.md | Modest UI/UX design rules, rollout order, and acceptance checklist |
-| CHANGELOG.md | Version history (granular changes per release) |
-| MILESTONES.md | Milestone log — full timeline, assets, decisions |
-| FEATURES.md | Implemented functionality |
-| ROADMAP.md | Current delivery sequence and historical checklist |
-| ARCHITECTURE.md | Architecture reference; verify older phase descriptions against code |
-| DATABASE.md | Schema reference; migration files are the implementation evidence |
-| API.md | API reference; confirm routes and permissions against current handlers |
-| DEPLOYMENT.md | Build, deploy, rollback |
-| SECURITY.md | Security posture & Phase 3 requirements |
-| CONTRIBUTING.md | Branches, commits, PRs, standards |
-| CLAUDE.md | Mandatory implementation and handoff protocol for Claude and other agents |
-| docs/PROJECT-STATE.md | Current local/production state, blockers, Telegram readiness, and ownership handoff |
-| ADMIN_GUIDE.md | Admin CMS design & permissions |
-| USER_GUIDE.md | How to use & edit the site today |
+| AGENTS.md | The one contract for every AI tool (Codex, Copilot, Cursor, Gemini CLI, Claude) |
+| CLAUDE.md | Full implementation contract and the house rules learned in production |
+| GEMINI.md, .github/copilot-instructions.md | Tool pointers to AGENTS.md |
+| docs/PROJECT-STATE.md | Current local and production state, blockers and handoff |
+| CHANGELOG.md | Version history, written for the owner |
+| docs/ERP-ROADMAP.md | The ERP programme: rule, decisions, phases, routes, tables |
+| docs/DATABASE.md | Migration notes; the migration files are the evidence |
+| docs/PERMISSIONS.md | Roles and permissions |
+| docs/INTERFACE-SYSTEM-V3.md | How UI is built now (no Tailwind) |
+| docs/DESIGN-TOKENS-V2.md | Design tokens |
+| docs/IMPROVEMENT-PLAN-2026-10-12.md | The 12 October review and its priorities |
+| docs/BACKUP-RECOVERY.md | Backup and restore |
+| docs/P1-ARCHITECTURE.md, docs/V2-MIGRATION.md | Routing and V2 background (P1.0b / P1.2+ not authorised) |
+| DEPLOYMENT.md, AUTO-DEPLOY.md | Build, deploy, rollback |
+| CONTRIBUTING.md | Branches, commits, standards, test inventory |
+| tests/browser/README.md | Browser checks and fixtures |
 
 ## Documentation Status
 Root `IMPLEMENTATION-PLAN.md` owns current improvement planning. `CHANGELOG.md`

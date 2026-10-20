@@ -292,3 +292,75 @@ share_token), total_cents, replaced_at, replaced_by; unique on (doc_id, revision
 | Version | Change |
 |---|---|
 | v1.181.11 | 0139 - quotation revisions and their history. |
+
+## v1.181.13 - migration 0140_part_payments.sql
+invoice_payments: one row per part of an invoice received - invoice_id,
+amount_cents, received_on (Malaysian date), method, reference, note,
+created_by, created_at, voided_at, voided_by, void_reason. A part is voided,
+never deleted. Recording parts never changes sales_documents.
+
+| Version | Change |
+|---|---|
+| v1.181.13 | 0140 - part payments (ERP roadmap phase 1). |
+
+## v1.181.14 - migration 0141_stock_receipts.sql
+stock_receipts: supplier, received_on, reference, note, total_cents,
+bill_due_on, bill_paid_on, created_by, voided_at/by/reason. stock_receipt_lines:
+receipt_id, item_id, sku, item_name, qty, unit_cost_cents, stock_before/after,
+cost_before/after_cents. inventory_items gains nullable reorder_level and
+reorder_qty. Receiving raises stock through manual_stockouts (direction in,
+purpose restock); it writes no expense or cash entry.
+
+| Version | Change |
+|---|---|
+| v1.181.14 | 0141 - receiving stock, reorder levels (ERP roadmap phase 2). |
+
+## v1.181.15 - migration 0142_books_stock_take.sql
+period_closes: month (YYYY-MM), figures (JSON snapshot of the month's
+figures), note, closed_by/at, reopened_by/at, reopen_reason. A close locks
+nothing; nothing outside worker/src/business.ts reads it. stock_counts:
+category (null = every item), note, status (open / posted / cancelled),
+started_by/at, posted_by/at, cancelled_at. stock_count_lines: count_id,
+item_id, sku, item_name, system_qty (held when the count started),
+counted_qty (null = not counted), posted_delta, counted_by/at; unique on
+(count_id, item_id). Posting moves inventory_items.stock relatively through
+manual_stockouts (purpose variance_found / variance_missing).
+
+| Version | Change |
+|---|---|
+| v1.181.15 | 0142 - month close, stock take (ERP roadmap phase 3). |
+
+## v1.181.16 - migration 0143_customer_joins.sql
+customer_contacts: customer_id, name, role, phone, email, note, created_by/at,
+removed_at/by (never deleted). customer_tags: (customer_id, tag) primary key.
+customer_followups: customer_id, due_on, owner_id, note, created_by/at,
+done_at/by, done_note, cancelled_at. customer_terms: customer_id primary key,
+terms_days, updated_by/at; the Sales form sends due_date on a NEW invoice of
+a client with terms. recurring_invoices: customer_id, source_doc_id,
+day_of_month, note, created_by/at, stopped_at/by; a month is raised when an
+invoice of that client created that month carries the reference
+"Recurring R-<id> ...". quotation_acceptances: doc_id, revision,
+accepted_name, accepted_position, accepted_at, ip, user_agent; unique on
+(doc_id, revision). The customers and sales_documents tables are not altered.
+
+| Version | Change |
+|---|---|
+| v1.181.16 | 0143 - client file, follow-ups, recurring invoices, acceptance (ERP roadmap phase 4). |
+
+## v1.181.17 - migration 0144_people.sql
+leaving_checklists: user_id primary key, items (JSON of ticked keys),
+updated_by/at. probation_reviews: user_id, ends_on, outcome (null, confirmed,
+extended, ended), note, set_by/at, decided_by/at; an extension adds a new
+row. hr_letters: user_id, kind, ref_no (unique, A2Z/HR/YYYY/NNN), issued_on,
+subject, body (as printed), signer_name, signer_position, issued_by,
+created_at, voided_at/by, void_reason. training_records: user_id, title,
+provider, on_date, hours, cost_cents, paid_by, note, created_by/at,
+removed_at/by. business_settings: key primary key, value, updated_by/at;
+key quote_approval holds {limit_cents, since} and is absent (off) by
+default. quotation_approvals: doc_id, revision, approved_by/at, note;
+unique on (doc_id, revision). users, leave_requests and sales_documents are
+not altered.
+
+| Version | Change |
+|---|---|
+| v1.181.17 | 0144 - joining and leaving, probation, letters, training, approval limit (ERP roadmap phase 5). |

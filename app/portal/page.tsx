@@ -213,7 +213,8 @@ export default function PortalPage() {
               rendered a completely blank page. */}
           {/* v1.112.0: enquiries are their own tab (CEO: staff work that must
               be answered), one place after Sales. */}
-          {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} />}
+          {/* v1.181.16 - an enquiry that became business opens the quotation form prefilled, through the Sales handoff (ERP roadmap phase 4) */}
+          {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} onMakeQuotation={canOpen("Sales") ? () => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); } : undefined} />}
           {activeTab === "Sales" && (
             /* v1.173.0 (tab concept): the Sales panel draws its own zones
                (the month's figures, the work, the customers); the map and

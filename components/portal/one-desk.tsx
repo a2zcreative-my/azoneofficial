@@ -59,7 +59,7 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const api = makeApi(""); // the enquiries door is /api/v1/enquiries, not /staff
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
+  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries" | "followups" | "billing" | "people" | "quotes";
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -87,12 +87,16 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   tasks: ["Tasks", "Tugasan"],
   news: ["News", "Berita"],
   enquiries: ["Enquiries", "Pertanyaan"], // v1.112.0
+  followups: ["Follow-ups", "Susulan"], // v1.181.16
+  billing: ["Invoices to raise", "Invois untuk dibuat"], // v1.181.16
+  people: ["People", "Orang"], // v1.181.17
+  quotes: ["Quotations to approve", "Sebut harga untuk diluluskan"], // v1.181.17
 };
 
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
    into the wrong list, read it from the bucket the same way the worker does. */
-const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "commission"];
+const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "commission", "quotes"];
 export const kindOf = (i: DeskItem): "decide" | "do" =>
   i.kind ?? (DECIDE_BUCKETS.includes(i.bucket) || i.id.startsWith("task-close:") ? "decide" : "do");
 
@@ -116,7 +120,7 @@ export function waited(since: string | null): string {
 export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
   return useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries"]);
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries", "customers", "followups", "docs", "people", "quotes"]);
 }
 
 /** The three lists the surfaces need, split once so they cannot drift apart. */

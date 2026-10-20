@@ -12,6 +12,7 @@ import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT in
 import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf, putGuarded } from "./shared";
+import { handlePublicAcceptance } from "./business"; // v1.181.16 - quotation acceptance on the shared link
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
@@ -283,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0139_quotation_revisions";
+const LATEST_MIGRATION = "0144_people";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -3328,6 +3329,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      WhatsApp; the long random token is the only credential. Read-only, one
      document, no ids that could be walked. Revoked the moment the token is
      cleared in the portal. */
+  /* v1.181.16 (ERP roadmap phase 4) - the customer accepts a quotation on
+     its shared link. Records who, which revision, when and from where; it
+     changes no status. Budgeted per address like the public enquiry form. */
+  const pubAccept = path.match(/^\/api\/v1\/public\/doc\/([a-f0-9]{32})\/accept$/);
+  if (pubAccept && method === "POST") {
+    if (!(await checkRateLimit(env, `accept:${clientIp(request)}`, 10, 3600))) {
+      return errorResponse("rate_limited", "Too many attempts - please try again later", 429);
+    }
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    return handlePublicAcceptance(env, pubAccept[1]!, body, clientIp(request), request.headers.get("User-Agent") ?? "");
+  }
+
   const pubDoc = path.match(/^\/api\/v1\/public\/doc\/([a-f0-9]{32})$/);
   if (pubDoc && method === "GET") {
     const token = pubDoc[1]!;
@@ -3375,6 +3388,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         .bind(token).first<{ revision: number | null; revised_at: string | null }>();
       if (rv) { d.revision = rv.revision ?? 0; d.revised_at = rv.revised_at; }
     } catch { /* pre-0139: an original */ }
+    /* v1.181.16 - whether the customer already accepted this revision on
+       the link (0143); without the table the link simply offers acceptance
+       nowhere, as before */
+    if (d.doc_type === "QT") {
+      try {
+        const acc = await env.DB.prepare(
+          `SELECT a.accepted_name, a.accepted_position, a.accepted_at FROM quotation_acceptances a JOIN sales_documents x ON x.id = a.doc_id
+            WHERE x.share_token = ?1 AND a.revision = COALESCE(x.revision, 0)`,
+        ).bind(token).first<{ accepted_name: string; accepted_position: string | null; accepted_at: string }>();
+        d.acceptance = acc ?? null;
+        d.can_accept = true;
+      } catch { /* pre-0143 */ }
+    }
     /* Same signer rule as the portal (v1.4.233): an officer's document shows
        that officer's signature; anyone else's is signed in ink. */
     const MGMT = ["ceo", "coo", "cco"];
@@ -4663,6 +4689,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
          refused by the table. */
       ["0138 (claim categories: stationery and client meeting)", `SELECT id FROM claims INDEXED BY idx_claims_category WHERE category = 'stationery' LIMIT 1`],
       ["0139 (quotation revisions)", `SELECT d.revision, d.revised_at, r.snapshot FROM sales_documents d LEFT JOIN sales_document_revisions r ON r.doc_id = d.id LIMIT 1`],
+      ["0141 (receiving stock, reorder levels)", `SELECT r.id, r.bill_due_on, l.cost_after_cents, i.reorder_level, i.reorder_qty FROM inventory_items i LEFT JOIN stock_receipt_lines l ON l.item_id = i.id LEFT JOIN stock_receipts r ON r.id = l.receipt_id LIMIT 1`],
+      ["0142 (month close, stock take)", `SELECT p.month, p.reopened_at, c.status, l.counted_qty, l.posted_delta FROM period_closes p LEFT JOIN stock_counts c ON 1 = 0 LEFT JOIN stock_count_lines l ON 1 = 0 LIMIT 1`],
+      ["0143 (client file, follow-ups, recurring invoices, acceptance)", `SELECT k.name, t.tag, f.due_on, m.terms_days, r.day_of_month, q.accepted_name FROM customer_contacts k LEFT JOIN customer_tags t ON 1 = 0 LEFT JOIN customer_followups f ON 1 = 0 LEFT JOIN customer_terms m ON 1 = 0 LEFT JOIN recurring_invoices r ON 1 = 0 LEFT JOIN quotation_acceptances q ON 1 = 0 LIMIT 1`],
+      ["0144 (joining and leaving, probation, letters, training, approval limit)", `SELECT k.items, p.ends_on, l.ref_no, t.title, s.value, a.revision FROM leaving_checklists k LEFT JOIN probation_reviews p ON 1 = 0 LEFT JOIN hr_letters l ON 1 = 0 LEFT JOIN training_records t ON 1 = 0 LEFT JOIN business_settings s ON 1 = 0 LEFT JOIN quotation_approvals a ON 1 = 0 LIMIT 1`],
+      ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4821,6 +4852,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0137_staff_responsibilities",
       "0138_claim_categories",
       "0139_quotation_revisions",
+      "0140_part_payments",
+      "0141_stock_receipts",
+      "0142_books_stock_take",
+      "0143_customer_joins",
+      "0144_people",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

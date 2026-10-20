@@ -182,7 +182,7 @@ echo   [3b/7] Untracking anything .gitignore says should not be here...
 for /f "delims=" %%F in ('git ls-files --cached --ignored --exclude-standard 2^>nul') do (
   git rm --cached --quiet "%%F" >nul 2>&1
 )
-for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "package-1.json" "package-2.json" "public\sw-1.js" "public\sw-2.js") do (
+for %%F in ("CHANGELOG-1.md" "CHANGELOG-2.md" "CHANGELOG-3.md" "CHANGELOG-4.md" "package-1.json" "package-2.json" "package-3.json" "package-4.json" "public\sw-1.js" "public\sw-2.js") do (
   if exist %%F del /f /q %%F
 )
 REM  v1.156.0 - THE SAME COLLISION, ANYWHERE A SOURCE FILE LANDS. The CEO's
@@ -195,9 +195,16 @@ REM  fails the build on purpose. The list above named the collisions one by
 REM  one; this sweeps every "-1" / "-2" twin under the folders code is
 REM  delivered to. No real file in this repository ends in -1 or -2 - the
 REM  migrations are "NNNN_name.sql" - so nothing legitimate matches.
-for %%D in (tests components\portal components\layout components\ui components\live lib app\login app\portal app\admin app\account scripts worker\src worker\migrations) do (
-  for %%F in ("%%D\*-1.ts" "%%D\*-1.tsx" "%%D\*-1.mjs" "%%D\*-1.sql" "%%D\*-2.ts" "%%D\*-2.tsx" "%%D\*-2.mjs" "%%D\*-2.sql") do (
-    if exist "%%~F" del /f /q "%%~F"
+REM  v1.181.17 (20-10-2026): the same twins came back as "-3" and "-4" after
+REM  files delivered in chat were downloaded a second time into the folder,
+REM  and as "-1.css" / "-3.md" beside a CSS module and the docs. The sweep
+REM  now covers -1 to -4, the CSS, Markdown and JSON twins, and the docs,
+REM  tests\browser, components\public and components\staff folders.
+for %%D in (tests tests\browser components\portal components\public components\staff components\layout components\ui components\live lib app\login app\portal app\admin app\account scripts worker\src worker\migrations docs) do (
+  for %%N in (1 2 3 4) do (
+    for %%F in ("%%D\*-%%N.ts" "%%D\*-%%N.tsx" "%%D\*-%%N.mjs" "%%D\*-%%N.sql" "%%D\*-%%N.css" "%%D\*-%%N.md" "%%D\*-%%N.json") do (
+      if exist "%%~F" del /f /q "%%~F"
+    )
   )
 )
 

@@ -29,6 +29,7 @@ import { buildDocHtml, docRevisionLabel, type DocFull } from "@/lib/doc-template
    document's issuer was — support is who answers the phone today. */
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
+import { DocAccept, type Acceptance } from "@/components/public/doc-accept"; // v1.181.16
 import { ArrowLeft } from "lucide-react";
 
 // A4 at 96dpi — the width the template is designed against.
@@ -44,6 +45,8 @@ export default function PublicDocPage() {
   const [brand, setBrand] = useState(DOCUMENT_ISSUER.name);
   const [scale, setScale] = useState(1);
   const frame = useRef<HTMLIFrameElement>(null);
+  /* v1.181.16 - a quotation the customer can accept here (record only) */
+  const [accept, setAccept] = useState<{ token: string; initial: Acceptance | null } | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,7 +56,8 @@ export default function PublicDocPage() {
       try {
         const res = await fetch(`/api/v1/public/doc/${token}`);
         if (!res.ok) { setState("gone"); return; }
-        const { doc } = (await res.json()) as { doc: DocFull };
+        const { doc } = (await res.json()) as { doc: DocFull & { can_accept?: boolean; acceptance?: Acceptance | null } };
+        if (doc.doc_type === "QT" && doc.can_accept) setAccept({ token, initial: doc.acceptance ?? null });
         // v1.38.0 (S-1): the signature rides the same credential the document
         // itself does — the share token. No token, no signature.
         setHtml(buildDocHtml(doc, false, `${location.origin}/api/v1/public/doc-signature?t=${token}`)); // never auto-print at the customer
@@ -187,6 +191,7 @@ export default function PublicDocPage() {
             />
           </div>
         )}
+        {state === "ready" && accept && <DocAccept token={accept.token} label={label} initial={accept.initial} />}
         {state === "ready" && (
           <p className="mt-4 text-center text-xs text-[var(--doc-muted)]">
             Tap <strong>Save as PDF</strong> and choose “Save to Files” (iPhone) or “Save as PDF” (Android) to keep a copy.

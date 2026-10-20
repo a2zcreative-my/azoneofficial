@@ -95,8 +95,8 @@ ok("0139 adds revision and revised_at, and the history table",
   && /CREATE TABLE IF NOT EXISTS sales_document_revisions/.test(sql)
   && /ON sales_document_revisions \(doc_id, revision\)/.test(sql));
 const idx = read("worker/src/index.ts");
-ok("0139 is the latest migration, expected, and probed",
-  /const LATEST_MIGRATION = "0139_quotation_revisions";/.test(idx) && /"0139_quotation_revisions",/.test(idx)
+ok("0139 is expected and probed (a later migration may be the latest)",
+  /"0139_quotation_revisions",/.test(idx)
   && /\["0139 \(quotation revisions\)"/.test(idx));
 
 /* ---- 5. the portal ---- */

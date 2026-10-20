@@ -90,7 +90,7 @@ function dmyhm(sqlite: string): string {
 }
 const waDigits = (phone: string) => { const d = phone.replace(/\D/g, ""); return d.startsWith("0") ? `6${d}` : d; };
 
-export function EnquiriesPanel({ userId }: { userId: number }) {
+export function EnquiriesPanel({ userId, onMakeQuotation }: { userId: number; onMakeQuotation?: () => void }) {
   const { show: toast, node: toastNode } = useSaveToast();
   const [filter, setFilter] = useState<string>("new");
   const [open, setOpen] = useState<number | null>(null);
@@ -273,6 +273,22 @@ export function EnquiriesPanel({ userId }: { userId: number }) {
                             onClick={() => void patch(e, { status: "closed" }, ["Closed", "Ditutup"], ["Not changed", "Tidak diubah"])}>
                             {L("Close", "Tutup")}
                           </button>
+                          {/* v1.181.16 - business becomes a quotation: the form opens
+                              on Sales with the client and the enquiry's reference */}
+                          {e.status === "qualified" && onMakeQuotation && (
+                            <button type="button" className={btnSm}
+                              onClick={() => {
+                                try {
+                                  localStorage.setItem("azone-qt-prefill", JSON.stringify({
+                                    source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name,
+                                    phone: e.phone ?? "", reference: `Enquiry #${e.id}`,
+                                  }));
+                                } catch { /* private mode: the form still opens, empty */ }
+                                onMakeQuotation();
+                              }}>
+                              {L("Make quotation", "Buat sebut harga")}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}

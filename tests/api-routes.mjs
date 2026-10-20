@@ -94,6 +94,9 @@ const staffSrc = read("worker/src/staff.ts");
 const rootRoutes = routesOf(index, "");
 const staffRoutes = routesOf(staffSrc, "/api/v1/staff");
 const threadsRoutes = routesOf(read("worker/src/threads.ts"), "/api/v1/staff/threads");
+/* v1.181.13 - the ERP roadmap's routes live in business.ts, written against
+   the FULL staff sub-path, behind one door in staff.ts. */
+const businessRoutes = routesOf(read("worker/src/business.ts"), "/api/v1/staff");
 
 ok("the worker's own routes were found", rootRoutes.exact.size > 30,
    `${rootRoutes.exact.size} exact routes in index.ts — if this collapses, every check below passes vacuously`);
@@ -103,7 +106,7 @@ ok("the staff portal's routes were found", staffRoutes.exact.size > 50,
 ok("the Threads module's routes were found", threadsRoutes.exact.size >= 3,
    `${threadsRoutes.exact.size} exact routes in threads.ts — the door in staff.ts is excluded on purpose, so these must be seen here`);
 
-const served = (full) => rootRoutes.serves(full) || staffRoutes.serves(full) || threadsRoutes.serves(full);
+const served = (full) => rootRoutes.serves(full) || staffRoutes.serves(full) || threadsRoutes.serves(full) || businessRoutes.serves(full);
 
 /* ------------------------------------------------------------------ *
  * 2. What the client sends.

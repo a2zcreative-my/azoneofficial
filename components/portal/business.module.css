@@ -1,0 +1,338 @@
+/* v1.181.13 - the ERP roadmap's screens (components/portal/invoice-payments.tsx,
+   customer-timeline.tsx and the phases after them). Tokens only; cards,
+   chips, buttons and inputs are the shared named classes. */
+
+.stack {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+/* a pane behind a pill: the module is unlayered, so it must say hidden
+   itself or its display: grid outranks the reset's [hidden] rule */
+.stack[hidden] {
+  display: none;
+}
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.figure {
+  white-space: nowrap;
+}
+.figureLabel {
+  color: var(--muted-foreground);
+  margin-right: 0.25rem;
+}
+.list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.item:last-child {
+  border-bottom: 0;
+}
+.when {
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  min-width: 5.5rem;
+}
+/* a date with its time is one column wide on every row of a history */
+.whenWide {
+  min-width: 8.75rem;
+}
+/* content opened in the app dialog: the dialog draws no inner gutter */
+.dialog {
+  padding: 0.75rem 1rem 1rem;
+}
+.what {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.whatTitle {
+  font-weight: 600;
+}
+.whatDetail {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.amount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* a voided part: its money is struck through, its reason stays readable */
+.voided {
+  color: var(--muted-foreground);
+}
+.voided .whatTitle,
+.voided .amount {
+  text-decoration: line-through;
+}
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+  align-items: end;
+  gap: 0.5rem 0.75rem;
+}
+.field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.chip {
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+.empty {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.hiddenNote {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+/* a history row: when | what | amount on a wide screen; on a phone the
+   date heads the row and the amount stays beside its title */
+.tlItem {
+  display: grid;
+  grid-template-columns: 8.75rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.tlItem:last-child {
+  border-bottom: 0;
+}
+.tlItem > * {
+  min-width: 0;
+}
+@media (max-width: 639px) {
+  .tlItem {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .tlItem > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* a received line: item | qty | unit cost | remove */
+.rcvLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 7.5rem auto;
+  align-items: end;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.rcvLine:last-child {
+  border-bottom: 0;
+}
+@media (max-width: 639px) {
+  .rcvLine {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .rcvLine > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+.check input {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+
+/* a form's action sits at the start of its cell from a tablet up; on a
+   phone it takes the row, which is the easier target */
+@media (min-width: 640px) {
+  .form > button {
+    justify-self: start;
+  }
+}
+
+/* v1.181.15 - the books: a month is its name and state, then its figures */
+.monthRow {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.monthRow:last-child {
+  border-bottom: 0;
+}
+.monthHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.625rem;
+}
+.monthActions {
+  display: flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+/* a heading inside a pane */
+.sub {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+/* stored detail text (an audit row): wraps anywhere, never widens the row */
+.detailText {
+  display: block;
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+/* a counted line: item | held | counted | difference */
+.countLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5rem 6rem 5rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.countLine:last-child {
+  border-bottom: 0;
+}
+.countHead {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.over {
+  color: var(--success);
+}
+.under {
+  color: var(--danger);
+}
+@media (max-width: 639px) {
+  .countLine {
+    grid-template-columns: minmax(0, 1fr) 3.5rem 5rem 3.5rem;
+    gap: 0.375rem;
+  }
+}
+
+/* v1.181.16 - a tag chip's remove control, inside the chip */
+.chipX {
+  margin-left: 0.25rem;
+  padding: 0 0.125rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.chipX:focus-visible {
+  outline: 2px solid var(--ring, currentColor);
+  outline-offset: 1px;
+}
+/* a client's tags beside its name in the list */
+.tagRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.375rem;
+  vertical-align: middle;
+}
+
+/* v1.181.16 - a one-line skeleton in a detail cell, the width of a sentence */
+.skelLine {
+  display: block;
+  width: min(100%, 22rem);
+  height: 0.875rem;
+}
+
+/* the monthly-invoices strip sits above the work pills, a gap below it */
+.dueStrip {
+  margin-bottom: 0.75rem;
+}
+
+/* v1.181.17 - the team leave calendar: a month across, a person down. The
+   table scrolls inside its own box on a phone; the page never does. */
+.calWrap {
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+.cal {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.calName {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 9rem;
+  max-width: 12rem;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  background: var(--card);
+  text-align: left;
+  font-weight: 600;
+}
+.calDay {
+  min-width: 1.5rem;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  text-align: center;
+}
+.calCell {
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  background: var(--secondary);
+}
+.calOn {
+  background: var(--primary);
+}
+.calPending {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+.calCount {
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.calClash {
+  color: var(--warning);
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--warning);
+}

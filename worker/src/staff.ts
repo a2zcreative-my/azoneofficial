@@ -17,6 +17,7 @@ import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
+import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { handleSalesMap } from "./sales-map"; // v1.113.0
@@ -2340,6 +2341,22 @@ export async function handleStaff(
      customer's state, paid web orders by the shipping state. ---- */
   if (path === "/sales/map" && method === "GET") {
     return handleSalesMap(env, user, new URL(request.url).searchParams);
+  }
+
+  /* ---- Business joins (v1.181.13) — see business.ts. The ERP roadmap,
+     phase by phase: additive routes only, each under the authority of the
+     screen its data already lives on. A path business.ts does not answer
+     falls through to the routes below, unchanged. ---- */
+  if (path === "/docs/part-payments" || /^\/docs\/\d+\/payments(?:\/\d+\/void)?$/.test(path) || /^\/customers\/\d+\/timeline$/.test(path)
+    || path === "/inventory/receipts" || /^\/inventory\/receipts\/\d+(?:\/void|\/bill)?$/.test(path) || /^\/inventory\/\d+\/reorder$/.test(path)
+    || /^\/books\/(?:months|close|reopen|position|audit)$/.test(path) || /^\/stock-counts(?:\/\d+(?:\/(?:lines|post|cancel))?)?$/.test(path)
+    || path === "/customers/crm" || /^\/customers\/\d+\/(?:file|contacts|tags|terms|followups)$/.test(path) || /^\/customers\/\d+\/contacts\/\d+\/remove$/.test(path)
+    || /^\/followups\/\d+\/(?:done|cancel)$/.test(path) || path === "/customers/recurring" || /^\/customers\/recurring\/\d+\/(?:stop|prefill)$/.test(path) || /^\/docs\/\d+\/acceptance$/.test(path)
+    || path === "/people/overview" || path === "/people/leave-calendar" || /^\/people\/\d+\/(?:leaving|probation|probation\/decide|letter-fields|letters|training)$/.test(path)
+    || /^\/people\/letters\/\d+(?:\/void)?$/.test(path) || /^\/people\/training\/\d+\/remove$/.test(path)
+    || path === "/quotes/approval" || path === "/quotes/approval/limit" || /^\/docs\/\d+\/approve$/.test(path)) {
+    const biz = await handleBusiness(env, path, method, body, user, new URL(request.url).searchParams);
+    if (biz) return biz;
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's

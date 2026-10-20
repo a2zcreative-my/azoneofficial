@@ -27,6 +27,15 @@
  *   tasks      my open tasks, overdue first; and tasks I created whose scope
  *              is fully ticked but not yet closed ("review and close")
  *   news       announcements from the last 30 days I have not acknowledged
+ *   followups  v1.181.16: client follow-ups due today or earlier that are
+ *              mine, or nobody's (sales permission)
+ *   billing    v1.181.16: recurring invoices due this month and not yet
+ *              raised (sales permission); raised by a person, in Sales
+ *   people     v1.181.17 (hr_manage): a probation ending within 14 days or
+ *              past its end undecided; open joining steps for someone who
+ *              joined in the last 60 days; open leaving steps
+ *   quotes     v1.181.17 (CEO, only while the owner's approval limit is
+ *              set): quotations over the limit not yet approved
  *
  * Every query is armoured on its own: a table a pending migration has not
  * created yet costs its bucket, not the desk (the v1.4.218 lesson).
@@ -40,9 +49,10 @@ import { can } from "./permissions";
 import { isOverdue as isEnquiryOverdue } from "./enquiries"; // v1.112.0
 import { leaveCanActAt } from "./leave-chain";
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
+import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
+  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries" | "followups" | "billing" | "people" | "quotes";
   id: string;
   title: string;
   sub: string;
@@ -315,6 +325,134 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           next: e.status === "new" && !e.assigned_to ? "Take it, or open it to reply" : "Reply to the customer",
           /* the only row the desk lets you act on in place: unclaimed and new */
           ...(e.status === "new" && !e.assigned_to ? { takeable: true as const } : {}),
+        });
+      }
+    });
+  }
+
+  /* ---- v1.181.16 (ERP roadmap phase 4): clients to call back, invoices to raise ---- */
+  if (can(user.role, "sales")) {
+    await guard("followups", async () => {
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const { results } = await env.DB.prepare(
+        `SELECT f.id, f.due_on, f.note, f.owner_id, f.created_at, c.company
+           FROM customer_followups f JOIN customers c ON c.id = f.customer_id
+          WHERE f.done_at IS NULL AND f.cancelled_at IS NULL AND f.due_on <= ?1 AND (f.owner_id = ?2 OR f.owner_id IS NULL)
+          ORDER BY f.due_on ASC LIMIT 50`,
+      ).bind(today, user.id).all<{ id: number; due_on: string; note: string; owner_id: number | null; created_at: string; company: string }>();
+      for (const f of results) {
+        items.push({
+          bucket: "followups", id: `followup:${f.id}`, tab: "Sales",
+          title: `${f.company} — ${f.note}`,
+          sub: f.due_on < today ? `follow-up, due ${dmy(f.due_on)}` : "follow-up, due today",
+          since: f.due_on, overdue: f.due_on < today,
+          kind: "do", who: f.company, next: "Contact the client, then mark it done",
+        });
+      }
+    });
+    await guard("billing", async () => {
+      const now = new Date(Date.now() + 8 * 3600 * 1000);
+      const today = now.toISOString().slice(0, 10);
+      const ym = today.slice(0, 7);
+      const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+      const { results } = await env.DB.prepare(
+        `SELECT r.id, r.day_of_month, r.created_at, c.company, d.doc_number, d.total_cents
+           FROM recurring_invoices r JOIN customers c ON c.id = r.customer_id JOIN sales_documents d ON d.id = r.source_doc_id
+          WHERE r.stopped_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.customer_id = r.customer_id AND x.doc_type = 'INV'
+                             AND x.reference LIKE 'Recurring R-' || r.id || ' %' AND strftime('%Y-%m', x.created_at, '+8 hours') = ?1)
+          ORDER BY r.day_of_month LIMIT 50`,
+      ).bind(ym).all<{ id: number; day_of_month: number; created_at: string; company: string; doc_number: string; total_cents: number }>();
+      for (const r of results) {
+        const due = `${ym}-${String(Math.min(r.day_of_month, last)).padStart(2, "0")}`;
+        if (today < due) continue;
+        items.push({
+          bucket: "billing", id: `recurring:${r.id}`, tab: "Sales",
+          title: `${r.company} — monthly invoice`,
+          sub: `${rm(r.total_cents)} · repeats ${r.doc_number} · due ${dmy(due)}`,
+          since: due, overdue: false,
+          kind: "do", who: r.company, next: "Raise it from the recurring list in Sales",
+        });
+      }
+    });
+  }
+
+  /* ---- v1.181.17 (ERP roadmap phase 5): people, and quotations over the owner's limit ---- */
+  if (can(user.role, "hr_manage")) {
+    await guard("people", async () => {
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const soon = new Date(Date.now() + 8 * 3600 * 1000 + 14 * DAY_MS).toISOString().slice(0, 10);
+      const { results: prob } = await env.DB.prepare(
+        `SELECT p.id, p.user_id, p.ends_on, p.set_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+           FROM probation_reviews p JOIN users u ON u.id = p.user_id
+          WHERE p.outcome IS NULL AND p.ends_on <= ?1 AND u.is_active = 1
+            AND p.id = (SELECT MAX(x.id) FROM probation_reviews x WHERE x.user_id = p.user_id)`,
+      ).bind(soon).all<{ id: number; user_id: number; ends_on: string; set_at: string; name: string }>();
+      for (const p of prob) {
+        items.push({
+          bucket: "people", id: `probation:${p.id}`, tab: "HR",
+          title: `${p.name} — probation ends ${dmy(p.ends_on)}`,
+          sub: p.ends_on < today ? "probation ended, no decision recorded" : "probation ending soon",
+          since: p.ends_on, overdue: p.ends_on < today,
+          kind: "decide", who: p.name, next: "Confirm, extend or end it",
+        });
+      }
+      const joinedSince = new Date(Date.now() + 8 * 3600 * 1000 - 60 * DAY_MS).toISOString().slice(0, 10);
+      const { results: joined } = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, joined_on, onboarding_json FROM users
+          WHERE is_active = 1 AND left_on IS NULL AND joined_on >= ?1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+      ).bind(joinedSince).all<{ id: number; name: string; joined_on: string; onboarding_json: string | null }>();
+      for (const u of joined) {
+        let done: Record<string, boolean> = {};
+        try { done = u.onboarding_json ? JSON.parse(u.onboarding_json) : {}; } catch { done = {}; }
+        const open = JOINING_KEYS.filter((k) => !done[k]).length;
+        if (!open) continue;
+        items.push({
+          bucket: "people", id: `joining:${u.id}`, tab: "HR", title: `${u.name} — joining checklist`,
+          sub: `${open} of ${JOINING_KEYS.length} steps open · joined ${dmy(u.joined_on)}`,
+          since: u.joined_on, overdue: ageDays(`${u.joined_on} 00:00:00`) > 14,
+          kind: "do", who: u.name, next: "Finish the joining steps",
+        });
+      }
+      const { results: leaving } = await env.DB.prepare(
+        `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.left_on, k.items
+           FROM users u LEFT JOIN leaving_checklists k ON k.user_id = u.id
+          WHERE u.left_on IS NOT NULL AND u.left_on >= ?1 AND u.role NOT IN ('customer', 'super_admin', 'admin')`,
+      ).bind(joinedSince).all<{ id: number; name: string; left_on: string; items: string | null }>();
+      for (const u of leaving) {
+        let done: Record<string, boolean> = {};
+        try { done = u.items ? JSON.parse(u.items) : {}; } catch { done = {}; }
+        const open = LEAVING_KEYS.filter((k) => !done[k]).length;
+        if (!open) continue;
+        items.push({
+          bucket: "people", id: `leaving:${u.id}`, tab: "HR", title: `${u.name} — leaving checklist`,
+          sub: `${open} of ${LEAVING_KEYS.length} steps open · last day ${dmy(u.left_on)}`,
+          since: u.left_on, overdue: u.left_on < today,
+          kind: "do", who: u.name, next: "Finish the leaving steps",
+        });
+      }
+    });
+  }
+  if (["super_admin", "ceo"].includes(user.role)) {
+    await guard("quotes", async () => {
+      const row = await env.DB.prepare(`SELECT value FROM business_settings WHERE key = 'quote_approval'`).first<{ value: string | null }>();
+      let setting: { limit_cents?: number; since?: string } = {};
+      try { setting = row?.value ? JSON.parse(row.value) : {}; } catch { setting = {}; }
+      if (!setting.limit_cents || !setting.since) return; // off: nothing waits
+      const { results } = await env.DB.prepare(
+        `SELECT d.id, d.doc_number, d.total_cents, COALESCE(d.revision, 0) AS revision, COALESCE(datetime(d.revised_at, '-8 hours'), d.created_at) AS at, c.company
+           FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id
+          WHERE d.doc_type = 'QT' AND d.total_cents > ?1 AND COALESCE(datetime(d.revised_at, '-8 hours'), d.created_at) >= ?2
+            AND NOT EXISTS (SELECT 1 FROM quotation_approvals a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0))
+          ORDER BY d.id ASC LIMIT 50`,
+      ).bind(setting.limit_cents, setting.since).all<{ id: number; doc_number: string; total_cents: number; revision: number; at: string; company: string | null }>();
+      for (const q of results) {
+        items.push({
+          bucket: "quotes", id: `quote:${q.id}:${q.revision}`, tab: "Sales",
+          title: `${q.doc_number}${q.revision ? ` REV ${q.revision}` : ""}${q.company ? ` — ${q.company}` : ""}`,
+          sub: `${rm(q.total_cents)} · over your approval limit of ${rm(setting.limit_cents)}`,
+          since: q.at, overdue: ageDays(q.at) > 2,
+          kind: "decide", who: q.company, next: "Approve it in Sales, in the quotation's details",
         });
       }
     });

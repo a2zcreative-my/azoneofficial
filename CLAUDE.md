@@ -2,6 +2,22 @@
 
 Read this file before making any implementation change in this repository.
 
+`AGENTS.md` is the shared contract for every AI tool (Codex, Copilot, Cursor, Gemini CLI and Claude);
+this file adds the full house rules. Keep the two in step: a rule that changes here changes there.
+
+## ERP programme - 20 October 2026 (versions 1.181.13 to 1.181.17, local)
+
+The owner asked for HRM, CRM, inventory, sales and recording "phase by phase, and also do not change
+any logic since my system are currently use by staff". All five phases are built and on the owner's
+PC, undeployed until `PUSH.bat` runs and applies migrations `0140` to `0144`. Status, decisions and
+every route are in [docs/ERP-ROADMAP.md](docs/ERP-ROADMAP.md). The contract: new routes only in
+`worker/src/business.ts` behind one door in `worker/src/staff.ts`; each route uses the permission of
+the screen whose data it touches; nothing writes a document, the cash book, the journal, payroll,
+users, leave, attendance, claims, receipts or credit notes (receiving stock and a stock take move
+stock through the manual movement log, by design); a behaviour that would change an outcome is off
+until the owner turns it on. `tests/business-joins.mjs` holds it, phase by phase - extend it with
+the phase, never loosen it.
+
 ## Current review and continuation scope - 12 October 2026
 
 Read [the improvement plan](docs/IMPROVEMENT-PLAN-2026-10-12.md) and the current summary in `docs/PROJECT-STATE.md`. Rechecked after the user's new work: local/GitHub main is `3e42644`, version `1.181.9`, and public API health/login both report `1.181.9`. The backup and browser infrastructure is committed in that revision. Do not repeat or overwrite it based on older "unreleased" notes.

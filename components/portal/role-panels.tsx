@@ -59,6 +59,9 @@ import { usePrompt } from "@/components/ui/prompt-dialog";
 import cl from "./claims.module.css"; // v1.172.2 - the Claims flow's own layout (Tailwind retired)
 import cx from "./corrections.module.css"; // v1.181.4 - the corrections card: the filter bar, the unpaid-day editor
 import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
+import { StockReceive } from "@/components/portal/stock-receive"; // v1.181.14
+import { StockTake } from "@/components/portal/stock-take"; // v1.181.15
+import { PeoplePanel } from "@/components/portal/people-panel"; // v1.181.17
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -299,6 +302,9 @@ export function HrPanel({ administration }: { administration?: ReactNode }) {
       <TabZone label={L("Administration", "Pentadbiran")}>
         {administration}
       </TabZone>
+      {/* v1.181.17 (ERP roadmap phase 5) - joining, leaving, probation,
+          letters, training: its own zone, for hr_manage only */}
+      <PeoplePanel />
       <TabZone label={L("People", "Orang")}>
         <div className={card}>
           <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
@@ -2018,6 +2024,18 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </ul>
         </div>
       </div>
+      </section>
+      {/* v1.181.14 (ERP roadmap phase 2) - stock from a supplier, with what it
+          cost and what is owed. Purchasing stays retired; this is the form. */}
+      <section className="erp-stack-tight erp-tab-zone">
+        <ZoneLabel>{L("Receive stock", "Terima stok")}</ZoneLabel>
+        <StockReceive items={items} onStockChanged={() => void load()} />
+      </section>
+      {/* v1.181.15 (ERP roadmap phase 3) - count the shelf against what the
+          portal held when the count began; post the differences as variances. */}
+      <section className="erp-stack-tight erp-tab-zone">
+        <ZoneLabel>{L("Stock take", "Kiraan stok")}</ZoneLabel>
+        <StockTake categories={[...new Set(items.map((i) => (i.category ?? "").trim() || "Uncategorised"))].sort()} onStockChanged={() => void load()} />
       </section>
       <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("What moved", "Apa yang bergerak")}</ZoneLabel>
