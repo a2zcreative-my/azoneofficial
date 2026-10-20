@@ -17,6 +17,7 @@ import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
+import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { handleSalesMap } from "./sales-map"; // v1.113.0
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
@@ -2769,7 +2770,11 @@ export async function handleStaff(
 
       pending_leave: await gated(people, `SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
       pending_claims: await gated(can(user.role, "claims_decide"), `SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
-      pending_ot: await gated(otDecide, `SELECT COUNT(*) AS c FROM ot_records WHERE status = 'pending'`),
+      /* v1.181.10 (CEO: the tile said 6, the card it opens listed 3) - this
+         counted ot_records ROWS, and a stretch of overtime is two of them.
+         It now counts what the card lists: one per person per day, closed,
+         outside a released month. */
+      pending_ot: otDecide ? await pendingOtDays(env).then((l) => l.length).catch(() => null) : undefined,
 
       low_stock: await gated(stock, `SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
       /* v1.154.0 - OPEN means not yet invoiced. converted_from lives on the
@@ -3567,44 +3572,22 @@ export async function handleStaff(
          evidence that decides most approvals in one glance. */
       /* v1.159.8 - a released month has no decision left to make: its
          pending rows, whoever wrote them, are not offered. */
-      const { results: rows } = await env.DB.prepare(
-        `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
-                date(o.created_at, '+8 hours') AS d, o.type, o.created_at
-           FROM ot_records o JOIN users u ON u.id = o.user_id
-          WHERE o.status = 'pending'
-            AND NOT EXISTS (SELECT 1 FROM payslip_releases pr WHERE pr.month = strftime('%Y-%m', o.created_at, '+8 hours'))
-          ORDER BY o.created_at`,
-      ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>()
-        .catch(() => env.DB.prepare(
-          `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
-                  date(o.created_at, '+8 hours') AS d, o.type, o.created_at
-             FROM ot_records o JOIN users u ON u.id = o.user_id
-            WHERE o.status = 'pending' ORDER BY o.created_at`,
-        ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>());
-      const byDay = new Map<string, { user_id: number; name: string; d: string; punches: Punch[] }>();
-      for (const r of rows ?? []) {
-        const k = `${r.user_id}|${r.d}`;
-        const g = byDay.get(k) ?? { user_id: r.user_id, name: r.name, d: r.d, punches: [] };
-        g.punches.push({ type: r.type === "ot_in" ? "clock_in" : "clock_out", at: r.created_at });
-        byDay.set(k, g);
-      }
-      const days = [...byDay.values()].map((g) => g.d).sort();
+      /* v1.181.10 - the rows, the released-month rule and the pairing are
+         pendingOtDays (ot-pending.ts), the same reader the dashboard tile
+         counts and the Desk lists. Read the note at the top of that file. */
+      const waiting = await pendingOtDays(env);
+      const days = waiting.map((g) => g.d).sort();
       const assignedOt = days.length > 0 ? await assignedResolver(env, days[0]!, days[days.length - 1]!) : null;
-      const pending: Record<string, unknown>[] = [];
-      for (const g of byDay.values()) {
-        const sess = pairSessions(g.punches);
-        const closed = sess.filter((x) => x.out);
-        if (closed.length === 0) continue; // an OT in with no OT out is not decidable yet
-        const hm = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
-        const asg = assignedOt ? assignedOt(g.user_id, g.d, mytMinutes(closed[0]!.in)) : null;
-        pending.push({
+      const hm = (at: string) => new Date(new Date(at.replace(" ", "T") + "Z").getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+      const pending: Record<string, unknown>[] = waiting.map((g) => {
+        const asg = assignedOt ? assignedOt(g.user_id, g.d, mytMinutes(g.closed[0]!.in)) : null;
+        return {
           user_id: g.user_id, name: g.name, d: g.d, status: "pending",
-          ot_in: hm(closed[0]!.in), ot_out: hm(closed[closed.length - 1]!.out!),
-          minutes: sessionMinutes(closed), stretches: closed.length,
+          ot_in: hm(g.closed[0]!.in), ot_out: hm(g.last_out),
+          minutes: g.minutes, stretches: g.closed.length,
           assigned: asg ? asg.what : null,
-        });
-      }
-      pending.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+        };
+      });
       return json({ pending: pending.slice(0, 100), can_replace: can(user.role, "leave_entitlement") });
     } catch (e) {
       if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0054_ot_approval)", 500);
@@ -8682,6 +8665,8 @@ export async function handleStaff(
     }
     const restoredD = dd.doc_type === "INV" ? await restoreForInvoice(env, dd.id, dd.doc_number) : 0; // v1.4.263
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(dd.id).run();
+    /* v1.181.11 - a deleted quotation takes its earlier versions with it */
+    try { await env.DB.prepare(`DELETE FROM sales_document_revisions WHERE doc_id = ?1`).bind(dd.id).run(); } catch { /* pre-0139 */ }
     await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type, stock_restored_rows: restoredD });
     return json({ ok: true });
   }
@@ -8728,6 +8713,33 @@ export async function handleStaff(
     }
   }
 
+  /* v1.181.11 - the versions a revised quotation replaced, newest first,
+     each whole enough to print exactly as the customer received it. */
+  const docRevs = path.match(/^\/docs\/(\d+)\/revisions$/);
+  if (docRevs && method === "GET") {
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT r.revision, r.snapshot, r.total_cents, r.replaced_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS replaced_by_name
+           FROM sales_document_revisions r LEFT JOIN users u ON u.id = r.replaced_by
+          WHERE r.doc_id = ?1 ORDER BY r.revision DESC`,
+      ).bind(docRevs[1]).all<{ revision: number; snapshot: string; total_cents: number; replaced_at: string; replaced_by_name: string | null }>();
+      const keep = ["items", "discount_cents", "tax_percent", "delivery_cents", "total_cents", "created_at",
+        "revision", "revised_at", "reference", "delivery_address", "valid_until", "notes", "kind"] as const;
+      return json({
+        revisions: (results ?? []).map((r) => {
+          let snap: Record<string, unknown> = {};
+          try { snap = JSON.parse(r.snapshot) as Record<string, unknown>; } catch { snap = {}; }
+          const doc: Record<string, unknown> = {};
+          for (const k of keep) if (k in snap) doc[k] = snap[k];
+          return { revision: r.revision, total_cents: r.total_cents, replaced_at: r.replaced_at, replaced_by_name: r.replaced_by_name, doc };
+        }),
+      });
+    } catch (e) {
+      if (String(e).includes("no such table")) return json({ revisions: [] });
+      throw e;
+    }
+  }
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
     // v1.4.94: fix typos on an existing document — items, amounts, customer,
@@ -8804,18 +8816,103 @@ export async function handleStaff(
     }
     const spE = typeof body.salesperson_id === "number" && body.salesperson_id > 0 ? Math.round(body.salesperson_id) : null;
     const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const dateE = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayE
+    /* v1.181.11 - a REVISION is not a typo fix: it keeps the original date
+       on the row (the revision carries its own), so doc_date is ignored. */
+    const revise = body.revise === true;
+    const dateE = !revise && typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayE
       ? `${body.doc_date} 00:00:00` : null;
     const refE = str(body.reference, 60) ? String(body.reference).slice(0, 60) : null;
     const shipE = docE.kind === "service" ? null
       : (str(body.delivery_address, 300) ? String(body.delivery_address).slice(0, 300) : null);
+    /* ================= REVISING A QUOTATION (v1.181.11) ==================
+     *
+     * The CEO, 20-10-2026: "I want to add on the Quotation if there is
+     * anything that I want to add based on customer request without require
+     * to create a new one Quotation".
+     *
+     * Edit already rewrote a quotation in place - and that is the problem
+     * with using it for this: it was built to fix typos, so it overwrote the
+     * version the customer was holding and left nothing to say it had
+     * changed. The customer then has two PDFs with one number and two
+     * totals, and nobody can show them which one came first.
+     *
+     * A revision keeps the NUMBER (it is still the same quotation, the one
+     * the customer is answering) and changes everything a customer can see
+     * changed: the row's revision count goes up, the document prints "REV n"
+     * beside its number and is dated the day it was revised, and the version
+     * it replaced is kept whole in sales_document_revisions, so the
+     * quotation the customer was sent can still be shown and printed.
+     *
+     * Refused: anything but a quotation (an invoice is money already asked
+     * for - Edit or a credit note changes that); a quotation that is already
+     * an invoice (the invoice would no longer match what it came from); and
+     * a revision that changes nothing. */
+    let reviseFrom: { revision: number; total_cents: number } | null = null;
+    if (revise) {
+      if (docE.doc_type !== "QT") {
+        return err("invalid_input", "Only a quotation is revised. Change an invoice with Edit, or issue a credit note.", 400);
+      }
+      const invR = await env.DB.prepare(
+        `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 1`,
+      ).bind(idE).first<{ doc_number: string }>();
+      if (invR) {
+        return err("conflict", `This quotation is already invoiced as ${invR.doc_number}. Undo that invoice first, or change the invoice instead.`, 409);
+      }
+      const cur = await env.DB.prepare(`SELECT * FROM sales_documents WHERE id = ?1`).bind(idE).first<Record<string, unknown>>();
+      if (!cur) return err("not_found", "Document not found", 404);
+      if (!("revision" in cur)) {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0139_quotation_revisions), then save the revision again.", 500);
+      }
+      /* the same line, whatever order its keys were written in */
+      const lineKey = (raw: unknown): string => {
+        let arr: Record<string, unknown>[] = [];
+        try { arr = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>[]); } catch { arr = []; }
+        return JSON.stringify((Array.isArray(arr) ? arr : []).map((i) => [
+          i.name ?? null, i.qty ?? null, i.unit_price_cents ?? null, i.sku ?? null, i.uom ?? null, i.disc_cents ?? null, i.sub ?? null,
+        ]));
+      };
+      const unchanged = lineKey(itemsE) === lineKey(cur.items)
+        && discE === Number(cur.discount_cents ?? 0) && taxE === Number(cur.tax_percent ?? 0)
+        && delE === Number(cur.delivery_cents ?? 0)
+        && (custE === null || custE === Number(cur.customer_id))
+        && (spE === null || spE === Number(cur.salesperson_id))
+        && (refE ?? null) === ((cur.reference as string | null | undefined) ?? null)
+        && (shipE ?? null) === ((cur.delivery_address as string | null | undefined) ?? null);
+      if (unchanged) {
+        return err("invalid_input", "Nothing changed - a revision needs at least one change the customer asked for.", 400);
+      }
+      const revNow = Number(cur.revision ?? 0);
+      /* the customer's link is a credential, not part of what they were sent */
+      const { share_token: _tok, ...snap } = cur;
+      void _tok;
+      /* OR REPLACE: a revision that failed after this line and is saved
+         again writes the same version once, not twice */
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO sales_document_revisions (doc_id, revision, snapshot, total_cents, replaced_by)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      ).bind(Number(idE), revNow, JSON.stringify(snap), Number(cur.total_cents ?? 0), user.id).run();
+      reviseFrom = { revision: revNow, total_cents: Number(cur.total_cents ?? 0) };
+    }
     const baseSet = `items = ?1, discount_cents = ?2, tax_percent = ?3, delivery_cents = ?4, total_cents = ?5,
          customer_id = COALESCE(?6, customer_id), salesperson_id = COALESCE(?7, salesperson_id),
          created_at = COALESCE(?8, created_at)`;
     const baseArgs = [JSON.stringify(itemsE), discE, taxE, delE, totalE, custE, spE, dateE];
     try {
-      await env.DB.prepare(`UPDATE sales_documents SET ${baseSet}, reference = ?10, delivery_address = ?11 WHERE id = ?9`)
-        .bind(...baseArgs, idE, refE, shipE).run();
+      const upd = env.DB.prepare(`UPDATE sales_documents SET ${baseSet}, reference = ?10, delivery_address = ?11 WHERE id = ?9`)
+        .bind(...baseArgs, idE, refE, shipE);
+      if (reviseFrom) {
+        /* the new content and the new revision number land together or not
+           at all - a quotation can never read "REV 2" over REV 1's lines */
+        await env.DB.batch([
+          upd,
+          /* revised_at is MALAYSIA time: its one job is to be printed as
+             the revision's date, and 07:30 on the 21st is the 21st here */
+          env.DB.prepare(`UPDATE sales_documents SET revision = ?2, revised_at = datetime('now', '+8 hours') WHERE id = ?1`)
+            .bind(idE, reviseFrom.revision + 1),
+        ]);
+      } else {
+        await upd.run();
+      }
     } catch (e) {
       // 0062 skew: the edit still saves, minus the two optional fields.
       if (String(e).includes("no such column")) {
@@ -8850,6 +8947,12 @@ export async function handleStaff(
     if (edited && edited.doc_type === "INV" && (edited.kind ?? "product") !== "service") {
       await restoreForInvoice(env, Number(idE), edited.doc_number);
       stockE = await deductForInvoice(env, Number(idE), edited.doc_number, JSON.stringify(itemsE), null, user.id);
+    }
+    if (reviseFrom) {
+      await audit(env, user.id, "doc.revise", "sales_documents", idE, {
+        revision: reviseFrom.revision + 1, from_total_cents: reviseFrom.total_cents, total_cents: totalE,
+      });
+      return json({ ok: true, total_cents: totalE, stock: stockE, revision: reviseFrom.revision + 1 });
     }
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
     return json({ ok: true, total_cents: totalE, stock: stockE });

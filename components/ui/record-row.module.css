@@ -1,0 +1,9 @@
+/* v1.181.11 - a detail label is one word or a short phrase, and it is never
+   squeezed into letters. On a phone the label and its value share one row;
+   until now the label gave way first, so "Revisions" beside a long value
+   printed as "Revi / sion / s". The value wraps instead - it is the one that
+   has room to. A label longer than half the row still wraps at its spaces. */
+.label {
+  flex-shrink: 0;
+  max-width: 45%;
+}

@@ -39,6 +39,7 @@ import type { Env } from "./index";
 import { can } from "./permissions";
 import { isOverdue as isEnquiryOverdue } from "./enquiries"; // v1.112.0
 import { leaveCanActAt } from "./leave-chain";
+import { pendingOtDays } from "./ot-pending"; // v1.181.10
 
 export interface DeskItem {
   bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries";
@@ -201,35 +202,17 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   /* ---- overtime ---- */
   if (["ceo", "coo", "super_admin", "admin"].includes(user.role)) {
     await guard("ot", async () => {
-      /* v1.133.0 — overtime is read off the clock now and a day can hold
-         more than one stretch, so the minutes are summed per pair rather
-         than last-out minus first-in (which would count the hours at home
-         between an early start and a late finish). */
-      const { results } = await env.DB.prepare(
-        `SELECT o.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name,
-                date(o.created_at, '+8 hours') AS d, o.type, o.created_at
-           FROM ot_records o JOIN users u ON u.id = o.user_id
-          WHERE o.status = 'pending'
-          ORDER BY o.created_at`,
-      ).all<{ user_id: number; name: string; d: string; type: string; created_at: string }>();
-      const byDay = new Map<string, { user_id: number; name: string; d: string; mins: number; last: string | null; open: string | null }>();
-      for (const r of results) {
-        const k = `${r.user_id}|${r.d}`;
-        const g = byDay.get(k) ?? { user_id: r.user_id, name: r.name, d: r.d, mins: 0, last: null, open: null };
-        if (r.type === "ot_in") { if (!g.open) g.open = r.created_at; }
-        else if (g.open) {
-          g.mins += Math.max(0, Math.round((Date.parse(`${r.created_at.replace(" ", "T")}Z`) - Date.parse(`${g.open.replace(" ", "T")}Z`)) / 60000));
-          g.last = r.created_at; g.open = null;
-        }
-        byDay.set(k, g);
-      }
-      const days = [...byDay.values()].filter((g) => g.last).sort((a, b) => b.d.localeCompare(a.d)).slice(0, 100);
+      /* v1.181.10 - the same reader as the approvals card and the
+         dashboard tile (ot-pending.ts): stretches summed pair by pair, a day
+         with no OT out left out, and a month whose payslips are released no
+         longer offered here either. */
+      const days = (await pendingOtDays(env)).slice(0, 100);
       for (const g of days) {
-        const hm = `${Math.floor(g.mins / 60)}h${String(g.mins % 60).padStart(2, "0")}`;
+        const hm = `${Math.floor(g.minutes / 60)}h${String(g.minutes % 60).padStart(2, "0")}`;
         items.push({
           bucket: "ot", id: `ot:${g.user_id}:${g.d}`, tab: "Attendance",
           title: `${g.name} — ${hm} overtime on ${dmy(g.d)}`,
-          sub: "both punches recorded, undecided", since: g.last!, overdue: ageDays(g.last!) > 3,
+          sub: "both punches recorded, undecided", since: g.last_out, overdue: ageDays(g.last_out) > 3,
           kind: "decide", who: g.name, next: "Approve, give replacement leave, or reject",
         });
       }

@@ -309,8 +309,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
    and flushes stdout, which process.exit() on Windows does not reliably do.
    Early process.exit() calls in catch blocks above are left alone: those run
    only when an import already failed and MUST stop the script. */
-if (failed) { console.log(`\n${failed} check(s) failed.`); process.exitCode = 1; }
-else /* ---- v1.176.0 — ONE HOME PER WORKFLOW ---------------------------------
+/* ---- v1.176.0 — ONE HOME PER WORKFLOW ---------------------------------
    The owner, 22-09-2026: remove duplicated information and overlapping
    workflows. These hold the boundaries, because every one of them was crossed
    at least once before this release. */
@@ -318,6 +317,7 @@ else /* ---- v1.176.0 — ONE HOME PER WORKFLOW --------------------------------
   const dashSrc = read("components/portal/dashboard.tsx");
   const deskPage = read("components/portal/desk-page.tsx");
   const pageSrc = read("app/portal/page.tsx");
+  const shellSrc = read("components/portal/portal-shell.tsx"); // the bell lives here
   const deskCard = read("components/portal/one-desk.tsx");
 
   ok("the Desk page is the only place the queue is listed",
@@ -327,19 +327,25 @@ else /* ---- v1.176.0 — ONE HOME PER WORKFLOW --------------------------------
   ok("Tasks owns the task list: neither the Desk page nor the desk card renders one",
      !/tasks\.map\(/.test(deskPage) && !/myTasks\.map/.test(deskPage) && !/myTasks\.map/.test(deskCard));
   ok("the bell is not a second approval queue: it links, it never decides",
-     /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(pageSrc)
-     && !/notifications\/decide|notifications\/approve/.test(pageSrc),
+     /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(shellSrc)
+     && !/notifications\/decide|notifications\/approve/.test(shellSrc),
      "its badge counts unread MESSAGES; what is waiting on you to decide is the Desk's own count");
   ok("an unread update reads as unread, and is marked read on CLOSE not on open",
-     /css\.notifUnread/.test(pageSrc)
-     && /setShowNotifs\(\(v\) => \{\s*if \(v && unread\)/.test(pageSrc),
+     /css\.notifUnread/.test(shellSrc)
+     && /setShowNotifs\(\(v\) => \{\s*if \(v && unread\)/.test(shellSrc),
      "marking on open cleared the badge before a word had been read");
   ok("every notification kind has somewhere to go",
      ["announcement", "enquiry", "ot", "attendance", "claim", "leave", "task", "watch"]
-       .every((k) => new RegExp(`${k}: \\{ tab: "`).test(pageSrc)));
+       .every((k) => new RegExp(`${k}: \\{ tab: "`).test(shellSrc)));
   ok("the Desk stop is a tab, so the header names what the person is looking at",
      /push\(\{ key: "Desk", tab: "Desk" \}\)/.test(read("lib/portal-tabs.ts"))
      && !/anchor: "one-desk"/.test(read("lib/portal-tabs.ts")));
 }
 
-console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);
+/* v1.181.10 - the failure check sat ABOVE this block, behind an `else`, so
+   a check in it could print a cross and the guard still exited 0. Three did:
+   the bell moved from app/portal/page.tsx into PortalShell and this block
+   kept reading the old file. Now it reads where the bell lives, and every
+   check above counts. */
+if (failed) { console.log(`\n${failed} check(s) failed.`); process.exitCode = 1; }
+else console.log(`PASS — the desk shows each person exactly what they may act on, by the rules the routes enforce (${passed} checks)`);

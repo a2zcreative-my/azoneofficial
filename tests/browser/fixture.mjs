@@ -130,7 +130,8 @@ const expenses = [
   { id: 3, expense_date: D + "03", category: "ads", amount_cents: 80000, vendor: "TikTok Ads", description: "Boost", paid_at: D + "03 10:00:00" },
 ];
 const docs = [
-  { id: 1, doc_type: "QT", doc_number: "QT-AZO150926-1", company: "Aina Boutique", total_cents: 450000, payment_status: null, delivery_status: null, created_at: D + "15 10:00:00", salesperson_name: "Nur Aisyah" },
+  /* v1.181.11 - revised once at the customer's request */
+  { id: 1, doc_type: "QT", doc_number: "QT-AZO150926-1", company: "Aina Boutique", total_cents: 450000, payment_status: null, delivery_status: null, created_at: D + "15 10:00:00", salesperson_name: "Nur Aisyah", kind: "service", revision: 1, revised_at: D + "18 11:20:00" },
   { id: 2, doc_type: "INV", doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", total_cents: 280000, payment_status: "paid", delivery_status: null, created_at: D + "10 10:00:00", paid_at: D + "12 10:00:00", salesperson_name: "Nur Aisyah" },
   { id: 3, doc_type: "INV", doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", total_cents: 990000, payment_status: "unpaid", delivery_status: null, created_at: D + "05 10:00:00", salesperson_name: "Fixture Person" },
   { id: 4, doc_type: "INV", doc_number: "INV-AZO200826-4", company: "Hafiz Trading", total_cents: 120000, payment_status: "unpaid", delivery_status: null, created_at: "2026-08-20 10:00:00", salesperson_name: "Nur Aisyah" },
@@ -173,6 +174,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/banks") data = { banks: [{ id: 1, name: "Maybank", account_no: "5621", balance_cents: 2500000 }] };
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };
   if (p === "/staff/docs") data = { docs };
+  /* v1.181.11 - the quotation above, whole, and the version its revision replaced */
+  if (p === "/staff/docs/1") data = { doc: { ...docs[0], customer_id: 1, salesperson_id: 9002, contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
+    items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),
+    discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", created_by_role: "sales_marketing", signer_name: "Nur Aisyah", signer_position: "Sales Executive" } };
+  if (p === "/staff/docs/1/revisions") data = { revisions: [{ revision: 0, total_cents: 300000, replaced_at: D + "18 03:20:00", replaced_by_name: "Nur Aisyah",
+    doc: { items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }]), discount_cents: 0, tax_percent: 0, delivery_cents: 0, total_cents: 300000, created_at: D + "15 10:00:00", revision: 0, revised_at: null, kind: "service" } }] };
   if (p === "/staff/customers") data = { customers };
   if (p === "/gl/accounts") data = { accounts };
   if (p === "/gl/trial-balance") data = { accounts, rows: accounts };

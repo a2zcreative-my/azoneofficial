@@ -1,6 +1,6 @@
 # Database
 
-Current backup limits, validation and recovery follow-up: [Backup recovery](BACKUP-RECOVERY.md). The local 12 October improvements reject oversized exports and attach schema/migration/sequence metadata and checksums. A read-only verifier and synthetic SQLite restore drill are available; these changes are not yet deployed.
+Current backup limits, validation and recovery follow-up: [Backup recovery](BACKUP-RECOVERY.md). The local 12 October improvements reject oversized exports and attach schema/migration/sequence metadata and checksums. A read-only verifier and synthetic SQLite restore drill are available; these changes are included in 3e42644 (1.181.9), whose version is reported live; no production recovery drill was performed.
 
 **Provisioned:** Cloudflare D1 `azoneofficial` — id `d9df2d7a-8303-4396-a4ee-a26836a4c9a8`. Media bucket: R2 `azoneofficial`.
 Migrations: `0001_init.sql` (CMS schema below), `0002_rate_limits.sql`, `0003_staff_portal.sql` (Staff Portal/BMS: expanded roles + staff profiles, attendance_records, leave_requests/balances, announcements/acks, tasks/comments, customers, sales_documents + doc_counters, notifications), `0004_customer_role.sql`, `0005_doc_numbering_daily.sql` (doc_counters_daily for date-based numbering — see DOCUMENT-NUMBERING.md; legacy doc_counters kept). Apply with `pnpm migrate:prod` from `/worker`.
@@ -282,3 +282,13 @@ badge grid.
 | Version | Change |
 |---|---|
 | v1.4.51 | 0022 — ic_number. |
+
+## v1.181.11 - migration 0139_quotation_revisions.sql
+sales_documents gains revision (0 = original) and revised_at (Malaysia time,
+printed as the revision date). sales_document_revisions keeps each version a
+revision replaced: doc_id, revision, snapshot (the whole row as JSON, without
+share_token), total_cents, replaced_at, replaced_by; unique on (doc_id, revision).
+
+| Version | Change |
+|---|---|
+| v1.181.11 | 0139 - quotation revisions and their history. |

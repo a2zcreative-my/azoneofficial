@@ -17,7 +17,7 @@
    Units: PDF points. The HTML layout is designed against 688px of A4, and
    688px = 516pt, so px * 0.75 = pt throughout. */
 
-import type { DocFull, DocItem } from "@/lib/doc-template";
+import { docDateOf, docRevisionLabel, quoteValidUntil, type DocFull, type DocItem } from "@/lib/doc-template";
 import { resolveIssuer } from "@/lib/issuers";
 
 /* ---------------------------------------------------------------- metrics */
@@ -399,12 +399,12 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
   // meta strip — borderless, one hairline under it (CEO)
   const meta: [string, string, number][] = [
     ["SALES PERSON", doc.salesperson_name ? doc.salesperson_name.split(" ")[0]! : "-", 0.15],
-    ["DOC NO.", doc.doc_number, 0.23],
-    ["DATE", dmy(doc.created_at), 0.14],
+    ["DOC NO.", docRevisionLabel(doc), 0.23],
+    ["DATE", dmy(docDateOf(doc)), 0.14],
     [isINV ? "PAYMENT DUE" : isDO ? "DELIVERY" : "VALID UNTIL",
       isINV ? (doc.due_date ? dmy(doc.due_date) : "On receipt")
         : isDO ? (doc.delivery_status === "delivered" ? "Delivered" : "Pending")
-          : (doc.valid_until ? dmy(doc.valid_until) : "14 days"), 0.14],
+          : (quoteValidUntil(doc) ? dmy(quoteValidUntil(doc)) : "14 days"), 0.14],
     ["REFERENCE", doc.reference ? doc.reference : "N/A", 0.22],
     ["PAGE", "1 of 1", 0.12],
   ];
@@ -576,5 +576,5 @@ export async function buildDocPdf(doc: DocFull): Promise<Blob> {
   const sigEntity = doc.issuer_code === "a2z" ? "a2z" : "azoo";
   const img = doc.signer_role === null ? null : await loadImage(`/api/v1/staff/signature/${sigEntity}/${role}-sign.png`, "Im0", true);
   const content = drawDoc(doc, !!img);
-  return new Blob([assemblePdf(content, img ? [img] : [], doc.doc_number) as BlobPart], { type: "application/pdf" });
+  return new Blob([assemblePdf(content, img ? [img] : [], docRevisionLabel(doc)) as BlobPart], { type: "application/pdf" });
 }

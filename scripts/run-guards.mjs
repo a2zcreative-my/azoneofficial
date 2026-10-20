@@ -173,6 +173,7 @@ const GUARDS = [
   ["viewport-settle", "after the phone keyboard closes the layout viewport is put back under the visual one, so the bottom bar and topbar return to the screen edges - never while a field is focused, never under a pinch zoom"],
   ["pay-records", "a salary advance names its request on the payslip and is recovered from the request month or later, an unpaid day is edited only by the CEO and only if the company recorded it, and the attendance donut's names follow the donut's own rules"],
   ["claim-categories", "the claim form, the API and the claims table allow the same categories - a category the table refuses is a claim silently never saved (stationery, 29-09-2026)"],
+  ["quotation-revisions", "a quotation revised at the customer's request keeps its number, prints REV n dated the day it was revised, and keeps every version it replaced (20-10-2026)"],
 ];
 
 /* worker-compile-gate needs the API's type definitions. Installing them here

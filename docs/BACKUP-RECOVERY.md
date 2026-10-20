@@ -1,6 +1,6 @@
 # Backup verification and recovery
 
-Updated: 12 October 2026. Cap safeguard, recovery manifest, verifier and synthetic restore drill implemented locally; not deployed.
+Updated: 12 October 2026. Cap safeguard, recovery manifest, verifier and synthetic restore drill are included in committed release source 3e42644 (1.181.9). Public API/login report 1.181.9; actual production backup/restore behaviour was not exercised.
 
 ## Export contract
 
@@ -51,6 +51,6 @@ The drill is a regression test, not a general restore command. It only executes 
 
 Cloudflare's [D1 import/export documentation](https://developers.cloudflare.com/d1/best-practices/import-export-data/) describes a full schema/data SQL export option. Evaluate it for larger recovery jobs: the documented export blocks other database requests and has virtual-table and numeric-precision limitations. No remote export, import or restore was run here.
 
-Use PROJECT-STATE for the latest validation status and release evidence. Deployment still follows `PUSH.bat`; these local changes are not production recovery verification.
+Use PROJECT-STATE for the latest validation status and release evidence. Deployment still follows `PUSH.bat`; release version evidence is not production recovery verification.
 
 Validation on 12 October 2026: all 106 guards passed, Worker strict typecheck passed, and diff whitespace checks passed. No frontend build, browser sweep, deployment or real D1/R2 restore was performed.

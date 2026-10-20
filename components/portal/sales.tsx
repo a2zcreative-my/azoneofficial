@@ -19,7 +19,7 @@ import { RowCell } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
 import { buildDocPdf } from "@/lib/doc-pdf";
-import { DocFull, DocItem, buildDocHtml, docPageFit } from "@/lib/doc-template";
+import { DocFull, DocItem, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
 import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
@@ -31,6 +31,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { DocRevisions, RevisionChip } from "@/components/portal/doc-revisions";
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -56,6 +57,9 @@ export interface SalesDoc {
   converted_from?: number | null; // v1.4.233 — set when this INV came from a QT
   invoiced_as?: string | null; // v1.154.0 — on a QT: the INV it already became
   invoiced_as_id?: number | null;
+  /* v1.181.11 - a revised quotation (0139); 0 = the original */
+  revision?: number | null;
+  revised_at?: string | null;
   payment_ref?: string | null;
   paid_at?: string | null;
   salesperson_name?: string | null;
@@ -179,7 +183,7 @@ export async function printDoc(id: number) {
   };
   if (!doc) throw new Error(L("The document response was incomplete. Try again.", "Maklum balas dokumen tidak lengkap. Cuba lagi."));
   const blob = await buildDocPdf(doc);
-  return { html: buildDocHtml(doc, false), blob, filename: `${doc.doc_number}.pdf` };
+  return { html: buildDocHtml(doc, false), blob, filename: docFileName(doc) };
   });
 }
 
@@ -1030,13 +1034,16 @@ export function stockToastLine(
    phone keeps its one column. Scaled to the box it is given (A4 at 96dpi is
    794px wide), so nothing scrolls sideways. Module scope (house rule #30).
    ====================================================================== */
-export function DocPreview({ doc, docDate, customers, staffList, user, docNumber }: {
+export function DocPreview({ doc, docDate, customers, staffList, user, docNumber, revision = 0, revisedAt = null }: {
   doc: { doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean; reference: string; delivery_address: string; issuer: string };
   docDate: string;
   customers: Customer[];
   staffList: { id: number; name: string }[];
   user: User;
   docNumber: string | null;
+  /** v1.181.11 - the revision being drawn; a new one is dated today */
+  revision?: number;
+  revisedAt?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -1071,6 +1078,8 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
     delivery_cents: doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents,
     total_cents: total,
     created_at: (docDate || today) + " 00:00:00",
+    revision,
+    revised_at: revision > 0 ? (revisedAt ?? `${today} 00:00:00`) : null,
     payment_status: doc.doc_type === "INV" ? (doc.paid_received ? "paid" : "unpaid") : null,
     salesperson_name: salesperson,
     created_by_role: user.role,
@@ -1257,6 +1266,12 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
   const [editingDoc, setEditingDoc] = useState<{
     id: number;
     doc_number: string;
+    /* v1.181.11 - true: saving issues the next revision of this quotation
+       (the customer asked for a change). false: a typo fix, in place. */
+    revise?: boolean;
+    /** the revision the document is at now; 0 = the original */
+    revision?: number;
+    revised_at?: string | null;
   } | null>(null);
   const [invItems, setInvItems] = useState<
     { name: string; sku: string; unit_price_cents?: number }[]
@@ -1351,6 +1366,66 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     });
     setEditingCust(null);
     void load();
+  };
+  /* v1.181.11 - Edit and Revise load a document into the form the same way;
+     they differ in what saving it does (see saveDoc). */
+  const openInForm = async (d: SalesDoc, revise: boolean) => {
+    const r = await fetch(`/api/v1/staff/docs/${d.id}`, {
+      credentials: "include",
+    });
+    if (!r.ok) return;
+    const { doc: full } = (await r.json()) as {
+      doc: DocFull & {
+        customer_id?: number;
+        salesperson_id?: number | null;
+      };
+    };
+    let its: DocItem[] = [];
+    try {
+      its = JSON.parse(full.items);
+    } catch {
+      its = [];
+    }
+    setDoc({
+      doc_type: full.doc_type,
+      customer_id:
+        (full as { customer_id?: number }).customer_id ?? -1,
+      salesperson_id:
+        (full as { salesperson_id?: number | null })
+          .salesperson_id ?? 0,
+      items: its.length
+        ? its
+        : [{ name: "", qty: 1, unit_price_cents: 0 }],
+      discount_cents: full.discount_cents ?? 0,
+      tax_percent: full.tax_percent ?? 0,
+      delivery_cents:
+        (full as { delivery_cents?: number })
+          .delivery_cents ?? 0,
+      paid_received: false,
+      kind:
+        (full as { kind?: string | null }).kind ?? "product",
+      reference:
+        (full as { reference?: string | null }).reference ??
+        "",
+      delivery_address:
+        (full as { delivery_address?: string | null })
+          .delivery_address ?? "",
+      /* the entity never changes after creation — carried only so
+         the state shape stays complete; the worker ignores it. */
+      issuer:
+        (full as { issuer_code?: string | null })
+          .issuer_code === "azoo"
+          ? "azoo"
+          : "a2z",
+    });
+    /* a revision is dated today, and the date box shows it (locked) */
+    setDocDate(revise ? mytToday() : full.created_at.slice(0, 10));
+    setEditingDoc({
+      id: d.id, doc_number: d.doc_number, revise,
+      revision: Number(full.revision ?? 0), revised_at: full.revised_at ?? null,
+    });
+    setWorkTab("create");
+    requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" }));
   };
   const resetDocForm = () => {
     setDoc({
@@ -1467,9 +1542,10 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
       const res = await api<{
         stock?: Parameters<typeof stockToastLine>[0];
         error?: { message?: string };
+        revision?: number;
       }>(`/staff/docs/${editingDoc.id}/edit`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(editingDoc.revise ? { ...payload, revise: true } : payload),
       });
       if (!res.ok) {
         showToast(
@@ -1483,10 +1559,15 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
       // v1.4.265: an edited product invoice re-balances stock — say what moved.
       showToast(
         L("Saved", "Disimpan"),
-        L(
-          `${editingDoc.doc_number} updated`,
-          `${editingDoc.doc_number} dikemas kini`
-        ) + stockToastLine(res.data?.stock)
+        (editingDoc.revise
+          ? L(
+              `${editingDoc.doc_number} REV ${res.data?.revision ?? (editingDoc.revision ?? 0) + 1} issued — the earlier version is in History`,
+              `${editingDoc.doc_number} REV ${res.data?.revision ?? (editingDoc.revision ?? 0) + 1} dikeluarkan — versi terdahulu dalam Sejarah`
+            )
+          : L(
+              `${editingDoc.doc_number} updated`,
+              `${editingDoc.doc_number} dikemas kini`
+            )) + stockToastLine(res.data?.stock)
       );
       const idP = editingDoc.id;
       resetDocForm();
@@ -1545,7 +1626,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
         INV: L("Invoice", "Invois"),
         DO: L("Delivery Order", "Pesanan Penghantaran"),
       }[d.doc_type] ?? L("Document", "Dokumen");
-    const filename = `${d.doc_number}.pdf`;
+    const filename = docFileName(d);
     let blob: Blob | null = null;
     try {
       const r = await fetch(`/api/v1/staff/docs/${d.id}`, {
@@ -1565,7 +1646,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
         try {
           await navigator.share({
             files: [file],
-            title: `${kind} ${d.doc_number}`,
+            title: `${kind} ${docRevisionLabel(d)}`,
           });
           return;
         } catch {
@@ -1610,7 +1691,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     const url = res.data.url;
     if (typeof navigator.share === "function") {
       try {
-        await navigator.share({ title: `${kind} ${d.doc_number}`, url });
+        await navigator.share({ title: `${kind} ${docRevisionLabel(d)}`, url });
         return;
       } catch {
         /* dismissed */
@@ -1752,7 +1833,9 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           <p className="text-sm font-semibold">
             {editingDoc ? (
               <>
-                {L("Editing", "Menyunting")} {editingDoc.doc_number}{" "}
+                {editingDoc.revise
+                  ? L(`Revising ${editingDoc.doc_number} — REV ${(editingDoc.revision ?? 0) + 1}`, `Menyemak semula ${editingDoc.doc_number} — REV ${(editingDoc.revision ?? 0) + 1}`)
+                  : L("Editing", "Menyunting") + " " + editingDoc.doc_number}{" "}
                 <button
                   type="button"
                   className="ml-1 text-xs font-normal underline"
@@ -1765,6 +1848,16 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
               L("Create document", "Buat dokumen")
             )}
           </p>
+          {editingDoc?.revise && (
+            /* v1.181.11 - said before anything is typed: what Revise does to
+               the paper the customer already has. */
+            <p className="erp-note erp-note-info erp-mt-2">
+              {L(
+                `Add or change what the customer asked for, then save. It stays ${editingDoc.doc_number}, prints as REV ${(editingDoc.revision ?? 0) + 1} dated today and valid 14 days from today, and the version the customer has now is kept in History.`,
+                `Tambah atau ubah apa yang pelanggan minta, kemudian simpan. Ia kekal ${editingDoc.doc_number}, dicetak sebagai REV ${(editingDoc.revision ?? 0) + 1} bertarikh hari ini dan sah 14 hari dari hari ini, dan versi yang pelanggan ada sekarang disimpan dalam Sejarah.`
+              )}
+            </p>
+          )}
           {/* v1.120.0 — THE FORM IS THE PAPER. The CEO, 06-09-2026: *"for Add
               customer & Create document can you make it like the actual
               format of the Invoice, Delivery Order and Quotation so that my
@@ -1964,7 +2057,10 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                 <input
                   type="date"
                   className={`${inputClassSm} mt-0.5 w-full`}
-                  title={L("Document date (backdate allowed)", "Tarikh dokumen (tarikh lampau dibenarkan)")}
+                  title={editingDoc?.revise
+                    ? L("A revision is dated the day it is issued. The original date stays in History.", "Semakan bertarikh hari ia dikeluarkan. Tarikh asal kekal dalam Sejarah.")
+                    : L("Document date (backdate allowed)", "Tarikh dokumen (tarikh lampau dibenarkan)")}
+                  disabled={editingDoc?.revise === true}
                   value={docDate}
                   max={new Date(Date.now() + 8 * 3600 * 1000)
                     .toISOString()
@@ -2503,7 +2599,12 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
               className={`${btnClass} mt-3`}
               onClick={() => void createDoc()}
             >
-              {editingDoc
+              {editingDoc?.revise
+                ? L(
+                    `Issue REV ${(editingDoc.revision ?? 0) + 1}`,
+                    `Keluarkan REV ${(editingDoc.revision ?? 0) + 1}`
+                  )
+                : editingDoc
                 ? L(
                     `Update ${editingDoc.doc_number}`,
                     `Kemas kini ${editingDoc.doc_number}`
@@ -2519,6 +2620,8 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             staffList={staffList}
             user={user}
             docNumber={editingDoc?.doc_number ?? null}
+            revision={editingDoc ? (editingDoc.revise ? (editingDoc.revision ?? 0) + 1 : editingDoc.revision ?? 0) : 0}
+            revisedAt={editingDoc?.revise ? null : editingDoc?.revised_at ?? null}
           />
           </div>
           </div>
@@ -2674,6 +2777,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                   >
                     {d.doc_number}
                   </RecordToggle>
+                  <RevisionChip revision={d.revision} />
                   {/* v1.30.1 — which entity's letterhead this document carries.
                   Only the exception is tagged: A2Z is the default and a chip
                   on every row would be noise. NULL (legacy) and "azoo" both
@@ -2898,6 +3002,24 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       {L("Quotation", "Sebut harga")}
                     </span>
                   )}
+                  {/* v1.181.11 (CEO: "add on the Quotation ... based on
+                      customer request without require to create a new one
+                      Quotation") - Revise keeps the number, prints REV n and
+                      keeps the version the customer was sent. Only an open
+                      quotation: an invoiced one has become the invoice. */}
+                  {d.doc_type === "QT" && !d.invoiced_as && (
+                    <button
+                      type="button"
+                      className={rowBtn}
+                      title={L(
+                        "The customer asked for a change — add or change lines on this quotation. Same number, printed as the next revision; the version they have now is kept in History.",
+                        "Pelanggan minta perubahan — tambah atau ubah baris pada sebut harga ini. Nombor sama, dicetak sebagai semakan seterusnya; versi yang mereka ada sekarang disimpan dalam Sejarah."
+                      )}
+                      onClick={() => void openInForm(d, true)}
+                    >
+                      {L("Revise", "Semak semula")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={rowBtn}
@@ -2905,60 +3027,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       "Fix a typo — loads the document into the form; the number never changes",
                       "Betulkan silap taip — memuatkan dokumen ke dalam borang; nombor tidak berubah"
                     )}
-                    onClick={async () => {
-                      const r = await fetch(`/api/v1/staff/docs/${d.id}`, {
-                        credentials: "include",
-                      });
-                      if (!r.ok) return;
-                      const { doc: full } = (await r.json()) as {
-                        doc: DocFull & {
-                          customer_id?: number;
-                          salesperson_id?: number | null;
-                        };
-                      };
-                      let its: DocItem[] = [];
-                      try {
-                        its = JSON.parse(full.items);
-                      } catch {
-                        its = [];
-                      }
-                      setDoc({
-                        doc_type: full.doc_type,
-                        customer_id:
-                          (full as { customer_id?: number }).customer_id ?? -1,
-                        salesperson_id:
-                          (full as { salesperson_id?: number | null })
-                            .salesperson_id ?? 0,
-                        items: its.length
-                          ? its
-                          : [{ name: "", qty: 1, unit_price_cents: 0 }],
-                        discount_cents: full.discount_cents ?? 0,
-                        tax_percent: full.tax_percent ?? 0,
-                        delivery_cents:
-                          (full as { delivery_cents?: number })
-                            .delivery_cents ?? 0,
-                        paid_received: false,
-                        kind:
-                          (full as { kind?: string | null }).kind ?? "product",
-                        reference:
-                          (full as { reference?: string | null }).reference ??
-                          "",
-                        delivery_address:
-                          (full as { delivery_address?: string | null })
-                            .delivery_address ?? "",
-                        /* the entity never changes after creation — carried only so
-                     the state shape stays complete; the worker ignores it. */
-                        issuer:
-                          (full as { issuer_code?: string | null })
-                            .issuer_code === "azoo"
-                            ? "azoo"
-                            : "a2z",
-                      });
-                      setDocDate(full.created_at.slice(0, 10));
-                      setEditingDoc({ id: d.id, doc_number: d.doc_number });
-                      setWorkTab("create");
-                      requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" }));
-                    }}
+                    onClick={() => void openInForm(d, false)}
                   >
                     {L("Edit", "Sunting")}
                   </button>
@@ -3044,6 +3113,23 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       label: L("Date", "Tarikh"),
                       value: dmy(d.created_at.slice(0, 10)),
                     },
+                    /* v1.181.11 - every version a revised quotation replaced,
+                       each printable as the customer received it */
+                    ...((d.revision ?? 0) > 0
+                      ? [{
+                          label: L("Revisions", "Semakan"),
+                          wide: true,
+                          value: (
+                            <DocRevisions
+                              docId={d.id}
+                              docNumber={d.doc_number}
+                              revision={d.revision ?? 0}
+                              revisedAt={d.revised_at}
+                              totalCents={d.total_cents}
+                            />
+                          ),
+                        }]
+                      : []),
                     {
                       label: L("Sales person", "Jurujual"),
                       value: d.salesperson_name

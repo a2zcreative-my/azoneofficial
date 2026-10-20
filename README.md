@@ -2,7 +2,7 @@
 
 Public website, staff portal, admin tools, and business operations for A2Z CREATIVE MARKETING and AZ ONE OFFICIAL. The repository includes HR, payroll, sales documents, inventory, reconciliation, and integrations. ELFIA is a client, not a house brand.
 
-Repository review: **12 October 2026**, local source **1.181.8**. Public API health and login both report **1.181.8**; the local backup improvements are unreleased; see the current summary in [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md).
+Repository rechecked on **12 October 2026** after the user's changes: local/GitHub main is **3e42644**, package version **1.181.9**, and public API health/login report **1.181.9**. The backup/browser infrastructure is committed. The first Linux browser result is still pending; see [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md).
 The Hankeis/Telegram server and portal work passed the release gates; the external Telegram adapter remains separate work. See [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md) before editing or deploying.
 
 Claude and other contributors must read [CLAUDE.md](CLAUDE.md), [docs/PROJECT-STATE.md](docs/PROJECT-STATE.md), and the latest [CHANGELOG.md](CHANGELOG.md) entry before implementation. `PUSH.bat` now refuses dirty worktrees by default so one contributor cannot silently clean, commit, or deploy another contributor's changes.

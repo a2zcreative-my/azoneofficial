@@ -46,6 +46,43 @@ export interface DocFull {
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. The
      letterhead, SST note, bank instruction and footer all follow this. */
   issuer_code?: string | null;
+  /* v1.181.11 - a quotation revised at the customer's request (0139). 0 or
+     absent = the original. revised_at is Malaysia time. */
+  revision?: number | null;
+  revised_at?: string | null;
+}
+
+/**
+ * v1.181.11 - WHAT A REVISED QUOTATION PRINTS. One definition for the HTML
+ * page, the PDF and the customer's shared link, so the three never disagree
+ * about which version somebody is holding.
+ *
+ *   number  "QT-AZO150926-1 REV 2" - the number is the quotation's, the
+ *           suffix says which version; an original prints the bare number
+ *   date    the day it was revised (the original's date stays in History)
+ *   valid   a quotation printed "14 days" counts from the date beside it,
+ *           so a revision restarts the fourteen days and prints the day
+ */
+export function docRevisionLabel(doc: Pick<DocFull, "doc_number" | "revision">): string {
+  const rev = Number(doc.revision ?? 0);
+  return rev > 0 ? `${doc.doc_number} REV ${rev}` : doc.doc_number;
+}
+/** The PDF's file name: QT-AZO150926-1-REV2.pdf - no spaces, for WhatsApp. */
+export function docFileName(doc: Pick<DocFull, "doc_number" | "revision">): string {
+  const rev = Number(doc.revision ?? 0);
+  return `${doc.doc_number}${rev > 0 ? `-REV${rev}` : ""}.pdf`;
+}
+export function docDateOf(doc: Pick<DocFull, "created_at" | "revision" | "revised_at">): string {
+  return Number(doc.revision ?? 0) > 0 && doc.revised_at ? doc.revised_at : doc.created_at;
+}
+export function quoteValidUntil(doc: Pick<DocFull, "valid_until" | "revision" | "revised_at">): string | null {
+  if (doc.valid_until) return doc.valid_until;
+  if (Number(doc.revision ?? 0) > 0 && doc.revised_at) {
+    const d = new Date(`${doc.revised_at.slice(0, 10)}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 14);
+    return d.toISOString().slice(0, 10);
+  }
+  return null;
 }
 
 /* autoPrint: the portal's popup should raise the print dialog the moment it
@@ -195,10 +232,10 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   /* ---- meta strip: no cell borders (CEO), one hairline under the row ---- */
   const meta: [string, string, string][] = [
     ["Sales person", doc.salesperson_name ? firstName(doc.salesperson_name) : "&mdash;", "15%"],
-    ["Doc no.", doc.doc_number, "23%"],
-    ["Date", dOnly(doc.created_at), "14%"],
+    ["Doc no.", esc(docRevisionLabel(doc)), "23%"],
+    ["Date", dOnly(docDateOf(doc)), "14%"],
   ];
-  if (doc.doc_type === "QT") meta.push(["Valid until", doc.valid_until ? dOnly(doc.valid_until) : "14 days", "14%"]);
+  if (doc.doc_type === "QT") { const vu = quoteValidUntil(doc); meta.push(["Valid until", vu ? dOnly(vu) : "14 days", "14%"]); }
   else if (isINV) meta.push(["Payment due", doc.due_date ? dOnly(doc.due_date) : "On receipt", "14%"]);
   else meta.push(["Delivery", doc.delivery_status === "delivered" ? "Delivered" : "Pending", "14%"]);
   meta.push(["Reference", doc.reference ? esc(doc.reference) : "N/A", "22%"]);
@@ -297,7 +334,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
 
   return `<!doctype html><html><head><meta charset="utf-8">
   <meta name="viewport" content="width=794">
-  <title>${doc.doc_number}</title>
+  <title>${esc(docRevisionLabel(doc))}</title>
   <style>
     /* v1.158.1 (CEO: "when I create invoice in Mobile apps view, the pdf
        generate 2 page instead of the 1 pages format which is being used in

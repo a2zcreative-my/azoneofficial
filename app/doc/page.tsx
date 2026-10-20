@@ -22,7 +22,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildDocHtml, type DocFull } from "@/lib/doc-template";
+import { buildDocHtml, docRevisionLabel, type DocFull } from "@/lib/doc-template";
 /* v1.28.0 — the header brand names the entity that ISSUED the document
    (resolveIssuer on the payload's issuer_code); the "ask for a new link"
    support line names the CURRENT operator (DOCUMENT_ISSUER), whoever the
@@ -57,13 +57,13 @@ export default function PublicDocPage() {
         // v1.38.0 (S-1): the signature rides the same credential the document
         // itself does — the share token. No token, no signature.
         setHtml(buildDocHtml(doc, false, `${location.origin}/api/v1/public/doc-signature?t=${token}`)); // never auto-print at the customer
-        setLabel(`${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[doc.doc_type] ?? "Document"} ${doc.doc_number}`);
+        setLabel(`${{ QT: "Quotation", INV: "Invoice", DO: "Delivery Order" }[doc.doc_type] ?? "Document"} ${docRevisionLabel(doc)}`);
         /* v1.28.0: page chrome follows the document's own issuer — a legacy
            link stays AZ ONE OFFICIAL, a new one reads A2Z CREATIVE MARKETING,
            matching the letterhead in the iframe below. */
         const issuer = resolveIssuer(doc.issuer_code);
         setBrand(issuer.name);
-        document.title = `${doc.doc_number} — ${issuer.name}`;
+        document.title = `${docRevisionLabel(doc)} — ${issuer.name}`;
         setState("ready");
       } catch { setState("gone"); }
     })();

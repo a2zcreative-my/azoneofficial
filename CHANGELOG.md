@@ -4,31 +4,94 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
-### Linux browser CI configuration - 12 October 2026
+### Follow-up after 1.181.9 - 12 October 2026
 
-- Added a pull-request/manual GitHub Actions job for locked dependency installation, types, lint, guards and the full WebKitGTK matrix on Ubuntu 24.04, with retained evidence and pinned action commits.
-- Added `BROWSER_PYTHON` so CI uses Ubuntu's Selenium-enabled system interpreter.
-- Static workflow validation and orchestration tests passed locally. The workflow is not pushed or remotely verified; branch/deployment rules and production are unchanged.
+- Rechecked the user's committed AZ ONE service-document changes and preserved them. Local and GitHub main match 3e42644; public API/login report 1.181.9.
+- Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
+- Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
-### Browser validation harness - 12 October 2026
+## [1.181.11] - 2026-10-20 - Revise a quotation instead of writing a new one
 
-- Added `pnpm test:browser`: fresh-build Linux WebKitGTK matrix across three roles, two widths, two languages and two themes, using the existing tab/translation registries.
-- Overflow and table-shredding probes now fail on findings. Shared navigation/setup rejects missing tabs; unavailable keyboard focus fails the accessibility audit. Unknown fixture GET routes are recorded and fail the runner.
-- Added bounded process execution, cleanup, per-probe logs, a machine-readable result and browser-free orchestration regression tests. Existing CI/release commands are unchanged; the Linux environment must invoke this standalone gate.
-- Windows prerequisite detection was verified; no WebKit sweep was completed locally.
+The CEO: "I want to add on the Quotation if there is anything that I want to
+add based on customer request without require to create a new one
+Quotation".
 
-### Backup integrity - 12 October 2026
+### Why Edit was not the answer
 
-- Database JSON exports now reject tables above the 50,000-row limit instead of publishing truncated backups as successful. The rejection happens before R2 publication or retention, preserving existing copies and reporting the failure through the existing error log.
-- Added the executable `backup-completeness` guard and a backup recovery runbook.
-- Added an additive versioned recovery manifest with row counts/checksums, schema, applied migrations and ID sequences. A read-only verifier detects corruption; an isolated synthetic SQLite restore guard checks recovered rows, totals, constraints and sequence continuity. Larger exports, aggregate memory, snapshot consistency, real D1/R2 recovery and attachments remain follow-up work.
-- Public API health and login reported 1.181.8; migration health reported no pending latest migration. This local fix is not deployed, and payroll completion remains unverified.
+- Edit could already change a quotation's lines, but it was built to fix
+  typos: it overwrote the version the customer was holding and printed the
+  same number with a different total. Two PDFs, one number, two prices, and
+  nothing to say which came first.
 
-### Documentation - 12 October 2026
+### Added
 
-- Added a proposed project improvement plan with evidence, acceptance criteria and targeted check results.
-- Updated README, CLAUDE guidance and the current handoff summary to distinguish local version 1.181.8 from unverified production status and historical release notes.
-- Flagged the past September payroll follow-up deadline for verification. No application code, configuration, database, payroll records or deployment changed.
+- **Revise** on every open quotation (Sales -> Documents). It loads the
+  quotation into the form; add or change what the customer asked for, then
+  **Issue REV n**.
+- The quotation **keeps its number** and prints as `QT-... REV 1`, dated the
+  day it was revised and valid 14 days from that day. The PDF is saved as
+  `QT-...-REV1.pdf`. The customer's shared link shows the revision too.
+- **History:** every version a revision replaced is kept whole. Open the
+  quotation's number to see each version, its total, who replaced it and
+  when, with the PDF exactly as the customer received it. A `REV n` chip
+  marks a revised quotation in the list.
+- Refused, with the reason: revising an invoice (Edit or a credit note
+  changes an invoice), revising a quotation already turned into an invoice
+  (undo the invoice first), and a revision that changes nothing.
+- Edit stays as it was, for typo fixes. Converting a revised quotation to an
+  invoice carries its current lines.
+
+### Database
+
+- Migration `0139_quotation_revisions`: `sales_documents.revision` and
+  `revised_at` (Malaysia time), and `sales_document_revisions`, one row per
+  replaced version. Registered as the latest migration with a health probe.
+
+### Also
+
+- Detail panels: a label is no longer squeezed into letters on a phone
+  ("Revi / sion / s"); the value beside it wraps instead.
+
+### Guard
+
+- `quotation-revisions` runs the print helpers (number, date, validity,
+  file name) and holds the server rules, the migration and the portal.
+
+## [1.181.10] - 2026-10-15 - OT pending counts what it opens
+
+The CEO: the dashboard tile said **6 OT PENDING** and the card it opens
+listed three.
+
+### Root cause
+
+- The tile counted rows of `ot_records`, and every stretch of overtime is
+  two rows - an OT in and an OT out. Three stretches counted six.
+- The approvals card paired those rows into one entry per person per day.
+  The Desk paired them a third way and, unlike the card, still offered
+  overtime in a month whose payslips were already released.
+
+### Fixed
+
+- One reader, `pendingOtDays` (new `worker/src/ot-pending.ts`), decides what
+  is waiting: pending rows, outside a released month, paired per person per
+  day, and only a day with an OT out. The dashboard tile counts it, the
+  OT approvals card lists it, and the Desk lists it.
+- An OT in with no OT out yet is no longer counted anywhere - it is not a
+  decision anybody can make.
+
+### Verified
+
+- Local worker with 9 pending rows (three closed days, one open OT in, one
+  stretch in a released month): tile 3, card 3, Desk 3. Before, the tile
+  would have said 9.
+
+### Guards
+
+- `clock-sessions` holds all three surfaces to the one reader.
+- `one-desk` had its failure check ABOVE its last block, so three checks
+  there printed a cross and still exited 0. They were reading the bell in
+  `app/portal/page.tsx` after it moved into `PortalShell`. They now read the
+  shell, pass, and count.
 
 ## [1.181.9] - 2026-10-12 - AZ ONE OFFICIAL documents are typed service lines
 
@@ -60,6 +123,34 @@ manually insert by staff instead."
 ### Guard
 
 - `document-issuer-guard` holds the server rule and the form's switch.
+
+### Infrastructure included in this release
+
+### Linux browser CI configuration - 12 October 2026
+
+- Added a pull-request/manual GitHub Actions job for locked dependency installation, types, lint, guards and the full WebKitGTK matrix on Ubuntu 24.04, with retained evidence and pinned action commits.
+- Added `BROWSER_PYTHON` so CI uses Ubuntu's Selenium-enabled system interpreter.
+- Static workflow validation and orchestration tests passed locally. Included in 3e42644; the first GitHub execution remains unverified. Branch/deployment rules are unchanged.
+
+### Browser validation harness - 12 October 2026
+
+- Added `pnpm test:browser`: fresh-build Linux WebKitGTK matrix across three roles, two widths, two languages and two themes, using the existing tab/translation registries.
+- Overflow and table-shredding probes now fail on findings. Shared navigation/setup rejects missing tabs; unavailable keyboard focus fails the accessibility audit. Unknown fixture GET routes are recorded and fail the runner.
+- Added bounded process execution, cleanup, per-probe logs, a machine-readable result and browser-free orchestration regression tests. Existing CI/release commands are unchanged; the Linux environment must invoke this standalone gate.
+- Windows prerequisite detection was verified; no WebKit sweep was completed locally.
+
+### Backup integrity - 12 October 2026
+
+- Database JSON exports now reject tables above the 50,000-row limit instead of publishing truncated backups as successful. The rejection happens before R2 publication or retention, preserving existing copies and reporting the failure through the existing error log.
+- Added the executable `backup-completeness` guard and a backup recovery runbook.
+- Added an additive versioned recovery manifest with row counts/checksums, schema, applied migrations and ID sequences. A read-only verifier detects corruption; an isolated synthetic SQLite restore guard checks recovered rows, totals, constraints and sequence continuity. Larger exports, aggregate memory, snapshot consistency, real D1/R2 recovery and attachments remain follow-up work.
+- Public API health and login reported 1.181.8; migration health reported no pending latest migration. These fixes are included in 1.181.9; production backup execution and payroll completion remain unverified.
+
+### Documentation - 12 October 2026
+
+- Added a proposed project improvement plan with evidence, acceptance criteria and targeted check results.
+- Updated README, CLAUDE guidance and the current handoff summary to distinguish local version 1.181.8 from unverified production status and historical release notes.
+- Flagged the past September payroll follow-up deadline for verification. No application code, configuration, database, payroll records or deployment changed.
 
 ## [1.181.8] - 2026-10-04 - Unpaid leave and an incomplete month follow s.18A
 

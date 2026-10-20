@@ -26,6 +26,8 @@
 
 import type { ReactNode } from "react";
 
+import rr from "./record-row.module.css";
+
 export function RecordToggle({
   open, onToggle, title, className = "", children,
 }: {
@@ -63,7 +65,7 @@ export function DetailGrid({ items }: { items: DetailItem[] }) {
     <dl className="bg-secondary/40 mt-2 grid grid-cols-1 gap-x-6 gap-y-1 rounded-lg px-3 py-2.5 text-xs sm:grid-cols-2">
       {shown.map((i) => (
         <div key={i.label} className={`flex justify-between gap-3 sm:justify-start ${i.wide ? "sm:col-span-2" : ""}`}>
-          <dt className="text-muted-foreground sm:w-28 sm:shrink-0">{i.label}</dt>
+          <dt className={`text-muted-foreground sm:w-28 sm:shrink-0 ${rr.label}`}>{i.label}</dt>
           {/* v1.152.2 - a value typed on several lines (a leave reason, a
               content script) is shown on those lines; a one-line value is
               unaffected. */}

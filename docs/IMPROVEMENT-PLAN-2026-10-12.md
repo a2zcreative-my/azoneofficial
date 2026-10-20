@@ -90,7 +90,9 @@ For each subsequently authorised change, update the same commit's relevant modul
 
 Keep one current plan here and one current status in PROJECT-STATE. Older REVIEW and roadmap documents are historical inputs, not evidence that their suggestions remain unimplemented. Documentation sync is a contributor workflow, not an automatic background service.
 
-## Implementation progress - 12 October 2026
+## Earlier implementation progress - 12 October 2026
+
+The following entries record earlier stages. The reconciliation below and PROJECT-STATE supersede their release-status wording.
 
 - Public API health and login HTML both report 1.181.8. Migration health reports `pending: false`; this is the endpoint's latest-migration check, not a complete schema audit. Payroll follow-up remains unverified.
 - Backup cap detection is implemented locally and covered by an executable guard. Oversized exports fail before R2 publication or retention. See `BACKUP-RECOVERY.md` for the remaining export/restore work and limitations.
@@ -104,3 +106,11 @@ Third increment: delivered a strict Linux WebKitGTK matrix runner and browser-fr
 Third-increment validation: all 107 guards passed, Python probe syntax passed, and the expected Windows prerequisite failure produced a failed report. The product has not passed the new browser matrix.
 
 Fourth increment: added the Linux GitHub Actions workflow and system-Python selection. YAML, actionlint, lockfile-spec and orchestration checks passed locally. The workflow has not been pushed/run; first complete Linux execution and enforcing it through repository/deployment rules remain pending. No deployment occurred.
+
+## Reconciliation after user changes
+
+Local and GitHub main now match 3e42644, package version 1.181.9; public health/login report 1.181.9. The user committed the prior infrastructure together with the new AZ ONE service-only document rule. That rule was reviewed and preserved. The worktree was clean before this continuation.
+
+GitHub reports zero browser workflow runs: the original workflow had PR/manual triggers only. The next local change adds main pushes and reconciles release documentation. It does not deploy, start a production backup, alter payroll or enforce a deployment gate. First Linux execution remains the immediate validation task; do not jump to rewriting the user's new feature.
+
+Reconciliation validation: all 107 guards passed on the new application baseline; actionlint and diff whitespace checks passed. Only workflow trigger and Markdown changed in this continuation.

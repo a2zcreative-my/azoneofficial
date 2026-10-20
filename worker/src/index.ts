@@ -283,7 +283,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0138_claim_categories";
+const LATEST_MIGRATION = "0139_quotation_revisions";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -3367,6 +3367,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       } catch { d = null; }
     }
     if (!d) return errorResponse("not_found", "This link is no longer valid — please ask for a new one", 404);
+    /* v1.181.11 - a revised quotation tells the customer which revision they
+       are looking at. Read on its own so a database without 0139 still
+       serves the link, as an original. */
+    try {
+      const rv = await env.DB.prepare(`SELECT revision, revised_at FROM sales_documents WHERE share_token = ?1`)
+        .bind(token).first<{ revision: number | null; revised_at: string | null }>();
+      if (rv) { d.revision = rv.revision ?? 0; d.revised_at = rv.revised_at; }
+    } catch { /* pre-0139: an original */ }
     /* Same signer rule as the portal (v1.4.233): an officer's document shows
        that officer's signature; anyone else's is signed in ink. */
     const MGMT = ["ceo", "coo", "cco"];
@@ -4654,6 +4662,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
          the mark. Without it, every Stationery or Client meeting claim is
          refused by the table. */
       ["0138 (claim categories: stationery and client meeting)", `SELECT id FROM claims INDEXED BY idx_claims_category WHERE category = 'stationery' LIMIT 1`],
+      ["0139 (quotation revisions)", `SELECT d.revision, d.revised_at, r.snapshot FROM sales_documents d LEFT JOIN sales_document_revisions r ON r.doc_id = d.id LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
@@ -4811,6 +4820,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0136_claim_advances",
       "0137_staff_responsibilities",
       "0138_claim_categories",
+      "0139_quotation_revisions",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

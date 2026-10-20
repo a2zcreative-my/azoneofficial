@@ -125,7 +125,7 @@ const D = "2026-09-07";
      /const shiftAt = await shiftResolver\(env, assigned\);[\s\S]{0,4000}?const sessions = await clockedSessions\(env, \{ month \}\);/.test(read("worker/src/staff.ts")));
   ok("...a released month is closed: nothing offered, its pending derived rows cleared, decided rows kept (v1.159.8)",
      /SELECT released_at FROM payslip_releases WHERE month = \?1`\)\s*\.bind\(month\)[\s\S]{0,400}?AND COALESCE\(status, 'pending'\) = 'pending' AND COALESCE\(user_agent, ''\) = 'clock:derived'`/.test(read("worker/src/staff.ts"))
-     && /NOT EXISTS \(SELECT 1 FROM payslip_releases pr WHERE pr\.month = strftime\('%Y-%m', o\.created_at, '\+8 hours'\)\)/.test(read("worker/src/staff.ts")));
+     && /NOT EXISTS \(SELECT 1 FROM payslip_releases pr WHERE pr\.month = strftime\('%Y-%m', o\.created_at, '\+8 hours'\)\)/.test(read("worker/src/ot-pending.ts")));
   ok("...never touching a decided row - only pending derived stretches are added or removed",
      /const decided = rows\.filter\(\(r\) => r\.status !== "pending"\);/.test(read("worker/src/staff.ts"))
      && /r\.status === "pending" && r\.ua === "clock:derived"/.test(read("worker/src/staff.ts"))
@@ -428,10 +428,23 @@ ok("a pattern has a category, and the three the CEO named are seeded",
    && /660, 1020, 660, 1020/.test(read("worker/migrations/0119_shift_categories_ot_amend.sql"))
    && /840, 1320, 840, 1320/.test(read("worker/migrations/0119_shift_categories_ot_amend.sql")));
 ok("the pending list sums a day's stretches instead of last-out minus first-in",
-   /minutes: sessionMinutes\(closed\), stretches: closed\.length/.test(staff));
+   /minutes: sessionMinutes\(closed\),/.test(read("worker/src/ot-pending.ts"))
+   && /minutes: g\.minutes, stretches: g\.closed\.length,/.test(staff));
 ok("...and names the live session or task that vouches for it", /assigned: asg \? asg\.what : null/.test(staff));
-ok("the desk sums the same way",
-   /g\.mins \+= Math\.max\(0, Math\.round/.test(read("worker/src/desk.ts")));
+/* v1.181.10 (CEO, 15-10-2026: the tile said 6 OT pending, the card it
+   opens listed 3) - the tile counted ot_records ROWS, two per stretch; the
+   Desk paired the rows its own way and still offered released months. One
+   reader now answers all three. */
+ok("the desk lists the same days as the approvals card",
+   /const days = \(await pendingOtDays\(env\)\)\.slice\(0, 100\);/.test(read("worker/src/desk.ts"))
+   && !/FROM ot_records/.test(read("worker/src/desk.ts")));
+ok("the approvals card reads the same days",
+   /const waiting = await pendingOtDays\(env\);/.test(staff));
+ok("the dashboard tile counts those days, not ot_records rows",
+   /pending_ot: otDecide \? await pendingOtDays\(env\)\.then\(\(l\) => l\.length\)/.test(staff)
+   && !/COUNT\(\*\) AS c FROM ot_records/.test(staff));
+ok("a day with no OT out is not waiting on anybody",
+   /if \(closed\.length === 0\) continue;/.test(read("worker/src/ot-pending.ts")));
 ok("the punches endpoint ships today's shifts, every block",
    /today_shift = \{[\s\S]{0,200}?windows: shT\.windows\.map/.test(staff));
 

@@ -1,0 +1,43 @@
+/* v1.181.11 - a quotation's revision history, inside its details panel.
+   Tokens only; buttons and chips are the shared named classes. */
+.revChip {
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+.list {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.item:last-child {
+  border-bottom: 0;
+}
+.label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.meta {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+.amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.current {
+  color: var(--success);
+  font-weight: 600;
+  white-space: nowrap;
+}
