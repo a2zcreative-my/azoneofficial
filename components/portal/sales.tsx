@@ -21,7 +21,7 @@ import { api } from "@/lib/api";
 import { buildDocPdf } from "@/lib/doc-pdf";
 import { DocFull, DocItem, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
 import { esc } from "@/lib/escape-html";
-import { dmy, fmtRM, mytToday, ym } from "@/lib/format";
+import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm } from "@/lib/ui-styles";
@@ -1785,9 +1785,21 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
      and invoices are the two doors most people came through; the unpaid
      figure is the one the CEO reads first. */
   const monthKey = mytToday().slice(0, 7);
-  const monthDocs = docs.filter((d) => (d.created_at ?? "").slice(0, 7) === monthKey);
+  /* v1.181.12 - the month a timestamp falls in HERE: a document raised at
+     00:30 on the 1st is this month's, not last month's UTC tail. */
+  const mytYm = (ts?: string | null) => (ts ? mytDateOf(ts).slice(0, 7) : "");
+  const monthDocs = docs.filter((d) => mytYm(d.created_at) === monthKey);
   const monthQt = monthDocs.filter((d) => d.doc_type === "QT");
   const monthInv = monthDocs.filter((d) => d.doc_type === "INV");
+  /* v1.181.12 (CEO, 20-10-2026: "for the sales, it doesnt reflected to the
+     correct date which is paid date of invoice") - PAID is money received
+     this month, by the date the payment landed, whenever the invoice was
+     raised. It used to be "invoices raised this month that are paid": a
+     September invoice paid on 2 October counted in neither month's Paid,
+     and an October invoice paid in November showed here in October. This
+     is the same rule the dashboard's sales and commission already use. */
+  const paidThisMonth = docs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid"
+    && mytYm(d.paid_at ?? d.created_at) === monthKey);
   const unpaidInv = docs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
   const cents = (list: SalesDoc[]) => list.reduce((a, d) => a + d.total_cents, 0);
 
@@ -1796,11 +1808,11 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
        (figures), THE WORK, CUSTOMERS; the page adds THIS MONTH (the map)
        and THE LONGER VIEW after them. */
     <>
-      <TabZone label={L("At a glance", "Sepintas lalu")} hint={L("This month, by the date each document was raised; unpaid invoices from every month.", "Bulan ini, mengikut tarikh dokumen dibuat; invois belum dibayar dari semua bulan.")}>
+      <TabZone label={L("At a glance", "Sepintas lalu")} hint={L("This month: quotations and invoices by the date raised, Paid by the date the payment was received; unpaid invoices from every month.", "Bulan ini: sebut harga dan invois ikut tarikh dibuat, Dibayar ikut tarikh bayaran diterima; invois belum dibayar dari semua bulan.")}>
         <SummaryStrip cols={4} ariaLabel={L("Sales this month", "Jualan bulan ini")}>
           <SummaryStat label={L("Quotations", "Sebut harga")} value={monthQt.length} hint={fmtRM(cents(monthQt))} busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
           <SummaryStat label={L("Invoiced", "Diinvois")} value={fmtRM(cents(monthInv))} hint={`${monthInv.length} ${L("invoices", "invois")}`} tone="brand" busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
-          <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(cents(monthInv.filter((d) => d.payment_status === "paid")))} tone="success" busy={!loaded} />
+          <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(cents(paidThisMonth))} hint={`${paidThisMonth.length} ${L("by payment date", "ikut tarikh bayaran")}`} tone="success" busy={!loaded} title={L("Invoices whose payment was received this month, by the payment date — whenever they were raised", "Invois yang bayarannya diterima bulan ini, ikut tarikh bayaran — tidak kira bila dibuat")} />
           <SummaryStat label={L("Unpaid invoices", "Invois belum dibayar")} value={unpaidInv.length} hint={fmtRM(cents(unpaidInv))} tone={unpaidInv.length > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => { setWorkTab("receipts"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open receipts and the outstanding report", "Buka resit dan laporan tertunggak")} />
         </SummaryStrip>
       </TabZone>

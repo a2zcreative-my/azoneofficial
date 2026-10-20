@@ -9,7 +9,9 @@
  *   system-derived data  >  verified evidence  >  staff-reported data
  *
  *   - Revenue and orders come from sales_documents (INV) by salesperson. No
- *     route on this file accepts a revenue figure from a form.
+ *     route on this file accepts a revenue figure from a form. Orders are
+ *     invoices RAISED in the range; sales are invoices PAID in the range, on
+ *     the payment date (v1.181.12).
  *   - Shipments come from postage_records; a shipment linked here must name
  *     an invoice, and a shipped/in-transit/delivered status without a
  *     tracking number is refused (staff.ts, the postage PATCH, same rule).
@@ -161,17 +163,34 @@ async function figuresFor(env: Env, ids: number[], from: string, to: string, set
     catch (e) { if (String(e).includes("no such")) return [] as T[]; throw e; }
   };
 
-  /* orders = invoices by salesperson, raised in the range */
-  for (const r of await q<{ uid: number; n: number; cents: number; paid: number; done: number }>(
-    `SELECT d.salesperson_id AS uid, COUNT(*) AS n, COALESCE(SUM(d.total_cents), 0) AS cents,
-            COALESCE(SUM(CASE WHEN d.payment_status = 'paid' THEN d.total_cents ELSE 0 END), 0) AS paid,
+  /* orders = invoices by salesperson, RAISED in the range - the work done */
+  for (const r of await q<{ uid: number; n: number; done: number }>(
+    `SELECT d.salesperson_id AS uid, COUNT(*) AS n,
             COALESCE(SUM(CASE WHEN d.payment_status = 'paid' AND (COALESCE(d.kind, 'product') = 'service' OR COALESCE(d.delivery_status, '') = 'delivered'
                    OR EXISTS (SELECT 1 FROM postage_records p WHERE p.order_ref = d.doc_number AND p.status = 'delivered')) THEN 1 ELSE 0 END), 0) AS done
        FROM sales_documents d
       WHERE d.doc_type = 'INV' AND d.salesperson_id IN (${inIds}) AND ${MYT("d.created_at")} BETWEEN ?1 AND ?2
       GROUP BY d.salesperson_id`, from, to)) {
     const f = g(r.uid); if (!f) continue;
-    f.invoice_cents = r.cents; f.paid_cents = r.paid; f.orders = r.n; f.orders_completed = r.done; f.orders_pending = r.n - r.done;
+    f.orders = r.n; f.orders_completed = r.done; f.orders_pending = r.n - r.done;
+  }
+  /* SALES = invoices by salesperson, PAID in the range, on the date the
+     payment was received (v1.181.12). The CEO, 20-10-2026: "for the sales,
+     it doesnt reflected to the correct date which is paid date of invoice".
+     It counted every invoice in the range it was RAISED, paid or not - so a
+     target was met by an invoice nobody had paid, and a September invoice
+     paid in October counted for September. Commission already paid on the
+     payment month (staff.ts attributedSalesByUser) and the dashboard's
+     sales on the payment date; the target now agrees with both. An invoice
+     paid before paid_at existed falls back to the day it was raised. */
+  for (const r of await q<{ uid: number; cents: number }>(
+    `SELECT d.salesperson_id AS uid, COALESCE(SUM(d.total_cents), 0) AS cents
+       FROM sales_documents d
+      WHERE d.doc_type = 'INV' AND d.salesperson_id IN (${inIds}) AND d.payment_status = 'paid'
+        AND ${MYT("COALESCE(d.paid_at, d.created_at)")} BETWEEN ?1 AND ?2
+      GROUP BY d.salesperson_id`, from, to)) {
+    const f = g(r.uid); if (!f) continue;
+    f.invoice_cents = r.cents; f.paid_cents = r.cents;
   }
   /* TIKTOK SALES (the CEO, 11-09-2026: "Sales Performance need to include
      with their sales TikTok"). The attribution is the one the leaderboard

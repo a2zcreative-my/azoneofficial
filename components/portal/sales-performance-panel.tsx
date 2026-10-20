@@ -897,7 +897,7 @@ function ClosingCard({ ov, toast, onSaved }: { ov: Overview; toast: Toast; onSav
   };
   const fig = p?.figures;
   const auto: [string, string][] = fig ? [
-    [L("Sales (invoices + TikTok)", "Jualan (invois + TikTok)"), `${fmtRM(fig.sales_cents)}${fig.tiktok_cents ? ` (${L("TikTok", "TikTok")} ${fmtRM(fig.tiktok_cents)})` : ""}`],
+    [L("Sales (paid invoices + TikTok)", "Jualan (invois dibayar + TikTok)"), `${fmtRM(fig.sales_cents)}${fig.tiktok_cents ? ` (${L("TikTok", "TikTok")} ${fmtRM(fig.tiktok_cents)})` : ""}`],
     [L("Orders", "Pesanan"), `${fig.orders} ${L("invoices", "invois")} · ${fig.tiktok_orders} TikTok · ${fig.orders_completed} ${L("completed", "selesai")}`],
     [L("Customer interactions", "Interaksi pelanggan"), `${fig.interactions} · ${fig.unique_customers} ${L("unique", "unik")}`],
     [L("Leads / inquiries", "Petunjuk / pertanyaan"), String(fig.inquiries)],
@@ -1550,7 +1550,7 @@ export function SalesPerformancePanel({ go, canOpen, preset }: {
 
           {/* ---- 6. Customer orders (invoices - the Sales tab's records - and TikTok Shop orders) ---- */}
           <Section id="sp-orders" icon="orders" title={L("Customer orders", "Pesanan pelanggan")} count={ov.orders.length + ov.tiktok_orders.length}
-            summary={L(`${t!.orders} invoices · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} paid on invoices · ${t!.orders_completed} completed`, `${t!.orders} invois · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} · ${fmtRM(t!.paid_cents)} dibayar atas invois · ${t!.orders_completed} selesai`)} open={open.orders} onToggle={() => toggle("orders")}
+            summary={L(`${t!.orders} invoices raised · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} sales (invoices by payment date) · ${t!.orders_completed} completed`, `${t!.orders} invois dibuat · ${t!.tiktok_orders} TikTok · ${fmtRM(t!.sales_cents)} jualan (invois ikut tarikh bayaran) · ${t!.orders_completed} selesai`)} open={open.orders} onToggle={() => toggle("orders")}
             action={salesTab ? <button type="button" className={btnSm} onClick={() => go("Sales")}>{L("Raise an invoice", "Buat invois")}</button> : undefined}>
             {ov.orders.length === 0 ? <p className="text-muted-foreground text-sm">{L("No invoices raised in this range. An order is an invoice - there is no other way to record one.", "Tiada invois dibuat dalam julat ini. Pesanan ialah invois - tiada cara lain untuk merekodkannya.")}</p> : (<>
               <ul className={phoneList}>
@@ -1796,7 +1796,7 @@ function Funnel({ f }: { f: Overview["funnel"] }) {
         </div>
       ))}
       <p className="flex items-center justify-between border-t border-border pt-2 text-sm"><span className="font-semibold">{L("Revenue (invoices + TikTok)", "Hasil (invois + TikTok)")}</span><span className="font-semibold tabular-nums">{fmtRM(f.revenue_cents)}</span></p>
-      <p className="text-muted-foreground text-[11px]">{L("Reach and engagement count only posts whose metrics management verified; inquiries are new / product / price inquiries; orders are invoices raised plus TikTok Shop orders credited in the range.", "Capaian dan penglibatan mengira hanya pos yang metriknya disahkan pengurusan; pertanyaan ialah pertanyaan baharu / produk / harga; pesanan ialah invois dibuat serta pesanan TikTok Shop yang dikreditkan dalam julat.")}</p>
+      <p className="text-muted-foreground text-[11px]">{L("Reach and engagement count only posts whose metrics management verified; inquiries are new / product / price inquiries; orders are invoices raised plus TikTok Shop orders credited in the range; sales count an invoice in the range its payment was received, on the payment date.", "Capaian dan penglibatan mengira hanya pos yang metriknya disahkan pengurusan; pertanyaan ialah pertanyaan baharu / produk / harga; pesanan ialah invois dibuat serta pesanan TikTok Shop yang dikreditkan dalam julat; jualan mengira invois dalam julat bayarannya diterima, ikut tarikh bayaran.")}</p>
     </div>
   );
 }

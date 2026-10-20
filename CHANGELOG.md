@@ -10,6 +10,45 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.181.12] - 2026-10-20 - Sales count on the date the invoice was paid
+
+The CEO: "for the sales, it doesnt reflected to the correct date which is
+paid date of invoice".
+
+### Root cause
+
+- **Sales tab, Paid tile:** it added up invoices *raised* this month that
+  happen to be paid. A September invoice paid on 2 October was in neither
+  month's Paid; an October invoice paid in November showed as paid in
+  October once it was paid.
+- **Sales Performance:** a person's sales (and their target achievement)
+  counted every invoice in the range it was *raised*, paid or not. The
+  dashboard's sales and the commission already counted on the payment date,
+  so the three disagreed.
+
+### Fixed
+
+- **Paid** on the Sales tab is now money received this month, by the
+  payment date picked when the invoice was marked paid, whenever the invoice
+  was raised. Quotations and Invoiced still count by the date raised, and
+  every month is now the Malaysian month (a document raised at 00:30 on the
+  1st is that month's).
+- **Sales Performance:** sales = invoices paid in the range, on the payment
+  date, plus TikTok. Orders are still the invoices raised in the range, so
+  the work done and the money in are both visible. Labels say which is which.
+- Finance cash flow is unchanged, as chosen.
+
+### Verified
+
+- Local worker: an invoice raised 25-09 and paid 02-10 now counts as
+  October sales (RM 1,000) and not September; an unpaid October invoice is
+  an October order but not a sale.
+
+### Guard
+
+- `sales-performance` holds the payment-date rule on both screens and that
+  commission agrees.
+
 ## [1.181.11] - 2026-10-20 - Revise a quotation instead of writing a new one
 
 The CEO: "I want to add on the Quotation if there is anything that I want to

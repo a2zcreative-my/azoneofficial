@@ -325,6 +325,27 @@ const B = await bundle("lib/sales-performance.ts", "browser-rules.mjs");
   ok("migration 0125 stays - history is not rewritten", has("worker/migrations/0125_criscikee.sql") && /"0125_criscikee",/.test(read("worker/src/index.ts")));
 }
 
+/* ---- v1.181.12 (CEO, 20-10-2026: "for the sales, it doesnt reflected to the
+   correct date which is paid date of invoice") - a sale is counted on the day
+   its payment was received, wherever a figure is called sales or paid. Orders
+   stay the invoices raised in the range: that is the work done. ---- */
+{
+  const sp = read("worker/src/sales-performance.ts");
+  const sales = read("components/portal/sales.tsx");
+  ok("Sales Performance: sales are invoices PAID in the range, on the payment date",
+     /d\.payment_status = 'paid'\s+AND \$\{MYT\("COALESCE\(d\.paid_at, d\.created_at\)"\)\} BETWEEN \?1 AND \?2[\s\S]{0,160}?f\.invoice_cents = r\.cents; f\.paid_cents = r\.cents;/.test(sp));
+  ok("...and orders are still the invoices RAISED in the range",
+     /\$\{MYT\("d\.created_at"\)\} BETWEEN \?1 AND \?2[\s\S]{0,160}?f\.orders = r\.n;/.test(sp)
+     && !/f\.invoice_cents = r\.cents; f\.paid_cents = r\.paid;/.test(sp));
+  ok("the commission agrees: it pays on the payment month",
+     /AND paid_at IS NOT NULL AND strftime\('%Y-%m', paid_at\) = \?1/.test(read("worker/src/staff.ts")));
+  ok("the Sales tab's Paid is money received this month, by payment date, whenever raised",
+     /const paidThisMonth = docs\.filter\(\(d\) => d\.doc_type === "INV" && d\.payment_status === "paid"\s*&& mytYm\(d\.paid_at \?\? d\.created_at\) === monthKey\);/.test(sales)
+     && /value=\{fmtRM\(cents\(paidThisMonth\)\)\}/.test(sales));
+  ok("...and the month a timestamp falls in is the Malaysian month", /const mytYm = \(ts\?: string \| null\) => \(ts \? mytDateOf\(ts\)\.slice\(0, 7\) : ""\);/.test(sales)
+     && /docs\.filter\(\(d\) => mytYm\(d\.created_at\) === monthKey\)/.test(sales));
+}
+
 console.log(failed === 0
   ? `sales-performance: ${passed} checks passed.`
   : `\n${failed} sales-performance check(s) failed.`);
