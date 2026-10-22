@@ -1,0 +1,319 @@
+/* v1.193.0 - the Inventory Overview and Reports (inventory-overview.tsx) and
+   the tab bodies of the Inventory page, laid out as the owner's reference
+   photo. Tokens only; cards, chips, buttons and inputs are the shared named
+   classes. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  }
+}
+.col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.anchor {
+  scroll-margin-top: 4rem;
+}
+.alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+/* ---- a card's head ---- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+.headText {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.headText > p {
+  margin: 0;
+}
+.title {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.sub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.muted {
+  color: var(--muted-foreground);
+}
+.well,
+.qaIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.well {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+}
+.qaIcon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+}
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.navy {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.purple {
+  background: var(--plan-soft);
+  color: var(--plan);
+}
+
+/* ---- tables: a light header bar, ruled rows, scrolling in their own box ---- */
+.tWrap {
+  margin-top: 0.875rem;
+  overflow-x: auto;
+}
+.t {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--type-body-sm-size);
+}
+.t th {
+  padding: 0.5rem 0.625rem;
+  background: var(--secondary);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+.t th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.t th:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.t td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.t tbody tr:last-child td {
+  border-bottom: 0;
+}
+.t tfoot td {
+  padding: 0.5rem 0.625rem;
+  border-top: 2px solid var(--border);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.t .num,
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.name {
+  font-weight: 600;
+}
+.t td.reason {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted-foreground);
+}
+.reverted td {
+  opacity: 0.55;
+}
+.plus {
+  color: var(--success);
+  font-weight: 700;
+}
+.minus {
+  color: var(--danger);
+  font-weight: 700;
+}
+.empty {
+  margin: 0.75rem 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.t td.empty {
+  white-space: normal;
+}
+.more {
+  margin: 0.625rem 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+
+/* ---- quick actions: one row of four on a wide screen ---- */
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+@media (min-width: 768px) {
+  .quick {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1400px) {
+  .quick {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+.qa {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.qa:hover {
+  border-color: var(--gold-solid);
+}
+.qa:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---- small figures ---- */
+.figs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+.fig {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.fig > p {
+  margin: 0;
+}
+.figLabel {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.figValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.rows {
+  display: grid;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.reasonWide {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* the title over a single pane of the movements card */
+.paneTitle {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+}
+
+/* ---- the stock list's own box and pager (role-panels.tsx InventoryPanel) ---- */
+.stockScroll {
+  max-height: min(68vh, 46rem);
+}
+.itemCell {
+  min-width: 11rem;
+}
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.pagerNav,
+.pagerPer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.pagerInfo {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}

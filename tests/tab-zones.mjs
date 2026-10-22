@@ -120,9 +120,10 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("bridge problems remain visible beside the stock summary", inv.indexOf('role="status"') < inv.indexOf('L("Inventory — live status & stock"') && inv.includes("bridgeHealth.unknown.length > 0"));
   const order = ["Inventory — live status & stock", "Supplier returns", "Postage tracking", "TikTok Live — stock out", "Manual stock movements"].map((t) => inv.indexOf(t));
   ok("table, then the two forms, then the two histories", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
-  ok("the table and the phone list draw from ONE filtered list", inv.split("{visibleItems.map((it) => (").length === 3 && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),
+  /* v1.193.0 - both draw one PAGE of that list (pageItems = visibleItems sliced) */
+  ok("the table and the phone list draw from ONE filtered list", inv.split("{pageItems.map((it) => (").length === 3 && /const pageItems = invPer > 0 \? visibleItems\.slice\(/.test(inv) && !/\{sortedItems\.map\(\(it\) => \(/.test(inv),
      "two lists from two sources can disagree about what is in stock");
-  ok("the phone list is phone-only and the table desk-only", /<ul className="[^"]*md:hidden">\s*\{visibleItems\.map/.test(inv) && /<div className="mt-3 hidden max-h-96 overflow-x-auto overflow-y-auto pr-1 md:block">/.test(inv));
+  ok("the phone list is phone-only and the table desk-only", /<ul className="[^"]*md:hidden">\s*\{pageItems\.map/.test(inv) && /<div className=\{`mt-3 hidden overflow-x-auto overflow-y-auto pr-1 md:block \$\{ivc\.stockScroll\}`\}>/.test(inv));
   const inCalls = inv.split('setOutModal({ dir: "in", edit_id: null, item_id: it.id').length - 1;
   const outCalls = inv.split('setOutModal({ dir: "out", edit_id: null, item_id: it.id').length - 1;
   ok("In / Out on the phone are the table's own handlers", inCalls === 2 && outCalls === 2, `${inCalls} in, ${outCalls} out`);
@@ -193,10 +194,14 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      Record (returns / postage / materials) and What moved (TikTok / manual). */
   const recTabs = ["returns", "postage", "materials"], mvTabs = ["tiktok", "manual"];
   ok("Record is one card with three tabs", /value=\{recordTab\} onChange=\{setRecordTab\}/.test(inv) && recTabs.every((k) => new RegExp(`\\["${k}", L\\(`).test(inv)));
-  ok("What moved is one card with two tabs", /value=\{movedTab\} onChange=\{setMovedTab\}/.test(inv) && mvTabs.every((k) => new RegExp(`\\["${k}", L\\(`).test(inv)));
+  /* v1.193.0 - the page is six tabs; What moved's two panes are chosen by
+     them (TikTok under Reports & Analytics, manual under Stock In & Out) */
+  void mvTabs;
+  ok("What moved is one card whose panes the page's tabs choose", /<div hidden=\{view !== "reports"\}>\s*<p className=\{ivc\.paneTitle\}>\{L\("TikTok Live — stock out"/.test(inv) && /<div hidden=\{view !== "inout"\}>\s*<p className=\{ivc\.paneTitle\}>\{L\("Manual stock movements"/.test(inv));
   ok("each tab body is hidden, never unmounted - a half-typed return survives a look at postage",
-     recTabs.every((k) => inv.includes(`recordTab === "${k}" ? "mt-3" : "hidden"`)) && mvTabs.every((k) => inv.includes(`movedTab === "${k}" ? "mt-3" : "hidden"`)),
+     recTabs.every((k) => inv.includes(`recordTab === "${k}" ? "mt-3" : "hidden"`)) && (inv.match(/className="erp-stack-tight erp-tab-zone[^"]*" hidden=\{view !== "/g) ?? []).length >= 6,
      "unmounting would refetch and lose what was typed");
+  ok("Inventory: six tabs in the brief's order", ["Overview", "Stock Inventory", "Stock In & Out", "Supplier Returns", "Stock Take", "Reports & Analytics"].map((t) => inv.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
   ok("the five cards kept their bodies", ["Record rejected/defective items sent back to the supplier", "TikTok orders arrive automatically", "Track what sales needs", "Units deducted by TikTok orders", "Every manual In + and Out"].every((t) => inv.includes(t)));
   ok("the stock table is not behind a tab - it is the daily work", !/<QuietCard title=\{L\("Inventory — live status/.test(inv) && /L\("Inventory — live status & stock"/.test(inv));
 }
@@ -322,7 +327,11 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
   ok("Payroll: review before save, payment export, release and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("M2E salary file"', 'L("Release now"', 'id="payroll-base"', 'L("M2E setup']));
-  ok("Claims: submission link, pending decisions, form, records", ordered(panels.slice(panels.indexOf('export function ClaimsPanel')), ['href="#claim-form"', 'id="claims-pending"', 'id="claim-form"', 'L("All claims"']));
+  ok("Claims: submission link, pending decisions, form, records", ordered(panels.slice(panels.indexOf('export function ClaimsPanel')), ['openClaims("submit")', 'id="claims-pending"', 'id="claim-form"', 'L("All claims"']));
+  /* v1.194.0 - five tabs, in the brief's order; every zone hidden, never unmounted */
+  const claimsP = panels.slice(panels.indexOf('export function ClaimsPanel'));
+  ok("Claims: five tabs in the brief's order", ["Overview", "Submit Claim", "My Claims", "Approvals", "Reports & Payments"].map((t) => claimsP.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
+  ok("Claims: each zone stays mounted under the other tabs", (claimsP.match(/className=\{view !== [a-zA-Z"]+ \? cov\.off : ""\}/g) ?? []).length >= 5 && /hidden=\{view !== "overview"\}/.test(claimsP));
   ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.map((l)']));
   ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['{renderTasks(tasks.filter((t) => t.status !== "completed")', 'L("Create / assign a task"', '{progress}', '{renderTasks(tasks.filter((t) => t.status === "completed")']));
   ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));

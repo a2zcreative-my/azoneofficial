@@ -10,6 +10,96 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.194.0] - 2026-10-22 - Claims in five tabs, the overview as the photo
+
+The owner, 22-10-2026, with his Claims mockup: five tabs - Overview, Submit
+Claim, My Claims, Approvals, Reports & Payments - with approval and payment
+shown apart; no database, API, approval-chain or calculation change; no
+mockup sample data. The five are his written tabs (the photo's row has a
+History and a Settings tab his list does not); the Overview follows the
+photo.
+
+### Changed
+
+- **Claims** (`role-panels.tsx` ClaimsPanel): the long page is five
+  underline tabs, with the month and a gold "Submit claim" at the right.
+  Every zone is the zone it was, shown under its tab and hidden - never
+  unmounted - under the others, so a half-filled claim survives a look at
+  the list. A revealed anchor (the Desk's claims-pending, claim-form,
+  claims-list after a submit) opens its tab first.
+- **Overview** (new `claims-overview.tsx`): four tiles - Pending approval,
+  Approved, Paid, Rejected this month, each with its total and each scoping
+  the records as before (v1.88.0, same month rule by claim date); Recent
+  claims with the approval and the payment in separate columns; Needs
+  attention (decisions waiting on you, approved claims still to pay, your
+  rejected claims, your claims waiting); My claim summary (a donut by
+  status); Claim categories (the month's claim lines by category).
+- **Submit Claim**: the claim form - reimbursement and salary advance,
+  purpose, payee, lines with date, category, description, amount, mileage
+  at the configured rate, receipt upload, totals - unchanged.
+- **My Claims**: your records with a search (claim no., person, purpose,
+  category). A decider's own claims now have their own list here; the
+  company's records are under Approvals.
+- **Approvals** (deciders and the approval chain - HR, COO, CCO, admin -
+  as before): Waiting on me, then the approval history (the records card,
+  "All claims") with the same search.
+- **Reports & Payments**: a month picker by claim date; submitted, approved,
+  paid and approved-not-paid; approved against paid by category; salary
+  advances recovered by that payroll month; the payment records of the
+  month with their proof (same gate as before); a CSV of the month; HR's
+  approved-claims compilation as it was.
+- An approved claim not yet paid now says "Payment due" beside its approval.
+
+### Guards
+
+- `tab-zones` pins the five tabs and that every zone stays mounted;
+  `interface-v3` pins the tab row's Submit action and the anchor-to-tab
+  mapping instead of the old "#claim-form" pill.
+
+## [1.193.0] - 2026-10-22 - Inventory in six tabs, the overview as the photo
+
+The owner, 22-10-2026, with his Inventory mockup: six tabs - Overview,
+Stock Inventory, Stock In & Out, Supplier Returns, Stock Take, Reports &
+Analytics - no database, API or stock-calculation change, TikTok and ELFIA
+untouched, no mockup sample data. The six are his written tabs (the
+photo's row has Supplier & Purchase - Purchasing is retired - and a
+Settings tab his list does not); the Overview follows the photo.
+
+### Changed
+
+- **Inventory** (`role-panels.tsx` InventoryPanel): the long page is six
+  underline tabs, with the month and a gold "Add item" at the right. Every
+  zone is the zone it was, shown under its tab and hidden - never unmounted
+  - under the others; no handler, route or calculation changed.
+- **Overview** (new `inventory-overview.tsx`): four tiles - Total items (and
+  categories), In stock, Low stock (5 or fewer), Out of stock, with share
+  bars; Low stock items (out first); manual stock movements of the last 30
+  days; eight quick actions that open the right tab, pill or form; the ELFIA
+  sync warning when there is one. Drawn from the lists the panel already
+  loads - no new request.
+- **Stock Inventory**: the stock status card (managers), the live stock
+  table with search, status and category filters, CSV, Add item, In/Out,
+  Edit and Delete as before, now in a taller box with a pager (10 / 25 / 50
+  / 100 / All a page; the totals row still sums every filtered row), and
+  the ELFIA bridge status.
+- **Stock In & Out**: Receive stock, then the manual movement history (the
+  marketing loans, what left without a sale, the records).
+- **Supplier Returns**: the Record card - Supplier returns (credits and
+  replacement stock), Postage tracking, Marketing materials - unchanged.
+- **Stock Take**: the stock take, unchanged.
+- **Reports & Analytics**: stock valuation (units, at price, net after the
+  live rebate, at cost - the stock table's own footer sums over the whole
+  shelf) and by category; the month's TikTok stock-out and the last 30
+  days of manual movement by reason; then the TikTok per-item table.
+- What moved's two panes (v1.123.0) are now chosen by the page's tabs: the
+  manual history under Stock In & Out, TikTok under Reports & Analytics.
+
+### Guards
+
+- `tab-zones`: What moved's panes follow the page's tabs; the six tabs are
+  pinned in order; every zone is hidden, never unmounted.
+- Browser fixture: manual movements and TikTok stock-out rows.
+
 ## [1.192.0] - 2026-10-22 - HR in six tabs, the overview as the photo
 
 The owner, 22-10-2026, with his HR mockup: reorganise HR into six tabs -

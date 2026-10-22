@@ -36,6 +36,14 @@ function baseFixture(p) {
   if (p === "/staff/desk") data = { items: queue, counts: { tasks: 1 }, total: 1, missing: [] };
   if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }], task_summary: [] };
   if (p === "/staff/inventory") data = { items };
+  /* v1.193.0 - the Inventory Overview and Reports read these two */
+  if (p === "/staff/inventory/manual-outs") data = { outs: [
+    { id: 41, item_id: 2, sku: "ELFIA002", item_name: "ELFIA Daily care", qty: 12, unit_sale_cents: null, remark: "Restock from supplier — 12 cartons", created_at: D + "16 02:10:00", created_by_name: "Nur Aisyah", out_date: D + "16", reverted: 0, direction: "in", item_cost_cents: 1200 },
+    { id: 40, item_id: 1, sku: "ELFIA001", item_name: "ELFIA Premium product", qty: 2, unit_sale_cents: null, remark: "Marketing / content shoot — coming back — Raya shoot", created_at: D + "12 06:00:00", created_by_name: "Farid Zul", out_date: D + "12", reverted: 0, direction: "out", item_cost_cents: 2400 },
+    { id: 39, item_id: 1, sku: "ELFIA001", item_name: "ELFIA Premium product", qty: 1, unit_sale_cents: null, remark: "Damaged / defective — torn seam", created_at: D + "05 03:00:00", created_by_name: "Nur Aisyah", out_date: D + "05", reverted: 0, direction: "out", item_cost_cents: 2400 }] };
+  if (p === "/staff/inventory/tiktok-out") data = { items: [
+    { id: 2, sku: "ELFIA002", name: "ELFIA Daily care", stock: 30, today_qty: 3, month_qty: 41, total_qty: 180, last_at: D + "18 01:40:00", unit_price_cents: 2400, avg_sale_cents: 2150, month_value_cents: 88150 },
+    { id: 1, sku: "ELFIA001", name: "ELFIA Premium product", stock: 4, today_qty: 0, month_qty: 9, total_qty: 66, last_at: D + "16 12:00:00", unit_price_cents: 4500, avg_sale_cents: 4290, month_value_cents: 38610 }] };
   if (p === "/staff/inventory/bridge-health") data = { key_configured: true, applied_24h: 0, unknown_24h: 0, unknown: [] };
   if (p === "/staff/fulfilment/summary") data = { month: "2026-09", by_status: { preparing: 1, shipped: 1, in_transit: 1, delivered: 2, returned: 1 }, oldest_preparing: { order_ref: "TT-586117208715331063", days: 5 }, orders: [] };
   if (p === "/staff/roster") data = { week_start: "2026-09-14", days: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"], manager: true, sessions: [], on_leave: [], conflicts: [], requests: [], available_today: [], task_blocks: [], unscheduled: [], events: [] };

@@ -42,7 +42,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -56,9 +56,15 @@ import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import cl from "./claims.module.css"; // v1.172.2 - the Claims flow's own layout (Tailwind retired)
 import cx from "./corrections.module.css"; // v1.181.4 - the corrections card: the filter bar, the unpaid-day editor
-import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
+import { TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
 import { StockReceive } from "@/components/portal/stock-receive"; // v1.181.14
 import { StockTake } from "@/components/portal/stock-take"; // v1.181.15
+import { InventoryOverview, InventoryReports, type InvOpen, type InvView } from "@/components/portal/inventory-overview"; // v1.193.0
+import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.193.0
+import ivc from "./inventory-overview.module.css"; // v1.193.0 - the Inventory page's tabs
+import { ClaimsOverview, ClaimsReports, monthName, type ClaimsView, type OvClaim } from "@/components/portal/claims-overview"; // v1.194.0
+import cov from "./claims-overview.module.css"; // v1.194.0 - the Claims page's tabs
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.194.0
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -347,7 +353,33 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   const [addOpen, setAddOpen] = useState(false);
   /* v1.123.0 - one area at a time in Record and What moved */
   const [recordTab, setRecordTab] = useState<"returns" | "postage" | "materials">("returns");
-  const [movedTab, setMovedTab] = useState<"tiktok" | "manual">("tiktok");
+  /* v1.193.0 - THE INVENTORY PAGE, TABBED (the owner's brief and photo,
+     22-10-2026). Six tabs: Overview, Stock Inventory, Stock In & Out,
+     Supplier Returns, Stock Take, Reports & Analytics. Every zone below is
+     the zone it was, shown under its tab and hidden - never unmounted - under
+     the others, so a half-typed return survives a look at the stock list.
+     What moved (v1.123.0: TikTok / manual in one card) is split by the tabs
+     instead of its own pills: the manual history under Stock In & Out, the
+     TikTok stock-out under Reports & Analytics. */
+  const [view, setView] = useState<InvView>("overview");
+  const [invPer, setInvPer] = useState(25);
+  const [invToday] = useState(() => mytToday()); // the page's day, read once (render stays pure)
+  const [invPage, setInvPage] = useState<{ key: string; n: number }>({ key: "", n: 0 });
+  const openInv: InvOpen = (v, opts) => {
+    setView(v);
+    if (opts?.filter) setInvFilter(opts.filter);
+    if (opts?.record) setRecordTab(opts.record);
+    if (opts?.add) setAddOpen(true);
+    const anchor = opts?.anchor;
+    if (anchor) requestAnimationFrame(() => revealAnchor(anchor));
+  };
+  /* an anchor revealed from elsewhere opens the tab that holds it */
+  useEffect(() => {
+    const TAB: Record<string, InvView> = { "inventory-bridge": "stock", "inv-receive": "inout", "inv-moves": "inout", "inv-valuation": "reports" };
+    const onReveal = (e: Event) => { const t = TAB[(e as CustomEvent<string>).detail]; if (t) setView(t); };
+    window.addEventListener("azone:reveal", onReveal);
+    return () => window.removeEventListener("azone:reveal", onReveal);
+  }, []);
   const cycleInv = (col: InvCol) =>
     setInvSort((s) => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   type TtCol = "sku" | "name" | "hot" | "month" | "total" | "price" | "value" | "stock" | "last";
@@ -482,6 +514,14 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
     && (invCat === "" || (invCat === "\u0000none" ? !catOf(it) : catOf(it).toLowerCase() === invCat.toLowerCase()))
     && (!needle || it.sku.toLowerCase().includes(needle) || it.name.toLowerCase().includes(needle)
         || catOf(it).toLowerCase().includes(needle)));
+  /* v1.193.0 - pages of the stock list (the owner's brief: "filtering and
+     pagination"). The totals row still sums every row the filters leave, so
+     a page never changes a figure; a new filter starts again at page 1. */
+  const pageKey = `${invFilter}|${invCat}|${invQ}`;
+  const invPages = invPer > 0 ? Math.max(1, Math.ceil(visibleItems.length / invPer)) : 1;
+  const invPageNo = invPage.key === pageKey ? Math.min(invPage.n, invPages - 1) : 0;
+  const pageItems = invPer > 0 ? visibleItems.slice(invPageNo * invPer, invPageNo * invPer + invPer) : visibleItems;
+  const goPage = (n: number) => setInvPage({ key: pageKey, n });
   /* v1.136.0 - saving a family. One field, one route, and the list reloads,
      so the strip above and the cell agree without either being told twice. */
   const saveInvCategory = async (it: InvItem, next: string, onFail?: () => void) => {
@@ -746,7 +786,26 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </div>
         </div>
       )}
-      <section className="erp-stack-tight erp-tab-zone">
+      {/* v1.193.0 - the tab row, with the month and Add item at the right */}
+      <LineTabs value={view} onChange={(k) => openInv(k)} label={L("Inventory", "Inventori")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["stock", L("Stock Inventory", "Inventori Stok")],
+        ["inout", L("Stock In & Out", "Stok Masuk & Keluar")],
+        ["returns", L("Supplier Returns", "Pulangan Pembekal")],
+        ["stocktake", L("Stock Take", "Kiraan Stok")],
+        ["reports", L("Reports & Analytics", "Laporan & Analitik")],
+      ] as const}
+        aside={
+          <TabAside>
+            <TabPeriod>{(() => { const [y, mo] = invToday.split("-"); return `${L(["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(mo) - 1] ?? "", ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"][Number(mo) - 1] ?? "")} ${y}`; })()}</TabPeriod>
+            <TabAction icon="add" onClick={() => openInv("stock", { add: true })}>{L("Add item", "Tambah barang")}</TabAction>
+          </TabAside>
+        } />
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "overview"}>
+        <InventoryOverview items={items} moves={manualOuts} loaded={loaded} today={invToday} open={openInv}
+          bridgeProblem={!!bridgeHealth && (bridgeHealth.unavailable || !bridgeHealth.key_configured || !!bridgeHealth.pending_migration || bridgeHealth.unknown.length > 0)} />
+      </section>
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "stock"}>
         <ZoneLabel>{L("Stock now", "Stok sekarang")}</ZoneLabel>
       {statusCard}
       {bridgeHealth && (bridgeHealth.unavailable || !bridgeHealth.key_configured || bridgeHealth.pending_migration || bridgeHealth.unknown.length > 0) && (
@@ -934,7 +993,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             below; price edits, the rebate, net and the ELFIA toggle are desk
             work and stay in the table. */}
         <ul className="divide-border mt-3 max-h-[60svh] divide-y overflow-y-auto overscroll-contain md:hidden">
-          {visibleItems.map((it) => (
+          {pageItems.map((it) => (
             <li key={`m-${it.id}`} className="py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -963,7 +1022,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         </ul>
         {/* v1.4.199 (CEO): pills removed — click the SKU / Item headers to
             sort, click again to reverse. */}
-        <div className="mt-3 hidden max-h-96 overflow-x-auto overflow-y-auto pr-1 md:block">
+        <div className={`mt-3 hidden overflow-x-auto overflow-y-auto pr-1 md:block ${ivc.stockScroll}`}>
           <table className="tbl-sticky w-full min-w-[1000px] border-collapse">
             <thead>
               <tr className="border-border border-b">
@@ -1022,7 +1081,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
               </tr>
             </thead>
             <tbody>
-              {visibleItems.map((it) => (
+              {pageItems.map((it) => (
                 /* v1.4.270: urgency tint — a stock line at the alert level
                    reads red before anyone reads the number. */
                 <tr key={it.id} className={`border-border border-b last:border-0 ${it.stock <= 5 ? accentRowDanger : ""}`}>
@@ -1033,7 +1092,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, sku: e.target.value }))} />
                       : it.sku}
                   </td>
-                  <td className={`${td} font-medium`}>
+                  <td className={`${td} font-medium ${ivc.itemCell}`}>
                     {invEditId === it.id
                       ? <input className={`${inputClassSm} w-36`} value={invEditDraft.name}
                           onChange={(e) => setInvEditDraft((d) => ({ ...d, name: e.target.value }))} />
@@ -1288,12 +1347,34 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
             </tfoot>
           </table>
         </div>
+        {/* v1.193.0 - the pager: which rows, the page, and how many a page */}
+        <div className={ivc.pager}>
+          <span className={ivc.pagerInfo}>
+            {invPer > 0 && visibleItems.length > invPer
+              ? L(`Showing ${invPageNo * invPer + 1}–${Math.min(visibleItems.length, (invPageNo + 1) * invPer)} of ${visibleItems.length}`, `Memaparkan ${invPageNo * invPer + 1}–${Math.min(visibleItems.length, (invPageNo + 1) * invPer)} daripada ${visibleItems.length}`)
+              : L(`${visibleItems.length} item${visibleItems.length === 1 ? "" : "s"}`, `${visibleItems.length} barang`)}
+          </span>
+          {invPages > 1 && (
+            <span className={ivc.pagerNav}>
+              <button type="button" className={btnSm} disabled={invPageNo === 0} aria-label={L("Previous page", "Halaman sebelumnya")} onClick={() => goPage(invPageNo - 1)}><AppIcon name="previous" /></button>
+              <span className={ivc.pagerInfo}>{L(`Page ${invPageNo + 1} of ${invPages}`, `Halaman ${invPageNo + 1} daripada ${invPages}`)}</span>
+              <button type="button" className={btnSm} disabled={invPageNo >= invPages - 1} aria-label={L("Next page", "Halaman seterusnya")} onClick={() => goPage(invPageNo + 1)}><AppIcon name="next" /></button>
+            </span>
+          )}
+          <label className={ivc.pagerPer}>
+            <span className={ivc.pagerInfo}>{L("Per page", "Setiap halaman")}</span>
+            <select className={selectClassSm} value={invPer} onChange={(e) => { setInvPer(Number(e.target.value)); goPage(0); }}>
+              {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+              <option value={0}>{L("All", "Semua")}</option>
+            </select>
+          </label>
+        </div>
         </>
         )}
       </div>
 
       </section>
-      <section className="erp-stack-tight erp-tab-zone">
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "returns"}>
         <ZoneLabel>{L("Record", "Rekod")}</ZoneLabel>
       {/* v1.123.0 — ONE CARD, THREE TABS. The CEO, 06-09-2026, naming the
           attendance card: the three ways a movement is recorded are one
@@ -1725,26 +1806,31 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
       </section>
       {/* v1.181.14 (ERP roadmap phase 2) - stock from a supplier, with what it
           cost and what is owed. Purchasing stays retired; this is the form. */}
-      <section className="erp-stack-tight erp-tab-zone">
+      <section id="inv-receive" className="erp-stack-tight erp-tab-zone" hidden={view !== "inout"}>
         <ZoneLabel>{L("Receive stock", "Terima stok")}</ZoneLabel>
         <StockReceive items={items} onStockChanged={() => void load()} />
       </section>
       {/* v1.181.15 (ERP roadmap phase 3) - count the shelf against what the
           portal held when the count began; post the differences as variances. */}
-      <section className="erp-stack-tight erp-tab-zone">
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "stocktake"}>
         <ZoneLabel>{L("Stock take", "Kiraan stok")}</ZoneLabel>
         <StockTake categories={[...new Set(items.map((i) => (i.category ?? "").trim() || "Uncategorised"))].sort()} onStockChanged={() => void load()} />
       </section>
-      <section className="erp-stack-tight erp-tab-zone">
+      {/* v1.193.0 - Reports & Analytics: the valuation and the movement
+          figures, from the lists above (inventory-overview.tsx) */}
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "reports"}>
+        <ZoneLabel>{L("Valuation and insights", "Nilai dan pandangan")}</ZoneLabel>
+        <InventoryReports items={items} moves={manualOuts} tt={ttOut} loaded={loaded} today={invToday} />
+      </section>
+      <section id="inv-moves" className="erp-stack-tight erp-tab-zone" hidden={view !== "inout" && view !== "reports"}>
         <ZoneLabel>{L("What moved", "Apa yang bergerak")}</ZoneLabel>
-      {/* v1.123.0 — one card, two tabs: what TikTok moved, and what a
-          person moved by hand. */}
+      {/* v1.123.0 — one card: what TikTok moved, and what a person moved by
+          hand. v1.193.0 - the page's tabs choose the pane (the manual
+          history under Stock In & Out, TikTok under Reports & Analytics), so
+          the card's own pills left; each pane says its name. */}
       <div className={card}>
-        <SectionTabs value={movedTab} onChange={setMovedTab} tabs={[
-          ["tiktok", L("TikTok Live — stock out", "TikTok Live — stok keluar")],
-          ["manual", L("Manual stock movements", "Pergerakan stok manual")],
-        ] as const} />
-        <div className={movedTab === "tiktok" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
+        <div hidden={view !== "reports"}>
+        <p className={ivc.paneTitle}>{L("TikTok Live — stock out", "TikTok Live — stok keluar")}</p>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Units deducted by TikTok orders, per item — so you can see what moved during today's live and across the month. Counted from the actual stock movements (returned orders excluded). \"Avg sold @\" is the real price buyers paid (TikTok sale price) — the amber figure beside it is the auto-computed rebate vs your list price.", "Unit yang ditolak oleh pesanan TikTok, mengikut barang — supaya anda nampak apa yang bergerak semasa live hari ini dan sepanjang bulan. Dikira daripada pergerakan stok sebenar (pesanan dipulangkan dikecualikan). \"Avg sold @\" ialah harga sebenar yang dibayar pembeli (harga jualan TikTok) — angka kuning di sebelahnya ialah rebat auto berbanding harga senarai anda.")}
         </p>
         {/* v1.77.0 — skeleton until the first fetch lands (nine columns, like the real table). */}
@@ -1844,7 +1930,8 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
           </>
         )}
         </div>
-        <div className={movedTab === "manual" ? "mt-3" : "hidden"}>        <p className="text-muted-foreground mt-0.5 text-xs">
+        <div hidden={view !== "inout"}>
+        <p className={ivc.paneTitle}>{L("Manual stock movements", "Pergerakan stok manual")}</p>        <p className="text-muted-foreground mt-0.5 text-xs">
           {L("Every manual In + and Out − with its reason, recorded by whom and when. Rows with a sold price also count in Total sales (Manual sales channel); rows without are corrections — excluded from sales by design. To settle a stock count, record the difference here: pick", "Setiap In + dan Out − manual dengan sebabnya, direkodkan oleh siapa dan bila. Baris dengan harga jualan turut dikira dalam Jumlah jualan (saluran jualan Manual); baris tanpa harga ialah pembetulan — dikecualikan daripada jualan secara reka bentuk. Untuk menyelesaikan kiraan stok, rekodkan perbezaannya di sini: pilih")}
           <span className="font-medium"> {L("Stock count variance", "Varians kiraan stok")}</span> {L("and write what you counted against what the system said.", "dan tulis apa yang anda kira berbanding apa yang sistem kata.")}
         </p>
@@ -2209,7 +2296,7 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
         </div>
       </div>
       </section>
-      <section id="inventory-bridge" className="erp-stack-tight erp-tab-zone scroll-mt-36">
+      <section id="inventory-bridge" className="erp-stack-tight erp-tab-zone scroll-mt-36" hidden={view !== "stock"}>
         <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
       {/* v1.36.0: the ELFIA bridge's pulse — is the store connected, when did
           it last report a sale, and (the part a human must act on) SKUs it
@@ -4156,6 +4243,16 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const { prompt, node: stepUpNode } = usePrompt();
   /* v1.88.0 — which figure in the summary strip the list is scoped to. */
   const [claimF, setClaimF] = useState("");
+  /* v1.194.0 - THE CLAIMS PAGE, TABBED (the owner's brief and photo,
+     22-10-2026): Overview, Submit Claim, My Claims, Approvals, Reports &
+     Payments. Every zone is the zone it was, shown under its tab and hidden -
+     never unmounted - under the others, so a half-filled claim survives a
+     look at the list. The records card ("All claims" for a decider) is the
+     decider's approval history and sits under Approvals; everyone else's
+     records are My Claims. */
+  const [view, setView] = useState<ClaimsView>("overview");
+  const [claimQ, setClaimQ] = useState("");
+  const [repMonth, setRepMonth] = useState(() => mytToday().slice(0, 7));
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
   const [msg, setMsg] = useState("");
@@ -4231,6 +4328,18 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]);
   useEffect(() => {
     void api<{ cents_per_km: number; can_set: boolean }>(`/claims/mileage-rate`).then((r) => { if (r.ok && r.data) setMileage(r.data); });
+  }, []);
+  /* v1.194.0 - an anchor revealed from elsewhere (the Desk, a submit, an
+     edit) opens the tab that holds it first */
+  useEffect(() => {
+    const onReveal = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id === "claims-pending") setView("approvals");
+      else if (id === "claim-form") setView("submit");
+      else if (id === "claims-list") setView("mine");
+    };
+    window.addEventListener("azone:reveal", onReveal);
+    return () => window.removeEventListener("azone:reveal", onReveal);
   }, []);
   useEffect(() => {
     if (!canPayee) return;
@@ -4470,6 +4579,11 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
           {(c as Claim & { paid_at?: string | null }).paid_at && (
             <span className={`${chipSuccess} ${cl.chipGap} erp-strong`}
               title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className={cl.chipIcon} />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
+          )}
+          {/* v1.194.0 - approval and payment are two facts: an approved claim
+              not yet paid says so, beside its approval */}
+          {c.status === "approved" && !c.paid_at && (
+            <span className={`${chipWarn} ${cl.chipGap}`} title={L("Approved - the payment has not been released yet", "Diluluskan - bayaran belum dilepaskan")}>{L("Payment due", "Bayaran perlu dibuat")}</span>
           )}
         </p>
         {/* v1.4.253: date on the left, real buttons in the standard wrapping
@@ -4712,30 +4826,79 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
   const monthApproved = monthScope.filter((c) => c.status === "approved");
   const monthPaid = monthApproved.filter((c) => c.paid_at);
   const monthRejected = monthScope.filter((c) => c.status === "rejected");
-  const scopeList = (k: string) => { setClaimF(claimF === k ? "" : k); };
+  /* v1.194.0 - a figure scopes the records and opens the tab that holds
+     them: a decider's pending claims are under Approvals, the rest of a
+     decider's records are its approval history, everyone else's are theirs */
+  const showApprovals = canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role);
+  const recordsTab: ClaimsView = canDecide ? "approvals" : "mine";
+  const scopeList = (k: string) => {
+    setClaimF(claimF === k ? "" : k);
+    setView(k === "pending" && showApprovals ? "approvals" : recordsTab);
+  };
+  const openClaims = (v: ClaimsView) => { setView(v); window.scrollTo({ top: 0 }); };
+  /* the search over a claim list: number, person, purpose or category */
+  const qNeedle = claimQ.trim().toLowerCase();
+  const matchQ = (c: Claim) => !qNeedle || [claimNoOf(c), c.claimant ?? "", c.claimant_full ?? "", c.description ?? "", catLabel(c.category)].some((t) => t.toLowerCase().includes(qNeedle));
+  const mineOnly = claims.filter((c) => c.user_id === userId);
+  const claimMonths = [...new Set([mytToday().slice(0, 7), ...claims.map((c) => (c.claim_date ?? "").slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m))])].sort().reverse();
+  const viewClaim = (c: OvClaim) => {
+    setExpanded(c.id);
+    setView(c.status === "pending" && showApprovals && (canDecide || c.user_id !== userId) ? "approvals" : c.user_id === userId ? "mine" : recordsTab);
+    window.scrollTo({ top: 0 });
+  };
+  const searchBox = (
+    <div className={cov.search}>
+      <input className={inputClassSm} value={claimQ} onChange={(e) => setClaimQ(e.target.value)}
+        placeholder={L("Search claim no., staff, purpose or category", "Cari no. tuntutan, kakitangan, tujuan atau kategori")} aria-label={L("Search claims", "Cari tuntutan")} />
+      {claimF && <button type="button" className={btnSm} onClick={() => setClaimF("")}>{L(`Filter: ${statusLabel(claimF)} ✕`, `Tapis: ${statusLabel(claimF)} ✕`)}</button>}
+    </div>
+  );
 
   return (
     <TabPage>
       {toastNode}
       {stepUpNode}
       {confirmNode}
-      <TabZone label={L("This month", "Bulan ini")}>
-      {/* v1.172.1 (Interface System V3): the screen opens with what a member
-          of staff came for - a pill that jumps to the form - and returns
-          them to their list after a submit (revealAnchor below). */}
-      <div className={rowHead}>
-        <p className="erp-heading">{L("Claims", "Tuntutan")}</p>
-        <a href="#claim-form" className={btnSmPrimary}>{L("Claim form", "Borang tuntutan")}</a>
-      </div>
-      <SummaryStrip cols={4} ariaLabel={L("Claims this month", "Tuntutan bulan ini")}>
-        <SummaryStat label={L("Pending", "Menunggu")} value={monthPending.length} hint={fmtRM(sumCents(monthPending))} tone={monthPending.length > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => scopeList("pending")} active={claimF === "pending"} title={L("Show only pending claims", "Tunjuk tuntutan menunggu sahaja")} />
-        <SummaryStat label={L("Approved", "Diluluskan")} value={fmtRM(sumCents(monthApproved))} hint={`${monthApproved.length} ${L("claims", "tuntutan")}`} tone="success" busy={!loaded} onClick={() => scopeList("approved")} active={claimF === "approved"} title={L("Show only approved claims", "Tunjuk tuntutan diluluskan sahaja")} />
-        <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(sumCents(monthPaid))} hint={`${monthPaid.length} ${L("claims", "tuntutan")}`} tone="brand" busy={!loaded} onClick={() => scopeList("paid")} active={claimF === "paid"} title={L("Show only paid claims", "Tunjuk tuntutan dibayar sahaja")} />
-        <SummaryStat label={L("Rejected", "Ditolak")} value={monthRejected.length} hint={fmtRM(sumCents(monthRejected))} tone={monthRejected.length > 0 ? "danger" : "neutral"} busy={!loaded} onClick={() => scopeList("rejected")} active={claimF === "rejected"} title={L("Show only rejected claims", "Tunjuk tuntutan ditolak sahaja")} />
-      </SummaryStrip>
-      </TabZone>
-      {(canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role)) && (
-        <TabZone label={L("Waiting on me", "Menunggu saya")}>
+      {/* v1.194.0 - the tab row, with the month and Submit claim at the right */}
+      <LineTabs value={view} onChange={(k) => openClaims(k)} label={L("Claims", "Tuntutan")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["submit", L("Submit Claim", "Hantar Tuntutan")],
+        ["mine", L("My Claims", "Tuntutan Saya")],
+        ...(showApprovals ? ([["approvals", L("Approvals", "Kelulusan")]] as const) : []),
+        ["reports", L("Reports & Payments", "Laporan & Bayaran")],
+      ] as readonly (readonly [ClaimsView, string])[]}
+        aside={
+          <TabAside>
+            <TabPeriod>{monthName(nowMytMonth)}</TabPeriod>
+            <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit claim", "Hantar tuntutan")}</TabAction>
+          </TabAside>
+        } />
+      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "overview"}>
+      {/* the month by claim date, each figure scoping the records (v1.88.0);
+          approval and payment are counted apart */}
+      <KpiRow label={L("Claims this month", "Tuntutan bulan ini")}>
+        <KpiTile icon="pending" tone="gold" label={L("Pending Approval", "Menunggu Kelulusan")} value={monthPending.length} busy={!loaded}
+          sub={L(`Total amount: ${fmtRM(sumCents(monthPending))}`, `Jumlah amaun: ${fmtRM(sumCents(monthPending))}`)}
+          onClick={() => scopeList("pending")} title={L("Show only pending claims", "Tunjuk tuntutan menunggu sahaja")} />
+        <KpiTile icon="success" tone="green" label={L("Approved (This Month)", "Diluluskan (Bulan Ini)")} value={monthApproved.length} busy={!loaded}
+          sub={L(`Total amount: ${fmtRM(sumCents(monthApproved))}`, `Jumlah amaun: ${fmtRM(sumCents(monthApproved))}`)}
+          onClick={() => scopeList("approved")} title={L("Show only approved claims", "Tunjuk tuntutan diluluskan sahaja")} />
+        <KpiTile icon="paid" tone="blue" label={L("Paid (This Month)", "Dibayar (Bulan Ini)")} value={monthPaid.length} busy={!loaded}
+          sub={L(`Total amount: ${fmtRM(sumCents(monthPaid))}`, `Jumlah amaun: ${fmtRM(sumCents(monthPaid))}`)}
+          bar={{ pct: sumCents(monthApproved) > 0 ? (sumCents(monthPaid) / sumCents(monthApproved)) * 100 : 0, tone: "blue" }}
+          onClick={() => scopeList("paid")} title={L("Show only paid claims", "Tunjuk tuntutan dibayar sahaja")} />
+        <KpiTile icon="error" tone="red" label={L("Rejected (This Month)", "Ditolak (Bulan Ini)")} value={monthRejected.length} busy={!loaded}
+          sub={L(`Total amount: ${fmtRM(sumCents(monthRejected))}`, `Jumlah amaun: ${fmtRM(sumCents(monthRejected))}`)}
+          onClick={() => scopeList("rejected")} title={L("Show only rejected claims", "Tunjuk tuntutan ditolak sahaja")} />
+      </KpiRow>
+      <ClaimsOverview scope={canDecide ? claims : mineOnly} mine={mineOnly} month={nowMytMonth} loaded={loaded} showStaff={canDecide}
+        waitingOnMe={showApprovals ? pending.filter((c) => canDecide || c.user_id !== userId).length : null}
+        noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
+        onView={viewClaim} onSubmit={() => openClaims("submit")} onApprovals={() => openClaims(showApprovals ? "approvals" : "mine")}
+        onMine={() => openClaims("mine")} onReports={() => openClaims("reports")} />
+      </section>
+      {showApprovals && (
+        <TabZone label={L("Waiting on me", "Menunggu saya")} className={view !== "approvals" ? cov.off : ""}>
         <div id="claims-pending" className={`${card} ${cl.anchor}`}>
           <p className="erp-heading">
             {L("Pending approvals", "Kelulusan menunggu")}
@@ -4753,7 +4916,7 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
         </TabZone>
       )}
 
-      <TabZone label={L("Submit", "Hantar")}>
+      <TabZone label={L("Submit", "Hantar")} className={view !== "submit" ? cov.off : ""}>
       <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
         <p className="erp-heading">
           {editingClaim
@@ -4944,7 +5107,24 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
       </div>
       </TabZone>
 
-      <TabZone label={L("The records", "Rekod")}>
+      {/* v1.194.0 - a decider's own claims, for My Claims (their records
+          card is the company's, under Approvals) */}
+      {canDecide && (
+        <TabZone label={L("My claims", "Tuntutan saya")} className={view !== "mine" ? cov.off : ""}>
+          <div className={card}>
+            <p className="erp-heading">{L("My claims", "Tuntutan saya")}</p>
+            {searchBox}
+            <div className={cl.list}>
+              {!loaded && <SkelRows rows={3} />}
+              {loaded && mineOnly.length === 0 && <p className="erp-text-sm erp-muted">{L("You have not claimed anything yet.", "Anda belum membuat sebarang tuntutan.")}</p>}
+              {mineOnly.filter(matchQ)
+                .filter((c) => !claimF || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
+                .map((c) => claimRow(c, false))}
+            </div>
+          </div>
+        </TabZone>
+      )}
+      <TabZone label={canDecide ? L("Approval history", "Sejarah kelulusan") : L("The records", "Rekod")} className={view !== recordsTab ? cov.off : ""}>
       <div id="claims-list" className={`${card} ${cl.anchor}`}>
         <p className="erp-heading">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
         {(() => {
@@ -4983,17 +5163,30 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
             </div>
           );
         })()}
+        {searchBox}
         <div className={cl.list}>
           {/* v1.77.0 — skeleton until the first fetch lands. */}
           {!loaded && <SkelRows rows={4} />}
           {loaded && (canDecide ? decided : mainList).length === 0 && <p className="erp-text-sm erp-muted">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
           {(canDecide ? decided : mainList)
+            .filter(matchQ)
             .filter((c) => !claimF
               || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
             .map((c) => claimRow(c, false))}
         </div>
       </div>
 
+      </TabZone>
+
+      {/* v1.194.0 - Reports & Payments: the month's report from the same list
+          (claims-overview.tsx), then HR's compilation, as it was */}
+      <TabZone label={L("Reports and payments", "Laporan dan bayaran")} className={view !== "reports" ? cov.off : ""}>
+      <ClaimsReports scope={canDecide ? claims : role === "hr_admin" ? claims : mineOnly} month={repMonth} months={claimMonths} onMonth={setRepMonth}
+        loaded={loaded} showStaff={canDecide || role === "hr_admin"}
+        noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
+        canSeeProof={(c) => c.user_id === userId || canDecide || role === "hr_admin"}
+        openProof={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}
+        onView={viewClaim} />
       {role === "hr_admin" && (
         <div className={card}>
           <p className="erp-heading">{L("Approved claims history — compilation", "Sejarah tuntutan diluluskan — kompilasi")}</p>

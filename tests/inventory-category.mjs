@@ -82,12 +82,14 @@ ok("...and choosing one is case-insensitive throughout",
   const cardAt = rp.indexOf('{L("Inventory — live status & stock"');
   const endAt = rp.indexOf("</tfoot>", cardAt);
   const card = rp.slice(cardAt, endAt);
-  const draws = (card.match(/\{visibleItems\.map\(/g) ?? []).length;
+  /* v1.193.0 - the two draw one page of the filtered list (pageItems) */
+  const draws = (card.match(/\{pageItems\.map\(/g) ?? []).length;
   const phone = card.indexOf("md:hidden");
   const table = card.indexOf("<table className=");
-  const firstDraw = card.indexOf("{visibleItems.map(");
+  const firstDraw = card.indexOf("{pageItems.map(");
   ok("the desk table and the phone list are the SAME filtered list",
      /const visibleItems = sortedItems\.filter\([\s\S]{0,700}?catOf\(it\)\.toLowerCase\(\) === invCat\.toLowerCase\(\)/.test(rp)
+     && /const pageItems = invPer > 0 \? visibleItems\.slice\(/.test(rp)
      && draws === 2 && phone > 0 && phone < firstDraw && firstDraw < table,
      `the CEO asked for the phone too; one list is how they cannot drift apart (draws ${draws})`);
 }
