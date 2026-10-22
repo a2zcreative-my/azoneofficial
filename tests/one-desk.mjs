@@ -241,13 +241,13 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      half each item is in, what the next action IS, and which single row may
      be acted on in place.
 
-     THE EVIDENCE RULE, which is the whole reason there is only one: a row
-     shows a title, a status and how long it has waited. That is enough to
-     TAKE an unassigned enquiry (nobody owns it; taking is not an approval and
-     is undone by reassigning). It is NOT enough to approve leave (the dates
-     and who covers the shift), a claim (the receipt), overtime (the pair) or
-     a punch (its context). Those rows link to the record where the evidence
-     is. If a future change adds an approve button here, this guard fails. */
+     THE EVIDENCE RULE: a row shows a title, a status and how long it has
+     waited. That is NOT enough to approve leave (the dates and who covers
+     the shift), a claim (the receipt), overtime (the pair) or a punch (its
+     context). Those rows link to the record where the evidence is. (Until
+     v1.183.0 the one exception was taking an unassigned enquiry; Enquiries
+     is retired and the desk now acts on NOTHING in place.) If a future
+     change adds an approve button here, this guard fails. */
   ok("the worker says which half of the desk each item is in",
      /kind: "decide" \| "do";/.test(deskSrc)
      && /next: string;/.test(deskSrc)
@@ -258,13 +258,10 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      && /bucket: "claims"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
      && /bucket: "ot"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
      && /bucket: "punches"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
-     && /bucket: "commission"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
      && /bucket: "news"[\s\S]{0,420}?kind: "do"/.test(deskSrc));
-  ok("only an UNCLAIMED, NEW enquiry may be acted on from the desk",
-     /takeable\?: true;/.test(deskSrc)
-     && /e\.status === "new" && !e\.assigned_to \? \{ takeable: true as const \} : \{\}/.test(deskSrc)
-     && (deskSrc.match(/takeable: true/g) ?? []).length === 1,
-     "a second takeable bucket would mean an action whose evidence is not on screen");
+  ok("no row is acted on from the desk (v1.183.0: the enquiry take left with Enquiries)",
+     !/takeable/.test(deskSrc.replace(/\/\*[\s\S]*?\*\//g, "")) && !/takeable/.test(card.replace(/\/\*[\s\S]*?\*\//g, "")),
+     "an action whose evidence is not on screen");
   ok("the queue draws two lists, and falls back by bucket when the payload is old",
      /L\("Needs your decision", "Perlu keputusan anda"\)/.test(card) && /L\("Needs attention", "Perlu perhatian"\)/.test(card)
      && /export const kindOf = \(i: DeskItem\): "decide" \| "do" =>/.test(card)
@@ -277,22 +274,10 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      /<span className=\{css\.title\}>\{i\.title\}<\/span>\s*<span className="erp-meta">\{i\.sub\}<\/span>\s*\{i\.next && <span className=\{css\.next\}>\{i\.next\}<\/span>\}/.test(card)
      && !/sub: "approve or reject"/.test(deskSrc),
      "the worker's sub says what it IS, next says what you do - never the action twice");
-  ok("the desk offers no approve or reject button of its own",
+  ok("the desk offers no approve, reject or take button of its own, and makes no write at all",
      !/(Approve|Luluskan|Reject|Tolak)</.test(card)
-     && (card.match(/method: "(?:POST|PATCH|PUT|DELETE)"/g) ?? []).length === 1,
-     "one call only: PATCH /enquiries/:id { assigned_to }");
-  ok("taking an enquiry is the enquiries panel's own call, not a second workflow",
-     /`\/enquiries\/\$\{enquiryId\}`, \{ method: "PATCH", body: JSON\.stringify\(\{ assigned_to: userId \}\) \}/.test(card)
-     && /assigned_to: userId/.test(read("components/portal/enquiries-panel.tsx")),
-     "the panel and the desk must take an enquiry the same way, or one of them is wrong");
-  ok("a successful take refreshes the counts and the records without a reload",
-     /applyVersions\(\{ enquiries: getVersion\("enquiries"\) \+ 1 \}\); refresh\(\);/.test(card),
-     "every subscriber - this queue, the Dashboard summary and the Enquiries tab - corrects itself");
-  ok("a refused take keeps the row and offers a retry, and cannot be double-submitted",
-     /if \(!userId \|\| busyId\) return;/.test(card)
-     && /disabled=\{busy\}/.test(card)
-     && /failed \? L\("Try again", "Cuba lagi"\)/.test(card)
-     && /setFailWhy\(r\.data\?\.error\?\.message/.test(card));
+     && (card.match(/method: "(?:POST|PATCH|PUT|DELETE)"/g) ?? []).length === 0,
+     "v1.183.0: the one PATCH it made (taking an enquiry) left with Enquiries");
   ok("nothing is one quiet line, not an empty box", /items\.length === 0[\s\S]{0,400}?Nothing is waiting on you/.test(card) && !/items\.length === 0[\s\S]{0,120}?className=\{card\}/.test(card));
   ok("overdue first, then oldest", /items\.sort\(\(a, b\) => Number\(b\.overdue\) - Number\(a\.overdue\) \|\| \(a\.since \?\? ""\)\.localeCompare/.test(deskSrc));
   ok("a missing table costs its bucket, not the desk", /if \(String\(e\)\.includes\("no such"\)\) missing\.push\(bucket\); else throw e;/.test(deskSrc));
@@ -335,7 +320,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      && /setShowNotifs\(\(v\) => \{\s*if \(v && unread\)/.test(shellSrc),
      "marking on open cleared the badge before a word had been read");
   ok("every notification kind has somewhere to go",
-     ["announcement", "enquiry", "ot", "attendance", "claim", "leave", "task", "watch"]
+     ["announcement", "ot", "attendance", "claim", "leave", "task", "watch"]
        .every((k) => new RegExp(`${k}: \\{ tab: "`).test(shellSrc)));
   ok("the Desk stop is a tab, so the header names what the person is looking at",
      /push\(\{ key: "Desk", tab: "Desk" \}\)/.test(read("lib/portal-tabs.ts"))

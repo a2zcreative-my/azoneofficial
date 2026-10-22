@@ -13,7 +13,7 @@
  *
  * An audit of every mutating call in the portal found seven such actions:
  * deleting a task, deciding somebody's leave (both the normal chain and the
- * CEO override), approving or rejecting overtime, removing a commission rule,
+ * CEO override), approving or rejecting overtime (the commission-rule check left at v1.183.0),
  * crediting a supplier return, recording a replacement, and deleting a file
  * from a staff member's document vault. Each was silent. Each is money, time
  * off, or a record somebody cannot get back.
@@ -240,8 +240,6 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
        Either way it speaks. */
     ["applying for leave", page, /showLeaveToast\(\s*\n?\s*(?:res\.queued \? L\("Kept — no signal"[^:]*: )?L\("Leave requested"/],
     /* v1.92.0 — targets save from one button, and say how many. */
-    ["saving the targets grid", page, /const saveTargets = async[\s\S]{0,1500}?showToast\(L\("Saved", "Disimpan"\), `\$\{list\.length\}/],
-    ["a targets save that partly failed says which", page, /showToast\(L\("Partly saved", "Disimpan sebahagian"\)/],
     ["no field on the targets grid saves itself on blur any more", page, !/void saveTarget\("user"|void saveTarget\("team"/.test(page) ? /./ : /(?!)/],
     /* v1.91.0 — the unscheduled-work card's editor on the roster. */
     ["updating a task from the roster rail", roster, /showToast\(status \? L\("Task completed", "Tugasan selesai"\) : L\("Task updated"/],
@@ -250,7 +248,6 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     ["a leave request with no date says so instead of doing nothing", page, /const apply = async[\s\S]{0,400}?if \(!start\) \{\s*\n?\s*showLeaveToast\(/],
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],
     ["an overtime decision", page, /showOtToast\(\s*\n?\s*decision === "approved"/],
-    ["removing a commission rule", page, /L\("Rule removed", "Peraturan dibuang"\)/],
     ["crediting a supplier return", panels, /invToast\(res\.ok \? L\("Credit recorded"/],
     ["recording a replacement", panels, /invToast\(res\.ok \? L\("Replacement recorded"/],
     ["deleting a staff document", dir, /L\("Document deleted", "Dokumen dipadam"\)/],

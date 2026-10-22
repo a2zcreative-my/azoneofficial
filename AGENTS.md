@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 22 October 2026, version **1.182.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 22 October 2026, version **1.184.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -63,8 +63,11 @@ owner asks for that change.**
 - Record, never decide: part payments do not mark an invoice paid; a month close locks nothing; a
   customer's acceptance changes no status; a probation decision does not change the employment status;
   a monthly invoice is never raised by a machine.
-- Retired and staying retired: Purchasing, Reconciliation, Ads Fund, the prospects pipeline. Do not
-  bring their screens back. P1.0b / P1.2+ routing work is not authorised.
+- Retired and staying retired: Purchasing, Reconciliation, Ads Fund, the prospects pipeline, and
+  (1.183.0, the owner, 22-10-2026) Commission, Enquiries, Sales Performance, Hankei's and Web Orders -
+  including commission in pay. Do not bring their screens back. Their worker routes and tables are
+  dormant, not deleted; the enquiry forms, `/api/v1/hankeis` and the ELFIA checkout still accept work
+  by the owner's choice. P1.0b / P1.2+ routing work is not authorised.
 
 **Database**
 - A migration only adds (`CREATE TABLE IF NOT EXISTS`, nullable `ALTER TABLE ... ADD COLUMN`), uses
@@ -91,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (143 at 1.182.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (137 at 1.184.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -109,7 +112,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | 1 Joins (1.181.13) | Sales: customer History, invoice Part payments | `/docs/part-payments`, `/docs/:id/payments`, `/customers/:id/timeline` | `invoice_payments` (0140) |
 | 2 Stock in (1.181.14) | Inventory: Receive stock | `/inventory/receipts`, `/inventory/:id/reorder` | `stock_receipts`, `stock_receipt_lines` (0141) |
 | 3 Books (1.181.15) | Accounting: Month end, Position, Audit trail; Inventory: Stock take | `/books/*`, `/stock-counts/*` | `period_closes`, `stock_counts`, `stock_count_lines` (0142) |
-| 4 Customers (1.181.16) | Sales: client File, monthly invoices; Enquiries: Make quotation; shared link: Accept | `/customers/crm`, `/customers/:id/file`, `/customers/recurring`, `/followups/*`, `/docs/:id/acceptance`, public `/api/v1/public/doc/:token/accept` | `customer_contacts`, `customer_tags`, `customer_followups`, `customer_terms`, `recurring_invoices`, `quotation_acceptances` (0143) |
+| 4 Customers (1.181.16) | Sales: client File, monthly invoices; Enquiries: Make quotation (retired with Enquiries, 1.183.0); shared link: Accept | `/customers/crm`, `/customers/:id/file`, `/customers/recurring`, `/followups/*`, `/docs/:id/acceptance`, public `/api/v1/public/doc/:token/accept` | `customer_contacts`, `customer_tags`, `customer_followups`, `customer_terms`, `recurring_invoices`, `quotation_acceptances` (0143) |
 | 5 People (1.181.17) | HR: Joining, leaving and letters; Leave: Team leave; Sales: approval limit | `/people/*`, `/quotes/approval*`, `/docs/:id/approve` | `leaving_checklists`, `probation_reviews`, `hr_letters`, `training_records`, `business_settings`, `quotation_approvals` (0144) |
 
 The Desk (`worker/src/desk.ts`, a pure read) lists follow-ups, monthly invoices, people steps and

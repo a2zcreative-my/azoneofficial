@@ -52,7 +52,7 @@ ok("globals.css imports the reset, then the V3 layer, then the frozen utilities 
    /^@import "\.\/erp-reset\.css";\n@import "\.\/erp-v3\.css";\n@import "\.\/legacy-utilities\.css";\n@layer properties, theme, base, components, utilities;/m.test(globals)
    && !/@import "tailwindcss"/.test(globals));
 const CLASSES = [
-  "erp-card", "erp-card-compact", "erp-card-inset", "erp-card-accent", "erp-stat", "erp-stat-value", "erp-stat-label",
+  "erp-card", "erp-card-inset", "erp-card-accent", "erp-stat", "erp-stat-value", "erp-stat-label",
   "erp-action-card", "erp-card-head", "erp-row", "erp-note", "erp-listbox", "erp-sheet", "erp-modal", "erp-menu", "erp-toast",
   "erp-zone", "erp-zone-label", "erp-field", "erp-field-row", "erp-label", "erp-help", "erp-error", "erp-input", "erp-input-sm",
   "erp-select", "erp-textarea", "erp-check", "erp-segmented", "erp-button-ghost", "erp-button-success", "erp-icon-button-ghost",
@@ -205,12 +205,17 @@ const toastRule = v3Body.match(/\.erp-toast \{([^}]*)\}/)?.[1] ?? "";
 ok("the toast is a card in the middle of the screen, never a band across it (max-width, wrapping text)", /max-width: min\(2\drem, calc\(100% - \drem\)\);/.test(toastRule) && /overflow-wrap: anywhere;/.test(toastRule) && /box-sizing: border-box;/.test(toastRule));
 /* The reason the rule exists must still be true - the hero keeps its own
    tokens (v1.170.0); nobody "fixes" the toast by flattening the hero. */
-ok("the shift hero still carries its own surface tokens (the toast rule does not take them away)", /\.erp-shift-hero \{[^}]*--card: rgba\(255, 255, 255, 0\.06\);[^}]*--card-foreground: #fff;/.test(stripComments(globals)));
+/* v1.184.0 - the hero is a CARD on the page's own tokens (the owner's
+   reference): it redefines none of them, so a toast rendered from inside it
+   can inherit nothing wrong, and the toast rule above stays as belt and braces. */
+ok("the shift hero is a card on the page's own tokens - it redefines none (so nothing inside it can inherit a navy surface)",
+   /\.erp-shift-hero \{[^}]*background: var\(--card\);[^}]*color: var\(--card-foreground\);/.test(stripComments(globals))
+   && !/\.erp-shift-hero \{[^}]*--card:/.test(stripComments(globals)));
 
 /* ---- 2. the vocabulary resolves to the system ------------------------- */
 const styles = read("lib/ui-styles.ts");
 const MAP = {
-  card: "erp-card", compactCard: "erp-card erp-card-compact", insetCard: "erp-card-inset", accentCard: "erp-card erp-card-accent",
+  card: "erp-card", insetCard: "erp-card-inset", accentCard: "erp-card erp-card-accent",
   tileCard: "erp-stat", modalCard: "erp-modal", sheetCard: "erp-sheet", toastCard: "erp-toast", menuCard: "erp-menu",
   inputClass: "erp-input", inputClassSm: "erp-input erp-input-sm", selectClass: "erp-input erp-select",
   textareaClass: "erp-input erp-textarea", selectClassSm: "erp-input erp-input-sm erp-select",
@@ -245,13 +250,12 @@ const MIGRATED = [
   "components/ui/empty-state.tsx",
   "components/portal/page-shared.tsx",
   "components/portal/dashboard.tsx",
-  "components/portal/web-orders-panel.tsx",
   "components/portal/finance-panels.tsx",
-  "components/portal/commission-panels.tsx",
   "components/portal/accounting-panel.tsx",
   "components/portal/attendance.tsx",
   "components/portal/role-panels.tsx",
-  "components/portal/hankeis-panel.tsx",
+  /* v1.183.0 - web-orders-panel, commission-panels and hankeis-panel
+     retired with their tabs */
 ];
 const RULES = [
   ["a hand-rolled text control (border-input outside the vocabulary)", /className=(?:"|\{`)[^"`]*\bborder-input\b/],

@@ -85,18 +85,8 @@ export const WATCHERS: readonly Watcher[] = [
       return results.map((r) => ({ ref: `stock:${r.id}`, title: `Low stock: ${r.name} (${r.sku}) — ${r.stock} left` }));
     },
   },
-  {
-    key: "order_stuck", label: "Paid web order not shipped", audience: ["ceo", "coo", "sales_marketing"],
-    thresholdLabel: "days", defaultThreshold: 3, tab: "Web Orders",
-    async check(env, t) {
-      const { results } = await env.DB.prepare(
-        `SELECT id, order_number, customer_name, COALESCE(paid_seen_at, store_updated_at, first_seen_at) AS since
-           FROM web_orders WHERE status = 'paid' AND COALESCE(paid_seen_at, store_updated_at, first_seen_at) <= datetime('now', ?1)
-          ORDER BY since ASC LIMIT 50`,
-      ).bind(`-${t} days`).all<{ id: number; order_number: string; customer_name: string | null; since: string }>();
-      return results.map((r) => ({ ref: `order:${r.id}`, title: `Order #${r.order_number} (${r.customer_name ?? "customer"}) paid ${t}+ days ago and not shipped` }));
-    },
-  },
+  /* v1.183.0 - "order_stuck" (a paid web order not shipped) retired with the
+     Web Orders tab: a finding must open a tab that exists. */
   {
     key: "claim_aging", label: "Claim undecided", audience: ["ceo"],
     thresholdLabel: "days", defaultThreshold: 7, tab: "Claims",

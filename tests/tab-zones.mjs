@@ -40,7 +40,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const page = read("app/portal/page.tsx");
 const shared = read("components/portal/page-shared.tsx");
 const styles = read("lib/ui-styles.ts");
-const commission = read("components/portal/commission.tsx");
+/* v1.183.0 - commission.tsx retired with the Commission tab */
 const trading = read("components/portal/trading-desk.tsx");
 const dash = read("components/portal/dashboard.tsx");
 const panels = read("components/portal/role-panels.tsx");
@@ -55,12 +55,14 @@ const tab = page.slice(a, b);
 ok("the Ecommerce block was found", a > 0 && b > a);
 
 /* 1. the order */
-const seq = ["<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<OpsMapCard", "<MoneyCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
+/* v1.183.0 - MoneyCard and the LeaderboardCard in the map's side column
+   left with the Commission tab */
+const seq = ["<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<OpsMapCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
 const pos = seq.map((s) => tab.indexOf(s));
 ok("every card is still on the tab", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
 ok("month summary, tracker, fulfilment, map, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
-ok("the connection is last, as v1.4.217 ordered", pos[6] === Math.max(...pos));
-ok("the leaderboard rides in the map's side column", /<OpsMapCard aside=\{<LeaderboardCard user=\{user\} compact \/>\} \/>/.test(tab));
+ok("the connection is last, as v1.4.217 ordered", pos[5] === Math.max(...pos));
+ok("the map's side column is empty: no commission leaderboard rides there", /<OpsMapCard \/>/.test(tab) && !/LeaderboardCard/.test(tab));
 const caps = ["This month", "The work", "The longer view", "Setup"];
 ok("the four zones are captioned", caps.every((c) => tab.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !tab.includes(`<ZoneLabel>{L("${c}"`)).join(","));
 ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
@@ -198,10 +200,10 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("...and it is a real tablist", /role="tablist"/.test(shared) && /role="tab" aria-selected=\{value === k\}/.test(shared));
   /* the two rows that had their own copy of this markup - the attendance card
      (v1.80.0) and MoneyCard - now use the component, so there is one style */
-  const handRolled = [["role-panels.tsx", panels], ["commission.tsx", commission], ["sales.tsx", sales], ["elfia-store-panel.tsx", elfia], ["trading-desk.tsx", trading]]
+  const handRolled = [["role-panels.tsx", panels], ["sales.tsx", sales], ["elfia-store-panel.tsx", elfia], ["trading-desk.tsx", trading]]
     .filter(([, src]) => /rounded-full px-3 py-1 text-xs font-medium"/.test(src) || /!bg-primary !text-primary-foreground/.test(src));
   ok("no card hand-rolls the tab pill any more", handRolled.length === 0, handRolled.map(([f]) => f).join(", "));
-  for (const [file, src] of [["role-panels.tsx", panels], ["commission.tsx", commission], ["sales.tsx", sales], ["trading-desk.tsx", trading]]) {
+  for (const [file, src] of [["role-panels.tsx", panels], ["sales.tsx", sales], ["trading-desk.tsx", trading]]) {
     if (src.includes("<SectionTabs")) ok(`${file} imports SectionTabs from page-shared`, /import \{[^}]*SectionTabs[^}]*\} from "@\/components\/portal\/page-shared"/.test(src));
   }
 }
@@ -222,7 +224,7 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("the Dashboard's queue is a summary card, above the metrics and the company",
     ordered(dash, ['<PanelTitle icon="time"', '<DeskSummary', 'L("My month"', '<TradingDesk', 'L("Around me"'])
     && !/<WatchersCard/.test(dash) && !/<DeskQueue/.test(dash));
-  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Commission"'));
+  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Accounting"'));
   /* v1.171.0 - the company's attendance today (donut + assignments, from the
      Dashboard) follows the records/monitor and precedes the decisions. */
   ok("Attendance records and decisions precede scheduling and setup",
@@ -243,18 +245,16 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
     return positions.every((p, i) => p >= 0 && (i === 0 || p > positions[i - 1]));
   };
   /* v1.172.0 - Reconciliation, Ads Fund and Purchasing are retired; their
-     order checks went with them. Accounting moved to its own file. */
+     order checks went with them. Accounting moved to its own file.
+     v1.183.0 - Commission and Sales Performance retired; likewise. */
   const accounting = read("components/portal/accounting-panel.tsx");
-  const funds = read("components/portal/commission-panels.tsx");
   const assets = read("components/portal/assets-panel.tsx");
   const hotels = read("components/portal/hotels-panel.tsx");
   const payroll = read("components/portal/payroll-panel.tsx");
   const leave = read("components/portal/leave.tsx");
   const tasks = read("components/portal/tasks.tsx");
   const announcements = read("components/portal/announcements.tsx");
-  const sp = read("components/portal/sales-performance-panel.tsx");
   ok("Accounting: balance before adjustment", ordered(accounting, ['L("Trial balance"', 'L("New journal entry"']));
-  ok("Commission: decisions, calculation, rates", ordered(funds, ['rows={entries}', 'value={draft.basis}', 'id="commission-rates"']));
   ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
   ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
   /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
@@ -268,7 +268,6 @@ ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROL
   ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.map((l)']));
   ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['{renderTasks(tasks.filter((t) => t.status !== "completed")', 'L("Create / assign a task"', '{progress}', '{renderTasks(tasks.filter((t) => t.status === "completed")']));
   ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
-  ok("Sales Performance: records and closing before scores", ordered(sp, ['id="sp-shipments"', 'id="sp-closing"', 'L("Per staff"', 'id="sp-funnel"', 'id="sp-trend"']));
   ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));
 }
 

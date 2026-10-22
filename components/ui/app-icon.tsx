@@ -39,7 +39,7 @@
 import {
   BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ChevronDown, ChevronRight, ClipboardList, Star,
   Clapperboard, CreditCard, Database, DoorOpen, Download, Eye, FileText, Flame,
-  Folder, Footprints, Gem, Hourglass, Lightbulb, Link2, Lock, MapPin, Paperclip,
+  Folder, Footprints, Gem, Hourglass, Info, Lightbulb, Link2, Lock, MapPin, Paperclip,
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
@@ -54,6 +54,7 @@ export const APP_ICON = {
   success: CircleCheck,
   error: CircleX,
   pending: Hourglass,
+  info: Info, // v1.184.0 - a hint beside a card title (the Dashboard's Leave Application card)
   blocked: Ban,
   celebrate: PartyPopper,
   /* actions */

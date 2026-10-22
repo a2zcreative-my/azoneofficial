@@ -101,15 +101,13 @@ const BODY = {
   "On Shift": ["components/portal/dashboard.tsx"],
   "Ecommerce": [],
   "Sales": ["components/portal/sales.tsx"],
-  "Enquiries": ["components/portal/enquiries-panel.tsx"],
-  "Sales Performance": ["components/portal/sales-performance-panel.tsx"],
-  "Hankeis": ["components/portal/hankeis-panel.tsx"],
+  /* v1.183.0 - Enquiries, Sales Performance, Hankeis, Web Orders and
+     Commission retired with their panels */
   "Inventory": ["components/portal/role-panels.tsx#InventoryPanel"],
   "Assets": ["components/portal/assets-panel.tsx"],
   "Hotels": ["components/portal/hotels-panel.tsx#HotelsPanel"],
   "Threads": ["components/portal/threads-panel.tsx#ThreadsPanel"],
   "ELFIA Store": ["components/portal/elfia-store-panel.tsx#ElfiaStorePanel"],
-  "Web Orders": ["components/portal/web-orders-panel.tsx"],
   "ELFIA Traffic": ["components/portal/elfia-traffic-panel.tsx"],
   "HR": ["components/portal/role-panels.tsx#HrPanel"],
   "Attendance": [],
@@ -120,7 +118,6 @@ const BODY = {
   "Claims": ["components/portal/role-panels.tsx#ClaimsPanel"],
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
   "Finance": ["components/portal/role-panels.tsx#ExpensesPanel", "components/portal/finance-panels.tsx#CashFlowPanel"],
-  "Commission": ["components/portal/commission-panels.tsx#CommissionPanel"],
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
@@ -156,21 +153,21 @@ for (const tab of allTabs) {
 }
 
 /* ---- 4. the summary tier ---- */
-const SUMMARY = ["Sales", "Enquiries", "Sales Performance", "Hankeis", "Inventory", "Assets", "Hotels", "Web Orders", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Commission", "Accounting", "Stokis", "Content"];
+const SUMMARY = ["Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
 for (const tab of SUMMARY) {
   const body = bodyOf(tab);
   ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
 }
-const enq = read("components/portal/enquiries-panel.tsx");
-ok("a summary figure is a door: Enquiries' figures set the filter they count", /<SummaryStat label=\{L\("Waiting", "Menunggu"\)\}[^\n]*onClick=\{\(\) => setFilter\("new"\)\} active=\{filter === "new"\}/.test(enq));
+/* v1.183.0 - the Enquiries "figure is a door" check left with the panel;
+   Claims below carries the same rule */
 const claims = componentOf(read("components/portal/role-panels.tsx"), "ClaimsPanel");
 ok("Claims' figures scope the list, by claim date, this month", /const monthScope = \(canDecide \? claims : claims\.filter\(\(c\) => c\.user_id === userId\)\)\.filter\(\(c\) => \(c\.claim_date \?\? ""\)\.slice\(0, 7\) === nowMytMonth\);/.test(claims) && /onClick=\{\(\) => scopeList\("pending"\)\}/.test(claims));
 const tasks = read("components/portal/tasks.tsx");
 ok("Tasks' overdue figure uses the list's own rule (deadline before today, not completed)", /const overdueCount = openTasks\.filter\(\(t\) => !!t\.deadline && t\.deadline < todayISO\)\.length;/.test(tasks));
-ok("a figure that is not known yet is busy, never 0", /busy=\{!loaded\}/.test(tasks) && /busy=\{view\.loading\}/.test(enq));
+ok("a figure that is not known yet is busy, never 0", /busy=\{!loaded\}/.test(tasks));
 
 /* ---- 5. pill rows, not hand-rolled ---- */
-for (const [file, src] of [["leave.tsx", read("components/portal/leave.tsx")], ["threads-panel.tsx", read("components/portal/threads-panel.tsx")], ["companies-panel.tsx", read("components/portal/companies-panel.tsx")], ["hankeis-panel.tsx", read("components/portal/hankeis-panel.tsx")]]) {
+for (const [file, src] of [["leave.tsx", read("components/portal/leave.tsx")], ["threads-panel.tsx", read("components/portal/threads-panel.tsx")], ["companies-panel.tsx", read("components/portal/companies-panel.tsx")]]) {
   ok(`${file} switches with the shared pill (tabPill / tabPillOn), not a hand-rolled one`, /tabPillOn : tabPill/.test(src) && !/bg-primary text-primary-foreground rounded-full px-3 py-1/.test(src));
 }
 ok("Leave's chooser still toggles off (v1.92.0) and wears the shared pill", /className=\{mgmt === "company" \? tabPillOn : tabPill\}\s*onClick=\{\(\) => setMgmt\(mgmt === "company" \? "" : "company"\)\}/.test(read("components/portal/leave.tsx")));
@@ -183,9 +180,11 @@ ok("the Dashboard's figures come before its records (the month card before Aroun
 /* v1.175.0 - one zone carries an id (#one-desk, the phone bar's Desk stop
    reveals it), so the shape is "a section, optionally identified, on the
    shared tight stack". */
-ok("the Dashboard's zones are the shared tight stack", (dash.match(/<section (?:id="[^"]+" )?className="erp-stack-tight">/g) ?? []).length >= 4);
+/* v1.184.0 - each zone also carries data-zone="…", which the two-column
+   layout places by (dashboard.module.css); the class is unchanged */
+ok("the Dashboard's zones are the shared tight stack", (dash.match(/<section (?:id="[^"]+" )?className="erp-stack-tight" data-zone="[a-z]+">/g) ?? []).length >= 4);
 ok("the desk zone is addressable, so a nav stop can reveal it without a second inbox",
-   /<section id="one-desk" className="erp-stack-tight">/.test(dash));
+   /<section id="one-desk" className="erp-stack-tight" data-zone="desk">/.test(dash));
 
 /* ---- the page ---- */
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));
@@ -206,7 +205,7 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
    zones and stacks are shrinkable, the Ecommerce root is a TabPage, and the
    phone shell fills the screen. */
 {
-  const modules = ["app/portal/portal.module.css", "components/layout/app-shell.module.css", "components/portal/dashboard.module.css", "components/portal/attendance.module.css", "components/portal/claims.module.css", "components/portal/web-orders-panel.module.css", "components/portal/portal-skeleton.module.css", "components/ui/data-table.module.css", "components/ui/skeleton.module.css", "components/staff/responsibilities.module.css"];
+  const modules = ["app/portal/portal.module.css", "components/layout/app-shell.module.css", "components/portal/dashboard.module.css", "components/portal/attendance.module.css", "components/portal/claims.module.css", "components/portal/portal-skeleton.module.css", "components/ui/data-table.module.css", "components/ui/skeleton.module.css", "components/staff/responsibilities.module.css"];
   for (const m of modules) {
     const src = read(m).replace(/\/\*[\s\S]*?\*\//g, "");
     const blocks = [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, , body]) => /display:\s*grid/.test(body));

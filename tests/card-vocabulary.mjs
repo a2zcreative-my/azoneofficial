@@ -67,7 +67,7 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 
 /* ---- 1. the vocabulary exists and is documented as one ---------------- */
 const styles = read("lib/ui-styles.ts");
-const NAMES = ["card", "compactCard", "insetCard", "accentCard", "tileCard", "modalCard", "sheetCard", "toastCard"];
+const NAMES = ["card", "insetCard", "accentCard", "tileCard", "modalCard", "sheetCard", "toastCard"];
 for (const n of NAMES) {
   ok(`${n} is exported from lib/ui-styles.ts`, new RegExp(`export const ${n}\\s*=`).test(styles));
 }
@@ -128,7 +128,7 @@ ok("the strip IS the house card",
    /\$\{card\} w-full/.test(body));
 /* The property: whatever the open state, the strip renders exactly one
    surface. A second `bg-card` inside it is the sibling mini-card returning. */
-const surfaces = (body.match(/bg-card|\$\{card\}|\$\{compactCard\}|\$\{insetCard\}/g) ?? []).length;
+const surfaces = (body.match(/bg-card|\$\{card\}|\$\{insetCard\}/g) ?? []).length;
 ok("opening an item list does not add a second card to the row",
    surfaces === 1, `${surfaces} card surfaces in one component`);
 ok("the items open inside the card, under a rule",

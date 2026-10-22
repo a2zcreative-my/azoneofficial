@@ -1,0 +1,58 @@
+/* v1.184.0 - the analog clock on the attendance card. Tokens only. */
+.clock {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.ring {
+  fill: var(--card);
+  stroke: var(--primary);
+  stroke-width: 6;
+}
+.face {
+  fill: var(--card);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.tick {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.tickMajor {
+  stroke: var(--muted-foreground);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.numeral {
+  fill: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+}
+.hour {
+  stroke: var(--primary);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.minute {
+  stroke: var(--primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.second {
+  stroke: var(--gold-solid);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+.pin {
+  fill: var(--gold-solid);
+  stroke: var(--card);
+  stroke-width: 2;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hour,
+  .minute {
+    transition: transform 400ms ease;
+  }
+}

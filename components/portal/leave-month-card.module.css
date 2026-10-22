@@ -1,0 +1,94 @@
+/* v1.184.0 - the month's leave applications on the Dashboard. Tokens only;
+   the card, chips and buttons are the shared named classes. */
+.title {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.info {
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  cursor: help;
+}
+.stale {
+  margin-left: 0.25rem;
+}
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+.list > li:last-child .row {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  .row:hover {
+    background: color-mix(in oklab, var(--muted) 50%, transparent);
+  }
+}
+.row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.lines {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.0625rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.name {
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reason {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.when {
+  font-size: var(--type-label-size);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.status {
+  flex: 0 0 auto;
+}
+.avatarSkel {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+}
+.lineSkel {
+  height: 0.875rem;
+  width: 60%;
+}
+.lineSkelShort {
+  height: 0.75rem;
+  width: 40%;
+}

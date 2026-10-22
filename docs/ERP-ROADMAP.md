@@ -54,6 +54,23 @@ outcome is opt-in (off until someone turns it on) and says so on screen.
 | Quotation approval limit | Off until the CEO sets it. When on, it gates Send PDF in Sales for quotations raised or revised after it was turned on; PDF printing is unchanged. |
 | Locations, batches, client portal, appraisals, statutory payslip lines, bank import, SST | Not in this programme. |
 
+### 22 October 2026 - five tabs retired (v1.183.0)
+
+The owner retired **Commission, Enquiries, Sales Performance, Hankei's and
+Web Orders** the v1.172.0 way: tabs, panels, role defaults, hints, icons,
+strings and their guard checks are gone from the portal; the worker routes
+and D1 tables stay dormant and untouched. His choices: the intakes that fed
+three of them keep running (the website and customer-account enquiry forms,
+Astra GPT's `/api/v1/hankeis`, the ELFIA shop checkout) - rows land in the
+database with no screen; and commission leaves pay as well as the portal
+(the payroll grid's Commission column and "Pull approved commission" are
+gone; a month already paid with commission keeps its figure). What this
+changes in the roadmap above: phase 4's **Enquiries → Make quotation**
+handoff is gone with Enquiries (a quotation still starts in Sales); the
+customer File still lists a client's enquiries and engagements as history,
+read by the same permissions. Phase 1's "commission ... change only when
+somebody marks it paid" is moot: nothing computes commission any more.
+
 ## Phases
 
 | Phase | Version | Status | What it adds |
@@ -161,7 +178,8 @@ Stock take - `inventory` permission:
 ## Phase 4 - Customers (v1.181.16)
 
 Sales → Customers → a client's row → **File** (dialog); a strip of monthly
-invoices due at the top of Sales → The work; Enquiries → **Make quotation**;
+invoices due at the top of Sales → The work; Enquiries → **Make quotation**
+(retired with the Enquiries tab, v1.183.0);
 an **Accept this quotation** card on the shared quotation page. Tables
 `customer_contacts`, `customer_tags`, `customer_followups`, `customer_terms`,
 `recurring_invoices`, `quotation_acceptances` (migration `0143_customer_joins`).

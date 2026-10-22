@@ -117,15 +117,15 @@ The CEO, 21-09-2026: *"All the tabs should responsive with PWA and also Web view
 | Desk | At a glance · Needs your decision · Needs attention · Your tasks · Setup (v1.176.0) | decisions (+ oldest waiting) / attention — each zone caption carries its own count, so no card repeats it (v1.176.1) | — |
 | Ecommerce | This month · The work · The longer view · Setup (v1.171.0, unchanged) | RevenueAndHoursCard | revenue card |
 | Sales | At a glance · The work · Customers (panel) · This month (map) · The longer view (2 up) | quotations / invoiced / paid / unpaid — each opens the work | The work, Customers |
-| Enquiries | At a glance · The inbox | waiting / overdue / answered / became business → filter | status filters |
-| Sales Performance | header · KPI summary · The evidence · The score · The longer view | six StatTiles | range pills |
-| Hankei's | header (screen pills) · Today · The money · The work / one zone per screen | StatTiles | screens |
+| ~~Enquiries~~ (retired v1.183.0) | At a glance · The inbox | waiting / overdue / answered / became business → filter | status filters |
+| ~~Sales Performance~~ (retired v1.183.0) | header · KPI summary · The evidence · The score · The longer view | six StatTiles | range pills |
+| ~~Hankei's~~ (retired v1.183.0) | header (screen pills) · Today · The money · The work / one zone per screen | StatTiles | screens |
 | Inventory | Stock now · Record · What moved · Setup (v1.119.0, on the shared classes) | status card | Record, What moved |
 | Assets | At a glance · The register · The editor | per status → filter, value | — |
 | Hotels | At a glance · The directory · The map | hotels / states / contacted / agreed / published → map mode | — |
 | Threads | Threads (Study \| Connection) · The study / The connection | — | section, topics |
 | ELFIA Store | The shop · Products · The shopfront · Settings (v1.122.0, on the shared classes) | shop figures | — |
-| Web Orders | At a glance · The orders | orders / value / to ship / shipped → filter | status pills |
+| ~~Web Orders~~ (retired v1.183.0) | At a glance · The orders | orders / value / to ship / shipped → filter | status pills |
 | ELFIA Traffic | The map · Accuracy and reach (2 up) | totals row | — |
 | HR | Reports · Administration · People | — | — |
 | Attendance | Today · Waiting on me (2 up) · The roster · Setup | company today (donut) | roster |
@@ -136,7 +136,7 @@ The CEO, 21-09-2026: *"All the tabs should responsive with PWA and also Web view
 | Claims | This month · Waiting on me · Submit · The records | pending / approved / paid / rejected → scope | claim type |
 | Payroll | The run · Setup | — | — |
 | Finance | This month (cash) · Record an expense · Waiting on me · Reporting · The records | CashFlow StatTiles | — |
-| Commission | This month · The decisions · The calculation · The rates | StatTiles | — |
+| ~~Commission~~ (retired v1.183.0) | This month · The decisions · The calculation · The rates | StatTiles | — |
 | Accounting | At a glance · The books · Adjustments | StatTiles | — |
 | Companies | Administration · The review / Staff setup | — | review \| setup |
 | Cards | The officers | — | — |

@@ -42,25 +42,13 @@ export function isOverdue(e: { status: string; created_at: string; replied_at?: 
   return hoursWaiting(e.created_at, now) > OVERDUE_HOURS;
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  general: "general", package_pricing: "package & pricing", live_commerce: "live commerce",
-  order_delivery: "order & delivery", collaboration: "collaboration",
-};
-
-/** A new enquiry is announced ONCE to everyone who can answer it - a push to
-    the phone with the Enquiries tab as its landing - and the live topic is
-    bumped so an open tab shows it without a refresh. Best-effort: the
-    enquiry itself is already saved when this runs. */
-export async function announceEnquiry(env: Env, id: number | null, name: string, category: string | null, source: "site" | "account"): Promise<void> {
-  try {
-    const roles = PERMS.enquiry_manage ?? [];
-    const { results } = await env.DB.prepare(
-      `SELECT id FROM users WHERE is_active = 1 AND role IN (${roles.map((_, i) => `?${i + 1}`).join(",")})`,
-    ).bind(...roles).all<{ id: number }>();
-    const cat = category ? CATEGORY_LABEL[category] ?? category : null;
-    const msg = `New customer enquiry${cat ? ` (${cat})` : ""}: ${name}${source === "site" ? " — from the website" : ""}`;
-    for (const u of results) await notify(env, u.id, "enquiry", msg, `enquiry:${id ?? ""}`);
-  } catch { /* best-effort */ }
+/** v1.112.0-v1.182.1 a new enquiry was announced ONCE to everyone who could
+    answer it, a push with the Enquiries tab as its landing. v1.183.0 - the
+    tab is retired and the intake kept (the owner's choice): the row is saved,
+    nobody is told, because a push that lands on no tab is noise. The live
+    topic is still bumped. The parameters stay so the two callers (the
+    website form and the customer account) are untouched. */
+export async function announceEnquiry(env: Env, _id: number | null, _name: string, _category: string | null, _source: "site" | "account"): Promise<void> {
   try { await bumpVersion(env, "enquiries"); } catch { /* best-effort */ }
 }
 

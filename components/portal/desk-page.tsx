@@ -97,11 +97,11 @@ export function DeskPage({ user, go }: {
       </TabZone>
 
       <TabZone label={withCount(L("Needs your decision", "Perlu keputusan anda"), known ? decide.length : null)}>
-        <DeskQueue go={go} userId={user.id} which="decide" bare />
+        <DeskQueue go={go} which="decide" bare />
       </TabZone>
 
       <TabZone label={withCount(L("Needs attention", "Perlu perhatian"), known ? attentionCount : null)}>
-        <DeskQueue go={go} userId={user.id} which="attention" bare />
+        <DeskQueue go={go} which="attention" bare />
         {/* what the company's rules currently find true, grouped by rule */}
         {exec && <WatchersCard role={user.role} go={go} section="findings" />}
       </TabZone>

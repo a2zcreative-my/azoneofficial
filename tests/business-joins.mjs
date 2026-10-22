@@ -214,10 +214,8 @@ const idx = read("worker/src/index.ts");
   ok("the Desk only reads them", !/(INSERT|UPDATE|DELETE)\s/.test(desk.slice(desk.indexOf('await guard("followups"'), desk.indexOf("news I have not acknowledged"))));
   /* the funnel */
   ok("the prospects pipeline stays retired: nothing here reads or writes prospects", !/prospects/.test(p4.slice(p4.indexOf("*/") + 2).replace(/\/\*[\s\S]*?\*\//g, "")) && !/\/pipeline/.test(staff.replace(/\/\*[\s\S]*?\*\//g, "")));
-  const enq = read("components/portal/enquiries-panel.tsx");
-  ok("an enquiry becomes a quotation through the existing handoff, only once it became business and only for whoever may open Sales",
-    /e\.status === "qualified" && onMakeQuotation &&/.test(enq) && /localStorage\.setItem\("azone-qt-prefill"/.test(enq)
-    && /onMakeQuotation=\{canOpen\("Sales"\) \?/.test(read("app/portal/page.tsx")));
+  /* v1.183.0 - Enquiries is retired, and with it the enquiry -> quotation
+     handoff; the Sales prefill below is still the shape a quotation starts in */
   ok("...and a prefill with no source behaves as before (a quotation, customer matched by name)",
     /const existing = customers\.find\([\s\S]{0,200}?\);\s*setDoc\(\(d\) => \(\{\s*\.\.\.d,\s*doc_type: "QT",/.test(sales));
   const m143 = has("worker/migrations/0143_customer_joins.sql") ? read("worker/migrations/0143_customer_joins.sql").replace(/^--.*$/gm, "") : "";

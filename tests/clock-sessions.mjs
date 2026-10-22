@@ -248,8 +248,8 @@ ok("the phone is told whether a clock-in is possible, and why not",
    unchanged; it is now expressed by what is OFFERED: on shift → Clock out;
    off shift with a shift left → Clock in; nothing left → neither, and the
    server's own `why_not` sentence says why. */
-ok("...and does not OFFER Clock in on that answer",
-   /\) : canClockIn \? \(/.test(dash)
+ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn, disabled, and the sentence says why)",
+   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash)
    && /const canClockIn = todayShift\?\.can_clock_in \?\? true;/.test(dash)
    && /const whyNoClockIn = todayShift\?\.why_not \?\? null;/.test(dash)
    && /\{whyNoClockIn \?\? L\("All shifts clocked/.test(dash)
@@ -274,15 +274,19 @@ ok("...and does not OFFER Clock in on that answer",
      /today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode)
      && !/shiftOnly \|\| today\.length \+ todayOt\.length/.test(dashCode),
      "one clean pair is already on the chip; more than one shift, or any OT, is not");
-  /* v1.176.2 - the Dashboard may LINK to the clock workflow, but it must not
-     execute that workflow. On Shift also stays put after a clock-in instead of
-     bouncing back to Dashboard. */
-  ok("Dashboard links into On Shift, and On Shift is the only punch surface",
-     /onClick=\{\(\) => go\("On Shift"\)\}/.test(dashCode)
-     && /const showOt = shiftOnly && otEligible/.test(dashCode)
-     && /\{shiftOnly && !openNow && canClockIn && !hasOut && \(/.test(dashCode)
+  /* v1.176.2 made the Dashboard a handoff into On Shift; v1.184.0 (the
+     owner, 22-10-2026, with his reference card) reversed that: ONE clock card
+     drawn on both pages, and both punch through the SAME punch() - Check In
+     is clock_in, Check Out is clock_out with the forgotten-punch arming, and
+     nothing bounces back to the Dashboard after a punch. There is still no
+     second punch path: one punch(), one punchOt(). */
+  ok("the Dashboard and On Shift share ONE clock card and ONE punch path",
+     !/go\("On Shift"\)/.test(dashCode)
+     && (dashCode.match(/void punch\("clock_in"\)/g) ?? []).length === 1
+     && (dashCode.match(/void punch\("clock_out", forgotArmed\)/g) ?? []).length === 1
+     && /const punch = async \(type: string, forgot = false\)/.test(dashCode)
      && !/go\("Dashboard"\)/.test(dashCode),
-     "the Dashboard summary is a handoff, not a second clock-in / clock-out card");
+     "the same card, the same rules, wherever the person clocks");
   /* v1.176.1 - the rule paragraph and the office-location strip are drawn on
      the page that OWNS the punch, not on both. The Dashboard keeps a summary
      line (the hours, and how many are left) and a link into On Shift. */
@@ -370,8 +374,8 @@ ok("the same eligibility as before: not executives, not part-timers",
    /Executive roles \(CEO\/COO\/CCO\) are not eligible for OT punches/.test(staff) && /meO\?\.employment_status === "part_time"/.test(staff));
 ok("OT out delivers straight to the approvers", /after the working schedule\)\.`,\s*\n\s*`ot:\$\{user\.id\}:\$\{todayO\}`/.test(staff));
 ok("the phone offers OT only after the schedule",
-   /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = shiftOnly && otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash),
-   "Dashboard links to On Shift; the OT controls render only where punches live");
+   /can_ot: !verdictT\.ok && !isOpen\(sessT\)/.test(staff) && /const showOt = otEligible && !openNow && \(\(todayShift\?\.can_ot \?\? false\)/.test(dash),
+   "the OT controls render on the clock card, wherever it is drawn (v1.184.0)");
 /* ---- v1.134.2 — a rest day worked is ONE decision, the CEO's ---------------
    CEO: "OT cant be editable? and cant be remove if it is not valid??? this
    one she work after working day which is supposed for me to decide either
@@ -452,13 +456,14 @@ ok("the punches endpoint ships today's shifts, every block",
 ok("the dashboard uses server session state, with the latest punch as legacy fallback",
    /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = todayShift\?\.entry\?\.clocked_in \?\? \(latestPunch === "clock_in"\);/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
-ok("On Shift offers Clock in whenever nothing is open AND a shift is left, while Dashboard links in",
-   /\{!shiftOnly \? \(/.test(dash) && /onClick=\{\(\) => go\("On Shift"\)\}/.test(dash)
-   && /\) : openNow \? \(/.test(dash) && /\) : canClockIn \? \(/.test(dash) && /Clock in · next shift/.test(dash)
-   && /\) : openNow \? \([\s\S]{0,400}?tr\("Clock out", lang\)/.test(dash),
-   "on Dashboard the action is a handoff; on On Shift the one action is Clock out");
-ok("the OT buttons are on On Shift, and disabled once the day's pair is done",
-   /const showOt = shiftOnly && otEligible/.test(dash)
+ok("Check In is offered only while nothing is open AND a shift is left; Check Out while a shift is open, or for the forgotten punch (v1.184.0)",
+   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash)
+   && /disabled=\{!!busy \|\| !\(openNow \|\| \(canClockIn && !hasOut\)\)\}/.test(dash)
+   && /Check In · next shift/.test(dash)
+   && /L\("Check Out", "Daftar Keluar"\)/.test(dash),
+   "the two buttons are always drawn; what applies is enabled, and the sentence under the tiles says why when nothing is");
+ok("the OT buttons are on the clock card, and disabled once the day's pair is done",
+   /const showOt = otEligible/.test(dash)
    && /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
 ok("the card names today's shifts - pattern, roster and live board - and says the rule",
    /Today's shifts: \$\{todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Syif hari ini/.test(dash) && /sent to the CEO as overtime/.test(dash));

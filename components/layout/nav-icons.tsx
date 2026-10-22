@@ -23,10 +23,10 @@
 
 import {
   AtSign, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
-  Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, ScanLine, Shirt,
-  LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree, Percent,
+  Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
+  LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck,
-  ShoppingCart, SquarePen, Square, Store, Target, Timer, TrendingDown, UserRound,
+  ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -51,9 +51,9 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Payroll: Wallet,
   Expenses: TrendingDown,
   Sales: FileText,
-  "Sales Performance": Target, // v1.155.0 - the accountability register: did they sell, and can they prove it
-  Hankeis: ScanLine, // v1.163.0 - the static QR a customer scans, and the receipt a human checks against the bank
-  "Web Orders": Globe, // v1.40.0 (AUDIT F6): was the sole tab without an icon — an anonymous square on the icon-only desktop rail. Globe is shared with admin's Website (different surface — the file's own sharing rule).
+  // v1.183.0 - Sales Performance (Target), Hankei's (ScanLine), Web Orders
+  // (Globe, still admin's Website) and Commission (Percent) retired, their
+  // glyphs with them. Enquiries below is admin's own tab and stays.
   "ELFIA Traffic": Map, // v1.43.0: the visitor map tab — Map is unused on every rail, and the tab IS a map.
   "ELFIA Store": Shirt, // v1.45.0: the store's catalogue — what ELFIA sells is wear, and Shirt is unused on every rail (Store is Stokis's).
   Inventory: Package,
@@ -81,7 +81,6 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   // ---- ERP modules (v1.18.0; consolidated v1.19.0; v1.172.0 - Reconciliation,
   //      Ads Fund and Purchasing retired, their glyphs with them) ----
   Finance: Banknote,
-  Commission: Percent,
   Accounting: ScrollText,
   Companies: Building2,
   // ---- misc surfaces ----

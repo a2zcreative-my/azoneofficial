@@ -204,10 +204,7 @@ const page = readPortalSource(root);
    CEO: *"Per-person targets (RM) should not listed the staff that in
    active!"* A target is for a month, so the list is who is employed in it. */
 {
-  const page = readPortalSource(root);
-  const i = page.indexOf("function TargetsCommissionCard(");
-  const targets = i < 0 ? "" : page.slice(i, i + 12000);
-  ok("the targets card sorts its people by the company comparator", /setStaff\(\[\.\.\.r\.data\.staff\]\.sort\(bySeniority\)\)/.test(targets));
+  /* v1.183.0 - the targets card (commission.tsx) retired with the Commission tab */
   const j = staff.indexOf('path === "/targets" && method === "GET"');
   const route = j < 0 ? "" : staff.slice(j, j + 3000);
   ok("the targets route lists the people employed in THAT month, not everyone ever active",

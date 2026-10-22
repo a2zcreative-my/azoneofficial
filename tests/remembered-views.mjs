@@ -181,7 +181,6 @@ const ok = (label, cond, why = "") => {
     "components/portal/hotels-panel.tsx": "/staff/hotels",
     "components/staff/staff-directory.tsx": "/staff/users",
     "components/portal/assets-panel.tsx": "/staff/assets",
-    "components/portal/web-orders-panel.tsx": "/staff/web-orders",
     "components/portal/elfia-traffic-panel.tsx": "/staff/web-traffic",
     "components/portal/verification-card.tsx": "/staff/attendance/verification",
   };

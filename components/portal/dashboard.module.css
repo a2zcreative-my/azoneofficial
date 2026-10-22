@@ -19,8 +19,16 @@
    (v1.174.1) and a zone keeps its own gate; a zone that renders nothing
    simply leaves the next one to take its place. The greeting is the first
    child and hidden here, the strip the second. */
+/* v1.184.0 - TWO COLUMNS THAT DO NOT WAIT FOR EACH OTHER. v1.182.0 alternated
+   the zones wide / narrow in one grid, so a tall narrow zone left a blank
+   beside it. Now "My day" (the clock card and the month's leave) is the
+   narrow column and spans every row of the two-column region, and the other
+   zones stack in the wide column in their own reading order. The first zone
+   of the business and sales orders (the company, the desk) keeps the full
+   width; the strip and the greeting always do. On Shift (data-single) is one
+   column: it is the clock, alone. */
 @media (min-width: 1200px) {
-  .page {
+  .page:not([data-single]) {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     column-gap: 1.5rem;
@@ -29,12 +37,25 @@
   .page > :where(:not(:last-child)) {
     margin-bottom: 1.5rem;
   }
-  .page > :nth-child(-n + 3) {
-    grid-column: 1 / -1;
-  }
-  .page > :nth-child(n + 4) {
+  .page > * {
     min-width: 0;
   }
+  .page:not([data-single]) > [data-zone] {
+    grid-column: 1;
+  }
+  .page:not([data-single]) > [data-zone="day"] {
+    grid-column: 2;
+    grid-row: span 4;
+  }
+  /* after the column rules: the same specificity, so source order decides */
+  .page:not([data-single]) > :not([data-zone]),
+  .page[data-lead="business"] > [data-zone="company"],
+  .page[data-lead="sales"] > [data-zone="desk"] {
+    grid-column: 1 / -1;
+  }
+}
+.zoneCompany:empty {
+  display: none;
 }
 .greeting {
   display: block;
@@ -102,7 +123,95 @@
   gap: 0.5rem;
 }
 .heroTitle {
-  color: #fff;
+  /* v1.184.0 - the hero is a card now; the title inherits the card's ink */
+  color: inherit;
+}
+/* v1.184.0 - THE CLOCK CARD: the clock centred over today's date, two
+   check buttons side by side, the two times under them as tiles. */
+.clockWrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 0 0.25rem;
+}
+.clockDate {
+  margin: 0;
+  font-size: var(--type-card-size);
+  font-weight: 600;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.clockActions {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+.checkIn,
+.checkOut {
+  justify-content: center;
+  font-weight: 600;
+  border-color: transparent;
+}
+.checkIn {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.checkOut {
+  background: var(--info-soft);
+  color: var(--info);
+}
+@media (hover: hover) {
+  .checkIn:not(:disabled):hover { background: color-mix(in srgb, var(--success) 22%, var(--success-soft)); }
+  .checkOut:not(:disabled):hover { background: color-mix(in srgb, var(--info) 22%, var(--info-soft)); }
+}
+.checkIn:disabled,
+.checkOut:disabled {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+.clockTiles {
+  margin-top: 0.625rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+.clockTile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0.625rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+  text-align: center;
+}
+.clockTileLabel {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.clockTileTime {
+  font-size: var(--type-kpi-md-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.tileIn { color: var(--success); }
+.tileOut { color: var(--primary); }
+.tileEmptyIn { color: var(--success); opacity: 0.6; }
+.tileEmptyOut { color: var(--danger); opacity: 0.6; }
+@media (min-width: 768px) {
+  .heroNarrow .clockActions,
+  .heroNarrow .clockTiles {
+    max-width: 28rem;
+    margin-inline: auto;
+  }
 }
 .heroWarn {
   margin-top: 0.5rem;

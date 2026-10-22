@@ -5,6 +5,8 @@
    at the top are new and the declarations are exported. */
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
+import { AnalogClock } from "@/components/portal/analog-clock"; // v1.184.0
+import { LeaveMonthCard } from "@/components/portal/leave-month-card"; // v1.184.0
 import { LocationHelp } from "@/components/portal/location-help";
 import { DeskSummary, splitDesk, useDeskData } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
@@ -1090,8 +1092,9 @@ export function Dashboard({
   const hasOtOut = todayOt.some((r) => r.type === "ot_out");
   /* OT is offered after the schedule (nothing open, nothing left to clock in
      for), to eligible staff, until the day's pair is complete. Kept visible
-     once an OT in exists so the OT out can never lose its button. */
-  const showOt = shiftOnly && otEligible && !openNow && ((todayShift?.can_ot ?? false) || (hasOtIn && !hasOtOut));
+     once an OT in exists so the OT out can never lose its button.
+     v1.184.0 - on the Dashboard too: the card punches everywhere now. */
+  const showOt = otEligible && !openNow && ((todayShift?.can_ot ?? false) || (hasOtIn && !hasOtOut));
 
   /* v1.15.0 — personal month stats from the punches already fetched.
      v1.133.0 — hours are the SUM OF THE DAY'S SHIFTS, paired in the order
@@ -1154,17 +1157,9 @@ export function Dashboard({
       : (canOpen ? canOpen("Sales") || canOpen("Ecommerce") : SALES_ROLES.includes(user.role)) ? "sales"
         : "shift";
 
-  const dashboardClockCta = openNow
-    ? L("Open On Shift to clock out", "Buka Syif Saya untuk daftar keluar")
-    : canClockIn
-      ? (shiftsToday > 0
-        ? L("Open On Shift for next shift", "Buka Syif Saya untuk syif seterusnya")
-        : L("Open On Shift to clock in", "Buka Syif Saya untuk daftar masuk"))
-      : L("Open On Shift", "Buka Syif Saya");
-
   /* Daily actions and pending work precede metrics and company reporting. */
   const zoneDay = (
-      <section className="erp-stack-tight">
+      <section className="erp-stack-tight" data-zone="day">
         <ZoneLabel>{L("My day", "Hari saya")}</ZoneLabel>
       {/* v1.115.0 — QUICK ACTIONS FIRST. The CEO, 05-09-2026, with the
           Dashboard on screen: *"Quick actions should be on the top so that
@@ -1173,29 +1168,25 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
+      {/* v1.184.0 — THE CLOCK CARD (the owner's reference, 22-10-2026): a
+          white card, the analog clock, today's date, Check In and Check Out
+          side by side, and the two times under them. Both the Dashboard and
+          On Shift draw it, and BOTH PUNCH: the owner reversed v1.176.2's
+          handoff ("Open On Shift to clock out") by his own choice - the
+          buttons here call the same punch() with the same shift, geofence
+          and approval rules; nothing about a punch changed, only where the
+          button is. The ONE status chip (v1.176.0) still states the current
+          state and its time; a button that does not apply is disabled, and
+          the sentence under the tiles says why when nothing is left. */}
       <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : lead === "shift" ? "" : css.heroCompact}`}>
-        {/* The Dashboard summarises attendance; On Shift names the punch page. */}
         <div className={css.heroHead}>
         <div className={css.heroTitleRow}>
-        <PanelTitle icon="time" className={css.heroTitle} tone="inherit">
+        <PanelTitle icon="time" className={css.heroTitle}>
           {shiftOnly ? L("On Shift", "Syif Saya") : L("Attendance", "Kehadiran")}
         </PanelTitle>
-        {/* v1.172.1 (Interface System V3): the state of the day, said once
-            as a chip a member of staff can read at arm's length - on shift
-            since when, clocked out, or not yet in. Drawn only once the
-            punches are KNOWN (v1.25.1). */}
         {attKnown && !attendanceError && (
-          /* v1.176.0 — THE ONE STATUS LINE. The owner, 22-09-2026: the same
-             fact was on screen three times — this chip, a disabled "Clocked
-             in ✓ 08:06" button, and the punch record underneath. This chip is
-             now the only place the CURRENT state and its time are stated; the
-             button below shows only the action that is available, and the
-             punch record appears only when it adds something this does not. */
           <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
             {openNow
-              /* v1.176.2 - on the Dashboard the title is neutral
-                 ("Attendance"), so the chip says the state and the time. On
-                 Shift already names the state, so its chip carries the time. */
               ? shiftOnly
                 ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
                 : L(`On shift · clocked in at ${openSince}`, `Sedang syif · daftar masuk ${openSince}`)
@@ -1205,17 +1196,8 @@ export function Dashboard({
           </span>
         )}
         </div>
-        {/* The page header and bottom bar still handle navigation globally; the
-            Dashboard CTA below is specifically the handoff into the clock
-            workflow, not a second punch surface. */}
         </div>
         {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
-        {/* v1.4.146: 2-up grid on phones — equal-width, thumb-friendly, no
-            ragged wrapping; the desktop keeps its inline row. v1.10.0: the
-            flip moved sm→md so the whole mobile shell (nav, hero, cards,
-            buttons) switches at ONE breakpoint. */}
-        {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
-            a green "Clock in" for someone who already clocked in. */}
         {attendanceError && (
           <div role="alert" className={css.heroAlert}>
             <span>{L("Attendance could not be refreshed. Check your connection and retry.", "Kehadiran tidak dapat dimuat semula. Semak sambungan dan cuba lagi.")}</span>
@@ -1224,110 +1206,99 @@ export function Dashboard({
             </button>
           </div>
         )}
+        <div className={css.clockWrap}>
+          <AnalogClock label={L("The time now, Malaysia", "Waktu sekarang, Malaysia")} />
+          <p className={css.clockDate}>{mytTodayLine(lang)}</p>
+        </div>
+        {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
+            a green "Check In" for someone who already clocked in. */}
         {!attKnown ? !attendanceError && (
-          <div
-            className={css.actionsSkel}
-            aria-busy="true"
-          >
-            {[0, 1, 2, 3].map((i) => (
+          <div className={css.clockActions} aria-busy="true">
+            {[0, 1].map((i) => (
               <Skel key={i} className={css.actionSkel} h={44} round="full" />
             ))}
           </div>
         ) : (
-          <div className={shiftOnly ? css.actionsShift : css.actions}>
-            {/* v1.172.1: one button height everywhere (the 44px contract) -
-                the On Shift tab used to grow its two buttons to 56px. */}
-            {/* v1.176.2 — DASHBOARD SUMMARISES, ON SHIFT PUNCHES. Dashboard
-                used to execute the same punch buttons as On Shift, which made
-                the workflow look duplicated. The Dashboard now links to the
-                clock home; On Shift keeps the real punch controls. */}
-            {!shiftOnly ? (
+          <>
+            <div className={css.clockActions}>
+              {/* Check In: only while there is a shift left to clock in for
+                  and nothing open (v1.133.2). Check Out: while a shift is open,
+                  or the forgotten-punch path (never clocked in, nothing out yet)
+                  that sends a clock-out to the CEO to approve (v1.76.0). */}
               <button
                 type="button"
-                className={btnHeroPrimary}
-                onClick={() => go("On Shift")}
-              >
-                <AppIcon name="time" />
-                {dashboardClockCta}
-              </button>
-            ) : openNow ? (
-              <button
-                type="button"
-                className={btnHeroPrimary}
-                disabled={!!busy}
-                onClick={() => void punch("clock_out", forgotArmed)}
-              >
-                {tr("Clock out", lang)}
-              </button>
-            ) : canClockIn ? (
-              <button
-                type="button"
-                className={btnHeroPrimary}
-                disabled={!!busy}
+                className={`${btnHero} ${css.checkIn}`}
+                disabled={!!busy || openNow || !canClockIn}
                 onClick={() => void punch("clock_in")}
               >
                 <AppIcon name="place" />
-                {shiftsToday > 0 ? L("Clock in · next shift", "Daftar masuk · syif seterusnya") : tr("Clock in", lang)}
+                {shiftsToday > 0 && !openNow && canClockIn ? L("Check In · next shift", "Daftar Masuk · syif seterusnya") : L("Check In", "Daftar Masuk")}
               </button>
-            ) : (
-              /* nothing left to clock: say so in words rather than offering a
-                 disabled button that restates the chip above it */
+              <button
+                type="button"
+                className={`${btnHero} ${css.checkOut}`}
+                disabled={!!busy || !(openNow || (canClockIn && !hasOut))}
+                onClick={() => void punch("clock_out", forgotArmed)}
+              >
+                <AppIcon name="offboard" />
+                {L("Check Out", "Daftar Keluar")}
+              </button>
+            </div>
+            <div className={css.clockTiles}>
+              <div className={css.clockTile}>
+                <span className={css.clockTileLabel}>{L("Check in at", "Daftar masuk pada")}</span>
+                <span className={`${css.clockTileTime} ${today.some((r) => r.type === "clock_in") ? css.tileIn : css.tileEmptyIn}`}>
+                  {today.some((r) => r.type === "clock_in") ? firstIn : "--:--"}
+                </span>
+              </div>
+              <div className={css.clockTile}>
+                <span className={css.clockTileLabel}>{L("Check out at", "Daftar keluar pada")}</span>
+                <span className={`${css.clockTileTime} ${hasOut ? css.tileOut : css.tileEmptyOut}`}>
+                  {hasOut ? lastOut : "--:--"}
+                </span>
+              </div>
+            </div>
+            {/* nothing left to clock: say so in words rather than leaving two
+                disabled buttons to explain themselves */}
+            {!openNow && !canClockIn && (
               <p className={css.shiftsNote} role="status">
                 {whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}
               </p>
             )}
-            {/* v1.176.0 — ON SHIFT'S RELEVANT ACTION, NOT EVERY ACTION. Clock in was
-                a full-width PRIMARY button that spent most of the day disabled
-                and restating the chip above it ("Clocked in ✓ 08:06"); Clock
-                out sat beside it saying "Clocked out ✓" after the fact. Now:
-                on shift → Clock out. Off shift with something left to clock →
-                Clock in. Nothing left to clock → neither, and the chip and the
-                scheduled-hours line say why. v1.176.2 keeps those buttons only
-                on the On Shift page. */}
-            {/* the forgotten-punch path: somebody who never clocked in still
-                needs a way to send a clock-out to the CEO to approve */}
-            {shiftOnly && !openNow && canClockIn && !hasOut && (
+            <div className={shiftOnly ? css.actionsShift : css.actions}>
               <button
                 type="button"
                 className={btnHero}
-                disabled={!!busy}
-                onClick={() => void punch("clock_out", forgotArmed)}
+                onClick={() => go("Leave")}
               >
-                {tr("Clock out", lang)}
+                {tr("Apply leave", lang)}
               </button>
-            )}
-            <button
-              type="button"
-              className={btnHero}
-              onClick={() => go("Leave")}
-            >
-              {tr("Apply leave", lang)}
-            </button>
-            {/* v1.159.9 - a quick action into a tab this account cannot see
-                bounced to the Dashboard it was pressed on; the strip's own
-                answer decides, so an unticked Sales tab hides the button. */}
-            {!shiftOnly && (canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
-              <button
-                type="button"
-                className={btnHero}
-                onClick={() => onCreateQuotation ? onCreateQuotation() : go("Sales")}
-              >
-                {tr("Create quotation", lang)}
-              </button>
-            )}
-            {showOt && (
-              <>
-                <button type="button" className={hasOtIn ? btnHero : btnHeroPrimary} disabled={!!busy || hasOtIn}
-                  onClick={() => void punchOt("ot_in")}>
-                  {hasOtIn ? "OT in ✓" : "OT in"}
+              {/* v1.159.9 - a quick action into a tab this account cannot see
+                  bounced to the Dashboard it was pressed on; the strip's own
+                  answer decides, so an unticked Sales tab hides the button. */}
+              {!shiftOnly && (canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
+                <button
+                  type="button"
+                  className={btnHero}
+                  onClick={() => onCreateQuotation ? onCreateQuotation() : go("Sales")}
+                >
+                  {tr("Create quotation", lang)}
                 </button>
-                <button type="button" className={btnHero} disabled={!!busy || !hasOtIn || hasOtOut}
-                  onClick={() => void punchOt("ot_out")}>
-                  {hasOtOut ? "OT out ✓" : "OT out"}
-                </button>
-              </>
-            )}
-          </div>
+              )}
+              {showOt && (
+                <>
+                  <button type="button" className={hasOtIn ? btnHero : btnHeroPrimary} disabled={!!busy || hasOtIn}
+                    onClick={() => void punchOt("ot_in")}>
+                    {hasOtIn ? "OT in ✓" : "OT in"}
+                  </button>
+                  <button type="button" className={btnHero} disabled={!!busy || !hasOtIn || hasOtOut}
+                    onClick={() => void punchOt("ot_out")}>
+                    {hasOtOut ? "OT out ✓" : "OT out"}
+                  </button>
+                </>
+              )}
+            </div>
+          </>
         )}
         {showOt && !hasOtOut && (
           <p className="erp-note erp-note-warning erp-mt-2">
@@ -1352,7 +1323,7 @@ export function Dashboard({
         {clockOutDue && (
           <p className="erp-note erp-note-warning erp-mt-2">
             <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
-            — {shiftOnly ? tr("tap Clock out before you leave.", lang) : L("open On Shift to clock out before you leave.", "buka Syif Saya untuk daftar keluar sebelum pulang.")}
+            — {L("tap Check Out before you leave.", "tekan Daftar Keluar sebelum pulang.")}
           </p>
         )}
         {/* v1.133.0 — the shifts this person is due to clock for today, from
@@ -1506,12 +1477,15 @@ export function Dashboard({
           </p>
         )}
       </div>
+      {/* v1.184.0 - this month's leave applications, under the clock (the
+          owner's reference). Not on On Shift: that page is the clock, alone. */}
+      {!shiftOnly && <LeaveMonthCard go={go} />}
 
       </section>
   );
 
   const zoneDesk = (
-      <section id="one-desk" className="erp-stack-tight">
+      <section id="one-desk" className="erp-stack-tight" data-zone="desk">
         <ZoneLabel>{L("Waiting on me", "Menunggu saya")}</ZoneLabel>
       {/* v1.106.0 (roadmap phase 04) — ONE DESK. Everything waiting on this
           person, from every module. One quiet line when there is nothing.
@@ -1528,7 +1502,7 @@ export function Dashboard({
   );
 
   const zoneMonth = (
-      <section className="erp-stack-tight">
+      <section className="erp-stack-tight" data-zone="month">
         <ZoneLabel>{L("My month", "Bulan saya")}</ZoneLabel>
       {/* v1.171.0 — ONE card for the month. The four-tile strip (today's
           clock-in, days present, hours, open tasks) said what the hero and
@@ -1546,16 +1520,18 @@ export function Dashboard({
   );
 
   const zoneCompany = (
-    <>
+    /* v1.184.0 - a named wrapper so the two-column layout can place the zone;
+       it collapses (:empty) for the roles whose desk returns null */
+    <div className={css.zoneCompany} data-zone="company">
       {/* v1.171.0 — THE COMPANY, one card (mode="pulse"). The Sales floor
           moved to Ecommerce, the attendance donut and today's assignments to
           Attendance, the bars with the floor. See trading-desk.tsx. */}
       <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
-    </>
+    </div>
   );
 
   const zoneAround = (
-      <section className="erp-stack-tight">
+      <section className="erp-stack-tight" data-zone="around">
         <ZoneLabel>{L("Around me", "Sekeliling saya")}</ZoneLabel>
       {/* v1.169.0: Tasks, leave and news are one work panel. The previous
           mobile checklist plus three desktop cards repeated the same records
@@ -1700,7 +1676,7 @@ export function Dashboard({
     day: zoneDay, desk: zoneDesk, month: zoneMonth, company: zoneCompany, around: zoneAround,
   };
   return (
-    <div className={css.page}>
+    <div className={css.page} data-lead={lead} data-single={shiftOnly ? "" : undefined}>
       {/* v1.15.0 — mobile Today greeting: date line + time-of-day hello, the
           top of the reference's phone screen. Phones only; the desktop header
           already greets. */}

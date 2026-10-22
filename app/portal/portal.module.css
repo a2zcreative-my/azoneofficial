@@ -406,38 +406,6 @@
 .coach {
   margin-bottom: 1rem;
 }
-.overview {
-  margin-top: 1.25rem;
-  border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-}
-.overviewSummary {
-  min-height: 2.75rem;
-  cursor: pointer;
-  padding-block: 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-}
-.overviewGrid {
-  display: grid;
-  /* v1.174.1: an explicit minmax(0, 1fr) track - an implicit auto track
-     grows to its widest child and takes the page past the phone with it */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  padding-bottom: 1rem;
-}
-.overviewCol {
-  min-width: 0;
-}
-.overviewCol > :where(:not(:last-child)) {
-  margin-bottom: 0.75rem;
-}
-@media (min-width: 1024px) {
-  .overviewGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 .rosterAnchor {
   scroll-margin-top: 4rem;
 }

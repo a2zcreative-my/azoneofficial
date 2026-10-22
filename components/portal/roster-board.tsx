@@ -177,16 +177,16 @@ function UnschedEdit({ draft, staff, busy, onChange, onSave, onDone, onDelete, o
     predicate can read both without caring which list a row came from. */
 interface LeaveSpan extends LeaveCoverage { user_id: number; name: string }
 
-/** v1.158.0 - a day of sales duty. A plan, never a claim: `evidence` is how
-    many rows the person put on the Sales Performance register that day, read
-    by the server, so the chip can say whether the planned day was worked. */
+/** v1.158.0 - a day of sales duty: a plan - the person, the hours, a target
+    and a focus. v1.183.0 - Sales Performance is retired, so the
+    row no longer carries or shows an evidence count; the server still sends
+    one and it is ignored. */
 interface SalesShift {
   id: number; user_id: number; user_name: string; shift_date: string;
   start_time: string; end_time: string; target_cents: number | null; focus: string | null;
-  evidence: number;
 }
-/* The roles that may hold sales duty - the same two the Sales Performance
-   register measures (worker MEASURED_ROLES; tests/roster-week.mjs compares). */
+/* The roles that may hold sales duty - the two selling roles (worker
+   MEASURED_ROLES; tests/roster-week.mjs compares). */
 const SALES_DUTY_ROLES: readonly string[] = ["sales_marketing", "live_host"];
 
 /** v1.171.0 - a company event in the week. The CEO, 20-09-2026: *"it is
@@ -257,7 +257,7 @@ function toHHMM(minsTotal: number): string {
    prefilled, in EDIT mode (no repeat/plan tooling), and Save changes
    PATCHes the one session. canManage alone (hr_admin) still schedules,
    drags, completes and cancels exactly as before. */
-export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false, onOpenRegister }: {
+export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false }: {
   canManage: boolean;
   canEdit?: boolean;
   /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task should be able
@@ -265,11 +265,6 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
      and super_admin. Unscheduling a block only takes the work off the day;
      this removes the task itself, which the server allows nobody else. */
   canDeleteTask?: boolean;
-  /* v1.159.9 (CEO: "check the sales all link to all the tabs") - a Sales-duty
-     note names the register three times and offered no way to it. The page
-     passes this only when the account has the Sales Performance tab; it
-     opens the register on that person and that day. */
-  onOpenRegister?: (staffId: number, day: string) => void;
 }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   /* v1.171.0 - deleting a task is the one thing on this board that cannot be
@@ -512,9 +507,7 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
   /* v1.158.0 - SALES DUTY. The same shape as the task dialog - one person,
      a day, a repeat rule, hours - because the CEO plans the two the same way
      ("based on the day/date that I pick and assigned"). Two things of its
-     own: a target in ringgit, and a focus line. No priority, no deliverables:
-     what was done on the day is read from the Sales Performance register,
-     not ticked off here. */
+     own: a target in ringgit, and a focus line. No priority, no deliverables. */
   const [salesOpen, setSalesOpen] = useState(false);
   const [sDraft, setSDraft] = useState({ user_id: "", shift_date: todayS, start_time: "10:00", end_time: "18:00", target: "", focus: "" });
   const [sRepeat, setSRepeat] = useState<"once" | "daily" | "days">("once");
@@ -1050,15 +1043,11 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
   const shiftMins = (sh: SalesShift) => spanMins(sh.start_time, sh.end_time);
   /* the chip is 90px wide: "RM 2,000.00" does not fit beside SALES, "RM2,000" does */
   const rmShort = (cents: number) => `RM${Math.round(cents / 100).toLocaleString("en-MY")}`;
-  const shiftCls = (sh: SalesShift) =>
-    sh.shift_date < todayS && sh.evidence === 0
-      ? "border-warning bg-warning-soft"
-      : "border-info bg-info-soft";
+  const shiftCls = (_sh: SalesShift) => "border-info bg-info-soft";
   const shiftTitle = (sh: SalesShift) =>
     `${L("Sales duty", "Tugas jualan")} · ${sh.start_time}–${sh.end_time} · ${sh.user_name}`
     + (sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : "")
-    + (sh.focus ? ` — ${sh.focus}` : "")
-    + (sh.shift_date <= todayS ? ` · ${sh.evidence === 0 ? L("no evidence logged", "tiada bukti direkod") : L(`${sh.evidence} on the register`, `${sh.evidence} dalam daftar`)}` : "");
+    + (sh.focus ? ` — ${sh.focus}` : "");
   const hardBlockIds = new Set(
     data.conflicts.filter((c) => !c.soft).flatMap((c) => c.task_block_ids ?? []));
   const softBlockIds = new Set(
@@ -1500,10 +1489,10 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                                       }}
                                       className={`block w-full rounded-md border px-1.5 py-1 text-left ${shiftCls(sh)} ${openShift === sh.id && noteAt ? "ring-gold ring-2" : ""}`}>
                                       <span className="block truncate text-[10px] leading-tight font-semibold">
-                                        {sh.shift_date < todayS && sh.evidence === 0 ? <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" /> : null}{L("SALES", "JUALAN")}{sh.target_cents != null ? ` · ${rmShort(sh.target_cents)}` : ""}
+                                        {L("SALES", "JUALAN")}{sh.target_cents != null ? ` · ${rmShort(sh.target_cents)}` : ""}
                                       </span>
                                       <span className="text-muted-foreground block truncate text-[9px] leading-tight tabular-nums">
-                                        {sh.start_time}–{sh.end_time}{sh.shift_date <= todayS ? ` · ${sh.evidence} ${L("logged", "direkod")}` : ""}
+                                        {sh.start_time}–{sh.end_time}
                                       </span>
                                     </button>
                                   ))}
@@ -1627,8 +1616,8 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                             <div className="flex items-start justify-between gap-2">
                               <p className="text-sm font-semibold">
                                 {L("Sales duty", "Tugas jualan")}
-                                <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${past && sh.evidence === 0 ? "bg-bear/30" : past ? "bg-bull/30" : "bg-white/15"}`}>
-                                  {!past ? L("planned", "dirancang") : sh.evidence === 0 ? L("no evidence", "tiada bukti") : L(`${sh.evidence} on the register`, `${sh.evidence} dalam daftar`)}
+                                <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium bg-white/15">
+                                  {!past ? L("planned", "dirancang") : L("past", "lepas")}
                                 </span>
                               </p>
                               <button type="button" className={iconBtnInverse} onClick={() => { setOpenShift(null); setNoteAt(null); }} aria-label="Close">✕</button>
@@ -1639,21 +1628,8 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                               {sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : ""}
                             </p>
                             {sh.focus && <p className="mt-1 text-xs text-white/70">{sh.focus}</p>}
-                            <p className="mt-1 text-[11px] text-white/70">
-                              {past
-                                ? L("What was done that day is read from the Sales Performance register — a planned day earns nothing by itself.",
-                                    "Apa yang dibuat pada hari itu dibaca daripada daftar Prestasi Jualan — hari yang dirancang tidak mendapat kredit dengan sendirinya.")
-                                : L("They log posts, engagements and outcomes on the Sales Performance tab as the day happens.",
-                                    "Mereka merekod hantaran, interaksi dan hasil di tab Prestasi Jualan sepanjang hari.")}
-                            </p>
-                            {(canManage || onOpenRegister) && (
+                            {canManage && (
                               <div className="mt-2 flex flex-wrap gap-2">
-                                {onOpenRegister && (
-                                  <button type="button" className={btnSmInverse}
-                                    onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>
-                                    {L("Open the register", "Buka daftar")}
-                                  </button>
-                                )}
                                 {canManage && (<>
                                 <button type="button" className={btnSmInverse}
                                   onClick={() => openEditShift(sh)}>
@@ -1989,10 +1965,10 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                       <span className="w-20 shrink-0 text-[11px] font-semibold tabular-nums">{sh.start_time}–{sh.end_time}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-medium">
-                          {sh.shift_date < todayS && sh.evidence === 0 ? <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" /> : null}{L("Sales duty", "Tugas jualan")}{sh.target_cents != null ? ` · ${fmtRM(sh.target_cents)}` : ""}
+                          {L("Sales duty", "Tugas jualan")}{sh.target_cents != null ? ` · ${fmtRM(sh.target_cents)}` : ""}
                         </span>
                         <span className="text-muted-foreground block truncate text-[10px]">
-                          {sh.user_name.split(" ").slice(0, 2).join(" ")}{sh.shift_date <= todayS ? ` · ${sh.evidence} ${L("logged", "direkod")}` : ""}{sh.focus ? ` · ${sh.focus}` : ""}
+                          {sh.user_name.split(" ").slice(0, 2).join(" ")}{sh.focus ? ` · ${sh.focus}` : ""}
                         </span>
                       </span>
                     </button>
@@ -2007,7 +1983,6 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
           {(() => {
             const sh = shifts.find((x) => x.id === openShift);
             if (!sh || noteAt) return null;
-            const past = sh.shift_date <= todayS;
             return (
               <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm ${shiftCls(sh)}`}>
                 <span className="min-w-0">
@@ -2018,17 +1993,9 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                     {sh.target_cents != null ? ` · ${L("target", "sasaran")} ${fmtRM(sh.target_cents)}` : ""}
                     {sh.focus ? ` · ${sh.focus}` : ""}
                   </span>
-                  {past && (
-                    <span className={`block text-xs font-medium ${sh.evidence === 0 ? "text-warning" : "text-success"}`}>
-                      {sh.evidence === 0
-                        ? L("Nothing was logged on the Sales Performance register that day.", "Tiada apa direkod dalam daftar Prestasi Jualan pada hari itu.")
-                        : L(`${sh.evidence} activities on the Sales Performance register that day.`, `${sh.evidence} aktiviti dalam daftar Prestasi Jualan pada hari itu.`)}
-                    </span>
-                  )}
                 </span>
-                {(canManage || onOpenRegister) && (
+                {canManage && (
                   <span className="erp-row-actions">
-                    {onOpenRegister && <button type="button" className={btnSm} onClick={() => onOpenRegister(sh.user_id, sh.shift_date)}>{L("Open the register", "Buka daftar")}</button>}
                     {canManage && <button type="button" className={btnSm} onClick={() => openEditShift(sh)}>{L("Edit", "Sunting")}</button>}
                     {canManage && <button type="button" className={btnSm} onClick={() => void removeShift(sh)}>{L("✕ Remove", "✕ Buang")}</button>}
                     <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setOpenShift(null)}>{L("Close", "Tutup")}</button>
@@ -2705,8 +2672,8 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
             <p className="text-muted-foreground mt-0.5 text-xs">
               {editingShift != null
                 ? L("Amend any detail of this one day — the person, the date, the hours, the target or the focus.", "Pinda mana-mana butiran hari ini — orang, tarikh, waktu, sasaran atau fokus.")
-                : L("A sales person, the days you pick, the hours, and a target if you want one. What they actually did that day is read from the Sales Performance register.",
-                    "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu. Apa yang benar-benar dibuat pada hari itu dibaca daripada daftar Prestasi Jualan.")}
+                : L("A sales person, the days you pick, the hours, and a target if you want one.",
+                    "Orang jualan, hari yang anda pilih, waktunya, dan sasaran jika mahu.")}
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
@@ -2851,8 +2818,8 @@ export function RosterBoard({ canManage, canEdit = false, canDeleteTask = false,
                 );
               })()}
               <p className="text-muted-foreground mt-1.5 text-[11px]">
-                {L("Flow: pick the person, the date and the hours (and a repeat if you want a run) → press Schedule. Each day lands on their row as a SALES chip; once the day has passed it shows what they logged on the Sales Performance register.",
-                   "Aliran: pilih orang, tarikh dan waktu (dan ulangan jika mahu satu siri) → tekan Jadualkan. Setiap hari muncul pada baris mereka sebagai cip JUALAN; selepas hari itu berlalu ia menunjukkan apa yang direkod dalam daftar Prestasi Jualan.")}
+                {L("Flow: pick the person, the date and the hours (and a repeat if you want a run) → press Schedule. Each day lands on their row as a SALES chip.",
+                   "Aliran: pilih orang, tarikh dan waktu (dan ulangan jika mahu satu siri) → tekan Jadualkan. Setiap hari muncul pada baris mereka sebagai cip JUALAN.")}
               </p>
             </div>
             )}

@@ -181,6 +181,13 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   }
   if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
     staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role, in_at: i < 6 ? `0${8 + (i % 2)}:${String(10 + i * 7).padStart(2, "0")}` : null, in_gps: i < 6 ? "inside" : null })) };
+  /* v1.184.0 - the Dashboard's Leave Application card */
+  if (p === "/staff/leave/month") data = { month: D.slice(0, 7), leave: [
+    { id: 12, user_id: staff[1]?.id ?? 2, name: staff[1]?.full_name ?? staff[1]?.name ?? "NUR NASUHA BINTI ZAINAL ABIDIN", photo_key: null, position: "Account Executive", type: "annual", start_date: D + "24", end_date: D + "26", days: 3, day_part: null, status: "pending", reason: "Dental surgery", created_at: D + "16 09:02:00" },
+    { id: 13, user_id: staff[2]?.id ?? 3, name: staff[2]?.full_name ?? staff[2]?.name ?? "Jonathan Ibrahim", photo_key: null, position: "Designer", type: "annual", start_date: D + "06", end_date: D + "06", days: 1, day_part: null, status: "approved", reason: "Personal leave", created_at: D + "01 10:00:00" },
+    { id: 14, user_id: staff[3]?.id ?? 4, name: staff[3]?.full_name ?? staff[3]?.name ?? "Thomas Goodman", photo_key: null, position: "Live host", type: "emergency", start_date: D + "09", end_date: D + "09", days: 1, day_part: null, status: "approved", reason: "Family emergency", created_at: D + "09 07:30:00" },
+    { id: 15, user_id: staff[4]?.id ?? 5, name: staff[4]?.full_name ?? staff[4]?.name ?? "Maisha Fonzales", photo_key: null, position: "Marketing", type: "medical", start_date: D + "14", end_date: D + "15", days: 2, day_part: null, status: "rejected", reason: null, created_at: D + "13 18:00:00" },
+  ] };
   if (p === "/staff/attendance/geofence") data = { configured: true, radius_m: 150, label: "Setia Tropika office", lat: 1.56, lng: 103.72 };
   if (p === "/staff/notifications") data = { notifications: [
     { id: 1, kind: "leave", message: "NUR NASUHA BINTI ZAINAL ABIDIN applied for annual leave, 24-09 to 26-09", is_read: 0, created_at: D + "16 01:02:00", ref: "leave:12" },

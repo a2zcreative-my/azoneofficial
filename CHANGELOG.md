@@ -10,6 +10,134 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.184.0] - 2026-10-22 - The clock card, and the month's leave applications
+
+The owner, 22-10-2026, with two reference screens: an attendance card with
+an analog clock, today's date, Check In / Check Out side by side and the
+two times under them, "for both Web and PWA"; and a Leave Application card
+listing the month's applications on the Dashboard. His two choices, asked
+first: the Dashboard card PUNCHES (reversing v1.176.2's handoff into On
+Shift), and EVERY staff member sees the whole company's applications for
+the month, reasons included.
+
+### Changed
+
+- **The attendance hero is a card** (`.erp-shift-hero` in `styles/globals.css`
+  now sits on the page's own card tokens in both themes and redefines
+  none; its navy surface and the chip / button overrides are gone). Inside:
+  the ONE status chip (unchanged), a live analog clock in Malaysian time
+  (`components/portal/analog-clock.tsx`, its own one-second tick, gold
+  seconds hand), today's date, **Check In** and **Check Out**, two tiles
+  (**Check in at** / **Check out at**, `--:--` until there is a time), then
+  Apply leave, Create quotation and the OT buttons, the shift line, the
+  location strip (On Shift) and the day's record as before. The Dashboard
+  and On Shift draw the same card; the PWA is the same tree.
+- **Both pages punch.** Check In calls the same `punch("clock_in")`, Check
+  Out the same `punch("clock_out", forgotArmed)` (the forgotten-punch path
+  included), OT in/out the same `punchOt`, with the same shift, geofence
+  and approval rules - nothing about a punch changed, only where the button
+  is. A button that does not apply is disabled; when nothing is left the
+  server's own `why_not` sentence says so under the tiles. "Open On Shift to
+  clock out" is gone; the clock-out reminder says "tap Check Out".
+- **Leave Application** (`components/portal/leave-month-card.tsx`), under
+  the clock in My day (not on On Shift): the month's applications - avatar,
+  name, "Reason : …" (the type when none was given), the dates, days and
+  type, and a status chip - each row opening the Leave tab. Live on the
+  `leave` topic. New read-only route **`GET /staff/leave/month[?month=YYYY-MM]`**
+  (`worker/src/staff.ts`): every staff member, every non-cancelled
+  application touching the month, reasons included - the owner's deliberate
+  exception to the roster's PDPA stance, named in the route's comment so it
+  is not widened by accident.
+- **Two columns that do not wait for each other** (≥1200px,
+  `dashboard.module.css`): My day is the narrow column spanning the
+  two-column region; the other zones stack in the wide column in their
+  reading order; the business order's company card and the sales order's
+  desk keep the full width; On Shift stays one column. Each zone section
+  carries `data-zone`; the zone map and its guard are untouched.
+- `AppIcon` gains `info`.
+
+### Guards
+
+`clock-sessions` (one card, one punch path, Check In / Check Out
+eligibility, OT on the card), `interface-v3` (the hero redefines no tokens),
+`tab-concept` (named grid tracks; the zones carry `data-zone`). 107 guards.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 137 warnings, worker `tsc` clean, all 107
+  guards, static build; Chromium at 1500px and 390px (Dashboard and On
+  Shift) against the fixture server (`/staff/leave/month` added).
+
+## [1.183.0] - 2026-10-22 - Five retirements: Commission, Enquiries, Sales Performance, Hankei's, Web Orders
+
+The owner, 22-10-2026: *"retiring Commission, Enquiries, Sales Performance,
+Hankei's, Web Orders"*. His three choices, asked before a line changed: the
+v1.172.0 way (portal gone, data and routes dormant); the intakes that fed
+three of them keep running; and Commission leaves pay as well as the portal.
+
+**Dependency audit** (every reference in the repository was read):
+
+| Category | What | Decision |
+| --- | --- | --- |
+| REMOVE | the five `ALL_TABS` entries, `TAB_ROLES`, `TAB_HINTS`, `TAB_ROUTE` slugs, `ENQUIRY_ROLES`; `lib/i18n.ts` labels; `nav-icons` glyphs (`Target`, `ScanLine`, `Percent`; `Globe` stays for admin's Website; `Enquiries: Inbox` stays for the admin surface); the three sidebar cuts; lazy-panel entries; the render blocks in `app/portal/page.tsx`; `components/portal/commission.tsx` (Leaderboard and Money cards, the targets card), `commission-panels.tsx`, `enquiries-panel.tsx`, `sales-performance-panel.tsx`, `hankeis-panel.tsx`, `web-orders-panel.tsx` + `.module.css`; the Desk's `commission` and `enquiries` buckets (worker and client) and the ONE inline action the desk had (taking an enquiry: `takeable`, `useTakeEnquiry`); the bell's `enquiry` / `commission` destinations and the worker's `PUSH_TAB` entries; the `order` search source (worker, palette, guard); the `order_stuck` watcher; the roster's "Open the register" door, `spPreset`, and every Sales-duty evidence chip, amber state and register sentence; the worker's `TAB_ACCESS_TABS` names; guards `tests/enquiries.mjs` and `tests/sales-performance.mjs` | removed |
+| REMOVE (pay) | the payroll grid's **Commission** column and **Pull approved commission** button; the help text's "+ commission"; the payslip summary line prints Commission only when the month has one | removed - no new month can carry a commission figure |
+| KEEP-DORMANT | worker routes `/staff/commission*`, `/staff/payroll/pull-commission`, `/staff/payroll/commission-base`, `/staff/leaderboard`, `/staff/targets`, `/staff/enquiries*` + `/api/v1/enquiries`, `/staff/sales-performance*`, `/staff/hankeis/*`, `/staff/web-orders*`; permissions `commission_*`, `enquiry_manage`, `sales_perf_*`, `hankeis_*`; tables `commission_entries`, `commission_rules`, `targets`, `enquiries`, `sp_*`, `hk_*`, `web_orders`; every migration; `commission_cents` on `payroll_entries` and in every net formula | untouched - nothing in the portal calls them, nothing is dropped, no migration |
+| KEEP-LIVE | the website and customer-account enquiry forms (`announceEnquiry` now only bumps the live topic - no push to a tab that is gone); Astra GPT's `/api/v1/hankeis` and the reservation-expiry tick; the ELFIA shop checkout and the store bridge; `tests/hankeis.mjs` (the worker rules it runs - a receipt or OCR result never verifies a payment - still guard that live surface) | by the owner's choice |
+| SHARED | the roster's **Sales duty** shift kind stays (person, hours, target, focus) without its evidence count; `ELFIA Traffic` still reads `/staff/web-orders` for its orders view; the customer File still lists a client's enquiries and engagements as history; the daily brief still counts yesterday's web orders as sales; `OpsMapCard` loses its `aside`; the `/admin` surface keeps its own Enquiries tab | kept, edited only where a link pointed at a tab that no longer exists |
+
+A saved tab-access override or per-person grant naming any of the five is
+ignored by the client and refused by the worker. `PUSH.bat [3c/7]` deletes
+the eleven retired files (and v1.182.1's two) on the next release.
+
+### Guards
+
+`one-desk` (the desk acts on nothing in place, makes no write), `tab-zones`
+(Commission / Sales Performance orders gone; the map's side column is
+empty), `tab-concept`, `interface-v3`, `tailwind-retired` (files pruned,
+`styles/legacy-utilities.css` down 157 classes, the budget only fell),
+`search-everything` (eight sources, no `order`), `watchers` (an aged claim
+is the second finding), `outbox`, `action-feedback`, `staff-order`,
+`remembered-views`, `web-order-tracking` (the courier-domain rule and the
+worker checks stand), `roster-week` (no evidence count, no register
+sentence), `business-joins` (the enquiry handoff check left), and
+`tests/lib/portal-source.mjs` (no `commission.tsx`). 107 guards.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 137 warnings (143 less the six the deleted
+  files carried), worker `tsc` clean, all 107 guards, static build;
+  Chromium at 1500px and 390px against the fixture server.
+
+## [1.182.1] - 2026-10-22 - The Dashboard ends at its zones
+
+The owner (22-10-2026): "remove this since it is not necessary - Calendar
+and team overview to be at Dashboard."
+
+### Removed
+
+- The **"Calendar and team overview"** fold under the Dashboard
+  (`app/portal/page.tsx`), with `components/portal/side-columns.tsx`
+  (the v1.14.0 side columns: mini calendar with the day's items, the rail
+  of counts) and `components/ui/mini-calendar.tsx`, which nothing else
+  used. The calendar lives in Attendance and Leave, the team's day in the
+  Attendance monitor, the counts in the figure tiles above the zones. Both
+  files are deleted from the repository; delete them from the working
+  folder too.
+- `compactCard` leaves `lib/ui-styles.ts` and `.erp-card-compact` leaves
+  `styles/erp-v3.css`: the side rails were the only surfaces that used
+  them, and `card-vocabulary` fails a name nothing uses. `interface-v3`
+  and `card-vocabulary` no longer list them.
+- `styles/legacy-utilities.css` pruned (68 classes the two files alone
+  carried) and `tests/legacy-utility-budget.json` rewritten by the
+  documented commands; the budget only fell. `lazy-panels` drops
+  side-columns from its first-paint list; `clickable-data` drops the two
+  rail-badge checks with the rail.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 143 warnings, worker `tsc` clean, all 109
+  guards, static build; Chromium at 1500px and 390px.
+
 ## [1.182.0] - 2026-10-22 - A light workspace: the owner's dashboard
 
 The owner's reference screen (22-10-2026): white cards on a soft grey ground,

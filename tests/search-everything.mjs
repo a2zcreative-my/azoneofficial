@@ -65,7 +65,6 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
     staff: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     client: (r) => can(r, "revenue_view"),
     document: (r) => can(r, "sales") || can(r, "exec_view"),
-    order: (r) => can(r, "sales") || can(r, "inventory") || can(r, "exec_view"),
     stock: (r) => can(r, "inventory"),
     asset: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     task: () => true,
@@ -94,7 +93,7 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
   ok("QT-2026-0451 is not a phone - mostly letters and dashes", phoneDigits("QT-2026-0451") === null || phoneDigits("QT-2026-0451") === "20260451");
   ok("every LIKE in the worker uses ESCAPE", (src.match(/LIKE \?\d/g) ?? []).every(() => true) && !/LIKE \?1(?! ESCAPE)/.test(src.replace(/LIKE \?2/g, "")),
      "an unescaped LIKE makes % in the query match everything");
-  ok("phone columns are compared as digits", /const DIGITS = \(col: string\) =>/.test(src) && (src.match(/DIGITS\("/g) ?? []).length >= 5);
+  ok("phone columns are compared as digits", /const DIGITS = \(col: string\) =>/.test(src) && (src.match(/DIGITS\("/g) ?? []).length >= 3); // v1.183.0: the order source (two uses) retired
   ok("the query's digits are what they are compared to", /`%\$\{digits\}%`/.test(src));
   ok("each source is capped", /LIMIT \$\{PER_SOURCE\}/.test(src) && /const PER_SOURCE = \d+;/.test(src));
   ok("one round-trip", /env\.DB\.batch<Row>\(stmts\.map\(\(s\) => s\.stmt\)\)/.test(src));

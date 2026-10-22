@@ -97,7 +97,6 @@ function fakeEnv(fixture) {
     if (/UPDATE watcher_open SET last_seen/.test(sql)) return {};
     if (/DELETE FROM watcher_open WHERE ref/.test(sql)) { open.delete(binds[0]); return {}; }
     if (/FROM inventory_items/.test(sql)) return { all: (fixture.stock ?? []).filter((r) => r.stock <= binds[0]) };
-    if (/FROM web_orders WHERE status = 'paid'/.test(sql)) return { all: fixture.orders ?? [] };
     if (/FROM claims c JOIN users u/.test(sql)) return { all: fixture.claims ?? [] };
     if (/FROM hotels/.test(sql)) return { all: fixture.hotels ?? [] };
     if (/FROM assets/.test(sql)) return { all: fixture.assets ?? [] };
@@ -132,7 +131,9 @@ function fakeEnv(fixture) {
   const fixture = {
     users: [{ id: 1, role: "ceo" }, { id: 2, role: "coo" }, { id: 3, role: "hr_admin" }, { id: 9, role: "live_host" }],
     stock: [{ id: 17, sku: "EL-01", name: "Serum", stock: 2 }, { id: 18, sku: "EL-02", name: "Toner", stock: 40 }],
-    orders: [{ id: 1042, order_number: "1042", customer_name: "Aina", since: "2026-09-01 00:00:00" }],
+    /* v1.183.0 - the second finding was a stuck web order; that watcher left
+       with the Web Orders tab, so an aged claim stands in */
+    claims: [{ id: 77, amount_cents: 12000, created_at: "2026-09-01 00:00:00", name: "Aina" }],
   };
   const env = fakeEnv(fixture);
   notified.length = 0;

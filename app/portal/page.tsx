@@ -36,7 +36,6 @@ import { InstallCoach } from "@/components/ui/install-coach";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
-import { ContextPanel, RightRail } from "@/components/portal/side-columns";
 import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/company-monitor";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
@@ -46,18 +45,17 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
    why, and tests/lazy-panels.mjs fails the build if one of them is ever
    imported statically here again. */
 import {
-  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, CommissionPanel, ContentPanel,
+  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
-  GeofenceCard, HotelsPanel, EnquiriesPanel, SalesPerformancePanel, HankeisPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
+  GeofenceCard, HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
   AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
-  RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard, WebOrdersPanel,
+  RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
 import { card } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
-import { LeaderboardCard, MoneyCard } from "@/components/portal/commission";
 import { Dashboard, REVENUE_ROLES } from "@/components/portal/dashboard";
 import { DeskPage } from "@/components/portal/desk-page";
 import { Leave } from "@/components/portal/leave";
@@ -77,7 +75,6 @@ export default function PortalPage() {
   const {
     user, activeTab, lang, setTab, canOpen,
     salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
-    spPreset, setSpPreset,
   } = usePortal();
 
   return (
@@ -95,17 +92,14 @@ export default function PortalPage() {
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
                   the portal on the Home Screen. Phones only (md:hidden). */}
               <div className={`${css.coach} erp-phone-only`}><InstallCoach /></div>
+              {/* v1.182.1 (the owner, 22-10-2026): the "Calendar and team
+                  overview" fold that followed the Dashboard is gone - the
+                  calendar lives in Attendance and Leave, the team's day in
+                  the Attendance monitor, and the figures are the tiles
+                  above. components/portal/side-columns.tsx and
+                  components/ui/mini-calendar.tsx were deleted with it. */}
               <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang}
                 onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }} />
-              <details className={css.overview}>
-                <summary className={css.overviewSummary}>
-                  {L("Calendar and team overview", "Kalendar dan ringkasan pasukan")}
-                </summary>
-                <div className={css.overviewGrid}>
-                  <div className={css.overviewCol}><ContextPanel lang={lang} /></div>
-                  <div className={css.overviewCol}><RightRail lang={lang} go={(t) => setTab(t as TabName)} /></div>
-                </div>
-              </details>
             </>
           )}
           {activeTab === "Claims" && (
@@ -175,9 +169,6 @@ export default function PortalPage() {
                    should be able to delete!") - mirrors task_delete in
                    worker/src/permissions.ts, which is the CEO alone. */
                 canDeleteTask={["ceo", "super_admin"].includes(user.role)}
-                /* v1.159.9 - a Sales-duty note opens the register on that
-                   person and day; offered only when this account has the tab. */
-                onOpenRegister={canOpen("Sales Performance") ? (staff, day) => { setSpPreset({ staff, day }); setTab("Sales Performance"); } : undefined}
               />
               </div>
               </TabZone>
@@ -194,12 +185,9 @@ export default function PortalPage() {
             </TabPage>
           )}
           {/* v1.172.0 - Reconciliation, Ads Fund and Purchasing retired: no
-             block here, no tab in the registry, no panel in the bundle. */}
-          {activeTab === "Commission" && (
-            <CommissionPanel
-              canDecide={["super_admin", "ceo"].includes(user.role)}
-            />
-          )}
+             block here, no tab in the registry, no panel in the bundle.
+             v1.183.0 - Commission, Enquiries, Sales Performance, Hankei's and
+             Web Orders likewise. */}
           {activeTab === "Accounting" && <AccountingPanel />}
           {activeTab === "Leave" && <Leave user={user} />}
           {activeTab === "Tasks" && (
@@ -211,10 +199,6 @@ export default function PortalPage() {
               (role default + tab-access override). The extra role re-check here
               made Sales the only tab where an override granted by the CEO
               rendered a completely blank page. */}
-          {/* v1.112.0: enquiries are their own tab (CEO: staff work that must
-              be answered), one place after Sales. */}
-          {/* v1.181.16 - an enquiry that became business opens the quotation form prefilled, through the Sales handoff (ERP roadmap phase 4) */}
-          {activeTab === "Enquiries" && <EnquiriesPanel userId={user.id} onMakeQuotation={canOpen("Sales") ? () => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); } : undefined} />}
           {activeTab === "Sales" && (
             /* v1.173.0 (tab concept): the Sales panel draws its own zones
                (the month's figures, the work, the customers); the map and
@@ -312,9 +296,6 @@ export default function PortalPage() {
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel />
           )}
-          {activeTab === "Web Orders" && (
-            <WebOrdersPanel />
-          )}
           {activeTab === "ELFIA Traffic" && (
             <ElfiaTrafficPanel />
           )}
@@ -349,8 +330,9 @@ export default function PortalPage() {
               {REVENUE_ROLES.includes(user.role) && (
                 <section className="erp-stack-tight">
                   <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
-                  <OpsMapCard aside={<LeaderboardCard user={user} compact />} />
-                  <MoneyCard user={user} />
+                  {/* v1.183.0 - the commission Leaderboard (beside the map)
+                      and Money cards left with the Commission tab */}
+                  <OpsMapCard />
                   {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
                 </section>
               )}
@@ -364,10 +346,6 @@ export default function PortalPage() {
           {activeTab === "Assets" && <AssetsPanel />}
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel />}
-          {/* v1.155.0 - the Sales Performance command centre: one page, evidence in, verified figures out. */}
-          {activeTab === "Sales Performance" && <SalesPerformancePanel go={(t) => setTab(t as TabName)} canOpen={canOpen} preset={spPreset} />}
-          {/* Hankei's Commerce: orders, receipts and manual bank verification. */}
-          {activeTab === "Hankeis" && <HankeisPanel />}
           {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}

@@ -1650,8 +1650,8 @@ const PUSH_TAB: Record<string, string> = {
   claim: "Claims", live: "Attendance", stock: "Inventory", event: "Dashboard",
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
-  enquiry: "Enquiries", // v1.112.0 - a customer waiting for an answer
-  hankeis: "Hankeis",
+  /* v1.183.0 - "enquiry" and "hankeis" left with their tabs: a push of either
+     kind (an old row, a dormant route) lands on the portal, not a dead tab */
 };
 
 export async function notify(
@@ -5360,6 +5360,35 @@ export async function handleStaff(
     }
   }
 
+  /* v1.184.0 - THE MONTH'S LEAVE APPLICATIONS, FOR THE DASHBOARD CARD. The
+     owner, 22-10-2026, with his reference: a "Leave Application" card on
+     the Dashboard listing this month's applications with the person and
+     the reason - and his explicit choice that EVERY staff member sees the
+     whole company's, reasons included (the roster's PDPA stance above
+     withholds type and reason; this route is the owner's deliberate
+     exception for one card, and the comment is here so nobody widens it
+     further by accident). Read only; cancelled applications are left out;
+     the month is the Malaysian calendar month on the server's clock, or
+     ?month=YYYY-MM. */
+  if (path === "/leave/month" && method === "GET") {
+    const mq = new URL(request.url).searchParams.get("month");
+    const month = mq && /^\d{4}-\d{2}$/.test(mq) ? mq : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const first = `${month}-01`;
+    const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT l.id, l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.photo_key, u.position,
+                l.type, l.start_date, l.end_date, l.days, l.day_part, l.status, l.reason, l.created_at
+           FROM leave_requests l JOIN users u ON u.id = l.user_id
+          WHERE l.status != 'cancelled' AND l.start_date <= ?2 AND l.end_date >= ?1
+          ORDER BY l.start_date ASC, l.id ASC LIMIT 200`,
+      ).bind(first, last).all();
+      return json({ month, leave: results });
+    } catch {
+      return json({ month, leave: [] });
+    }
+  }
+
   if (path === "/leave/balance" && method === "GET") {
     const year = new Date().getFullYear();
     /* Monthly release (v1.4.30): entitlement accrues pro-rata over the months
@@ -7178,7 +7207,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Enquiries", "Sales Performance", "Hankeis", "Assets", "Hotels", "ELFIA Store", "Web Orders", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Commission", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).

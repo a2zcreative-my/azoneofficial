@@ -222,8 +222,13 @@ REM  v1.179.0 (P0.5) - leave-review-card.tsx and next-event-card.tsx:
 REM  both unreachable from source, tests and dynamic imports. They no
 REM  longer have a legacy-utility budget entry, so a stale copy left on a
 REM  working machine would FAIL tailwind-retired rather than sit quietly.
+REM  v1.182.1 - side-columns.tsx and ui\mini-calendar.tsx: the Dashboard's
+REM  "Calendar and team overview" fold is gone. v1.183.0 - the Commission,
+REM  Enquiries, Sales Performance, Hankei's and Web Orders tabs are retired:
+REM  their panels and the two guard files that read them. The worker routes
+REM  and tables stay (dormant), so nothing under worker\ is listed here.
 echo   [3c/7] Removing the files of retired features...
-for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx" "components\staff\leave-review-card.tsx" "components\portal\next-event-card.tsx") do (
+for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx" "components\staff\leave-review-card.tsx" "components\portal\next-event-card.tsx" "components\portal\side-columns.tsx" "components\ui\mini-calendar.tsx" "components\portal\commission.tsx" "components\portal\commission-panels.tsx" "components\portal\enquiries-panel.tsx" "components\portal\sales-performance-panel.tsx" "components\portal\hankeis-panel.tsx" "components\portal\web-orders-panel.tsx" "components\portal\web-orders-panel.module.css" "tests\enquiries.mjs" "tests\sales-performance.mjs") do (
   if exist %%F del /f /q %%F
 )
 

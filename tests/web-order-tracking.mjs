@@ -97,36 +97,9 @@ const ok = (label, cond, extra = "") => {
      "a message that names four actions when five are legal sends the next reader hunting");
 }
 
-/* ---- 4. the panel ---- */
-{
-  const panel = read("components/portal/web-orders-panel.tsx");
-  ok("the tracking column links the shop's URL, not one of its own",
-     /href=\{o\.tracking_url\}/.test(panel));
-  ok("a number with no link is still shown as a number",
-     /\$\{o\.tracking_courier \?\? ""\} \$\{o\.tracking_no\}/.test(panel),
-     "a wrong link is worse than none, but so is hiding the number");
-  ok("a shipped order can have its number corrected",
-     /act\(o, "update_tracking", \{ tracking_no: tracking\.trim\(\), tracking_courier: courier \}\)/.test(panel),
-     "a tracking number is typed off a label by hand — a typo used to be permanent");
-  ok("the correction is refused client-side when nothing changed",
-     /tracking\.trim\(\) === o\.tracking_no/.test(panel));
-  ok("there is a way to hand the tracking to the customer",
-     /wa\.me\/\$\{digits\}\?text=/.test(panel),
-     "marking a parcel shipped updates the shop's page, but nothing reaches the customer until somebody sends it");
-  ok("the WhatsApp message carries the link the SHOP built",
-     /const link = url \?\? o\.tracking_url \?\? "";/.test(panel));
-  ok("the fallback page comes from the brand registry",
-     /brandByCode\("elfia"\)\?\.url/.test(panel),
-     "a client domain typed into a component is what brands-guard exists to stop");
-  ok("the link is available immediately after shipping",
-     /setFreshUrl\(\(m\) => \(\{ \.\.\.m, \[o\.order_number\]: back\.tracking_url! \}\)\)/.test(panel),
-     "otherwise the send button has no link until the next five-minute poll — exactly when somebody sends a bare number");
-  /* The keys are a contract with the shop: it drops one it does not know. */
-  const keys = [...panel.matchAll(/\{ key: "([a-z]+)", label:/g)].map((m) => m[1]).sort();
-  ok("the courier keys still match the shop's list",
-     JSON.stringify(keys) === JSON.stringify(["citylink", "dhl", "flash", "jnt", "ninjavan", "poslaju"]),
-     `${keys.join(", ")} — a key the shop does not recognise is dropped, and the customer gets a number with no link`);
-}
+/* ---- 4. the panel: components/portal/web-orders-panel.tsx retired at
+   v1.183.0 with the Web Orders tab. The rule above (no courier domain in
+   this repository) and the worker checks stand. ---- */
 
 /* ---- 5. the migration is registered and probed ---- */
 {

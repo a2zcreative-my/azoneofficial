@@ -50,14 +50,14 @@ import css from "@/app/portal/portal.module.css";
    decisions there. Kinds come from worker/src/staff.ts `notify(...)`. */
 const NOTIF_WHERE: Record<string, { tab: string; anchor?: string }> = {
   announcement: { tab: "Announcements" },
-  enquiry: { tab: "Enquiries" },
   ot: { tab: "Attendance", anchor: "ot-approvals" },
   attendance: { tab: "Attendance", anchor: "pending-punches" },
   claim: { tab: "Claims", anchor: "claims-pending" },
   leave: { tab: "Leave" },
   task: { tab: "Tasks" },
   watch: { tab: "Desk" },
-  commission: { tab: "Commission" },
+  /* v1.183.0 - "enquiry" and "commission" kinds have no tab any more: an
+     old row of either kind opens nothing (the fallback below). */
 };
 
 export function PortalShell({ children }: { children: ReactNode }) {

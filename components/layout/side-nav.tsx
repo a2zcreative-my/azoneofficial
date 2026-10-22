@@ -40,14 +40,16 @@ interface NavItem { name: string; label: string }
  * OVERVIEW / SALES / OPERATIONS / PEOPLE / AUTOMATION / INTELLIGENCE / SYSTEM,
  * exposing only modules that exist. Mapped onto this portal:
  *   Overview    Dashboard
- *   Sales       Ecommerce, Sales, Enquiries, Sales Performance, Hankei's
- *               (what is sold, to whom, by whom, and the second brand's orders)
+ *   Sales       Ecommerce, Sales (what is sold and to whom; v1.183.0 -
+ *               Enquiries, Sales Performance and Hankei's retired)
  *   Operations  Inventory, Assets, Hotels (what the company holds and works)
- *   ELFIA       ELFIA Store, Web Orders, ELFIA Traffic - the client store is a
- *               workspace of its own and keeps the heading the CEO gave it
+ *   ELFIA       ELFIA Store, ELFIA Traffic - the client store is a workspace
+ *               of its own and keeps the heading the CEO gave it (v1.183.0 -
+ *               Web Orders retired)
  *   People      HR through Payroll
- *   Finance     Finance, Commission, Accounting, Companies - no target group
- *               names them and they exist, so they keep their own heading
+ *   Finance     Finance, Accounting, Companies - no target group names them
+ *               and they exist, so they keep their own heading (v1.183.0 -
+ *               Commission retired)
  *   Account     Cards, Profile (who you are)
  *   System      Users (accounts, permissions, locations - the settings)
  * AUTOMATION and INTELLIGENCE have no portal modules yet (Telegram is an API
@@ -59,11 +61,11 @@ interface NavItem { name: string; label: string }
  */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Overview", tabs: ["Dashboard", "Desk"] },
-  { title: "Sales", tabs: ["Ecommerce", "Sales", "Enquiries", "Sales Performance", "Hankeis"] },
+  { title: "Sales", tabs: ["Ecommerce", "Sales"] },
   { title: "Operations", tabs: ["Inventory", "Assets", "Hotels"] },
-  { title: "ELFIA", tabs: ["ELFIA Store", "Web Orders", "ELFIA Traffic"] },
+  { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "On Shift", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
-  { title: "Finance", tabs: ["Finance", "Commission", "Accounting", "Companies"] },
+  { title: "Finance", tabs: ["Finance", "Accounting", "Companies"] },
   { title: "Account", tabs: ["Cards", "Profile"] },
   { title: "System", tabs: ["Users"] },
 ];

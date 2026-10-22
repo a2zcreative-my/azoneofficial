@@ -33,7 +33,7 @@ import type { Env } from "./index";
 import { can } from "./permissions";
 
 export interface Hit {
-  kind: "hotel" | "contact" | "staff" | "client" | "document" | "order" | "stock" | "asset" | "task";
+  kind: "hotel" | "contact" | "staff" | "client" | "document" | "stock" | "asset" | "task"; // v1.183.0 - "order" (Web Orders) retired
   id: number;
   title: string;
   sub: string;
@@ -72,7 +72,7 @@ export function sourcesFor(role: string): string[] {
   if (can(role, "hr_manage") || can(role, "exec_view")) out.push("staff");
   if (can(role, "revenue_view")) out.push("client");
   if (can(role, "sales") || can(role, "exec_view")) out.push("document");
-  if (can(role, "sales") || can(role, "inventory") || can(role, "exec_view")) out.push("order");
+  /* v1.183.0 - "order" (web_orders, the Web Orders tab) retired with the tab */
   if (can(role, "inventory")) out.push("stock");
   if (can(role, "hr_manage") || can(role, "exec_view")) out.push("asset");
   out.push("task"); // everyone: their own; managers: all
@@ -146,18 +146,6 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
           ORDER BY d.id DESC LIMIT ${PER_SOURCE}`,
       ).bind(like),
       toHit: (r) => ({ kind: "document", id: Number(r.id), title: `${r.doc_type} ${r.doc_number}`, sub: `${r.company ?? ""}${r.company ? " · " : ""}RM ${(Number(r.total_cents) / 100).toFixed(2)}`, tab: "Sales" }),
-    });
-  }
-  if (allowed.has("order")) {
-    stmts.push({
-      kind: "order",
-      stmt: env.DB.prepare(
-        `SELECT id, order_number, customer_name, status, total_cents FROM web_orders
-          WHERE order_number LIKE ?1 ESCAPE '\\' OR customer_name LIKE ?1 ESCAPE '\\' OR tracking_no LIKE ?1 ESCAPE '\\'
-             ${digits ? `OR ${DIGITS("phone")} LIKE ?2` : ""}
-          ORDER BY id DESC LIMIT ${PER_SOURCE}`,
-      ).bind(...(digits ? [like, `%${digits}%`] : [like])),
-      toHit: (r) => ({ kind: "order", id: Number(r.id), title: `#${r.order_number} — ${r.customer_name ?? ""}`, sub: `${r.status} · RM ${(Number(r.total_cents) / 100).toFixed(2)}`, tab: "Web Orders" }),
     });
   }
   if (allowed.has("stock")) {

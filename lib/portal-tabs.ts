@@ -63,25 +63,19 @@ export const ALL_TABS = [
      holds) are each one contiguous run of this list. The one move the new
      grouping needed; the phone thumb row (MOBILE_PRIMARY_TABS) is untouched. */
   "Sales",
-  "Enquiries",
-  /* v1.155.0 - Sales Performance, behind the Sales pair: Sales is WHAT was
-     sold, Enquiries is who is asking, this is WHO worked to sell and whether
-     the evidence holds. Enquiries keeps its v1.112.0 place one after Sales
-     (tests/enquiries.mjs). One tab, one page - the CEO was explicit that it
-     is not a sub-tab of Sales and not a page of sub-tabs. Sixth at v1.155.0,
-     fifth since v1.172.0 (Inventory moved behind it); either way no role's
-     fixed phone thumb row moves. */
-  "Sales Performance",
-  /* v1.163.0 - Hankei's Commerce: the seaweed brand's orders and its MANUAL
-     Maybank verification queue. Behind the Sales trio, so no role's fixed
-     phone thumb row moves. */
-  "Hankeis",
+  /* v1.183.0 - Enquiries (v1.112.0), Sales Performance (v1.155.0) and
+     Hankei's (v1.163.0) are RETIRED by the owner, 22-10-2026, the v1.172.0
+     way: names, panels, role defaults, hints, icons, strings and guard checks
+     gone from the portal; their worker routes and D1 tables dormant and
+     untouched. Web Orders and Commission below went with them. The intakes
+     that fed them (the website and customer-account enquiry forms, Astra
+     GPT's /api/v1/hankeis, the ELFIA shop checkout) keep accepting work by
+     the owner's choice; nothing in the portal shows it. */
   "Inventory",
   "Assets",
   "Hotels",
   "Threads",
   "ELFIA Store",
-  "Web Orders",
   "ELFIA Traffic",
   "HR",
   "Attendance",
@@ -103,8 +97,9 @@ export const ALL_TABS = [
      /erp/adsfund, /erp/suppliers, /erp/purchase-orders, /erp/stock-items)
      and their D1 tables are untouched: dormant, nothing calls them, nothing
      is dropped. The Companies review still lists purchase orders and
-     reconciliations as reviewable records, without a tab to open. */
-  "Commission",
+     reconciliations as reviewable records, without a tab to open.
+     v1.183.0 - Commission joined them (with the payroll commission line,
+     by the owner's explicit choice); see the note after Sales above. */
   "Accounting",
   "Companies",
   /* v1.129.0 - the three officers' digital business cards, to share with a
@@ -267,11 +262,6 @@ export const ASSIGNABLE_ROLES: readonly [string, string][] = [
   ["live_host", "live host"],
 ];
 
-/** Who answers customers - enquiry_manage in the worker, one list. */
-export const ENQUIRY_ROLES: readonly string[] = [
-  "super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin",
-];
-
 export const SALES_ROLES: readonly string[] = [
   "super_admin",
   "admin",
@@ -306,27 +296,8 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      how a special case earns its keep long after it stops meaning anything.
      Written out as an ordinary entry, it disappears. */
   Sales: SALES_ROLES,
-  /* v1.155.0 - Sales Performance. Mirrors sales_perf_view in
-     worker/src/permissions.ts: the selling roles (sales_marketing and
-     live_host - full or part time) who submit evidence and are measured, and
-     the management tier who open it to verify. A person here sees ONLY their
-     own rows unless the API says can_manage; verifying, correcting, targets
-     and the approved-accounts list are sales_perf_manage, gated inside the
-     tab by can_manage from the API, not here. v1.156.0 (CEO: "Admin, Editor,
-     ceo, coo, cco doest not relate to this sales performance" and "marketing
-     should not perform any sales"): editor and marketing are off the tab;
-     hr_admin was never on it. */
-  "Sales Performance": ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "live_host"],
-  /* v1.163.0 - Hankei's Commerce. Mirrors hankeis_view in
-     worker/src/permissions.ts. What a person may DO inside it - raise an
-     order, verify a payment, pack, change the QR - is four narrower
-     permissions the API enforces, gated in the tab by the `can` block it
-     returns rather than by this list. */
-  Hankeis: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing"],
-  /* v1.112.0 - the CEO, 05-09-2026: customer enquiries are staff work that
-     must be answered, so they get their own tab instead of a card at the
-     top of Sales. Mirrors enquiry_manage in worker/src/permissions.ts. */
-  Enquiries: ENQUIRY_ROLES,
+  /* v1.183.0 - Sales Performance, Hankei's and Enquiries retired: no
+     default here, so a saved override or grant naming one is ignored. */
   Inventory: [
     "super_admin", "admin", "ceo", "coo", "cco",
     "sales_marketing", "marketing", "hr_admin",
@@ -373,17 +344,11 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
     "super_admin", "admin", "ceo", "coo", "cco",
     "sales_marketing", "marketing", "hr_admin",
   ],
-  // v1.37.0: mirrors the /staff/web-orders check (sales|inventory|exec).
-  "Web Orders": [
-    "super_admin", "admin", "ceo", "coo", "cco",
-    "hr_admin", "sales_marketing", "marketing",
-  ],
   // v1.43.0: anonymous visitor map — mirrors revenue_view on /web-traffic.
   "ELFIA Traffic": [
     "super_admin", "admin", "ceo", "coo", "cco",
     "hr_admin", "sales_marketing", "marketing",
   ],
-  Commission: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   Accounting: ["super_admin", "admin", "ceo"],
   Companies: ["super_admin", "ceo"],
   // v1.7.0: Content is open to the team that makes it.
@@ -404,12 +369,8 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Attendance: { en: "punches + roster", ms: "rekod kehadiran + roster" },
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },
-  "Web Orders": { en: "ELFIA store orders", ms: "pesanan kedai ELFIA" },
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
   Sales: { en: "documents + map", ms: "dokumen + peta" },
-  "Sales Performance": { en: "evidence, not claims", ms: "bukti, bukan dakwaan" },
-  Hankeis: { en: "orders, receipts, manual payment checks", ms: "pesanan, resit, semakan bayaran manual" },
-  Enquiries: { en: "customers waiting for an answer", ms: "pelanggan menunggu jawapan" },
   Announcements: { en: "feed + publish", ms: "suapan + terbit" },
   HR: { en: "docs, leave admin", ms: "dokumen, pentadbiran cuti" },
   "Staff Details": { en: "records + birthdays", ms: "rekod + hari lahir" },
@@ -580,9 +541,6 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Desk: { slug: "desk" },
   Ecommerce: { slug: "ecommerce" },
   Sales: { slug: "sales" },
-  Enquiries: { slug: "enquiries", record: "enquiry", context: "detail" },
-  "Sales Performance": { slug: "sales-performance" },
-  Hankeis: { slug: "hankeis", record: "order", context: "detail" },
   Inventory: { slug: "inventory" },
   Assets: { slug: "assets" },
   Hotels: { slug: "hotels", record: "hotel", context: "detail" },
@@ -591,7 +549,6 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
      defensible, but the store-bridge work has not settled the shape of that
      workspace and a nested URL is the expensive kind to change later. */
   "ELFIA Store": { slug: "elfia-store" },
-  "Web Orders": { slug: "web-orders" },
   "ELFIA Traffic": { slug: "elfia-traffic" },
   HR: { slug: "hr" },
   Attendance: { slug: "attendance" },
@@ -603,7 +560,6 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Claims: { slug: "claims", record: "claim", context: "detail" },
   Payroll: { slug: "payroll" },
   Finance: { slug: "finance" },
-  Commission: { slug: "commission" },
   Accounting: { slug: "accounting" },
   Companies: { slug: "companies" },
   Cards: { slug: "cards" },

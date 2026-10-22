@@ -109,8 +109,6 @@ export interface PortalContextValue {
   pushState: "default" | "granted" | "denied" | "unsupported";
   setPushState: Dispatch<SetStateAction<"default" | "granted" | "denied" | "unsupported">>;
   chime: () => Promise<void>;
-  spPreset: { staff: number; day: string } | null;
-  setSpPreset: Dispatch<SetStateAction<{ staff: number; day: string } | null>>;
   favourites: string[];
   navItems: { name: string; label: string }[];
   mobileStops: ReturnType<typeof mobileNavStops>;
@@ -602,13 +600,6 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      host has Sales Performance but not Sales; the CEO may also untick any
      tab for any role in the access card). */
   const canOpen = (t: string) => (tabs as readonly string[]).includes(t);
-  /* v1.159.9 - the roster's Sales-duty note opens the register on THAT
-     person and THAT day. Held here, not in the address, so nothing is left
-     for a reload to replay; cleared the moment the tab is left. */
-  const [spPreset, setSpPreset] = useState<{ staff: number; day: string } | null>(null);
-  useEffect(() => {
-    if (tab !== "Sales Performance") setSpPreset(null);
-  }, [tab]);
 
   /* v1.21.1: the shell scrolls INTERNALLY now (#shell-scroll in AppShell),
      so a tab switch must rewind that container — without this, opening a
@@ -843,7 +834,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   notifs, setNotifs, unread, showNotifs, setShowNotifs,
   moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,
   sound, setSound, pushState, setPushState, chime,
-  spPreset, setSpPreset, favourites, navItems, mobileStops, mobileMore, mobileGroups,
+  favourites, navItems, mobileStops, mobileMore, mobileGroups,
       }}
     >
       {children}

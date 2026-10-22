@@ -170,7 +170,6 @@
      claim its width and let the reader scroll - one row, one line. Numbers
      already do this (.erp-td-num above). */
   .erp-td-oneline, .erp-th-oneline { white-space: nowrap; }
-  .erp-card-compact { padding: 0.75rem; }
   .erp-card-accent { border-top-width: 2px; }
   /* Inside a card. Filled, not white; smaller radius; no shadow - it reads as
      contained by its parent rather than as a card competing with it. */

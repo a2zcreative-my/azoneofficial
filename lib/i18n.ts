@@ -24,12 +24,10 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Payroll": { en: "Payroll", ms: "Gaji" },
   "Expenses": { en: "Expenses", ms: "Perbelanjaan" },
   "Sales": { en: "Sales", ms: "Jualan" },
-  "Sales Performance": { en: "Sales Performance", ms: "Prestasi Jualan" }, // v1.155.0
-  "Hankeis": { en: "Hankei's", ms: "Hankei's" }, // v1.163.0
-  "Enquiries": { en: "Enquiries", ms: "Pertanyaan" },
+  /* v1.183.0 - Sales Performance, Hankei's, Enquiries, Web Orders and
+     Commission retired; their labels with them. */
   "Inventory": { en: "Inventory", ms: "Inventori" },
   "Stokis": { en: "Stokis", ms: "Stokis" },
-  "Web Orders": { en: "Web Orders", ms: "Pesanan Web" },
   "ELFIA Traffic": { en: "ELFIA Traffic", ms: "Trafik ELFIA" },
   "ELFIA Store": { en: "ELFIA Store", ms: "Kedai ELFIA" },
   "Ecommerce": { en: "Ecommerce", ms: "E-dagang" },
@@ -84,7 +82,6 @@ const DICT: Record<string, { en: string; ms: string }> = {
      inconsistent change") — tabs added since v1.9 that never got entries,
      plus every Dashboard card and the Schedule & Roster read surfaces. */
   "Finance": { en: "Finance", ms: "Kewangan" },
-  "Commission": { en: "Commission", ms: "Komisen" },
   "Accounting": { en: "Accounting", ms: "Perakaunan" },
   "Companies": { en: "Companies", ms: "Syarikat" },
   // dashboard cards

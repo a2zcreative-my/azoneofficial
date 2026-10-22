@@ -34,7 +34,7 @@ async function main() {
         if (p === '/staff/revenue') data = { month: '2026-09', last_month: '2026-08', tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 } };
         if (p === '/auth/me') data = { user: { id: 9001, name: 'Nur Aisyah Operations', role: process.env.REVIEW_ROLE || 'hr_admin', email: 'fixture@example.test', status: 'active' } };
         if (p === '/staff/tabs/access') data = { overrides: {}, mine: { allow: ['Inventory', 'Sales', 'Ecommerce', 'Attendance', 'Users'], deny: [] } };
-        if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tabs/access') data.mine.allow.push('Assets', 'Hotels', 'HR', 'Tasks', 'Announcements', 'Leave', 'Claims', 'Payroll', 'Finance', 'Commission', 'Accounting', 'Sales Performance');
+        if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tabs/access') data.mine.allow.push('Assets', 'Hotels', 'HR', 'Tasks', 'Announcements', 'Leave', 'Claims', 'Payroll', 'Finance', 'Accounting'); // v1.183.0: Commission and Sales Performance retired
         if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/sales-performance/overview') Object.assign(data, { me: 9001, can_manage: true, today: '2026-09-16', days: 1, tiktok_orders: [], range: { from: '2026-09-16', to: '2026-09-16', label: 'today' } });
         if (process.env.REVIEW_ROLLOUT === '1' && p === '/staff/tasks') data = { tasks: [
           { id: 41, title: 'ROLLOUT active task', description: 'Check supporting documents', priority: 'normal', status: 'open', assigned_to: 9001, created_by: 9001 },
@@ -156,7 +156,7 @@ async function main() {
           assert.equal(errors.length, 0, errors.join('\n'));
         }
         if (process.env.REVIEW_ROLLOUT === '1') {
-          for (const [en, ms] of [['Assets', 'Aset'], ['Hotels', 'Hotel'], ['HR', 'HR'], ['Tasks', 'Tugasan'], ['Announcements', 'Pengumuman'], ['Leave', 'Cuti'], ['Claims', 'Tuntutan'], ['Payroll', 'Gaji'], ['Finance', 'Kewangan'], ['Commission', 'Komisen'], ['Accounting', 'Perakaunan'], ['Sales Performance', 'Prestasi Jualan']]) {
+          for (const [en, ms] of [['Assets', 'Aset'], ['Hotels', 'Hotel'], ['HR', 'HR'], ['Tasks', 'Tugasan'], ['Announcements', 'Pengumuman'], ['Leave', 'Cuti'], ['Claims', 'Tuntutan'], ['Payroll', 'Gaji'], ['Finance', 'Kewangan'], ['Accounting', 'Perakaunan']]) {
             console.log(`Reviewing ${en} at ${width}`);
             await navigate(en, ms);
             if (en === 'Assets') {
@@ -168,11 +168,6 @@ async function main() {
                 const header = document.querySelector('header').getBoundingClientRect();
                 return field.top >= header.bottom && field.bottom <= innerHeight - (innerWidth < 768 ? 80 : 0);
               });
-            }
-            if (en === 'Sales Performance') {
-              await before(page.locator('#sp-shipments'), page.locator('#sp-closing'));
-              await before(page.locator('#sp-closing'), page.getByText(/^(Per staff|Setiap staf)/).first());
-              await before(page.getByText(/^(Per staff|Setiap staf)/).first(), page.locator('#sp-trend'));
             }
             if (en === 'Hotels') await before(page.getByRole('textbox', { name: /Search the directory|Cari direktori/ }), page.getByText(/^(Hotels by state|Hotel mengikut negeri)$/));
             if (en === 'HR') {
@@ -205,11 +200,6 @@ async function main() {
               await page.locator('#payroll-base').waitFor();
             }
             if (en === 'Accounting') await before(page.getByText(/^(Trial balance|Imbangan duga)$/), page.getByText(/^(New journal entry|Catatan jurnal baharu)$/));
-            if (en === 'Commission') {
-              await before(page.getByText(/No commission entries yet|Tiada catatan komisen lagi/), page.getByRole('button', { name: /Compute entry|Kira catatan/ }));
-              await page.getByRole('button', { name: /^(Rates|Kadar) \(/ }).click();
-              await page.locator('#commission-rates').waitFor();
-            }
             await page.evaluate(async () => {
               document.querySelector('#shell-scroll').scrollTo({ top: 0, behavior: 'instant' });
               window.scrollTo({ top: 0, behavior: 'instant' });

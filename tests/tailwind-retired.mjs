@@ -152,7 +152,6 @@ const MIGRATED = [
   "components/portal/portal-skeleton.tsx",
   "components/portal/dashboard.tsx",
   "components/portal/attendance.tsx",
-  "components/portal/web-orders-panel.tsx",
   "lib/ui-styles.ts",
   "lib/utils.ts",
 ];

@@ -166,8 +166,11 @@ const pkg = JSON.parse(read("package.json"));
   ok("...with deleted rows excluded, in every subquery", (roster.match(/deleted_at IS NULL/g) ?? []).length === 6);
   ok("...on that day, in MYT-date terms", (roster.match(/substr\(\w\.\w+_at, 1, 10\) = s\.shift_date/g) ?? []).length === 6);
   ok("the shift writes nothing to the register", !/INSERT INTO sp_/.test(staff.slice(staff.indexOf('path === "/sales-shifts"'), staff.indexOf('path === "/roster"'))));
-  ok("a passed day with nothing logged turns amber", /sh\.shift_date < todayS && sh\.evidence === 0\s*\? "border-warning bg-warning-soft"/.test(board));
-  ok("and the note says a planned day earns nothing by itself", /a planned day earns nothing by itself/.test(board));
+  /* v1.183.0 - the Sales Performance register is retired: the board no
+     longer judges a passed day by its evidence count, and says nothing about
+     a register that no longer exists */
+  ok("the board no longer reads an evidence count", !/\.evidence\b/.test(board.replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("and no note sends anyone to the Sales Performance register", !/Sales Performance register|daftar Prestasi Jualan/.test(board));
 }
 
 /* ---- 5. the same rules as a task ---- */

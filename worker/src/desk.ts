@@ -23,7 +23,7 @@
  *              never one that pays me
  *   ot         overtime with both punches, undecided (CEO/COO)
  *   punches    forgotten or offline punches awaiting approval (CEO)
- *   commission pending commission entries (commission_decide)
+ *   (commission and enquiries: retired at v1.183.0)
  *   tasks      my open tasks, overdue first; and tasks I created whose scope
  *              is fully ticked but not yet closed ("review and close")
  *   news       announcements from the last 30 days I have not acknowledged
@@ -46,13 +46,12 @@
 
 import type { Env } from "./index";
 import { can } from "./permissions";
-import { isOverdue as isEnquiryOverdue } from "./enquiries"; // v1.112.0
 import { leaveCanActAt } from "./leave-chain";
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries" | "followups" | "billing" | "people" | "quotes";
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes"; // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -65,10 +64,10 @@ export interface DeskItem {
   /**
    * v1.175.0 — WHICH HALF OF THE DESK THIS IS.
    *   "decide"  someone else's item and you are a signer on it: leave, claims,
-   *             overtime, a forgotten punch, commission, a task of yours whose
+   *             overtime, a forgotten punch, a task of yours whose
    *             scope is finished. Nobody else can move it while it sits here.
    *   "do"      your own work, or a thing that clears when you have read or
-   *             answered it: your open tasks, unacknowledged news, enquiries.
+   *             answered it: your open tasks, unacknowledged news, follow-ups.
    * The split is the whole point of the two lists on the client: a CEO opening
    * the portal wants the first group, not a merged pile.
    */
@@ -87,16 +86,10 @@ export interface DeskItem {
    * unscannable.
    */
   next: string;
-  /**
-   * v1.175.0 — the ONE inline action the desk offers. An unassigned new
-   * enquiry can be TAKEN from here: the row already shows everything the
-   * decision needs (who wrote in, what about, that nobody owns it), taking is
-   * not an approval, and it is reversible by reassigning. Every other bucket
-   * is an approval whose evidence — leave dates and coverage, a claim's
-   * receipt, an overtime pair, a punch's context — is NOT visible in a
-   * one-line row, so those rows only ever open the record. See the client.
-   */
-  takeable?: true;
+  /* v1.175.0-v1.182.1 the desk offered ONE inline action, taking an
+     unassigned enquiry (`takeable`); v1.183.0 retired Enquiries and the
+     action with it. Every bucket is an approval or work whose evidence is
+     NOT in a one-line row, so a row only ever opens the record. */
 }
 
 const json = (data: unknown, status = 200) =>
@@ -250,25 +243,8 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
     });
   }
 
-  /* ---- commission ---- */
-  if (can(user.role, "commission_decide")) {
-    await guard("commission", async () => {
-      const { results } = await env.DB.prepare(
-        `SELECT c.id, c.period, c.amount_cents, c.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
-           FROM commission_entries c JOIN users u ON u.id = c.host_id
-          WHERE c.status = 'pending'
-          ORDER BY c.created_at ASC LIMIT 100`,
-      ).all<{ id: number; period: string; amount_cents: number; created_at: string; name: string }>();
-      for (const r of results) {
-        items.push({
-          bucket: "commission", id: `commission:${r.id}`, tab: "Commission",
-          title: `${r.name} — ${rm(r.amount_cents)}`, sub: `commission for ${r.period}`,
-          since: r.created_at, overdue: ageDays(r.created_at) > 14,
-          kind: "decide", who: r.name, next: "Approve or hold",
-        });
-      }
-    });
-  }
+  /* ---- commission: retired at v1.183.0 with the Commission tab; the
+     commission_entries rows are untouched and no desk reads them ---- */
 
   /* ---- tasks: mine, and mine-to-close ---- */
   await guard("tasks", async () => {
@@ -304,31 +280,9 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
     }
   });
 
-  /* ---- v1.112.0: customers waiting for an answer ---- */
-  if (can(user.role, "enquiry_manage")) {
-    await guard("enquiries", async () => {
-      const { results } = await env.DB.prepare(
-        `SELECT id, name, company, category, status, assigned_to, created_at, replied_at
-           FROM enquiries WHERE status != 'closed' AND (status = 'new' OR assigned_to = ?1)
-          ORDER BY created_at ASC LIMIT 100`,
-      ).bind(user.id).all<{ id: number; name: string; company: string | null; category: string | null; status: string; assigned_to: number | null; created_at: string; replied_at: string | null }>();
-      for (const e of results) {
-        /* a NEW enquiry is everyone's until somebody takes it; a taken one is
-           only on the desk of the person who took it, until it is closed */
-        if (e.status === "new" && e.assigned_to && e.assigned_to !== user.id) continue;
-        items.push({
-          bucket: "enquiries", id: `enquiry:${e.id}`, tab: "Enquiries",
-          title: `${e.name}${e.company ? ` (${e.company})` : ""} — ${e.category ? e.category.replace(/_/g, " ") : "enquiry"}`,
-          sub: e.status === "new" ? (e.assigned_to === user.id ? "yours, not answered" : "new, nobody has taken it") : `${e.status}, yours`,
-          since: e.created_at, overdue: isEnquiryOverdue(e),
-          kind: "do", who: e.name,
-          next: e.status === "new" && !e.assigned_to ? "Take it, or open it to reply" : "Reply to the customer",
-          /* the only row the desk lets you act on in place: unclaimed and new */
-          ...(e.status === "new" && !e.assigned_to ? { takeable: true as const } : {}),
-        });
-      }
-    });
-  }
+  /* ---- enquiries: retired at v1.183.0 with the Enquiries tab. The website
+     and customer-account forms still file rows (the owner's choice); no desk
+     lists them and nobody is notified ---- */
 
   /* ---- v1.181.16 (ERP roadmap phase 4): clients to call back, invoices to raise ---- */
   if (can(user.role, "sales")) {

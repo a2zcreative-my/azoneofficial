@@ -62,9 +62,9 @@ export const card = "erp-card";
 
      card         a page card. Sits in the page grid, holds a heading and a
                   section of work. Widest padding, largest radius.
-     compactCard  the same card, dense. For side rails, mini calendars and
-                  small widgets, where `card`'s padding would leave a 264px
-                  column mostly empty.
+     (compactCard, the dense card for the side rails, left in v1.182.1
+                  with the rails themselves - a name nothing uses is not
+                  vocabulary.)
      insetCard    a bordered box INSIDE a card — a detail panel, a repeated
                   item row. Smaller radius on purpose: it must read as
                   contained by its parent, not as a card competing with it.
@@ -87,9 +87,6 @@ export const card = "erp-card";
 
    tests/card-vocabulary.mjs holds the line: a hand-rolled `border-border
    bg-card rounded-* p-*` in app/ or components/ fails the build. */
-
-/** The page card, at rail density. Same border, same radius, tighter inside. */
-export const compactCard = "erp-card erp-card-compact";
 
 /** A bordered box inside a card. Smaller radius: contained, not competing. */
 export const insetCard = "erp-card-inset";

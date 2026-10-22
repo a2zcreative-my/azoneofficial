@@ -59,7 +59,6 @@ export const AccessReviewCard = lazy(() => import("@/components/portal/access-re
 export const CompaniesPanel = lazy(() => import("@/components/portal/companies-panel").then((m) => m.CompaniesPanel));
 export const HrAdminPanel = lazy(() => import("@/components/admin/hr-admin-panel").then((m) => m.HrAdminPanel));
 export const AssetsPanel = lazy(() => import("@/components/portal/assets-panel").then((m) => m.AssetsPanel));
-export const CommissionPanel = lazy(() => import("@/components/portal/commission-panels").then((m) => m.CommissionPanel));
 export const ContentPanel = lazy(() => import("@/components/portal/content-panel").then((m) => m.ContentPanel));
 export const DocumentsPanel = lazy(() => import("@/components/portal/documents-panel").then((m) => m.DocumentsPanel));
 export const ElfiaStorePanel = lazy(() => import("@/components/portal/elfia-store-panel").then((m) => m.ElfiaStorePanel));
@@ -68,9 +67,8 @@ export const CashFlowPanel = lazy(() => import("@/components/portal/finance-pane
 export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card").then((m) => m.GeofenceCard));
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0
-export const EnquiriesPanel = lazy(() => import("@/components/portal/enquiries-panel").then((m) => m.EnquiriesPanel)); // v1.112.0
-export const SalesPerformancePanel = lazy(() => import("@/components/portal/sales-performance-panel").then((m) => m.SalesPerformancePanel)); // v1.155.0 - the accountability register
-export const HankeisPanel = lazy(() => import("@/components/portal/hankeis-panel").then((m) => m.HankeisPanel)); // v1.163.0 - Hankei's orders and manual payment verification
+/* v1.183.0 - CommissionPanel, EnquiriesPanel, SalesPerformancePanel,
+   HankeisPanel and WebOrdersPanel retired with their tabs; the files are gone. */
 export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));
@@ -86,5 +84,4 @@ export const StokisPanel = lazy(() => import("@/components/portal/stokis-panel")
 export const TabAccessCard = lazy(() => import("@/components/portal/tab-access-card").then((m) => m.TabAccessCard));
 export const ThreadsPanel = lazy(() => import("@/components/portal/threads-panel").then((m) => m.ThreadsPanel));
 export const VerificationCard = lazy(() => import("@/components/portal/verification-card").then((m) => m.VerificationCard));
-export const WebOrdersPanel = lazy(() => import("@/components/portal/web-orders-panel").then((m) => m.WebOrdersPanel));
 export const StaffDirectory = lazy(() => import("@/components/staff/staff-directory").then((m) => m.StaffDirectory));

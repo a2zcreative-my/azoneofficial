@@ -129,7 +129,7 @@ function incompleteMonthAdj(basicCents: number, payableDays: number | null | und
 
 // v1.4.272: the local formatter became an alias of the global — payroll's
 // numbers must print identically to every other tab's.
-import { fmtRM, rm as rmBare, dmy, ym } from "@/lib/format";
+import { fmtRM, rm as rmBare, dmy } from "@/lib/format";
 import { AppIcon } from "@/components/ui/app-icon";
 const rm = fmtRM;
 
@@ -485,7 +485,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
-  type PrCol = "rank" | "staff" | "basic" | "comm" | "allow" | "ot" | "deduct" | "net";
+  type PrCol = "rank" | "staff" | "basic" | "allow" | "ot" | "deduct" | "net"; // v1.183.0 - "comm" retired
   /* v1.78.0 (CEO: "payroll should ascending with position which is CEO, COO,
      CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer and
      lastly Live host and Part time last host") - the run opens in company
@@ -933,7 +933,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">{L("Payroll calculation details", "Butiran pengiraan gaji")}</summary>
 <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
-              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + commission + allowance + overtime (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (monthly wage ÷ the calendar days of the month, per day — Employment Act s.18A, so 1/30 in September and 1/31 in October; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × calendar days not employed ÷ the calendar days of the month, s.18A — joiners, leavers and re-joiners only). Months before September 2026 keep the rule their payslips were issued on: unpaid leave at 1/26 and an incomplete month on working days. Overtime and holiday work stay on ÷ 26, the ordinary rate of pay (s.60I). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + allowance + overtime (commission retired from October 2026 - a month paid with one keeps its figure) (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (monthly wage ÷ the calendar days of the month, per day — Employment Act s.18A, so 1/30 in September and 1/31 in October; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × calendar days not employed ÷ the calendar days of the month, s.18A — joiners, leavers and re-joiners only). Months before September 2026 keep the rule their payslips were issued on: unpaid leave at 1/26 and an incomplete month on working days. Overtime and holiday work stay on ÷ 26, the ordinary rate of pay (s.60I). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
               "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (gaji bulanan ÷ hari kalendar bulan itu, bagi setiap hari — Akta Kerja s.18A, jadi 1/30 pada September dan 1/31 pada Oktober; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari kalendar tidak bekerja ÷ hari kalendar bulan itu, s.18A — pekerja baharu, berhenti dan kembali sahaja). Bulan sebelum September 2026 kekal dengan peraturan slip gajinya dikeluarkan: cuti tanpa gaji pada 1/26 dan bulan tidak lengkap mengikut hari bekerja. OT dan kerja pada cuti umum kekal ÷ 26, iaitu kadar gaji biasa (s.60I). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
             )}
           </p>
@@ -993,31 +993,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       {!readOnly && (<>
 
 
-        {/* v1.19.0 (consolidation C3): the v1.4.226 percent-helper is gone —
-            it multiplied month sales by a TYPED rate, a second commission
-            engine beside the Commission tab's rate table. One engine now:
-            entries are computed and approved on the Commission tab, and this
-            button pulls the approved amounts into the COMMISSION boxes and
-            marks them paid — the double-payment path is closed because a
-            second click finds nothing left approved. */}
-        <div className="border-border flex flex-wrap items-center gap-2 rounded-lg border p-3 text-xs">
-          <button type="button" className={btnSm}
-            onClick={async () => {
-              const r = await api<{ applied: { name: string; amount_cents: number }[]; skipped: string[] }>(
-                `/payroll/pull-commission`, { method: "POST", body: JSON.stringify({ month }) });
-              if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), L("Payroll access required", "Akses gaji diperlukan"), "notice"); return; }
-              const a = r.data?.applied ?? []; const sk = r.data?.skipped ?? [];
-              showToast(a.length ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-                a.length
-                  ? L(`Pulled ${a.length} approved commission ${a.length === 1 ? "entry" : "entries"} (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · no payroll row yet: ${sk.join(", ")}` : ""}`, `${a.length} entri komisen diluluskan ditarik (${rm(a.reduce((x, y) => x + y.amount_cents, 0))})${sk.length ? ` · belum ada baris gaji: ${sk.join(", ")}` : ""}`)
-                  : sk.length ? L(`No payroll rows for: ${sk.join(", ")} — save the payroll grid first`, `Tiada baris gaji untuk: ${sk.join(", ")} — simpan grid gaji dahulu`) : L("Nothing approved on the Commission tab for this month", "Tiada yang diluluskan pada tab Komisen untuk bulan ini"),
-                a.length ? undefined : "notice");
-              if (a.length) void load();
-            }}>
-            {L("Pull approved commission", "Tarik komisen diluluskan")} — {ym(month)}
-          </button>
-          <span className="text-muted-foreground">{L("Rates & approvals live on the Commission tab.", "Kadar & kelulusan berada di tab Komisen.")}</span>
-        </div>
+        {/* v1.183.0 - COMMISSION IS RETIRED FROM PAY (the owner, 22-10-2026,
+            with the Commission tab). The "Pull approved commission" button
+            and the COMMISSION column are gone: no new month can carry a
+            commission figure. `commission_cents` stays in the record and in
+            every net formula, so a month that was paid with commission keeps
+            its net and its payslip line; a new month holds 0. The worker's
+            /payroll/pull-commission and the commission routes are dormant. */}
       </>)}
 
       {/* v1.75.0 (CEO: "Unpaid will be count based on their no data in") —
@@ -1123,7 +1105,6 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               {([
                 ["staff", L("Staff", "Kakitangan")],
                 ["basic", L("Basic (RM)", "Gaji pokok (RM)")],
-                ["comm", L("Commission", "Komisen")],
                 ["allow", L("Allowance", "Elaun")],
                 ["ot", L("OT (hrs)", "OT (jam)")],
                 /* v1.176.1 - SAY WHICH DEDUCTION THIS IS. The owner read the
@@ -1147,12 +1128,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </thead>
           <tbody>
             {/* v1.77.0 — skeleton until the first fetch lands: six rows in the
-                real column shape (staff, basic, commission, allowance, OT,
-                deduction, net, actions) so nothing jumps when the figures land. */}
+                real column shape (staff, basic, allowance, OT, deduction,
+                net, actions) so nothing jumps when the figures land. */}
             {!loaded ? Array.from({ length: 6 }, (_, i) => (
               <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
                 <td className="w-[12rem] min-w-[12rem] px-2 py-1.5"><Skel className="h-4 w-32 max-w-full" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
                 <td className="px-2 py-1.5"><Skel className="h-7 w-16" /></td>
@@ -1168,7 +1148,6 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 case "rank": return dir * bySeniority(a, b);
                 case "staff": return dir * displayName(a).localeCompare(displayName(b));
                 case "basic": return dir * (ea.basic_cents - eb.basic_cents);
-                case "comm": return dir * (ea.commission_cents - eb.commission_cents);
                 case "allow": return dir * (ea.allowance_cents - eb.allowance_cents);
                 case "ot": return dir * ((ea.ot_hours || 0) - (eb.ot_hours || 0));
                 case "deduct": return dir * (ea.deduction_cents - eb.deduction_cents);
@@ -1207,7 +1186,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       {hourlyRow && <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-warning" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}><><AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("hourly","ikut jam")}</></span>}
                     </span>
                   </td>
-                  {(["basic_cents", "commission_cents", "allowance_cents"] as const).map((k) => (
+                  {(["basic_cents", "allowance_cents"] as const).map((k) => (
                     <td key={k} className="px-2 py-1.5">
                       {hourlyRow && k === "basic_cents" ? (
                         <span className="block text-xs" title={L("Auto from clock in–out, counting only time inside the person's scheduled blocks plus any live session or roster block outside them. RM15.00/hour (CEO rule). Not editable.", "Auto daripada daftar masuk–keluar, mengira hanya masa dalam blok berjadual orang itu campur sesi LIVE atau blok roster di luarnya. RM15.00/jam (peraturan CEO). Tidak boleh disunting.")}>
@@ -1465,7 +1444,6 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.comm)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.allow)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{rm(tot.ot)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td>
@@ -1886,7 +1864,7 @@ export function MyPayslip() {
       ) : entry ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
-            {L("Basic", "Pokok")} {rm(entry.basic_cents)} · {L("Commission", "Komisen")} {rm(entry.commission_cents)} ·{" "}
+            {L("Basic", "Pokok")} {rm(entry.basic_cents)} ·{" "}{entry.commission_cents > 0 ? <>{L("Commission", "Komisen")} {rm(entry.commission_cents)} ·{" "}</> : null}
             {L("Allowance", "Elaun")} {rm(entry.allowance_cents)} · OT {rm(otC)} ·{" "}
             {L("Deductions", "Potongan")} {rm(entry.deduction_cents + autoDed)} ·{" "}
             <span className="font-semibold">{L("Net", "Bersih")} {rm(Math.max(0, net))}</span>

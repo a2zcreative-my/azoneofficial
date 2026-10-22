@@ -18,9 +18,9 @@
  *      is undefined at runtime and a blank tab, not a type error.
  *   3. EVERY WRAPPER IS USED, AND THROUGH THE WRAPPER. page.tsx renders each
  *      one, and imports it from lazy-panels, not from its home module.
- *   4. THE FIRST SCREEN IS NOT DEFERRED. dashboard-cards, company-monitor and
- *      side-columns paint on load; wrapping them would add a round-trip to the
- *      one moment that matters most.
+ *   4. THE FIRST SCREEN IS NOT DEFERRED. dashboard-cards and company-monitor
+ *      paint on load (side-columns did too, until v1.182.1); wrapping them
+ *      would add a round-trip to the one moment that matters most.
  *   5. THE FALLBACK IS A SKELETON (house rule #28), ssr is off, and the
  *      fallback is a module-scope component (rule #30).
  *
@@ -89,7 +89,7 @@ for (const w of wrappers) {
 }
 
 /* ---- 4. the first screen is not deferred ---- */
-for (const firstPaint of ["components/portal/dashboard-cards", "components/portal/company-monitor", "components/portal/side-columns", "components/portal/portal-skeleton"]) {
+for (const firstPaint of ["components/portal/dashboard-cards", "components/portal/company-monitor", "components/portal/portal-skeleton"]) {
   ok(`${firstPaint} is NOT lazy`, !wrappers.some((w) => w.module === firstPaint),
      "deferring what the first screen needs adds a round-trip to the moment that matters most");
 }

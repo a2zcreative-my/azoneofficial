@@ -33,39 +33,34 @@
  * ONE STATUS, ONE NEXT ACTION per row: the worker's `sub` says what the item
  * is and what state it is in, `next` says what you do. Never both.
  *
- * WHY ONLY ONE ROW ACTS IN PLACE. An unassigned new enquiry can be TAKEN from
- * here: the row shows everything that decision needs (who wrote in, what
- * about, that nobody owns it), taking is not an approval, and it is undone by
- * reassigning. Every other bucket is an approval whose evidence — the leave
- * dates and who covers the shift, the claim's receipt, the overtime pair, the
- * punch's context — is NOT in a one-line row, so those rows only ever open
- * the record where the evidence is. A desk that approves what it cannot show
- * is worse than a desk that links.
+ * WHY NO ROW ACTS IN PLACE. Every bucket is an approval or a piece of work
+ * whose evidence — the leave dates and who covers the shift, the claim's
+ * receipt, the overtime pair, the punch's context — is NOT in a one-line
+ * row, so a row only ever opens the record where the evidence is. A desk
+ * that approves what it cannot show is worse than a desk that links.
+ * (v1.175.0-v1.182.1 the one exception was taking an unassigned enquiry;
+ * v1.183.0 retired Enquiries, and the exception with it.)
  */
 
 import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
-import { applyVersions, getVersion } from "@/lib/live";
-import { makeApi } from "@/lib/api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
-import { btnSm, btnSmQuiet, card, chipAction, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, card, chipAction, chipNeutral } from "@/lib/ui-styles";
 import { useWatcherOpenCount } from "@/components/portal/watchers-card";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
 import css from "./one-desk.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
-const api = makeApi(""); // the enquiries door is /api/v1/enquiries, not /staff
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "commission" | "tasks" | "news" | "enquiries" | "followups" | "billing" | "people" | "quotes";
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes";
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
   who?: string | null;
   next?: string;
-  takeable?: true;
 }
 export interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
 
@@ -83,10 +78,8 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   claims: ["Claims", "Tuntutan"],
   ot: ["Overtime", "Kerja lebih masa"],
   punches: ["Punches", "Ketukan"],
-  commission: ["Commission", "Komisen"],
   tasks: ["Tasks", "Tugasan"],
   news: ["News", "Berita"],
-  enquiries: ["Enquiries", "Pertanyaan"], // v1.112.0
   followups: ["Follow-ups", "Susulan"], // v1.181.16
   billing: ["Invoices to raise", "Invois untuk dibuat"], // v1.181.16
   people: ["People", "Orang"], // v1.181.17
@@ -96,7 +89,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
    into the wrong list, read it from the bucket the same way the worker does. */
-const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "commission", "quotes"];
+const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "quotes"];
 export const kindOf = (i: DeskItem): "decide" | "do" =>
   i.kind ?? (DECIDE_BUCKETS.includes(i.bucket) || i.id.startsWith("task-close:") ? "decide" : "do");
 
@@ -120,7 +113,7 @@ export function waited(since: string | null): string {
 export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
   return useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "enquiries", "customers", "followups", "docs", "people", "quotes"]);
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes"]);
 }
 
 /** The three lists the surfaces need, split once so they cannot drift apart. */
@@ -136,16 +129,11 @@ export function splitDesk(items: readonly DeskItem[]) {
 
 /* ===================== one row ===================== */
 
-export function DeskRow({ item, go, onTake, busy, failed, failWhy }: {
+export function DeskRow({ item, go }: {
   item: DeskItem;
   go: (tab: string) => void;
-  onTake?: (i: DeskItem) => void;
-  busy?: boolean;
-  failed?: boolean;
-  failWhy?: string;
 }) {
   const i = item;
-  const canTake = Boolean(i.takeable && onTake);
   return (
     <li className="erp-list-row">
       <button type="button" className={`erp-row-lead ${css.open}`}
@@ -162,45 +150,10 @@ export function DeskRow({ item, go, onTake, busy, failed, failWhy }: {
         <span className={`erp-num erp-nowrap erp-text-xs ${i.overdue ? "erp-warning erp-medium" : "erp-muted"}`}>
           {waited(i.since)}
         </span>
-        {canTake && (
-          <button type="button" className={btnSmQuiet} disabled={busy} aria-busy={busy}
-            onClick={() => onTake?.(i)}
-            title={L("Assign this enquiry to you — it stays on your desk until you answer it", "Tetapkan pertanyaan ini kepada anda — ia kekal di meja anda sehingga dijawab")}>
-            {busy ? L("Taking…", "Mengambil…") : failed ? L("Try again", "Cuba lagi") : L("Take it", "Ambil")}
-          </button>
-        )}
-        {!canTake && <AppIcon name="next" className="erp-muted" />}
-        {failed && <span className="erp-error" role="alert">{L("Not taken", "Tidak diambil")} — {failWhy}</span>}
+        <AppIcon name="next" className="erp-muted" />
       </span>
     </li>
   );
-}
-
-/* v1.175.0 - the one action the desk performs, shared by every view of it. It
-   is the enquiries panel's own call (PATCH /enquiries/:id { assigned_to }), so
-   there is one way to take an enquiry, not two. On success the `enquiries`
-   topic is moved forward locally: every subscriber - this desk, the Dashboard
-   summary and the Enquiries tab - corrects itself without a reload. On failure
-   nothing is lost: the row stays, the reason is shown, the button says Try
-   again, and a second press while in flight is refused. */
-export function useTakeEnquiry(userId: number | undefined, refresh: () => void) {
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [failedId, setFailedId] = useState<string | null>(null);
-  const [failWhy, setFailWhy] = useState("");
-  const take = async (i: DeskItem) => {
-    if (!userId || busyId) return;
-    const enquiryId = Number(i.id.split(":")[1]);
-    if (!Number.isFinite(enquiryId)) return;
-    setBusyId(i.id); setFailedId(null); setFailWhy("");
-    const r = await api<{ ok?: boolean; error?: { message?: string } }>(
-      `/enquiries/${enquiryId}`, { method: "PATCH", body: JSON.stringify({ assigned_to: userId }) },
-    );
-    setBusyId(null);
-    if (r.ok) { applyVersions({ enquiries: getVersion("enquiries") + 1 }); refresh(); return; }
-    setFailedId(i.id);
-    setFailWhy(r.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"));
-  };
-  return { take: userId ? take : undefined, busyId, failedId, failWhy };
 }
 
 /* ===================== the Dashboard's compact card ===================== */
@@ -281,11 +234,9 @@ export function DeskSummary({ go, role = "", bare = false }: { go: (tab: string)
 const SHOW_FIRST = 8;
 
 /** One list, with its caption and its "show all". */
-function Group({ label, hint, list, go, take, busyId, failedId, failWhy, bare = false }: {
+function Group({ label, hint, list, go, bare = false }: {
   label: string; hint: string; list: DeskItem[];
   go: (tab: string) => void;
-  take?: (i: DeskItem) => void;
-  busyId: string | null; failedId: string | null; failWhy: string;
   /** v1.176.1 - the caller's zone caption already says this group's name and
       its count, so the card must not print the heading a second time. See
       desk-page.tsx: a zone label and the card title inside it were the same
@@ -301,8 +252,7 @@ function Group({ label, hint, list, go, take, busyId, failedId, failWhy, bare = 
       <p className="erp-meta">{hint}</p>
       <ul className="erp-mt-2">
         {shown.map((i) => (
-          <DeskRow key={i.id} item={i} go={go} onTake={take}
-            busy={busyId === i.id} failed={failedId === i.id} failWhy={failWhy} />
+          <DeskRow key={i.id} item={i} go={go} />
         ))}
       </ul>
       {list.length > SHOW_FIRST && (
@@ -315,11 +265,10 @@ function Group({ label, hint, list, go, take, busyId, failedId, failWhy, bare = 
 }
 
 /** The Desk page's two lists. The page owns the zones around them. */
-export function DeskQueue({ go, userId, which, bare = false }: { go: (tab: string) => void; userId?: number; which: "decide" | "attention"; bare?: boolean }) {
+export function DeskQueue({ go, which, bare = false }: { go: (tab: string) => void; which: "decide" | "attention"; bare?: boolean }) {
   const desk = useDeskData();
   const items = useMemo(() => desk.data?.items ?? [], [desk.data]);
   const { decide, attention } = useMemo(() => splitDesk(items), [items]);
-  const { take, busyId, failedId, failWhy } = useTakeEnquiry(userId, desk.refresh);
 
   if (desk.loading) {
     return (
@@ -360,10 +309,10 @@ export function DeskQueue({ go, userId, which, bare = false }: { go: (tab: strin
   return which === "decide"
     ? <Group bare={bare} label={L("Needs your decision", "Perlu keputusan anda")}
         hint={L("Nobody else can move these.", "Tiada orang lain boleh menggerakkannya.")}
-        list={decide} go={go} busyId={busyId} failedId={failedId} failWhy={failWhy} />
+        list={decide} go={go} />
     : <Group bare={bare} label={L("Needs attention", "Perlu perhatian")}
-        hint={L("Answer, acknowledge or take these.", "Jawab, akui atau ambil yang ini.")}
-        list={attention} go={go} take={take} busyId={busyId} failedId={failedId} failWhy={failWhy} />;
+        hint={L("Answer or acknowledge these.", "Jawab atau akui yang ini.")}
+        list={attention} go={go} />;
 }
 
 /** The bucket chips — one door per module, on the Desk page's figures zone. */

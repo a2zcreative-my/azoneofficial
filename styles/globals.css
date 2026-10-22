@@ -172,54 +172,20 @@ body:has(.erp-workspace) {
   }
 
   .erp-shift-hero {
-    border: 1px solid color-mix(in srgb, var(--brand-primary) 82%, white);
+    /* v1.184.0 - THE HERO IS A CARD (the owner's reference, 22-10-2026: a
+       white attendance card with the clock face, Check In / Check Out and
+       the two times). v1.170.0-v1.183.0 it was a navy surface carrying its
+       own tokens so the utilities inside it could read on navy; it now sits
+       on the page's own card tokens, in both themes, so nothing inside needs
+       a second set - and a toast rendered from inside it inherits nothing
+       it should not (the toast rule in erp-v3.css stays as belt and braces). */
+    border: 1px solid var(--border);
     border-radius: var(--surface-radius, 8px);
-    background: var(--brand-primary);
-    color: #fff;
+    background: var(--card);
+    color: var(--card-foreground);
     padding: 1rem;
-    /* v1.170.0 - THE HERO IS ITS OWN SURFACE, so it carries its own tokens.
-       v1.169.0 tried `.erp-shift-hero .bg-secondary { ... }` and friends,
-       which never applied: Tailwind v4 puts utilities in a cascade LAYER
-       declared after `components`, and a later layer wins whatever the
-       selector says. On the CEO's phone the location strip therefore
-       rendered as a white box with white text - "Office location check is
-       on" was invisible - and the rest-day note sat grey on navy. Redefining
-       the tokens on the surface is the design-system answer: every utility
-       inside (bg-secondary, text-muted-foreground, border-border, and the
-       ring/danger/success chips) resolves against these, in both themes, with
-       no rule fighting another. */
-    --secondary: rgba(255, 255, 255, 0.09);
-    --secondary-foreground: #fff;
-    --muted-foreground: rgba(255, 255, 255, 0.72);
-    --border: rgba(255, 255, 255, 0.2);
-    --card: rgba(255, 255, 255, 0.06);
-    --card-foreground: #fff;
-    --foreground: #fff;
-    /* status ink reads against navy: the light (dark-mode) values, which
-       were validated on a dark surface (v1.172.1: named tokens) */
-    --success: var(--ink-on-navy-success);
-    --warning: var(--ink-on-navy-warning);
-    --danger: var(--ink-on-navy-danger);
-    /* v1.172.1 - and their soft fills, as translucent tints (the dark-mode
-       values): a pale amber strip under amber ink was unreadable on navy. */
-    --success-soft: rgba(34, 197, 94, 0.18);
-    --warning-soft: rgba(245, 158, 11, 0.2);
-    --danger-soft: rgba(239, 68, 68, 0.18);
+    box-shadow: var(--erp-shadow-card, none);
   }
-  .erp-shift-hero .erp-button-secondary {
-    border-color: rgba(255, 255, 255, 0.24);
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-  }
-  .erp-shift-hero .erp-button-secondary:hover {
-    background: rgba(255, 255, 255, 0.14);
-  }
-  /* v1.172.1 - a chip on the hero reads as ink on navy: translucent white
-     fill, the status ink already validated for a dark surface above. */
-  .erp-shift-hero .erp-chip { background: rgba(255, 255, 255, 0.12); color: #fff; }
-  .erp-shift-hero .erp-chip-success { color: var(--success); }
-  .erp-shift-hero .erp-chip-warning { color: var(--warning); }
-
   /* v1.171.0 - the Dashboard's four-tile stats strip is gone (the month
      card carries those figures), and so are its two classes. */
   @media (min-width: 1280px) {

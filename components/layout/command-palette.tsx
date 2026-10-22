@@ -79,7 +79,7 @@ const GROUP_MS: Record<string, string> = {
 interface Hit { kind: string; id: number; title: string; sub: string; tab: string }
 const KIND_GROUP: Record<string, string> = {
   hotel: "Hotels", contact: "Contacts", staff: "Staff", client: "Clients",
-  document: "Documents", order: "Orders", stock: "Stock", asset: "Assets", task: "Tasks",
+  document: "Documents", stock: "Stock", asset: "Assets", task: "Tasks",
 };
 
 const api = makeApi("/staff");

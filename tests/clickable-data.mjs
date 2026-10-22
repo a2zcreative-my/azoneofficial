@@ -98,10 +98,8 @@ const ok = (label, cond, extra = "") => {
      /aria-pressed=\{stateF === st\}/, "every state on the MAP above has been a button since v1.43.0"],
     ["the claims summary scopes the claim list", "components/portal/role-panels.tsx",
      /aria-pressed=\{claimF === k\}/, "four figures above a list of every claim, none of which opened it"],
-    ["the rail badge opens the tab it counts for", "components/portal/side-columns.tsx",
-     /onCount\s*\n?\s*\? <button/, "the badge is the rail's whole point - how many things are waiting on you"],
-    ["a rail badge with nowhere to go stays a span", "components/portal/side-columns.tsx",
-     /: <span className=\{badge\}>\{count\}<\/span>/, "same rule as the tile: never promise an action that is not there"],
+    /* v1.182.1 - the rail badge checks left with components/portal/side-columns.tsx
+       (the Dashboard's "Calendar and team overview" fold is gone). */
     /* v1.91.0 — CEO: "Leave — whole company I want to have a clickable to
        see the details of the leave application!" The name is the door, on
        the in-progress rows AND the decided ones, and both open the same
