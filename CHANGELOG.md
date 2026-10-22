@@ -10,6 +10,58 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.189.0] - 2026-10-22 - Users: five tabs and a permission matrix
+
+The owner's brief, 22-10-2026: the Users module as a clean, premium,
+tab-based administration page in the existing gold, navy, white and grey.
+The same accounts, the same requests, the same role editor, the same gates;
+no authentication, database, API or permission rule changed.
+
+### Changed
+
+- **`components/portal/users-panel.tsx` draws the page as five tabs** (the
+  shared pill row, every body mounted and hidden, never unmounted - a search
+  typed or a role half chosen survives a look at another tab; one fetch of
+  `/staff/users` and `/staff/users/activity` feeds all of them):
+  - **Overview** (`users-overview.tsx`): five figure tiles (total, active,
+    inactive, staff, customer), the latest sign-ins, and security alerts read
+    from the two answers above - active staff without 2FA, an account still
+    active after the person left, 2FA switched off, a backup code used - with
+    doors to Roles & permissions and the office geofence. It shows a name, an
+    email, a method and a time, as the log always did; no password, token,
+    secret or IP address.
+  - **Staff Accounts**: a searchable table (name and email, role, status, 2FA)
+    with a status pick (all / active / disabled / active without 2FA), the
+    same Change role editor (inline on a desk, the bottom sheet on a phone),
+    a Roles & permissions shortcut and, for the super admin and admin, the
+    link to /admin where passwords and deactivation still live.
+  - **Customer Accounts**: the Google and self sign-ups, their status and
+    "no staff access", and the same Promote action.
+  - **Roles & Permissions**: the long access-control list (`tab-access-card.tsx`)
+    is now a matrix - a row per module, grouped as the sidebar groups them, a
+    column per role, a mark in each cell from the SAME `canSeeTab()` the portal
+    draws its tab strip with, custom rules ringed, a super-admin column locked
+    on, and a per-role count of modules opened. Edit opens the role chips
+    under the row and Save/Reset post the same `/staff/tabs/access` requests
+    as before; clicking a cell saves nothing. Read-only for everyone who may
+    open Users; Edit is the CEO's and the super admin's (the worker refuses
+    anyone else).
+  - **Security & Settings**: the sign-in log, then Who sees what (CEO, super
+    admin) and the office check-in geofence (super admin, CEO, COO) - the cards
+    and their gates unchanged.
+- `app/portal/page.tsx` hands the tab to the panel; `users-shared.ts` holds the
+  account and event shapes and the role / status / event names moved out of
+  `users-panel.tsx` verbatim. `AppIcon` gained `users`.
+
+### Unchanged
+
+- Every route, gate and rule: role changes are the super admin's alone,
+  `/staff/tabs/access` writes are the CEO's and super admin's, the geofence
+  is super admin / CEO / COO.
+- Guards re-pointed at the panel: `users-ui`, `tab-zones`, `tab-concept`,
+  `lazy-panels`, `portal-experience`. The browser fixture gained customers, a
+  leaver and a sign-in log for the Users tabs.
+
 ## [1.188.0] - 2026-10-22 - Attendance: five tabs
 
 The owner's brief and reference, 22-10-2026: the Attendance module as a

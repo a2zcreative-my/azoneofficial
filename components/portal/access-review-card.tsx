@@ -148,7 +148,7 @@ export function AccessReviewCard({ embedded = false }: { embedded?: boolean }) {
         <div>
           <p className="text-sm font-semibold">{L("Who sees what", "Siapa nampak apa")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Pick a person to see their tabs. Press a tab to move it — for that person only; the role stays as the card above sets it.", "Pilih seseorang untuk melihat tab mereka. Tekan tab untuk mengalihkannya — bagi orang itu sahaja; peranan kekal seperti yang ditetapkan kad di atas.")}
+            {L("Pick a person to see their tabs. Press a tab to move it — for that person only; the role stays as the Roles & Permissions matrix sets it.", "Pilih seseorang untuk melihat tab mereka. Tekan tab untuk mengalihkannya — bagi orang itu sahaja; peranan kekal seperti yang ditetapkan matriks Peranan & kebenaran.")}
           </p>
         </div>
         {!loaded ? <Skel className="h-8 w-48" /> : (

@@ -224,7 +224,26 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/birthdays-lite") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }, { id: 9003, name: "Farid Zul", birthday: "1995-10-04" }] };
   if (p === "/staff/tasks") data = { tasks };
   if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
-  if (p === "/staff/users") data = { users: staff, staff };
+  /* v1.189.0 - the Users tabs: two with 2FA, one leaver still active, a few
+     Google sign-ups as customers, and a sign-in log with a 2FA change in it */
+  if (p === "/staff/users") {
+    const us = [
+      ...staff.map((x, i) => ({ ...x, totp_enabled: i < 2 ? 1 : 0, ...(x.id === 9003 ? { left_on: "2026-10-01" } : {}) })),
+      { id: 9101, name: "Narida", full_name: "Narida Binti Aziz", role: "customer", email: "narida@example.test", is_active: 1 },
+      { id: 9102, name: "Kamal", full_name: null, role: "customer", email: "kamal.hashim@example.test", is_active: 1 },
+      { id: 9103, name: "Siti", full_name: "Siti Nurhaliza", role: "customer", email: "siti@example.test", is_active: 0 },
+    ];
+    data = { users: us, staff: us };
+  }
+  if (p === "/staff/users/activity") data = { events: [
+    { action: "auth.login_2fa", created_at: "2026-10-22 02:19:00", name: "Fixture Person", email: "fixture@example.test" },
+    { action: "auth.login", created_at: "2026-10-22 01:44:00", name: "Nur Aisyah binti Rahman", email: "aisyah@example.test" },
+    { action: "auth.login_google", created_at: "2026-10-21 10:36:00", name: "Narida Binti Aziz", email: "narida@example.test" },
+    { action: "auth.2fa_disabled", created_at: "2026-10-21 09:14:00", name: "Farid Zulkifli", email: "farid@example.test" },
+    { action: "auth.login", created_at: "2026-10-21 09:12:00", name: "Farid Zulkifli", email: "farid@example.test" },
+    { action: "auth.2fa_backup_used", created_at: "2026-10-20 03:02:00", name: "Tan Mei Ling", email: "mei@example.test" },
+    { action: "auth.2fa_enabled", created_at: "2026-10-19 08:00:00", name: "Fixture Person", email: "fixture@example.test" },
+  ] };
   if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
   if (p === "/staff/announcements") data = { announcements };
   if (p === "/staff/leave") data = { leave: q.get("all") ? leave : leave.filter((l) => l.user_id === 9001) };

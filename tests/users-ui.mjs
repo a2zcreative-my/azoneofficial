@@ -49,6 +49,10 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 
 const styles = read("lib/ui-styles.ts");
 const raw = read("components/portal/users-panel.tsx");
+/* v1.189.0 - the Users page is five tabs: the labels live in users-shared.ts,
+   the row's geometry in users-panel.module.css. */
+const shared = read("components/portal/users-shared.ts");
+const mod = read("components/portal/users-panel.module.css");
 /* Comments describe the OLD look on purpose — this file's header quotes the
    classes it replaced. Strip them, or the guard fails on its own history. */
 const src = raw.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
@@ -95,13 +99,12 @@ ok("the vocabulary is imported, not approximated",
 
 /* ---- 3. one list, both renderings ------------------------------------ */
 ok("the find box filters BOTH lists",
-   /const staffRows = allStaff\.filter\(match\);/.test(src) && /const customerRows = allCustomers\.filter\(match\);/.test(src),
+   /const staffRows = allStaff\.filter\(match\)\.filter\(statusOk\);/.test(src) && /const customerRows = allCustomers\.filter\(match\);/.test(src),
    "a search that only narrows the list you happen to be looking at is a trap");
 ok("...over name, email and role", /u\.email\.toLowerCase\(\)\.includes\(needle\)[\s\S]{0,200}?u\.role\.replace/.test(src));
-ok("a phone shows one list at a time, a desk still shows both",
-   /<SectionTabs className="lg:hidden"/.test(src)
-   && /tab === "staff" \? "" : "hidden"\} lg:block/.test(src)
-   && /tab === "customers" \? "" : "hidden"\} mt-4 lg:mt-0 lg:block/.test(src),
+ok("each list is its own tab, both mounted and hidden - never two lists stacked inside the page scroll",
+   /hidden=\{view !== "staff"\}/.test(src) && /hidden=\{view !== "customers"\}/.test(src)
+   && !/SectionTabs className="lg:hidden"/.test(src),
    "two lists of their own height stacked inside the page scroll was two scroll traps before the log");
 ok("both headings carry a count, and say 'shown of all' while a search is on",
    /const countOf = \(shown, all\) =>|countOf = \(shown: number, all: number\)/.test(src)
@@ -118,14 +121,14 @@ ok("every row action carries a name, not a glyph",
    /aria-label=\{kind === "staff"[\s\S]{0,320}?Change role for \$\{properName/.test(src)
    && /className=\{iconBtn\}/.test(src) && !/>✎</.test(src));
 ok("the identity is never the part that gets squeezed",
-   /order-3 flex w-full flex-wrap items-center gap-1 sm:order-1 sm:w-auto/.test(src),
-   "chips at shrink-0 beside a flex-1 identity turned a name into 'Siti N...' at 390px");
-ok("the name and the email get a line each", /truncate text-sm font-medium">\{properName[\s\S]{0,160}?truncate text-xs">\{u\.email\}/.test(src));
+   /\.chips \{[^}]*grid-column: 1 \/ -1;/.test(mod) && /\.chips \{\s*display: contents;/.test(mod),
+   "chips beside the identity turned a name into 'Siti N...' at 390px; a phone gives them a line of their own, a desk a column each");
+ok("the name and the email get a line each", /className=\{css\.name\}>\{properName[\s\S]{0,160}?className=\{css\.email\}>\{u\.email\}/.test(src));
 ok("left / rejoined dates are on screen, not in a tooltip",
    /\{\(u\.left_on \|\| u\.rejoined_on\) && \(/.test(src) && !/title=\{`\$\{u\.left_on/.test(src),
    "a phone cannot show a title= tooltip at all");
 ok("a role reads as its own name — CEO, not Ceo; HR Admin, not Hr Admin",
-   /const ROLE_LABEL: Record<string, string> = \{[\s\S]{0,200}?ceo: "CEO"/.test(src) && !/\bcapitalize\b/.test(src));
+   /const ROLE_LABEL: Record<string, string> = \{[\s\S]{0,200}?ceo: "CEO"/.test(shared) && !/\bcapitalize\b/.test(src));
 
 /* ---- 5. one editor at a time, and it cannot be pressed twice ---------- */
 ok("the desk panel and the phone sheet are the SAME fields",
@@ -168,7 +171,7 @@ ok("the find box searches BOTH names and the role as it is written on screen",
    && /roleLabel\(u\.role\)\.toLowerCase\(\)\.includes\(needle\)/.test(src),
    "it tested full_name OR name, so the other one found nobody");
 ok("the list height has a fallback for a browser that does not know svh",
-   /max-h-\[60vh\] max-h-\[60svh\] md:max-h-80/.test(src),
+   /max-height: 60vh;\s*max-height: 60svh;/.test(mod),
    "iOS 15.0-15.3 ignores svh and the list grew without bound");
 
 console.log(`${failed ? "✗" : "✓"} users-ui: ${passed} passed, ${failed} failed`);

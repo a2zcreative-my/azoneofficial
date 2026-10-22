@@ -42,14 +42,13 @@ import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
    why, and tests/lazy-panels.mjs fails the build if one of them is ever
    imported statically here again. */
 import {
-  AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
+  CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
-  GeofenceCard, HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
+  HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
   AttendancePanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
-  StokisPanel, TabAccessCard, ThreadsPanel,
+  StokisPanel, ThreadsPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
-import { card } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
 import { Dashboard } from "@/components/portal/dashboard";
@@ -245,27 +244,13 @@ export default function PortalPage() {
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}
           {activeTab === "Cards" && <CardsPanel role={user.role} />}
-          {activeTab === "Users" && (
-            /* v1.173.0 (tab concept): accounts and their review in one card
-               under ACCOUNTS; who sees which tab and where a punch counts
-               side by side under ACCESS AND LOCATIONS. Same order as before. */
-            <TabPage>
-              <TabZone label={L("Accounts", "Akaun")}>
-                <div className={card}>
-                  <UsersPanel role={user.role} embedded />
-                  {["ceo", "super_admin"].includes(user.role) && <AccessReviewCard embedded />}
-                </div>
-              </TabZone>
-              {["ceo", "super_admin", "coo"].includes(user.role) && (
-                <TabZone label={L("Access and locations", "Akses dan lokasi")} cols={2}>
-                  {["ceo", "super_admin"].includes(user.role) && <TabAccessCard />}
-                  {["super_admin", "ceo", "coo"].includes(user.role) && (
-                    <GeofenceCard />
-                  )}
-                </TabZone>
-              )}
-            </TabPage>
-          )}
+          {/* v1.189.0 - the Users page is its own tabbed panel (the owner's
+              brief, 22-10-2026): Overview, Staff Accounts, Customer Accounts,
+              Roles & Permissions, Security & Settings. The role gates the
+              page applied (Who sees what - CEO / super admin; the geofence -
+              super admin / CEO / COO; role changes - super admin) moved with
+              their cards into users-panel.tsx. */}
+          {activeTab === "Users" && <UsersPanel role={user.role} />}
           {activeTab === "Profile" && (
             /* v1.173.0 (tab concept): three zones - who I am, my pay, my
                security - in the order the tab has always read. */

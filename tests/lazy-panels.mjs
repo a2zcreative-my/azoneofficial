@@ -83,7 +83,7 @@ for (const w of wrappers) {
    verification and admin wrappers): the rule is the same - imported from
    lazy-panels, rendered by the file that imports it. */
 {
-  const consumers = [["app/portal/page.tsx", page], ["components/portal/attendance-panel.tsx", read("components/portal/attendance-panel.tsx")]];
+  const consumers = [["app/portal/page.tsx", page], ["components/portal/attendance-panel.tsx", read("components/portal/attendance-panel.tsx")], ["components/portal/users-panel.tsx", read("components/portal/users-panel.tsx")]];
   const importedBy = (src) => {
     const fromLazy = /import \{([\s\S]*?)\} from "@\/components\/portal\/lazy-panels";/.exec(src);
     return fromLazy ? [...fromLazy[1].matchAll(/\b([A-Z]\w+)\b/g)].map((m) => m[1]) : [];

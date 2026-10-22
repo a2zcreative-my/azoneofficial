@@ -255,9 +255,23 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     && /onOpenRoster=\{\(\) => \{ setView\("roster"\); revealAnchor\("roster-board"\); \}\}/.test(attendance)
     && /window\.dispatchEvent\(new CustomEvent\("azone:reveal", \{ detail: id \}\)\)/.test(read("components/portal/page-shared.tsx"))
     && /"ot-approvals": "manage", "pending-punches": "manage", "roster-board": "roster"/.test(attendance));
+  /* v1.189.0 - the Users page is its own tabbed panel (users-panel.tsx):
+     Overview, Staff Accounts, Customer Accounts, Roles & Permissions,
+     Security & Settings; every body stays mounted and hidden. */
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
-  ok("Users starts with accounts, then review, permissions and locations",
-    ordered(users, ['<UsersPanel', '<AccessReviewCard', '<TabAccessCard', '<GeofenceCard']));
+  const usersPanel = read("components/portal/users-panel.tsx");
+  ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} \/>\}/.test(users));
+  ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
+    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<TabAccessCard', 'L("Sign-in log"', '<AccessReviewCard', '<GeofenceCard']));
+  ok("the five Users tabs are the shared pill, and every body stays mounted (hidden, never unmounted)",
+    /className=\{view === k \? tabPillOn : tabPill\}/.test(usersPanel)
+    && ['"overview"', '"staff"', '"customers"', '"roles"', '"security"'].every((v) => usersPanel.includes(`hidden={view !== ${v}}`)));
+  ok("each Users card keeps the gate the page gave it",
+    /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
+    && /const geofence = \["super_admin", "ceo", "coo"\]\.includes\(role\)/.test(usersPanel)
+    && /const canEdit = role === "super_admin"/.test(usersPanel)
+    && /\{holds && <AccessReviewCard \/>\}/.test(usersPanel) && /\{geofence && <GeofenceCard \/>\}/.test(usersPanel)
+    && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }
 
 /* The approved rollout retains already-correct tabs and reorders exceptions. */

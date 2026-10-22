@@ -44,7 +44,7 @@ import {
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
-  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, type LucideIcon,
+  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, type LucideIcon,
 } from "lucide-react";
 import type React from "react";
 
@@ -54,6 +54,7 @@ export const APP_ICON = {
   success: CircleCheck,
   error: CircleX,
   pending: Hourglass,
+  users: Users, // v1.189.0 - a group of accounts (the Users overview)
   info: Info, // v1.184.0 - a hint beside a card title (the Dashboard's Leave Application card)
   blocked: Ban,
   celebrate: PartyPopper,

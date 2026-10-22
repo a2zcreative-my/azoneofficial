@@ -21,33 +21,51 @@ import { csrfFetch } from "@/lib/api";
    portal has allowed `admin` since v1.40.0. The card now renders
    GOVERNABLE_TABS from lib/portal-tabs.ts and asks canSeeTab() what a
    setting means, so it shows the portal's tabs, in the portal's order, with
-   the portal's rules. A tab added anywhere appears here on the same deploy.
+   the portal's rules. A tab added anywhere appears here on the same deploy. */
 
-   THE ROW IS QUIETER. It used to print every allowed role inline, so the
-   longest rows ran to a dozen comma-separated names and the tab's own name
-   was lost in the middle of them. A row is now: name, one-line hint, and the
-   audience as a COUNT ("7 of 9 roles", full list on hover) — scannable
-   top-to-bottom, with the detail one click away where it is being edited. */
+/* v1.189.0 — THE PERMISSION MATRIX (the owner, 22-10-2026: "replace the long
+   access-control list with a clean permission matrix ... group permissions
+   by existing system modules ... display roles and access levels clearly").
 
-import { useCallback, useEffect, useState } from "react";
+   The list was one row per tab with the audience as a count ("7 of 9
+   roles"); to know whether the COO opens Payroll you had to open the row.
+   It is now a grid: a row per module, grouped as the sidebar groups them
+   (SECTIONS in components/layout/side-nav.tsx), a column per role, and a
+   mark in each cell - opens / hidden - from the SAME canSeeTab() the portal
+   draws its tab strip with, so the matrix cannot describe a rule the portal
+   does not follow. A cell that is not the built-in default is ringed, so the
+   CEO's custom rules are seen across the whole grid at once.
+
+   EDITING IS THE SAME EDIT. A row's Edit opens the role chips under it, Save
+   posts { tab, roles } and Reset posts { tab, reset: true } to the same
+   /staff/tabs/access route, with the same toast; nothing is saved by
+   clicking a cell, so a stray click on the grid changes nothing. The grid is
+   drawn read-only for everyone who may open the Users tab - the overrides
+   it reads are the ones every signed-in person already fetches to build
+   their own tab strip - and Edit exists only for the CEO and the super
+   admin; the worker refuses anyone else. */
+
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { SECTIONS, sectionTitle } from "@/components/layout/side-nav";
+import { roleLabel } from "@/components/portal/users-shared";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { btnSmPrimary, card } from "@/lib/ui-styles";
+import { btnSmPrimary, card, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { Skel } from "@/components/ui/skeleton";
 import { rowBtn } from "@/components/ui/row-button";
 import { getLang, t } from "@/lib/i18n";
-import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { AppIcon } from "@/components/ui/app-icon";
 import {
   ASSIGNABLE_ROLES,
   GOVERNABLE_TABS,
   TAB_HINTS,
+  canSeeTab,
   defaultRolesFor,
 } from "@/lib/portal-tabs";
+import css from "./users-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-const roleLabel = (r: string) => r.replace("_", " ");
-
-export function TabAccessCard() {
+export function TabAccessCard({ canEdit = false, headcount = {} }: { canEdit?: boolean; headcount?: Record<string, number> }) {
   const [overrides, setOverrides] = useState<Record<string, string[]>>({});
   const [openTab, setOpenTab] = useState<string | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
@@ -91,100 +109,140 @@ export function TabAccessCard() {
   };
 
   const lang = getLang();
+  /* the modules, grouped as the sidebar groups them; a governable tab no
+     section names falls into Other rather than vanishing */
+  const groups = [
+    ...SECTIONS.map((s) => ({ title: s.title, tabs: GOVERNABLE_TABS.filter((tab) => s.tabs.includes(tab)) })),
+    { title: "Other", tabs: GOVERNABLE_TABS.filter((tab) => !SECTIONS.some((s) => s.tabs.includes(tab))) },
+  ].filter((g) => g.tabs.length > 0);
+  const cols = ASSIGNABLE_ROLES.length + 2 + (canEdit ? 1 : 0); // module + roles + super admin (+ edit)
+  const opens = (role: string) => GOVERNABLE_TABS.filter((tab) => canSeeTab(role, tab, overrides)).length;
 
   return (
     <div className={card}>
-      <PanelTitle icon="access">{L("Tab access control", "Kawalan akses tab")}</PanelTitle>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {L("Choose which roles see each tab, listed in portal order. Everyone keeps Dashboard, On Shift and Profile; super_admin keeps every tab as the recovery path. Changes apply on each person's next refresh.",
-          "Pilih peranan yang melihat setiap tab mengikut susunan portal. Semua orang mengekalkan Papan Pemuka, Syif Saya dan Profil; super_admin mengekalkan semua tab sebagai laluan pemulihan. Perubahan berkuat kuasa pada muat semula seterusnya.")}
-      </p>
-      {/* divide-y instead of a border per row: 24 boxes stacked read as 24
-          things to deal with, one ruled list reads as one list. */}
-      <div className="border-border divide-border mt-3 divide-y rounded-lg border">
-        {!loaded ? GOVERNABLE_TABS.map((name) => (
-          <div key={name} className="flex items-center justify-between gap-2 px-2.5 py-2" aria-hidden>
-            <Skel className="h-3 w-2/3 max-w-xs" />
-            <Skel className="h-6 w-12 shrink-0 rounded-lg" />
+      <div className={css.head}>
+        <div className={css.headLead}>
+          <span className={css.well}><AppIcon name="access" /></span>
+          <div className={css.headText}>
+            <p className={css.title}>{L("Roles & permissions", "Peranan & kebenaran")}</p>
+            <p className={css.sub}>
+              {L("Which role opens which module, in portal order. Everyone keeps Dashboard, Desk, On Shift and Profile; super_admin keeps every tab as the recovery path. Changes apply on each person's next refresh.",
+                "Peranan mana membuka modul mana, mengikut susunan portal. Semua orang mengekalkan Papan Pemuka, Meja, Syif Saya dan Profil; super_admin mengekalkan semua tab sebagai laluan pemulihan. Perubahan berkuat kuasa pada muat semula seterusnya.")}
+            </p>
           </div>
-        )) : GOVERNABLE_TABS.map((name) => {
-          const eff = effective(name);
-          const overridden = Object.prototype.hasOwnProperty.call(overrides, name);
-          const isOpen = openTab === name;
-          const hint = TAB_HINTS[name];
-          const shownHint = hint ? (lang === "ms" ? hint.ms : hint.en) : "";
-          /* The audience as one short phrase. The full membership is the
-             `title` — a row is for scanning, the chips below are for
-             reading. */
-          /* v1.171.0 - count only the roles the chips can assign. A default
-             list may name super_admin (Claims does), which is not a chip:
-             counting it printed "10 of 9 roles" on the Users tab. */
-          const assignable = eff === null ? 0 : eff.filter((r) => ASSIGNABLE_ROLES.some(([k]) => k === r)).length;
-          const audience = eff === null
-            ? L("all staff", "semua kakitangan")
-            : eff.length === 0
-              ? L("nobody", "tiada sesiapa")
-              : L(`${assignable} of ${ASSIGNABLE_ROLES.length} roles`, `${assignable} daripada ${ASSIGNABLE_ROLES.length} peranan`);
-          const audienceTitle = eff === null
-            ? L("Every staff role sees this tab.", "Semua peranan kakitangan melihat tab ini.")
-            : eff.length === 0
-              ? L("Hidden from everyone except super_admin.", "Tersembunyi daripada semua kecuali super_admin.")
-              : eff.map(roleLabel).join(", ");
-          return (
-            <div key={name} className="px-2.5 py-2">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                <p className="min-w-0 text-xs">
-                  <span className="font-semibold">{t(name, lang)}</span>
-                  {shownHint && <span className="text-muted-foreground"> · {shownHint}</span>}
-                </p>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="text-muted-foreground text-[11px] whitespace-nowrap" title={audienceTitle}>
-                    {audience}
-                  </span>
-                  {overridden && (
-                    <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning"
-                      title={L("Changed from the built-in default", "Diubah daripada tetapan lalai terbina")}>
-                      {L("custom", "tersuai")}
-                    </span>
-                  )}
-                  <button type="button" className={rowBtn}
-                    onClick={() => { setOpenTab(isOpen ? null : name); setDraft(eff === null ? ASSIGNABLE_ROLES.map(([r]) => r) : [...eff]); }}>
-                    {isOpen ? L("Close", "Tutup") : L("Edit", "Sunting")}
-                  </button>
-                </span>
-              </div>
-              {isOpen && (
-                <div className="mt-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded-full border border-success/30 px-2 py-0.5 text-[11px] font-semibold text-success" title={L("Always on — the safety net","Sentiasa aktif — jaring keselamatan")}><AppIcon name="lock" className="mr-1 -mt-0.5 h-3 w-3" />super admin</span>
-                    {ASSIGNABLE_ROLES.map(([r, labelR]) => {
-                      const on = draft.includes(r);
-                      return (
-                        <button key={r} type="button"
-                          className={on
-                            ? "bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-[11px] font-medium"
-                            : "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[11px]"}
-                          onClick={() => setDraft((d) => (on ? d.filter((x) => x !== r) : [...d, r]))}>
-                          {on ? "✓ " : ""}{labelR}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <button type="button" className={btnSmPrimary} onClick={() => void save(name, draft)}>{L("Save", "Simpan")}</button>
-                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft(ASSIGNABLE_ROLES.map(([r]) => r))}>{L("Select all", "Pilih semua")}</button>
-                    <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setDraft([])}>{L("Clear", "Kosongkan")}</button>
-                    {overridden && (
-                      <button type="button" className="text-muted-foreground text-xs underline" onClick={() => void save(name, null)}>{L("Reset to default", "Set semula kepada lalai")}</button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        </div>
       </div>
-      {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
+      <div className={css.legend}>
+        <span><span className={css.yes}>✓</span>{L("opens the module", "membuka modul")}</span>
+        <span><span className={css.no}>–</span>{L("hidden", "tersembunyi")}</span>
+        <span><span className={`${css.yes} ${css.custom}`}>✓</span>{L("custom — not the built-in default", "tersuai — bukan lalai terbina")}</span>
+        <span><span className={css.locked}><AppIcon name="lock" /></span>{L("super admin — always on", "super admin — sentiasa aktif")}</span>
+        {!canEdit && <span>{L("Read-only — the CEO and the super admin change it.", "Baca sahaja — CEO dan super admin yang mengubahnya.")}</span>}
+      </div>
+      <div className={css.matrixWrap}>
+        <table className={css.matrix}>
+          <thead>
+            <tr>
+              <th className={css.moduleCol} scope="col">{L("Module", "Modul")}</th>
+              {ASSIGNABLE_ROLES.map(([r]) => (
+                <th key={r} scope="col">
+                  {roleLabel(r)}
+                  {headcount[r] != null && <span className={css.moduleHint}>{L(`${headcount[r]} active`, `${headcount[r]} aktif`)}</span>}
+                </th>
+              ))}
+              <th scope="col">{roleLabel("super_admin")}</th>
+              {canEdit && <th scope="col"><span className="erp-sr-only">{L("Edit", "Sunting")}</span></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {!loaded ? GOVERNABLE_TABS.slice(0, 8).map((name) => (
+              <tr key={name} aria-hidden>
+                <td className={css.moduleCol}><Skel className="h-3 w-2/3" /></td>
+                <td colSpan={cols - 1}><Skel className="h-3 w-full" /></td>
+              </tr>
+            )) : groups.map((g) => (
+              <Fragment key={g.title}>
+                <tr className={css.groupRow}><th colSpan={cols} scope="colgroup">{sectionTitle(g.title, lang)}</th></tr>
+                {g.tabs.map((name) => {
+                  const eff = effective(name);
+                  const overridden = Object.prototype.hasOwnProperty.call(overrides, name);
+                  const isOpen = openTab === name;
+                  const hint = TAB_HINTS[name];
+                  const shownHint = hint ? (lang === "ms" ? hint.ms : hint.en) : "";
+                  return (
+                    <Fragment key={name}>
+                      <tr>
+                        <th className={css.moduleCol} scope="row">
+                          <span className={css.moduleName}>{t(name, lang)}</span>
+                          {shownHint && <span className={css.moduleHint}>{shownHint}</span>}
+                        </th>
+                        {ASSIGNABLE_ROLES.map(([r, labelR]) => {
+                          const sees = canSeeTab(r, name, overrides);
+                          const dflt = defaultRolesFor(name);
+                          const isDefault = dflt === null || dflt.includes(r);
+                          const custom = overridden && sees !== isDefault;
+                          return (
+                            <td key={r}>
+                              <span className={`${sees ? css.yes : css.no} ${custom ? css.custom : ""}`}
+                                title={`${labelR}: ${sees ? L("opens", "membuka") : L("hidden", "tersembunyi")}${custom ? ` (${L("custom", "tersuai")})` : ""}`}>
+                                <span aria-hidden>{sees ? "✓" : "–"}</span>
+                                <span className="erp-sr-only">{sees ? L("opens", "membuka") : L("hidden", "tersembunyi")}</span>
+                              </span>
+                            </td>
+                          );
+                        })}
+                        <td><span className={css.locked} title={L("Always on — the safety net", "Sentiasa aktif — jaring keselamatan")}><AppIcon name="lock" /></span></td>
+                        {canEdit && (
+                          <td>
+                            <button type="button" className={rowBtn} aria-expanded={isOpen}
+                              onClick={() => { setOpenTab(isOpen ? null : name); setDraft(eff === null ? ASSIGNABLE_ROLES.map(([r]) => r) : [...eff]); }}>
+                              {isOpen ? L("Close", "Tutup") : L("Edit", "Sunting")}
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {canEdit && isOpen && (
+                        <tr className={css.editRow}>
+                          <td colSpan={cols}>
+                            <div className={css.editChips}>
+                              {ASSIGNABLE_ROLES.map(([r, labelR]) => {
+                                const on = draft.includes(r);
+                                return (
+                                  <button key={r} type="button" aria-pressed={on} className={on ? tabPillOn : tabPill}
+                                    onClick={() => setDraft((d) => (on ? d.filter((x) => x !== r) : [...d, r]))}>
+                                    {on ? "✓ " : ""}{labelR}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div className={css.editActions}>
+                              <button type="button" className={btnSmPrimary} onClick={() => void save(name, draft)}>{L("Save", "Simpan")}</button>
+                              <button type="button" className={css.linkBtn} onClick={() => setDraft(ASSIGNABLE_ROLES.map(([r]) => r))}>{L("Select all", "Pilih semua")}</button>
+                              <button type="button" className={css.linkBtn} onClick={() => setDraft([])}>{L("Clear", "Kosongkan")}</button>
+                              {overridden && (
+                                <button type="button" className={css.linkBtn} onClick={() => void save(name, null)}>{L("Reset to default", "Set semula kepada lalai")}</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            ))}
+            {loaded && (
+              <tr className={css.totalRow}>
+                <th className={css.moduleCol} scope="row">{L("Modules opened", "Modul dibuka")}</th>
+                {ASSIGNABLE_ROLES.map(([r]) => <td key={r}>{opens(r)}/{GOVERNABLE_TABS.length}</td>)}
+                <td>{GOVERNABLE_TABS.length}/{GOVERNABLE_TABS.length}</td>
+                {canEdit && <td />}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {msg && <p className={css.note}>{msg}</p>}
       {toastNode}
     </div>
   );

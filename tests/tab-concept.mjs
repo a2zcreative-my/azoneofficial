@@ -122,7 +122,7 @@ const BODY = {
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
   "Profile": [],
-  "Users": [],
+  "Users": ["components/portal/users-panel.tsx"], // v1.189.0 - the page is its own tabbed panel
   "Stokis": ["components/portal/stokis-panel.tsx"],
   "Content": ["components/portal/content-panel.tsx"],
 };
@@ -190,7 +190,8 @@ ok("the desk zone is addressable, so a nav stop can reveal it without a second i
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));
 /* v1.188.0 - the four zones became five tabs (attendance-panel.tsx) */
 ok("Attendance: OVERVIEW, MY ATTENDANCE, TEAM ATTENDANCE, SCHEDULE & ROSTER, MANAGEMENT", ['L("Overview", "Gambaran")', 'L("My Attendance", "Kehadiran saya")', 'L("Team Attendance", "Kehadiran pasukan")', 'L("Schedule & Roster", "Jadual & roster")', 'L("Management", "Pengurusan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
-ok("Users: ACCOUNTS, then ACCESS AND LOCATIONS two up", /label=\{L\("Accounts", "Akaun"\)\}/.test(blockOf("Users")) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(blockOf("Users")));
+/* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
+ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMER ACCOUNTS, ROLES & PERMISSIONS, SECURITY & SETTINGS", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customer Accounts", "Akaun pelanggan")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Settings", "Keselamatan & tetapan")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(read("components/portal/users-panel.tsx")));
 ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay", "Security and privacy"].every((c) => blockOf("Profile").includes(`label={L("${c}"`)));
 ok("Finance: THIS MONTH (cash) then the expense zones from the panel", /label=\{L\("This month", "Bulan ini"\)\}>\s*(?:\{\/\*[\s\S]*?\*\/\}\s*)?<CashFlowPanel \/>/.test(blockOf("Finance")) && /<ExpensesPanel reporting=\{<PnlCard \/>\} \/>/.test(blockOf("Finance")));
 ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab === "[^"]+" && \(\s*<div className="erp-stack">/.test(page));

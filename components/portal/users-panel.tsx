@@ -1,33 +1,34 @@
 "use client";
 
-/* USER ACCOUNTS — v1.137.0.
+/* USER ACCOUNTS - v1.137.0, in five tabs from v1.189.0.
  *
  * The CEO, 08-09-2026: *"review Users UI/UX for webview and mobile apps view
- * which is globally css/style use."*
+ * which is globally css/style use."* (v1.137.0 put every surface, chip, field
+ * and button on lib/ui-styles.ts, gave the phone a 44px labelled row action
+ * and made the role editor the house bottom sheet.)
  *
- * This panel was moved verbatim out of the 605 KB portal page in v1.114.0 and
- * never adopted the shared vocabulary that arrived with it. It imported ONE
- * token (`card`) and hand-rolled the rest: eight chips at a size no other
- * panel uses, a Save button that was `btnClass` minus its hover and disabled
- * states, `fieldLabel` retyped twice, and two selects in a spelling found
- * nowhere else — because until v1.137.0 there was no `selectClass` to use.
+ * The owner, 22-10-2026 (v1.189.0): the Users module as five tabs -
  *
- * The phone view had never been designed at all, only inherited:
- *   - the only edit control was a bare ✎ inside an 11px underlined button,
- *     about 12x14 px of target, unlabelled, beside three chips;
- *   - name and email shared one truncated line, so the email — the thing that
- *     tells two accounts apart — was the half that got cut;
- *   - three scroll regions nested inside the page scroll;
- *   - the role editor opened INSIDE a flex-wrap row and reflowed it.
+ *   Overview              the counts, the latest sign-ins, the alerts
+ *   Staff Accounts        the searchable table; Change role (super admin)
+ *   Customer Accounts     Google and self sign-ups; Promote (super admin)
+ *   Roles & Permissions   the permission matrix (tab-access-card.tsx)
+ *   Security & Settings   the sign-in log, Who sees what, the office geofence
  *
- * What this file is now: every surface, chip, field and button from
- * lib/ui-styles.ts; one filtered list drawn twice (tabs on a phone,
- * side-by-side from lg:); a 44px labelled row action; and the editor as the
- * house bottom sheet on a phone, inline from md: up.
+ * The same requests (/staff/users, /staff/users/activity), the same role
+ * editor and the same gates: ONE fetch here feeds every tab, and every body
+ * stays mounted and hidden, never unmounted, so a search typed or a role
+ * half chosen survives a look at another tab. Nothing about an account, a
+ * role, a permission or the worker changed; the worker still enforces every
+ * route (role changes are the super admin's alone, v1.4.157).
  *
  * Held by tests/users-ui.mjs.
  */
-import { L, SectionTabs } from "@/components/portal/page-shared";
+import { L } from "@/components/portal/page-shared";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
+import { AccessReviewCard, GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
+import { Avatar } from "@/components/ui/avatar";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -35,53 +36,29 @@ import { api } from "@/lib/api";
 import { dmy } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
 import {
-  btnClass, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn,
-  fieldLabel, iconBtn, inputClassSm, listBox, selectClass, sheetCard,
+  btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn,
+  fieldLabel, iconBtn, inputClassSm, listBox, selectClass, selectClassSm, sheetCard, tabPill, tabPillOn,
 } from "@/lib/ui-styles";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
+import {
+  eventLabel, eventTone, mytStamp2, roleLabel, statusLabel, type Account, type AuthEvent,
+} from "@/components/portal/users-shared";
+import css from "./users-panel.module.css";
 
-/** v1.4.153: audit timestamps arrive as UTC "YYYY-MM-DD HH:MM:SS" — show MYT. */
-export function mytStamp2(iso: string): string {
-  const d = new Date(iso.replace(" ", "T") + (iso.includes("Z") ? "" : "Z"));
-  if (Number.isNaN(d.getTime())) return iso;
-  const m = new Date(d.getTime() + 8 * 3600 * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(m.getUTCDate())}-${p(m.getUTCMonth() + 1)}-${m.getUTCFullYear()} ${p(m.getUTCHours())}:${p(m.getUTCMinutes())} MYT`;
-}
+export { mytStamp2 };
 
-interface Account {
-  id: number;
-  name: string;
-  full_name?: string | null;
-  email: string;
-  role: string;
-  employment_status?: string | null;
-  is_active: number;
-  left_on?: string | null;
-  rejoined_on?: string | null;
-  totp_enabled?: number;
-}
+const EVENT_CHIP = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
+type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 
-/* v1.137.0 - `capitalize` title-cased every word, so the CEO's own chip read
-   "Ceo" and the HR account read "Hr Admin". A role is a name, not a sentence:
-   the acronyms are spelled, and everything else gets one capital. */
-const ROLE_LABEL: Record<string, string> = {
-  ceo: "CEO", coo: "COO", cco: "CCO", hr_admin: "HR Admin",
-  sales_marketing: "Sales & Marketing", live_host: "Live Host",
-  editor: "Editor", marketing: "Marketing", customer: "Customer",
-};
-const roleLabel = (r: string) => ROLE_LABEL[r] ?? r.replace(/_/g, " ");
-const statusLabel = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-
-interface AuthEvent { action: string; created_at: string; name?: string | null; email?: string | null }
-
-export function UsersPanel({ role, embedded = false }: { role: string; embedded?: boolean }) {
+export function UsersPanel({ role }: { role: string }) {
+  const [view, setView] = useState<UsersView>("overview");
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
   // v1.4.153: user log (recent sign-ins + account events) for monitoring
   const [events, setEvents] = useState<AuthEvent[]>([]);
-  // v1.4.157 (CEO): role changes are SUPER_ADMIN ONLY — Google sign-ups
+  // v1.4.157 (CEO): role changes are SUPER_ADMIN ONLY - Google sign-ups
   // always land as customer, and keeping promotion out of every business
   // account (including the CEO's) means a breached sign-in can't escalate.
   const canEdit = role === "super_admin";
@@ -91,14 +68,12 @@ export function UsersPanel({ role, embedded = false }: { role: string; embedded?
   const [draft, setDraft] = useState<{ role: string; employment_status: string }>({ role: "live_host", employment_status: "part_time" });
   const [saving, setSaving] = useState(false);
   /* v1.137.0 - one find box over both lists. The customer list is Google
-     sign-ups and only grows; finding a person was scrolling. */
+     sign-ups and only grows; finding a person was scrolling. From v1.189.0
+     each list is its own tab, and the box on either one is this one. */
   const [q, setQ] = useState("");
-  /* v1.137.0 - a phone shows ONE list at a time. Two lists of their own
-     height, stacked inside the page scroll, was two scroll traps to get past
-     before the log; from lg: up they still sit side by side. */
-  const [tab, setTab] = useState<"staff" | "customers">("staff");
+  const [sf, setSf] = useState<StaffFilter>("all");
   const { show: showToast, node: toastNode } = useSaveToast();
-  /* v1.77.0 — skeleton until the first fetch lands (accounts and activity
+  /* v1.77.0 - skeleton until the first fetch lands (accounts and activity
      are two requests; each region clears its own skeleton). */
   const [loaded, setLoaded] = useState(false);
   const [eventsLoaded, setEventsLoaded] = useState(false);
@@ -179,82 +154,122 @@ export function UsersPanel({ role, embedded = false }: { role: string; embedded?
     || (u.name ?? "").toLowerCase().includes(needle)
     || roleLabel(u.role).toLowerCase().includes(needle)
     || u.role.replace(/_/g, " ").includes(needle);
+  /* v1.189.0 - the staff table's status pick: everyone, the active, the
+     disabled, or the active ones still missing 2FA */
+  const statusOk = (u: Account) =>
+    sf === "all" || (sf === "active" ? Boolean(u.is_active) : sf === "disabled" ? !u.is_active : Boolean(u.is_active && !u.totp_enabled));
   const allStaff = rows.filter((u) => u.role !== "customer");
   const allCustomers = rows.filter((u) => u.role === "customer");
-  const staffRows = allStaff.filter(match);
+  const staffRows = allStaff.filter(match).filter(statusOk);
   const customerRows = allCustomers.filter(match);
   /* "3 of 12" while a search is on, plain "12" otherwise: a heading that only
      ever says 3 cannot be told from a list that lost nine rows. */
-  const countOf = (shown: number, all: number) => (needle && shown !== all ? `${shown}/${all}` : `${all}`);
+  const countOf = (shown: number, all: number) => (shown !== all ? `${shown}/${all}` : `${all}`);
+  const headcount = allStaff.reduce<Record<string, number>>((m, u) => { if (u.is_active) m[u.role] = (m[u.role] ?? 0) + 1; return m; }, {});
 
-  /* One row, drawn the same in both lists. Name on its own line and the email
-     under it: on a 390px screen they cannot share one without the email —
-     which is what tells two accounts apart — being the half that is cut. */
+  /* One row, drawn the same in both tables. The name on its own line and the
+     email under it: on a 390px screen they cannot share one without the email
+     - which is what tells two accounts apart - being the half that is cut.
+     A phone folds the role, status and 2FA into a line of their own under the
+     identity; a desk lays each out as a column. */
   const accountRow = (u: Account, kind: "staff" | "customer") => (
-    <li key={u.id} className="px-3 py-2">
-      {/* v1.137.0 (second pass, after looking at it at 390px) - the chips
-          were `shrink-0` beside a `flex-1` identity, so four of them squeezed
-          the name to "Siti N..." and the email to "siti.nu...". On a phone
-          the chips take a line of their OWN under the identity (basis-full);
-          from sm: up, where there is room, they sit back on the row. The
-          action stays at the top right in both. */}
-      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{properName(u.full_name || u.name)}</p>
-          <p className="text-muted-foreground truncate text-xs">{u.email}</p>
+    <li key={u.id} className={`${css.row} ${kind === "customer" ? css.rowCust : ""}`}>
+      <div className={css.identity}>
+        <Avatar name={properName(u.full_name || u.name)} photoKey={u.photo_key} size="md" />
+        <div className={css.who}>
+          <span className={css.name}>{properName(u.full_name || u.name)}</span>
+          <span className={css.email}>{u.email}</span>
           {/* v1.137.0 - these dates were a title= tooltip, which a phone
               cannot show at all. The house rule is that the reason is on
               screen. */}
           {(u.left_on || u.rejoined_on) && (
-            <p className="text-muted-foreground mt-0.5 text-[11px]">
+            <span className={css.dates}>
               {u.left_on ? L(`Left ${dmy(u.left_on)}`, `Berhenti ${dmy(u.left_on)}`) : ""}
               {u.left_on && u.rejoined_on ? " · " : ""}
               {u.rejoined_on ? L(`rejoined ${dmy(u.rejoined_on)}`, `kembali ${dmy(u.rejoined_on)}`) : ""}
-            </p>
-          )}
-        </div>
-        <div className="order-3 flex w-full flex-wrap items-center gap-1 sm:order-1 sm:w-auto sm:flex-none sm:justify-end">
-          {kind === "staff" && <span className={chipSmNeutral}>{roleLabel(u.role)}</span>}
-          {kind === "staff" && (u.employment_status ?? "permanent") !== "permanent" && (
-            <span className={["resigned", "terminated"].includes(u.employment_status ?? "") ? chipSmDanger : chipSmNeutral}>
-              {statusLabel(u.employment_status ?? "")}
             </span>
           )}
-          {!u.is_active && <span className={chipSmDanger}>{L("Disabled", "Dinyahaktif")}</span>}
-          {kind === "staff" && !u.totp_enabled && <span className={chipSmWarn}>{L("No 2FA", "Tiada 2FA")}</span>}
         </div>
-        {canEdit && (
-          <div className="order-2 shrink-0">
-            <button type="button" className={iconBtn}
-              aria-label={kind === "staff"
-                ? L(`Change role for ${properName(u.full_name || u.name)}`, `Tukar peranan untuk ${properName(u.full_name || u.name)}`)
-                : L(`Promote ${properName(u.full_name || u.name)}`, `Naik taraf ${properName(u.full_name || u.name)}`)}
-              title={kind === "staff" ? L("Change role", "Tukar peranan") : L("Promote", "Naik taraf")}
-              onClick={() => {
-                setEditId(u.id);
-                /* v1.139.0 - a LEAVER keeps their status. Falling back to
-                   "permanent" for resigned/terminated meant that changing a
-                   leaver's role quietly brought them back into every staff
-                   picker and onto payroll, because the route COALESCEs
-                   whatever the form sends. */
-                setDraft(kind === "staff"
-                  ? { role: u.role, employment_status: u.employment_status ?? "permanent" }
-                  : { role: "live_host", employment_status: "part_time" });
-              }}>
-              <AppIcon name="edit" />
-            </button>
+      </div>
+      <div className={css.chips}>
+        {kind === "staff" && (
+          <div className={css.cell}>
+            <span className={chipSmNeutral}>{roleLabel(u.role)}</span>
+            {(u.employment_status ?? "permanent") !== "permanent" && (
+              <span className={["resigned", "terminated"].includes(u.employment_status ?? "") ? chipSmDanger : chipSmNeutral}>
+                {statusLabel(u.employment_status ?? "")}
+              </span>
+            )}
+          </div>
+        )}
+        <div className={css.cell}>
+          {u.is_active
+            ? <span className={chipSmSuccess}>{L("Active", "Aktif")}</span>
+            : <span className={chipSmDanger}>{L("Disabled", "Dinyahaktif")}</span>}
+        </div>
+        {kind === "staff" ? (
+          <div className={css.cell}>
+            {u.totp_enabled
+              ? <span className={chipSmSuccess}>{L("2FA on", "2FA hidup")}</span>
+              : <span className={chipSmWarn}>{L("No 2FA", "Tiada 2FA")}</span>}
+          </div>
+        ) : (
+          <div className={css.cell}>
+            <span className={chipSmNeutral}>{L("No staff access", "Tiada akses kakitangan")}</span>
           </div>
         )}
       </div>
-      {/* The desk panel. `hidden` is the ONLY base display class here — the
+      {canEdit && (
+        <div className={css.act}>
+          <button type="button" className={iconBtn}
+            aria-label={kind === "staff"
+              ? L(`Change role for ${properName(u.full_name || u.name)}`, `Tukar peranan untuk ${properName(u.full_name || u.name)}`)
+              : L(`Promote ${properName(u.full_name || u.name)}`, `Naik taraf ${properName(u.full_name || u.name)}`)}
+            title={kind === "staff" ? L("Change role", "Tukar peranan") : L("Promote", "Naik taraf")}
+            onClick={() => {
+              setEditId(u.id);
+              /* v1.139.0 - a LEAVER keeps their status. Falling back to
+                 "permanent" for resigned/terminated meant that changing a
+                 leaver's role quietly brought them back into every staff
+                 picker and onto payroll, because the route COALESCEs
+                 whatever the form sends. */
+              setDraft(kind === "staff"
+                ? { role: u.role, employment_status: u.employment_status ?? "permanent" }
+                : { role: "live_host", employment_status: "part_time" });
+            }}>
+            <AppIcon name="edit" />
+          </button>
+        </div>
+      )}
+      {/* The desk panel. `hidden` is the ONLY base display class here - the
           v1.15.0 lesson: two unprefixed display utilities on one element let
           the stylesheet order decide, and it decided wrong. */}
       {editId === u.id && (
-        <div className="bg-secondary/40 mt-2 hidden w-full grid-cols-2 items-end gap-2 rounded-lg p-2 md:grid lg:flex lg:flex-wrap">
+        <div className={`${css.editor} bg-secondary/40 mt-2 hidden w-full grid-cols-2 items-end gap-2 rounded-lg p-2 md:grid lg:flex lg:flex-wrap`}>
           {roleFields(u)}
         </div>
       )}
     </li>
+  );
+
+  /* the find box and the table's head, drawn the same on both lists */
+  const toolbar = (shown: number, all: number, withFilter: boolean) => (
+    <div className={css.toolbar}>
+      <label className={css.search}>
+        <AppIcon name="search" className={css.searchIcon} />
+        <input className={inputClassSm} value={q} placeholder={L("Find by name, email or role", "Cari ikut nama, e-mel atau peranan")}
+          aria-label={L("Find an account", "Cari akaun")} onChange={(e) => setQ(e.target.value)} />
+      </label>
+      {withFilter && (
+        <select className={selectClassSm} value={sf} aria-label={L("Show", "Papar")} onChange={(e) => setSf(e.target.value as StaffFilter)}>
+          <option value="all">{L("All accounts", "Semua akaun")}</option>
+          <option value="active">{L("Active", "Aktif")}</option>
+          <option value="disabled">{L("Disabled", "Dinyahaktif")}</option>
+          <option value="no2fa">{L("Active without 2FA", "Aktif tanpa 2FA")}</option>
+        </select>
+      )}
+      <span className={css.count}>{L(`${countOf(shown, all)} shown`, `${countOf(shown, all)} dipaparkan`)}</span>
+    </div>
   );
 
   const editing = rows.find((u) => u.id === editId) ?? null;
@@ -272,134 +287,194 @@ export function UsersPanel({ role, embedded = false }: { role: string; embedded?
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
   }, [editing, canEdit]);
 
+  const tabs: readonly (readonly [UsersView, string])[] = [
+    ["overview", L("Overview", "Gambaran")],
+    ["staff", L("Staff Accounts", "Akaun kakitangan")],
+    ["customers", L("Customer Accounts", "Akaun pelanggan")],
+    ["roles", L("Roles & Permissions", "Peranan & kebenaran")],
+    ["security", L("Security & Settings", "Keselamatan & tetapan")],
+  ];
+  const holds = ["ceo", "super_admin"].includes(role); // Who sees what, and the matrix's editor
+  const geofence = ["super_admin", "ceo", "coo"].includes(role);
+  const adminDoor = ["super_admin", "admin"].includes(role);
+
   return (
-    <section className={embedded ? "" : card}>
+    <TabPage className={css.page}>
       {toastNode}
-      <p className="text-sm font-semibold">{L("User accounts", "Akaun pengguna")}</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
-        {canEdit
-          ? L("Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin.",
-              "Tukar peranan menetapkan peranan dan status pekerjaan akaun — kakitangan separuh masa tidak layak OT. Kata laluan dan penyahaktifan kekal di /admin.")
-          : L("Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role.",
-              "Baca sahaja di sini — penukaran peranan dibuat oleh super admin sistem sahaja, jadi tiada akaun perniagaan yang log masuk (atau log masuk Google yang dicerobohi) boleh menaikkan peranan.")}
-      </p>
+      <div role="tablist" className={`erp-pill-row ${css.tabs}`}>
+        {tabs.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k}
+            className={view === k ? tabPillOn : tabPill} onClick={() => setView(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
-      {/* v1.137.0 - the find box, over BOTH lists at once, and the phone's
-          list switch beside it. */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="relative min-w-0 flex-1 sm:max-w-64">
-          <AppIcon name="search" className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" />
-          <input className={`${inputClassSm} w-full pl-7`} value={q} placeholder={L("Find by name, email or role", "Cari ikut nama, e-mel atau peranan")}
-            aria-label={L("Find an account", "Cari akaun")} onChange={(e) => setQ(e.target.value)} />
-        </label>
-        <SectionTabs className="lg:hidden" value={tab} onChange={setTab}
-          tabs={[["staff", `${L("Staff", "Kakitangan")} ${countOf(staffRows.length, allStaff.length)}`],
-                 ["customers", `${L("Customers", "Pelanggan")} ${countOf(customerRows.length, allCustomers.length)}`]] as const} />
+      <div hidden={view !== "overview"} className={css.body}>
+        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={setView} />
       </div>
 
-      {/* v1.4.161: staff + customer lists sit side-by-side on desktop to cut
-          the scroll in half; on a phone the tabs above choose one. */}
-      <div className="mt-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
-        <div className={`${tab === "staff" ? "" : "hidden"} lg:block`}>
-          {/* v1.4.167: both columns carry the same heading + one-line description
-              structure so the two list boxes top-align. */}
-          <p className="text-sm font-semibold">
-            {L("Staff accounts", "Akaun kakitangan")}{" "}
-            <span className="text-muted-foreground font-normal">{countOf(staffRows.length, allStaff.length)}</span>
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Role always shows — chips flag exceptions only (part-time, disabled, missing 2FA).",
-               "Peranan sentiasa dipaparkan — cip menanda pengecualian sahaja (separuh masa, dinyahaktif, tiada 2FA).")}
-          </p>
-          <ul className={`${listBox} mt-2 max-h-[60vh] max-h-[60svh] md:max-h-80`}>
-            {/* v1.77.0 — skeleton until the first fetch lands. */}
-            {!loaded && <SkelRows rows={6} className="px-3" />}
-            {loaded && staffRows.length === 0 && (
-              <li className="text-muted-foreground px-3 py-2 text-sm">
-                {allStaff.length === 0
-                  ? L("No staff accounts yet.", "Tiada akaun kakitangan lagi.")
-                  : L("No staff account matches that.", "Tiada akaun kakitangan yang sepadan.")}
-              </li>
-            )}
-            {loaded && staffRows.map((u) => accountRow(u, "staff"))}
-          </ul>
-          {allStaff.some((u) => !u.totp_enabled && u.is_active) && (
-            <p className="text-warning mt-2 text-xs font-medium">
-              <AppIcon name="warning" className="mr-1 h-3.5 w-3.5" />
-              {(() => {
-                const no2fa = allStaff.filter((u) => !u.totp_enabled && u.is_active);
-                return `${no2fa.length} ${no2fa.length === 1
-                  ? L("active account without 2FA — worth chasing:", "akaun aktif tanpa 2FA — perlu dikejar:")
-                  : L("active accounts without 2FA — worth chasing:", "akaun aktif tanpa 2FA — perlu dikejar:")} ${no2fa.map((u) => firstName(u.name)).join(", ")}`;
-              })()}
-            </p>
-          )}
-        </div>
-
-        {/* v1.4.156: Google sign-ups land here as customers — the CEO promotes
-            them into part-time roles (e.g. part-time live host) from this list. */}
-        <div className={`${tab === "customers" ? "" : "hidden"} mt-4 lg:mt-0 lg:block`}>
-          <p className="text-sm font-semibold">
-            {L("Customer accounts — Google & self sign-ups", "Akaun pelanggan — Google & daftar sendiri")}{" "}
-            <span className="text-muted-foreground font-normal">{countOf(customerRows.length, allCustomers.length)}</span>
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {canEdit
-              ? L("Promote here when someone joins — personal emails hold part-time roles only.",
-                  "Naik taraf di sini apabila seseorang menyertai — e-mel peribadi memegang peranan separuh masa sahaja.")
-              : L("Sign-ups land here with zero staff access — promotions by the super admin only.",
-                  "Pendaftaran mendarat di sini tanpa akses kakitangan — naik taraf oleh super admin sahaja.")}
-          </p>
-          <ul className={`${listBox} mt-2 max-h-[60vh] max-h-[60svh] md:max-h-80`}>
-            {/* v1.77.0 — skeleton until the first fetch lands. */}
-            {!loaded && <SkelRows rows={4} className="px-3" />}
-            {loaded && customerRows.length === 0 && (
-              <li className="text-muted-foreground px-3 py-2 text-sm">
-                {allCustomers.length === 0
-                  ? L("No customer accounts yet.", "Tiada akaun pelanggan lagi.")
-                  : L("No customer account matches that.", "Tiada akaun pelanggan yang sepadan.")}
-              </li>
-            )}
-            {loaded && customerRows.map((u) => accountRow(u, "customer"))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="border-border mt-4 border-t pt-3">
-        <p className="text-sm font-semibold">{L("User log — recent sign-ins & account events", "Log pengguna — log masuk & peristiwa akaun terkini")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.",
-             "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA. Audit penuh berada di /admin.")}
-        </p>
-        <div className="mt-2 max-h-56 overflow-y-auto overscroll-contain pr-1">
-          {/* v1.137.0 — the skeleton is the shape of what arrives: these are
-              divided rows, not a table, and SkelTable drew three columns that
-              never appeared. */}
-          {!eventsLoaded && <SkelRows rows={5} />}
-          {eventsLoaded && events.length === 0 && (
-            <p className="text-muted-foreground text-sm">{L("No events recorded yet.", "Tiada peristiwa direkodkan lagi.")}</p>
-          )}
-          {eventsLoaded && events.map((e, i) => (
-            /* v1.137.0 - on a phone the identity took what was left of the
-               line after a chip and a timestamp, which was "Nurul Ai...". It
-               gets the line to itself below sm:, and shares one from sm: up. */
-            <div key={i} className="border-border flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 border-b py-1.5 text-xs last:border-0">
-              <span className="w-full min-w-0 truncate sm:w-auto sm:flex-1">
-                <span className="font-medium">{properName(e.name ?? "")}</span>
-                <span className="text-muted-foreground"> · {e.email ?? ""}</span>
-              </span>
-              <span className="flex flex-wrap items-center justify-end gap-2">
-                <span className={e.action.includes("2fa_enabled") ? chipSmSuccess
-                  : e.action.includes("2fa") ? chipSmInfo
-                  : e.action.includes("password") ? chipSmWarn : chipSmNeutral}>
-                  {e.action.replace("auth.", "").replace(/_/g, " ")}
-                </span>
-                <span className="text-muted-foreground">{mytStamp2(e.created_at)}</span>
-              </span>
+      <div hidden={view !== "staff"} className={css.body}>
+        <TabZone label={L("Staff accounts", "Akaun kakitangan")}>
+          <section className={card}>
+            <div className={css.head}>
+              <div className={css.headLead}>
+                <span className={css.well}><AppIcon name="person" /></span>
+                <div className={css.headText}>
+                  <p className={css.title}>
+                    {L("Staff accounts", "Akaun kakitangan")}{" "}
+                    <span className={css.sub}>{countOf(staffRows.length, allStaff.length)}</span>
+                  </p>
+                  <p className={css.sub}>
+                    {canEdit
+                      ? L("Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin.",
+                          "Tukar peranan menetapkan peranan dan status pekerjaan akaun — kakitangan separuh masa tidak layak OT. Kata laluan dan penyahaktifan kekal di /admin.")
+                      : L("Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role.",
+                          "Baca sahaja di sini — penukaran peranan dibuat oleh super admin sistem sahaja, jadi tiada akaun perniagaan yang log masuk (atau log masuk Google yang dicerobohi) boleh menaikkan peranan.")}
+                  </p>
+                </div>
+              </div>
+              <div className={css.quick}>
+                <button type="button" className={btnSm} onClick={() => setView("roles")}><AppIcon name="lock" />{L("Roles & permissions", "Peranan & kebenaran")}</button>
+                {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" />{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</Link>}
+              </div>
             </div>
-          ))}
-        </div>
+            {toolbar(staffRows.length, allStaff.length, true)}
+            <div className={css.table}>
+              <div className={css.header} aria-hidden="true">
+                <span>{L("Account", "Akaun")}</span><span>{L("Role", "Peranan")}</span><span>{L("Status", "Status")}</span><span>2FA</span><span>{canEdit ? L("Manage", "Urus") : ""}</span>
+              </div>
+              <ul className={`${css.list} ${css.scroll}`}>
+                {/* v1.77.0 - skeleton until the first fetch lands. */}
+                {!loaded && <li><SkelRows rows={6} className="px-3" /></li>}
+                {loaded && staffRows.length === 0 && (
+                  <li className={css.empty}>
+                    {allStaff.length === 0
+                      ? L("No staff accounts yet.", "Tiada akaun kakitangan lagi.")
+                      : L("No staff account matches that.", "Tiada akaun kakitangan yang sepadan.")}
+                  </li>
+                )}
+                {loaded && staffRows.map((u) => accountRow(u, "staff"))}
+              </ul>
+            </div>
+            {allStaff.some((u) => !u.totp_enabled && u.is_active) && (
+              <p className={`${css.note} ${css.noteWarn}`}>
+                <AppIcon name="warning" className={css.noteIcon} />
+                {(() => {
+                  const no2fa = allStaff.filter((u) => !u.totp_enabled && u.is_active);
+                  return `${no2fa.length} ${no2fa.length === 1
+                    ? L("active account without 2FA — worth chasing:", "akaun aktif tanpa 2FA — perlu dikejar:")
+                    : L("active accounts without 2FA — worth chasing:", "akaun aktif tanpa 2FA — perlu dikejar:")} ${no2fa.map((u) => firstName(u.name)).join(", ")}`;
+                })()}
+              </p>
+            )}
+          </section>
+        </TabZone>
+      </div>
+
+      <div hidden={view !== "customers"} className={css.body}>
+        {/* v1.4.156: Google sign-ups land here as customers - the CEO promotes
+            them into part-time roles (e.g. part-time live host) from this list. */}
+        <TabZone label={L("Customer accounts", "Akaun pelanggan")}>
+          <section className={card}>
+            <div className={css.head}>
+              <div className={css.headLead}>
+                <span className={css.well}><AppIcon name="cart" /></span>
+                <div className={css.headText}>
+                  <p className={css.title}>
+                    {L("Customer accounts — Google & self sign-ups", "Akaun pelanggan — Google & daftar sendiri")}{" "}
+                    <span className={css.sub}>{countOf(customerRows.length, allCustomers.length)}</span>
+                  </p>
+                  <p className={css.sub}>
+                    {canEdit
+                      ? L("Promote here when someone joins — personal emails hold part-time roles only.",
+                          "Naik taraf di sini apabila seseorang menyertai — e-mel peribadi memegang peranan separuh masa sahaja.")
+                      : L("Sign-ups land here with zero staff access — promotions by the super admin only.",
+                          "Pendaftaran mendarat di sini tanpa akses kakitangan — naik taraf oleh super admin sahaja.")}
+                  </p>
+                </div>
+              </div>
+            </div>
+            {toolbar(customerRows.length, allCustomers.length, false)}
+            <div className={css.table}>
+              <div className={`${css.header} ${css.rowCust}`} aria-hidden="true">
+                <span>{L("Account", "Akaun")}</span><span>{L("Status", "Status")}</span><span>{L("Access", "Akses")}</span><span>{canEdit ? L("Manage", "Urus") : ""}</span>
+              </div>
+              <ul className={`${css.list} ${css.scroll}`}>
+                {/* v1.77.0 - skeleton until the first fetch lands. */}
+                {!loaded && <li><SkelRows rows={4} className="px-3" /></li>}
+                {loaded && customerRows.length === 0 && (
+                  <li className={css.empty}>
+                    {allCustomers.length === 0
+                      ? L("No customer accounts yet.", "Tiada akaun pelanggan lagi.")
+                      : L("No customer account matches that.", "Tiada akaun pelanggan yang sepadan.")}
+                  </li>
+                )}
+                {loaded && customerRows.map((u) => accountRow(u, "customer"))}
+              </ul>
+            </div>
+          </section>
+        </TabZone>
+      </div>
+
+      <div hidden={view !== "roles"} className={css.body}>
+        <TabZone label={L("Permission matrix", "Matriks kebenaran")}>
+          <TabAccessCard canEdit={holds} headcount={headcount} />
+        </TabZone>
+      </div>
+
+      <div hidden={view !== "security"} className={css.body}>
+        <TabZone label={L("Sign-in log", "Log log masuk")}>
+          <section className={card}>
+            <div className={css.head}>
+              <div className={css.headLead}>
+                <span className={css.well}><AppIcon name="access" /></span>
+                <div className={css.headText}>
+                  <p className={css.title}>{L("User log — recent sign-ins & account events", "Log pengguna — log masuk & peristiwa akaun terkini")}</p>
+                  <p className={css.sub}>
+                    {L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.",
+                       "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA. Audit penuh berada di /admin.")}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className={`${listBox} ${css.logBox} mt-3`}>
+              {/* v1.137.0 - the skeleton is the shape of what arrives: these are
+                  divided rows, not a table, and SkelTable drew three columns that
+                  never appeared. */}
+              {!eventsLoaded && <SkelRows rows={5} />}
+              {eventsLoaded && events.length === 0 && (
+                <p className={css.empty}>{L("No events recorded yet.", "Tiada peristiwa direkodkan lagi.")}</p>
+              )}
+              {eventsLoaded && events.length > 0 && (
+                <ul className={css.list}>
+                  {events.map((e, i) => (
+                    /* v1.137.0 - on a phone the identity took what was left of the
+                       line after a chip and a timestamp, which was "Nurul Ai...". It
+                       gets the line to itself below sm:, and shares one from sm: up. */
+                    <li key={i} className={css.feedRow}>
+                      <div className={css.who}>
+                        <span className={css.name}>{properName(e.name ?? "")}</span>
+                        <span className={css.email}>{e.email ?? ""}</span>
+                      </div>
+                      <div className={css.feedMeta}>
+                        <span className={EVENT_CHIP[eventTone(e.action)]}>{eventLabel(e.action)}</span>
+                        <span>{mytStamp2(e.created_at)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        </TabZone>
+        {(holds || geofence) && (
+          <TabZone label={L("Access and locations", "Akses dan lokasi")} cols={2}>
+            {holds && <AccessReviewCard />}
+            {geofence && <GeofenceCard />}
+          </TabZone>
+        )}
       </div>
 
       {/* v1.137.0 — THE PHONE'S EDITOR. Two selects and a Save inside a
@@ -426,6 +501,6 @@ export function UsersPanel({ role, embedded = false }: { role: string; embedded?
           </div>
         </div>
       )}
-    </section>
+    </TabPage>
   );
 }
