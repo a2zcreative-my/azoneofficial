@@ -35,17 +35,16 @@ import { usePortal } from "@/components/portal/portal-provider";
 import { InstallCoach } from "@/components/ui/install-coach";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/company-monitor";
-import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 /* v1.103.0 (roadmap phase 01) - every tab panel that is NOT on the first
    screen arrives through next/dynamic, one chunk per module, fetched the
    first time its tab is opened. components/portal/lazy-panels.tsx explains
    why, and tests/lazy-panels.mjs fails the build if one of them is ever
    imported statically here again. */
 import {
-  CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
+  CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
   HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
-  AttendancePanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
+  AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
@@ -178,20 +177,11 @@ export default function PortalPage() {
               ].includes(user.role)}
             />
           )}
-          {activeTab === "HR" && (
-            /* v1.173.0: the zones are the panel's own (role-panels.tsx HrPanel). */
-            <TabPage>
-              <HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes(
-                user.role
-              ) ? (
-                <HrAdminPanel />
-              ) : (
-                <PermissionPlaceholder
-                  title={L("HR Administration", "Pentadbiran HR")}
-                />
-              )} />
-            </TabPage>
-          )}
+          {/* v1.192.0 - the HR page is its own tabbed panel (hr-page.tsx):
+              Overview, Reports, Calendar & Holidays, Employee Lifecycle,
+              Payroll & Payslips, HR Administration. The administration gate
+              (hr_admin, ceo, super_admin, admin) moved inside it, unchanged. */}
+          {activeTab === "HR" && <HrPage user={user} go={setTab} canOpen={canOpen} />}
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
             /* v1.173.0: the zones are the panel's own (staff-directory.tsx). */

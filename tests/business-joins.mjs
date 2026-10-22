@@ -261,7 +261,7 @@ const idx = read("worker/src/index.ts");
   const m144 = has("worker/migrations/0144_people.sql") ? read("worker/migrations/0144_people.sql").replace(/^--.*$/gm, "") : "";
   ok("0144 only adds six tables", OWN5.every((t) => new RegExp(`CREATE TABLE IF NOT EXISTS ${t}`).test(m144)) && !/ALTER TABLE|DROP |UPDATE |DELETE |INSERT /.test(m144));
   ok("0144 is registered and probed", /"0144_people",/.test(idx) && /\["0144 \(joining and leaving, probation, letters, training, approval limit\)"/.test(idx));
-  ok("HR shows People in its own zone; Leave shows the calendar to managers", /<PeoplePanel \/>/.test(read("components/portal/role-panels.tsx")) && /<LeaveCalendar \/>/.test(read("components/portal/leave.tsx")));
+  ok("HR shows People in its own zone; Leave shows the calendar to managers", /* v1.192.0 - its own tab now */ /<PeoplePanel tab=\{people\} onTab=\{setPeople\} \/>/.test(read("components/portal/hr-page.tsx")) && /<LeaveCalendar \/>/.test(read("components/portal/leave.tsx")));
 }
 
 /* ---- docs: what every AI tool reads keeps up with the code ---- */

@@ -73,8 +73,14 @@ interface Overview {
 
 const errOf = (r: { data?: unknown }) => (r.data as { error?: { message?: string } } | null)?.error?.message;
 
-export function PeoplePanel() {
-  const [tab, setTab] = useState<"lifecycle" | "probation" | "letters" | "training">("lifecycle");
+export type PeopleTab = "lifecycle" | "probation" | "letters" | "training";
+
+/* v1.192.0 - the HR page's Employee Lifecycle tab may hold the pill (its
+   Overview opens Training or Probation directly); alone it holds its own. */
+export function PeoplePanel({ tab: tabProp, onTab }: { tab?: PeopleTab; onTab?: (t: PeopleTab) => void } = {}) {
+  const [tabOwn, setTabOwn] = useState<PeopleTab>("lifecycle");
+  const tab = tabProp ?? tabOwn;
+  const setTab = (t: PeopleTab) => { setTabOwn(t); onTab?.(t); };
   const [data, setData] = useState<Overview | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [tick, setTick] = useState(0);

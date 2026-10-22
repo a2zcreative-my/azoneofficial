@@ -73,6 +73,8 @@ const ANCHOR: Partial<Record<DeskItem["bucket"], string>> = {
   punches: "pending-punches",
   claims: "claims-pending",
 };
+/** v1.192.0 - the anchor a Desk item opens at, for the HR page's pending list */
+export const deskAnchor = (b: DeskItem["bucket"]): string | undefined => ANCHOR[b];
 const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   leave: ["Leave", "Cuti"],
   claims: ["Claims", "Tuntutan"],

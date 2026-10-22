@@ -109,7 +109,7 @@ const BODY = {
   "Threads": ["components/portal/threads-panel.tsx#ThreadsPanel"],
   "ELFIA Store": ["components/portal/elfia-store-panel.tsx#ElfiaStorePanel"],
   "ELFIA Traffic": ["components/portal/elfia-traffic-panel.tsx"],
-  "HR": ["components/portal/role-panels.tsx#HrPanel"],
+  "HR": ["components/portal/hr-page.tsx"], // v1.192.0 - the page is its own tabbed panel
   "Attendance": ["components/portal/attendance-panel.tsx"], // v1.188.0 - the page is its own tabbed panel
   "Tasks": ["components/portal/tasks.tsx"],
   "Announcements": ["components/portal/announcements.tsx#Announcements"],

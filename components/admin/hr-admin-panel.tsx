@@ -2,7 +2,9 @@
 import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
- * HR / payroll administration (v1.4.16), for the admin Staff area:
+ * HR / payroll administration (v1.4.16), for the admin Staff area (and,
+ * since v1.192.0, the HR page's Calendar & Holidays and Payroll & Payslips
+ * tabs - the same two cards):
  *   - Public holidays / company calendar (feeds leave day-counting)
  *   - Payslip: attendance + approved-leave summary for a month, printable
  */
@@ -11,8 +13,9 @@ import { makeApi } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { useCallback, useEffect, useState } from "react";
 import { esc } from "@/lib/escape-html";
-import { btnSm, card } from "@/lib/ui-styles";
-import { dmy } from "@/lib/format";
+import { btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmWarn, fieldLabel, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { dmy, mytToday } from "@/lib/format";
+import { AppIcon } from "@/components/ui/app-icon";
 import { rowBtnDanger } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
 /* v1.28.0 — the printed HR report is an operational artefact issued today,
@@ -24,12 +27,12 @@ import { Skel } from "@/components/ui/skeleton"; // v1.77.0
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
+import css from "./hr-admin-panel.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 
 
-const input = "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
-const btn = "bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium";
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Display-only BM labels for API values — the values themselves never change.
 const HOLIDAY_KIND_MS: Record<string, string> = {
@@ -43,157 +46,222 @@ interface Holiday { id: number; holiday_date: string; name: string; kind: string
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
 
 export function HrAdminPanel() {
+  /* v1.192.0 - the two cards are their own components now, so the HR page can
+     put each under its own tab (Calendar & Holidays, Payroll & Payslips). The
+     admin page still shows both here, one after the other, as before. */
+  return (
+    <div className={css.stack}>
+      <HolidaysCard />
+      <PayslipCard />
+    </div>
+  );
+}
+
+const KIND_CHIP: Record<string, string> = { public: chipSmInfo, company: chipSmNeutral, replacement: chipSmWarn };
+
+/** Public holidays & company calendar: add and remove, the existing rules
+    (a weekend public holiday auto-creates its Monday replacement, server-side). */
+export function HolidaysCard() {
   const { show: showToast, node: toastNode } = useSaveToast();
-  const [staff, setStaff] = useState<Staff[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [holDraft, setHolDraft] = useState({ holiday_date: "", name: "", kind: "public" });
-
-  /* v1.145.0 - entYear outlives the entitlement editor: the holidays list
-     above is fetched for the same year. */
+  /* v1.145.0 - the holidays list is fetched for the current year. */
   const [entYear] = useState(new Date().getFullYear());
+  const today = mytToday();
 
-  const [payUser, setPayUser] = useState(0);
-  const [payMonth, setPayMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
-  const [payslip, setPayslip] = useState<PayslipData | null>(null);
-
-  const load = useCallback(async () => {
-    const u = await api<{ users?: Staff[], staff?: Staff[] }>(`/users`);
-    const h = await api<{ holidays: Holiday[] }>(`/holidays?year=${entYear}`);
-    if (u.data) {
-      const list = u.data.users ?? u.data.staff ?? [];
-      setStaff(list.filter((x) => x.role !== "customer"));
-    }
-    if (h.data) setHolidays(h.data.holidays ?? []);
-    setLoaded(true);
-  }, [entYear]);
+  /* a write bumps the tick; the read is set from its promise, never
+     synchronously from the effect */
+  const [tick, setTick] = useState(0);
+  const load = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => {
-    void load();
-  }, [load]);
+    let live = true;
+    void api<{ holidays: Holiday[] }>(`/holidays?year=${entYear}`).then((h) => {
+      if (!live) return;
+      if (h.data) setHolidays(h.data.holidays ?? []);
+      setLoaded(true);
+    });
+    return () => { live = false; };
+  }, [entYear, tick]);
 
-
+  const upcoming = holidays.filter((h) => h.holiday_date >= today).length;
   return (
-    <div className="space-y-4 md:space-y-6">
+    <section className={card} aria-label={L("Public holidays & company calendar", "Cuti umum & kalendar syarikat")}>
       {toastNode}
-      {/* Holidays */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("Public holidays & company calendar", "Cuti umum & kalendar syarikat")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L(
-            "Used so leave day-counting, attendance and payroll don't treat a holiday as a working day — and shown in red on everyone's events calendar. Adding a public holiday on a Saturday/Sunday auto-creates its Monday replacement (next free working day if Monday is taken); pick kind \"replacement\" to add one manually, or Remove an auto row you don't want.",
-            "Digunakan supaya kiraan hari cuti, kehadiran dan gaji tidak menganggap hari cuti sebagai hari bekerja — dan dipaparkan merah pada kalendar acara semua orang. Menambah cuti umum pada Sabtu/Ahad akan mencipta gantian Isnin secara automatik (hari bekerja kosong berikutnya jika Isnin sudah diambil); pilih jenis \"gantian\" untuk menambah secara manual, atau Buang baris auto yang anda tidak mahu.",
-          )}
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <input type="date" className={`${input} max-w-40`} value={holDraft.holiday_date}
+      <div className={css.head}>
+        <span className={`${css.well} ${css.red}`}><AppIcon name="holiday" /></span>
+        <div className={css.headText}>
+          <p className={css.title}>{L("Public holidays & company calendar", "Cuti umum & kalendar syarikat")} <span className={css.muted}>· {entYear}</span></p>
+          <p className={css.sub}>
+            {L(
+              "Used so leave day-counting, attendance and payroll don't treat a holiday as a working day — and shown in red on everyone's events calendar. Adding a public holiday on a Saturday/Sunday auto-creates its Monday replacement (next free working day if Monday is taken); pick kind \"replacement\" to add one manually, or Remove an auto row you don't want.",
+              "Digunakan supaya kiraan hari cuti, kehadiran dan gaji tidak menganggap hari cuti sebagai hari bekerja — dan dipaparkan merah pada kalendar acara semua orang. Menambah cuti umum pada Sabtu/Ahad akan mencipta gantian Isnin secara automatik (hari bekerja kosong berikutnya jika Isnin sudah diambil); pilih jenis \"gantian\" untuk menambah secara manual, atau Buang baris auto yang anda tidak mahu.",
+            )}
+          </p>
+        </div>
+        {loaded && <span className={chipSmNeutral}>{L(`${upcoming} upcoming`, `${upcoming} akan datang`)}</span>}
+      </div>
+      <div className={css.form}>
+        <label className={css.field}><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
+          <input type="date" className={inputClassSm} value={holDraft.holiday_date}
             onChange={(e) => setHolDraft((d) => ({ ...d, holiday_date: e.target.value }))} />
-          <input className={`${input} max-w-56`} placeholder={L("Holiday name", "Nama cuti")} value={holDraft.name}
+        </label>
+        <label className={`${css.field} ${css.grow}`}><span className={fieldLabel}>{L("Holiday name", "Nama cuti")}</span>
+          <input className={inputClassSm} placeholder={L("Holiday name", "Nama cuti")} value={holDraft.name}
             onChange={(e) => setHolDraft((d) => ({ ...d, name: e.target.value }))} />
-          <select className={`${input} max-w-36`} value={holDraft.kind}
+        </label>
+        <label className={css.field}><span className={fieldLabel}>{L("Kind", "Jenis")}</span>
+          <select className={selectClassSm} value={holDraft.kind}
             onChange={(e) => setHolDraft((d) => ({ ...d, kind: e.target.value }))}>
             {["public", "company", "replacement"].map((k) => <option key={k} value={k}>{L(k, HOLIDAY_KIND_MS[k] ?? k)}</option>)}
           </select>
-          <button type="button" className={btn}
-            onClick={async () => {
-              if (!holDraft.holiday_date || !holDraft.name.trim()) {
-                showToast(L("No changes", "Tiada perubahan"), L("A holiday needs both a date and a name", "Cuti memerlukan tarikh dan nama"), "notice");
-                return;
-              }
-              const r = await api(`/holidays`, { method: "POST", body: JSON.stringify(holDraft) });
-              if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), L("Could not add that holiday — try again", "Tidak dapat menambah cuti itu — cuba lagi"), "notice"); return; }
-              showToast(L("Saved", "Disimpan"), `${holDraft.name} ${L("added — payroll working days recount from this", "ditambah — hari bekerja gaji dikira semula dari ini")}`);
-              setHolDraft({ holiday_date: "", name: "", kind: "public" });
-              void load();
-            }}>{L("Add", "Tambah")}</button>
-        </div>
-        <ul className="mt-3 grid grid-cols-1 max-h-64 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
-          {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
-              holiday rows (date · name left, Remove right) in the same 1/2/3
-              column grid. */}
-          {!loaded && Array.from({ length: 6 }, (_, i) => (
-            <li key={`skel-${i}`} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5" aria-busy="true">
-              <Skel className="h-4 w-40 max-w-full" />
-              <Skel className="h-5 w-14" />
-            </li>
-          ))}
-          {holidays.map((h) => (
-            <li key={h.id} className="border-border flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm">
-              <span>{dmy(h.holiday_date)} · {h.name}</span>
-              <button type="button" className={rowBtnDanger}
-                onClick={async () => {
-                  const r = await api(`/holidays/${h.id}`, { method: "DELETE" });
-                  showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-                    r.ok ? `${h.name} ${L("removed — payroll working days recount", "dibuang — hari bekerja gaji dikira semula")}` : L("Could not remove that holiday", "Tidak dapat membuang cuti itu"),
-                    r.ok ? undefined : "notice");
-                  void load();
-                }}>
-                {L("Remove", "Buang")}
-              </button>
-            </li>
-          ))}
-          {loaded && holidays.length === 0 && <li className="text-muted-foreground text-sm">{L("No holidays yet.", "Belum ada cuti lagi.")}</li>}
-        </ul>
+        </label>
+        <button type="button" className={btnSmPrimary}
+          onClick={async () => {
+            if (!holDraft.holiday_date || !holDraft.name.trim()) {
+              showToast(L("No changes", "Tiada perubahan"), L("A holiday needs both a date and a name", "Cuti memerlukan tarikh dan nama"), "notice");
+              return;
+            }
+            const r = await api(`/holidays`, { method: "POST", body: JSON.stringify(holDraft) });
+            if (!r.ok) { showToast(L("No changes", "Tiada perubahan"), L("Could not add that holiday — try again", "Tidak dapat menambah cuti itu — cuba lagi"), "notice"); return; }
+            showToast(L("Saved", "Disimpan"), `${holDraft.name} ${L("added — payroll working days recount from this", "ditambah — hari bekerja gaji dikira semula dari ini")}`);
+            setHolDraft({ holiday_date: "", name: "", kind: "public" });
+            void load();
+          }}><AppIcon name="add" />{L("Add", "Tambah")}</button>
       </div>
+      <ul className={css.holidays} aria-label={L("Holidays this year", "Cuti tahun ini")}>
+        {/* v1.77.0 — skeleton until the first fetch lands */}
+        {!loaded && Array.from({ length: 6 }, (_, i) => (
+          <li key={`skel-${i}`} className={css.holiday} aria-busy="true">
+            <Skel className={css.skelLine} />
+          </li>
+        ))}
+        {holidays.map((h) => (
+          <li key={h.id} className={`${css.holiday} ${h.holiday_date < today ? css.past : ""}`}>
+            <span className={css.badge} aria-hidden>
+              <span className={css.badgeDay}>{h.holiday_date.slice(8, 10)}</span>
+              <span className={css.badgeMon}>{MON[Number(h.holiday_date.slice(5, 7)) - 1] ?? ""}</span>
+            </span>
+            <span className={css.hName}>
+              <span className={css.hTitle}>{h.name}</span>
+              <span className={css.muted}>{dmy(h.holiday_date)}</span>
+            </span>
+            <span className={KIND_CHIP[h.kind] ?? chipSmNeutral}>{L(h.kind, HOLIDAY_KIND_MS[h.kind] ?? h.kind)}</span>
+            <button type="button" className={rowBtnDanger}
+              onClick={async () => {
+                const r = await api(`/holidays/${h.id}`, { method: "DELETE" });
+                showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+                  r.ok ? `${h.name} ${L("removed — payroll working days recount", "dibuang — hari bekerja gaji dikira semula")}` : L("Could not remove that holiday", "Tidak dapat membuang cuti itu"),
+                  r.ok ? undefined : "notice");
+                void load();
+              }}>
+              {L("Remove", "Buang")}
+            </button>
+          </li>
+        ))}
+        {loaded && holidays.length === 0 && <li className={css.empty}>{L("No holidays yet.", "Belum ada cuti lagi.")}</li>}
+      </ul>
+    </section>
+  );
+}
 
-      {/* v1.145.0 - THE ENTITLEMENT EDITOR LIVED HERE TWICE.
-          The CEO, 09-09-2026: *"Leave entitlement (2026) seem appear double
-          which is Leave entitlement also appear. I want only Leave entitlement
-          in the Leave tabs."*
+/* v1.145.0 - THE ENTITLEMENT EDITOR LIVED HERE TWICE.
+   The CEO, 09-09-2026: *"Leave entitlement (2026) seem appear double
+   which is Leave entitlement also appear. I want only Leave entitlement
+   in the Leave tabs."*
 
-          It was not a second way in - it was a DEAD card. `leave_entitlement`
-          is ["super_admin", "ceo"] in the permissions matrix and every
-          entitlement route answers everyone else with "Only the CEO can view
-          or change leave entitlements", so hr_admin and admin could see this
-          control and never use it: an empty "Select staff..." and a save that
-          would have been refused. Removing it takes nothing from anybody who
-          ever had it.
+   It was not a second way in - it was a DEAD card. `leave_entitlement`
+   is ["super_admin", "ceo"] in the permissions matrix and every
+   entitlement route answers everyone else with "Only the CEO can view
+   or change leave entitlements", so hr_admin and admin could see this
+   control and never use it. The editor that remains is the one in the
+   Leave tab, gated client-side on the same two roles the worker enforces. */
 
-          The editor that remains is the one in the Leave tab, behind the same
-          chooser as the company leave board - the tab where leave is actually
-          decided, gated client-side on the same two roles the worker enforces. */}
+/** Payslip / payroll summary: a person and a month, attendance and approved
+    leave, printable. GET /staff/payslip (payroll_export) - unchanged. */
+export function PayslipCard() {
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [payUser, setPayUser] = useState(0);
+  const [payMonth, setPayMonth] = useState(() => mytToday().slice(0, 7));
+  const [payslip, setPayslip] = useState<PayslipData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-      {/* Payslip */}
-      <div className={card}>
-        <p className="text-sm font-semibold">{L("Payslip / payroll summary", "Slip gaji / ringkasan gaji")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Attendance and approved leave for a month — printable for payroll.", "Kehadiran dan cuti diluluskan untuk sebulan — boleh dicetak untuk gaji.")}
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <select className={`${input} max-w-64`} value={payUser} onChange={(e) => setPayUser(Number(e.target.value))}>
-            <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
-            {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-          <input type="month" className={`${input} max-w-40`} value={payMonth} onChange={(e) => setPayMonth(e.target.value)} />
-          <button type="button" className={btn}
-            onClick={async () => {
-              if (!payUser) return;
-              const r = await api<PayslipData>(`/payslip?user_id=${payUser}&month=${payMonth}`);
-              setPayslip(r.data);
-            }}>{L("Generate", "Jana")}</button>
-          {payslip && (
-            <button type="button" className={btnSm}
-              onClick={() => printPayslip(payslip)}>{L("Print", "Cetak")}</button>
-          )}
+  useEffect(() => {
+    let live = true;
+    void api<{ users?: Staff[], staff?: Staff[] }>(`/users`).then((u) => {
+      if (!live) return;
+      if (u.data) {
+        const list = u.data.users ?? u.data.staff ?? [];
+        setStaff(list.filter((x) => x.role !== "customer"));
+      }
+      setLoaded(true);
+    });
+    return () => { live = false; };
+  }, []);
+
+  return (
+    <section className={card} aria-label={L("Payslip / payroll summary", "Slip gaji / ringkasan gaji")}>
+      <div className={css.head}>
+        <span className={`${css.well} ${css.gold}`}><AppIcon name="pay" /></span>
+        <div className={css.headText}>
+          <p className={css.title}>{L("Payslip / payroll summary", "Slip gaji / ringkasan gaji")}</p>
+          <p className={css.sub}>
+            {L("Attendance and approved leave for a month — printable for payroll.", "Kehadiran dan cuti diluluskan untuk sebulan — boleh dicetak untuk gaji.")}
+          </p>
         </div>
+      </div>
+      <div className={css.form}>
+        <label className={`${css.field} ${css.grow}`}><span className={fieldLabel}>{L("Staff", "Kakitangan")}</span>
+          {!loaded ? <Skel className={css.skelLine} /> : (
+            <select className={selectClassSm} value={payUser}
+              onChange={(e) => { setPayUser(Number(e.target.value)); setPayslip(null); setFailed(false); }}>
+              <option value={0}>{L("Select staff…", "Pilih kakitangan…")}</option>
+              {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          )}
+        </label>
+        <label className={css.field}><span className={fieldLabel}>{L("Month", "Bulan")}</span>
+          <input type="month" className={inputClassSm} value={payMonth} onChange={(e) => { setPayMonth(e.target.value); setPayslip(null); setFailed(false); }} />
+        </label>
+        <button type="button" className={btnSmPrimary} disabled={!payUser || busy}
+          onClick={async () => {
+            if (!payUser) return;
+            setBusy(true);
+            const r = await api<PayslipData>(`/payslip?user_id=${payUser}&month=${payMonth}`);
+            setBusy(false);
+            /* a refused or incomplete answer draws a sentence, never a crash */
+            setPayslip(r.ok && r.data?.attendance ? r.data : null);
+            setFailed(!(r.ok && r.data?.attendance));
+          }}>{busy ? L("Generating…", "Menjana…") : L("Generate", "Jana")}</button>
         {payslip && (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 text-sm">
-            {[
-              [L("Days present", "Hari hadir"), payslip.attendance.days_present],
-              [L("On time", "Tepat masa"), payslip.attendance.on_time],
-              [L("Late", "Lewat"), payslip.attendance.late],
-              [L("Half days", "Separuh hari"), payslip.attendance.half_days],
-              [L("Early outs", "Keluar awal"), payslip.attendance.early_outs],
-              [L("Approved leave", "Cuti diluluskan"), payslip.approved_leave_days],
-            ].map(([label, v]) => (
-              <div key={label as string} className="border-border rounded-lg border px-2.5 py-2">
-                <p className="text-muted-foreground text-[11px]">{label}</p>
-                <p className="text-lg font-semibold">{v as number}</p>
-              </div>
-            ))}
-          </div>
+          <button type="button" className={btnSm}
+            onClick={() => printPayslip(payslip)}><AppIcon name="print" />{L("Print", "Cetak")}</button>
         )}
       </div>
-    </div>
+      {payslip ? (
+        <div className={css.figures}>
+          {[
+            [L("Days present", "Hari hadir"), payslip.attendance.days_present],
+            [L("On time", "Tepat masa"), payslip.attendance.on_time],
+            [L("Late", "Lewat"), payslip.attendance.late],
+            [L("Half days", "Separuh hari"), payslip.attendance.half_days],
+            [L("Early outs", "Keluar awal"), payslip.attendance.early_outs],
+            [L("Approved leave", "Cuti diluluskan"), payslip.approved_leave_days],
+          ].map(([label, v]) => (
+            <div key={label as string} className={css.fig}>
+              <p className={css.figLabel}>{label}</p>
+              <p className={css.figValue}>{v as number}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={css.empty}>{failed
+          ? L("That summary could not be generated - check the person and the month, or your payroll access.", "Ringkasan itu tidak dapat dijana - semak orang dan bulan, atau akses gaji anda.")
+          : L("Pick a person and a month, then Generate.", "Pilih orang dan bulan, kemudian Jana.")}</p>
+      )}
+    </section>
   );
 }
 

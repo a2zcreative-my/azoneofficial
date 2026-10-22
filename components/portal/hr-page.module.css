@@ -1,0 +1,514 @@
+/* v1.192.0 - the tabbed HR page (hr-page.tsx) and its Overview
+   (hr-overview.tsx), laid out as the owner's reference photo. Tokens only;
+   cards, chips, buttons and inputs are the shared named classes. */
+.page {
+  min-width: 0;
+}
+/* a tab body is a stack; a hidden one must say hidden itself, or its
+   display outranks the reset's [hidden] rule */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.body[hidden] {
+  display: none;
+}
+
+/* ---- layout ---- */
+.split,
+.split2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .split {
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
+  }
+  .split2 {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+}
+.col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
+
+/* ---- a card's head: tinted well, title, one line, the action ---- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+.headText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  min-width: 0;
+}
+.headText > p {
+  margin: 0;
+}
+.title {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.sub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.muted {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ok {
+  color: var(--success);
+}
+.well,
+.qaIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.well {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+}
+.qaIcon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+}
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.navy {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.purple {
+  background: var(--plan-soft);
+  color: var(--plan);
+}
+.empty {
+  margin: 0.875rem 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  list-style: none;
+}
+.skelLine {
+  width: 100%;
+  height: 1.25rem;
+}
+
+/* ---- pill rows ---- */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.875rem;
+}
+
+/* ---- forms ---- */
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.625rem;
+  margin-top: 1rem;
+}
+.field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 9rem;
+}
+.fieldFull {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.625rem;
+}
+.textarea {
+  min-height: 9rem;
+  resize: vertical;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* ---- the report list ---- */
+.reports {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.report {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.625rem 0.75rem;
+  display: grid;
+  gap: 0.375rem;
+}
+.reportBtn {
+  display: grid;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.reportBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+.reportHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.reportMeta {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.reportText {
+  font-size: var(--type-body-sm-size);
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- plain ruled rows (birthdays, access, schedule, dates) ---- */
+.rows {
+  display: grid;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.row,
+.sched,
+.dated {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+  min-width: 0;
+}
+.row {
+  justify-content: space-between;
+}
+.rows > li:last-child {
+  border-bottom: 0;
+}
+.rowName {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.actText {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.schedTime {
+  min-width: 4.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+.badge {
+  display: grid;
+  justify-items: center;
+  width: 2.75rem;
+  flex: 0 0 auto;
+  padding: 0.25rem 0;
+  border-radius: 8px;
+  background: var(--secondary);
+  line-height: 1.1;
+}
+.badgeDay {
+  font-size: var(--type-body-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.badgeMon {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+}
+
+/* ---- pending HR actions ---- */
+.actionsList {
+  display: grid;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+}
+.action:last-child {
+  border-bottom: 0;
+}
+.action .actText {
+  flex: 1 1 12rem;
+}
+.actWhen {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- the month's leave ---- */
+.leaveGrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem 2rem;
+  margin-top: 1rem;
+}
+.trend {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.trendTitle {
+  margin: 0 0 0.5rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.bars {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  height: 8.5rem;
+}
+.barCol {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  gap: 0.25rem;
+  min-height: 0;
+}
+.barNum {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.barTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 2.25rem;
+  min-height: 0;
+  border-radius: 6px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.bar {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 6px 6px 0 0;
+  background: var(--gold-solid);
+}
+.barLabel {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+
+/* ---- the activity table: a light header bar and ruled rows; it scrolls
+   inside its own box, never the page ---- */
+.tWrap {
+  margin-top: 0.875rem;
+  overflow-x: auto;
+}
+.t {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--type-body-sm-size);
+}
+.t th {
+  padding: 0.5rem 0.625rem;
+  background: var(--secondary);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+.t th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.t th:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.t td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.t tbody tr:last-child td {
+  border-bottom: 0;
+}
+.t td.wrapCell {
+  white-space: normal;
+  min-width: 12rem;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ---- quick actions: 2 x 4 in the side column ---- */
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+@media (min-width: 640px) and (max-width: 1199px) {
+  .quick {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.qa,
+.control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.qa:hover,
+.control:hover {
+  border-color: var(--gold-solid);
+}
+.qa:focus-visible,
+.control:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---- HR Administration ---- */
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+@media (min-width: 768px) {
+  .controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1300px) {
+  .controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.control {
+  align-items: flex-start;
+  padding: 0.875rem;
+  font-weight: 400;
+}
+.controlTitle {
+  font-weight: 600;
+}
+.where {
+  margin-top: 0.25rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: color-mix(in srgb, var(--gold-solid) 70%, var(--foreground));
+}
+.linkCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.linkCard > .headText {
+  flex: 1 1 16rem;
+}
+.linkLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}

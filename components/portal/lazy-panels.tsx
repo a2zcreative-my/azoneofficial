@@ -57,7 +57,7 @@ const lazy = <P extends object>(load: () => Promise<React.ComponentType<P>>) =>
 /* ---- one line per panel, alphabetical by module ---- */
 export const AccessReviewCard = lazy(() => import("@/components/portal/access-review-card").then((m) => m.AccessReviewCard));
 export const CompaniesPanel = lazy(() => import("@/components/portal/companies-panel").then((m) => m.CompaniesPanel));
-export const HrAdminPanel = lazy(() => import("@/components/admin/hr-admin-panel").then((m) => m.HrAdminPanel));
+/* v1.192.0 - HrAdminPanel left: the HR page imports its two cards from hr-page.tsx (itself lazy); the admin page imports it directly. */
 export const AssetsPanel = lazy(() => import("@/components/portal/assets-panel").then((m) => m.AssetsPanel));
 export const ContentPanel = lazy(() => import("@/components/portal/content-panel").then((m) => m.ContentPanel));
 export const DocumentsPanel = lazy(() => import("@/components/portal/documents-panel").then((m) => m.DocumentsPanel));
@@ -75,7 +75,7 @@ export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").
 export const AccountingPanel = lazy(() => import("@/components/portal/accounting-panel").then((m) => m.AccountingPanel)); // v1.172.0 - was purchasing-panels.tsx; Purchasing retired
 export const AttendanceAdminPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.AttendanceAdminPanel));
 export const AttendancePanel = lazy(() => import("@/components/portal/attendance-panel").then((m) => m.AttendancePanel)); // v1.188.0 - the tabbed Attendance page
-export const HrPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.HrPanel));
+export const HrPage = lazy(() => import("@/components/portal/hr-page").then((m) => m.HrPage)); // v1.192.0 - the tabbed HR page (was role-panels.tsx HrPanel)
 export const InventoryPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.InventoryPanel));
 export const ClaimsPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.ClaimsPanel));
 export const ExpensesPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.ExpensesPanel));

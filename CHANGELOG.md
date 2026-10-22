@@ -10,6 +10,68 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.192.0] - 2026-10-22 - HR in six tabs, the overview as the photo
+
+The owner, 22-10-2026, with his HR mockup: reorganise HR into six tabs -
+Overview, Reports, Calendar & Holidays, Employee Lifecycle, Payroll &
+Payslips, HR Administration - "Avoid duplicating the existing Staff, Leave,
+Claims and Payroll sidebar modules", no database, API or rule change, no
+mockup sample data. The six are his written tabs (the photo's own row -
+Requests, Staff, Leave, Claims, Payroll, Training, Performance, Settings -
+would have drawn those modules twice); the Overview follows the photo.
+
+### Changed
+
+- **HR** is its own tabbed page (new `components/portal/hr-page.tsx`,
+  `hr-overview.tsx`, `hr-page.module.css`), replacing the long scroll of
+  `role-panels.tsx` HrPanel. Underline tabs with the month and a gold
+  "Submit report" at the right.
+- **Overview** (the photo): five tiles - Total staff (with probation and
+  leaving), Leave requests this month (pending / approved), Claims waiting,
+  Payroll items (overtime days to decide, which feed payroll), Training &
+  review (probation reviews due in 30 days, training this month); Pending HR
+  actions (the Desk's leave, claims, overtime, punch and people items, with
+  kind pills and a View that opens the right tab); Leave overview (a donut by
+  status and a bar a week - counts only, no reasons or types); Recent
+  activities (task reports, letters, training, probation decisions); Today's
+  schedule (the company calendar and holidays); Upcoming important dates
+  (holidays, birthdays as day and month, probation ends, last days, events -
+  the next 30 days); Quick actions (only the doors this account can open).
+  A tile or row the server does not give a role is left out, never zeroed.
+  The personal reads are fetched plainly, not written into the device cache.
+- **Reports**: the task report form beside the submitted list, which now has
+  period pills and Show more (it showed five). Submit, its draft-keeping
+  failure and the routes are unchanged.
+- **Calendar & Holidays**: the holidays card (add / remove, the weekend
+  replacement rule, hr_manage) as date-badge rows with kind chips; the
+  company events calendar (its own events_manage gate); the staff birthdays,
+  the next one first.
+- **Employee Lifecycle**: PeoplePanel (Joining & leaving, Probation, Letters,
+  Training) as it was; the HR page can now open it on a given pill.
+- **Payroll & Payslips**: the payslip summary (staff, month, Generate,
+  Print) and a link to Payroll. A refused or incomplete answer now says so
+  instead of breaking the card.
+- **HR Administration**: where every existing HR control lives (links only,
+  each shown only when this account can open it) and "Your HR access".
+- `hr-admin-panel.tsx` is split into `HolidaysCard` and `PayslipCard`;
+  `HrAdminPanel` still renders both for the admin page. Both cards moved off
+  legacy utilities onto `hr-admin-panel.module.css`.
+- Gates kept: Lifecycle and Payroll & Payslips, the holidays editor and the
+  payslip are for hr_admin, ceo, super_admin, admin (the old Administration
+  list, `HR_ADMIN_ROLES`); COO and CCO see Overview, Reports, Calendar &
+  Holidays and HR Administration. The worker enforces every route as before.
+- Lint warnings 136 -> 132 (four inherited hook warnings in the moved code).
+
+### Guards
+
+- `tab-concept`, `tab-zones`, `business-joins`, `kept-lines` follow the
+  page to `hr-page.tsx`; `kept-lines` also accepts a CSS-module class whose
+  rule really sets `white-space: pre-line` (it still fails without it).
+- `lazy-panels`: `HrPanel` became `HrPage`; the unused `HrAdminPanel` lazy
+  wrapper is gone (the admin page imports it directly).
+- Browser fixture: holidays carry `holiday_date` and task reports `period`
+  (the routes' own columns); a payslip answer added.
+
 ## [1.191.0] - 2026-10-22 - Dashboard, Ecommerce, Sales and Attendance as the photos
 
 The owner, 22-10-2026: "Dashboard, Ecommerce, Sales & Attendance should

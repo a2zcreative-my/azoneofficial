@@ -6,9 +6,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
  *
  * One panel per business function, matching the role matrix in
  * docs/ADMIN_GUIDE.md:
- *   HrPanel         — hr_admin: attendance verification table, task reports,
- *                     leave administration, birthdays. (Docs live in the
- *                     existing Sales tab, which hr_admin can also see.)
+ *   HrPanel         — moved to hr-page.tsx (v1.192.0): the tabbed HR page.
  *   InventoryPanel  — sales_marketing: stock, postage tracking, materials.
  *   CommercialPanel — cco: BD pipeline (open / pending / KIV / closed) + strategy.
  *   OperationsPanel — coo: daily operational + sales report, strategy note.
@@ -49,7 +47,7 @@ import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat
 import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { SectionTabs, ZoneLabel, revealAnchor, withStepUp } from "@/components/portal/page-shared"; // v1.119.0 - the zone captions every tab reads by; v1.122.0 - the quiet card
-import { Skel, SkelRows, SkelTable, SkelText } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
+import { Skel, SkelRows, SkelTable } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -61,7 +59,6 @@ import cx from "./corrections.module.css"; // v1.181.4 - the corrections card: t
 import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.173.0 - the tab concept
 import { StockReceive } from "@/components/portal/stock-receive"; // v1.181.14
 import { StockTake } from "@/components/portal/stock-take"; // v1.181.15
-import { PeoplePanel } from "@/components/portal/people-panel"; // v1.181.17
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -185,162 +182,12 @@ function Badge({ value }: { value: string }) {
   );
 }
 
-/* ================= HR & Administrative ================= */
-
-/* v1.84.0 - AttendanceRow left with the verification table. */
-
-export function HrPanel({ administration }: { administration?: ReactNode }) {
-  /* v1.84.0 — month, rows and shift left with the verification table. */
-  const [reports, setReports] = useState<
-    { id: number; period: string; report_date: string; content: string; author: string }[]
-  >([]);
-  const [draft, setDraft] = useState({
-    period: "daily",
-    report_date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
-    content: "",
-  });
-  const [birthdays, setBirthdays] = useState<{ name: string; birthday: string }[]>([]);
-  /* v1.152.2 - a report longer than two lines could not be read at all. */
-  const [openReport, setOpenReport] = useState<number | null>(null);
-  /* v1.77.0 — skeleton until the first fetch lands (lists start [] so an
-     empty month cannot be told from one still loading). */
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    const [r, b] = await Promise.all([
-      api<{ reports: typeof reports }>(`/task-reports`),
-      api<{ birthdays: typeof birthdays }>(`/birthdays`),
-    ]);
-    if (r.data) setReports(r.data.reports);
-    if (b.data) setBirthdays(b.data.birthdays);
-    setLoaded(true);
-  }, []);
-  useEffect(() => {
-    void load().finally(() => setLoaded(true)); // a failed request clears the skeleton too
-  }, [load]);
-
-  const submitReport = async () => {
-    if (!draft.content.trim()) return;
-    /* v1.40.0 (AUDIT M14): a 403 here used to clear the draft and say
-       nothing — the CEO typed a report and it silently vanished. A failed
-       submit now KEEPS the draft and says why. */
-    const res = await api<{ error?: { message?: string } }>(`/task-reports`, { method: "POST", body: JSON.stringify(draft) });
-    if (!res.ok) {
-      window.alert(res.data?.error?.message ?? L("Report was not saved — you may not have access to task reports.", "Laporan tidak disimpan — anda mungkin tiada akses kepada laporan tugasan."));
-      return;
-    }
-    setDraft((d) => ({ ...d, content: "" }));
-    void load();
-  };
-
-  return (
-    /* v1.173.0 (tab concept): REPORTS, ADMINISTRATION (gated, its own
-       panel), PEOPLE - the v1.84.0 order, captioned. The page already wraps
-       this in a TabPage, so this is the stack of zones itself. */
-    <>
-      {/* v1.84.0 — the verification table left this card for the Attendance
-          tab, where the CEO asked for it, and became a REPORT rather than a
-          log: one row per person, every scheduled day accounted for, and
-          leave counted instead of appearing as a gap. See
-          components/portal/verification-card.tsx. */}
-
-      <TabZone label={L("Reports", "Laporan")}>
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("Task report", "Laporan tugasan")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Daily, weekly, or monthly — visible to management.", "Harian, mingguan atau bulanan — dilihat oleh pengurusan.")}
-          </p>
-          <div className="mt-3 flex gap-2">
-            <select
-              className={selectClass}
-              value={draft.period}
-              onChange={(e) => setDraft((d) => ({ ...d, period: e.target.value }))}
-            >
-              <option value="daily">{L("Daily", "Harian")}</option>
-              <option value="weekly">{L("Weekly", "Mingguan")}</option>
-              <option value="monthly">{L("Monthly", "Bulanan")}</option>
-            </select>
-            <input
-              type="date"
-              className={`${inputClass} sm:w-auto`}
-              value={draft.report_date}
-              onChange={(e) => setDraft((d) => ({ ...d, report_date: e.target.value }))}
-            />
-          </div>
-          <textarea
-            className={`${inputClass} mt-2 min-h-24`}
-            placeholder={L("What was completed, what is pending, what needs attention…", "Apa yang telah siap, apa yang tertunda, apa yang perlu perhatian…")}
-            value={draft.content}
-            onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
-          />
-          <button type="button" className={`${btnClass} mt-2`} onClick={() => void submitReport()}>
-            {L("Submit report", "Hantar laporan")}
-          </button>
-          <ul className="mt-4 space-y-2">
-            {/* v1.77.0 — skeleton until the first fetch lands: three report cards. */}
-            {!loaded && Array.from({ length: 3 }, (_, i) => (
-              <li key={`skel-${i}`} className="border-border rounded-lg border px-3 py-2" aria-hidden>
-                <Skel className="h-4 w-48 max-w-full" />
-                <SkelText lines={2} className="mt-2" />
-              </li>
-            ))}
-            {reports.slice(0, 5).map((r) => (
-              <li key={r.id} className="border-border rounded-lg border px-3 py-2 text-sm">
-                <button type="button" className="w-full text-left" aria-expanded={openReport === r.id}
-                  title={openReport === r.id ? L("Collapse", "Kecilkan") : L("Read the whole report", "Baca seluruh laporan")}
-                  onClick={() => setOpenReport((o) => (o === r.id ? null : r.id))}>
-                  <span className="font-medium capitalize">{r.period === "daily" ? L("daily", "harian") : r.period === "weekly" ? L("weekly", "mingguan") : r.period === "monthly" ? L("monthly", "bulanan") : r.period}</span>{" "}
-                  <span className="text-muted-foreground">· {dmy(r.report_date)} · {r.author}</span>
-                  <p className={`text-muted-foreground mt-1 text-xs whitespace-pre-line ${openReport === r.id ? "" : "line-clamp-2"}`}>{r.content}</p>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </TabZone>
-
-      <TabZone label={L("Administration", "Pentadbiran")}>
-        {administration}
-      </TabZone>
-      {/* v1.181.17 (ERP roadmap phase 5) - joining, leaving, probation,
-          letters, training: its own zone, for hr_manage only */}
-      <PeoplePanel />
-      <TabZone label={L("People", "Orang")}>
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("Staff birthdays", "Hari lahir kakitangan")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L("Maintained in the staff directory (birthday field). Sorted by month and day.", "Diselenggara dalam direktori kakitangan (medan hari lahir). Disusun mengikut bulan dan hari.")}
-          </p>
-          <ul className="mt-3 space-y-1.5">
-            {/* v1.77.0 — skeleton until the first fetch lands: name left, date right. */}
-            {!loaded && Array.from({ length: 4 }, (_, i) => (
-              <li key={`skel-${i}`} className="flex justify-between py-0.5" aria-hidden>
-                <Skel className="h-4 w-32" />
-                <Skel className="h-4 w-20" />
-              </li>
-            ))}
-            {loaded && birthdays.length === 0 && (
-              <li className="text-muted-foreground text-sm">
-                {L("No birthdays recorded yet — add them via the staff directory.", "Tiada hari lahir direkodkan lagi — tambah melalui direktori kakitangan.")}
-              </li>
-            )}
-            {birthdays.map((b) => (
-              <li key={b.name} className="flex justify-between text-sm">
-                <span>{b.name}</span>
-                <span className="text-muted-foreground">{dmy(b.birthday)}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-muted-foreground mt-4 text-xs">
-            {L("Leave administration (annual / medical / emergency) is in the", "Pentadbiran cuti (tahunan / sakit / kecemasan) berada dalam tab")}{" "}
-            <span className="font-medium">{L("Leave", "Cuti")}</span>{L(" tab — HR sees every request there and can approve or reject. Quotations, DO and invoices are in the", " — HR melihat setiap permohonan di sana dan boleh meluluskan atau menolaknya. Sebut harga, DO dan invois berada dalam tab")}{" "}
-            <span className="font-medium">{L("Sales", "Jualan")}</span>{L(" tab with the QT-AZOODDMMYY-X numbering.", " dengan penomboran QT-AZOODDMMYY-X.")}
-          </p>
-        </div>
-      </TabZone>
-    </>
-  );
-}
+/* ================= HR & Administrative =================
+   v1.192.0 - HrPanel left for components/portal/hr-page.tsx, the tabbed HR
+   page: the task report is its Reports tab, the staff birthdays are in its
+   Calendar & Holidays tab, PeoplePanel is its Employee Lifecycle tab, and
+   the administration (HrAdminPanel's two cards) is split across Calendar &
+   Holidays and Payroll & Payslips. Same routes, same gates. */
 
 /* ================= Sales & Marketing ================= */
 

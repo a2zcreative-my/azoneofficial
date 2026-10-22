@@ -311,7 +311,14 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
      the search, the state filter and the pipeline precede it as before. */
   ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'label={L("The map", "Peta")}', '================= THE MAP']));
-  ok("HR: task reports, gated administration, birthdays", ordered(panels, ['L("Task report"', '{administration}', 'L("Staff birthdays"']) && page.includes('<HrPanel administration={["hr_admin", "ceo", "super_admin", "admin"].includes('));
+  /* v1.192.0 - the HR page is six tabs (hr-page.tsx): the brief's order, the
+     administration gate the page used (now HR_ADMIN_ROLES inside it), the
+     task report, the holidays and payslip cards behind that gate, the
+     lifecycle, and the birthdays */
+  const hr = read("components/portal/hr-page.tsx");
+  ok("HR: six tabs in the brief's order", ordered(hr, ['L("Overview"', 'L("Reports"', 'L("Calendar & Holidays"', 'L("Employee Lifecycle"', 'L("Payroll & Payslips"', 'L("HR Administration"']));
+  ok("HR: the administration gate is the four roles it was", hr.includes('export const HR_ADMIN_ROLES = ["hr_admin", "ceo", "super_admin", "admin"];') && /\{admin \? <HolidaysCard \/> : <PermissionPlaceholder/.test(hr) && /\{admin && has\("payroll"\)/.test(hr) && /\{admin && has\("lifecycle"\)/.test(hr));
+  ok("HR: task report, birthdays and lifecycle are all still on the page", hr.includes('L("Task report"') && hr.includes('L("Staff birthdays"') && hr.includes("<PeoplePanel ") && page.includes('<HrPage user={user} go={setTab} canOpen={canOpen} />'));
   ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
   ok("Payroll: review before save, payment export, release and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("M2E salary file"', 'L("Release now"', 'id="payroll-base"', 'L("M2E setup']));

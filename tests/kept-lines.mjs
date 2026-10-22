@@ -48,6 +48,18 @@ const ok = (label, cond, why = "") => {
   else { failed += 1; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); }
 };
 
+/* v1.192.0 - Tailwind is retired, so a new file keeps lines through its own
+   CSS module: a `css.name` class on the tag counts when that module's
+   `.name` rule really says white-space: pre-line (or pre-wrap). */
+const modulePre = (src, open) => {
+  const mod = src.match(/import css from "\.\/([\w.-]+\.module\.css)"/);
+  if (!mod) return false;
+  let sheet = "";
+  try { sheet = read(`components/portal/${mod[1]}`); } catch { return false; }
+  return [...open.matchAll(/css\.(\w+)/g)].some(([, name]) =>
+    new RegExp(`\\.${name}\\s*\\{[^}]*white-space:\\s*pre-(?:line|wrap)`).test(sheet));
+};
+
 /* ---- 1. the sweep ---- */
 {
   /* fields whose lines are honoured by a formatter or a list, not a class */
@@ -78,7 +90,7 @@ const ok = (label, cond, why = "") => {
       for (const m of src.matchAll(re)) {
         renders += 1;
         const open = m[2];
-        ok(`${f}: <${m[1]}> showing .${field} keeps its lines`, /whitespace-pre/.test(open), `opening tag: ${open.trim().slice(0, 90)}`);
+        ok(`${f}: <${m[1]}> showing .${field} keeps its lines`, /whitespace-pre/.test(open) || modulePre(src, open), `opening tag: ${open.trim().slice(0, 90)}`);
       }
     }
   }
@@ -90,8 +102,9 @@ const ok = (label, cond, why = "") => {
 {
   const tasks = read("components/portal/tasks.tsx");
   ok("a task's description is SHOWN on its row", /\{t\.description && \([\s\S]*?<p[^>]*whitespace-pre-line[^>]*>\{t\.description\}<\/p>/.test(tasks));
-  const hr = read("components/portal/role-panels.tsx");
-  ok("an HR task report opens to its full text, lines kept", /setOpenReport\(\(o\) => \(o === r\.id \? null : r\.id\)\)/.test(hr) && /whitespace-pre-line \$\{openReport === r\.id \? "" : "line-clamp-2"\}`\}>\{r\.content\}/.test(hr));
+  /* v1.192.0 - the task report moved to the HR page's Reports tab */
+  const hr = read("components/portal/hr-page.tsx");
+  ok("an HR task report opens to its full text, lines kept", /setOpenReport\(\(o\) => \(o === r\.id \? null : r\.id\)\)/.test(hr) && /className=\{`\$\{css\.reportText\} \$\{openReport === r\.id \? "" : css\.clamp\}`\}>\{r\.content\}/.test(hr) && /\.reportText \{[^}]*white-space: pre-line/.test(read("components/portal/hr-page.module.css")));
   const grid = read("components/ui/record-row.tsx");
   ok("DetailGrid keeps lines for every value", /<dd className="[^"]*whitespace-pre-line[^"]*">\{i\.value\}<\/dd>/.test(grid));
   const leave = read("components/portal/leave.tsx");
