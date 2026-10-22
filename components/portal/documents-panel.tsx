@@ -32,14 +32,19 @@ interface Outstanding { id: number; doc_number: string; total_cents: number; due
    body on the Sales tab. No default parameter: lazy-panels.tsx infers a
    panel's props from its signature, and an optional props object erases them
    to `object`, so the prop would not be passable through the lazy wrapper. */
-export function DocumentsPanel({ bare }: { bare?: boolean }) {
+/* v1.191.0 - `view`: the Sales page's Documents pill row now names the three
+   (Receipts · Credit notes · Outstanding, the owner's photo), so the page
+   says which one to show and this panel draws no pill row of its own.
+   Without `view` it behaves exactly as before. */
+export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstanding" | "receipts" | "credit" }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [outstanding, setOutstanding] = useState<{ invoices: Outstanding[]; total_cents: number } | null>(null);
-  const [tab, setTab] = useState<"outstanding" | "receipts" | "credit">("outstanding");
+  const [ownTab, setTab] = useState<"outstanding" | "receipts" | "credit">("outstanding");
+  const tab = view ?? ownTab;
 
   const loadAll = useCallback(() => {
     void api<{ docs: Invoice[] }>(`/docs?type=INV`).then((r) => { if (r.ok && r.data?.docs) setInvoices(r.data.docs); });
@@ -79,11 +84,11 @@ export function DocumentsPanel({ bare }: { bare?: boolean }) {
           "Keluarkan resit bernombor untuk invois berbayar, keluarkan nota kredit, dan jejak setiap invois belum dibayar di satu tempat. Cetakan membawa kepala surat syarikat.")}
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      {!view && <div className="mt-3 flex flex-wrap gap-1.5">
         {([["outstanding", "Outstanding"], ["receipts", "Receipts"], ["credit", "Credit notes"]] as const).map(([v, l]) => (
           <button key={v} type="button" className={`rounded-full px-3 py-1 text-xs font-medium ${tab === v ? "bg-primary text-primary-foreground" : "bg-secondary"}`} onClick={() => setTab(v)}>{L(l, l === "Outstanding" ? "Tertunggak" : l === "Receipts" ? "Resit" : "Nota kredit")}</button>
         ))}
-      </div>
+      </div>}
 
       {tab === "outstanding" && (
         <div className="mt-3">

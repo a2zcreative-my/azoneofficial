@@ -7,7 +7,8 @@ import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
 import { L, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
-import { SummaryStat, SummaryStrip, TabZone } from "@/components/portal/tab-concept";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { TabAction, TabPeriod } from "@/components/ui/line-tabs";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -25,7 +26,7 @@ import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, tabPill, tabPillOn } from "@/lib/ui-styles";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -1225,7 +1226,11 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
   const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced">("all");
   const [docQuery, setDocQuery] = useState("");
   const [docPage, setDocPage] = useState(1);
-  const DOC_PER = 10;
+  /* v1.191.0 - the owner's photo: "10 / page" beside numbered pages */
+  const [DOC_PER, setDocPer] = useState(10);
+  /* v1.191.0 - the photo puts Receipts, Credit notes and Outstanding on the
+     Documents card's own pill row; which of the three the money view shows */
+  const [money, setMoney] = useState<"outstanding" | "receipts" | "credit">("outstanding");
   const [openCust, setOpenCust] = useState<number | null>(null);
   // v1.4.94: backdating + typo edits. editingDoc = the document being fixed
   // (its number never changes); doc_date/paid_date allow true past dates for
@@ -1901,10 +1906,10 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
   const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
   const lastInv = docs.filter((d) => d.doc_type === "INV" && mytYm(d.created_at) === lastKey);
   const lastPaid = docs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid" && mytYm(d.paid_at ?? d.created_at) === lastKey);
-  const vsLast = (now: number, before: number): { text: string; tone: "success" | "danger" | "neutral" } | undefined => {
+  const vsLast = (now: number, before: number): { pct: number | null; text: string } | undefined => {
     if (!before) return undefined;
     const pct = Math.round(((now - before) / before) * 100);
-    return { text: L(`${pct >= 0 ? "+" : ""}${pct}% vs last month`, `${pct >= 0 ? "+" : ""}${pct}% berbanding bulan lepas`), tone: pct >= 0 ? "success" : "danger" };
+    return { pct, text: L(`${Math.abs(pct)}% vs last month`, `${Math.abs(pct)}% berbanding bulan lepas`) };
   };
   /* the last six months of quotations raised, newest last - the tile's bars */
   const qtSpark = Array.from({ length: 6 }, (_, i) => {
@@ -1931,20 +1936,36 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
        (figures), THE WORK, CUSTOMERS; the page adds THIS MONTH (the map)
        and THE LONGER VIEW after them. */
     <>
-      <TabZone label={L("At a glance", "Sepintas lalu")} hint={L("This month: quotations and invoices by the date raised, Paid by the date the payment was received; unpaid invoices from every month.", "Bulan ini: sebut harga dan invois ikut tarikh dibuat, Dibayar ikut tarikh bayaran diterima; invois belum dibayar dari semua bulan.")}>
-        <SummaryStrip cols={4} ariaLabel={L("Sales this month", "Jualan bulan ini")}>
-          {/* v1.186.0 - the owner's reference tiles: an icon well, the
-              figure, a chip for the change, the bars of the last six months
-              of quotations. The four figures and their rules are v1.181.12's. */}
-          <SummaryStat icon="document" tone="brand" label={L("Quotations", "Sebut harga")} value={monthQt.length} hint={L(`Total value: ${fmtRM(cents(monthQt))}`, `Nilai keseluruhan: ${fmtRM(cents(monthQt))}`)} spark={qtSpark} busy={!loaded}
-            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("documents"); setDocType("QT"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open the quotations", "Buka sebut harga") }} />
-          <SummaryStat icon="documents" tone="brand" label={L("Invoices", "Invois")} value={fmtRM(cents(monthInv))} hint={`${monthInv.length} ${L("invoices", "invois")}`} badge={vsLast(cents(monthInv), cents(lastInv))} busy={!loaded}
-            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open the invoices", "Buka invois") }} />
-          <SummaryStat icon="paid" tone="success" label={L("Paid", "Dibayar")} value={fmtRM(cents(paidThisMonth))} hint={`${paidThisMonth.length} ${L("payments, by payment date", "bayaran, ikut tarikh bayaran")}`} badge={vsLast(cents(paidThisMonth), cents(lastPaid))} busy={!loaded} />
-          <SummaryStat icon="pending" tone={unpaidInv.length > 0 ? "warning" : "neutral"} label={L("Unpaid invoices", "Invois belum dibayar")} value={unpaidInv.length} hint={fmtRM(cents(unpaidInv))} badge={loaded ? (unpaidInv.length > 0 ? { text: L("from any month", "dari mana-mana bulan"), tone: "warning" } : { text: L("all paid", "semua dibayar"), tone: "success" }) : undefined} busy={!loaded}
-            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("receipts"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open receipts and the outstanding report", "Buka resit dan laporan tertunggak") }} />
-        </SummaryStrip>
-      </TabZone>
+      {/* v1.191.0 - the owner's photo: a breadcrumb, the month and "Create
+          document" across the top, then the four tiles - the same four
+          figures and rules as v1.181.12, with their period and change. */}
+      <div className={sc.topBar}>
+        <nav className={sc.crumb} aria-label={L("Breadcrumb", "Serbuk roti")}>
+          <span>{L("Sales", "Jualan")}</span><span aria-hidden>›</span>
+          <span className={sc.crumbOn}>{workTab === "create" ? L("Create document", "Buat dokumen") : workTab === "receipts"
+            ? (money === "receipts" ? L("Receipts", "Resit") : money === "credit" ? L("Credit notes", "Nota kredit") : L("Outstanding", "Tertunggak"))
+            : L("Overview", "Gambaran")}</span>
+        </nav>
+        <span className={sc.topAside}>
+          <TabPeriod>{(() => { const [y, m] = monthKey.split("-").map(Number) as [number, number]; return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" }); })()}</TabPeriod>
+          <TabAction icon="add" onClick={() => { setWorkTab("create"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }}>
+            {L("Create document", "Buat dokumen")}
+          </TabAction>
+        </span>
+      </div>
+      <KpiRow label={L("Sales this month", "Jualan bulan ini")}>
+        <KpiTile icon="document" tone="gold" period={L("This month", "Bulan ini")} label={L("Quotations", "Sebut harga")} value={monthQt.length} busy={!loaded}
+          spark={qtSpark} sub={L(`Total value: ${fmtRM(cents(monthQt))}`, `Nilai keseluruhan: ${fmtRM(cents(monthQt))}`)}
+          onClick={() => { setWorkTab("documents"); setDocType("QT"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the quotations", "Buka sebut harga")} />
+        <KpiTile icon="documents" tone="navy" period={L("This month", "Bulan ini")} label={L("Invoices", "Invois")} value={fmtRM(cents(monthInv))} busy={!loaded}
+          sub={`${monthInv.length} ${L("invoices", "invois")}`} delta={vsLast(cents(monthInv), cents(lastInv))}
+          onClick={() => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the invoices", "Buka invois")} />
+        <KpiTile icon="paid" tone="green" period={L("This month", "Bulan ini")} label={L("Paid", "Dibayar")} value={fmtRM(cents(paidThisMonth))} busy={!loaded}
+          sub={`${paidThisMonth.length} ${L("payments, by payment date", "bayaran, ikut tarikh bayaran")}`} delta={vsLast(cents(paidThisMonth), cents(lastPaid))} />
+        <KpiTile icon="pending" tone="red" period={L("Any month", "Mana-mana bulan")} label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={unpaidInv.length} busy={!loaded}
+          sub={fmtRM(cents(unpaidInv))}
+          onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
+      </KpiRow>
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the
@@ -1963,7 +1984,6 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           one at a time, in the portal's own pills. Bodies are hidden, never
           unmounted: a half-written quotation survives a look at the list. */}
       <section id="sales-work" className="erp-stack-tight erp-tab-zone scroll-mt-36">
-        <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
         <div className={card}>
           {/* v1.181.16 - monthly invoices whose day has come; a person
               fills the normal form from one and saves it */}
@@ -1973,11 +1993,37 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
               else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Could not load that invoice", "Tidak dapat memuatkan invois itu"), "notice");
             });
           }} />
-          <SectionTabs value={workTab} onChange={setWorkTab} tabs={[
-            ["documents", L("Documents", "Dokumen")],
-            ["receipts", L("Receipts, credit notes & outstanding", "Resit, nota kredit & tertunggak")],
-            ["create", L("Create document", "Buat dokumen")],
-          ] as const} />
+          {/* v1.191.0 - THE DOCUMENTS CARD'S HEAD AND PILLS (the owner's photo):
+              Documents (All) · Quotations · Invoices · Delivery orders ·
+              Receipts · Credit notes · Outstanding, one row. The first four
+              filter the documents table; the last three are the receipts,
+              credit notes and outstanding report (DocumentsPanel), as the
+              second work tab was. Create document is the top bar's button;
+              its form is the third body, as before. Every body stays mounted. */}
+          {/* the head and pills stay while the form is open: a pill is the way
+              back to the documents (none is lit while writing one) */}
+          <div>
+            <div className={sc.head}>
+              <span className={sc.headIcon} aria-hidden><AppIcon name="document" /></span>
+              <div className={sc.headText}>
+                <p className={sc.headTitle}>{L("Documents", "Dokumen")}</p>
+                <p className="erp-meta">{L("Manage quotations, invoices, delivery orders, receipts, credit notes and outstanding payments.", "Urus sebut harga, invois, pesanan penghantaran, resit, nota kredit dan bayaran tertunggak.")}</p>
+              </div>
+              <button type="button" className={btnSm} onClick={() => void load()}>
+                <AppIcon name="refresh" />{L("Refresh", "Muat semula")}
+              </button>
+            </div>
+            <div role="tablist" className={`erp-pill-row ${sc.pills}`}>
+              {([["all", L(`Documents (All)`, `Dokumen (Semua)`)], ["QT", L("Quotations", "Sebut harga")], ["INV", L("Invoices", "Invois")], ["DO", L("Delivery orders", "Pesanan penghantaran")]] as const).map(([v, label]) => (
+                <button key={v} type="button" role="tab" aria-selected={workTab === "documents" && docType === v} className={workTab === "documents" && docType === v ? tabPillOn : tabPill}
+                  onClick={() => { setWorkTab("documents"); setDocType(v); setDocPage(1); }}>{label}</button>
+              ))}
+              {([["receipts", L("Receipts", "Resit")], ["credit", L("Credit notes", "Nota kredit")], ["outstanding", L("Outstanding", "Tertunggak")]] as const).map(([v, label]) => (
+                <button key={v} type="button" role="tab" aria-selected={workTab === "receipts" && money === v} className={workTab === "receipts" && money === v ? tabPillOn : tabPill}
+                  onClick={() => { setWorkTab("receipts"); setMoney(v); }}>{label}</button>
+              ))}
+            </div>
+          </div>
           <div className={workTab === "create" ? "mt-3" : "hidden"}>
           <p className="text-sm font-semibold">
             {editingDoc ? (
@@ -2782,137 +2828,12 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           </div>
           </div>
           <div className={workTab === "documents" ? "mt-3" : "hidden"}>
-          {/* v1.181.17 - the CEO's own switch; renders for nobody else */}
-          <QuoteApprovalLimit qa={qa} onChanged={() => void load()} />
-      {(() => {
-        // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
-        const todayMs = Date.now() + 8 * 3600 * 1000;
-        const unpaid = docs.filter(
-          (d) => d.doc_type === "INV" && d.payment_status !== "paid"
-        );
-        if (unpaid.length === 0) return null;
-        const age = (d: SalesDoc) =>
-          Math.floor(
-            (todayMs -
-              new Date(d.created_at.slice(0, 10) + "T00:00:00Z").getTime()) /
-              86400000
-          );
-        const bucket = (n: number) =>
-          n <= 30
-            ? [L("1–30 days","1–30 hari"),"bg-warning-soft text-warning"]
-            : n <= 60
-              ? [L("31–60 days","31–60 hari"),"bg-warning-soft text-warning"]
-              : n <= 90
-                ? [L("61–90 days","61–90 hari"),"bg-danger-soft text-danger"]
-                : [L("90+ days","90+ hari"),"bg-danger-soft text-danger"];
-        return (
-          <div className={card}>
-            <PanelTitle icon="pending">
-              {L("Outstanding invoices — aging", "Invois tertunggak — usia")}
-            </PanelTitle>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L(
-                "Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.",
-                "Invois belum dibayar mengikut usia. WhatsApp membuka peringatan sedia tulis dengan nombor invois, amaun dan butiran bank."
-              )}
-            </p>
-            <div className="mt-2 space-y-1.5">
-              {unpaid
-                .sort((a, b) => age(b) - age(a))
-                .map((d) => {
-                  const n = age(d);
-                  const [label, cls] = bucket(n);
-                  const phone = (d.customer_phone ?? "").replace(/[^0-9]/g, "");
-                  /* v1.28.0: the chase names the INVOICE's issuer and ITS bank
-                   account — the customer must pay the entity that invoiced
-                   them, so a legacy AZ ONE invoice keeps AZ ONE's account and
-                   an A2Z invoice names A2Z's (resolveIssuer on the row). */
-                  const iss = resolveIssuer(d.issuer_code);
-                  const msg = encodeURIComponent(
-                    `Hi! Gentle reminder from ${iss.name} — invoice ${d.doc_number} (${fmtRM(d.total_cents)}) is still outstanding. Kindly settle by bank transfer to ${bankTransferLine(iss)}, quoting the invoice number. Thank you!`
-                  );
-                  return (
-                    <div
-                      key={d.id}
-                      className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0"
-                    >
-                      <span className="min-w-0 flex-1 basis-56">
-                        <span className="font-medium">{d.doc_number}</span>
-                        {d.kind && (
-                          <span
-                            title={
-                              d.kind === "service"
-                                ? L("Service document", "Dokumen perkhidmatan")
-                                : L("Product document", "Dokumen produk")
-                            }
-                          >
-                            {" "}
-                            <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
-                          </span>
-                        )}{" "}
-                        · {d.company} · {fmtRM(d.total_cents)}
-                        <span className="text-muted-foreground">
-                          {" "}
-                          · {n} {L("days", "hari")}
-                        </span>
-                        <PartPaidChip totalCents={d.total_cents} receivedCents={partPaid[d.id]} />
-                      </span>
-                      <span className="erp-row-actions">
-                        <span
-                          className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}
-                        >
-                          {label}
-                        </span>
-                        {phone ? (
-                          <a
-                            className={rowBtnGood}
-                            target="_blank"
-                            rel="noreferrer"
-                            href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}
-                          >
-                            {L("WhatsApp reminder", "Peringatan WhatsApp")}
-                          </a>
-                        ) : (
-                          <span
-                            className="text-muted-foreground inline-flex h-7 items-center text-xs"
-                            title={L(
-                              "Add a phone number on the customer record to enable one-tap reminders",
-                              "Tambah nombor telefon pada rekod pelanggan untuk membolehkan peringatan satu sentuhan"
-                            )}
-                          >
-                            {L("no phone", "tiada telefon")}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        );
-      })()}
         {/* v1.186.0 - THE DOCUMENTS, AS A TABLE (the owner's reference,
             22-10-2026): a type pill row, a search, a status pick, and ten a
             page; one row per document - number, type, customer, date,
             amount, status, actions. The row's every control is the control
             it was (v1.4.248 onward): the number opens the detail, the
             status pick marks a payment, the buttons act. Filters only. */}
-        <div className={sc.head}>
-          <span className={sc.headIcon} aria-hidden><AppIcon name="document" /></span>
-          <div className={sc.headText}>
-            <p className={sc.headTitle}>{L("Documents", "Dokumen")}</p>
-            <p className="erp-meta">{L("Manage quotations, invoices and delivery orders; receipts, credit notes and the outstanding report are the next pill.", "Urus sebut harga, invois dan pesanan penghantaran; resit, nota kredit dan laporan tertunggak di pil seterusnya.")}</p>
-          </div>
-          <button type="button" className={btnSm} onClick={() => void load()}>
-            <AppIcon name="refresh" />{L("Refresh", "Muat semula")}
-          </button>
-        </div>
-        <div role="tablist" className={`erp-pill-row ${sc.pills}`}>
-          {([["all", L(`All (${docs.length})`, `Semua (${docs.length})`)], ["QT", L("Quotations", "Sebut harga")], ["INV", L("Invoices", "Invois")], ["DO", L("Delivery orders", "Pesanan penghantaran")]] as const).map(([v, label]) => (
-            <button key={v} type="button" role="tab" aria-selected={docType === v} className={docType === v ? tabPillOn : tabPill}
-              onClick={() => { setDocType(v); setDocPage(1); }}>{label}</button>
-          ))}
-        </div>
         <div className={sc.filters}>
           <label className={sc.search}>
             <AppIcon name="search" />
@@ -3500,17 +3421,141 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           <div className={sc.foot}>
             <span className="erp-meta">{L(`Showing ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} of ${docRows.length} documents`, `Menunjukkan ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} daripada ${docRows.length} dokumen`)}</span>
             {docPages > 1 && (
-              <span className={sc.pager}>
-                <button type="button" className={btnSm} disabled={docPageSafe <= 1} onClick={() => setDocPage(docPageSafe - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}><AppIcon name="previous" /></button>
-                <span className="erp-num erp-meta">{docPageSafe} / {docPages}</span>
-                <button type="button" className={btnSm} disabled={docPageSafe >= docPages} onClick={() => setDocPage(docPageSafe + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
-              </span>
+              /* v1.191.0 - numbered pages (the owner's photo) */
+              <nav className={sc.pager} aria-label={L("Pages", "Halaman")}>
+                <button type="button" className={sc.pageBtn} disabled={docPageSafe <= 1} onClick={() => setDocPage(docPageSafe - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}><AppIcon name="previous" /></button>
+                {(docPages <= 7 ? Array.from({ length: docPages }, (_, k) => k + 1)
+                  : [1, ...(docPageSafe > 3 ? [0] : []), ...[docPageSafe - 1, docPageSafe, docPageSafe + 1].filter((n) => n > 1 && n < docPages), ...(docPageSafe < docPages - 2 ? [-1] : []), docPages]
+                ).map((n) => n <= 0
+                  ? <span key={`gap${n}`} className="erp-meta" aria-hidden>…</span>
+                  : <button key={n} type="button" className={n === docPageSafe ? `${sc.pageBtn} ${sc.pageOn}` : sc.pageBtn} aria-current={n === docPageSafe ? "page" : undefined} onClick={() => setDocPage(n)}>{n}</button>)}
+                <button type="button" className={sc.pageBtn} disabled={docPageSafe >= docPages} onClick={() => setDocPage(docPageSafe + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
+              </nav>
             )}
+            <select className={`${selectClassSm} ${sc.per}`} value={DOC_PER} aria-label={L("Documents per page", "Dokumen setiap halaman")}
+              onChange={(e) => { setDocPer(Number(e.target.value)); setDocPage(1); }}>
+              {[10, 25, 50].map((n) => <option key={n} value={n}>{L(`${n} / page`, `${n} / halaman`)}</option>)}
+            </select>
           </div>
         )}
+          {/* v1.181.17 - the CEO's own switch; renders for nobody else.
+              v1.191.0 - under the table: it is a setting, not a filter */}
+          <div className={sc.setting}><QuoteApprovalLimit qa={qa} onChanged={() => void load()} /></div>
           </div>
           <div className={workTab === "receipts" ? "mt-3" : "hidden"}>
-            {workExtra}
+            {/* v1.191.0 - Outstanding: the aging list (v1.4.101, moved here
+                from the documents body with its WhatsApp reminders) above the
+                outstanding report; Receipts and Credit notes: their lists */}
+            {money === "outstanding" && (<>
+      {(() => {
+        // v1.4.101: overdue invoice aging 30/60/90 + WhatsApp reminder link.
+        const todayMs = Date.now() + 8 * 3600 * 1000;
+        const unpaid = docs.filter(
+          (d) => d.doc_type === "INV" && d.payment_status !== "paid"
+        );
+        if (unpaid.length === 0) return null;
+        const age = (d: SalesDoc) =>
+          Math.floor(
+            (todayMs -
+              new Date(d.created_at.slice(0, 10) + "T00:00:00Z").getTime()) /
+              86400000
+          );
+        const bucket = (n: number) =>
+          n <= 30
+            ? [L("1–30 days","1–30 hari"),"bg-warning-soft text-warning"]
+            : n <= 60
+              ? [L("31–60 days","31–60 hari"),"bg-warning-soft text-warning"]
+              : n <= 90
+                ? [L("61–90 days","61–90 hari"),"bg-danger-soft text-danger"]
+                : [L("90+ days","90+ hari"),"bg-danger-soft text-danger"];
+        return (
+          <div className={card}>
+            <PanelTitle icon="pending">
+              {L("Outstanding invoices — aging", "Invois tertunggak — usia")}
+            </PanelTitle>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L(
+                "Unpaid invoices by age. WhatsApp opens a pre-written reminder with the invoice number, amount and bank details.",
+                "Invois belum dibayar mengikut usia. WhatsApp membuka peringatan sedia tulis dengan nombor invois, amaun dan butiran bank."
+              )}
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {unpaid
+                .sort((a, b) => age(b) - age(a))
+                .map((d) => {
+                  const n = age(d);
+                  const [label, cls] = bucket(n);
+                  const phone = (d.customer_phone ?? "").replace(/[^0-9]/g, "");
+                  /* v1.28.0: the chase names the INVOICE's issuer and ITS bank
+                   account — the customer must pay the entity that invoiced
+                   them, so a legacy AZ ONE invoice keeps AZ ONE's account and
+                   an A2Z invoice names A2Z's (resolveIssuer on the row). */
+                  const iss = resolveIssuer(d.issuer_code);
+                  const msg = encodeURIComponent(
+                    `Hi! Gentle reminder from ${iss.name} — invoice ${d.doc_number} (${fmtRM(d.total_cents)}) is still outstanding. Kindly settle by bank transfer to ${bankTransferLine(iss)}, quoting the invoice number. Thank you!`
+                  );
+                  return (
+                    <div
+                      key={d.id}
+                      className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-1.5 text-sm last:border-0"
+                    >
+                      <span className="min-w-0 flex-1 basis-56">
+                        <span className="font-medium">{d.doc_number}</span>
+                        {d.kind && (
+                          <span
+                            title={
+                              d.kind === "service"
+                                ? L("Service document", "Dokumen perkhidmatan")
+                                : L("Product document", "Dokumen produk")
+                            }
+                          >
+                            {" "}
+                            <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
+                          </span>
+                        )}{" "}
+                        · {d.company} · {fmtRM(d.total_cents)}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {n} {L("days", "hari")}
+                        </span>
+                        <PartPaidChip totalCents={d.total_cents} receivedCents={partPaid[d.id]} />
+                      </span>
+                      <span className="erp-row-actions">
+                        <span
+                          className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-semibold ${cls}`}
+                        >
+                          {label}
+                        </span>
+                        {phone ? (
+                          <a
+                            className={rowBtnGood}
+                            target="_blank"
+                            rel="noreferrer"
+                            href={`https://wa.me/${phone.startsWith("60") ? phone : "6" + phone}?text=${msg}`}
+                          >
+                            {L("WhatsApp reminder", "Peringatan WhatsApp")}
+                          </a>
+                        ) : (
+                          <span
+                            className="text-muted-foreground inline-flex h-7 items-center text-xs"
+                            title={L(
+                              "Add a phone number on the customer record to enable one-tap reminders",
+                              "Tambah nombor telefon pada rekod pelanggan untuk membolehkan peringatan satu sentuhan"
+                            )}
+                          >
+                            {L("no phone", "tiada telefon")}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        );
+      })()}
+            </>)}
+            {isValidElement(workExtra) ? cloneElement(workExtra as ReactElement<{ view?: string }>, { view: money }) : workExtra}
           </div>
         </div>
       </section>

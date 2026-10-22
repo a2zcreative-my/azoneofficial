@@ -1,0 +1,128 @@
+/* v1.190.0 - the underline tabs (line-tabs.tsx). Tokens only. */
+.bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.tabs {
+  display: flex;
+  gap: 0 1.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tab {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 0.75rem 0.125rem 0.875rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--type-body-size);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--foreground);
+}
+.tab[aria-selected="true"] {
+  color: color-mix(in srgb, var(--gold-solid) 78%, var(--foreground));
+  font-weight: 600;
+}
+.tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--gold-solid);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.aside {
+  flex: 0 0 auto;
+  padding-bottom: 0.5rem;
+}
+.asideRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.period {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  .period {
+    display: inline-flex;
+  }
+}
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 10px;
+  background: var(--tile-gold);
+  color: var(--tile-gold-fg);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.action:hover {
+  filter: brightness(0.96);
+}
+.action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .action {
+    padding: 0 0.75rem;
+  }
+}
+/* on a phone the right-hand action takes its own line above the tabs, so the
+   tab row keeps the width to show its words (it still scrolls sideways when
+   there are more than fit) */
+@media (max-width: 767px) {
+  .bar {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .aside {
+    display: flex;
+    justify-content: flex-end;
+    padding-bottom: 0;
+  }
+}

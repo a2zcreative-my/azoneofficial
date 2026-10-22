@@ -14,14 +14,14 @@
    every row. No product photo: the sync stores item names and quantities,
    not pictures (the owner, 22-10-2026). */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { Skel } from "@/components/ui/skeleton";
 import { makeApi, getCsrfToken } from "@/lib/api";
 import { dmyMYT, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnSm, btnSmPrimary, card, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { btnSm, card, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { stateOf, titleCase } from "@/lib/malaysia-map";
 import css from "./tiktok-orders.module.css";
 
@@ -82,6 +82,7 @@ export function TikTokOrdersTable({ role, onSynced }: { role: string; onSynced?:
   useEffect(() => { void load(); }, [load]);
 
   const sync = async () => {
+    if (busy) return; // v1.191.0 - pressed twice (the card and the header) is one sync
     setBusy(true);
     setMsg(L("Syncing from TikTok…", "Menyegerak dari TikTok…"));
     const res = await tiktokApi<{ imported: number; skipped: number; problems: string[]; error?: { message?: string } }>(`/sync`, { method: "POST", body: "{}" });
@@ -96,6 +97,18 @@ export function TikTokOrdersTable({ role, onSynced }: { role: string; onSynced?:
       setMsg(res.data?.error?.message ?? L("Sync failed — check the TikTok setup", "Segerakan gagal — semak tetapan TikTok"));
     }
   };
+
+  /* v1.191.0 - the page header's "Sync from TikTok" (the owner's photo puts it
+     beside the month) asks THIS table to run its own sync: one sync, one
+     gate (SYNC_ROLES), one message, wherever it is pressed */
+  const syncRef = useRef(sync);
+  useEffect(() => { syncRef.current = sync; });
+  useEffect(() => {
+    if (!canSync) return;
+    const run = () => { void syncRef.current(); };
+    window.addEventListener("azone:tiktok-sync", run);
+    return () => window.removeEventListener("azone:tiktok-sync", run);
+  }, [canSync]);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = { all: orders.length };
@@ -145,7 +158,7 @@ export function TikTokOrdersTable({ role, onSynced }: { role: string; onSynced?:
           </div>
         </div>
         {canSync && (
-          <button type="button" className={btnSmPrimary} disabled={busy} aria-busy={busy} onClick={() => void sync()}>
+          <button type="button" className={btnSm} disabled={busy} aria-busy={busy} onClick={() => void sync()}>
             <AppIcon name="refresh" />{L("Sync from TikTok", "Segerak dari TikTok")}
           </button>
         )}
@@ -161,6 +174,8 @@ export function TikTokOrdersTable({ role, onSynced }: { role: string; onSynced?:
       </div>
       <DataTable<TtOrder>
         id="tiktok-orders"
+        look="reference"
+        noun={["orders", "pesanan"]}
         columns={columns}
         rows={rows}
         loading={!loaded}

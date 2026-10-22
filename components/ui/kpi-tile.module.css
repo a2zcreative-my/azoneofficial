@@ -1,0 +1,181 @@
+/* v1.191.0 - the reference figure tile (kpi-tile.tsx). Tokens only; the
+   tints are the existing gold-solid, success, danger, info, plan and navy. */
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+@media (min-width: 768px) {
+  .row {
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1rem;
+  }
+}
+.tile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.875rem;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.press {
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.press:hover {
+  border-color: var(--gold-solid);
+}
+.press:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.well {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 14px;
+}
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.navy {
+  background: var(--secondary);
+  color: var(--primary);
+}
+.purple {
+  background: var(--plan-soft);
+  color: color-mix(in srgb, var(--plan) 45%, var(--primary));
+}
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  min-width: 0;
+}
+.top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.label {
+  font-size: var(--type-card-size);
+  font-weight: 600;
+  line-height: var(--type-card-lh);
+}
+.period {
+  flex: 0 0 auto;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.mid {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.value {
+  font-size: var(--type-kpi-lg-size);
+  font-weight: var(--type-kpi-lg-weight);
+  line-height: var(--type-kpi-lg-lh);
+  letter-spacing: var(--type-kpi-lg-tracking);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 2.25rem;
+  flex: 0 1 6rem;
+  min-width: 3rem;
+}
+.sparkBar,
+.sparkLast {
+  flex: 1 1 0;
+  min-width: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--gold-solid) 35%, transparent);
+}
+.sparkLast {
+  background: var(--gold-solid);
+}
+.up,
+.down {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+}
+.up {
+  color: var(--success);
+}
+.down {
+  color: var(--danger);
+}
+.sub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.bar {
+  display: block;
+  height: 6px;
+  margin-top: 0.25rem;
+  border-radius: 9999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+}
+.fill_green {
+  background: var(--success);
+}
+.fill_gold {
+  background: var(--gold-solid);
+}
+.fill_red {
+  background: var(--danger);
+}
+.fill_blue {
+  background: var(--info);
+}
+.link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--info);
+  cursor: pointer;
+}
+.link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

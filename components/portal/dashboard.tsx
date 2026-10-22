@@ -44,6 +44,7 @@ import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/u
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./dashboard.module.css";
+import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -1527,6 +1528,10 @@ export function Dashboard({
           moved to Ecommerce, the attendance donut and today's assignments to
           Attendance, the bars with the floor. See trading-desk.tsx. */}
       <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
+      {/* v1.191.0 - the owner's photo's Daily Attendance Statistic, for the
+          roles that read the attendance report (it renders nothing for
+          anyone else, so the wrapper still collapses when it is empty) */}
+      <DailyAttendanceChart role={user.role} onOpen={() => go("Attendance")} />
     </div>
   );
 
@@ -1700,6 +1705,7 @@ export function Dashboard({
           <SummaryStat
             icon="pending" tone={deskWait.overdue > 0 ? "warning" : "brand"}
             label={L("Waiting on me", "Menunggu saya")}
+            info={L("Decisions and items waiting on you across every module (the Desk).", "Keputusan dan perkara yang menunggu anda dari setiap modul (Meja).")}
             value={deskWait.n}
             busy={deskData.data === null}
             badge={deskData.data
@@ -1714,6 +1720,7 @@ export function Dashboard({
           <SummaryStat
             icon="orders" tone={openTasks.due > 0 ? "warning" : "neutral"}
             label={L("My open tasks", "Tugasan terbuka saya")}
+            info={L("Tasks assigned to you that are not completed.", "Tugasan yang diberikan kepada anda yang belum selesai.")}
             value={openTasks.n}
             busy={!tasksKnown}
             badge={tasksKnown ? (openTasks.due > 0 ? { text: L(`${openTasks.due} due`, `${openTasks.due} tiba`), tone: "warning" } : { text: L("on track", "ikut jadual"), tone: "success" }) : undefined}
@@ -1724,6 +1731,7 @@ export function Dashboard({
           <SummaryStat
             icon="date" tone="brand"
             label={L("My month", "Bulan saya")}
+            info={L("Days you clocked in this month, and the hours.", "Hari anda daftar masuk bulan ini, dan jamnya.")}
             value={daysPresent}
             busy={!attKnown}
             badge={attKnown ? { text: L(`${monthHours.toFixed(0)} h`, `${monthHours.toFixed(0)} j`), tone: "brand" } : undefined}
@@ -1744,6 +1752,7 @@ export function Dashboard({
             <SummaryStat
               icon="person" tone="success"
               label={L("In today", "Masuk hari ini")}
+              info={L("Active staff who clocked in today.", "Kakitangan aktif yang daftar masuk hari ini.")}
               value={inToday ? inToday.in : 0}
               busy={inToday === null}
               badge={inToday && inToday.of > 0 ? { text: `${Math.round((inToday.in / inToday.of) * 100)}%`, tone: inToday.in >= inToday.of * 0.8 ? "success" : "warning" } : undefined}

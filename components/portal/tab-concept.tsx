@@ -91,7 +91,7 @@ const STAT_TONE: Record<SummaryTone, string> = {
 
 /** One figure, one label. A button when something is behind it (v1.88.0:
     "clickable data without me need to open another new tabs"). */
-export function SummaryStat({ label, value, hint, tone = "neutral", onClick, title, active, busy, icon, badge, spark, detail }: {
+export function SummaryStat({ label, value, hint, tone = "neutral", onClick, title, active, busy, icon, badge, spark, detail, info }: {
   label: ReactNode;
   value: ReactNode;
   hint?: ReactNode;
@@ -113,12 +113,14 @@ export function SummaryStat({ label, value, hint, tone = "neutral", onClick, tit
   spark?: readonly number[];
   /** A quiet control in the tile's corner, usually the way into the records. */
   detail?: { label: ReactNode; onClick: () => void; title?: string };
+  /** v1.191.0 - what the figure counts, behind an (i) after the label */
+  info?: string;
 }) {
   const rich = Boolean(icon || badge || spark || detail);
   const body = rich ? (
     <>
       <span className="erp-stat-top">
-        <span className="erp-stat-label">{label}</span>
+        <span className="erp-stat-label">{label}{info ? <span className="erp-stat-info" title={info} aria-label={info} role="img"><AppIcon name="info" /></span> : null}</span>
         {detail ? (
           <button type="button" className="erp-stat-detail" onClick={(e) => { e.stopPropagation(); detail.onClick(); }} title={detail.title}>
             {detail.label}

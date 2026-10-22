@@ -1,9 +1,8 @@
-/* v1.188.0 - the tabbed Attendance page's own layout. Tokens only; the
-   cards, tiles, pills and buttons are the shared named classes. */
+/* v1.188.0 - the tabbed Attendance page's own layout. v1.191.0 - laid out as
+   the owner's reference photo: the tab row's aside (the month and Team
+   report), the Overview's table, month strip, issues and activity. Tokens
+   only; cards, chips, buttons and inputs are the shared named classes. */
 .page {
-  min-width: 0;
-}
-.tabs {
   min-width: 0;
 }
 /* a tab body is a stack; a hidden one must say hidden itself, or its
@@ -17,10 +16,22 @@
 .body[hidden] {
   display: none;
 }
-.split {
+
+/* ---- the Overview ---- */
+.split,
+.split2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .split {
+    grid-template-columns: minmax(0, 2.6fr) minmax(0, 1fr);
+  }
+  .split2 {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
 }
 .monitor {
   min-width: 0;
@@ -32,22 +43,251 @@
   gap: 1rem;
   align-content: start;
 }
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+.headText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  min-width: 0;
+}
+.headText > p {
+  margin: 0;
+}
+.title {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.sub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.month {
+  color: var(--danger);
+}
+.well {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  border-radius: 10px;
+}
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.search {
+  position: relative;
+  flex: 1 1 11rem;
+  min-width: 0;
+}
+.searchIcon {
+  position: absolute;
+  left: 0.625rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted-foreground);
+}
+.search input {
+  width: 100%;
+  padding-left: 2rem;
+}
+
+/* a reference table: a light header bar and ruled rows; wide tables scroll
+   inside their own box, never the page */
+.tWrap {
+  margin-top: 0.875rem;
+  overflow-x: auto;
+}
+.t {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--type-body-sm-size);
+}
+.t th {
+  padding: 0.5rem 0.625rem;
+  background: var(--secondary);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+.t th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.t th:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.t td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.t tbody tr:last-child td {
+  border-bottom: 0;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.name {
+  font-weight: 600;
+}
+.muted {
+  color: var(--muted-foreground);
+}
+.none {
+  margin: 0.75rem 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+
 .quick {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
-  margin-top: 0.625rem;
+  margin-top: 0.75rem;
 }
-.quickBtn {
-  justify-content: flex-start;
-  min-height: 2.75rem;
+.qa {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
 }
+.qa:hover {
+  border-color: var(--gold-solid);
+}
+.qa:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.qaIcon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border-radius: 8px;
+}
+
+/* ---- the month strip: one cell a day, scrolling sideways on a phone ---- */
+.calNav {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.cal {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(2.75rem, 1fr);
+  gap: 0.375rem;
+  margin-top: 0.875rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.day {
+  display: grid;
+  justify-items: center;
+  gap: 0.125rem;
+  padding: 0.5rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.dayToday {
+  background: var(--tile-gold);
+  border-color: var(--tile-gold);
+  color: var(--tile-gold-fg);
+}
+.dow {
+  font-size: var(--type-caption-size);
+  color: inherit;
+  opacity: 0.75;
+}
+.dnum {
+  font-size: var(--type-body-size);
+  font-weight: 700;
+}
+.dcount {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.dot {
+  display: inline-block;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin-right: 0.375rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.day .dot {
+  margin-right: 0;
+}
+.dayGood {
+  color: var(--success);
+}
+.dayPart {
+  color: var(--warning);
+}
+.dayLow {
+  color: var(--danger);
+}
+.dayOff {
+  color: var(--muted-foreground);
+}
+.dayToday .dayGood,
+.dayToday .dayPart,
+.dayToday .dayLow,
+.dayToday .dcount {
+  color: var(--tile-gold-fg);
+}
+
 .rosterAnchor {
   scroll-margin-top: 4rem;
-}
-@media (min-width: 1200px) {
-  .split {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    align-items: start;
-  }
 }

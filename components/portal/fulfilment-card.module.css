@@ -1,0 +1,99 @@
+/* v1.191.0 - the Fulfilment Overview as the owner's Ecommerce photo draws it:
+   a head with its month and View all, then the five statuses as tiles.
+   Tokens only; the drill-down table under them is unchanged. */
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.well {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.headText {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.headText > p {
+  margin: 0;
+}
+.title {
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.sub {
+  margin: 0.5rem 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.headText > .sub {
+  margin: 0;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+@media (max-width: 479px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.tile {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.tile:hover {
+  border-color: var(--gold-solid);
+}
+.tile:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.on {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.word {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  line-height: 1.2;
+}
+.n {
+  font-size: var(--type-kpi-md-size);
+  font-weight: 700;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 10%, var(--card));
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.blue {
+  background: color-mix(in srgb, var(--info-soft) 60%, var(--card));
+  color: var(--info);
+}
+.green {
+  background: color-mix(in srgb, var(--success-soft) 60%, var(--card));
+  color: var(--success);
+}
+.red {
+  background: color-mix(in srgb, var(--danger-soft) 60%, var(--card));
+  color: var(--danger);
+}

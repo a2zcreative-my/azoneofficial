@@ -1372,6 +1372,10 @@
   }
   .erp-stat-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
   .erp-stat-rich .erp-stat-label { font-size: var(--type-body-sm-size); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* v1.191.0 - the owner's Dashboard photo: an (i) after a tile's label that
+     says what the figure counts, on hover and to a screen reader */
+  .erp-stat-info { display: inline-grid; place-items: center; margin-left: 0.25rem; vertical-align: middle; color: var(--muted-foreground); cursor: help; }
+  .erp-stat-info svg { width: 0.875rem; height: 0.875rem; }
   .erp-stat-detail {
     flex: 0 0 auto;
     min-height: 1.75rem;

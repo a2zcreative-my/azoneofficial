@@ -10,8 +10,9 @@
 
 import { useEffect, useState } from "react";
 import { SkelText } from "@/components/ui/skeleton";
-import { card } from "@/lib/ui-styles";
+import { btnSm, card } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import css from "./fulfilment-card.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -36,9 +37,12 @@ const CHIPS: [key: string, label: string, labelMs: string, icon: AppIconName][] 
   ["delivered", "Delivered", "Telah sampai", "success"],
   ["returned", "Returned", "Dipulangkan", "returned"],
 ];
+/* v1.191.0 - each status's tint in the reference's five tiles */
+const TONE: Record<string, string> = { preparing: "gold", shipped: "blue", in_transit: "blue", delivered: "green", returned: "red" };
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 import { fmtRM as rmF, dmy } from "@/lib/format"; // v1.4.272: the global formatters
-import { AppIcon, type AppIconName, PanelTitle } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 const dmyT = (ts: string) => {
   const d = new Date(ts.replace(" ", "T") + "Z");
   if (Number.isNaN(d.getTime())) return ts;
@@ -46,7 +50,10 @@ const dmyT = (ts: string) => {
   return `${m.slice(8, 10)}-${m.slice(5, 7)} ${m.slice(11, 16)}`;
 };
 
-export function FulfilmentCard() {
+/* v1.191.0 - the owner's Ecommerce photo: "Fulfilment Overview" with its month,
+   a View all, and the five statuses as tiles (icon, word, count). Pressing a
+   tile shows its orders exactly as the chip did. */
+export function FulfilmentCard({ onViewAll }: { onViewAll?: () => void } = {}) {
   const [d, setD] = useState<FulfilSummary | null>(null);
   const [err, setErr] = useState("");
   /* v1.4.222 (CEO): chips are clickable — the orders behind a status. */
@@ -81,27 +88,32 @@ export function FulfilmentCard() {
   const totalMonth = d ? Object.values(d.by_status).reduce((a, b) => a + b, 0) : 0;
   return (
     <div className={card}>
-      <PanelTitle icon="fulfilment">{L("Fulfilment", "Pemenuhan")} — {d ? dmy(d.month) : "…"}</PanelTitle>
+      <div className={css.head}>
+        <span className={css.well}><AppIcon name="fulfilment" /></span>
+        <div className={css.headText}>
+          <p className={css.title}>{L("Fulfilment Overview", "Gambaran Pemenuhan")}</p>
+          <p className={css.sub}>{d ? (() => { const m = Number(d.month.slice(5, 7)) - 1; return MONTHS[m] ? `${MONTHS[m]} ${d.month.slice(0, 4)}` : dmy(d.month); })() : "…"}</p>
+        </div>
+        {onViewAll && <button type="button" className={btnSm} onClick={onViewAll}>{L("View all", "Lihat semua")}</button>}
+      </div>
       {!d ? (
         <SkelText lines={2} className="mt-2" />
-      ) : totalMonth === 0 ? (
-        <p className="text-muted-foreground mt-2 text-sm">{L("No shipments recorded this month yet.", "Belum ada penghantaran direkodkan bulan ini.")}</p>
       ) : (
         <>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          <div className={css.tiles}>
             {CHIPS.map(([k, label, labelMs, icon]) => (
-              <button key={k} type="button" onClick={() => void toggleDrill(k)}
+              <button key={k} type="button" onClick={() => void toggleDrill(k)} aria-pressed={drill === k}
                 title={L("Click to show these orders", "Klik untuk tunjuk pesanan ini")}
-                className={
-                  (drill === k ? "ring-primary ring-2 " : "") +
-                  (k === "preparing" && n(k) > 0
-                    ?"rounded-full bg-warning-soft px-2 py-0.5 font-semibold text-warning"
-                    : "border-border rounded-full border px-2 py-0.5")
-                }>
-                <AppIcon name={icon} className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L(label, labelMs)} <span className="font-semibold">{n(k)}</span> {drill === k ? "▴" : "▾"}
+                className={`${css.tile} ${css[TONE[k] ?? "blue"]} ${drill === k ? css.on : ""}`}>
+                <AppIcon name={icon} />
+                <span className={css.word}>{L(label, labelMs)}</span>
+                <span className={css.n}>{n(k)}</span>
               </button>
             ))}
           </div>
+          {totalMonth === 0 && (
+            <p className={css.sub}>{L("No shipments recorded this month yet.", "Belum ada penghantaran direkodkan bulan ini.")}</p>
+          )}
           {drill && (
             <div className="mt-2">
               {drillBusy && <SkelText lines={2} className="mt-1" />}

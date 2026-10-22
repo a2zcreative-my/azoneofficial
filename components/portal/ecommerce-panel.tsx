@@ -27,16 +27,17 @@ import { REVENUE_ROLES, type RevenueData } from "@/components/portal/dashboard";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { L, ZoneLabel, type User } from "@/components/portal/page-shared";
-import { SummaryStat, SummaryStrip, TabPage } from "@/components/portal/tab-concept";
+import { TabPage } from "@/components/portal/tab-concept";
 import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
-import { TikTokOrdersTable } from "@/components/portal/tiktok-orders";
+import { SYNC_ROLES, TikTokOrdersTable } from "@/components/portal/tiktok-orders";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
 import { TopStatesCard } from "@/components/portal/top-states-card";
 import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
 import { useCachedApi } from "@/lib/cached-api";
 import { fmtRM } from "@/lib/format";
 import type { Lang } from "@/lib/i18n";
 import type { TabName } from "@/lib/portal-tabs";
-import { tabPill, tabPillOn } from "@/lib/ui-styles";
 import css from "./ecommerce-panel.module.css";
 
 type View = "overview" | "orders" | "fulfilment" | "analytics" | "setup";
@@ -49,11 +50,12 @@ const monthLabel = (ym: string, lang: Lang) => {
   const names = lang === "ms" ? MONTHS_MS : MONTHS;
   return Number.isFinite(m) && names[m] ? `${names[m]} ${ym.slice(0, 4)}` : ym;
 };
-/* "+76% vs last month", or the plain fact when there is no last month */
-const delta = (now: number, before: number): { text: string; tone: "success" | "danger" | "neutral" } => {
-  if (!before) return { text: L("no figure last month", "tiada angka bulan lepas"), tone: "neutral" };
+/* "76% vs last month" with its arrow, or nothing when there is no last month
+   to compare with (the tile then says the plain fact instead) */
+const delta = (now: number, before: number): { pct: number | null; text: string } => {
+  if (!before) return { pct: null, text: "" };
   const pct = Math.round(((now - before) / before) * 100);
-  return { text: L(`${pct >= 0 ? "+" : ""}${pct}% vs last month`, `${pct >= 0 ? "+" : ""}${pct}% berbanding bulan lepas`), tone: pct >= 0 ? "success" : "danger" };
+  return { pct, text: L(`${Math.abs(pct)}% vs last month`, `${Math.abs(pct)}% berbanding bulan lepas`) };
 };
 
 export function EcommercePanel({ user, lang, go, canOpen }: {
@@ -88,82 +90,74 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
   const revDelta = r ? delta(r.tiktok.this_cents, r.tiktok.last_cents) : null;
   const ordDelta = r ? delta(r.tiktok.this_orders, r.tiktok.last_orders) : null;
 
+  /* v1.191.0 - the owner's photo's tiles: a tinted well, the label with its
+     period, the figure, the change against last month. The same four figures
+     from the same two cached requests. */
+  const period = L("This month", "Bulan ini");
   const tiles = canRevenue && (
-    <SummaryStrip cols={4} ariaLabel={L("This month", "Bulan ini")}>
-      <SummaryStat
-        icon="money" tone="brand"
-        label={L("Sales revenue", "Hasil jualan")}
-        value={r ? fmtRM(r.tiktok.this_cents) : 0}
-        busy={!r}
-        badge={revDelta ? { text: revDelta.text, tone: revDelta.tone } : undefined}
-        hint={r ? L(`TikTok Shop · ${monthLabel(r.month, lang)}`, `TikTok Shop · ${monthLabel(r.month, lang)}`) : undefined}
-      />
-      <SummaryStat
-        icon="cart" tone="brand"
-        label={L("Total orders", "Jumlah pesanan")}
-        value={r ? r.tiktok.this_orders : 0}
-        busy={!r}
-        badge={ordDelta ? { text: ordDelta.text, tone: ordDelta.tone } : undefined}
-        hint={r ? L(`${r.tiktok.last_orders} last month`, `${r.tiktok.last_orders} bulan lepas`) : undefined}
-      />
-      <SummaryStat
-        icon="success" tone="success"
-        label={L("Delivered", "Telah sampai")}
-        value={delivered}
+    <KpiRow label={period}>
+      <KpiTile icon="money" tone="gold" period={period}
+        label={L("Sales Revenue", "Hasil Jualan")}
+        value={r ? fmtRM(r.tiktok.this_cents) : 0} busy={!r}
+        delta={revDelta}
+        sub={r && revDelta?.pct == null ? L(`TikTok Shop · ${monthLabel(r.month, lang)}`, `TikTok Shop · ${monthLabel(r.month, lang)}`) : undefined} />
+      <KpiTile icon="documents" tone="navy" period={period}
+        label={L("Total Orders", "Jumlah Pesanan")}
+        value={r ? r.tiktok.this_orders : 0} busy={!r}
+        delta={ordDelta}
+        sub={r && ordDelta?.pct == null ? L(`${r.tiktok.last_orders} last month`, `${r.tiktok.last_orders} bulan lepas`) : undefined} />
+      <KpiTile icon="shipped" tone="blue" period={period}
+        label={L("Delivered", "Telah Sampai")}
+        value={<>{delivered} {f && monthOrders > 0 && <span className={`erp-chip erp-chip-sm erp-chip-success ${css.inline}`}>{Math.round((delivered / monthOrders) * 100)}%</span>}</>}
         busy={!f}
-        badge={f && monthOrders > 0 ? { text: `${Math.round((delivered / monthOrders) * 100)}%`, tone: "success" } : undefined}
-        hint={f ? L(`of ${monthOrders} shipments this month`, `daripada ${monthOrders} penghantaran bulan ini`) : undefined}
-        detail={{ label: L("See details", "Lihat butiran"), onClick: () => setView("fulfilment") }}
-      />
-      <SummaryStat
-        icon="package" tone={toShip > 0 ? "warning" : "neutral"}
-        label={L("To ship", "Untuk dihantar")}
-        value={toShip}
+        sub={f ? L(`of ${monthOrders} shipments this month`, `daripada ${monthOrders} penghantaran bulan ini`) : undefined}
+        onClick={() => setView("fulfilment")} title={L("See the fulfilment", "Lihat pemenuhan")} />
+      <KpiTile icon="package" tone="gold" period={period}
+        label={L("To Ship", "Untuk Dihantar")}
+        value={<>{toShip} {f && <span className={`erp-chip erp-chip-sm ${toShip > 0 ? "erp-chip-warning" : "erp-chip-success"} ${css.inline}`}>{toShip > 0
+          ? (f.oldest_preparing?.days != null ? L(`oldest ${f.oldest_preparing.days} d`, `tertua ${f.oldest_preparing.days} h`) : L("Needs action", "Perlu tindakan"))
+          : L("All shipped", "Semua dihantar")}</span>}</>}
         busy={!f}
-        badge={f ? (toShip > 0
-          ? { text: f.oldest_preparing?.days != null ? L(`oldest ${f.oldest_preparing.days} d`, `tertua ${f.oldest_preparing.days} h`) : L("needs action", "perlu tindakan"), tone: "warning" }
-          : { text: L("all shipped", "semua dihantar"), tone: "success" }) : undefined}
-        hint={f ? L("orders still preparing", "pesanan masih disediakan") : undefined}
-        detail={{ label: L("See details", "Lihat butiran"), onClick: () => setView("orders") }}
-      />
-    </SummaryStrip>
+        sub={f ? L("orders still preparing", "pesanan masih disediakan") : undefined}
+        onClick={() => setView("orders")} title={L("See the orders", "Lihat pesanan")} />
+    </KpiRow>
   );
+  const canSync = SYNC_ROLES.includes(user.role);
 
   return (
     <TabPage className={css.page}>
-      <div className={css.bar}>
-        <div role="tablist" className={`erp-pill-row ${css.tabs}`}>
-          {tabs.map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={view === k}
-              className={view === k ? tabPillOn : tabPill}
-              onClick={() => (k === "products" ? go("Inventory") : setView(k))}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {r && <span className={`erp-chip erp-chip-neutral ${css.month}`}>{monthLabel(r.month, lang)}</span>}
-      </div>
+      {/* v1.191.0 - the owner's photo: underline tabs, and at the right the
+          month and "Sync from TikTok" (the orders table's own sync, asked for
+          by an event, so there is still one sync and one gate) */}
+      <LineTabs value={view} tabs={tabs as readonly (readonly [View, string])[]} label={L("Ecommerce", "E-dagang")}
+        onChange={(k) => (k === ("products" as View) ? go("Inventory") : setView(k))}
+        aside={
+          <TabAside>
+            {r && <TabPeriod>{monthLabel(r.month, lang)}</TabPeriod>}
+            {canSync && (
+              <TabAction icon="refresh" onClick={() => { setView((v) => (v === "overview" || v === "orders" ? v : "overview")); window.dispatchEvent(new Event("azone:tiktok-sync")); }}>
+                {L("Sync from TikTok", "Segerak dari TikTok")}
+              </TabAction>
+            )}
+          </TabAside>
+        } />
 
       {view === "overview" && (
         <>
           {tiles}
-          <section className="erp-stack-tight">
-            <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
-            <div className={`${css.work} ${canRevenue ? css.workSplit : ""}`}>
-              <TikTokOrdersTable role={user.role} />
-              {canRevenue && (
-                <div className={css.aside}>
-                  <FulfilmentCard />
-                  <TopStatesCard onViewMap={showMap} />
-                </div>
-              )}
-            </div>
-          </section>
+          <div className={`${css.work} ${canRevenue ? css.workSplit : ""}`}>
+            <TikTokOrdersTable role={user.role} />
+            {canRevenue && (
+              <div className={css.aside}>
+                <FulfilmentCard onViewAll={() => setView("fulfilment")} />
+                <TopStatesCard onViewMap={showMap} />
+              </div>
+            )}
+          </div>
           {canRevenue && (
-            <section className="erp-stack-tight" ref={mapRef}>
-              <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
+            <div ref={mapRef} className={css.mapAnchor}>
               <OpsMapCard />
-            </section>
+            </div>
           )}
           {canRevenue && (
             <section className="erp-stack-tight">

@@ -65,17 +65,23 @@ const pos = seq.map((s) => overview.indexOf(s));
 ok("every card is on the Overview", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
 ok("tiles, orders, fulfilment, top states, map, the month's detail - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
 ok("the map's side column is empty: no commission leaderboard rides there", /<OpsMapCard \/>/.test(tab) && !/LeaderboardCard/.test(tab));
-const caps = ["The work", "The longer view", "This month"];
-ok("the Overview's zones are captioned", caps.every((c) => overview.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !overview.includes(`<ZoneLabel>{L("${c}"`)).join(","));
+/* v1.191.0 - the owner's photo has no captions over the work row or the
+   map; the month's detail below them keeps its own */
+const caps = ["This month"];
+ok("the Overview's month detail is captioned", caps.every((c) => overview.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !overview.includes(`<ZoneLabel>{L("${c}"`)).join(","));
 ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
 /* the 2fr / 1fr split is the panel's own module, applied when the role sees revenue */
 const ecomCss = read("components/portal/ecommerce-panel.module.css");
 ok("the orders table is wide and fulfilment beside it",
    /className=\{`\$\{css\.work\} \$\{canRevenue \? css\.workSplit : ""\}`\}/.test(tab)
    && /\.workSplit \{\s*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\);/.test(ecomCss));
-ok("the tab row is the shared pill, and Products opens Inventory rather than pretending to be a page",
-   /className=\{view === k \? tabPillOn : tabPill\}/.test(tab) && /k === "products" \? go\("Inventory"\) : setView\(k\)/.test(tab)
-   && /canOpen\("Inventory"\) \? \(\[\["products"/.test(tab));
+/* v1.191.0 - the owner's photo: underline tabs (LineTabs), the month and
+   "Sync from TikTok" at the right; Products still opens Inventory */
+ok("the tab row is the shared underline tabs, and Products opens Inventory rather than pretending to be a page",
+   /<LineTabs value=\{view\}/.test(tab) && /k === \("products" as View\) \? go\("Inventory"\) : setView\(k\)/.test(tab)
+   && /canOpen\("Inventory"\) \? \(\[\["products"/.test(tab)
+   && /\{canSync && \(\s*<TabAction icon="refresh"/.test(tab) && /window\.dispatchEvent\(new Event\("azone:tiktok-sync"\)\)/.test(tab)
+   && /window\.addEventListener\("azone:tiktok-sync", run\)/.test(read("components/portal/tiktok-orders.tsx")));
 
 /* 2. visual and keyboard reading order agree on every viewport */
 ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab) && !/order:\s*-?\d/.test(ecomCss));
@@ -89,8 +95,8 @@ ok("analytics stays CEO-only", /const canAnalytics = \["ceo", "super_admin"\]\.i
 ok("the orders table is not behind the revenue gate", !/canRevenue && \(?\s*<TikTokOrdersTable/.test(tab) && (tab.match(/<TikTokOrdersTable role=\{user\.role\} \/>/g) ?? []).length === 2);
 ok("the tiles, fulfilment, the top states, the map and the month's detail stay behind it",
    /const tiles = canRevenue && \(/.test(tab)
-   && /\{canRevenue && \(\s*<div className=\{css\.aside\}>\s*<FulfilmentCard \/>\s*<TopStatesCard/.test(tab)
-   && /\{canRevenue && \(\s*<section className="erp-stack-tight" ref=\{mapRef\}>[\s\S]{0,200}?<OpsMapCard \/>/.test(tab)
+   && /\{canRevenue && \(\s*<div className=\{css\.aside\}>\s*<FulfilmentCard onViewAll=\{\(\) => setView\("fulfilment"\)\} \/>\s*<TopStatesCard/.test(tab)
+   && /\{canRevenue && \(\s*<div ref=\{mapRef\} className=\{css\.mapAnchor\}>\s*<OpsMapCard \/>/.test(tab)
    && /\{canRevenue && \(\s*<section className="erp-stack-tight">[\s\S]{0,300}?<RevenueAndHoursCard/.test(tab)
    && /\{view === "fulfilment" && canRevenue && \(/.test(tab)
    && /useCachedApi<RevenueData>\(canRevenue \? "\/staff\/revenue" : null\)/.test(tab));
@@ -165,12 +171,16 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
   const z = [st.indexOf("<Sales user={user}"), st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf('L("The longer view"')];
   ok("the Sales workspace precedes the map and longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st));
-  const inner = [comp.indexOf('L("The work", "Kerja")'), comp.indexOf("{editingDoc ? ("), comp.indexOf("{workExtra}"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
+  /* v1.191.0 - the work card has no caption (the owner's photo); its Documents head opens it */
+  const inner = [comp.indexOf('Documents (All)'), comp.indexOf("{editingDoc ? ("), comp.indexOf("cloneElement(workExtra"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
   ok("THE WORK precedes CUSTOMERS without duplicating their forms", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
   ok("Sales opens records by default and keeps explicit creation intent", comp.includes('initialView = "documents"') && comp.includes('(initialView)') && page.includes('setSalesStart("create")') && dash.includes('onCreateQuotation()'));
   ok("editing a document opens its mounted form and scrolls the workspace", /setEditingDoc\(\{\s*id: d\.id, doc_number: d\.doc_number,[\s\S]{0,200}?\}\);\s*setWorkTab\("create"\)/.test(comp) && comp.includes('getElementById("sales-work")?.scrollIntoView'));
-  ok("Customers has two tabs and The work three", /value=\{custTab\} onChange=\{setCustTab\}/.test(comp) && ["add", "clients"].every((k) => comp.includes(`["${k}", L(`))
-     && /value=\{workTab\} onChange=\{setWorkTab\}/.test(comp) && ["create", "documents", "receipts"].every((k) => comp.includes(`["${k}", L(`)));
+  /* v1.191.0 - the work's three bodies are reached from the Documents pill
+     row (documents and the money views) and the top bar (Create document) */
+  ok("Customers has two tabs, and the work's three bodies each have a way in", /value=\{custTab\} onChange=\{setCustTab\}/.test(comp) && ["add", "clients"].every((k) => comp.includes(`["${k}", L(`))
+     && /setWorkTab\("create"\)/.test(comp) && /setWorkTab\("documents"\); setDocType\(v\)/.test(comp) && /setWorkTab\("receipts"\); setMoney\(v\)/.test(comp)
+     && ["receipts", "credit", "outstanding"].every((k) => comp.includes(`["${k}", L(`)));
   ok("every Sales tab body is hidden, never unmounted", ["add", "clients"].every((k) => comp.includes(`custTab === "${k}" ? "mt-3" : "hidden"`)) && ["create", "documents", "receipts"].every((k) => comp.includes(`workTab === "${k}" ? "mt-3" : "hidden"`)),
      "a half-written quotation must survive a look at the documents list");
 }
@@ -244,17 +254,20 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      corrections panel). The page hands the tab to the panel. */
   const attendance = read("components/portal/attendance-panel.tsx");
   ok("the Attendance block hands the tab to its panel", /\{activeTab === "Attendance" && \([\s\S]{0,400}?<AttendancePanel user=\{user\} go=\{setTab\} \/>/.test(page));
-  ok("Attendance: overview, my records, the team's, the roster, then management - in that order",
-    ordered(attendance, ['<Attendance user={user} view="monitor"', '<AttendanceTodayCard', '<TodayAssignmentsCard', '<Attendance user={user} view="mine"', '<VerificationCard', '<Attendance user={user} view="team"', '<RosterBoard', '<OtApprovalsCard', '<AttendanceAdminPanel']));
-  ok("the five tabs are the shared pill, and every body stays mounted (hidden, never unmounted)",
-    /className=\{view === k \? tabPillOn : tabPill\}/.test(attendance)
-    && ['"overview"', '"mine"', '"team"', '"roster"', '"manage"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
+  /* v1.191.0 - the owner's photo's seven tabs: Overview, Attendance, On
+     Shift (opens the On Shift page), Roster, Team, Reports, Settings */
+  ok("Attendance: overview, my records, the roster, the team's, the report, then the settings - in that order",
+    ordered(attendance, ['<AttendanceOverview', '<Attendance user={user} view="mine"', '<TodayAssignmentsCard', '<RosterBoard', '<OtApprovalsCard', '<Attendance user={user} view="team"', '<VerificationCard', '<AttendanceAdminPanel']));
+  ok("the seven tabs are the shared underline tabs, On Shift opens its page, and every body stays mounted (hidden, never unmounted)",
+    /<LineTabs value=\{view\} onChange=\{pick\} tabs=\{tabs\}/.test(attendance)
+    && /const pick = \(k: View\) => \(k === "onshift" \? go\("On Shift"\) : setView\(k\)\);/.test(attendance)
+    && ['"overview"', '"mine"', '"roster"', '"team"', '"reports"', '"settings"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
   ok("the assignments card's Open roster opens the roster tab and scrolls to the board",
     /<div id="roster-board" className=\{css\.rosterAnchor\} ref=\{rosterRef\}>\s*<RosterBoard/.test(attendance)
     && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/attendance-panel.module.css"))
     && /onOpenRoster=\{\(\) => \{ setView\("roster"\); revealAnchor\("roster-board"\); \}\}/.test(attendance)
     && /window\.dispatchEvent\(new CustomEvent\("azone:reveal", \{ detail: id \}\)\)/.test(read("components/portal/page-shared.tsx"))
-    && /"ot-approvals": "manage", "pending-punches": "manage", "roster-board": "roster"/.test(attendance));
+    && /"ot-approvals": "team", "pending-punches": "settings", "roster-board": "roster"/.test(attendance));
   /* v1.189.0 - the Users page is its own tabbed panel (users-panel.tsx):
      Overview, Staff Accounts, Customer Accounts, Roles & Permissions,
      Security & Settings; every body stays mounted and hidden. */
@@ -266,7 +279,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   /* the owner's reference draws these five as underline tabs (a gold rule
      under the open one) - this page's own, everything else keeps the pill */
   ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",
-    /role="tablist"[^>]*className=\{css\.lineTabs\}/.test(usersPanel) && /aria-selected=\{view === k\}\s*className=\{css\.lineTab\}/.test(usersPanel)
+    /<LineTabs value=\{view\} onChange=\{setView\} tabs=\{tabs\}/.test(usersPanel)
     && ['"overview"', '"staff"', '"customers"', '"roles"', '"security"'].every((v) => usersPanel.includes(`hidden={view !== ${v}}`)));
   ok("each Users card keeps the gate the page gave it",
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)

@@ -201,7 +201,10 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
        "a figure that ignores what is rendered under it is a wrong figure");
     ok("neither figure strip strands a tile on a row of its own",
        !/erp-tiles-3/.test(deskSrc) && /erp-tiles-2/.test(deskSrc)
-       && /cols=\{2\}/.test(read("components/portal/desk-page.tsx")),
+       /* v1.190.0 - the Desk's three figure cards: one column on a phone,
+          three across from 768px, never 2 + 1 */
+       && /\.figures \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\);/.test(read("components/portal/desk-page.module.css"))
+       && /@media \(min-width: 768px\) \{\s*\.figures \{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css")),
        "three tiles wrap to 2 + 1 at 390px; the third sat alone at half width");
     ok("a zone caption and the card title inside it are never the same words",
        /bare\?: boolean;/.test(deskSrc) && /\{!bare && <PanelTitle icon="orders">/.test(deskSrc)
@@ -216,11 +219,17 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
     ok("the Desk separates the decisions from the exceptions",
        /which="decide"/.test(deskPage) && /which="attention"/.test(deskPage)
        && deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Needs attention"'));
-    ok("the Desk shows a task COUNT and a link - Tasks owns the list",
+    /* v1.190.0 - the owner's brief, 22-10-2026, asks for "assigned tasks,
+       deadlines, statuses, and links to the existing Tasks module" on the
+       Desk's My Tasks tab. The list is drawn READ-ONLY with the queue's own
+       row, so every task opens the Tasks tab and Tasks keeps the detail, the
+       checklist and every progress action - the Desk changes no task. */
+    ok("the Desk lists your tasks read-only: every row opens Tasks, none acts on a task",
        /L\("Your tasks", "Tugasan anda"\)/.test(deskPage)
        && /go\("Tasks"\)/.test(deskPage)
-       && !/myTasks\.map/.test(deskPage) && !/myTasks\.slice/.test(deskPage),
-       "a queue that also runs your to-do list is two products in one scroll");
+       && /\(all \? myTasks : myTasks\.slice\(0, 3\)\)\.map\(\(t\) => <DeskRow key=\{t\.id\} item=\{t\} go=\{go\} \/>\)/.test(deskPage)
+       && !/\bapi\b|csrfFetch|method: "(?:PATCH|POST|PUT|DELETE)"/.test(deskPage),
+       "a desk that also runs your to-do list is two products in one scroll");
     ok("one request serves both surfaces, so the counts cannot disagree",
        /export function useDeskData\(\)/.test(card)
        && /useCachedApi<DeskData>\("\/staff\/desk"/.test(card)
@@ -309,8 +318,8 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      /<DeskQueue/.test(deskPage) && !/<DeskQueue/.test(dashSrc) && !/<DeskQueue/.test(pageSrc));
   ok("the Dashboard links to the Desk rather than repeating it",
      /go\("Desk"\)/.test(deskCard) && /L\(`Open the Desk/.test(deskCard));
-  ok("Tasks owns the task list: neither the Desk page nor the desk card renders one",
-     !/tasks\.map\(/.test(deskPage) && !/myTasks\.map/.test(deskPage) && !/myTasks\.map/.test(deskCard));
+  ok("Tasks owns the task WORK: the Desk lists your tasks read-only (v1.190.0) and the desk card lists none",
+     !/\bapi\b|csrfFetch/.test(deskPage) && !/myTasks\.map/.test(deskCard));
   ok("the bell is not a second approval queue: it links, it never decides",
      /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(shellSrc)
      && !/notifications\/decide|notifications\/approve/.test(shellSrc),

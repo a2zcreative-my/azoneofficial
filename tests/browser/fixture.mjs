@@ -180,7 +180,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
         windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: true }], slots_label: "Today", can_clock_in: false, why_not: null, can_ot: false } };
   }
   if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
-    staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role, in_at: i < 6 ? `0${8 + (i % 2)}:${String(10 + i * 7).padStart(2, "0")}` : null, in_gps: i < 6 ? "inside" : null })) };
+    /* v1.191.0 - stored as the worker stores them: UTC "YYYY-MM-DD HH:MM:SS"
+       (08:10 MYT is 00:10 UTC), a GPS fix, and one person already gone home */
+    staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role,
+      in_at: i < 6 ? `${D}16 0${i % 2}:${String(10 + i * 7).padStart(2, "0")}:00` : null,
+      out_at: i === 1 ? `${D}16 09:31:00` : null, last_type: i < 6 ? (i === 1 ? "clock_out" : "clock_in") : null, shifts: i < 6 ? 1 : 0,
+      in_gps: i < 6 ? (i === 3 ? "1.5712,103.7601,25" : "1.5601,103.7201,12") : null })) };
   /* v1.185.0 - the Ecommerce page: the TikTok connection, the orders the
      sync stored, and the buyer cities behind the map and the top states */
   if (p === "/integrations/tiktok/status") data = { configured: true, authorized: true, last_event_at: "2026-10-08 10:24:00", last_event_verified: true };

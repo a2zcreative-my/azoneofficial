@@ -22,8 +22,10 @@ import { useCachedApi } from "@/lib/cached-api";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
-import { btnSm, card, inputClassSm } from "@/lib/ui-styles";
+import { btnSm, card, chipSmNeutral, chipSmSuccess, inputClassSm } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import css from "./watchers-card.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const api = makeApi("/staff");
@@ -44,6 +46,16 @@ const LABEL_MS: Record<string, string> = {
   "Leave request waiting too long": "Permohonan cuti menunggu terlalu lama",
 };
 const UNIT_MS: Record<string, string> = { units: "unit", days: "hari", "days ahead": "hari ke hadapan" };
+/* v1.190.0 - each rule's glyph, so a finding reads at a glance (a rule the
+   map does not know falls back to the warning triangle) */
+const RULE_ICON: Record<string, AppIconName> = {
+  low_stock: "package", order_stuck: "shipped", claim_aging: "receipt",
+  asset_warranty: "fix", leave_aging: "date",
+};
+const ROLE_NAME: Record<string, string> = {
+  ceo: "CEO", coo: "COO", cco: "CCO", hr_admin: "HR Admin", sales_marketing: "Sales & Marketing",
+  super_admin: "Super Admin", admin: "Admin", marketing: "Marketing", editor: "Editor", live_host: "Live Host",
+};
 
 function since(sqlite: string): string {
   const t = new Date(sqlite.replace(" ", "T") + "Z").getTime();
@@ -89,7 +101,13 @@ export function useWatcherOpenCount(role: string): number | null {
   return view.data.open.length;
 }
 
-export function WatchersCard({ role, go, bare = false, section = "both" }: { role: string; go: (tab: string) => void; bare?: boolean; section?: "both" | "findings" | "rules" }) {
+export function WatchersCard({ role, go, bare = false, section = "both", limit, onViewAll }: {
+  role: string; go: (tab: string) => void; bare?: boolean; section?: "both" | "findings" | "rules";
+  /** v1.190.0 - the Desk overview shows the first few rule groups only */
+  limit?: number;
+  /** v1.190.0 - "View all": the Desk's Alerts & Watchers tab */
+  onViewAll?: () => void;
+}) {
   const exec = WATCHER_ROLES.includes(role);
   const canEdit = role === "ceo" || role === "super_admin";
   const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
@@ -125,8 +143,11 @@ export function WatchersCard({ role, go, bare = false, section = "both" }: { rol
   return (
     <div className={bare ? "border-border mt-4 border-t pt-4" : card}>
       {toastNode}
+      {/* v1.190.0 - the rules view is titled by its caller (the Desk's
+          Watcher Settings card), so the findings heading is not repeated */}
+      {section !== "rules" && (
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+        <div className={css.headText}>
           <p className="text-sm font-semibold">
             {open.length ? L(`Watchers — ${open.length} open`, `Pemerhati — ${open.length} terbuka`) : L("Watchers", "Pemerhati")}
             <StaleHint show={view.stale} className="ml-2" />
@@ -137,12 +158,16 @@ export function WatchersCard({ role, go, bare = false, section = "both" }: { rol
               : L("Nothing the company's rules watch for is true right now.", "Tiada apa yang diperhatikan oleh peraturan syarikat benar sekarang.")}
           </p>
         </div>
+        {onViewAll && open.length > 0 && (
+          <button type="button" className={btnSm} onClick={onViewAll}>{L("View all", "Lihat semua")}</button>
+        )}
         {section === "both" && (
           <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setRules((v) => !v)}>
             {rules ? L("Hide rules", "Sembunyi peraturan") : L(`Rules (${watchers.length})`, `Peraturan (${watchers.length})`)}
           </button>
         )}
       </div>
+      )}
       {view.data?.pending_migration && (
         <p className="text-warning mt-2 text-xs">{L("Run the deploy so migration 0115 applies — the watchers start on the next hour.", "Jalankan deploy supaya migrasi 0115 digunakan — pemerhati bermula pada jam berikutnya.")}</p>
       )}
@@ -153,7 +178,7 @@ export function WatchersCard({ role, go, bare = false, section = "both" }: { rol
            those to go where it is fixed. Eleven low-stock SKUs were eleven
            rows of a queue that is meant to be scanned in one screen. */
         <ul className="erp-mt-3">
-          {[...new Set(open.map((f) => f.watcher))].map((key) => {
+          {[...new Set(open.map((f) => f.watcher))].slice(0, limit ?? Infinity).map((key) => {
             const group = open.filter((f) => f.watcher === key);
             const oldest = group[group.length - 1] ?? group[0];
             const newest = group[0];
@@ -163,11 +188,11 @@ export function WatchersCard({ role, go, bare = false, section = "both" }: { rol
             const isOpen = Boolean(openGroups[key]);
             return (
               <li key={key} className="erp-list-row erp-watch-group">
-                <button type="button" className="erp-row-lead erp-watch-head"
+                <button type="button" className={`erp-row-lead erp-watch-head ${css.watchHead}`}
                   aria-expanded={isOpen}
                   onClick={() => setOpenGroups((g) => ({ ...g, [key]: !g[key] }))}
                   title={isOpen ? L("Hide the detail", "Sembunyi perincian") : L("Show the detail", "Tunjuk perincian")}>
-                  <span aria-hidden className="erp-dot erp-dot-warning" />
+                  <span aria-hidden className={css.ruleIcon}><AppIcon name={RULE_ICON[key] ?? "warning"} /></span>
                   <span className="erp-min0 erp-grow">
                     <span className="erp-watch-title">{label} — {group.length}</span>
                     <span className="erp-meta">
@@ -207,31 +232,57 @@ export function WatchersCard({ role, go, bare = false, section = "both" }: { rol
       )}
 
       {(rules || section === "rules") && (
-        <ul className="border-border mt-3 divide-y rounded-xl border">
-          {watchers.map((w) => (
-            <li key={w.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-              <label className="flex min-w-0 flex-1 items-center gap-2">
-                <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={w.enabled} disabled={!canEdit || busy === w.key}
-                  onChange={(e) => void save(w, { enabled: e.target.checked })} />
-                <span className="min-w-0">
-                  <span className={`block truncate font-medium ${w.enabled ? "" : "text-muted-foreground line-through"}`}>{L(w.label, LABEL_MS[w.label] ?? w.label)}</span>
-                  <span className="text-muted-foreground block truncate text-[10px]">
-                    {L("tells", "memberitahu")} {w.audience.map((r) => r.replace(/_/g, " ")).join(", ")}{w.open ? ` · ${w.open} ${L("open", "terbuka")}` : ""}
-                  </span>
+        /* v1.190.0 - THE RULES AS A TABLE (the owner's reference): the rule
+           and who it tells, on or off, the line it watches and what it finds
+           open now. The same controls with the same gate and the same save:
+           the checkbox and the number are disabled for anyone but the CEO
+           (and the super admin), and the worker refuses anyone else. */
+        <div className={css.rules}>
+          <div className={css.ruleHead} aria-hidden="true">
+            <span>{L("Rule", "Peraturan")}</span>
+            <span>{L("Tells", "Memberitahu")}</span>
+            <span>{L("Status", "Status")}</span>
+            <span>{L("Threshold", "Ambang")}</span>
+            <span>{L("Open", "Terbuka")}</span>
+          </div>
+          <ul className={css.ruleList}>
+            {watchers.map((w) => (
+              <li key={w.key} className={css.ruleRow}>
+                <label className={css.ruleName}>
+                  <input type="checkbox" className={css.check} checked={w.enabled} disabled={!canEdit || busy === w.key}
+                    aria-label={L(`${w.label} on`, `${w.label} hidup`)}
+                    onChange={(e) => void save(w, { enabled: e.target.checked })} />
+                  <span aria-hidden className={css.ruleIcon}><AppIcon name={RULE_ICON[w.key] ?? "warning"} /></span>
+                  <span className={w.enabled ? css.ruleLabel : `${css.ruleLabel} ${css.off}`}>{L(w.label, LABEL_MS[w.label] ?? w.label)}</span>
+                </label>
+                <span className={css.tells}>
+                  <span className={css.cellLabel}>{L("Tells", "Memberitahu")}</span>
+                  {w.audience.map((r) => <span key={r} className={chipSmNeutral}>{ROLE_NAME[r] ?? r.replace(/_/g, " ")}</span>)}
                 </span>
-              </label>
-              {w.threshold_label && (
-                <span className="flex items-center gap-1.5">
-                  <input type="number" min={0} max={3650} className={`${inputClassSm} w-20 text-right tabular-nums`} key={`thr:${w.threshold ?? w.default_threshold ?? 0}`} defaultValue={w.threshold ?? w.default_threshold ?? 0}
-                    disabled={!canEdit || busy === w.key} aria-label={L(`${w.label} threshold`, `Ambang ${w.label}`)}
-                    onBlur={(e) => { const n = Number(e.target.value); if (Number.isInteger(n) && n !== (w.threshold ?? w.default_threshold)) void save(w, { threshold: n }); }} />
-                  <span className="text-muted-foreground">{L(w.threshold_label, UNIT_MS[w.threshold_label] ?? w.threshold_label)}</span>
+                <span className={css.cell}>
+                  {w.enabled
+                    ? <span className={chipSmSuccess}>{L("Active", "Aktif")}</span>
+                    : <span className={chipSmNeutral}>{L("Off", "Mati")}</span>}
                 </span>
-              )}
-            </li>
-          ))}
-          {!canEdit && <li className="text-muted-foreground px-3 py-2 text-[11px]">{L("Only the CEO changes a rule.", "Hanya CEO mengubah peraturan.")}</li>}
-        </ul>
+                <span className={css.cell}>
+                  {w.threshold_label ? (
+                    <>
+                      <input type="number" min={0} max={3650} className={`${inputClassSm} ${css.num}`} key={`thr:${w.threshold ?? w.default_threshold ?? 0}`} defaultValue={w.threshold ?? w.default_threshold ?? 0}
+                        disabled={!canEdit || busy === w.key} aria-label={L(`${w.label} threshold`, `Ambang ${w.label}`)}
+                        onBlur={(e) => { const n = Number(e.target.value); if (Number.isInteger(n) && n !== (w.threshold ?? w.default_threshold)) void save(w, { threshold: n }); }} />
+                      <span className={css.unit}>{L(w.threshold_label, UNIT_MS[w.threshold_label] ?? w.threshold_label)}</span>
+                    </>
+                  ) : <span className={css.unit}>—</span>}
+                </span>
+                <span className={css.cell}>
+                  <span className={css.cellLabel}>{L("Open", "Terbuka")}</span>
+                  <span className={w.open ? css.openN : css.unit}>{w.open}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!canEdit && <p className={css.readOnly}><AppIcon name="lock" /> {L("Only the CEO changes a rule.", "Hanya CEO mengubah peraturan.")}</p>}
+        </div>
       )}
     </div>
   );

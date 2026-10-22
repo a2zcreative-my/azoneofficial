@@ -236,11 +236,13 @@ function fakeEnv(fixture) {
        && /<WatchersCard role=\{user\.role\} go=\{go\} section="rules" bare \/>/.test(deskPage)
        && deskPage.indexOf('section="findings"') < deskPage.indexOf('section="rules"'));
     ok("rule configuration is out of the queue: it is the last zone on the page",
-       deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Setup"')
-       && deskPage.indexOf('L("Needs attention"') < deskPage.indexOf('L("Setup"'));
+       /* v1.190.0 - its own tab, Watcher Settings, the last of the five */
+       deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Watcher rules"')
+       && deskPage.indexOf('L("Needs attention"') < deskPage.indexOf('L("Watcher rules"')
+       && /\["settings", L\("Watcher Settings", "Tetapan Pemerhati"\)\]/.test(deskPage));
     ok("the Dashboard no longer carries the watchers list", !/<WatchersCard/.test(read("components/portal/dashboard.tsx")));
     ok("findings are grouped by rule with a count, not one row per finding",
-       /\[\.\.\.new Set\(open\.map\(\(f\) => f\.watcher\)\)\]\.map/.test(card)
+       /\[\.\.\.new Set\(open\.map\(\(f\) => f\.watcher\)\)\](?:\.slice\(0, limit \?\? Infinity\))?\.map/.test(card)
        && /\{label\} — \{group\.length\}/.test(card)
        && /aria-expanded=\{isOpen\}/.test(card),
        "eleven low-stock SKUs were eleven rows of a queue meant to be read in one screen");

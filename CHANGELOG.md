@@ -10,6 +10,94 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.191.0] - 2026-10-22 - Dashboard, Ecommerce, Sales and Attendance as the photos
+
+The owner, 22-10-2026: "Dashboard, Ecommerce, Sales & Attendance should
+follow exactly as per previous photo shared." Two choices asked first: the
+Attendance photo's seven tabs over his written brief's five, and only
+controls that already work (no fake month pickers, bulk selects or filters,
+no API change). Same data, gates and rules throughout.
+
+### Changed
+
+- **Attendance** (`attendance-panel.tsx`, new `attendance-overview.tsx`):
+  the photo's tabs - Overview · Attendance · On Shift (opens the On Shift
+  page) · Roster · Team · Reports · Settings - under the shared underline
+  tabs, with the month and a gold "Team report" at the right. The Overview
+  is the photo's: five tiles (On time, Late, Not clocked in with share bars;
+  Currently on shift; Total working hours today), today's table (clock in /
+  out, hours, status, Office or Outside from the existing geofence rule, with
+  a search, a role and a status filter), the donut and quick actions, a month
+  strip (people in each day of the staff count; arrows move the month),
+  Attendance issues (late arrivals, not clocked in) and Recent activity.
+  Desk anchors: #ot-approvals -> Team, #pending-punches -> Settings.
+- **Ecommerce** (`ecommerce-panel.tsx`): underline tabs with the month and a
+  gold "Sync from TikTok" (it asks the orders table to run its own sync - one
+  sync, one gate); the photo's tiles; no captions over the work row or the
+  map; the orders table in the DataTable's new `look="reference"` (a wide
+  search, numbered pages, "5 / page"); the Fulfilment Overview as five status
+  tiles with View all (`fulfilment-card.tsx`; the drill-down is unchanged).
+- **Sales** (`sales.tsx`): a breadcrumb, the month and a gold "Create
+  document" across the top; the photo's tiles; one Documents card whose pill
+  row is Documents (All) · Quotations · Invoices · Delivery orders · Receipts
+  · Credit notes · Outstanding (`DocumentsPanel` takes the chosen view); the
+  aging list moved under Outstanding; numbered pages with 10 / 25 / 50 a
+  page; the quotation approval limit under the table.
+- **Dashboard**: the zone captions leave the screen (they stay for a screen
+  reader - every card already names itself); an (i) on each tile says what it
+  counts; the photo's Daily Attendance Statistic (`attendance-chart.tsx`) for
+  the roles that read the attendance report - a bar a day this month: on
+  time, late, on leave, of the staff count.
+- Shared: `components/ui/kpi-tile.tsx` (the photos' tile), `TabPeriod` /
+  `TabAction` / `TabAside` in `line-tabs.tsx`, DataTable `look` and `noun`.
+
+### Unchanged
+
+- Every route, permission and calculation. Guards re-pointed: `tab-zones`,
+  `tab-concept`. The browser fixture's monitor now stores punches as the
+  worker does (UTC timestamps).
+
+## [1.190.0] - 2026-10-22 - Desk: five tabs
+
+The owner's brief and reference, 22-10-2026: Desk as "a clean, premium,
+actionable work center" in the existing gold, navy, white and grey. The same
+two requests (`/staff/desk`, `/staff/watchers`), the same rows, rules, gates
+and links; no API, permission, threshold or recipient changed, and nothing
+from the mockup's sample data was used.
+
+### Changed
+
+- **`components/portal/desk-page.tsx` is five underline tabs** (every body
+  mounted and hidden, never unmounted):
+  - **Overview**: three figure cards (Needs your decision with the oldest
+    wait, Needs attention - the desk's exceptions plus the watcher findings,
+    as since v1.176.1 - and Your open tasks), then previews: Needs your action
+    (decisions first, five rows, View all), the watcher findings (first four
+    rules, View all), Your tasks, and Quick actions.
+  - **My Actions**: the per-module doors, Needs your decision, Needs
+    attention - the full queue, every row opening the record as before.
+  - **Alerts & Watchers** (WATCHER_ROLES): the findings grouped by rule, each
+    with its glyph, expandable, with Open.
+  - **My Tasks**: the tasks assigned to you, READ-ONLY - title, deadline or
+    status, age - every row opening the Tasks tab, which still owns the
+    detail, the checklist and every progress action. This reverses
+    v1.176.0's "a count and a link" at the owner's request; the Desk still
+    changes no task.
+  - **Watcher Settings** (WATCHER_ROLES): the rules as a table - rule, who it
+    tells, on/off, threshold, open now. The same checkbox, number and save;
+    editable by the CEO (and the super admin, the worker's own rule), read-only
+    for everyone else with "Only the CEO changes a rule."
+- **`components/ui/line-tabs.tsx`**: the underline tabs, shared by Users and
+  Desk (Users moved onto it; nothing else changed there).
+- `watchers-card.tsx`: a rule glyph, `limit` and `onViewAll` for the Overview
+  preview, the rules table, and no repeated findings heading over the rules.
+
+### Unchanged
+
+- Every route and gate. Guards re-pointed: `one-desk` (three figure cards,
+  one column on a phone; the read-only task list), `watchers` (the rules are
+  the last tab), `tab-zones` (Users on LineTabs).
+
 ## [1.189.0] - 2026-10-22 - Users: five tabs and a permission matrix
 
 The owner's brief, 22-10-2026: the Users module as a clean, premium,

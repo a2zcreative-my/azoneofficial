@@ -3,18 +3,15 @@
 .page {
   min-width: 0;
 }
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
+/* a chip inside a tile's figure line */
+.inline {
+  vertical-align: middle;
+  margin-left: 0.25rem;
+  font-size: var(--type-caption-size);
+  letter-spacing: 0;
 }
-.tabs {
-  min-width: 0;
-}
-.month {
-  white-space: nowrap;
+.mapAnchor {
+  scroll-margin-top: 4rem;
 }
 /* the orders table beside the fulfilment column from a desktop up; one
    column on a phone and a tablet. Explicit tracks: an implicit auto track

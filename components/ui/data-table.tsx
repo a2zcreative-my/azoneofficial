@@ -41,6 +41,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
+import { AppIcon } from "@/components/ui/app-icon";
 import { Skel } from "@/components/ui/skeleton";
 import { downloadCsv } from "@/lib/csv";
 import { btnSm, btnSmDanger, inputClassSm, menuCard, selectClassSm, tabPill, tabPillOn, td, tdR2, th, thR2 } from "@/lib/ui-styles";
@@ -110,7 +111,7 @@ export function DataTable<T extends { id: number | string }>({
   columns, rows, searchText, defaultSort, defaultDir = "desc",
   pageSizes = [10, 25, 50], empty, emptyHint, emptyAction, loading = false, footer,
   id, filters = [], selectable = false, bulkActions = [], csvExport, onRowClick, rowActions, rowActionsLabel,
-  toolbar,
+  toolbar, look = "standard", noun,
 }: {
   columns: DataColumn<T>[];
   rows: T[];
@@ -148,6 +149,12 @@ export function DataTable<T extends { id: number | string }>({
   rowActionsLabel?: string;
   /** v1.172.0 - extra controls at the right of the toolbar (module-specific). */
   toolbar?: ReactNode;
+  /** v1.191.0 - "reference": the owner's photos for Ecommerce and Sales - a
+      wide search box first, the page size beside numbered pages at the foot.
+      The same search, sort, pages, export and columns; only where they sit. */
+  look?: "standard" | "reference";
+  /** v1.191.0 - what a row is, for the foot line ("orders", "documents") */
+  noun?: [string, string];
 }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<string | null>(defaultSort ?? null);
@@ -249,8 +256,40 @@ export function DataTable<T extends { id: number | string }>({
   const chipBtn = "erp-filter-chip";
   const barBtn = btnSm;
 
+  const ref = look === "reference";
+  const what = noun ? L(noun[0], noun[1]) : L("entries", "entri");
+  /* the numbered pages: every page when there are seven or fewer, otherwise
+     the ends, the neighbours of the current page and a gap between */
+  const pageList: (number | "gap")[] = pages <= 7
+    ? Array.from({ length: pages }, (_, i) => i + 1)
+    : [1, ...(cur > 3 ? ["gap" as const] : []), ...[cur - 1, cur, cur + 1].filter((n) => n > 1 && n < pages), ...(cur < pages - 2 ? ["gap" as const] : []), pages];
+  const perSelect = (
+    <select className={selectClassSm} value={per}
+      onChange={(e) => { setPer(Number(e.target.value)); setPage(1); }} aria-label={L("Entries per page", "Entri setiap halaman")}>
+      {pageSizes.map((n) => <option key={n} value={n}>{ref ? L(`${n} / page`, `${n} / halaman`) : n}</option>)}
+    </select>
+  );
+
   return (
     <div>
+      {ref ? (
+        <div className={s.refTools}>
+          {searchText && (
+            <label className={s.refSearch}>
+              <AppIcon name="search" className={s.refSearchIcon} />
+              <input type="search" className={inputClassSm} value={q} placeholder={L("Search…", "Cari…")}
+                onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={L("Search this table", "Cari dalam jadual ini")} />
+            </label>
+          )}
+          {toolbar}
+          {csvExport && (
+            <button type="button" className={btnSm} onClick={exportCsv} disabled={loading || shaped.length === 0}
+              title={L("Download these rows as a CSV file", "Muat turun baris ini sebagai fail CSV")}>
+              {L("Export CSV", "Eksport CSV")}
+            </button>
+          )}
+        </div>
+      ) : (
       <div className="erp-toolbar">
         <label className={s.toolLabel}>
           <select className={selectClassSm} value={per}
@@ -309,6 +348,7 @@ export function DataTable<T extends { id: number | string }>({
           )}
         </div>
       </div>
+      )}
 
       {/* v1.172.0 - quick filters. Chips when a filter has a handful of
           options, a select when it has many; the chosen values repeat below
@@ -388,7 +428,7 @@ export function DataTable<T extends { id: number | string }>({
           stays put (styles/globals.css .erp-table), so a long list is read
           against its column names rather than from memory. */}
       <div className="erp-table-wrap" aria-busy={loading || undefined}>
-        <table className={`erp-table ${s.table} ${density === "compact" ? "erp-table-compact" : ""}`}>
+        <table className={`erp-table ${s.table} ${ref ? s.refTable : ""} ${density === "compact" ? "erp-table-compact" : ""}`}>
           <thead>
             <tr>
               {selectable && (
@@ -474,6 +514,25 @@ export function DataTable<T extends { id: number | string }>({
         )}
       </div>
 
+      {ref ? (
+        <div className={s.refFoot}>
+          <span className={s.footNote}>
+            {loading ? <Skel className={s.footSkel} h={12} w={160} /> : shaped.length === 0 ? L(`Showing 0 ${what}`, `Memaparkan 0 ${what}`)
+              : L(`Showing ${(cur - 1) * per + 1}-${Math.min(cur * per, shaped.length)} of ${shaped.length} ${what}`,
+                `Memaparkan ${(cur - 1) * per + 1}-${Math.min(cur * per, shaped.length)} daripada ${shaped.length} ${what}`)}
+          </span>
+          {pages > 1 && (
+            <nav className={s.pageNums} aria-label={L("Pages", "Halaman")}>
+              <button type="button" className={s.pageBtn} disabled={cur === 1} onClick={() => setPage(cur - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}>‹</button>
+              {pageList.map((n, i) => n === "gap"
+                ? <span key={`gap-${i}`} className={s.pageGap} aria-hidden>…</span>
+                : <button key={n} type="button" className={n === cur ? `${s.pageBtn} ${s.pageOn}` : s.pageBtn} aria-current={n === cur ? "page" : undefined} onClick={() => setPage(n)}>{n}</button>)}
+              <button type="button" className={s.pageBtn} disabled={cur === pages} onClick={() => setPage(cur + 1)} aria-label={L("Next page", "Halaman seterusnya")}>›</button>
+            </nav>
+          )}
+          <span className={s.refPer}>{perSelect}</span>
+        </div>
+      ) : (
       <div className={s.foot}>
         <span className={s.footNote}>
           {/* the house rule (tests/skeleton-loading.mjs): a shape, never a word about waiting */}
@@ -491,6 +550,7 @@ export function DataTable<T extends { id: number | string }>({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

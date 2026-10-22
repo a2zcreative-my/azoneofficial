@@ -156,7 +156,7 @@ for (const tab of allTabs) {
 const SUMMARY = ["Ecommerce", "Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
 for (const tab of SUMMARY) {
   const body = bodyOf(tab);
-  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
+  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|<KpiRow|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
 }
 /* v1.183.0 - the Enquiries "figure is a door" check left with the panel;
    Claims below carries the same rule */
@@ -171,7 +171,7 @@ for (const [file, src] of [["leave.tsx", read("components/portal/leave.tsx")], [
   ok(`${file} switches with the shared pill (tabPill / tabPillOn), not a hand-rolled one`, /tabPillOn : tabPill/.test(src) && !/bg-primary text-primary-foreground rounded-full px-3 py-1/.test(src));
 }
 ok("Leave's chooser still toggles off (v1.92.0) and wears the shared pill", /className=\{mgmt === "company" \? tabPillOn : tabPill\}\s*onClick=\{\(\) => setMgmt\(mgmt === "company" \? "" : "company"\)\}/.test(read("components/portal/leave.tsx")));
-ok("the Dashboard's Work overview, the Sales work card and Inventory's Record card keep their pill rows", /<SectionTabs value=\{aroundTab\}/.test(read("components/portal/dashboard.tsx")) && /<SectionTabs value=\{workTab\}/.test(read("components/portal/sales.tsx")) && /<SectionTabs value=\{recordTab\}/.test(read("components/portal/role-panels.tsx")));
+ok("the Dashboard's Work overview, the Sales work card and Inventory's Record card keep their pill rows", /<SectionTabs value=\{aroundTab\}/.test(read("components/portal/dashboard.tsx")) && /* v1.191.0 - the Sales work card's pill row is the Documents row */ /role="tablist" className=\{`erp-pill-row \$\{sc\.pills\}`\}/.test(read("components/portal/sales.tsx")) && /<SectionTabs value=\{recordTab\}/.test(read("components/portal/role-panels.tsx")));
 
 /* ---- 6. the reference ---- */
 const dash = read("components/portal/dashboard.tsx");
@@ -189,7 +189,8 @@ ok("the desk zone is addressable, so a nav stop can reveal it without a second i
 /* ---- the page ---- */
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));
 /* v1.188.0 - the four zones became five tabs (attendance-panel.tsx) */
-ok("Attendance: OVERVIEW, MY ATTENDANCE, TEAM ATTENDANCE, SCHEDULE & ROSTER, MANAGEMENT", ['L("Overview", "Gambaran")', 'L("My Attendance", "Kehadiran saya")', 'L("Team Attendance", "Kehadiran pasukan")', 'L("Schedule & Roster", "Jadual & roster")', 'L("Management", "Pengurusan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
+/* v1.191.0 - the owner's photo's seven tabs */
+ok("Attendance: OVERVIEW, ATTENDANCE, ON SHIFT, ROSTER, TEAM, REPORTS, SETTINGS", ['L("Overview", "Gambaran")', 'L("Attendance", "Kehadiran")', 'L("On Shift", "Syif Saya")', 'L("Roster", "Roster")', 'L("Team", "Pasukan")', 'L("Reports", "Laporan")', 'L("Settings", "Tetapan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
 /* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
 ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMER ACCOUNTS, ROLES & PERMISSIONS, SECURITY & SETTINGS", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customer Accounts", "Akaun pelanggan")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Settings", "Keselamatan & tetapan")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(read("components/portal/users-panel.tsx")));
 ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay", "Security and privacy"].every((c) => blockOf("Profile").includes(`label={L("${c}"`)));

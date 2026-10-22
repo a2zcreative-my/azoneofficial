@@ -29,6 +29,7 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
 import { AccessReviewCard, GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
 import { Avatar } from "@/components/ui/avatar";
+import { LineTabs } from "@/components/ui/line-tabs";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -303,15 +304,8 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
     <TabPage className={css.page}>
       {toastNode}
       {/* v1.189.0 - the reference's underline tabs (gold rule under the open
-          one), on this page only; the other pages keep the shared pill row */}
-      <div role="tablist" aria-label={L("Users", "Pengguna")} className={css.lineTabs}>
-        {tabs.map(([k, label]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k}
-            className={css.lineTab} onClick={() => setView(k)}>
-            {label}
-          </button>
-        ))}
-      </div>
+          one); the shared LineTabs from v1.190.0, which Desk draws too */}
+      <LineTabs value={view} onChange={setView} tabs={tabs} label={L("Users", "Pengguna")} />
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
       <div hidden={view !== "overview"} className={css.body}>
