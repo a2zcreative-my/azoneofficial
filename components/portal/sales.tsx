@@ -24,7 +24,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
@@ -38,6 +38,7 @@ import { openCustomerFile } from "@/components/portal/customer-file"; // v1.181.
 import { QuotationAcceptance } from "@/components/portal/quotation-acceptance"; // v1.181.16
 import { RecurringDue, type RecurringRow } from "@/components/portal/recurring-due"; // v1.181.16
 import bizCss from "@/components/portal/business.module.css"; // v1.181.16
+import sc from "@/components/portal/sales-docs.module.css"; // v1.186.0 - the documents table
 import { QuoteApprovalLimit, type QuoteApproval } from "@/components/portal/quote-approval"; // v1.181.17
 
 /* ================= Sales (CRM + documents) ================= */
@@ -1219,6 +1220,12 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
      the details. the button remain at outside"): one document open at a time
      — opening another closes the first, so the list never grows tall. */
   const [openDoc, setOpenDoc] = useState<number | null>(null);
+  /* v1.186.0 - the documents list's filters and page (see docRows) */
+  const [docType, setDocType] = useState<"all" | "QT" | "INV" | "DO">("all");
+  const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced">("all");
+  const [docQuery, setDocQuery] = useState("");
+  const [docPage, setDocPage] = useState(1);
+  const DOC_PER = 10;
   const [openCust, setOpenCust] = useState<number | null>(null);
   // v1.4.94: backdating + typo edits. editingDoc = the document being fixed
   // (its number never changes); doc_date/paid_date allow true past dates for
@@ -1889,6 +1896,35 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     && mytYm(d.paid_at ?? d.created_at) === monthKey);
   const unpaidInv = docs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
   const cents = (list: SalesDoc[]) => list.reduce((a, d) => a + d.total_cents, 0);
+  /* v1.186.0 (the owner's reference): last month's figures beside this
+     month's, by the same two rules - raised by created_at, paid by paid_at */
+  const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const lastInv = docs.filter((d) => d.doc_type === "INV" && mytYm(d.created_at) === lastKey);
+  const lastPaid = docs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid" && mytYm(d.paid_at ?? d.created_at) === lastKey);
+  const vsLast = (now: number, before: number): { text: string; tone: "success" | "danger" | "neutral" } | undefined => {
+    if (!before) return undefined;
+    const pct = Math.round(((now - before) / before) * 100);
+    return { text: L(`${pct >= 0 ? "+" : ""}${pct}% vs last month`, `${pct >= 0 ? "+" : ""}${pct}% berbanding bulan lepas`), tone: pct >= 0 ? "success" : "danger" };
+  };
+  /* the last six months of quotations raised, newest last - the tile's bars */
+  const qtSpark = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - (5 - i));
+    const k = d.toISOString().slice(0, 7);
+    return docs.filter((x) => x.doc_type === "QT" && mytYm(x.created_at) === k).length;
+  });
+  /* v1.186.0 - the documents list: a type pill, a search, a status pick and
+     ten a page. Filters only; every row keeps every action it had. */
+  const docRows = docs.filter((d) =>
+    (docType === "all" || d.doc_type === docType)
+    && (docStatus === "all"
+      || (docStatus === "paid" ? d.doc_type === "INV" && d.payment_status === "paid"
+        : docStatus === "unpaid" ? d.doc_type === "INV" && d.payment_status !== "paid"
+          : docStatus === "invoiced" ? d.doc_type === "QT" && !!d.invoiced_as
+            : docStatus === "open" ? d.doc_type === "QT" && !d.invoiced_as : true))
+    && (!docQuery.trim() || `${d.doc_number} ${d.company} ${d.customer_phone ?? ""} ${d.salesperson_name ?? ""}`.toLowerCase().includes(docQuery.trim().toLowerCase())));
+  const docPages = Math.max(1, Math.ceil(docRows.length / DOC_PER));
+  const docPageSafe = Math.min(docPage, docPages);
+  const pageDocs = docRows.slice((docPageSafe - 1) * DOC_PER, docPageSafe * DOC_PER);
 
   return (
     /* The page's TabPage is the stack; these are its zones: AT A GLANCE
@@ -1897,10 +1933,16 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
     <>
       <TabZone label={L("At a glance", "Sepintas lalu")} hint={L("This month: quotations and invoices by the date raised, Paid by the date the payment was received; unpaid invoices from every month.", "Bulan ini: sebut harga dan invois ikut tarikh dibuat, Dibayar ikut tarikh bayaran diterima; invois belum dibayar dari semua bulan.")}>
         <SummaryStrip cols={4} ariaLabel={L("Sales this month", "Jualan bulan ini")}>
-          <SummaryStat label={L("Quotations", "Sebut harga")} value={monthQt.length} hint={fmtRM(cents(monthQt))} busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
-          <SummaryStat label={L("Invoiced", "Diinvois")} value={fmtRM(cents(monthInv))} hint={`${monthInv.length} ${L("invoices", "invois")}`} tone="brand" busy={!loaded} onClick={() => { setWorkTab("documents"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open the documents", "Buka dokumen")} />
-          <SummaryStat label={L("Paid", "Dibayar")} value={fmtRM(cents(paidThisMonth))} hint={`${paidThisMonth.length} ${L("by payment date", "ikut tarikh bayaran")}`} tone="success" busy={!loaded} title={L("Invoices whose payment was received this month, by the payment date — whenever they were raised", "Invois yang bayarannya diterima bulan ini, ikut tarikh bayaran — tidak kira bila dibuat")} />
-          <SummaryStat label={L("Unpaid invoices", "Invois belum dibayar")} value={unpaidInv.length} hint={fmtRM(cents(unpaidInv))} tone={unpaidInv.length > 0 ? "warning" : "neutral"} busy={!loaded} onClick={() => { setWorkTab("receipts"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} title={L("Open receipts and the outstanding report", "Buka resit dan laporan tertunggak")} />
+          {/* v1.186.0 - the owner's reference tiles: an icon well, the
+              figure, a chip for the change, the bars of the last six months
+              of quotations. The four figures and their rules are v1.181.12's. */}
+          <SummaryStat icon="document" tone="brand" label={L("Quotations", "Sebut harga")} value={monthQt.length} hint={L(`Total value: ${fmtRM(cents(monthQt))}`, `Nilai keseluruhan: ${fmtRM(cents(monthQt))}`)} spark={qtSpark} busy={!loaded}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("documents"); setDocType("QT"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open the quotations", "Buka sebut harga") }} />
+          <SummaryStat icon="documents" tone="brand" label={L("Invoices", "Invois")} value={fmtRM(cents(monthInv))} hint={`${monthInv.length} ${L("invoices", "invois")}`} badge={vsLast(cents(monthInv), cents(lastInv))} busy={!loaded}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open the invoices", "Buka invois") }} />
+          <SummaryStat icon="paid" tone="success" label={L("Paid", "Dibayar")} value={fmtRM(cents(paidThisMonth))} hint={`${paidThisMonth.length} ${L("payments, by payment date", "bayaran, ikut tarikh bayaran")}`} badge={vsLast(cents(paidThisMonth), cents(lastPaid))} busy={!loaded} />
+          <SummaryStat icon="pending" tone={unpaidInv.length > 0 ? "warning" : "neutral"} label={L("Unpaid invoices", "Invois belum dibayar")} value={unpaidInv.length} hint={fmtRM(cents(unpaidInv))} badge={loaded ? (unpaidInv.length > 0 ? { text: L("from any month", "dari mana-mana bulan"), tone: "warning" } : { text: L("all paid", "semua dibayar"), tone: "success" }) : undefined} busy={!loaded}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => { setWorkTab("receipts"); document.getElementById("sales-work")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, title: L("Open receipts and the outstanding report", "Buka resit dan laporan tertunggak") }} />
         </SummaryStrip>
       </TabZone>
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
@@ -2849,15 +2891,41 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           </div>
         );
       })()}
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold">{L("Documents", "Dokumen")}</p>
-          <button
-            type="button"
-            className="text-xs underline"
-            onClick={() => void load()}
-          >
-            {L("Refresh", "Muat semula")}
+        {/* v1.186.0 - THE DOCUMENTS, AS A TABLE (the owner's reference,
+            22-10-2026): a type pill row, a search, a status pick, and ten a
+            page; one row per document - number, type, customer, date,
+            amount, status, actions. The row's every control is the control
+            it was (v1.4.248 onward): the number opens the detail, the
+            status pick marks a payment, the buttons act. Filters only. */}
+        <div className={sc.head}>
+          <span className={sc.headIcon} aria-hidden><AppIcon name="document" /></span>
+          <div className={sc.headText}>
+            <p className={sc.headTitle}>{L("Documents", "Dokumen")}</p>
+            <p className="erp-meta">{L("Manage quotations, invoices and delivery orders; receipts, credit notes and the outstanding report are the next pill.", "Urus sebut harga, invois dan pesanan penghantaran; resit, nota kredit dan laporan tertunggak di pil seterusnya.")}</p>
+          </div>
+          <button type="button" className={btnSm} onClick={() => void load()}>
+            <AppIcon name="refresh" />{L("Refresh", "Muat semula")}
           </button>
+        </div>
+        <div role="tablist" className={`erp-pill-row ${sc.pills}`}>
+          {([["all", L(`All (${docs.length})`, `Semua (${docs.length})`)], ["QT", L("Quotations", "Sebut harga")], ["INV", L("Invoices", "Invois")], ["DO", L("Delivery orders", "Pesanan penghantaran")]] as const).map(([v, label]) => (
+            <button key={v} type="button" role="tab" aria-selected={docType === v} className={docType === v ? tabPillOn : tabPill}
+              onClick={() => { setDocType(v); setDocPage(1); }}>{label}</button>
+          ))}
+        </div>
+        <div className={sc.filters}>
+          <label className={sc.search}>
+            <AppIcon name="search" />
+            <input type="search" className={inputClassSm} value={docQuery} placeholder={L("Search document number, customer or sales person…", "Cari nombor dokumen, pelanggan atau jurujual…")}
+              onChange={(e) => { setDocQuery(e.target.value); setDocPage(1); }} aria-label={L("Search documents", "Cari dokumen")} />
+          </label>
+          <select className={selectClassSm} value={docStatus} onChange={(e) => { setDocStatus(e.target.value as typeof docStatus); setDocPage(1); }} aria-label={L("Status", "Status")}>
+            <option value="all">{L("All status", "Semua status")}</option>
+            <option value="unpaid">{L("Unpaid invoices", "Invois belum dibayar")}</option>
+            <option value="paid">{L("Paid invoices", "Invois dibayar")}</option>
+            <option value="open">{L("Open quotations", "Sebut harga terbuka")}</option>
+            <option value="invoiced">{L("Invoiced quotations", "Sebut harga diinvois")}</option>
+          </select>
         </div>
         {docsError && (
           <p className="mt-2 text-sm font-medium text-warning">{docsError}</p>
@@ -2869,21 +2937,38 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             {L("No documents yet.", "Tiada dokumen lagi.")}
           </p>
         )}
+        {loaded && docs.length > 0 && docRows.length === 0 && (
+          <p className="text-muted-foreground mt-2 text-sm">
+            {L("No documents match these filters.", "Tiada dokumen sepadan dengan penapis ini.")}
+          </p>
+        )}
         {/* v1.176.1 - the page scrolls this list, not a 384px window inside it. */}
-        <div>
-          {loaded && docs.map((d) => (
+        <div className={sc.table} role="table">
+          {loaded && docRows.length > 0 && (
+            <div className={`${sc.cells} ${sc.header}`} role="row">
+              <span role="columnheader">{L("Document No.", "No. dokumen")}</span>
+              <span role="columnheader">{L("Type", "Jenis")}</span>
+              <span role="columnheader">{L("Customer", "Pelanggan")}</span>
+              <span role="columnheader">{L("Date", "Tarikh")}</span>
+              <span role="columnheader" className={sc.cAmt}>{L("Amount (RM)", "Jumlah (RM)")}</span>
+              <span role="columnheader">{L("Status", "Status")}</span>
+              <span role="columnheader">{L("Actions", "Tindakan")}</span>
+            </div>
+          )}
+          {loaded && pageDocs.map((d) => (
             <div
               key={d.id}
-              className="border-border border-b py-2 text-sm last:border-0"
+              className={sc.row}
+              role="row"
             >
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <div className={sc.cells}>
                 {/* v1.4.248 (CEO: "a minimalist version … click at the document
                 number can appear the details. the button remain at outside"):
                 the row carries only what identifies the document. Status
                 chips, the payment/delivery pickers and the dates live in the
                 panel below, opened by clicking the number. Actions stay on
                 the row so nothing needs opening to be done. */}
-                <span className="min-w-0 flex-1 basis-64">
+                <span className={sc.cDoc} role="cell">
                   <RecordToggle
                     open={openDoc === d.id}
                     title={L(
@@ -2925,14 +3010,20 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       {" "}
                       <AppIcon name={d.kind === "service" ? "service" : "package"} className="h-3.5 w-3.5" />
                     </span>
-                  )}{" "}
-                  · {d.company} · <span className="erp-nowrap">{fmtRM(d.total_cents)}</span>
+                  )}
                 </span>
-                {/* v1.181.4 - erp-row-actions-lead: on a phone the status
-                    picker (or → Invoice) takes its own line and the four
-                    document buttons sit together beneath it, on every row -
-                    instead of Delete dropping alone onto a third line. */}
-                <span className="erp-row-actions erp-row-actions-lead">
+                <span className={sc.cType} role="cell">
+                  <span className={`erp-chip erp-chip-sm ${d.doc_type === "INV" ? "erp-chip-info" : d.doc_type === "QT" ? "erp-chip-warning" : "erp-chip-neutral"}`}>
+                    {{ QT: L("Quotation", "Sebut harga"), INV: L("Invoice", "Invois"), DO: L("Delivery order", "Pesanan penghantaran") }[d.doc_type] ?? d.doc_type}
+                  </span>
+                </span>
+                <span className={sc.cCust} role="cell" title={d.company}><AppIcon name="person" className={sc.custIcon} />{d.company}</span>
+                <span className={`erp-num ${sc.cDate}`} role="cell">{dmy(d.created_at.slice(0, 10))}</span>
+                <span className={`erp-num ${sc.cAmt}`} role="cell">{fmtRM(d.total_cents)}</span>
+                {/* STATUS: the payment pick on an invoice, the delivery pick
+                    on a DO, the invoiced chip on a quotation - exactly the
+                    controls the row had, in their own column */}
+                <span className={sc.cStatus} role="cell">
                   {d.doc_type === "INV" && canInvoice && (
                     <select
                       className={selectClassSm}
@@ -3005,6 +3096,71 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                       ))}
                     </select>
                   )}
+                  {/* v1.154.0 (CEO: "the QT which is already click Invoice
+                      should be updated as a sales! then Quotation should not
+                      allowed twice Invoice generate!"): a quotation that has
+                      become an invoice says so and offers no second click. */}
+                  {d.doc_type === "QT" && d.invoiced_as && (
+                    <span className="inline-flex h-7 items-center rounded-full bg-success-soft px-2.5 text-xs font-medium text-success"
+                      title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
+                      <AppIcon name="success" className="mr-1 h-3.5 w-3.5" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
+                    </span>
+                  )}
+                  {d.doc_type === "QT" && !d.invoiced_as && (
+                    <span className={chipSmNeutral}>
+                      {L("Open", "Terbuka")}
+                    </span>
+                  )}
+                  {d.doc_type === "INV" && !canInvoice && (
+                    <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : "erp-chip erp-chip-sm erp-chip-warning"}>
+                      {payStatusL(d.payment_status ?? "unpaid")}
+                    </span>
+                  )}
+                </span>
+                {/* ACTIONS: the same buttons, the same gates (v1.181.4's
+                    phone rule still holds - the buttons sit together) */}
+                <span className={`erp-row-actions ${sc.cActions}`} role="cell">
+                  {d.doc_type === "QT" && !d.invoiced_as && canInvoice && (
+                    <button
+                      type="button"
+                      className={rowBtnPrimary}
+                      title={L(
+                        "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
+                        "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
+                      )}
+                      onClick={async () => {
+                        const res = await api<{
+                          id?: number;
+                          doc_number?: string;
+                          stock?: Parameters<typeof stockToastLine>[0];
+                          error?: { message?: string };
+                        }>(`/staff/docs/${d.id}/convert`, {
+                          method: "POST",
+                          body: JSON.stringify({}),
+                        });
+                        if (!res.ok || !res.data?.id) {
+                          showToast(
+                            L("No changes", "Tiada perubahan"),
+                            res.data?.error?.message ??
+                              L(
+                                "Conversion failed — check access",
+                                "Penukaran gagal — semak akses"
+                              ),
+                            "notice"
+                          );
+                          return;
+                        }
+                        showToast(
+                          L("Saved", "Disimpan"),
+                          `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`
+                        );
+                        await load();
+                        void printDoc(res.data.id);
+                      }}
+                    >
+                      → {L("Invoice", "Invois")}
+                    </button>
+                  )}
                   {/* v1.4.233 (CEO: "reversal button … if accidentally click
                 invoice"): only on an INV that came from a QT and is still
                 unpaid — a paid invoice can never be reversed. Deletes the
@@ -3066,62 +3222,6 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
                         ↩ {L("Undo", "Batalkan")}
                       </button>
                     )}
-                  {/* v1.154.0 (CEO: "the QT which is already click Invoice
-                      should be updated as a sales! then Quotation should not
-                      allowed twice Invoice generate!"): a quotation that has
-                      become an invoice says so and offers no second click. */}
-                  {d.doc_type === "QT" && d.invoiced_as && (
-                    <span className="inline-flex h-7 items-center rounded-full bg-success-soft px-2.5 text-xs font-medium text-success"
-                      title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
-                      <AppIcon name="success" className="mr-1 h-3.5 w-3.5" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
-                    </span>
-                  )}
-                  {d.doc_type === "QT" && !d.invoiced_as && canInvoice && (
-                    <button
-                      type="button"
-                      className={rowBtnPrimary}
-                      title={L(
-                        "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
-                        "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
-                      )}
-                      onClick={async () => {
-                        const res = await api<{
-                          id?: number;
-                          doc_number?: string;
-                          stock?: Parameters<typeof stockToastLine>[0];
-                          error?: { message?: string };
-                        }>(`/staff/docs/${d.id}/convert`, {
-                          method: "POST",
-                          body: JSON.stringify({}),
-                        });
-                        if (!res.ok || !res.data?.id) {
-                          showToast(
-                            L("No changes", "Tiada perubahan"),
-                            res.data?.error?.message ??
-                              L(
-                                "Conversion failed — check access",
-                                "Penukaran gagal — semak akses"
-                              ),
-                            "notice"
-                          );
-                          return;
-                        }
-                        showToast(
-                          L("Saved", "Disimpan"),
-                          `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`
-                        );
-                        await load();
-                        void printDoc(res.data.id);
-                      }}
-                    >
-                      → {L("Invoice", "Invois")}
-                    </button>
-                  )}
-                  {d.doc_type === "QT" && !d.invoiced_as && !canInvoice && (
-                    <span className="text-muted-foreground inline-flex h-7 items-center text-xs">
-                      {L("Quotation", "Sebut harga")}
-                    </span>
-                  )}
                   {/* v1.181.11 (CEO: "add on the Quotation ... based on
                       customer request without require to create a new one
                       Quotation") - Revise keeps the number, prints REV n and
@@ -3396,6 +3496,18 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             </div>
           ))}
         </div>
+        {loaded && docRows.length > 0 && (
+          <div className={sc.foot}>
+            <span className="erp-meta">{L(`Showing ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} of ${docRows.length} documents`, `Menunjukkan ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} daripada ${docRows.length} dokumen`)}</span>
+            {docPages > 1 && (
+              <span className={sc.pager}>
+                <button type="button" className={btnSm} disabled={docPageSafe <= 1} onClick={() => setDocPage(docPageSafe - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}><AppIcon name="previous" /></button>
+                <span className="erp-num erp-meta">{docPageSafe} / {docPages}</span>
+                <button type="button" className={btnSm} disabled={docPageSafe >= docPages} onClick={() => setDocPage(docPageSafe + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
+              </span>
+            )}
+          </div>
+        )}
           </div>
           <div className={workTab === "receipts" ? "mt-3" : "hidden"}>
             {workExtra}

@@ -1,0 +1,162 @@
+/* v1.186.0 - the Sales documents table (the owner's reference). Tokens only;
+   chips, buttons, inputs and the record toggle are the shared classes. A
+   row is a grid on a desktop and a stack on a phone; the header row is
+   drawn only where the columns are. */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+.headIcon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.headText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+.headText > p {
+  margin: 0;
+}
+.headTitle {
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.pills {
+  margin-top: 0.75rem;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+.search > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.row {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+  font-size: var(--type-body-sm-size);
+}
+.cells {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.375rem 0.75rem;
+  align-items: center;
+}
+.header {
+  display: none;
+}
+.cDoc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.375rem;
+  min-width: 0;
+  font-weight: 600;
+}
+.cDoc > span {
+  white-space: nowrap;
+}
+.cType {
+  min-width: 0;
+}
+.cCust {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.custIcon {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+.cDate {
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.cAmt {
+  white-space: nowrap;
+  text-align: right;
+  font-weight: 600;
+}
+.cStatus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.cActions {
+  justify-content: flex-start;
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* on a phone the amount and the date read as a pair under the number */
+@media (max-width: 1023px) {
+  .cAmt {
+    text-align: left;
+  }
+}
+@media (min-width: 1024px) {
+  .cells {
+    grid-template-columns: minmax(10rem, 1.2fr) 6rem minmax(8rem, 1.1fr) 6rem 6.5rem minmax(6.5rem, 0.8fr) minmax(20rem, 2.4fr);
+    gap: 0.5rem 0.75rem;
+  }
+  .header {
+    display: grid;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--type-label-size);
+    font-weight: var(--type-label-weight);
+    letter-spacing: var(--type-label-tracking);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .cActions {
+    justify-content: flex-end;
+  }
+}

@@ -10,6 +10,43 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.186.0] - 2026-10-22 - The Sales page: tiles and a documents table
+
+The owner, 22-10-2026, with his reference screen: *"also for Sales"* -
+four figure tiles and the documents as a table with type pills, a search,
+a status pick, per-row actions and pages. The page's zones, cards and every
+rule stay; `components/portal/sales.tsx` is restyled, not rewritten.
+
+### Changed
+
+- **At a glance**: the four tiles wear the figure-tile treatment - an icon
+  well, the figure, a chip, a hint, the Quotations tile's bars (quotations
+  raised in each of the last six months). The four figures and their rules
+  are v1.181.12's exactly (raised by the date raised, Paid by the date the
+  payment landed, unpaid invoices from every month); the chips add "+x% vs
+  last month" for Invoices and Paid, computed from the same list by the
+  same two rules. A tile's **See details** opens the documents filtered to
+  that type (or the receipts pill for unpaid invoices).
+- **Documents** (`components/portal/sales-docs.module.css`): a titled head
+  with Refresh; type pills **All · Quotations · Invoices · Delivery
+  orders**; a search (number, customer, phone, sales person) and a status
+  pick (unpaid / paid invoices, open / invoiced quotations); **ten a page**
+  with a pager. One row per document on a desktop - **Document No.**
+  (the record toggle, revision, part-paid, AZ ONE and kind chips as
+  before), **Type**, **Customer**, **Date**, **Amount**, **Status** (the
+  payment pick on an invoice, the delivery pick on a DO, the Invoiced chip
+  or Open on a quotation - the same controls, in their own column; a
+  read-only role sees the status as a chip) and **Actions** (Undo, →
+  Invoice, Revise, Edit, PDF, Approve / Send PDF, Delete - the same
+  buttons, the same gates, the same handlers). A phone stacks the cells.
+  The detail panel under an opened number is unchanged.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 137 warnings, worker `tsc` clean, all 107
+  guards, static build; Chromium at 1500px and 390px (Sales, top to
+  bottom) against the fixture server.
+
 ## [1.185.0] - 2026-10-22 - The Ecommerce page
 
 The owner, 22-10-2026, with his reference screen: *"Ecommerce do like
