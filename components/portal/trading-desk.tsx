@@ -20,6 +20,7 @@ import { TabName } from "@/lib/portal-tabs";
 import { btnSmPrimary, card, tileCard, inputClass } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { DetailsToggle } from "@/components/ui/details-toggle"; // v1.187.0 - the secondary figures
 
 export function TradingDesk({
   user,
@@ -475,11 +476,17 @@ export function TradingDesk({
           for (const [label, show, v, tab] of attention) {
             if (v != null && v > 0) tiles.push({ label, show, value: <span className="text-warning">{v}</span>, tab });
           }
-          return (
-            <div
-              className={`grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 ${canRevenue && rev ? "border-border mt-3 border-t pt-3" : ""}`}
-            >
-              {tiles.map((t) => (
+          /* v1.187.0 (the owner's brief: "display the most important KPIs
+             first and move secondary metrics into an expandable section").
+             FIRST: the money and what needs attention - unpaid invoices, cash
+             in minus out, and every non-zero pending counter. BEHIND "More
+             figures": the headcounts - clients, stokis, lives, in today, the
+             peak hour. Every tile is the tile it was, opens the same detail
+             and reads from the same summary; only the grouping is new. */
+          const SECONDARY = new Set(["Clients", "Active stokis", "Lives today", "In today", "Peak hour (wk)"]);
+          const primary = tiles.filter((t) => !SECONDARY.has(t.label));
+          const secondary = tiles.filter((t) => SECONDARY.has(t.label));
+          const tile = (t: typeof tiles[number]) => (
                 <button
                   key={t.label}
                   type="button"
@@ -511,8 +518,22 @@ export function TradingDesk({
                     {t.show ?? t.label}
                   </p>
                 </button>
-              ))}
-            </div>
+          );
+          return (
+            <>
+              <div
+                className={`grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 ${canRevenue && rev ? "border-border mt-3 border-t pt-3" : ""}`}
+              >
+                {primary.map(tile)}
+              </div>
+              {secondary.length > 0 && (
+                <DetailsToggle label={L(`More figures (${secondary.length})`, `Lebih angka (${secondary.length})`)}>
+                  <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                    {secondary.map(tile)}
+                  </div>
+                </DetailsToggle>
+              )}
+            </>
           );
         })()}
           {/* where the detail went (v1.171.0): the Sales floor to Ecommerce,

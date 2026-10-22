@@ -289,12 +289,17 @@ export function UpcomingEventsCard({ role, embedded = false }: { role: string; e
               )}
             </p>
           )}
+          {/* v1.187.0 - embedded under the Dashboard's Work overview, whose
+              own lead already says what this is; the sentence stays on the
+              card's own page */}
+          {!embedded && (
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "Trainings, classes and important company dates — everyone is notified when one is added.",
               "Latihan, kelas dan tarikh penting syarikat — semua dimaklumkan apabila satu ditambah."
             )}
           </p>
+          )}
         </div>
         <span className="flex items-center gap-2">
           <span className="border-border inline-flex overflow-hidden rounded-lg border text-xs">

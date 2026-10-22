@@ -74,7 +74,7 @@ const events = read("components/portal/events.tsx");
   ok("the personal month bar chart is gone with it (the month card draws the month once)", !/bg-bar-high/.test(dash) && (dash.match(/<MonthAttendanceCard /g) ?? []).length === 1);
   ok("the mobile hero is off the Dashboard", !/NextEventCard/.test(dash));
   ok("my schedule (own roster sessions) sits under the events pill, above the company calendar",
-     /<div hidden=\{aroundTab !== "events"\} className=\{css\.pane\}>[\s\S]{0,400}\{mySessions\.length > 0 && \([\s\S]*?<UpcomingEventsCard role=\{user\.role\} embedded \/>\s*<\/div>/.test(dash));
+     /<div hidden=\{aroundTab !== "events"\} className=\{`\$\{css\.pane\} \$\{css\.eventsPane\}`\}>[\s\S]{0,400}\{mySessions\.length > 0 && \([\s\S]*?<UpcomingEventsCard role=\{user\.role\} embedded \/>\s*<\/div>/.test(dash)); // v1.187.0 - the pane also carries eventsPane (a tighter calendar)
 }
 
 /* ---- 2. the embedded events body has no frame and no title ---- */

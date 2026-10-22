@@ -32,12 +32,14 @@ interface MonthLeave {
 const STATUS_CHIP: Record<MonthLeave["status"], string> = {
   pending: "erp-chip-warning", approved: "erp-chip-success", rejected: "erp-chip-neutral",
 };
-const SHOW_FIRST = 6;
+const SHOW_FIRST = 5; // v1.187.0 - the latest five by default
 
 export function LeaveMonthCard({ go }: { go: (tab: "Leave") => void }) {
   const view = useCachedApi<{ month: string; leave: MonthLeave[] }>("/staff/leave/month", true, ["leave"]);
   const [all, setAll] = useState(false);
-  const rows = view.data?.leave ?? [];
+  /* v1.187.0 - the LATEST five first (by when they were applied), and a
+     View all into the Leave tab beside Show all */
+  const rows = [...(view.data?.leave ?? [])].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   const shown = all ? rows : rows.slice(0, SHOW_FIRST);
   const statusL = (s: MonthLeave["status"]) =>
     s === "pending" ? L("pending", "menunggu") : s === "approved" ? L("approved", "diluluskan") : L("rejected", "ditolak");
@@ -55,6 +57,7 @@ export function LeaveMonthCard({ go }: { go: (tab: "Leave") => void }) {
           <AppIcon name="info" />
         </span>
         <StaleHint show={view.stale} className={css.stale} />
+        <button type="button" className={`${btnSm} ${css.viewAll}`} onClick={() => go("Leave")}>{L("View all", "Lihat semua")}</button>
       </PanelTitle>
       {view.loading ? (
         <div className={css.list} aria-busy="true">

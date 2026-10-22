@@ -1605,7 +1605,7 @@ export function Dashboard({
             </ul>
           )}
         </div>
-        <div hidden={aroundTab !== "events"} className={css.pane}>
+        <div hidden={aroundTab !== "events"} className={`${css.pane} ${css.eventsPane}`}>
           {/* v1.21.6 — My schedule: the person's own upcoming roster/live
               sessions, on the Dashboard where the phone actually opens.
               v1.171.0: under the Events pill, above the company calendar - what

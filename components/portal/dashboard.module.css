@@ -31,11 +31,12 @@
   .page:not([data-single]) {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    column-gap: 1.5rem;
+    column-gap: 1.25rem;
     align-items: start;
   }
+  /* v1.187.0 - one rhythm between zones: 1.25rem, the same as the columns */
   .page > :where(:not(:last-child)) {
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
   }
   .page > * {
     min-width: 0;
@@ -380,14 +381,14 @@
   scroll-margin-top: 4rem;
 }
 .pane {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 .list > * + * {
   border-top: 1px solid var(--border);
 }
 .listItem {
   display: flex;
-  min-height: 3.5rem;
+  min-height: 3rem;
   width: 100%;
   align-items: center;
   gap: 0.75rem;
@@ -425,8 +426,24 @@
 .listChevron {
   color: var(--muted-foreground);
 }
+/* v1.187.0 - the calendar under the Events pill: the same card (events.tsx,
+   every control, filter and action untouched) drawn tighter here - the
+   month grid's cells are shallower than on the card's own page, and the
+   controls row sits closer to the month. Descendant rules only; nothing in
+   events.tsx changes. */
+.eventsPane :global(.grid-cols-7.rounded-lg) > * {
+  min-height: 3.5rem;
+}
+@media (min-width: 1200px) {
+  .eventsPane :global(.grid-cols-7.rounded-lg) > * {
+    min-height: 4.25rem;
+  }
+}
+.eventsPane > div > :first-child {
+  margin-bottom: 0.25rem;
+}
 .schedule {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 1rem;
 }
@@ -498,12 +515,12 @@
   font-variant-numeric: tabular-nums;
 }
 .monthBody {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 .stats {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .statsFull {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -527,8 +544,8 @@
   color: var(--muted-foreground);
 }
 .statValue {
-  margin-top: 0.25rem;
-  font-size: 22px;
+  margin-top: 0.125rem;
+  font-size: 20px;
   line-height: 1;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -553,22 +570,25 @@
   margin-top: 1rem;
   width: 100%;
 }
+/* v1.187.0 - compact: the six figures and the heatmap sit side by side
+   from a tablet up with a tighter gap and a narrower (still readable)
+   heatmap; every figure, the heatmap and its legend are kept. */
 @media (min-width: 768px) {
   .monthBody {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 2rem;
+    gap: 1.25rem;
   }
   .stats {
     flex: 1 1 0%;
   }
   .statsFull {
-    max-width: 48rem;
+    max-width: 40rem;
   }
   .calendar {
     margin-top: 0;
-    width: 16.5rem;
+    width: 14.5rem;
     flex-shrink: 0;
   }
 }

@@ -14,6 +14,9 @@
 .stale {
   margin-left: 0.25rem;
 }
+.viewAll {
+  margin-left: auto;
+}
 .list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

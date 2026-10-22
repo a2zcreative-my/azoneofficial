@@ -1364,8 +1364,8 @@
   .erp-stat-rich {
     align-items: stretch;
     justify-content: flex-start;
-    gap: 0.625rem;
-    padding: 1rem 1.125rem 0.875rem;
+    gap: 0.5rem;
+    padding: 0.875rem 1rem 0.75rem; /* v1.187.0 - tighter */
     border-radius: var(--erp-radius-card, 14px);
     box-shadow: var(--erp-shadow-card, none);
     text-align: left;

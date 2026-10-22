@@ -10,6 +10,54 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.187.0] - 2026-10-22 - Dashboard: tighter, in order
+
+The owner's brief, 22-10-2026: a cleaner Dashboard with better hierarchy
+and consistent spacing - the same colours, sidebar, type and features; no
+redesign, nothing removed, nothing deployed. Ten points, each answered:
+
+### Changed
+
+1. **One rhythm**: the zones and the two columns share a 1.25rem gap
+   (was 1.5rem); the figure tiles are a step tighter.
+2. The four tiles - Waiting on me, My open tasks, My month, In today -
+   are kept as they are.
+3. **The company, compact** (`trading-desk.tsx`): the money first (the
+   month, today, all-time), then the figures that matter - unpaid invoices,
+   cash in − out, and every non-zero pending counter - and the headcounts
+   (clients, active stokis, lives today, in today, peak hour) behind
+   **More figures**, the portal's own disclosure. Every tile opens the
+   same detail and reads from the same summary.
+4. Pending approvals (Waiting on me) and the attendance card are side by
+   side on a desktop - the v1.184.0 columns, now with the tighter gap.
+5. **Attendance this month, compact**: the six figures and the heatmap sit
+   side by side with a 1.25rem gap and a 14.5rem heatmap (was 2rem and
+   16.5rem); the figures are 20px; the heatmap, its legend and every
+   figure are kept.
+6. **Leave Application** lists the **latest five** by default (newest
+   application first) with **View all** into the Leave tab beside the
+   title, and Show all underneath.
+7. **Work overview → Events**: the calendar is drawn tighter on the
+   Dashboard - shallower month cells and the controls closer to the month
+   - through the Dashboard's own module (`.eventsPane`, descendant rules);
+   `events.tsx` keeps every control, filter, view and action, and its own
+   lead sentence (a duplicate of the overview's) is drawn only on the
+   card's own page.
+8. Less air: the overview panes, the list rows (3rem, was 3.5rem) and
+   the schedule block are tighter.
+9. Readability: nothing moved off the page; figures keep tabular numerals
+   and the same type roles; the phone stacks exactly as before.
+10. No new colour: gold, navy, white and grey tokens only.
+
+Nothing deployed: `PUSH.bat` is the owner's release path.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 137 warnings, worker `tsc` clean, all 107
+  guards (`desk-tabs` updated for the events pane's second class), static
+  build; Chromium at 1500px (every zone, the Events pill open) and 390px
+  against the fixture server.
+
 ## [1.186.0] - 2026-10-22 - The Sales page: tiles and a documents table
 
 The owner, 22-10-2026, with his reference screen: *"also for Sales"* -
