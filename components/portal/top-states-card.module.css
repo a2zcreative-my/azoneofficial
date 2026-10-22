@@ -1,0 +1,98 @@
+/* v1.185.0 - the top states list. Tokens only. */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.rank {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+}
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.375rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 3.25rem;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: var(--type-body-sm-size);
+}
+.state {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orders,
+.cents {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.share {
+  text-align: right;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.bar {
+  display: block;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--gold-solid);
+}
+.rowSkel {
+  height: 2rem;
+  border-radius: 0.5rem;
+}
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.75rem 0 0;
+}
+@media (max-width: 479px) {
+  .line {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .cents {
+    grid-column: 1;
+  }
+  .share {
+    grid-column: 2;
+    text-align: right;
+  }
+}

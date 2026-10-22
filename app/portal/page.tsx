@@ -34,10 +34,7 @@ import { Fragment } from "react";
 import { usePortal } from "@/components/portal/portal-provider";
 import { InstallCoach } from "@/components/ui/install-coach";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
-import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
-import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/company-monitor";
-import { OpsMapCard } from "@/components/portal/ops-map";
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 /* v1.103.0 (roadmap phase 01) - every tab panel that is NOT on the first
    screen arrives through next/dynamic, one chunk per module, fetched the
@@ -48,7 +45,7 @@ import {
   AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
   GeofenceCard, HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
-  AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, TikTokOrdersCard,
+  AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
@@ -56,16 +53,14 @@ import { card } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
 import { Attendance } from "@/components/portal/attendance";
-import { Dashboard, REVENUE_ROLES } from "@/components/portal/dashboard";
+import { Dashboard } from "@/components/portal/dashboard";
 import { DeskPage } from "@/components/portal/desk-page";
 import { Leave } from "@/components/portal/leave";
 import { OtApprovalsCard } from "@/components/portal/live-cards";
-import { L, MANAGE_ROLES, ZoneLabel } from "@/components/portal/page-shared";
+import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
-import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
-import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
 import { CompanyAttendanceToday } from "@/components/portal/dashboard-cards";
 import { UsersPanel } from "@/components/portal/users-panel";
 import type { TabName } from "@/lib/portal-tabs";
@@ -300,47 +295,10 @@ export default function PortalPage() {
             <ElfiaTrafficPanel />
           )}
           {activeTab === "Ecommerce" && (
-            /* v1.174.1 - TabPage (block flow), not the .ecomStack grid: a grid
-               with an implicit auto track is sized by its widest card, so ONE
-               card with an unbreakable line widened every zone past the phone
-               (the CEO's screenshot, 21-09-2026). In block flow a wide line
-               spills out of its own card only. */
-            <TabPage>
-              {REVENUE_ROLES.includes(user.role) && (
-                <section className="erp-stack-tight">
-                  <ZoneLabel>{L("This month", "Bulan ini")}</ZoneLabel>
-                  {/* v1.171.0: the Sales floor (KPI target, pace, markets,
-                      month bars) is the card's third pill - moved here from
-                      the Dashboard, beside the revenue it measures. */}
-                  <RevenueAndHoursCard user={user} go={setTab} lang={lang} />
-                </section>
-              )}
-              <section className="erp-stack-tight">
-                <ZoneLabel>{L("The work", "Kerja")}</ZoneLabel>
-                <div className={`${css.ecomWork} ${REVENUE_ROLES.includes(user.role) ? css.ecomWorkSplit : ""}`}>
-                  <TikTokOrdersCard
-                    role={user.role}
-                    onChanged={() => {
-                      /* stock views live on Inventory */
-                    }}
-                  />
-                  {REVENUE_ROLES.includes(user.role) && <FulfilmentCard />}
-                </div>
-              </section>
-              {REVENUE_ROLES.includes(user.role) && (
-                <section className="erp-stack-tight">
-                  <ZoneLabel>{L("The longer view", "Pandangan lebih jauh")}</ZoneLabel>
-                  {/* v1.183.0 - the commission Leaderboard (beside the map)
-                      and Money cards left with the Commission tab */}
-                  <OpsMapCard />
-                  {["ceo", "super_admin"].includes(user.role) && <TikTokAnalyticsCard />}
-                </section>
-              )}
-              <section className="erp-stack-tight">
-                <ZoneLabel>{L("Setup", "Tetapan")}</ZoneLabel>
-                <ConnectionStatusCard />
-              </section>
-            </TabPage>
+            /* v1.185.0 - the page is its own panel (ecommerce-panel.tsx): the
+               tab row, the tiles, the orders table, fulfilment, the map and
+               the month's detail, with the same cards and the same gates. */
+            <EcommercePanel user={user} lang={lang} go={setTab} canOpen={canOpen} />
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
           {activeTab === "Assets" && <AssetsPanel />}

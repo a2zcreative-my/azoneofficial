@@ -99,7 +99,7 @@ const BODY = {
   /* v1.176.0 - the Desk is a page, not an anchor into the Dashboard */
   "Desk": ["components/portal/desk-page.tsx"],
   "On Shift": ["components/portal/dashboard.tsx"],
-  "Ecommerce": [],
+  "Ecommerce": ["components/portal/ecommerce-panel.tsx"], // v1.185.0 - the page is its own panel
   "Sales": ["components/portal/sales.tsx"],
   /* v1.183.0 - Enquiries, Sales Performance, Hankeis, Web Orders and
      Commission retired with their panels */
@@ -153,7 +153,7 @@ for (const tab of allTabs) {
 }
 
 /* ---- 4. the summary tier ---- */
-const SUMMARY = ["Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
+const SUMMARY = ["Ecommerce", "Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
 for (const tab of SUMMARY) {
   const body = bodyOf(tab);
   ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));

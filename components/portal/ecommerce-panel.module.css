@@ -1,0 +1,47 @@
+/* v1.185.0 - the Ecommerce page's own layout. Tokens only; the cards are
+   the shared named classes. */
+.page {
+  min-width: 0;
+}
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+.tabs {
+  min-width: 0;
+}
+.month {
+  white-space: nowrap;
+}
+/* the orders table beside the fulfilment column from a desktop up; one
+   column on a phone and a tablet. Explicit tracks: an implicit auto track
+   grows to its widest child and takes the page past the phone with it. */
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-content: start;
+}
+.two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (min-width: 1200px) {
+  .workSplit {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}

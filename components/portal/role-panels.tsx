@@ -18,7 +18,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
  * these panels are conveniences, not the security boundary.
  */
 
-import { makeApi, getCsrfToken, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
+import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { esc } from "@/lib/escape-html";
@@ -44,7 +44,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, tabPill, tabPillOn, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnSm, btnSmPrimary, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, rowHead, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm, chipDanger } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -428,157 +428,8 @@ interface Material {
  * stock, so the tracker belongs beside the stock it moves. Status line
  * explains any pending setup; Sync backfills the last 30 days.
  */
-export function TikTokOrdersCard({ role, onChanged }: { role: string; onChanged: () => void }) { // v1.4.214: exported — MOVED to the Ecommerce tab
-  interface TtStatus { configured: boolean; authorized: boolean; last_event_at: string | null; last_event_verified: boolean | null }
-  interface TtOrder { id: number; order_ref: string; status: string; note?: string | null; created_at: string; items_label?: string | null; courier?: string | null; tracking_no?: string | null; buyer_city?: string | null }
-  const [ttStatus, setTtStatus] = useState<TtStatus | null>(null);
-  const [ttOrders, setTtOrders] = useState<TtOrder[]>([]);
-  const [ttMsg, setTtMsg] = useState("");
-  // v1.4.70 — status filter: TikTok statuses land as preparing (new) / shipped / delivered / returned.
-  const [ttFilter, setTtFilter] = useState<"all" | "preparing" | "shipped" | "delivered">("all");
-  const canSync = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(role);
-
-  // Integrations endpoints sit outside the /staff base this file's api()
-  // helper prefixes, so the card carries its own minimal fetcher.
-  const tiktokApi = useCallback(async <T,>(path: string, init?: RequestInit) => {
-    try {
-      const isMutating = init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method);
-      const headers = new Headers(init?.headers as Record<string, string> ?? {});
-      if (init?.body && !headers.has("Content-Type")) {
-        headers.set("Content-Type", "application/json");
-      }
-      if (isMutating) {
-        const csrf = getCsrfToken();
-        if (csrf) headers.set("X-CSRF-Token", csrf);
-      }
-      const res = await fetch(`/api/v1/integrations/tiktok${path}`, {
-        credentials: "include",
-        ...init,
-        headers,
-      });
-      return { ok: res.ok, data: (await res.json().catch(() => null)) as T | null };
-    } catch {
-      return { ok: false, data: null as T | null };
-    }
-  }, []);
-
-  /* v1.77.0 — skeleton until the first fetch lands. `ttStatus` starts null
-     but a failed /status also leaves it null, and `ttOrders` starts [] —
-     so one flag, set once both requests have settled. */
-  const [loaded, setLoaded] = useState(false);
-  const loadTikTok = useCallback(async () => {
-    const st = await tiktokApi<TtStatus>(`/status`);
-    if (st.ok) setTtStatus(st.data);
-    const pr = await api<{ records: TtOrder[] }>(`/postage`);
-    setTtOrders((pr.data?.records ?? []).filter((r) => r.order_ref?.startsWith("TT-")).slice(0, 100));
-    setLoaded(true);
-  }, [tiktokApi]);
-
-  useEffect(() => { void loadTikTok().finally(() => setLoaded(true)); }, [loadTikTok]);
-
-  const syncTikTok = async () => {
-    setTtMsg(L("Syncing from TikTok…", "Menyegerak dari TikTok…"));
-    const res = await tiktokApi<{ imported: number; skipped: number; problems: string[]; error?: { message?: string } }>(
-      `/sync`, { method: "POST", body: JSON.stringify({}) },
-    );
-    if (res.ok && res.data) {
-      const probs = res.data.problems?.length ? ` · ${res.data.problems.join(" · ")}` : "";
-      setTtMsg(`${L("Imported", "Diimport")} ${res.data.imported} (${res.data.skipped} ${L("already in", "sudah ada")})${probs}`);
-      void loadTikTok();
-      onChanged();
-      /* v1.24.1 (CEO: "Operations map — orders by state should be updated
-         accordingly when I click on button sync from TikTok"): tell every
-         listening card fresh order data just landed. */
-      try { window.dispatchEvent(new CustomEvent("azone:tiktok-synced")); } catch { /* SSR-safe */ }
-    } else {
-      setTtMsg(res.data?.error?.message ?? L("Sync failed — check the TikTok setup", "Segerakan gagal — semak tetapan TikTok"));
-    }
-  };
-
-  return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{L("TikTok Orders", "Pesanan TikTok")}</p>
-          {/* v1.77.0 — skeleton until the first fetch lands: the status line
-              would otherwise read "Not configured" while /status is in flight. */}
-          {!loaded ? <Skel className="mt-1 h-3 w-64 max-w-full" /> : (
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {!ttStatus?.configured
-              ? L("Not configured — set the app secret and deploy the worker.", "Belum dikonfigurasi — tetapkan app secret dan deploy worker.")
-              : !ttStatus?.authorized
-                ? L("Not authorized yet — activate the shop/order scopes, publish the app in Partner Center, then authorize the shop. Sync pulls existing orders once live.", "Belum diberi kebenaran — aktifkan skop shop/order, terbitkan aplikasi dalam Partner Center, kemudian benarkan kedai. Segerak menarik pesanan sedia ada setelah aktif.")
-                : ttStatus.last_event_at
-                  ? `${L("Connected · last webhook", "Bersambung · webhook terakhir")} ${dmyMYT(ttStatus.last_event_at)} MYT${ttStatus.last_event_verified === false ? L(" (signature FAILED — check app secret)", " (tandatangan GAGAL — semak app secret)") : ""}`
-                  : L("Connected · auto-sync runs every 30 minutes; Sync pulls now.", "Bersambung · auto-segerak berjalan setiap 30 minit; Segerak menarik sekarang.")}
-          </p>
-          )}
-        </div>
-        {canSync && (
-          <button
-            type="button"
-            className={btnSm}
-            onClick={() => void syncTikTok()}
-          >
-            {L("Sync from TikTok", "Segerak dari TikTok")}
-          </button>
-        )}
-      </div>
-      {ttMsg && <p className="mt-2 text-xs font-medium text-warning">{ttMsg}</p>}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {([["all", L("All", "Semua")], ["preparing", L("New", "Baru")], ["shipped", L("Shipped", "Dihantar")], ["delivered", L("Delivered", "Sampai")]] as const).map(([v, label]) => {
-          const n = v === "all" ? ttOrders.length : ttOrders.filter((o) => o.status === v).length;
-          return (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setTtFilter(v)}
-              aria-pressed={ttFilter === v}
-              className={ttFilter === v ? tabPillOn : tabPill}
-            >
-              {label} ({n})
-            </button>
-          );
-        })}
-      </div>
-      {/* v1.4.196 (CEO): order rows hide behind one click — minimalist view */}
-      <DetailsToggle label={L("Show orders", "Tunjuk pesanan")}>
-      <div className="mt-1 max-h-72 overflow-y-auto">
-        {/* v1.77.0 — skeleton until the first fetch lands. */}
-        {!loaded && <SkelRows rows={3} />}
-        {loaded && ttOrders.length === 0 && <p className="text-muted-foreground text-sm">{L("No TikTok orders yet.", "Tiada pesanan TikTok lagi.")}</p>}
-        {ttOrders.length > 0 && ttOrders.every((o) => ttFilter !== "all" && o.status !== ttFilter) && (
-          <p className="text-muted-foreground text-sm">{L("No orders with this status.", "Tiada pesanan dengan status ini.")}</p>
-        )}
-        {ttOrders.filter((o) => ttFilter === "all" || o.status === ttFilter).map((o) => (
-          <div key={o.id} className="border-border flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0">
-            <span className="min-w-0">
-              <span className="font-medium">{o.order_ref}</span>
-              <span className="text-muted-foreground"> · {dmyMYT(o.created_at)}</span>
-              {o.buyer_city && <span className="text-muted-foreground"> · {o.buyer_city}</span>}
-              {o.items_label ? (
-                <span className="block text-xs font-medium">{o.items_label}</span>
-              ) : (
-                <span className="text-muted-foreground block text-xs">{L("No stock movement recorded", "Tiada pergerakan stok direkodkan")}</span>
-              )}
-              {o.tracking_no ? (
-                <span className="block text-xs">
-                  {L("Tracking:", "Penjejakan:")} <span className="font-semibold tracking-wide">{o.tracking_no}</span>
-                  {o.courier ? <span className="text-muted-foreground"> · {o.courier}</span> : null}
-                </span>
-              ) : (
-                <span className="text-muted-foreground block text-xs">{L("No tracking number yet", "Tiada nombor penjejakan lagi")}</span>
-              )}
-              {o.note && <span className="text-muted-foreground block text-xs">{o.note}</span>}
-            </span>
-            <span className={`${chipNeutral} capitalize`}>{statusLabel(o.status)}</span>
-          </div>
-        ))}
-      </div>
-      </DetailsToggle>
-    </div>
-  );
-}
+/* v1.185.0 - TikTokOrdersCard moved whole to components/portal/tiktok-orders.tsx
+   (TikTokOrdersTable), inside the Ecommerce page's own panel. */
 
 const rmR = fmtRM; // v1.4.272: global
 

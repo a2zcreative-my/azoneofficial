@@ -37,7 +37,7 @@ function baseFixture(p) {
   if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }], task_summary: [] };
   if (p === "/staff/inventory") data = { items };
   if (p === "/staff/inventory/bridge-health") data = { key_configured: true, applied_24h: 0, unknown_24h: 0, unknown: [] };
-  if (p === "/staff/fulfilment/summary") data = { month: "2026-09", by_status: { preparing: 2, shipped: 3 }, oldest_preparing: null, orders: [] };
+  if (p === "/staff/fulfilment/summary") data = { month: "2026-09", by_status: { preparing: 1, shipped: 1, in_transit: 1, delivered: 2, returned: 1 }, oldest_preparing: { order_ref: "TT-586117208715331063", days: 5 }, orders: [] };
   if (p === "/staff/roster") data = { week_start: "2026-09-14", days: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"], manager: true, sessions: [], on_leave: [], conflicts: [], requests: [], available_today: [], task_blocks: [], unscheduled: [], events: [] };
   if (p === "/staff/attendance/monitor") data = { date: "2026-09-16", staff: [] };
   if (p === "/staff/reports/outstanding") data = { invoices: [], total_cents: 0 };
@@ -181,6 +181,21 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   }
   if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
     staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role, in_at: i < 6 ? `0${8 + (i % 2)}:${String(10 + i * 7).padStart(2, "0")}` : null, in_gps: i < 6 ? "inside" : null })) };
+  /* v1.185.0 - the Ecommerce page: the TikTok connection, the orders the
+     sync stored, and the buyer cities behind the map and the top states */
+  if (p === "/integrations/tiktok/status") data = { configured: true, authorized: true, last_event_at: "2026-10-08 10:24:00", last_event_verified: true };
+  if (p === "/staff/postage") data = { records: [
+    { id: 501, order_ref: "TT-586296403794167044", status: "delivered", created_at: "2026-10-04 04:55:00", items_label: "1× ELFIA Premium product", courier: "jnt", tracking_no: "JT6401234567", buyer_city: "Johor Bahru", order_amount_cents: 3970 },
+    { id: 502, order_ref: "TT-586387023799551479", status: "delivered", created_at: "2026-10-04 04:55:00", items_label: "1× ELFIA Daily care", courier: "jnt", tracking_no: "JT6401234568", buyer_city: "Skudai", order_amount_cents: 3970 },
+    { id: 503, order_ref: "TT-586117409959413239", status: "shipped", created_at: "2026-09-17 11:30:00", items_label: "1× ELFIA Daily care", courier: "poslaju", tracking_no: "EM123456789MY", buyer_city: "Melaka", order_amount_cents: 2550 },
+    { id: 504, order_ref: "TT-586117208715331063", status: "preparing", created_at: "2026-09-17 10:53:00", items_label: "1× ELFIA Premium product", courier: null, tracking_no: null, buyer_city: "Alor Gajah", order_amount_cents: 2550, note: "Buyer asked for gift wrap" },
+    { id: 505, order_ref: "TT-586094180474719255", status: "in_transit", created_at: "2026-09-16 02:41:00", items_label: "2× ELFIA Premium product", courier: "jnt", tracking_no: "JT6401234570", buyer_city: "Kuantan", order_amount_cents: 7900 },
+    { id: 506, order_ref: "TT-586090000000000001", status: "returned", created_at: "2026-09-12 06:10:00", items_label: "1× ELFIA Daily care", courier: "jnt", tracking_no: "JT6401234571", buyer_city: "Kuala Terengganu", order_amount_cents: 3970 },
+  ] };
+  if (p === "/staff/orders/geo") data = { cities: [
+    { city: "Johor Bahru", orders: 30, cents: 80000 }, { city: "Skudai", orders: 16, cents: 43200 },
+    { city: "Kuala Terengganu", orders: 2, cents: 3970 }, { city: "Melaka", orders: 2, cents: 2550 }, { city: "Kuantan", orders: 1, cents: 936 },
+  ] };
   /* v1.184.0 - the Dashboard's Leave Application card */
   if (p === "/staff/leave/month") data = { month: D.slice(0, 7), leave: [
     { id: 12, user_id: staff[1]?.id ?? 2, name: staff[1]?.full_name ?? staff[1]?.name ?? "NUR NASUHA BINTI ZAINAL ABIDIN", photo_key: null, position: "Account Executive", type: "annual", start_date: D + "24", end_date: D + "26", days: 3, day_part: null, status: "pending", reason: "Dental surgery", created_at: D + "16 09:02:00" },

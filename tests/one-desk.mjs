@@ -234,7 +234,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("the company is one card on the Dashboard (pulse); the Sales floor lives on Ecommerce",
      /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash) && !/<NextEventCard/.test(dash)
      && /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="floor" \/>/.test(read("components/portal/trading-desk.tsx"))
-     && /<RevenueAndHoursCard user=\{user\} go=\{setTab\} lang=\{lang\} \/>/.test(read("app/portal/page.tsx")));
+     && /<RevenueAndHoursCard user=\{user\} go=\{go\} lang=\{lang\} \/>/.test(read("components/portal/ecommerce-panel.tsx"))); // v1.185.0 - inside the Ecommerce panel
   /* ---- v1.175.0 — two lists, a next action, and exactly one inline act ----
      The desk was one merged pile: a CEO with nine of his own tasks could not
      see the two approvals holding other people up. The worker now says which

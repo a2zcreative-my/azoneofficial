@@ -49,41 +49,54 @@ const elfia = read("components/portal/elfia-store-panel.tsx");
 let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
 
-const a = page.indexOf('{activeTab === "Ecommerce" && (');
-const b = page.indexOf('{activeTab === "Assets" &&', a);
-const tab = page.slice(a, b);
-ok("the Ecommerce block was found", a > 0 && b > a);
+/* v1.185.0 - THE ECOMMERCE PAGE IS ITS OWN PANEL (components/portal/
+   ecommerce-panel.tsx, the owner's reference of 22-10-2026): a tab row
+   (Overview · Orders · Products → Inventory · Fulfilment · Analytics ·
+   Setup) and an Overview that reads tiles, the orders table beside
+   fulfilment and the top states, the map, then the month's detail. The
+   page hands the whole tab to the panel; the rules below moved with it. */
+const tab = read("components/portal/ecommerce-panel.tsx");
+ok("the Ecommerce block hands the tab to its panel", /\{activeTab === "Ecommerce" && \([\s\S]{0,400}?<EcommercePanel user=\{user\} lang=\{lang\} go=\{setTab\} canOpen=\{canOpen\} \/>/.test(page));
 
-/* 1. the order */
-/* v1.183.0 - MoneyCard and the LeaderboardCard in the map's side column
-   left with the Commission tab */
-const seq = ["<RevenueAndHoursCard", "<TikTokOrdersCard", "<FulfilmentCard", "<OpsMapCard", "<TikTokAnalyticsCard", "<ConnectionStatusCard"];
-const pos = seq.map((s) => tab.indexOf(s));
-ok("every card is still on the tab", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
-ok("month summary, tracker, fulfilment, map, long view, analytics, connection - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
-ok("the connection is last, as v1.4.217 ordered", pos[5] === Math.max(...pos));
+/* 1. the order of the Overview */
+const overview = tab.slice(tab.indexOf('{view === "overview" && ('), tab.indexOf('{view === "orders" &&'));
+const seq = ["{tiles}", "<TikTokOrdersTable", "<FulfilmentCard", "<TopStatesCard", "<OpsMapCard", "<RevenueAndHoursCard"];
+const pos = seq.map((s) => overview.indexOf(s));
+ok("every card is on the Overview", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
+ok("tiles, orders, fulfilment, top states, map, the month's detail - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
 ok("the map's side column is empty: no commission leaderboard rides there", /<OpsMapCard \/>/.test(tab) && !/LeaderboardCard/.test(tab));
-const caps = ["This month", "The work", "The longer view", "Setup"];
-ok("the four zones are captioned", caps.every((c) => tab.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !tab.includes(`<ZoneLabel>{L("${c}"`)).join(","));
+const caps = ["The work", "The longer view", "This month"];
+ok("the Overview's zones are captioned", caps.every((c) => overview.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !overview.includes(`<ZoneLabel>{L("${c}"`)).join(","));
 ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
-/* v1.172.2 (Tailwind retired): the 2fr / 1fr split is portal.module.css
-   .ecomWorkSplit, applied when the role sees revenue. */
-const portalCss = read("app/portal/portal.module.css");
-ok("the tracker is wide and fulfilment beside it",
-   /REVENUE_ROLES\.includes\(user\.role\) \? css\.ecomWorkSplit : ""/.test(tab)
-   && /\.ecomWorkSplit \{\s*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\);/.test(portalCss));
+/* the 2fr / 1fr split is the panel's own module, applied when the role sees revenue */
+const ecomCss = read("components/portal/ecommerce-panel.module.css");
+ok("the orders table is wide and fulfilment beside it",
+   /className=\{`\$\{css\.work\} \$\{canRevenue \? css\.workSplit : ""\}`\}/.test(tab)
+   && /\.workSplit \{\s*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\);/.test(ecomCss));
+ok("the tab row is the shared pill, and Products opens Inventory rather than pretending to be a page",
+   /className=\{view === k \? tabPillOn : tabPill\}/.test(tab) && /k === "products" \? go\("Inventory"\) : setView\(k\)/.test(tab)
+   && /canOpen\("Inventory"\) \? \(\[\["products"/.test(tab));
 
 /* 2. visual and keyboard reading order agree on every viewport */
-ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab));
-ok("...and the cards appear once each", seq.every((s) => tab.split(s).length === 2));
+ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab) && !/order:\s*-?\d/.test(ecomCss));
+ok("...and the cards appear once each on the Overview", seq.every((s) => overview.split(s).length === 2));
 
 /* 3. one caption component */
 ok("ZoneLabel lives in page-shared and both tabs use it", /export function ZoneLabel\(/.test(shared) && /ZoneLabel/.test(dash) && !/^function ZoneLabel\(/m.test(dash) && tab.includes("<ZoneLabel>"));
 
-/* 4. gates */
-ok("analytics stays CEO-only", /\["ceo", "super_admin"\]\.includes\(user\.role\) && <TikTokAnalyticsCard \/>/.test(tab));
-ok("the tracker is not behind the revenue gate", !/REVENUE_ROLES\.includes\(user\.role\) && \(?\s*<TikTokOrdersCard/.test(tab) && /<TikTokOrdersCard/.test(tab));
-ok("fulfilment, the map, revenue and the long view stay behind it", /REVENUE_ROLES\.includes\(user\.role\) && <FulfilmentCard \/>/.test(tab) && /REVENUE_ROLES\.includes\(user\.role\) && \(\s*<section[\s\S]{0,120}?This month/.test(tab) && /REVENUE_ROLES\.includes\(user\.role\) && \(\s*<section[\s\S]{0,160}?The longer view/.test(tab));
+/* 4. gates - the same gates the page had */
+ok("analytics stays CEO-only", /const canAnalytics = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(tab) && /\{view === "analytics" && canAnalytics && <TikTokAnalyticsCard \/>\}/.test(tab) && /\.\.\.\(canAnalytics \? \(\[\["analytics"/.test(tab));
+ok("the orders table is not behind the revenue gate", !/canRevenue && \(?\s*<TikTokOrdersTable/.test(tab) && (tab.match(/<TikTokOrdersTable role=\{user\.role\} \/>/g) ?? []).length === 2);
+ok("the tiles, fulfilment, the top states, the map and the month's detail stay behind it",
+   /const tiles = canRevenue && \(/.test(tab)
+   && /\{canRevenue && \(\s*<div className=\{css\.aside\}>\s*<FulfilmentCard \/>\s*<TopStatesCard/.test(tab)
+   && /\{canRevenue && \(\s*<section className="erp-stack-tight" ref=\{mapRef\}>[\s\S]{0,200}?<OpsMapCard \/>/.test(tab)
+   && /\{canRevenue && \(\s*<section className="erp-stack-tight">[\s\S]{0,300}?<RevenueAndHoursCard/.test(tab)
+   && /\{view === "fulfilment" && canRevenue && \(/.test(tab)
+   && /useCachedApi<RevenueData>\(canRevenue \? "\/staff\/revenue" : null\)/.test(tab));
+ok("a tile is a figure the server states, never a guess: revenue and orders from /staff/revenue, delivered and to-ship from the fulfilment summary",
+   /value=\{r \? fmtRM\(r\.tiktok\.this_cents\) : 0\}/.test(tab) && /value=\{r \? r\.tiktok\.this_orders : 0\}/.test(tab)
+   && /const delivered = n\("delivered"\);/.test(tab) && /const toShip = n\("preparing"\);/.test(tab) && !/pending.?sync/i.test(tab.replace(/\/\*[\s\S]*?\*\//g, "")));
 
 /* ---- v1.119.0: Inventory - three zones, and one data source for two renderings ---- */
 {

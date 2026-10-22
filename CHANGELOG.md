@@ -10,6 +10,66 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.185.0] - 2026-10-22 - The Ecommerce page
+
+The owner, 22-10-2026, with his reference screen: *"Ecommerce do like
+this"* - a tab row across the top, four figure tiles, the TikTok orders as
+a table beside a Fulfilment overview and the top states, and the Operations
+map. His three choices, asked first: the tab row; the tiles are Revenue ·
+Orders · Delivered · To ship (there is no "pending sync" count in this
+system, and a tile must be a figure the server states); item names, not
+product photos (the sync stores names and quantities).
+
+### Changed
+
+- **`components/portal/ecommerce-panel.tsx`** owns the tab now
+  (`app/portal/page.tsx` hands it the whole block). A pill tab row -
+  **Overview · Orders · Products · Fulfilment · Analytics · Setup** - with
+  the month beside it. Products is Inventory's, so that tab opens
+  Inventory (and is offered only to an account that may open it);
+  Fulfilment and Analytics appear only to the roles that may see them.
+- **Overview**, top to bottom: the four tiles (REVENUE_ROLES: this month's
+  TikTok revenue and orders with "+x% vs last month" from `/staff/revenue`
+  - the same cached request the month card makes - and Delivered with its
+  share and To ship with the oldest order's age from
+  `/staff/fulfilment/summary`); **The work** - the TikTok orders table
+  beside the Fulfilment overview and **Top states (by orders)**; **The
+  longer view** - the Operations map; **This month** - the revenue / hours
+  / Sales floor card as before.
+- **TikTok Orders is a table** (`components/portal/tiktok-orders.tsx`,
+  `TikTokOrdersTable`): TikTokOrdersCard's logic moved whole from
+  `role-panels.tsx` - the same `/integrations/tiktok/status` and `/sync`
+  calls, the same `/staff/postage` read filtered to `TT-` refs, the same
+  sync roles, the same `azone:tiktok-synced` event the map listens for.
+  Status pills with counts (New / Shipped / In transit / Delivered /
+  Returned), then the shared DataTable: search, sort, 5/10/25/50 a page, a
+  CSV of the rows on screen; order no., date, buyer (state over city),
+  items, amount, status; a row - or its chevron - opens the detail under
+  the table (tracking, courier, buyer, the note) that the old list printed
+  on every row.
+- **Top states** (`components/portal/top-states-card.tsx`): the same
+  `/staff/orders/geo` read and the same `stateOf()` the map uses, ranked,
+  with orders, revenue and a share bar; **View map** scrolls to the map.
+- `SummaryStat`: the figure never breaks inside itself; its chip wraps
+  under it (a money figure in a 1/4 tile).
+- Fixtures: the TikTok connection, six stored orders, buyer cities and a
+  fuller fulfilment summary, so the fixture server renders the page.
+
+### Guards
+
+`tab-zones` (the Ecommerce rules moved to the panel: order of the
+Overview, the 2fr/1fr split, the pill tab row with Products → Inventory,
+analytics CEO-only, the orders table not behind the revenue gate,
+everything else behind it, and tiles that are server figures),
+`tab-concept` (Ecommerce's body is the panel; its summary tier), `one-desk`
+(the Sales floor lives in the panel). 107 guards.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 137 warnings, worker `tsc` clean, all 107
+  guards, static build; Chromium at 1500px and 390px (Ecommerce Overview,
+  top to bottom) against the fixture server.
+
 ## [1.184.0] - 2026-10-22 - The clock card, and the month's leave applications
 
 The owner, 22-10-2026, with two reference screens: an attendance card with

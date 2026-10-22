@@ -1,0 +1,116 @@
+/* v1.185.0 - the TikTok orders table on Ecommerce. Tokens only. */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.headLead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+.headText {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+}
+.logo {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.statusLine {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.statusSkel {
+  height: 0.75rem;
+  width: 16rem;
+  max-width: 100%;
+}
+.msg {
+  display: block;
+}
+.pills {
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.ref {
+  font-weight: 600;
+  font-size: var(--type-caption-size);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.buyer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+}
+.buyerState {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.rowBtn {
+  padding-inline: 0.5rem;
+}
+.items {
+  display: block;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tracking {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.detail {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--secondary);
+}
+.detailTitle {
+  margin: 0 0 0.5rem;
+  font-size: var(--type-body-sm-size);
+}
+.detailGrid {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+}
+.detailGrid dt {
+  color: var(--muted-foreground);
+}
+.detailGrid dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detailGrid dt {
+    margin-top: 0.25rem;
+  }
+}
