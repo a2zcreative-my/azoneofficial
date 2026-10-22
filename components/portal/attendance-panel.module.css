@@ -1,0 +1,53 @@
+/* v1.188.0 - the tabbed Attendance page's own layout. Tokens only; the
+   cards, tiles, pills and buttons are the shared named classes. */
+.page {
+  min-width: 0;
+}
+.tabs {
+  min-width: 0;
+}
+/* a tab body is a stack; a hidden one must say hidden itself, or its
+   display outranks the reset's [hidden] rule */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.body[hidden] {
+  display: none;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.monitor {
+  min-width: 0;
+  scroll-margin-top: 4rem;
+}
+.aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-content: start;
+}
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+.quickBtn {
+  justify-content: flex-start;
+  min-height: 2.75rem;
+}
+.rosterAnchor {
+  scroll-margin-top: 4rem;
+}
+@media (min-width: 1200px) {
+  .split {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}

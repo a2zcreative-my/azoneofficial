@@ -77,14 +77,22 @@ for (const w of wrappers) {
      "m.Foo on a missing Foo is undefined at runtime - a blank tab, not a type error");
 }
 
-/* ---- 3. every wrapper is used, through the wrapper ---- */
+/* ---- 3. every wrapper is used, through the wrapper ----
+   v1.188.0 - a wrapper may also be imported and rendered by a page-level
+   panel that is itself a wrapper (attendance-panel.tsx holds the roster,
+   verification and admin wrappers): the rule is the same - imported from
+   lazy-panels, rendered by the file that imports it. */
 {
-  const fromLazy = /import \{([\s\S]*?)\} from "@\/components\/portal\/lazy-panels";/.exec(page);
-  const imported = fromLazy ? [...fromLazy[1].matchAll(/\b([A-Z]\w+)\b/g)].map((m) => m[1]) : [];
-  ok("page.tsx imports from lazy-panels", imported.length > 0);
+  const consumers = [["app/portal/page.tsx", page], ["components/portal/attendance-panel.tsx", read("components/portal/attendance-panel.tsx")]];
+  const importedBy = (src) => {
+    const fromLazy = /import \{([\s\S]*?)\} from "@\/components\/portal\/lazy-panels";/.exec(src);
+    return fromLazy ? [...fromLazy[1].matchAll(/\b([A-Z]\w+)\b/g)].map((m) => m[1]) : [];
+  };
+  ok("page.tsx imports from lazy-panels", importedBy(page).length > 0);
   for (const w of wrappers) {
-    ok(`${w.name} is imported from lazy-panels`, imported.includes(w.name));
-    ok(`${w.name} is rendered somewhere`, new RegExp(`<${w.name}\\b`).test(page), "a wrapper nothing renders is a chunk nothing loads");
+    const where = consumers.filter(([, src]) => importedBy(src).includes(w.name));
+    ok(`${w.name} is imported from lazy-panels`, where.length > 0);
+    ok(`${w.name} is rendered somewhere`, where.some(([, src]) => new RegExp(`<${w.name}\\b`).test(src)), "a wrapper nothing renders is a chunk nothing loads");
   }
 }
 

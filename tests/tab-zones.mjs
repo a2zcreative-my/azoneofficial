@@ -237,15 +237,24 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("the Dashboard's queue is a summary card, above the metrics and the company",
     ordered(dash, ['<PanelTitle icon="time"', '<DeskSummary', 'L("My month"', '<TradingDesk', 'L("Around me"'])
     && !/<WatchersCard/.test(dash) && !/<DeskQueue/.test(dash));
-  const attendance = page.slice(page.indexOf('{activeTab === "Attendance"'), page.indexOf('{activeTab === "Accounting"'));
-  /* v1.171.0 - the company's attendance today (donut + assignments, from the
-     Dashboard) follows the records/monitor and precedes the decisions. */
-  ok("Attendance records and decisions precede scheduling and setup",
-    ordered(attendance, ['<Attendance user=', '<CompanyAttendanceToday', '<VerificationCard', '<OtApprovalsCard', '<RosterBoard', '<AttendanceAdminPanel']));
-  ok("the assignments card's Open roster scrolls to the board on the same tab",
-    /<div id="roster-board" className=\{css\.rosterAnchor\}>\s*<RosterBoard/.test(attendance)
-    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("app/portal/portal.module.css"))
-    && /onOpenRoster=\{\(\) => revealAnchor\("roster-board"\)\}/.test(read("components/portal/dashboard-cards.tsx")));
+  /* v1.188.0 - the Attendance tab is its own tabbed panel (the owner's brief):
+     Overview (tiles, the monitor, the donut, quick actions, today's
+     assignments) · My Attendance · Team Attendance (the report, the
+     verification card) · Schedule & Roster · Management (OT approvals, the
+     corrections panel). The page hands the tab to the panel. */
+  const attendance = read("components/portal/attendance-panel.tsx");
+  ok("the Attendance block hands the tab to its panel", /\{activeTab === "Attendance" && \([\s\S]{0,400}?<AttendancePanel user=\{user\} go=\{setTab\} \/>/.test(page));
+  ok("Attendance: overview, my records, the team's, the roster, then management - in that order",
+    ordered(attendance, ['<Attendance user={user} view="monitor"', '<AttendanceTodayCard', '<TodayAssignmentsCard', '<Attendance user={user} view="mine"', '<VerificationCard', '<Attendance user={user} view="team"', '<RosterBoard', '<OtApprovalsCard', '<AttendanceAdminPanel']));
+  ok("the five tabs are the shared pill, and every body stays mounted (hidden, never unmounted)",
+    /className=\{view === k \? tabPillOn : tabPill\}/.test(attendance)
+    && ['"overview"', '"mine"', '"team"', '"roster"', '"manage"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
+  ok("the assignments card's Open roster opens the roster tab and scrolls to the board",
+    /<div id="roster-board" className=\{css\.rosterAnchor\} ref=\{rosterRef\}>\s*<RosterBoard/.test(attendance)
+    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/attendance-panel.module.css"))
+    && /onOpenRoster=\{\(\) => \{ setView\("roster"\); revealAnchor\("roster-board"\); \}\}/.test(attendance)
+    && /window\.dispatchEvent\(new CustomEvent\("azone:reveal", \{ detail: id \}\)\)/.test(read("components/portal/page-shared.tsx"))
+    && /"ot-approvals": "manage", "pending-punches": "manage", "roster-board": "roster"/.test(attendance));
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
   ok("Users starts with accounts, then review, permissions and locations",
     ordered(users, ['<UsersPanel', '<AccessReviewCard', '<TabAccessCard', '<GeofenceCard']));

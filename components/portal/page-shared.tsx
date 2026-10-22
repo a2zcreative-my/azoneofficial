@@ -66,6 +66,9 @@ export const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
     id that never appears - the tab itself was the fallback all along. */
 export function revealAnchor(id: string | undefined): void {
   if (!id || typeof document === "undefined") return;
+  /* v1.188.0 - a tabbed page (attendance-panel.tsx) listens for this and
+     opens the tab that holds the anchor before the element is looked for */
+  try { window.dispatchEvent(new CustomEvent("azone:reveal", { detail: id })); } catch { /* nothing to open */ }
   let tries = 0;
   const tick = () => {
     const el = document.getElementById(id);

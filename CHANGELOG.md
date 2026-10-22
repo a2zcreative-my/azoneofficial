@@ -10,6 +10,51 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.188.0] - 2026-10-22 - Attendance: five tabs
+
+The owner's brief and reference, 22-10-2026: the Attendance module as a
+clean tab page - Overview, My Attendance, Team Attendance, Schedule &
+Roster, Management - in the existing gold, navy, white and grey. The same
+cards, the same requests, the same rules; the page used to stack four zones
+(Today, Waiting on me, The roster, Setup) and now puts them under the shared
+pill row. Nothing in the worker, the database or any calculation changed.
+
+### Changed
+
+- **`components/portal/attendance-panel.tsx` (new) draws the page.**
+  Overview (managers): four figure tiles - On time, Late, Not clocked in
+  (the dashboard summary's own verdicts) and On shift now (the monitor's
+  latest punch per person) - then the live monitor beside the attendance
+  donut and a Quick actions card (Clock in / out, Apply leave, View roster,
+  Team report), then today's assignments. My Attendance (everyone): four
+  figures for the month - days worked, hours, the average a day and days
+  missing a clock-out - above the personal records. Team Attendance
+  (managers): the verification card first (one row a person, its flags are
+  the issues, Export CSV) and the punch log under it. Schedule & Roster
+  (everyone): the roster board, every interaction as before. Management
+  (managers): OT approvals, then the corrections / back-entry / unpaid
+  leave / working hours / OT panel with its CSV.
+- **Every body stays mounted and is hidden, never unmounted**: a month
+  picked or a form half filled survives a look at another tab. Anchors the
+  Desk reveals (`#ot-approvals`, `#pending-punches`) and the assignments
+  card's `#roster-board` open their tab first: `revealAnchor` now also
+  dispatches an `azone:reveal` event the panel listens for.
+- **`attendance.tsx`** takes `view` ("monitor" | "mine" | "team" | "all")
+  and hands its answers up (`onMonitor`, `onMine`), so the figures read the
+  requests the cards already make - no new request. The personal month's
+  days and hours come from one helper (`mineSummary`) that the table's footer
+  shares, so the two cannot disagree.
+- **`dashboard-cards.tsx`**: `CompanyAttendanceToday` (the Attendance tab's
+  old strip) is gone; the panel's tiles replace it.
+
+### Unchanged
+
+- Every route, gate and calculation. Each tab keeps the role gate
+  `page.tsx` applied (managers see five tabs, everyone else two); the
+  worker still enforces every route.
+- Guards re-pointed at the panel: `tab-zones`, `tab-concept`,
+  `lazy-panels`, `roster-week`, `portal-source`.
+
 ## [1.187.0] - 2026-10-22 - Dashboard: tighter, in order
 
 The owner's brief, 22-10-2026: a cleaner Dashboard with better hierarchy

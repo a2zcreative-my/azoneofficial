@@ -110,7 +110,7 @@ const BODY = {
   "ELFIA Store": ["components/portal/elfia-store-panel.tsx#ElfiaStorePanel"],
   "ELFIA Traffic": ["components/portal/elfia-traffic-panel.tsx"],
   "HR": ["components/portal/role-panels.tsx#HrPanel"],
-  "Attendance": [],
+  "Attendance": ["components/portal/attendance-panel.tsx"], // v1.188.0 - the page is its own tabbed panel
   "Tasks": ["components/portal/tasks.tsx"],
   "Announcements": ["components/portal/announcements.tsx#Announcements"],
   "Staff Details": ["components/staff/staff-directory.tsx#StaffDirectory"],
@@ -188,7 +188,8 @@ ok("the desk zone is addressable, so a nav stop can reveal it without a second i
 
 /* ---- the page ---- */
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));
-ok("Attendance: TODAY, WAITING ON ME, THE ROSTER, SETUP", /label=\{L\("Today", "Hari ini"\)\}/.test(blockOf("Attendance")) && /label=\{L\("Waiting on me", "Menunggu saya"\)\}>/.test(blockOf("Attendance")) && /label=\{L\("The roster", "Jadual"\)\}/.test(blockOf("Attendance")) && /label=\{L\("Setup", "Tetapan"\)\}/.test(blockOf("Attendance")));
+/* v1.188.0 - the four zones became five tabs (attendance-panel.tsx) */
+ok("Attendance: OVERVIEW, MY ATTENDANCE, TEAM ATTENDANCE, SCHEDULE & ROSTER, MANAGEMENT", ['L("Overview", "Gambaran")', 'L("My Attendance", "Kehadiran saya")', 'L("Team Attendance", "Kehadiran pasukan")', 'L("Schedule & Roster", "Jadual & roster")', 'L("Management", "Pengurusan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
 ok("Users: ACCOUNTS, then ACCESS AND LOCATIONS two up", /label=\{L\("Accounts", "Akaun"\)\}/.test(blockOf("Users")) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(blockOf("Users")));
 ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay", "Security and privacy"].every((c) => blockOf("Profile").includes(`label={L("${c}"`)));
 ok("Finance: THIS MONTH (cash) then the expense zones from the panel", /label=\{L\("This month", "Bulan ini"\)\}>\s*(?:\{\/\*[\s\S]*?\*\/\}\s*)?<CashFlowPanel \/>/.test(blockOf("Finance")) && /<ExpensesPanel reporting=\{<PnlCard \/>\} \/>/.test(blockOf("Finance")));

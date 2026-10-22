@@ -7,7 +7,7 @@ import { L, MANAGE_ROLES, User, mytDateTime, mytTime } from "@/components/portal
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SkelCard, SkelTable } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { dmy, mytDateOf } from "@/lib/format";
+import { dmy, mytDateOf, mytToday } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
 import { btnGhost, card, inputClass, selectClass, chipNeutral, chipSuccess, chipWarn, chipInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmInfo } from "@/lib/ui-styles";
 import { useEffect, useState } from "react";
@@ -16,14 +16,62 @@ import css from "./attendance.module.css";
 
 /* ================= Attendance ================= */
 
-export function Attendance({ user }: { user: User }) {
+/* v1.188.0 - THE ATTENDANCE PAGE IS TABBED (attendance-panel.tsx), so this
+   component draws ONE of its two cards at a time when asked: `view`
+   "monitor" is today's monitor alone (Overview), "mine" the personal
+   records alone (My Attendance), "team" the team report alone (Team
+   Attendance); "all" is the whole card as it always was. `onMonitor` hands
+   the monitor's answer up, so the Overview's figures read the same
+   request; `onMine` hands the personal month up (the footer's own days and
+   hours, from the one helper) so My Attendance opens with its figures.
+   Nothing fetched, computed or shown changed. */
+export type AttendanceView = "all" | "monitor" | "mine" | "team";
+export type AttendanceMonitor = {
+  date: string;
+  staff: {
+    id: number; name: string; role: string; employment_status?: string | null;
+    in_at?: string | null; out_at?: string | null; last_type?: string | null; shifts?: number;
+  }[];
+};
+export type AttendanceMine = { month: string; days: number; totalMs: number; missingOut: number; loaded: boolean };
+
+/* a day's hours are first clock-in to last clock-out (v1.4.77); the month
+   is the sum of the days that have both. One helper feeds the footer and
+   the figures, so they can never disagree. */
+function mineSummary(records: { type: string; created_at: string }[], today: string) {
+  const byDay = new Map<string, { ins: string[]; outs: string[] }>();
+  for (const r of records) {
+    const d = mytDateOf(r.created_at);
+    const g = byDay.get(d) ?? { ins: [], outs: [] };
+    (r.type === "clock_in" ? g.ins : g.outs).push(r.created_at);
+    byDay.set(d, g);
+  }
+  const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  let totalMs = 0;
+  let missingOut = 0;
+  for (const [d, g] of days) {
+    const fi = g.ins.sort()[0];
+    const lo = g.outs.sort().at(-1);
+    if (fi && !lo && d < today) missingOut += 1;
+    if (!fi || !lo) continue;
+    const ms = new Date(lo.replace(" ", "T") + "Z").getTime() - new Date(fi.replace(" ", "T") + "Z").getTime();
+    if (ms > 0) totalMs += ms;
+  }
+  return { days, totalMs, missingOut };
+}
+
+export function Attendance({ user, view = "all", onMonitor, onMine }: {
+  user: User; view?: AttendanceView; onMonitor?: (m: AttendanceMonitor) => void; onMine?: (m: AttendanceMine) => void;
+}) {
   const [month, setMonth] = useState(
     new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)
   );
   const [records, setRecords] = useState<
     { type: string; created_at: string; name?: string }[]
   >([]);
-  const [reportMode, setReportMode] = useState(false);
+  const [reportMode, setReportMode] = useState(view === "team");
+  const showMonitor = view === "all" || view === "monitor";
+  const showRecords = view !== "monitor";
   // v1.4.80: click a column header to sort; click again to reverse.
   const [sortKey, setSortKey] = useState<"name" | "type" | "time" | null>(null);
   const [sortDir, setSortDir] = useState<1 | -1>(1);
@@ -66,19 +114,25 @@ export function Attendance({ user }: { user: User }) {
       setLoaded(true);
     });
   }, [month, reportMode, canReport]);
+  /* the personal month, handed up as it changes (the figures on My Attendance) */
   useEffect(() => {
-    if (!canReport) return;
+    if (!onMine || reportMode) return;
+    const m = mineSummary(records, mytToday());
+    onMine({ month, days: m.days.length, totalMs: m.totalMs, missingOut: m.missingOut, loaded });
+  }, [onMine, records, month, loaded, reportMode]);
+  useEffect(() => {
+    if (!canReport || !showMonitor) return;
     const loadMon = () =>
       void api<NonNullable<typeof monitor>>(`/staff/attendance/monitor`).then(
         (r) => {
-          if (r.ok && r.data) setMonitor(r.data);
+          if (r.ok && r.data) { setMonitor(r.data); onMonitor?.(r.data); }
         }
       );
     loadMon();
     const t = setInterval(loadMon, 120000); // keeps the monitor live through the day
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canReport]);
+  }, [canReport, showMonitor]);
 
   return (
     <div className={css.page}>
@@ -86,8 +140,8 @@ export function Attendance({ user }: { user: User }) {
           clock out for me to aware"): today's snapshot, refreshed every two
           minutes — missing punches called out on top, then a compact list. */}
       {/* v1.77.0 — skeleton until the first fetch lands (monitor card). */}
-      {canReport && monitor === null && <SkelCard lines={2} />}
-      {canReport &&
+      {canReport && showMonitor && monitor === null && <SkelCard lines={2} />}
+      {canReport && showMonitor &&
         monitor &&
         (() => {
           const hm = (iso?: string | null) => {
@@ -207,6 +261,7 @@ export function Attendance({ user }: { user: User }) {
             </div>
           );
         })()}
+      {showRecords && (
       <div className={card}>
         <div className="erp-flex erp-flex-wrap erp-flex-between">
           <div>
@@ -258,7 +313,7 @@ export function Attendance({ user }: { user: User }) {
               value={month}
               onChange={(e) => setMonth(e.target.value)}
             />
-            {canReport && (
+            {canReport && view === "all" && (
               <button
                 type="button"
                 className={btnGhost}
@@ -289,16 +344,7 @@ export function Attendance({ user }: { user: User }) {
           !reportMode &&
           records.length > 0 &&
           (() => {
-            const byDay = new Map<string, { ins: string[]; outs: string[] }>();
-            for (const r of records) {
-              const d = mytDateOf(r.created_at);
-              const g = byDay.get(d) ?? { ins: [], outs: [] };
-              (r.type === "clock_in" ? g.ins : g.outs).push(r.created_at);
-              byDay.set(d, g);
-            }
-            const days = [...byDay.entries()].sort((a, b) =>
-              b[0].localeCompare(a[0])
-            );
+            const { days, totalMs } = mineSummary(records, "");
             const hoursOf = (firstIn?: string, lastOut?: string) => {
               if (!firstIn || !lastOut) return null;
               const ms =
@@ -309,15 +355,6 @@ export function Attendance({ user }: { user: User }) {
               const m = Math.round((ms % 3600000) / 60000);
               return `${h}h ${String(m).padStart(2, "0")}m`;
             };
-            const totalMs = days.reduce((sum, [, g]) => {
-              const fi = g.ins.sort()[0];
-              const lo = g.outs.sort().at(-1);
-              if (!fi || !lo) return sum;
-              const ms =
-                new Date(lo.replace(" ", "T") + "Z").getTime() -
-                new Date(fi.replace(" ", "T") + "Z").getTime();
-              return ms > 0 ? sum + ms : sum;
-            }, 0);
             return (
               <div className={css.tableWrap}>
                 <table className={`${css.table} ${css.tableMine}`}>
@@ -480,6 +517,7 @@ export function Attendance({ user }: { user: User }) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

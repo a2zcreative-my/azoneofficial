@@ -45,23 +45,20 @@ import {
   AccessReviewCard, CompaniesPanel, HrAdminPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
   GeofenceCard, HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
-  AttendanceAdminPanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
-  RosterBoard, StokisPanel, TabAccessCard, ThreadsPanel, VerificationCard,
+  AttendancePanel, HrPanel, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
+  StokisPanel, TabAccessCard, ThreadsPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
 import { card } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
-import { Attendance } from "@/components/portal/attendance";
 import { Dashboard } from "@/components/portal/dashboard";
 import { DeskPage } from "@/components/portal/desk-page";
 import { Leave } from "@/components/portal/leave";
-import { OtApprovalsCard } from "@/components/portal/live-cards";
 import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
-import { CompanyAttendanceToday } from "@/components/portal/dashboard-cards";
 import { UsersPanel } from "@/components/portal/users-panel";
 import type { TabName } from "@/lib/portal-tabs";
 import css from "./portal.module.css";
@@ -114,70 +111,10 @@ export default function PortalPage() {
             </TabPage>
           )}
           {activeTab === "Attendance" && (
-            /* v1.173.0 (tab concept): four zones in the v1.171.0 order -
-               today's records, the decisions waiting, the roster, setup. */
-            <TabPage>
-              <TabZone label={L("Today", "Hari ini")}>
-              <Attendance user={user} />
-              {/* v1.171.0 (CEO, 20-09-2026: "resort it based on it own
-                  function and properly put in on their own tabs") — the
-                  attendance donut and today's assignments, from the Dashboard.
-                  Same tier as the monitor above; status chips act for the
-                  roles that may edit the roster. */}
-              {MANAGE_ROLES.includes(user.role) && (
-                <CompanyAttendanceToday canManage={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)} />
-              )}
-              </TabZone>
-              <TabZone label={L("Waiting on me", "Menunggu saya")}>
-              {/* v1.84.0 (CEO: "attendance verification should move to
-                  Attendance ... full report is require and a must!") — it was
-                  on the HR tab, printing every punch in the month with no
-                  total. Same tier that could see it there. */}
-              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) && (
-                <VerificationCard />
-              )}
-              {["ceo", "coo", "super_admin", "admin"].includes(user.role) ? (
-                <OtApprovalsCard />
-              ) : (
-                <PermissionPlaceholder
-                  title={L("OT Approvals", "Kelulusan OT")}
-                />
-              )}
-              </TabZone>
-              <TabZone label={L("The roster", "Jadual")}>
-              {/* Scheduling follows attendance review and OT decisions.
-                  v1.171.0: the anchor "Open roster" (assignments card) scrolls to. */}
-              <div id="roster-board" className={css.rosterAnchor}>
-              <RosterBoard
-                canManage={[
-                  "ceo",
-                  "coo",
-                  "cco",
-                  "hr_admin",
-                  "super_admin",
-                  "admin",
-                ].includes(user.role)}
-                canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(
-                  user.role
-                )}
-                /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task
-                   should be able to delete!") - mirrors task_delete in
-                   worker/src/permissions.ts, which is the CEO alone. */
-                canDeleteTask={["ceo", "super_admin"].includes(user.role)}
-              />
-              </div>
-              </TabZone>
-              <TabZone label={L("Setup", "Tetapan")}>
-              {/* v1.91.0 — mirrors attendance_correct in the worker. */}
-              {["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role) ? (
-                <AttendanceAdminPanel role={user.role} />
-              ) : (
-                <PermissionPlaceholder
-                  title={L("Attendance Admin", "Admin Kehadiran")}
-                />
-              )}
-              </TabZone>
-            </TabPage>
+            /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):
+               Overview · My Attendance · Team Attendance · Schedule & Roster ·
+               Management, the same cards under the same gates. */
+            <AttendancePanel user={user} go={setTab} />
           )}
           {/* v1.172.0 - Reconciliation, Ads Fund and Purchasing retired: no
              block here, no tab in the registry, no panel in the bundle.

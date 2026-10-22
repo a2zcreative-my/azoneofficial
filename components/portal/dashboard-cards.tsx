@@ -16,8 +16,6 @@ import { fmtRM, ym } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { givenNames } from "@/lib/names";
 import { AppIcon } from "@/components/ui/app-icon";
-import { revealAnchor } from "@/components/portal/page-shared";
-import type { DashSummary } from "@/components/portal/dashboard";
 import attCss from "@/components/portal/attendance-today.module.css";
 
 const api = makeApi("/staff");
@@ -142,29 +140,9 @@ export function AttendanceTodayCard({ onTime, late, staffTotal }: {
    cards; "Open roster" scrolls to the board below instead of leaving the
    tab. Skeleton until the summary is known; the donut is not drawn from
    zeros while the answer is still in flight. */
-export function CompanyAttendanceToday({ canManage = false }: { canManage?: boolean }) {
-  const sum = useCachedApi<DashSummary>("/staff/dashboard/summary");
-  const s = sum.data;
-  return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-4">
-      {!s ? (
-        <div className={card} aria-busy="true"><SkelRows rows={3} /></div>
-      ) : (
-        /* v1.177.2 - the donut needs all three to mean anything; without the
-           attendance permission the server sends none of them, and drawing a
-           0/0/0 ring would claim nobody clocked in. Say nothing instead. */
-        s.attendance_on_time == null || s.attendance_late == null ? null : (
-        <AttendanceTodayCard
-          onTime={s.attendance_on_time}
-          late={s.attendance_late}
-          staffTotal={s.staff_total ?? 0}
-        />
-        )
-      )}
-      <TodayAssignmentsCard canManage={canManage} onOpenRoster={() => revealAnchor("roster-board")} />
-    </div>
-  );
-}
+/* v1.188.0 - CompanyAttendanceToday (the donut beside today's assignments,
+   v1.171.0) left: the tabbed Attendance page (attendance-panel.tsx) draws
+   AttendanceTodayCard and TodayAssignmentsCard itself, in its Overview. */
 
 /* ---- Today's assignments (table) ---- */
 interface RosterSessionLite {

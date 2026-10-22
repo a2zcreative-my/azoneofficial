@@ -31,6 +31,9 @@ export const PORTAL_SOURCE_FILES = [
   "components/portal/profile.tsx",
   "components/portal/users-panel.tsx",
   /* v1.183.0 - components/portal/commission.tsx retired with the Commission tab */
+  /* v1.188.0 - the Attendance tab's body moved out of page.tsx into its own
+     tabbed panel; a guard that read "the page" reads it still */
+  "components/portal/attendance-panel.tsx",
 ];
 
 /** Everything the portal page is made of, as one string. */
