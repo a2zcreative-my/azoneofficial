@@ -344,11 +344,11 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   }, [moreOpen]);
 
   useEffect(() => {
-    /* v1.177.0 - dark is the portal's ground now, so an account that has
-       never touched the toggle gets the deck. Only an explicit "light" opts
-       out, which is the same test the pre-paint script in app/layout.tsx
+    /* v1.177.0 - dark was the portal's ground; v1.182.0 (the owner,
+       22-10-2026) - light is the default again and only an explicit saved
+       "dark" opts in. The same test the pre-paint script in app/layout.tsx
        makes - the two must agree or the theme flips after hydration. */
-    setDark(localStorage.getItem("azone-theme") !== "light");
+    setDark(localStorage.getItem("azone-theme") === "dark");
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data) {
         setUser(r.data.user);

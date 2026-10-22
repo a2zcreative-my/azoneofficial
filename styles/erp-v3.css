@@ -47,9 +47,12 @@
 @layer components {
   /* ---------- tokens ---------- */
   .erp-workspace {
-    --erp-radius-card: 14px;
-    --erp-radius-panel: 12px;
-    --erp-radius-control: 10px;
+    /* v1.182.0 - the owner's reference (22-10-2026): rounder cards on a
+       soft grey ground, the figure tiles with an icon well. The radius and
+       the shadow moved; every surface reads them, so nothing was rewritten. */
+    --erp-radius-card: 18px;
+    --erp-radius-panel: 14px;
+    --erp-radius-control: 12px;
     /* v1.177.0 - light mode has no deck of its own: these three exist so a
        rule can name them unconditionally and get something sensible on both
        themes. On light, "raised" is simply the card. */
@@ -59,7 +62,7 @@
     --erp-control-h: 44px;
     --erp-control-h-sm: 36px;
     --erp-card-pad: 1rem;
-    --erp-shadow-card: 0 1px 2px rgba(13, 21, 38, 0.04), 0 1px 1px rgba(13, 21, 38, 0.02);
+    --erp-shadow-card: 0 1px 2px rgba(13, 21, 38, 0.03), 0 6px 18px rgba(13, 21, 38, 0.04);
     --erp-shadow-lift: 0 8px 24px rgba(13, 21, 38, 0.12), 0 2px 6px rgba(13, 21, 38, 0.06);
     --erp-inset-bg: color-mix(in srgb, var(--secondary) 70%, var(--card));
     /* --surface-radius (rounded-card / rounded-panel) is set to the same
@@ -962,7 +965,7 @@
     flex-direction: column;
     background: var(--card);
     border-right: 1px solid var(--border);
-    width: 14.5rem;
+    width: 15.5rem;
     transition: width 150ms ease;
   }
   @media (min-width: 768px) { .erp-rail { display: flex; } }
@@ -990,35 +993,44 @@
     color: var(--muted-foreground);
   }
   .erp-rail-group-rule { margin: 0.5rem 0.875rem; border-top: 1px solid var(--border); }
+  /* v1.182.0 - THE MENU ROW IS A PILL WITH AN ICON WELL (the owner's
+     reference, 22-10-2026): a round tinted well holds the icon, the row is
+     rounded inside the rail's gutter, and the current tab is a filled gold
+     pill with navy ink (5.4:1) whose well goes white. On the deck the pill is
+     the gold tint with gold ink, as before. The 44px target, the focus ring
+     and the collapsed rail's centred icon are unchanged. */
   .erp-rail-item {
     position: relative;
     display: flex;
-    width: 100%;
+    width: calc(100% - 1.25rem);
     min-height: 44px;
     align-items: center;
     gap: 0.625rem;
-    padding: 0.5rem 0.75rem 0.5rem 1rem;
+    margin-inline: 0.625rem;
+    padding: 0.375rem 0.625rem 0.375rem 0.375rem;
     font-size: 0.8125rem;
     font-weight: 500;
     color: var(--muted-foreground);
-    border-radius: 0;
+    border-radius: 14px;
     transition: background-color 150ms ease, color 150ms ease;
   }
-  .erp-rail[data-collapsed="true"] .erp-rail-item { justify-content: center; padding-inline: 0; }
+  .erp-rail[data-collapsed="true"] .erp-rail-item { justify-content: center; width: calc(100% - 0.75rem); margin-inline: 0.375rem; padding-inline: 0; }
   .erp-rail-item:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
   @media (hover: hover) { .erp-rail-item:hover { background: var(--secondary); color: var(--foreground); } }
-  .erp-rail-item[aria-current="page"] { background: var(--tint-navy); color: var(--foreground); font-weight: 600; }
-  .dark .erp-rail-item[aria-current="page"] { background: var(--tint-gold); }
-  .erp-rail-item[aria-current="page"]::before {
-    content: "";
-    position: absolute;
-    inset-block: 0.375rem;
-    left: 0;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: var(--gold-solid);
+  .erp-rail-item[aria-current="page"] { background: var(--gold-solid); color: var(--brand-primary); font-weight: 600; }
+  .erp-rail-item[aria-current="page"] .erp-rail-icon { background: var(--card); color: var(--brand-primary); }
+  .dark .erp-rail-item[aria-current="page"] { background: var(--tint-gold); color: var(--brand-accent-deep); }
+  .dark .erp-rail-item[aria-current="page"] .erp-rail-icon { background: var(--erp-surface-raised); color: var(--brand-accent-deep); }
+  .erp-rail-icon {
+    display: grid;
+    width: 2.125rem;
+    height: 2.125rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--secondary);
+    color: var(--foreground);
   }
-  .erp-rail-icon { display: grid; width: 1.25rem; flex: 0 0 auto; place-items: center; }
   .erp-rail-item-label { min-width: 0; flex: 1 1 auto; text-align: left; overflow-wrap: anywhere; }
   .erp-rail-tip {
     position: fixed;
@@ -1035,8 +1047,10 @@
     font-weight: 500;
     box-shadow: var(--erp-shadow-card);
   }
-  .erp-rail-foot { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 0.5rem; }
-  .erp-rail-user { padding: 0.25rem 0.25rem 0.5rem; }
+  .erp-rail-foot { flex: 0 0 auto; padding: 0.625rem; }
+  /* the signed-in person reads as a small card at the foot of the rail */
+  .erp-rail-user { padding: 0.75rem 0.875rem 0.5rem; border-radius: 14px; background: var(--secondary); }
+  .erp-rail[data-collapsed="true"] .erp-rail-user { padding: 0.5rem 0.25rem; text-align: center; }
   .erp-rail-user-name { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .erp-rail-user-role { font-size: 0.75rem; color: var(--muted-foreground); text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* v1.172.2 - the brand mark and the sign-out row, off utilities */
@@ -1343,6 +1357,89 @@
   .erp-stat-brand .erp-stat-value { color: var(--primary); }
   .erp-stat-hint { font-size: 0.6875rem; line-height: 1rem; color: var(--muted-foreground); }
   .erp-stat-busy { color: var(--muted-foreground); letter-spacing: 0.1em; }
+  /* v1.182.0 - THE FIGURE TILE (SummaryStat with icon / badge / spark /
+     detail). Left-aligned, the label across the top with a quiet "See
+     details" control, an icon well beside a large figure and a tone chip,
+     then a short run of bars. Tokens only; the tile's tone colours the well
+     and the figure as the plain tile does. */
+  .erp-stat-rich {
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.625rem;
+    padding: 1rem 1.125rem 0.875rem;
+    border-radius: var(--erp-radius-card, 14px);
+    box-shadow: var(--erp-shadow-card, none);
+    text-align: left;
+  }
+  .erp-stat-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+  .erp-stat-rich .erp-stat-label { font-size: var(--type-body-sm-size); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erp-stat-detail {
+    flex: 0 0 auto;
+    min-height: 1.75rem;
+    padding: 0 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: var(--type-label-size);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  @media (hover: hover) { .erp-stat-detail:hover { background: var(--secondary); color: var(--foreground); } }
+  .erp-stat-detail:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .erp-stat-row { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+  .erp-stat-rich .erp-stat-value { font-size: var(--type-display-size); line-height: 1.1; letter-spacing: var(--type-display-tracking); }
+  .erp-stat-icon {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+  .erp-stat-icon.erp-stat-success { background: var(--success-soft); color: var(--success); }
+  .erp-stat-icon.erp-stat-warning { background: var(--warning-soft); color: var(--warning); }
+  .erp-stat-icon.erp-stat-danger { background: var(--danger-soft); color: var(--danger); }
+  .erp-stat-icon.erp-stat-brand { background: var(--tint-gold); color: var(--brand-accent-deep); }
+  .erp-stat-foot { display: flex; align-items: flex-end; gap: 0.75rem; min-width: 0; min-height: 1.75rem; }
+  .erp-stat-rich .erp-stat-hint { flex: 1 1 auto; min-width: 0; line-height: 1.3; }
+  .erp-spark { display: flex; align-items: flex-end; gap: 3px; height: 1.75rem; flex: 0 0 auto; }
+  .erp-spark-bar { display: block; width: 6px; border-radius: 3px; background: color-mix(in srgb, var(--brand-accent-deep) 22%, var(--secondary)); }
+  .erp-spark-now { background: var(--brand-accent-deep); }
+  .erp-stat-success .erp-spark-now { background: var(--success); }
+  .erp-stat-warning .erp-spark-now { background: var(--warning); }
+  .erp-stat-danger .erp-spark-now { background: var(--danger); }
+  @media (prefers-reduced-motion: no-preference) {
+    .erp-stat-button.erp-stat-rich:hover { transform: translateY(-1px); box-shadow: var(--erp-shadow-lift); }
+  }
+  /* on a phone a figure tile is one row the width of the screen: the well,
+     then the label with its hint and the way in, then the figure and its
+     chip at the end. The bars stay for a tablet and up. */
+  @media (max-width: 639px) {
+    .erp-tiles:has(> .erp-stat-rich) { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+    .erp-stat-rich {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas: "icon label value" "icon hint badge" "icon detail badge";
+      align-items: center;
+      column-gap: 0.75rem;
+      row-gap: 0.125rem;
+      padding: 0.75rem 0.875rem;
+    }
+    .erp-stat-rich .erp-stat-top, .erp-stat-rich .erp-stat-row, .erp-stat-rich .erp-stat-foot { display: contents; }
+    .erp-stat-rich .erp-stat-label { grid-area: label; white-space: normal; }
+    .erp-stat-rich .erp-stat-hint { grid-area: hint; }
+    .erp-stat-rich .erp-stat-detail { grid-area: detail; justify-self: start; min-height: 1.5rem; margin-top: 0.25rem; }
+    .erp-stat-rich .erp-stat-icon { grid-area: icon; align-self: center; }
+    .erp-stat-rich .erp-stat-value { grid-area: value; justify-self: end; font-size: var(--type-kpi-md-size); }
+    .erp-stat-rich .erp-chip { grid-area: badge; justify-self: end; align-self: start; }
+    .erp-stat-rich .erp-spark { display: none; }
+  }
   /* a figure that opens something */
   .erp-stat-button { width: 100%; cursor: pointer; font: inherit; transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease; }
   .erp-stat-button:active { transform: translateY(1px); }

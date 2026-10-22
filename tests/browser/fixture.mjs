@@ -152,6 +152,54 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   const q = url ? new URL(url).searchParams : new URLSearchParams();
   /* the panels' own prefixes: makeApi("/staff"), makeApi("/staff/erp"), makeApi("/staff/companies") */
   const p = p0.replace(/^\/staff\/erp(?=\/)/, "").replace(/^\/staff(?=\/(?:claims|stokis|content|task-reports|birthdays|expenses|hosts|banks|commission|cashflow|gl)\b)/, "");
+  /* v1.182.0 - THE DASHBOARD'S OWN ENDPOINTS. The 12-10 review made a
+     missing fixture an empty object, which is right (an empty card is an
+     honest sweep), but the Dashboard had never been given its rows and its
+     Events card threw on `undefined.filter`. These are the shapes the worker
+     sends, with the company's own kind of data: a month of punches for the
+     signed-in person, the day verdicts, today's shift, who is in, the
+     notifications, the events and the live sessions. */
+  if (p === "/staff/attendance") {
+    const month = q.get("month") ?? "2026-09";
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const recs = []; const days = [];
+    for (let d = 1; d <= 30; d++) {
+      const iso = `${month}-${String(d).padStart(2, "0")}`;
+      if (iso > today) break;
+      const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
+      if (dow === 0) { days.push({ date: iso, status: "rest_day", in: null, out: null, open: false, scheduled: false, worked: false }); continue; }
+      if (d === 8) { days.push({ date: iso, status: "leave", in: null, out: null, open: false, scheduled: true, worked: false }); continue; }
+      const late = d % 7 === 3; const half = d === 12;
+      const inT = late ? "09:41" : "08:5" + (d % 10); const outT = half ? "13:02" : iso === today ? null : "18:1" + (d % 10);
+      recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00` });
+      if (outT) recs.push({ type: "clock_out", created_at: `${iso} ${String(Number(outT.slice(0, 2)) - 8).padStart(2, "0")}:${outT.slice(3)}:00` });
+      days.push({ date: iso, status: iso === today ? "pending" : half ? "half_day" : late ? "late" : "ok", in: inT, out: outT, open: iso === today, scheduled: true, worked: true });
+    }
+    data = { as_of: today, records: recs, ot: [], ot_eligible: true, days,
+      today_shift: { entry: { clocked_in: true, open_since: "2026-10-20 00:56:00", clock_out_at: null, launch_shift: false, leave_review: false, work_label: "Office" }, kind: "office", label: "Office day",
+        windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: true }], slots_label: "Today", can_clock_in: false, why_not: null, can_ot: false } };
+  }
+  if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
+    staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role, in_at: i < 6 ? `0${8 + (i % 2)}:${String(10 + i * 7).padStart(2, "0")}` : null, in_gps: i < 6 ? "inside" : null })) };
+  if (p === "/staff/attendance/geofence") data = { configured: true, radius_m: 150, label: "Setia Tropika office", lat: 1.56, lng: 103.72 };
+  if (p === "/staff/notifications") data = { notifications: [
+    { id: 1, kind: "leave", message: "NUR NASUHA BINTI ZAINAL ABIDIN applied for annual leave, 24-09 to 26-09", is_read: 0, created_at: D + "16 01:02:00", ref: "leave:12" },
+    { id: 2, kind: "claim", message: "Claim #8 (RM 1,240.00) is waiting for your decision", is_read: 0, created_at: D + "13 06:40:00", ref: "claim:8" },
+    { id: 3, kind: "news", message: "Raya 2027 live schedule published", is_read: 1, created_at: D + "10 02:00:00", ref: "announcement:3" }] };
+  if (p === "/staff/events") data = { staff: staff.map((x) => ({ id: x.id, name: x.name })), events: [
+    { id: 1, title: "Management meeting", category: "meeting", event_date: D + "22", start_time: "18:00", end_time: "19:00", location: "Office", details: "Q4 targets and the Raya live calendar", created_by_name: "Fixture Person", attendees: [] },
+    { id: 2, title: "ELFIA Raya shoot", category: "shoot", event_date: D + "25", start_time: "09:30", end_time: "15:00", location: "Studio, Setia Tropika", details: null, created_by_name: "Nur Aisyah", attendees: [{ id: 9003, name: "Farid Zul" }] },
+    { id: 3, title: "Annual report briefing", category: "company", event_date: "2026-10-02", start_time: "10:00", end_time: null, location: "Zoom", details: null, created_by_name: "Fixture Person", attendees: [] }] };
+  if (p === "/staff/holidays") data = { holidays: [{ id: 1, date: "2026-09-16", name: "Malaysia Day", kind: "public" }, { id: 2, date: "2026-10-20", name: "Deepavali", kind: "public" }] };
+  if (p === "/staff/leave/calendar") data = { leave: [{ user_id: 9002, name: "Nur Aisyah", start_date: D + "22", end_date: D + "23" }] };
+  if (p === "/staff/live-sessions") data = { sessions: [
+    { id: 1, session_date: D + "16", start_time: "14:00", end_time: "16:00", host_user_id: 9003, host_name: "Farid Zul", client_id: 1, client_name: "Aina Boutique", status: "scheduled", platform: "tiktok", notes: "Raya edit" },
+    { id: 2, session_date: D + "17", start_time: "20:00", end_time: "22:00", host_user_id: 9002, host_name: "Nur Aisyah", client_id: 2, client_name: "Zainab Kitchen", status: "scheduled", platform: "tiktok", notes: null }] };
+  if (p === "/staff/revenue/lines") data = { lines: [
+    { key: "tiktok", label: "TikTok Shop", total_cents: 125000, months: [{ month: "2026-07", cents: 90000 }, { month: "2026-08", cents: 110000 }, { month: "2026-09", cents: 125000 }] },
+    { key: "invoiced", label: "Invoiced", total_cents: 200000, months: [{ month: "2026-07", cents: 160000 }, { month: "2026-08", cents: 140000 }, { month: "2026-09", cents: 200000 }] }] };
+  if (p === "/staff/sales/by-hour") data = { buckets: Array.from({ length: 24 }, (_, h) => ({ hour: h, cents: h >= 10 && h <= 22 ? 1500 + ((h * 37) % 9000) : 0, orders: h >= 10 && h <= 22 ? 1 + (h % 4) : 0 })) };
+  if (p === "/birthdays-lite") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }, { id: 9003, name: "Farid Zul", birthday: "1995-10-04" }] };
   if (p === "/staff/tasks") data = { tasks };
   if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
   if (p === "/staff/users") data = { users: staff, staff };

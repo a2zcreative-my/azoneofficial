@@ -176,12 +176,20 @@ export default function RootLayout({ children }: RootLayoutProps) {
             `!== "dark"` - so the toggle in the portal keeps meaning what it
             says, and somebody who chose light keeps light. The meta tag is
             rewritten here too, otherwise the phone's status bar sits brand
-            navy above a #0a1120 app until lib/theme-color.ts catches up. */}
+            navy above a #0a1120 app until lib/theme-color.ts catches up.
+
+            v1.182.0 - THE DEFAULT IS LIGHT AGAIN, by the owner's choice
+            (22-10-2026, with his reference screen: white cards on a soft
+            grey ground, the brand gold as the accent). The deck stays one
+            tap away and an explicit saved "dark" is honoured before the
+            first paint, exactly as "light" was. The test is `=== "dark"`
+            here and in components/portal/portal-provider.tsx - the two must
+            agree or the theme flips after hydration. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{
   if(location.pathname.indexOf('/portal')!==0)return;
-  if(localStorage.getItem('azone-theme')==='light')return;
+  if(localStorage.getItem('azone-theme')!=='dark')return;
   document.documentElement.classList.add('dark');
   var m=document.querySelector('meta[name="theme-color"]');
   if(m)m.setAttribute('content','#0a1120');

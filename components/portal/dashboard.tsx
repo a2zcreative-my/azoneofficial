@@ -6,8 +6,9 @@
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
-import { DeskSummary } from "@/components/portal/one-desk";
-import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { DeskSummary, splitDesk, useDeskData } from "@/components/portal/one-desk";
+import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { SummaryStat, SummaryStrip } from "@/components/portal/tab-concept"; // v1.182.0
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WATCHER_ROLES } from "@/components/portal/watchers-card";
@@ -38,7 +39,7 @@ export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = 
 };
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
-import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./dashboard.module.css";
 
@@ -363,6 +364,32 @@ export function Dashboard({
   const [anns, setAnns] = useState<Announcement[]>(
     () => cacheRead<Announcement[]>(DASH_ANNS) ?? []
   );
+  /* v1.182.0 - the figure tiles: every open task, not only the five the
+     overview lists, and how many are due today or overdue */
+  const [openTasks, setOpenTasks] = useState<{ n: number; due: number }>(() => {
+    const open = (cacheRead<Task[]>(DASH_TASKS) ?? []).filter((x) => x.status !== "completed");
+    return { n: open.length, due: open.filter((x) => x.deadline && x.deadline.slice(0, 10) <= mytToday()).length };
+  });
+  /* the desk, from the ONE request the Desk card and page already share */
+  const deskData = useDeskData();
+  /* the same split the Desk card draws: decisions and exceptions, never your
+     own tasks (the next tile counts those) */
+  const deskWait = useMemo(() => {
+    const items = deskData.data?.items ?? [];
+    const { decide, attention } = splitDesk(items);
+    const mine = [...decide, ...attention];
+    return { n: mine.length, decide: decide.length, overdue: mine.filter((i) => i.overdue).length };
+  }, [deskData.data]);
+  /* who is in today, for the roles whose Attendance tab shows it */
+  const [inToday, setInToday] = useState<{ in: number; of: number } | null>(null);
+  useEffect(() => {
+    if (shiftOnly || !MANAGE_ROLES.includes(user.role)) return;
+    let live = true;
+    void api<{ staff: { in_at?: string | null }[] }>("/staff/attendance/monitor").then((r) => {
+      if (live && r.ok && r.data?.staff) setInToday({ in: r.data.staff.filter((x) => !!x.in_at).length, of: r.data.staff.length });
+    });
+    return () => { live = false; };
+  }, [shiftOnly, user.role]);
   /* v1.25.1 (CEO's screen recording: the card showed a green "Clock in" and
      "No attendance recorded today." for half a second — while he had ALREADY
      clocked in at 09:13). Root cause: `today` starts as [], which is
@@ -413,7 +440,9 @@ export function Dashboard({
     setAttendanceError(false);
   }, []);
   const applyTasks = useCallback((all: Task[]) => {
-    setTasks(all.filter((x) => x.status !== "completed").slice(0, 5));
+    const open = all.filter((x) => x.status !== "completed");
+    setTasks(open.slice(0, 5));
+    setOpenTasks({ n: open.length, due: open.filter((x) => x.deadline && x.deadline.slice(0, 10) <= mytToday()).length });
     setTasksKnown(true);
   }, []);
   const load = useCallback(async () => {
@@ -1683,6 +1712,82 @@ export function Dashboard({
           {mytGreeting(lang)}, {user.name.split(" ")[0]}
         </h2>
       </div>
+      {/* v1.182.0 — THE FIGURES FIRST (the owner's reference, 22-10-2026): a
+          row of figure tiles above the zones, the same four for every job,
+          each read from data this page already holds or a request the role's
+          own tab already makes. Nothing is decided here; every tile opens the
+          tab that owns the records. v1.171.0 removed a four-tile strip that
+          repeated the hero; this one carries what the hero does not - the
+          desk count, the open tasks, the month so far and who is in today. */}
+      {!shiftOnly && (
+        <SummaryStrip cols={4} ariaLabel={L("At a glance", "Sepintas lalu")}>
+          <SummaryStat
+            icon="pending" tone={deskWait.overdue > 0 ? "warning" : "brand"}
+            label={L("Waiting on me", "Menunggu saya")}
+            value={deskWait.n}
+            busy={deskData.data === null}
+            badge={deskData.data
+              ? deskWait.overdue > 0
+                ? { text: L(`${deskWait.overdue} overdue`, `${deskWait.overdue} lewat`), tone: "warning" }
+                : { text: L("none overdue", "tiada lewat"), tone: "success" }
+              : undefined}
+            spark={deskData.data ? Object.values(deskData.data.counts).slice(0, 8) : undefined}
+            hint={deskData.data ? L(`${deskWait.decide} need my decision`, `${deskWait.decide} perlu keputusan saya`) : undefined}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => go("Desk") }}
+          />
+          <SummaryStat
+            icon="orders" tone={openTasks.due > 0 ? "warning" : "neutral"}
+            label={L("My open tasks", "Tugasan terbuka saya")}
+            value={openTasks.n}
+            busy={!tasksKnown}
+            badge={tasksKnown ? (openTasks.due > 0 ? { text: L(`${openTasks.due} due`, `${openTasks.due} tiba`), tone: "warning" } : { text: L("on track", "ikut jadual"), tone: "success" }) : undefined}
+            spark={tasks.map((t) => Math.max(0, Math.min(100, t.progress)))}
+            hint={tasksKnown ? L("progress of the five newest", "kemajuan lima terbaru") : undefined}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => go("Tasks") }}
+          />
+          <SummaryStat
+            icon="date" tone="brand"
+            label={L("My month", "Bulan saya")}
+            value={daysPresent}
+            busy={!attKnown}
+            badge={attKnown ? { text: L(`${monthHours.toFixed(0)} h`, `${monthHours.toFixed(0)} j`), tone: "brand" } : undefined}
+            spark={(() => {
+              /* the last fourteen days' hours, walked back from today (the
+                 minute tick already keeps `nowTick` current) */
+              const out: number[] = [];
+              for (let i = 13; i >= 0; i--) {
+                const d = new Date(nowTick + 8 * 3600 * 1000 - i * 86_400_000).toISOString().slice(0, 10);
+                out.push(dayPairs.get(d)?.hours ?? 0);
+              }
+              return out;
+            })()}
+            hint={attKnown ? L("days present this month", "hari hadir bulan ini") : undefined}
+            detail={{ label: L("See details", "Lihat butiran"), onClick: () => go("Attendance") }}
+          />
+          {MANAGE_ROLES.includes(user.role) ? (
+            <SummaryStat
+              icon="person" tone="success"
+              label={L("In today", "Masuk hari ini")}
+              value={inToday ? inToday.in : 0}
+              busy={inToday === null}
+              badge={inToday && inToday.of > 0 ? { text: `${Math.round((inToday.in / inToday.of) * 100)}%`, tone: inToday.in >= inToday.of * 0.8 ? "success" : "warning" } : undefined}
+              spark={inToday ? [inToday.in, Math.max(0, inToday.of - inToday.in)] : undefined}
+              hint={inToday ? L(`of ${inToday.of} staff clocked in`, `daripada ${inToday.of} kakitangan daftar masuk`) : undefined}
+              detail={{ label: L("See details", "Lihat butiran"), onClick: () => go("Attendance") }}
+            />
+          ) : (
+            <SummaryStat
+              icon="holiday" tone={leave.length ? "warning" : "neutral"}
+              label={L("My leave", "Cuti saya")}
+              value={leave.length}
+              busy={!leaveKnown}
+              badge={leaveKnown ? { text: leave.length ? L("waiting", "menunggu") : L("nothing pending", "tiada menunggu"), tone: leave.length ? "warning" : "success" } : undefined}
+              hint={leaveKnown ? L("leave requests waiting for a decision", "permohonan cuti menunggu keputusan") : undefined}
+              detail={{ label: L("See details", "Lihat butiran"), onClick: () => go("Leave") }}
+            />
+          )}
+        </SummaryStrip>
+      )}
       {/* v1.175.0 — one set of zones, the order chosen by what this person
           came to do. On Shift stays a single zone: it is the clock, alone. */}
       {shiftOnly ? zoneDay : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}

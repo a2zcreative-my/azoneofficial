@@ -37,7 +37,7 @@
  */
 
 import type { ReactNode } from "react";
-import { PanelTitle, type AppIconName } from "@/components/ui/app-icon";
+import { AppIcon, PanelTitle, type AppIconName } from "@/components/ui/app-icon";
 import { SectionTabs, ZoneLabel } from "@/components/portal/page-shared";
 
 const COLS = { 1: "", 2: "erp-zone-grid-2", 3: "erp-zone-grid-3" } as const;
@@ -91,7 +91,7 @@ const STAT_TONE: Record<SummaryTone, string> = {
 
 /** One figure, one label. A button when something is behind it (v1.88.0:
     "clickable data without me need to open another new tabs"). */
-export function SummaryStat({ label, value, hint, tone = "neutral", onClick, title, active, busy }: {
+export function SummaryStat({ label, value, hint, tone = "neutral", onClick, title, active, busy, icon, badge, spark, detail }: {
   label: ReactNode;
   value: ReactNode;
   hint?: ReactNode;
@@ -101,20 +101,75 @@ export function SummaryStat({ label, value, hint, tone = "neutral", onClick, tit
   active?: boolean;
   /** The figure is not known yet - show a placeholder, never a false zero. */
   busy?: boolean;
+  /* v1.182.0 - THE FIGURE TILE (the owner's reference, 22-10-2026): a
+     label on top, an icon well beside a large figure, a tone chip after it,
+     a small bar run under them and a "See details" control. All four are
+     optional; a tile that passes none reads exactly as before. */
+  /** An icon in a tinted well beside the figure. */
+  icon?: AppIconName;
+  /** A short chip after the figure: a share, a delta, a count. */
+  badge?: { text: ReactNode; tone?: SummaryTone };
+  /** Up to 14 values drawn as small bars (the last one emphasised). */
+  spark?: readonly number[];
+  /** A quiet control in the tile's corner, usually the way into the records. */
+  detail?: { label: ReactNode; onClick: () => void; title?: string };
 }) {
-  const body = (
+  const rich = Boolean(icon || badge || spark || detail);
+  const body = rich ? (
+    <>
+      <span className="erp-stat-top">
+        <span className="erp-stat-label">{label}</span>
+        {detail ? (
+          <button type="button" className="erp-stat-detail" onClick={(e) => { e.stopPropagation(); detail.onClick(); }} title={detail.title}>
+            {detail.label}
+          </button>
+        ) : null}
+      </span>
+      <span className="erp-stat-row">
+        {icon ? <span className={`erp-stat-icon ${STAT_TONE[tone]}`} aria-hidden><AppIcon name={icon} /></span> : null}
+        <span className="erp-stat-value">{busy ? <span className="erp-stat-busy" aria-hidden>···</span> : value}</span>
+        {badge && !busy ? <span className={`erp-chip erp-chip-sm ${CHIP_TONE[badge.tone ?? tone]}`}>{badge.text}</span> : null}
+      </span>
+      <span className="erp-stat-foot">
+        {spark && spark.length > 1 ? <Spark values={spark} /> : null}
+        {hint ? <span className="erp-stat-hint">{hint}</span> : null}
+      </span>
+    </>
+  ) : (
     <>
       <span className="erp-stat-value">{busy ? <span className="erp-stat-busy" aria-hidden>···</span> : value}</span>
       <span className="erp-stat-label">{label}</span>
       {hint ? <span className="erp-stat-hint">{hint}</span> : null}
     </>
   );
-  const cls = `erp-stat ${STAT_TONE[tone]}${active ? " erp-stat-active" : ""}`;
+  const cls = `erp-stat ${STAT_TONE[tone]}${active ? " erp-stat-active" : ""}${rich ? " erp-stat-rich" : ""}`;
   if (!onClick) return <div className={cls} aria-busy={busy || undefined}>{body}</div>;
   return (
     <button type="button" className={`${cls} erp-stat-button`} onClick={onClick} title={title} aria-pressed={active} aria-busy={busy || undefined}>
       {body}
     </button>
+  );
+}
+
+const CHIP_TONE: Record<SummaryTone, string> = {
+  neutral: "erp-chip-neutral",
+  success: "erp-chip-success",
+  warning: "erp-chip-warning",
+  danger: "erp-chip-danger",
+  brand: "erp-chip-info",
+};
+
+/** A run of small bars, each the height of its value against the largest;
+    the last bar is the current period and carries the tone. Decorative:
+    the figure beside it is the number a reader relies on. */
+function Spark({ values }: { values: readonly number[] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <span className="erp-spark" aria-hidden>
+      {values.slice(-14).map((v, i, all) => (
+        <span key={i} className={`erp-spark-bar${i === all.length - 1 ? " erp-spark-now" : ""}`} style={{ height: `${Math.max(8, Math.round((v / max) * 100))}%` }} />
+      ))}
+    </span>
   );
 }
 

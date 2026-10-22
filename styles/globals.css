@@ -35,9 +35,12 @@
    changes, but a 12px corner on a 390px screen reads as a bordered box and a
    14px one reads as a surface. It must stay equal to --erp-radius-card in
    styles/erp-v3.css; tests/interface-v3.mjs holds the two together rather
-   than pinning either to a number, so the family can move again. */
+   than pinning either to a number, so the family can move again.
+   v1.182.0 - 14px -> 18px with the light workspace (the owner's reference):
+   a card on a pale grey page is lifted by its shadow, not its border, and a
+   softer corner reads as a surface rather than a box. */
 .erp-workspace {
-  --surface-radius: 14px;
+  --surface-radius: 18px;
 }
 /* v1.174.1 - while the portal workspace is on screen the document behind it
    is the workspace grey, not the page white: a short tab no longer shows a
@@ -307,16 +310,16 @@ body:has(.erp-workspace) {
   --popover-foreground: #1a2946;
   --primary: #1a2946;
   --primary-foreground: #ffffff;
-  --secondary: #f6f7f9;
+  --secondary: #f2f4f8; /* v1.182.0 - the ground a white card sits on, a touch cooler */
   --secondary-foreground: #1a2946;
-  --muted: #f6f7f9;
+  --muted: #f2f4f8;
   --muted-foreground: #5d6778;
   --accent: #c8a96a;
   --accent-foreground: #1a2946;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #e6e9ee;
-  --input: #e6e9ee;
+  --border: #e8ebf1;
+  --input: #e8ebf1;
   --ring: #1a2946;
   --radius: 0.5rem;
 

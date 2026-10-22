@@ -11,6 +11,31 @@
 .page > :where(:not(:last-child)) {
   margin-bottom: 1.5rem;
 }
+/* v1.182.0 - TWO COLUMNS FROM A WIDE DESKTOP (the owner's reference,
+   22-10-2026): the figure strip across the top, the first zone across the
+   page, then the zones in pairs - a wide one and a narrow one - in the SAME
+   reading order DASHBOARD_ZONES gives (left before right, row by row), so
+   the map still says what a person reads first. Every track is minmax(0, …)
+   (v1.174.1) and a zone keeps its own gate; a zone that renders nothing
+   simply leaves the next one to take its place. The greeting is the first
+   child and hidden here, the strip the second. */
+@media (min-width: 1200px) {
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    column-gap: 1.5rem;
+    align-items: start;
+  }
+  .page > :where(:not(:last-child)) {
+    margin-bottom: 1.5rem;
+  }
+  .page > :nth-child(-n + 3) {
+    grid-column: 1 / -1;
+  }
+  .page > :nth-child(n + 4) {
+    min-width: 0;
+  }
+}
 .greeting {
   display: block;
 }

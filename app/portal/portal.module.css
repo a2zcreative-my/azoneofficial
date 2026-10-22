@@ -178,6 +178,16 @@
     color: var(--muted-foreground);
   }
 }
+/* v1.182.0 - the reference's wide search field: from a laptop up the pill
+   takes the room the title row leaves, as a rounded field with the shortcut
+   at its end. The same button, the same palette behind it. */
+@media (min-width: 1280px) {
+  .searchPill {
+    width: 22rem;
+    justify-content: space-between;
+    padding-inline: 1rem;
+  }
+}
 @media (min-width: 1024px) {
   .identity {
     flex-basis: auto;

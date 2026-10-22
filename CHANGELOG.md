@@ -10,6 +10,65 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.182.0] - 2026-10-22 - A light workspace: the owner's dashboard
+
+The owner's reference screen (22-10-2026): white cards on a soft grey ground,
+a white sidebar whose items are pills with an icon well and a filled current
+item, a wide search pill with round header buttons, four figure tiles above
+the zones, and the zones in two columns on a wide screen. His choices: light,
+with the brand gold kept as the accent; the Dashboard, sidebar and header;
+today's content restyled, nothing moved to another tab. No rule changed.
+
+### Changed
+
+- **Light is the portal's default theme again.** The pre-paint script in
+  `app/layout.tsx` and `components/portal/portal-provider.tsx` both test
+  `=== "dark"` now (they must agree); an account that saved "dark" keeps
+  the deck before the first paint, exactly as a saved "light" did since
+  v1.177.0. The theme toggle is unchanged.
+- **Sidebar**: 15.5rem wide; each item is a pill with a round icon well;
+  the current item is filled with the brand gold and navy text (on dark: the
+  gold tint with gold text); the person card at the foot has its own
+  surface and no rule above it.
+- **Header**: the search pill is 22rem from 1280px up; the buttons are
+  round. The light ground tokens move one step softer (`--secondary`,
+  `--muted`, `--border`, `--input`) so a white card lifts off the page by
+  its shadow rather than a border.
+- **Surfaces**: one card radius for the workspace, 18px (`--surface-radius`
+  in `styles/globals.css` and `--erp-radius-card` in `styles/erp-v3.css`,
+  held equal by `interface-v3`); panels 14px, controls 12px; a lighter
+  two-layer card shadow.
+- **Dashboard**: a row of four figure tiles ABOVE the zones (not a zone; the
+  five zones, their order per lead and the On Shift single zone are
+  untouched, guard `one-desk` #71 still pins them). The same four for every
+  job, each read from data the page already holds or the request the role's
+  own tab already makes, each opening the tab that owns the records:
+  *Waiting on me* (the Desk's decisions and exceptions, from the ONE
+  `/staff/desk` request the Desk card shares - never your own tasks),
+  *My open tasks* (every open task, how many are due today or overdue),
+  *My month* (days present, hours, the last fourteen days as bars) and, for
+  HR managers and executives, *In today* (`/staff/attendance/monitor`, the
+  request the Attendance tab's report already makes, same role gate), else
+  *My leave* (requests waiting for a decision). On Shift sees no tiles. From
+  1200px the zones sit in two columns: the figures and the first zone span
+  both, the rest alternate wide / narrow. On a phone a tile is one full-width
+  row: icon well, label with its hint and the way in, figure and chip.
+- `SummaryStat` (`components/portal/tab-concept.tsx`) learns four optional
+  parts - `icon`, `badge`, `spark`, `detail` - and a tile that passes none
+  renders exactly as before; every existing strip is untouched. New type
+  sizes use the `--type-*` roles (the raw font-size count did not rise).
+- `tests/browser/fixture.mjs`: the dashboard's missing endpoints
+  (attendance month and monitor, geofence, notifications, events, holidays,
+  leave calendar, live sessions, revenue lines, sales by hour, birthdays) so
+  the fixture server renders the Dashboard without a crash; `open_since` is
+  a stored UTC timestamp, as the worker returns it.
+
+### Verified
+
+- `typecheck` 0 errors, `lint` 143 warnings (the 1.181.17 baseline), worker
+  `tsc` clean, all 109 guards, static build; Chromium at 1500px (light and
+  dark) and 390px against the fixture server.
+
 ## [1.181.17] - 2026-10-20 - ERP roadmap phase 5: joining and leaving, probation, HR letters, training, team leave calendar, quotation approval limit
 
 Phase 5 of five (`docs/ERP-ROADMAP.md`), the last.
