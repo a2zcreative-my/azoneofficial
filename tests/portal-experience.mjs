@@ -85,7 +85,7 @@ ok("More is grouped from the desktop information architecture", /const mobileGro
 ok("More locks background scroll and restores it", /document\.body\.style\.overflow = "hidden"/.test(page) && /event\.key === "Escape"/.test(page) && /document\.body\.style\.overflow = previous/.test(page));
 ok("Staff opens as a searchable directory with both secondary views", /useState<"list" \| "circle" \| "org">\("list"\)/.test(staff) && /placeholder=\{L\("Find staff", "Cari kakitangan"\)\}/.test(staff) && /L\("Organisation", "Organisasi"\)/.test(staff) && /L\("Team map", "Peta pasukan"\)/.test(staff));
 /* v1.189.0 - accounts and individual access are tabs of one panel */
-ok("accounts and individual access share one surface", /<UsersPanel role=\{user\.role\} \/>/.test(page) && /<AccessReviewCard \/>/.test(users) && /embedded = false/.test(review));
+ok("accounts and individual access share one surface", /<UsersPanel role=\{user\.role\} go=\{setTab\} \/>/.test(page) && /<AccessReviewCard \/>/.test(users) && /embedded = false/.test(review));
 ok("access preview uses the portal phone helper", /const phoneTabs = mobilePrimaryTabs/.test(review));
 
 console.log(`${failed ? "x" : "ok"} portal-experience: ${passed} passed, ${failed} failed`);

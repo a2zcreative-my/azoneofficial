@@ -23,13 +23,22 @@ no authentication, database, API or permission rule changed.
   shared pill row, every body mounted and hidden, never unmounted - a search
   typed or a role half chosen survives a look at another tab; one fetch of
   `/staff/users` and `/staff/users/activity` feeds all of them):
-  - **Overview** (`users-overview.tsx`): five figure tiles (total, active,
-    inactive, staff, customer), the latest sign-ins, and security alerts read
-    from the two answers above - active staff without 2FA, an account still
-    active after the person left, 2FA switched off, a backup code used - with
-    doors to Roles & permissions and the office geofence. It shows a name, an
-    email, a method and a time, as the log always did; no password, token,
-    secret or IP address.
+  - **Overview** (`users-overview.tsx`), laid out as the owner's reference
+    photo ("follow the photo exactly as it is"): underline tabs with a gold
+    rule; five tiles (Total, Active and Inactive with a share bar, Staff,
+    Customer); Recent Login Activity as a table (user, email, login time,
+    method, status); Access Control Overview (nine module rows, the active
+    staff whose role opens them by `canSeeTab()`, and which roles); Account
+    Summary (four doors - Office Check-in says Configured or Not set);
+    Pending / Attention (a clock-out still missing after 18:00, a late first
+    clock-in, a leave application waiting, and the account facts - active
+    after leaving, 2FA switched off, active without 2FA); and Quick Actions
+    (Add Staff Account opens the Staff tab's Add staff; Add Customer Account
+    opens /admin, for the super admin and admin only; the rest switch tabs).
+    Every figure comes from a GET these roles already call. The reference's
+    IP-address column is a Method column: the sign-in log carries no address,
+    and adding one would be an API change. No password, token or secret is
+    shown.
   - **Staff Accounts**: a searchable table (name and email, role, status, 2FA)
     with a status pick (all / active / disabled / active without 2FA), the
     same Change role editor (inline on a desk, the bottom sheet on a phone),

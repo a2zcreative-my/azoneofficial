@@ -37,7 +37,7 @@ import { dmy } from "@/lib/format";
 import { firstName, properName } from "@/lib/names";
 import {
   btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn,
-  fieldLabel, iconBtn, inputClassSm, listBox, selectClass, selectClassSm, sheetCard, tabPill, tabPillOn,
+  fieldLabel, iconBtn, inputClassSm, listBox, selectClass, selectClassSm, sheetCard,
 } from "@/lib/ui-styles";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -45,6 +45,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import {
   eventLabel, eventTone, mytStamp2, roleLabel, statusLabel, type Account, type AuthEvent,
 } from "@/components/portal/users-shared";
+import type { TabName } from "@/lib/portal-tabs";
 import css from "./users-panel.module.css";
 
 export { mytStamp2 };
@@ -52,7 +53,7 @@ export { mytStamp2 };
 const EVENT_CHIP = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
 type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 
-export function UsersPanel({ role }: { role: string }) {
+export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => void }) {
   const [view, setView] = useState<UsersView>("overview");
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
@@ -301,10 +302,12 @@ export function UsersPanel({ role }: { role: string }) {
   return (
     <TabPage className={css.page}>
       {toastNode}
-      <div role="tablist" className={`erp-pill-row ${css.tabs}`}>
+      {/* v1.189.0 - the reference's underline tabs (gold rule under the open
+          one), on this page only; the other pages keep the shared pill row */}
+      <div role="tablist" aria-label={L("Users", "Pengguna")} className={css.lineTabs}>
         {tabs.map(([k, label]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k}
-            className={view === k ? tabPillOn : tabPill} onClick={() => setView(k)}>
+            className={css.lineTab} onClick={() => setView(k)}>
             {label}
           </button>
         ))}
@@ -312,7 +315,7 @@ export function UsersPanel({ role }: { role: string }) {
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
       <div hidden={view !== "overview"} className={css.body}>
-        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={setView} />
+        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={setView} role={role} go={go} />
       </div>
 
       <div hidden={view !== "staff"} className={css.body}>

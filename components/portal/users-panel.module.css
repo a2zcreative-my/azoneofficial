@@ -6,9 +6,6 @@
 .page {
   min-width: 0;
 }
-.tabs {
-  min-width: 0;
-}
 /* a tab body is a stack; a hidden one must say hidden itself, or its
    display outranks the reset's [hidden] rule */
 .body {
@@ -19,17 +16,6 @@
 }
 .body[hidden] {
   display: none;
-}
-.split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  align-items: start;
-}
-@media (min-width: 1100px) {
-  .split {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  }
 }
 
 /* ---- a card's head: icon well, title, one line, an action on the right ---- */
@@ -250,15 +236,6 @@
 }
 
 /* ---- the overview ---- */
-.tiles {
-  min-width: 0;
-}
-.feed {
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--border);
-}
 .feedRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -266,12 +243,6 @@
   align-items: center;
   padding: 0.5rem 0.25rem;
   border-bottom: 1px solid var(--border);
-}
-.feedWho {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-width: 0;
 }
 .feedMeta {
   display: flex;
@@ -293,78 +264,6 @@
   max-height: 24rem;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-.door {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.door:hover {
-  background: var(--secondary);
-  border-color: var(--primary);
-}
-.doorIcon {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 10px;
-  background: var(--secondary);
-  color: var(--primary);
-}
-.doorText {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-width: 0;
-}
-.doorTitle {
-  font-size: var(--type-card-size);
-  font-weight: var(--type-card-weight);
-}
-.doorSub {
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-}
-.doors {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-}
-.alerts {
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 0.5rem;
-}
-.alert {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.alertTitle {
-  font-size: var(--type-body-sm-size);
-  font-weight: 600;
-}
-.alertWho {
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-  overflow-wrap: anywhere;
 }
 .quick {
   display: flex;
@@ -512,4 +411,469 @@
 .totalRow td {
   font-weight: 600;
   background: var(--secondary);
+}
+
+/* ---- v1.189.0 (second pass) - the reference's own shapes ----
+   The owner, 22-10-2026: "follow the photo exactly as it is". Underline tabs,
+   tiles with a tinted icon well and a share bar, two columns of cards, and a
+   Quick Actions bar. The tints are the existing tokens: gold-solid, success,
+   danger, info, plan (the roster's lilac) and primary navy. */
+.lineTabs {
+  display: flex;
+  gap: 0 1.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+}
+.lineTabs::-webkit-scrollbar {
+  display: none;
+}
+.lineTab {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 0.75rem 0.125rem 0.875rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--type-body-size);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lineTab:hover {
+  color: var(--foreground);
+}
+.lineTab[aria-selected="true"] {
+  color: color-mix(in srgb, var(--gold-solid) 78%, var(--foreground));
+  font-weight: 600;
+}
+.lineTab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--gold-solid);
+}
+.lineTab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.blue {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.purple {
+  background: var(--plan-soft);
+  color: color-mix(in srgb, var(--plan) 45%, var(--primary));
+}
+.navy {
+  background: var(--secondary);
+  color: var(--primary);
+}
+
+.ov {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+@media (min-width: 768px) {
+  .kpis {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
+  }
+}
+/* a phone stacks the well over the figure, so a two-up tile never has to
+   break a word ("Custome r"); from 768px the well sits beside it */
+.kpi {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.625rem;
+}
+.kpiIcon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
+}
+.kpiBody,
+.kpiBody > p {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+@media (min-width: 768px) {
+  .kpi {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.875rem;
+  }
+  .kpiIcon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 14px;
+  }
+}
+.kpiBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  min-width: 0;
+}
+.kpiBody > p {
+  margin: 0;
+}
+.kpiLabel {
+  font-size: var(--type-card-size);
+  font-weight: var(--type-card-weight);
+  line-height: var(--type-card-lh);
+}
+.kpiValue {
+  font-size: var(--type-kpi-lg-size);
+  font-weight: var(--type-kpi-lg-weight);
+  line-height: var(--type-kpi-lg-lh);
+  letter-spacing: var(--type-kpi-lg-tracking);
+  font-variant-numeric: tabular-nums;
+}
+.kpiSub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.up {
+  color: var(--success);
+  font-weight: 600;
+}
+.down {
+  color: var(--danger);
+  font-weight: 600;
+}
+.bar {
+  display: block;
+  height: 6px;
+  margin-top: 0.5rem;
+  border-radius: 9999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+}
+.barGreen {
+  background: var(--success);
+}
+.barRed {
+  background: var(--danger);
+}
+
+.ovGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .ovGrid {
+    grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  }
+}
+.ovCol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cardLead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+.cardLead p {
+  margin: 0;
+}
+.cardTitle {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: var(--type-section-lh);
+}
+.cardSub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.headGlyph {
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+}
+.headWell {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  border-radius: 10px;
+}
+.warnGlyph {
+  display: grid;
+  place-items: center;
+  color: var(--gold-solid);
+}
+
+/* a reference table: a light header bar and ruled rows on a desk, a short
+   stack on a phone */
+.gTable {
+  margin-top: 0.875rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.gHead {
+  display: none;
+}
+.gRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-lh);
+}
+.gRow:last-child {
+  border-bottom: 0;
+}
+.gUser {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+  flex: 1 0 100%;
+}
+.gName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.gEmail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.gMuted {
+  color: var(--muted-foreground);
+  min-width: 0;
+}
+.gCount {
+  white-space: nowrap;
+}
+.modIcon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+@media (min-width: 768px) {
+  .gHead,
+  .gRow {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+  }
+  .gHead {
+    border-radius: 8px;
+    background: var(--secondary);
+    font-size: var(--type-caption-size);
+    font-weight: 600;
+    color: var(--muted-foreground);
+  }
+  .gUser {
+    flex: none;
+  }
+  .loginCols {
+    grid-template-columns: minmax(9rem, 1.2fr) minmax(10rem, 1.5fr) 8.5rem 7.5rem 5.5rem;
+  }
+  .accessCols {
+    grid-template-columns: minmax(10rem, 1.2fr) 8rem minmax(0, 1.8fr);
+  }
+}
+
+.sumList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem;
+  margin-top: 0.875rem;
+}
+.sumRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.sumRow:hover {
+  border-color: var(--gold-solid);
+}
+.sumRow:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.sumIcon {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 12px;
+}
+.sumText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.sumTitle {
+  font-size: var(--type-card-size);
+  font-weight: 600;
+}
+.sumStrong {
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}
+.sumSub {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.sumChevron {
+  color: var(--muted-foreground);
+}
+
+.attn {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 24rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.attnRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+}
+.attnRow:last-child {
+  border-bottom: 0;
+}
+.attnText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.attnText > .gMuted {
+  font-size: var(--type-caption-size);
+}
+.attnDay {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.attnChip {
+  justify-self: end;
+}
+
+.quickBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.875rem 1.5rem;
+}
+.quickBar > .cardLead {
+  flex: 0 0 auto;
+}
+.quickList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  flex: 1 1 32rem;
+}
+.qa {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1 1 12rem;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.875rem 0.375rem 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.qa:hover {
+  border-color: var(--gold-solid);
+}
+.qa:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.qaIcon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border-radius: 8px;
 }

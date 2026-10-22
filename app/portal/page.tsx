@@ -250,7 +250,7 @@ export default function PortalPage() {
               page applied (Who sees what - CEO / super admin; the geofence -
               super admin / CEO / COO; role changes - super admin) moved with
               their cards into users-panel.tsx. */}
-          {activeTab === "Users" && <UsersPanel role={user.role} />}
+          {activeTab === "Users" && <UsersPanel role={user.role} go={setTab} />}
           {activeTab === "Profile" && (
             /* v1.173.0 (tab concept): three zones - who I am, my pay, my
                security - in the order the tab has always read. */

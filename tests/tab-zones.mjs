@@ -260,11 +260,13 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      Security & Settings; every body stays mounted and hidden. */
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
   const usersPanel = read("components/portal/users-panel.tsx");
-  ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} \/>\}/.test(users));
+  ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} go=\{setTab\} \/>\}/.test(users));
   ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
     ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<TabAccessCard', 'L("Sign-in log"', '<AccessReviewCard', '<GeofenceCard']));
-  ok("the five Users tabs are the shared pill, and every body stays mounted (hidden, never unmounted)",
-    /className=\{view === k \? tabPillOn : tabPill\}/.test(usersPanel)
+  /* the owner's reference draws these five as underline tabs (a gold rule
+     under the open one) - this page's own, everything else keeps the pill */
+  ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",
+    /role="tablist"[^>]*className=\{css\.lineTabs\}/.test(usersPanel) && /aria-selected=\{view === k\}\s*className=\{css\.lineTab\}/.test(usersPanel)
     && ['"overview"', '"staff"', '"customers"', '"roles"', '"security"'].every((v) => usersPanel.includes(`hidden={view !== ${v}}`)));
   ok("each Users card keeps the gate the page gave it",
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
