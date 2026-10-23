@@ -12,6 +12,17 @@ import { openPrintPreview } from "@/components/ui/document-preview";
  *  - Badge carries the company logo (not text) and DOCUMENT_ISSUER's identity
  *    (v1.28.0 — the badge names the CURRENT employer), the staff full name
  *    and phone number. Blood type is retired from both the form and the card.
+ *
+ * v1.201.0 - FIVE TABS, on the owner's mockup (23-10-2026): Overview, Staff
+ * Directory, Organization Chart, Departments & Roles, Staff Records. The
+ * same /staff/users read, the same record form, Save, photo, badge, role,
+ * offboard, vault, reporting lines and responsibilities - with the same
+ * gates (canAmend, readOnly, canSetRole, canAssign, canEditResponsibilities).
+ * New on screen, all read from those records: the overview's department and
+ * status figures, a filtered table or grid, a profile drawer that carries no
+ * IC, bank or statutory number, "who reports to whom", and the roles written
+ * per department. Add staff opens in a drawer from the tab row. Every zone
+ * stays mounted and hides with sp.off.
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
@@ -33,10 +44,10 @@ import { properName, displayName, givenNames } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
-import { btnSm, btnSmPrimary, card, inputClass, selectClassSm } from "@/lib/ui-styles";
-import { SummaryStat, SummaryStrip, TabZone } from "@/components/portal/tab-concept";
-import { ResponsibilitiesBlock, responsibilityLines } from "@/components/staff/responsibilities"; // v1.174.0
-import { Skel } from "@/components/ui/skeleton";
+import { btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, selectClassSm } from "@/lib/ui-styles";
+import { TabZone } from "@/components/portal/tab-concept";
+import { ResponsibilitiesBlock, ResponsibilitiesView, responsibilityLines } from "@/components/staff/responsibilities"; // v1.174.0
+import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 /* v1.77.0 — useConfirm is gone from this file: offboarding was its only user
    and it now asks for a date, which the prompt dialog does. The friction is
@@ -55,7 +66,7 @@ import { getLang } from "@/lib/i18n";
    it like organisation." It is a VIEW of this same list, not a tab of its
    own - one fetch, one set of permissions, and pressing a box opens the same
    record card that is already below. */
-import { OrgChart, ORG_ASSIGN_ROLES } from "@/components/staff/org-chart";
+import { OrgChart, ORG_ASSIGN_ROLES, buildOrg } from "@/components/staff/org-chart";
 /* v1.157.0 - the ROLE on the record. CEO, 13-09-2026: "I want to have a
    roles assigned for me to assigned her role. this is only visible for CEO
    and COO to update the roles". The two lists are held against the worker's
@@ -66,6 +77,14 @@ import { ROLE_ASSIGN_ROLES, WORKING_ROLES } from "@/lib/org-tree";
    app stylesheet, so it needs literal hex, not var(--doc-*). */
 import { DOC } from "@/lib/doc-theme";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+/* v1.201.0 - the five-tab page: the shared tab row, tiles, donut, avatar and
+   drawer, and this page's own module (no new utility classes). */
+import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { Donut } from "@/components/ui/donut";
+import { Avatar } from "@/components/ui/avatar";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import sp from "./staff-page.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -346,7 +365,7 @@ const RECORD_SECTIONS: { title: string; icon: AppIconName; fields: [keyof Staff,
     ],
   },
 ];
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+/* v1.201.0 - read by Staff Records: how many of these a record has filled */
 const RECORD_FIELDS: [keyof Staff, string][] = RECORD_SECTIONS.flatMap((s) => s.fields);
 
 /** v1.4.105: format hints IN the boxes — HR/CEO/COO see the exact shape a
@@ -573,7 +592,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
       aria-pressed={selectMode ? selected : open}
       title={selectMode
         ? (selected ? L("Ticked for badge printing — press to untick", "Ditanda untuk cetakan lencana — tekan untuk nyahtanda") : L("Press to tick for badge printing", "Tekan untuk tanda bagi cetakan lencana"))
-        : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
+        : `${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the profile", "tekan untuk buka profil")}`}
       onClick={onPress}>
       <span className="relative">
       {size === "lg" && !selectMode && (
@@ -625,6 +644,19 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
   );
 }
 
+/* v1.201.0 - the page's five tabs, and the three states a record can be in:
+   working (is_active), an account switched off, or a leaver (resigned or
+   terminated - the Staff tab is the one place they are still listed). */
+type StaffTab = "overview" | "directory" | "org" | "roles" | "records";
+type StaffState = "active" | "inactive" | "left";
+const NO_DEPT = "__none";
+/* one colour per department, mixed from the brand and the status tokens -
+   theme tokens only, so both themes get them */
+const DEPT_COLORS = [
+  "var(--primary)", "var(--gold-solid)", "var(--info)", "var(--success)", "var(--warning)",
+  "color-mix(in oklab, var(--gold-solid) 45%, var(--primary))", "var(--danger)",
+];
+
 export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false }: {
   canAmend?: boolean;
   readOnly?: boolean;
@@ -637,7 +669,19 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
      PERMS.org_assign in the worker, so the button and the door agree. The
      server refuses regardless of what this says. */
   const canAssign = ORG_ASSIGN_ROLES.includes(role);
-  const [view, setView] = useState<"list" | "circle" | "org">("list");
+  /* v1.201.0 - FIVE TABS (the owner's mockup, 23-10-2026). `tab` is the
+     page; `view` is now only the Organization Chart's own switch,
+     Organisation or Team map - the directory is a tab of its own. */
+  const [tab, setTab] = useState<StaffTab>("overview");
+  const [view, setView] = useState<"org" | "circle">("org");
+  const [layout, setLayout] = useState<"table" | "grid">("table");
+  const [deptF, setDeptF] = useState("");
+  const [stateF, setStateF] = useState<"" | StaffState>("");
+  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [recQuery, setRecQuery] = useState("");
+  /* whose profile drawer is open */
+  const [peek, setPeek] = useState<number | null>(null);
+  const recRef = useRef<HTMLDivElement | null>(null);
   const [orgSaving, setOrgSaving] = useState<number | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showCreate, setShowCreate] = useState(false); // v1.4.101: form hidden by default
@@ -814,295 +858,117 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
      written (a title or at least one line) - the CEO's own to-do figure. */
   const writtenCount = staff.filter((u) => u.is_active && ((u.role_title ?? "").trim() || responsibilityLines(u.responsibilities).length > 0)).length;
 
+  /* v1.201.0 - THE FIVE TABS, read from the same records. Nothing below
+     fetches: every figure, group and chart is the /staff/users list already
+     loaded above, so no tab can disagree with another. */
+  const isGone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
+  const stateOf = (u: Staff): StaffState => (isGone(u) ? "left" : u.is_active ? "active" : "inactive");
+  const STATE_LABEL: Record<StaffState, string> = {
+    active: L("Active", "Aktif"),
+    inactive: L("Inactive", "Tidak aktif"),
+    left: L("Left", "Telah keluar"),
+  };
+  const stateChip = (u: Staff) => {
+    const s = stateOf(u);
+    if (s === "left") {
+      return (
+        <span className={chipDanger}>
+          {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
+        </span>
+      );
+    }
+    return <span className={s === "active" ? chipSuccess : chipNeutral}>{STATE_LABEL[s]}</span>;
+  };
+  const deptName = (u: Staff) => (u.department ?? "").trim();
+  const noDept = L("No department", "Tiada jabatan");
+  const writtenOf = (u: Staff) => Boolean((u.role_title ?? "").trim() || responsibilityLines(u.responsibilities).length > 0);
+  /* departments by headcount, the unnamed group last */
+  const byDept = [...staff.reduce((m, u) => m.set(deptName(u), [...(m.get(deptName(u)) ?? []), u]), new Map<string, Staff[]>())]
+    .sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : b[1].length - a[1].length || a[0].localeCompare(b[0])));
+  const deptColor = (i: number, k: string) => (k === "" ? "var(--muted-foreground)" : DEPT_COLORS[i % DEPT_COLORS.length]!);
+  const pctOf = (n: number, of: number) => (of > 0 ? Math.round((n * 100) / of) : 0);
+  const notOnChart = buildOrg(staff).unassigned.length;
+  const noFullName = staff.filter((u) => !isGone(u) && !u.full_name?.trim()).length;
+  const notWritten = staff.filter((u) => u.is_active && !writtenOf(u)).length;
+  const filledOf = (u: Staff) => RECORD_FIELDS.filter(([k]) => String(u[k] ?? "").trim()).length;
+  const typeCounts = [...EMPLOYMENT_STATUSES, ""].map((k) => [k, staff.filter((u) => (u.employment_status ?? "") === k).length] as const).filter(([, n]) => n > 0);
+  const maxType = Math.max(1, ...typeCounts.map(([, n]) => n));
+  const stateCounts = (["active", "inactive", "left"] as const).map((k) => [k, staff.filter((u) => stateOf(u) === k).length] as const);
+
+  /* the directory: search, department, status, then the chosen order */
+  const needle = query.trim().toLowerCase();
+  const ranked = sortBy === "rank"
+    ? staff
+    : [...staff].sort((a, b) => sortBy === "az" ? displayName(a).localeCompare(displayName(b)) : displayName(b).localeCompare(displayName(a)));
+  const dirList = ranked
+    .filter((u) => !needle || [displayName(u), u.email, u.employee_id, u.position, u.department, u.role]
+      .some((value) => (value ?? "").toLowerCase().includes(needle)))
+    .filter((u) => !deptF || (deptF === NO_DEPT ? !deptName(u) : deptName(u) === deptF))
+    .filter((u) => !stateF || stateOf(u) === stateF);
+  const allShownTicked = dirList.length > 0 && dirList.every((u) => selected.has(u.id));
+  const recNeedle = recQuery.trim().toLowerCase();
+  const recList = staff.filter((u) => !recNeedle || [displayName(u), u.employee_id, u.position, u.department]
+    .some((value) => (value ?? "").toLowerCase().includes(recNeedle)));
+
+  /* v1.201.0 - ONE DOOR TO A PERSON. Pressing anybody - a row, a card, a
+     box on the chart, a face on the team map - opens their profile drawer;
+     the drawer's "Open full record" takes you to Staff Records with that
+     record open. Selecting for printing still ticks instead. */
+  const press = (u: Staff) => {
+    if (selectMode) { toggleSelect(u.id); return; }
+    setPeek(u.id);
+  };
+  const openRecord = (id: number) => {
+    setPeek(null);
+    setOpen(new Set([id]));
+    setTab("records");
+    window.setTimeout(() => recRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
+  };
+  const showDirectory = (dept: string, state: "" | StaffState = "") => {
+    setQuery(""); setDeptF(dept); setStateF(state); setTab("directory");
+  };
+  const peekU = peek == null ? null : staff.find((u) => u.id === peek) ?? null;
+  const managerOf = (u: Staff) => (u.reports_to ? staff.find((x) => x.id === u.reports_to) ?? null : null);
+  const reportsOf = (u: Staff) => staff.filter((x) => x.reports_to === u.id && !isGone(x));
+  const managers = staff.filter((m) => !isGone(m) && reportsOf(m).length > 0);
+  const cap1 = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const employmentLabel = (s: string | null | undefined) => (s ? cap1(L(s.replace("_", " "), STATUS_MS[s] ?? s.replace("_", " "))) : L("Not set", "Belum ditetapkan"));
+
+  const head = (icon: AppIconName, well: string | undefined, title: string, sub?: string, right?: ReactNode) => (
+    <div className={sp.head}>
+      <div className={sp.lead}>
+        <span className={`${sp.well} ${well}`} aria-hidden><AppIcon name={icon} /></span>
+        <div className={sp.headText}>
+          <h3 className={sp.title}>{title}</h3>
+          {sub && <p className={sp.sub}>{sub}</p>}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+  const personBtn = (u: Staff, line: string) => (
+    <button type="button" className={sp.person} onClick={() => press(u)}
+      title={selectMode ? L("Press to tick for badge printing", "Tekan untuk tanda bagi cetakan lencana") : L("Open the profile", "Buka profil")}>
+      <Avatar name={displayName(u)} photoKey={u.photo_key} size="md" />
+      <span className={sp.personText}>
+        <strong>{displayName(u)}</strong>
+        <span>{line}</span>
+      </span>
+    </button>
+  );
+  const skelRows = (n: number, cols: number) => Array.from({ length: n }, (_, i) => (
+    <tr key={`sk-${i}`} aria-hidden>
+      <td colSpan={cols}><span className={sp.skelRow}><Skel className="h-9 w-9 rounded-full" /><Skel className="h-3 w-48" /></span></td>
+    </tr>
+  ));
+
   return (
-    /* The page's TabPage is the stack; these are its zones: AT A GLANCE,
-       THE DIRECTORY (the directory | organisation | team map switch, the
-       search, the records or the chart). */
+    /* The page's TabPage is the stack. v1.201.0 - five tabs, every zone
+       mounted and hidden with sp.off, so a search, a selection or an open
+       record survives a trip to another tab. */
     <>
+      {/* outside every zone: a hidden tab must not hide a toast, a question or a drawer */}
       {toastNode}{promptNode}
-      <TabZone label={L("At a glance", "Sepintas lalu")}>
-        <SummaryStrip cols={4} ariaLabel={L("Staff summary", "Ringkasan kakitangan")}>
-          <SummaryStat label={L("Staff records", "Rekod kakitangan")} value={staff.length} busy={!loaded} />
-          <SummaryStat label={L("Active", "Aktif")} value={activeCount} tone="success" busy={!loaded} />
-          <SummaryStat label={L("Departments", "Jabatan")} value={departments} busy={!loaded} />
-          <SummaryStat label={L("Roles written", "Peranan ditulis")} value={writtenCount} hint={L(`of ${activeCount} working`, `daripada ${activeCount} bekerja`)}
-            tone={activeCount > 0 && writtenCount < activeCount ? "warning" : "success"} busy={!loaded}
-            title={L("Working staff whose roles and responsibilities are written", "Kakitangan bekerja yang peranan dan tanggungjawabnya telah ditulis")} />
-        </SummaryStrip>
-      </TabZone>
-      <TabZone label={L("The directory", "Direktori")}>
-      <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{L("Staff directory", "Direktori kakitangan")}</p>
-          <p className="text-muted-foreground text-xs">{staff.length} {L("staff records", "rekod kakitangan")}</p>
-        </div>
-        {!readOnly && !showCreate && (
-          <button type="button" className={btnSmPrimary}
-            onClick={() => setShowCreate(true)}>
-            <AppIcon name="add" className="mr-1.5 h-4 w-4" />{L("Add staff", "Tambah kakitangan")}
-          </button>
-        )}
-      </div>
-      </div>
-
-      {!readOnly && showCreate && (
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">{L("Add a staff member", "Tambah kakitangan")}</p>
-          <button type="button"
-            className={btnSm}
-            onClick={() => setShowCreate(false)}>
-            {L("Hide form", "Sembunyikan borang")} <span aria-hidden="true">▲</span>
-          </button>
-        </div>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L(
-            "Company emails (@azoneofficial.com) aren't Google accounts, so staff can't self-register — create the account here with a temporary password and hand it over. They change it on first sign-in.",
-            "E-mel syarikat (@azoneofficial.com) bukan akaun Google, jadi kakitangan tidak boleh mendaftar sendiri — cipta akaun di sini dengan kata laluan sementara dan serahkan kepada mereka. Mereka menukarnya pada log masuk pertama.",
-          )}
-        </p>
-        {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
-            so the field's purpose stays visible after typing. */}
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Sub t={L("Company email", "E-mel syarikat")}>
-            <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
-              onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
-          </Sub>
-          <Sub t={L("Full name (as per NRIC)", "Nama penuh (seperti dalam NRIC)")}>
-            <input className={input} placeholder={L("Full name", "Nama penuh")} value={newStaff.name}
-              onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Role", "Peranan")}>
-            <select className={input} value={newStaff.role}
-              onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
-              {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
-                <option key={r} value={r}>{L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "))}</option>
-              ))}
-            </select>
-          </Sub>
-          <Sub t={L("Employee ID (optional)", "ID pekerja (pilihan)")}>
-            <input className={input} placeholder={L("e.g. AZOOM001", "cth. AZOOM001")} value={newStaff.employee_id}
-              onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Position (optional)", "Jawatan (pilihan)")}>
-            <input className={input} placeholder={L("e.g. Marketing Executive", "cth. Eksekutif Pemasaran")} value={newStaff.position}
-              onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Department (optional)", "Jabatan (pilihan)")}>
-            <input className={input} placeholder={L("e.g. Management", "cth. Pengurusan")} value={newStaff.department}
-              onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Birth date (optional)", "Tarikh lahir (pilihan)")}>
-            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.birthday}
-              onChange={(e) => setNewStaff((d) => ({ ...d, birthday: e.target.value }))} />
-          </Sub>
-          <Sub t={L("ID issued on (optional)", "ID dikeluarkan pada (pilihan)")}>
-            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.id_issued_on}
-              onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Blood type (optional)", "Jenis darah (pilihan)")}>
-            <input className={input} placeholder={L("e.g. O+", "cth. O+")} value={newStaff.blood_type}
-              onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
-          </Sub>
-          <Sub t={L("NRIC (optional)", "NRIC (pilihan)")}>
-            <input className={input} placeholder="XXXXXX-XX-XXXX" value={newStaff.ic_number}
-              onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Bank (optional)", "Bank (pilihan)")}>
-            <select className={input} value={newStaff.bank_name}
-              onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
-              <option value="">{L("— Maybank is company primary —", "— Maybank ialah bank utama syarikat —")}</option>
-              {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </Sub>
-          <Sub t={L("Bank account no. (optional)", "No. akaun bank (pilihan)")}>
-            <input className={input} placeholder={L("numbers only", "nombor sahaja")} value={newStaff.bank_account}
-              onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Temp password (10+ chars)", "Kata laluan sementara (10+ aksara)")}>
-            <PasswordInput className={input} placeholder={L("They change it on first sign-in", "Mereka menukarnya pada log masuk pertama")} value={newStaff.password}
-              onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
-          </Sub>
-          <Sub t={L("Staff photo (optional)", "Foto kakitangan (pilihan)")}>
-            <label className={`${input} flex cursor-pointer items-center justify-between`}>
-              <span className={newPhoto ? "" : "text-muted-foreground"}>
-                {newPhoto ? newPhoto.name : L("Choose an image", "Pilih imej")}
-              </span>
-              <span className="text-muted-foreground text-xs underline">{L("Browse", "Semak imbas")}</span>
-              <input type="file" accept="image/*" className="hidden"
-                onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
-            </label>
-          </Sub>
-        </div>
-        {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ?"text-success" :"text-destructive"}`}>{createMsg.text}</p>}
-        {existing && (
-          <button
-            type="button"
-            className={`${btnSm} mt-2`}
-            onClick={async () => {
-              const patch: Record<string, string> = {};
-              if (newStaff.employee_id.trim()) patch.employee_id = newStaff.employee_id.trim();
-              if (newStaff.position.trim()) patch.position = newStaff.position.trim();
-              if (newStaff.department.trim()) patch.department = newStaff.department.trim();
-              if (Object.keys(patch).length === 0) {
-                setCreateMsg({ ok: false, text: L("Fill in employee ID, position or department to update the record.", "Isi ID pekerja, jawatan atau jabatan untuk mengemas kini rekod.") });
-                return;
-              }
-              const res = await api<ErrShape>(`/users/${existing.id}`, { method: "PATCH", body: JSON.stringify(patch) });
-              if (res.ok) {
-                setCreateMsg({ ok: true, text: L(`${existing.name}'s record updated.`, `Rekod ${existing.name} dikemas kini.`) });
-                setExisting(null);
-                setNewStaff(emptyNewStaff);
-                void load();
-              } else {
-                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Update failed — check access.", "Kemas kini gagal — semak akses.") });
-              }
-            }}
-          >
-            {L(`Update ${existing.name}'s record instead`, `Kemas kini rekod ${existing.name} sebaliknya`)}
-          </button>
-        )}
-        <div>
-          <button type="button" className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85 mt-3 disabled:opacity-50`}
-            disabled={!newStaff.email.trim() || !newStaff.name.trim() || newStaff.password.length < 10}
-            onClick={async () => {
-              setCreateMsg(null);
-              const res = await api<ErrShape & { id?: number }>(`/users`, {
-                method: "POST",
-                body: JSON.stringify({
-                  ...newStaff,
-                  birthday: newStaff.birthday ? dmyToISO(newStaff.birthday) : "",
-                  id_issued_on: newStaff.id_issued_on ? dmyToISO(newStaff.id_issued_on) : "",
-                }),
-              });
-              if (res.ok) {
-                // Photo chosen up front? Attach it to the account just created.
-                let photoNote = "";
-                if (newPhoto && res.data?.id) {
-                  const compressed = await compressImage(newPhoto);
-                  const up = await csrfFetch(`${API}/users/${res.data.id}/photo`, {
-                    method: "POST",
-                    headers: { "Content-Type": compressed.type || "image/jpeg" },
-                    body: compressed,
-                  });
-                  photoNote = up.ok ? ` ${L("Photo uploaded.", "Foto dimuat naik.")}` : ` ${L("(Photo upload failed — use Upload photo on the row.)", "(Muat naik foto gagal — guna Muat naik foto pada baris.)")}`;
-                }
-                setCreateMsg({ ok: true, text: `${newStaff.name} ${L("added.", "ditambah.")}${photoNote}` });
-                setNewStaff(emptyNewStaff);
-                setNewPhoto(null);
-                setExisting(null);
-                void load();
-              } else if (res.status === 409) {
-                const match = allStaff.find(
-                  (u) => u.email.toLowerCase() === newStaff.email.toLowerCase().trim(),
-                );
-                if (match && match.role !== "customer") {
-                  setExisting(match);
-                  setCreateMsg({ ok: false, text: `${match.name} ${L("already has an account", "sudah mempunyai akaun")} (${match.role.replace(/_/g, " ")}).` });
-                } else if (match) {
-                  setExisting(null);
-                  setCreateMsg({ ok: false, text: L("This email belongs to a customer account — an admin can adjust it in /admin → Users.", "E-mel ini milik akaun pelanggan — admin boleh melaraskannya di /admin → Users.") });
-                } else {
-                  setExisting(null);
-                  setCreateMsg({ ok: false, text: L("A user with this email already exists.", "Pengguna dengan e-mel ini sudah wujud.") });
-                }
-              } else {
-                setExisting(null);
-                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Could not add — check the fields.", "Tidak dapat menambah — semak medan.") });
-              }
-            }}>
-            {L("Create staff account", "Cipta akaun kakitangan")}
-          </button>
-        </div>
-      </div>
-      )}
-
-      {/* v1.94.0 — the inner scroller is a desktop convenience and a phone
-          bug: a scroll area inside the page scroll cut the last row of faces
-          in half and trapped the flick.
-          v1.99.4 — CEO: "should it scrollable for this staff UI/UX? I dont
-          think so." It is gone on every width. A 30rem box around a 34rem
-          circle cut the bottom third off and put a scrollbar inside a card
-          that is already inside the page's scroll — two scrollbars for one
-          picture. The orbit is now sized against the VIEWPORT instead, so it
-          is whole on the screen it is drawn on, and the page scrolls once. */}
-      <div className="erp-stack-tight">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* v1.101.0 — Circle or Organisation. One segmented control rather
-            than a second tab: it is the same people, the same fetch and the
-            same permissions, and a box on the chart opens the same record
-            card the circle does. */}
-        <span className="border-border bg-secondary inline-flex min-h-11 items-center rounded-full border p-1" role="group"
-          aria-label={L("How to show the staff", "Cara memaparkan kakitangan")}>
-          {([["list", L("Directory", "Direktori")], ["org", L("Organisation", "Organisasi")], ["circle", L("Team map", "Peta pasukan")]] as const).map(([v, label]) => (
-            <button key={v} type="button" aria-pressed={view === v}
-              className={`inline-flex min-h-9 items-center rounded-full px-3 text-xs font-medium transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-card"}`}
-              onClick={() => setView(v)}>
-              {label}
-            </button>
-          ))}
-        </span>
-        {view === "list" && (
-          <label className="relative min-w-[12rem] flex-1 sm:max-w-72">
-            <AppIcon name="search" className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)}
-              className={`${inputClass} pr-3 pl-8`}
-              placeholder={L("Find staff", "Cari kakitangan")} aria-label={L("Find staff", "Cari kakitangan")} />
-          </label>
-        )}
-        {/* v1.94.0 — a disabled full-width button reading "Print selected
-            badges (0)" was the first thing on the phone, every time. It
-            appears when there is something to print. */}
-        {selected.size > 0 && (
-        <button
-          type="button"
-          className={btnSmPrimary}
-          onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
-        >
-          {L("Print badges", "Cetak lencana")} ({selected.size}) <span className="hidden sm:inline">&nbsp;— {L("up to 9 per A4", "sehingga 9 setiap A4")}</span>
-        </button>
-        )}
-        <button
-          type="button"
-          className={`${selectMode ? btnSmPrimary : btnSm}`}
-          aria-pressed={selectMode}
-          onClick={() => { setSelectMode((m) => !m); if (selectMode) setSelected(new Set()); }}
-        >
-          {selectMode ? L("Done selecting", "Selesai memilih") : L("Select for printing", "Pilih untuk cetakan")}
-        </button>
-        {selectMode && (
-          <button
-            type="button"
-            className={btnSm}
-            onClick={() => setSelected(selected.size === staff.length ? new Set() : new Set(staff.map((u) => u.id)))}
-          >
-            {selected.size === staff.length && staff.length > 0 ? L("Clear selection", "Kosongkan pilihan") : L("Select all", "Pilih semua")}
-          </button>
-        )}
-        <span className="text-muted-foreground hidden text-xs sm:inline">
-          {selectMode
-            ? L("Press a face to tick it.", "Tekan wajah untuk menandanya.")
-            : L("Press a face to open the record.", "Tekan wajah untuk buka rekod.")}
-        </span>
-        <select
-          className={`${selectClassSm} sm:ml-auto`}
-          value={sortBy}
-          title={L("Sort staff records", "Susun rekod kakitangan")}
-          onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
-        >
-          <option value="rank">{L("Sort: Rank (default)", "Susun: Pangkat (lalai)")}</option>
-          <option value="az">{L("Sort: Name A–Z", "Susun: Nama A–Z")}</option>
-          <option value="za">{L("Sort: Name Z–A", "Susun: Nama Z–A")}</option>
-        </select>
-      </div>
-
-      {loadError && (
-        <p className="rounded-lg bg-warning-soft flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-warning"><AppIcon name="warning" className="h-3.5 w-3.5" />{loadError}</p>
-      )}
-      {/* v1.77.0 — skeleton until the first fetch lands: five collapsed
-          record cards (checkbox · name · role, chevron on the right), the
-          exact row each staff member renders as below. */}
       <style>{`@keyframes sd-pop { from { opacity: 0; transform: translateY(6px) scale(.9) } to { opacity: 1; transform: none } }
         @keyframes sd-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
         @keyframes sd-spin { to { transform: rotate(360deg) } }
@@ -1114,53 +980,356 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
         @keyframes sd-pulse { 0%, 100% { opacity: .35; transform: scale(1) } 50% { opacity: .6; transform: scale(1.06) } }
         .sd-halo { animation: sd-pulse 4.5s ease-in-out infinite }
         @media (prefers-reduced-motion: reduce) { .sd-bubble, .sd-orbit .sd-bubble, .sd-orbit .sd-ring-dash, .sd-sweep, .sd-halo { animation: none } }`}</style>
-      {view === "org" && (
-        <OrgChart
-          people={staff}
-          loaded={loaded}
-          canAssign={canAssign && !readOnly}
-          saving={orgSaving}
-          onAssign={(personId, managerId) => { void assignReportsTo(personId, managerId); }}
-          onOpen={(u) => setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])))}
-        />
-      )}
-      {view === "list" && (() => {
-        const needle = query.trim().toLowerCase();
-        const ordered = (sortBy === "rank"
-          ? staff
-          : [...staff].sort((a, b) => sortBy === "az" ? displayName(a).localeCompare(displayName(b)) : displayName(b).localeCompare(displayName(a))))
-          .filter((u) => !needle || [displayName(u), u.email, u.employee_id, u.position, u.department, u.role]
-            .some((value) => (value ?? "").toLowerCase().includes(needle)));
-        return (
-          <div className="border-border divide-border divide-y overflow-hidden rounded-lg border bg-card">
-            {!loaded && Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-3"><Skel className="h-10 w-10 rounded-full" /><div className="flex-1"><Skel className="h-3 w-36" /><Skel className="mt-2 h-2.5 w-52" /></div></div>
-            ))}
-            {loaded && ordered.length === 0 && (
-              <p className="text-muted-foreground px-4 py-8 text-center text-sm">{query ? L("No staff matches that search.", "Tiada kakitangan sepadan dengan carian itu.") : L("No staff records yet.", "Belum ada rekod kakitangan.")}</p>
+      <LineTabs value={tab} onChange={(k) => setTab(k)} label={L("Staff", "Kakitangan")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["directory", L("Staff Directory", "Direktori Kakitangan")],
+        ["org", L("Organization Chart", "Carta Organisasi")],
+        ["roles", L("Departments & Roles", "Jabatan & Peranan")],
+        ["records", L("Staff Records", "Rekod Kakitangan")],
+      ] as const} aside={!readOnly ? (
+        <TabAside>
+          <TabAction icon="add" onClick={() => setShowCreate(true)}>{L("Add staff", "Tambah kakitangan")}</TabAction>
+        </TabAside>
+      ) : undefined} />
+
+      {/* ============================== OVERVIEW ============================== */}
+      <TabZone label={L("Overview", "Gambaran")} className={tab !== "overview" ? sp.off : ""}>
+        <KpiRow label={L("Staff summary", "Ringkasan kakitangan")}>
+          <KpiTile icon="users" tone="navy" label={L("Staff records", "Rekod kakitangan")} value={staff.length} busy={!loaded}
+            sub={L("Everyone on the staff list", "Semua dalam senarai kakitangan")}
+            onClick={() => showDirectory("")} title={L("Open the directory", "Buka direktori")} />
+          <KpiTile icon="success" tone="green" label={L("Active", "Aktif")} value={activeCount} busy={!loaded}
+            sub={L(`${pctOf(activeCount, staff.length)}% of records`, `${pctOf(activeCount, staff.length)}% daripada rekod`)}
+            onClick={() => showDirectory("", "active")} title={L("Show only active staff", "Tunjuk kakitangan aktif sahaja")} />
+          <KpiTile icon="store" tone="blue" label={L("Departments", "Jabatan")} value={departments} busy={!loaded}
+            sub={L("Named on the records", "Dinamakan pada rekod")}
+            onClick={() => setTab("roles")} title={L("Open Departments & Roles", "Buka Jabatan & Peranan")} />
+          <KpiTile icon="document" tone="gold" label={L("Roles written", "Peranan ditulis")} value={writtenCount} busy={!loaded}
+            sub={L(`of ${activeCount} working`, `daripada ${activeCount} bekerja`)}
+            onClick={() => setTab("roles")}
+            title={L("Working staff whose roles and responsibilities are written", "Kakitangan bekerja yang peranan dan tanggungjawabnya telah ditulis")} />
+        </KpiRow>
+
+        <div className={sp.split}>
+          <section className={card} aria-label={L("Department distribution", "Taburan jabatan")}>
+            {head("store", sp.goldWell, L("Department Distribution", "Taburan Jabatan"), L("Staff records by department. Press one to list its people.", "Rekod kakitangan mengikut jabatan. Tekan satu untuk menyenaraikan orangnya."))}
+            {!loaded ? <SkelRows rows={4} /> : staff.length === 0 ? <p className={sp.empty}>{L("No staff records yet.", "Belum ada rekod kakitangan.")}</p> : (
+              <div className={sp.donutRow}>
+                <Donut size={150} hideLegend centerLabel={String(staff.length)} centerSub={L("staff", "kakitangan")}
+                  slices={byDept.map(([k, list], i) => ({ label: k || noDept, value: list.length, color: deptColor(i, k) }))} />
+                <ul className={sp.legend}>
+                  {byDept.map(([k, list], i) => (
+                    <li key={k || NO_DEPT}>
+                      <button type="button" onClick={() => showDirectory(k || NO_DEPT)}>
+                        <span className={sp.dot} style={{ background: deptColor(i, k) }} aria-hidden />
+                        <span>{k || noDept}</span>
+                        <strong>{list.length}</strong>
+                        <span className={sp.muted}>{pctOf(list.length, staff.length)}%</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
-            {loaded && ordered.map((u) => {
-              const gone = ["resigned", "terminated"].includes(u.employment_status ?? "");
-              const active = open.has(u.id);
-              return (
-                <button key={u.id} type="button" aria-expanded={active}
-                  onClick={() => selectMode ? toggleSelect(u.id) : setOpen(active ? new Set() : new Set([u.id]))}
-                  className={`flex min-h-16 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-secondary/60 ${active ? "bg-secondary/50" : ""} ${gone ? "opacity-60" : ""}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {u.photo_key ? <img src={`/api/v1/media/file/${encodeURIComponent(u.photo_key)}`} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
-                    : <span className="bg-secondary text-foreground grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-semibold">{displayName(u).charAt(0).toUpperCase()}</span>}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{displayName(u)}</span>
-                    <span className="text-muted-foreground block truncate text-xs">{[u.position || roleLabel(u.role), u.department, u.employee_id].filter(Boolean).join(" · ")}</span>
-                  </span>
-                  {selectMode && <span className={`grid h-5 w-5 shrink-0 place-items-center rounded border text-xs ${selected.has(u.id) ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{selected.has(u.id) ? "✓" : ""}</span>}
-                  {!selectMode && <AppIcon name={active ? "expand" : "next"} className={`text-muted-foreground h-4 w-4 shrink-0 ${active ? "rotate-180" : ""}`} />}
-                </button>
-              );
-            })}
+          </section>
+
+          <section className={card} aria-label={L("Staff status", "Status kakitangan")}>
+            {head("chart", sp.blueWell, L("Staff Status", "Status Kakitangan"), L("Account state and employment type, as the records say.", "Keadaan akaun dan jenis pekerjaan, seperti dalam rekod."))}
+            {!loaded ? <SkelRows rows={4} /> : (
+              <>
+                <ul className={sp.bars}>
+                  {stateCounts.map(([k, n]) => (
+                    <li key={k}>
+                      <button type="button" onClick={() => showDirectory("", k)}>
+                        <span>{STATE_LABEL[k]}</span>
+                        <span className={sp.track}><span className={`${sp.fill} ${k === "active" ? sp.fillGreen : k === "left" ? sp.fillRed : sp.fillGrey}`} style={{ width: `${Math.max(n ? 3 : 0, pctOf(n, staff.length))}%` }} /></span>
+                        <strong>{n}</strong>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className={sp.groupLabel}>{L("Employment type", "Jenis pekerjaan")}</p>
+                <ul className={sp.bars}>
+                  {typeCounts.map(([k, n]) => (
+                    <li key={k || "unset"}>
+                      <div>
+                        <span>{employmentLabel(k)}</span>
+                        <span className={sp.track}><span className={`${sp.fill} ${sp.fillBlue}`} style={{ width: `${Math.max(3, (n / maxType) * 100)}%` }} /></span>
+                        <strong>{n}</strong>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        </div>
+
+        <div className={sp.split}>
+          <section className={card} aria-label={L("Records needing attention", "Rekod perlu perhatian")}>
+            {head("warning", sp.redWell, L("Needs Attention", "Perlu Perhatian"), L("Gaps in the records, counted from what is on file.", "Jurang dalam rekod, dikira daripada apa yang ada dalam fail."))}
+            {!loaded ? <SkelRows rows={3} /> : notWritten + noFullName + notOnChart === 0 ? (
+              <p className={sp.empty}><AppIcon name="success" />{L("Nothing needs attention — every record has a full name, every working person has their role written and everyone is on the chart.", "Tiada yang perlu perhatian — setiap rekod mempunyai nama penuh, peranan setiap orang yang bekerja ditulis dan semua berada pada carta.")}</p>
+            ) : (
+              <ul className={sp.attn}>
+                {notWritten > 0 && (
+                  <li><button type="button" onClick={() => { setOnlyMissing(true); setTab("roles"); }}>
+                    <span className={`${sp.well} ${sp.goldWell}`} aria-hidden><AppIcon name="document" /></span>
+                    <span className={sp.attnText}><strong>{L("Roles not written yet", "Peranan belum ditulis")}</strong><span>{L("Working staff with no role title or responsibilities", "Kakitangan bekerja tanpa gelaran peranan atau tanggungjawab")}</span></span>
+                    <span className={sp.attnNum}>{notWritten}</span>
+                  </button></li>
+                )}
+                {noFullName > 0 && (
+                  <li><button type="button" onClick={() => setTab("records")}>
+                    <span className={`${sp.well} ${sp.redWell}`} aria-hidden><AppIcon name="identification" /></span>
+                    <span className={sp.attnText}><strong>{L("No full name on file", "Tiada nama penuh dalam rekod")}</strong><span>{L("The payslip, badge and bank file fall back to the short name", "Slip gaji, lencana dan fail bank menggunakan nama pendek")}</span></span>
+                    <span className={sp.attnNum}>{noFullName}</span>
+                  </button></li>
+                )}
+                {notOnChart > 0 && (
+                  <li><button type="button" onClick={() => { setView("org"); setTab("org"); }}>
+                    <span className={`${sp.well} ${sp.blueWell}`} aria-hidden><AppIcon name="users" /></span>
+                    <span className={sp.attnText}><strong>{L("Not on the organisation chart", "Belum berada pada carta organisasi")}</strong><span>{L("Nobody has said who they report to", "Belum ditetapkan kepada siapa mereka melapor")}</span></span>
+                    <span className={sp.attnNum}>{notOnChart}</span>
+                  </button></li>
+                )}
+              </ul>
+            )}
+          </section>
+
+          <section className={card} aria-label={L("Quick links", "Pautan pantas")}>
+            {head("fast", sp.goldWell, L("Quick Links", "Pautan Pantas"))}
+            <ul className={sp.links}>
+              <li><button type="button" className={sp.link} onClick={() => showDirectory("")}>
+                <span className={`${sp.well} ${sp.goldWell}`} aria-hidden><AppIcon name="users" /></span>
+                <strong>{L("Staff Directory", "Direktori Kakitangan")}</strong><span>{L("Find anybody, print badges", "Cari sesiapa, cetak lencana")}</span>
+              </button></li>
+              <li><button type="button" className={sp.link} onClick={() => { setView("org"); setTab("org"); }}>
+                <span className={`${sp.well} ${sp.blueWell}`} aria-hidden><AppIcon name="chart" /></span>
+                <strong>{L("Organisation", "Organisasi")}</strong><span>{L("Who reports to whom", "Siapa melapor kepada siapa")}</span>
+              </button></li>
+              <li><button type="button" className={sp.link} onClick={() => { setView("circle"); setTab("org"); }}>
+                <span className={`${sp.well} ${sp.blueWell}`} aria-hidden><AppIcon name="place" /></span>
+                <strong>{L("Team map", "Peta pasukan")}</strong><span>{L("The whole team and the next birthdays", "Seluruh pasukan dan hari lahir seterusnya")}</span>
+              </button></li>
+              <li><button type="button" className={sp.link} onClick={() => setTab("roles")}>
+                <span className={`${sp.well} ${sp.goldWell}`} aria-hidden><AppIcon name="document" /></span>
+                <strong>{L("Departments & Roles", "Jabatan & Peranan")}</strong><span>{L("Positions and written roles", "Jawatan dan peranan bertulis")}</span>
+              </button></li>
+              <li><button type="button" className={sp.link} onClick={() => setTab("records")}>
+                <span className={`${sp.well} ${sp.greenWell}`} aria-hidden><AppIcon name="identification" /></span>
+                <strong>{L("Staff Records", "Rekod Kakitangan")}</strong><span>{L("The full record of each person", "Rekod penuh setiap orang")}</span>
+              </button></li>
+              {!readOnly && (
+                <li><button type="button" className={sp.link} onClick={() => setShowCreate(true)}>
+                  <span className={`${sp.well} ${sp.greenWell}`} aria-hidden><AppIcon name="add" /></span>
+                  <strong>{L("Add staff", "Tambah kakitangan")}</strong><span>{L("Create a staff account", "Cipta akaun kakitangan")}</span>
+                </button></li>
+              )}
+            </ul>
+          </section>
+        </div>
+      </TabZone>
+
+      {/* =========================== STAFF DIRECTORY =========================== */}
+      <TabZone label={L("Staff directory", "Direktori kakitangan")} className={tab !== "directory" ? sp.off : ""}>
+        <section className={card} aria-label={L("Staff directory", "Direktori kakitangan")}>
+          {head("users", sp.goldWell, L("Staff Directory", "Direktori Kakitangan"),
+            dirList.length === staff.length
+              ? L(`${staff.length} staff records`, `${staff.length} rekod kakitangan`)
+              : L(`${dirList.length} of ${staff.length} staff records`, `${dirList.length} daripada ${staff.length} rekod kakitangan`),
+            <span className={sp.mode} role="group" aria-label={L("How to show the directory", "Cara memaparkan direktori")}>
+              <button type="button" aria-pressed={layout === "table"} onClick={() => setLayout("table")}><AppIcon name="documents" />{L("List", "Senarai")}</button>
+              <button type="button" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><AppIcon name="users" />{L("Grid", "Grid")}</button>
+            </span>)}
+          <div className={sp.toolbar}>
+            <label className={sp.search}>
+              <AppIcon name="search" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder={L("Find staff", "Cari kakitangan")} aria-label={L("Find staff", "Cari kakitangan")} />
+            </label>
+            <select className={selectClassSm} value={deptF} onChange={(e) => setDeptF(e.target.value)} aria-label={L("Department", "Jabatan")}>
+              <option value="">{L("All departments", "Semua jabatan")}</option>
+              {byDept.map(([k]) => <option key={k || NO_DEPT} value={k || NO_DEPT}>{k || noDept}</option>)}
+            </select>
+            <select className={selectClassSm} value={stateF} onChange={(e) => setStateF(e.target.value as "" | StaffState)} aria-label={L("Status", "Status")}>
+              <option value="">{L("All statuses", "Semua status")}</option>
+              {(["active", "inactive", "left"] as const).map((k) => <option key={k} value={k}>{STATE_LABEL[k]}</option>)}
+            </select>
+            <select
+              className={selectClassSm}
+              value={sortBy}
+              title={L("Sort staff records", "Susun rekod kakitangan")}
+              aria-label={L("Sort staff records", "Susun rekod kakitangan")}
+              onChange={(e) => setSortBy(e.target.value as "rank" | "az" | "za")}
+            >
+              <option value="rank">{L("Sort: Rank (default)", "Susun: Pangkat (lalai)")}</option>
+              <option value="az">{L("Sort: Name A–Z", "Susun: Nama A–Z")}</option>
+              <option value="za">{L("Sort: Name Z–A", "Susun: Nama Z–A")}</option>
+            </select>
           </div>
-        );
-      })()}
+          {/* v1.201.0 - the badge controls in one bar: the mode, what is
+              ticked, and the print button the moment there is something to
+              print (v1.94.0's rule). Select all ticks what is SHOWN, so a
+              department filter is a quick way to print one team's badges. */}
+          <div className={sp.selectBar}>
+            <button
+              type="button"
+              className={selectMode ? btnSmPrimary : btnSm}
+              aria-pressed={selectMode}
+              onClick={() => { setSelectMode((m) => !m); if (selectMode) setSelected(new Set()); }}
+            >
+              <AppIcon name="print" />{selectMode ? L("Done selecting", "Selesai memilih") : L("Select for printing", "Pilih untuk cetakan")}
+            </button>
+            {selectMode && (
+              <button
+                type="button"
+                className={btnSm}
+                onClick={() => setSelected((prev) => {
+                  const next = new Set(prev);
+                  for (const u of dirList) { if (allShownTicked) next.delete(u.id); else next.add(u.id); }
+                  return next;
+                })}
+              >
+                {allShownTicked ? L("Clear selection", "Kosongkan pilihan") : L(`Select all shown (${dirList.length})`, `Pilih semua dipaparkan (${dirList.length})`)}
+              </button>
+            )}
+            {selectMode && <span className={sp.selectCount}>{selected.size} {L("ticked", "ditanda")}</span>}
+            {selected.size > 0 && (
+              <button
+                type="button"
+                className={btnSmPrimary}
+                onClick={() => printBadges(staff.filter((u) => selected.has(u.id)).map((u) => ({ ...u, ...draft[u.id] } as Staff)))}
+              >
+                {L("Print badges", "Cetak lencana")} ({selected.size}) — {L("up to 9 per A4", "sehingga 9 setiap A4")}
+              </button>
+            )}
+            <span className={sp.hint}>
+              {selectMode
+                ? L("Press a person to tick them.", "Tekan seseorang untuk menandanya.")
+                : L("Press a person to open their profile.", "Tekan seseorang untuk buka profilnya.")}
+            </span>
+          </div>
+
+          {loadError && <p className={sp.warnText}><AppIcon name="warning" />{loadError}</p>}
+
+          {layout === "table" ? (
+            <div className={`erp-table-scroll ${sp.tableWrap}`}>
+              <table className={sp.table} aria-label={L("Staff directory", "Direktori kakitangan")}>
+                <thead><tr>
+                  {selectMode && <th className={sp.checkCell}><span className={sp.srOnly}>{L("Ticked", "Ditanda")}</span></th>}
+                  <th>{L("Staff", "Kakitangan")}</th>
+                  <th>{L("Staff ID", "ID kakitangan")}</th>
+                  <th>{L("Position", "Jawatan")}</th>
+                  <th>{L("Department", "Jabatan")}</th>
+                  <th>{L("Status", "Status")}</th>
+                  <th><span className={sp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+                </tr></thead>
+                <tbody>
+                  {!loaded && skelRows(5, selectMode ? 7 : 6)}
+                  {loaded && dirList.length === 0 && (
+                    <tr><td colSpan={selectMode ? 7 : 6}><p className={sp.empty}><AppIcon name="search" />{query || deptF || stateF ? L("No staff matches that search.", "Tiada kakitangan sepadan dengan carian itu.") : L("No staff records yet.", "Belum ada rekod kakitangan.")}</p></td></tr>
+                  )}
+                  {loaded && dirList.map((u) => (
+                    <tr key={u.id} className={`${selected.has(u.id) ? sp.rowOn : ""} ${isGone(u) ? sp.rowGone : ""}`}>
+                      {selectMode && (
+                        <td className={sp.checkCell}>
+                          <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)}
+                            aria-label={L(`Tick ${displayName(u)} for badge printing`, `Tanda ${displayName(u)} untuk cetakan lencana`)} />
+                        </td>
+                      )}
+                      <td className={sp.personCell}>{personBtn(u, roleLabel(u.role))}</td>
+                      <td className={sp.mono} data-label={L("Staff ID", "ID kakitangan")}>{u.employee_id || <span className={sp.muted}>—</span>}</td>
+                      <td data-label={L("Position", "Jawatan")}>{u.position || <span className={sp.muted}>—</span>}</td>
+                      <td data-label={L("Department", "Jabatan")}>{deptName(u) || <span className={sp.muted}>—</span>}</td>
+                      <td data-label={L("Status", "Status")}>{stateChip(u)}</td>
+                      <td className={sp.actCell}>
+                        <span>
+                          <button type="button" className={rowBtn} onClick={() => setPeek(u.id)}>{L("Profile", "Profil")}</button>
+                          <button type="button" className={rowBtn} onClick={() => openRecord(u.id)}>{L("Record", "Rekod")}</button>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ul className={sp.grid} aria-label={L("Staff directory", "Direktori kakitangan")}>
+              {!loaded && Array.from({ length: 6 }, (_, i) => (
+                <li key={`sk-${i}`} aria-hidden><span className={sp.tile}><Skel className="h-11 w-11 rounded-full" /><Skel className="h-3 w-24" /><Skel className="h-2.5 w-16" /></span></li>
+              ))}
+              {loaded && dirList.length === 0 && <li><p className={sp.empty}><AppIcon name="search" />{L("No staff matches that search.", "Tiada kakitangan sepadan dengan carian itu.")}</p></li>}
+              {loaded && dirList.map((u) => (
+                <li key={u.id}>
+                  <button type="button" onClick={() => press(u)} aria-pressed={selectMode ? selected.has(u.id) : undefined}
+                    className={`${sp.tile} ${selected.has(u.id) ? sp.tileOn : ""} ${isGone(u) ? sp.tileGone : ""}`}>
+                    {selectMode && <span className={`${sp.tick} ${selected.has(u.id) ? sp.tickOn : ""}`} aria-hidden>{selected.has(u.id) ? "✓" : ""}</span>}
+                    <Avatar name={displayName(u)} photoKey={u.photo_key} size="lg" />
+                    <strong>{displayName(u)}</strong>
+                    <span>{u.position || roleLabel(u.role)}</span>
+                    <span>{[deptName(u), u.employee_id].filter(Boolean).join(" · ") || "—"}</span>
+                    <span>{stateChip(u)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </TabZone>
+
+      {/* ========================== ORGANIZATION CHART ========================== */}
+      <TabZone label={L("Organisation chart", "Carta organisasi")} className={tab !== "org" ? sp.off : ""}>
+        <section className={card} aria-label={L("Organization chart", "Carta organisasi")}>
+          {head("chart", sp.blueWell, L("Organization Chart", "Carta Organisasi"),
+            L("Who answers to whom, and the whole team at a glance. Press a person to open their profile.", "Siapa melapor kepada siapa, dan seluruh pasukan sepintas lalu. Tekan seseorang untuk buka profilnya."),
+            /* v1.101.0 — Organisation or Team map: the same people, the same
+               fetch, the same permissions. */
+            <span className={sp.mode} role="group" aria-label={L("How to show the staff", "Cara memaparkan kakitangan")}>
+              {([["org", L("Organisation", "Organisasi")], ["circle", L("Team map", "Peta pasukan")]] as const).map(([v, label]) => (
+                <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>
+              ))}
+            </span>)}
+          {selectMode && view === "circle" && (
+            <p className={sp.warnText}><AppIcon name="print" />{L(`Selecting for badge printing — press a face to tick it. ${selected.size} ticked; print from the Staff Directory.`, `Memilih untuk cetakan lencana — tekan wajah untuk menandanya. ${selected.size} ditanda; cetak dari Direktori Kakitangan.`)}</p>
+          )}
+        </section>
+        {view === "org" && (
+          <OrgChart
+            people={staff}
+            loaded={loaded}
+            canAssign={canAssign && !readOnly}
+            saving={orgSaving}
+            onAssign={(personId, managerId) => { void assignReportsTo(personId, managerId); }}
+            onOpen={(p) => { const u = staff.find((x) => x.id === p.id); if (u) press(u); }}
+          />
+        )}
+        {view === "org" && (
+          <section className={card} aria-label={L("Who reports to whom", "Siapa melapor kepada siapa")}>
+            {head("users", sp.goldWell, L("Who Reports to Whom", "Siapa Melapor kepada Siapa"),
+              L("Each manager and the people who answer to them directly — the same lines as the chart, readable on a phone.", "Setiap pengurus dan orang yang melapor terus kepadanya — garis yang sama seperti carta, mudah dibaca di telefon."))}
+            {!loaded ? <SkelRows rows={3} /> : managers.length === 0 ? (
+              <p className={sp.empty}><AppIcon name="info" />{L("No reporting lines are set yet.", "Belum ada garis pelaporan ditetapkan.")}</p>
+            ) : (
+              <ul className={sp.lines}>
+                {managers.map((m) => (
+                  <li key={m.id}>
+                    {personBtn(m, m.position || roleLabel(m.role))}
+                    <span className={sp.reports}>
+                      <span className={sp.arrow}>{L(`${reportsOf(m).length} direct`, `${reportsOf(m).length} terus`)} ←</span>
+                      {reportsOf(m).map((r) => (
+                        <button key={r.id} type="button" className={sp.pill} onClick={() => press(r)} title={r.position || roleLabel(r.role)}>
+                          <Avatar name={displayName(r)} photoKey={r.photo_key} size="sm" />{givenNames(displayName(r))}
+                        </button>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        <div className={view === "circle" ? "erp-stack-tight" : sp.off}>
       {view === "circle" && (() => {
         const ordered = sortBy === "rank"
           ? staff
@@ -1169,11 +1338,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           const b = birthdayInfo(u.birthday, todayS);
           return b && b.days <= 14 && !["resigned", "terminated"].includes(u.employment_status ?? "") ? b : null;
         };
-        const press = (u: Staff) => {
-          if (selectMode) { toggleSelect(u.id); return; }
-          /* one record open at a time; pressing the open one closes it */
-          setOpen((o) => (o.has(u.id) ? new Set() : new Set([u.id])));
-        };
+        /* v1.201.0 - `press` is the page's own now: a face opens the
+           profile drawer, or ticks it while selecting for printing. */
         const gone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
         /* v1.93.0 — whose day is next, in one line under the field. */
         const upcoming = staff.filter((u) => !gone(u)).map((u) => ({ u, b: birthdayInfo(u.birthday, todayS) }))
@@ -1228,7 +1394,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     ))}
                     {placed.filter((p) => p.ring > 0).map((p) => (
                       <span key={`spoke-${p.u.id}`} aria-hidden
-                        className={`pointer-events-none absolute top-1/2 left-1/2 h-px origin-left transition-colors ${focus?.id === p.u.id || open.has(p.u.id) ? "bg-primary/50" : "bg-primary/12"}`}
+                        className={`pointer-events-none absolute top-1/2 left-1/2 h-px origin-left transition-colors ${focus?.id === p.u.id || peek === p.u.id ? "bg-primary/50" : "bg-primary/12"}`}
                         style={{ width: `${p.r}%`, transform: `rotate(${p.angleDeg}deg)` }} />
                     ))}
                   </>
@@ -1245,9 +1411,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
               })}
               {!loaded && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" aria-hidden><Skel className="h-24 w-24 rounded-full" /></div>}
               {loaded && circleLayout(ordered).map(({ u, left, top, ring }, i) => (
-                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${open.has(u.id) || focus?.id === u.id ? "z-20" : ring === 0 ? "z-10" : "z-[1]"}`}
+                <div key={u.id} className={`absolute -translate-x-1/2 -translate-y-1/2 ${peek === u.id || focus?.id === u.id ? "z-20" : ring === 0 ? "z-10" : "z-[1]"}`}
                   style={{ left: `${left}%`, top: `${top}%` }}>
-                  <StaffBubble u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 45}
+                  <StaffBubble u={u} open={peek === u.id} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 45}
                     size={ring === 0 ? "lg" : "md"} cake={cakeFor(u)} faded={gone(u)} caption={false}
                     onFocusPerson={setFocus} onPress={() => press(u)} />
                 </div>
@@ -1258,7 +1424,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             </div>
             {/* the caption bar — one line, fixed height, never moves */}
             {loaded && staff.length > 0 && (() => {
-              const who = focus ?? ordered.find((u) => open.has(u.id)) ?? null;
+              const who = focus ?? ordered.find((u) => peek === u.id) ?? null;
               return (
                 <div className="mt-3 flex min-h-[3.25rem] flex-col items-center justify-center gap-1 text-center">
                   {who ? (
@@ -1282,8 +1448,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     </>
                   ) : (
                     <p className="text-muted-foreground text-xs">
-                      {L("Hover a face to see who it is · press to open the record. Clockwise from the top in company order, CEO at the centre.",
-                         "Tuding pada wajah untuk melihat namanya · tekan untuk buka rekod. Ikut jam dari atas mengikut susunan syarikat, CEO di tengah.")}
+                      {L("Hover a face to see who it is · press to open the profile. Clockwise from the top in company order, CEO at the centre.",
+                         "Tuding pada wajah untuk melihat namanya · tekan untuk buka profil. Ikut jam dari atas mengikut susunan syarikat, CEO di tengah.")}
                     </p>
                   )}
                 </div>
@@ -1306,7 +1472,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                 </div>
               ))}
               {loaded && ordered.map((u, i) => (
-                <StaffBubble key={u.id} u={u} open={open.has(u.id)} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 35}
+                <StaffBubble key={u.id} u={u} open={peek === u.id} selectMode={selectMode} selected={selected.has(u.id)} delayMs={i * 35}
                   cake={cakeFor(u)} faded={gone(u)} onPress={() => press(u)} />
               ))}
             </div>
@@ -1327,6 +1493,141 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           </>
         );
       })()}
+        </div>
+      </TabZone>
+
+      {/* ========================== DEPARTMENTS & ROLES ========================== */}
+      <TabZone label={L("Departments and roles", "Jabatan dan peranan")} className={tab !== "roles" ? sp.off : ""}>
+        <section className={card} aria-label={L("Roles and responsibilities written", "Peranan dan tanggungjawab ditulis")}>
+          {head("document", sp.goldWell, L("Roles & Responsibilities Written", "Peranan & Tanggungjawab Ditulis"),
+            L("Working staff whose role title or responsibilities are on their record. Written on Staff Records; each person reads theirs on their Profile.", "Kakitangan bekerja yang gelaran peranan atau tanggungjawabnya ada pada rekod. Ditulis di Rekod Kakitangan; setiap orang membacanya di Profil mereka."),
+            <span className={sp.bigPct}>{loaded ? `${pctOf(writtenCount, activeCount)}%` : "—"}</span>)}
+          <div className={sp.progressRow}>
+            <span className={sp.track} role="img" aria-label={L(`${writtenCount} of ${activeCount} written`, `${writtenCount} daripada ${activeCount} ditulis`)}>
+              <span className={`${sp.fill} ${writtenCount >= activeCount && activeCount > 0 ? sp.fillGreen : ""}`} style={{ width: `${pctOf(writtenCount, activeCount)}%` }} />
+            </span>
+            <span className={sp.hint}>{L(`${writtenCount} of ${activeCount} working staff · ${byDept.filter(([k]) => k).length} departments · ${new Set(staff.map((u) => (u.position ?? "").trim()).filter(Boolean)).size} positions`, `${writtenCount} daripada ${activeCount} kakitangan bekerja · ${byDept.filter(([k]) => k).length} jabatan · ${new Set(staff.map((u) => (u.position ?? "").trim()).filter(Boolean)).size} jawatan`)}</span>
+          </div>
+          <div className={sp.toolbar}>
+            <span className={sp.mode} role="group" aria-label={L("Which staff to show", "Kakitangan mana untuk dipaparkan")}>
+              <button type="button" aria-pressed={!onlyMissing} onClick={() => setOnlyMissing(false)}>{L("Everyone", "Semua")}</button>
+              <button type="button" aria-pressed={onlyMissing} onClick={() => setOnlyMissing(true)}>{L(`Not written yet (${notWritten})`, `Belum ditulis (${notWritten})`)}</button>
+            </span>
+          </div>
+        </section>
+        {!loaded && <section className={card}><SkelRows rows={4} /></section>}
+        {loaded && onlyMissing && notWritten === 0 && (
+          <section className={card}><p className={sp.empty}><AppIcon name="success" />{L("Every working person has their role written.", "Peranan setiap orang yang bekerja telah ditulis.")}</p></section>
+        )}
+        {loaded && byDept.map(([k, list]) => {
+          const rows = onlyMissing ? list.filter((u) => u.is_active && !writtenOf(u)) : list;
+          if (rows.length === 0) return null;
+          const working = list.filter((u) => u.is_active);
+          const done = working.filter(writtenOf).length;
+          return (
+            <section key={k || NO_DEPT} className={card} aria-label={k || noDept}>
+              {head("store", k ? sp.blueWell : sp.redWell, k || noDept,
+                working.length === 0
+                  ? L(`${list.length} staff · nobody working here now`, `${list.length} kakitangan · tiada yang bekerja di sini sekarang`)
+                  : L(`${list.length} staff · ${done} of ${working.length} working staff written`, `${list.length} kakitangan · ${done} daripada ${working.length} kakitangan bekerja ditulis`),
+                <button type="button" className={btnSm} onClick={() => showDirectory(k || NO_DEPT)}>{L("In the directory", "Dalam direktori")}</button>)}
+              <div className={`erp-table-scroll ${sp.tableWrap}`}>
+                <table className={sp.table} aria-label={k || noDept}>
+                  <thead><tr>
+                    <th>{L("Staff", "Kakitangan")}</th>
+                    <th>{L("Position", "Jawatan")}</th>
+                    <th>{L("Role title", "Gelaran peranan")}</th>
+                    <th>{L("Responsibilities", "Tanggungjawab")}</th>
+                    <th>{L("Last written", "Terakhir ditulis")}</th>
+                    <th><span className={sp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+                  </tr></thead>
+                  <tbody>
+                    {rows.map((u) => {
+                      const lines = responsibilityLines(u.responsibilities).length;
+                      return (
+                        <tr key={u.id} className={isGone(u) ? sp.rowGone : ""}>
+                          <td className={sp.personCell}>{personBtn(u, u.employee_id || roleLabel(u.role))}</td>
+                          <td data-label={L("Position", "Jawatan")}>{u.position || <span className={sp.muted}>—</span>}</td>
+                          <td data-label={L("Role title", "Gelaran peranan")}>{u.role_title?.trim() || <span className={sp.muted}>—</span>}</td>
+                          <td data-label={L("Responsibilities", "Tanggungjawab")}>
+                            {lines > 0 ? <span className={chipSuccess}>{L(`${lines} written`, `${lines} ditulis`)}</span>
+                              : writtenOf(u) ? <span className={chipInfo}>{L("Title only", "Gelaran sahaja")}</span>
+                              : u.is_active ? <span className={chipWarn}>{L("Not written", "Belum ditulis")}</span>
+                              : <span className={chipNeutral}>{STATE_LABEL[stateOf(u)]}</span>}
+                          </td>
+                          <td data-label={L("Last written", "Terakhir ditulis")} className={sp.mono}>
+                            {u.responsibilities_updated_at
+                              ? `${dmy(u.responsibilities_updated_at.slice(0, 10))}${u.responsibilities_updated_by_name ? ` · ${properName(u.responsibilities_updated_by_name)}` : ""}`
+                              : <span className={sp.muted}>—</span>}
+                          </td>
+                          <td className={sp.actCell}>
+                            <span>
+                              <button type="button" className={rowBtn} onClick={() => setPeek(u.id)}>{L("Read", "Baca")}</button>
+                              {canEditResponsibilities && Boolean(u.is_active) && (
+                                <button type="button" className={rowBtn} onClick={() => openRecord(u.id)}>{L("Write", "Tulis")}</button>
+                              )}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })}
+      </TabZone>
+
+      {/* ============================= STAFF RECORDS ============================= */}
+      <TabZone label={L("Staff records", "Rekod kakitangan")} className={tab !== "records" ? sp.off : ""}>
+      <div className={sp.recordsSplit}>
+        <section className={card} aria-label={L("Choose a record", "Pilih rekod")}>
+          {head("identification", sp.goldWell, L("Staff Records", "Rekod Kakitangan"), L("Choose a person to open their full record.", "Pilih seseorang untuk buka rekod penuhnya."))}
+          <div className={sp.toolbar}>
+            <label className={sp.search}>
+              <AppIcon name="search" />
+              <input value={recQuery} onChange={(e) => setRecQuery(e.target.value)}
+                placeholder={L("Find a record", "Cari rekod")} aria-label={L("Find a record", "Cari rekod")} />
+            </label>
+          </div>
+          <ul className={sp.picker}>
+            {!loaded && Array.from({ length: 5 }, (_, i) => (
+              <li key={`sk-${i}`} aria-hidden><span className={sp.pick}><Skel className="h-9 w-9 rounded-full" /><Skel className="h-3 w-32" /><Skel className="h-3 w-8" /></span></li>
+            ))}
+            {loaded && recList.length === 0 && <li><p className={sp.empty}>{L("No record matches that search.", "Tiada rekod sepadan dengan carian itu.")}</p></li>}
+            {loaded && recList.map((u) => (
+              <li key={u.id}>
+                <button type="button" className={sp.pick} aria-pressed={open.has(u.id)}
+                  onClick={() => {
+                    setOpen(open.has(u.id) ? new Set() : new Set([u.id]));
+                    if (!open.has(u.id)) window.setTimeout(() => { if (window.innerWidth < 1100) recRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+                  }}>
+                  <Avatar name={displayName(u)} photoKey={u.photo_key} size="md" />
+                  <span className={sp.personText}>
+                    <strong>{displayName(u)}</strong>
+                    <span>{[u.employee_id, u.position].filter(Boolean).join(" · ") || roleLabel(u.role)}</span>
+                  </span>
+                  <span className={sp.filled} title={L("Fields filled on the record", "Medan yang diisi pada rekod")}>{filledOf(u)}/{RECORD_FIELDS.length}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className={sp.note}>
+            <AppIcon name="lock" />
+            {readOnly
+              ? L("You can read these records. HR fills them in; once a field is saved, only the CEO or an admin can change it.", "Anda boleh membaca rekod ini. HR mengisinya; setelah medan disimpan, hanya CEO atau admin boleh mengubahnya.")
+              : canAmend
+                ? L("You can change any field, including a saved one. HR fills empty fields; a saved field locks for them.", "Anda boleh mengubah mana-mana medan, termasuk yang telah disimpan. HR mengisi medan kosong; medan yang disimpan dikunci bagi mereka.")
+                : L("You can fill an empty field. Once saved it locks, and only the CEO or an admin can change it.", "Anda boleh mengisi medan kosong. Setelah disimpan ia dikunci, dan hanya CEO atau admin boleh mengubahnya.")}
+          </p>
+        </section>
+        <div className={sp.recordCol} ref={recRef}>
+          {loaded && open.size === 0 && (
+            <section className={card}>
+              <p className={sp.empty}><AppIcon name="identification" />{L("Choose someone on the left to open their record — personal details, employment, bank and statutory numbers, roles, documents and the ID badge.", "Pilih seseorang di sebelah kiri untuk buka rekodnya — butiran peribadi, pekerjaan, nombor bank dan statutori, peranan, dokumen dan lencana ID.")}</p>
+            </section>
+          )}
       {(sortBy === "rank"
         ? staff
         : [...staff].sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
@@ -1614,8 +1915,256 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           </div>
         );
       })}
+        </div>
       </div>
       </TabZone>
+
+      {/* v1.201.0 - THE PROFILE DRAWER. What the directory row used to say,
+          plus who they report to and who reports to them, and their written
+          role. No IC, bank or statutory number here - those stay on the full
+          record, one press away. */}
+      <SideDrawer
+        open={peekU !== null}
+        onClose={() => setPeek(null)}
+        title={peekU ? displayName(peekU) : ""}
+        subtitle={peekU ? [peekU.position || roleLabel(peekU.role), deptName(peekU)].filter(Boolean).join(" · ") : undefined}
+        footer={peekU ? (
+          <span className={sp.actions}>
+            <button type="button" className={btnSmPrimary} onClick={() => openRecord(peekU.id)}><AppIcon name="identification" />{L("Open full record", "Buka rekod penuh")}</button>
+            <button type="button" className={btnSm} onClick={() => printBadge({ ...peekU, ...draft[peekU.id] } as Staff)}><AppIcon name="print" />{L("Print badge", "Cetak lencana")}</button>
+            <button type="button" className={btnSm} onClick={() => setPeek(null)}>{L("Close", "Tutup")}</button>
+          </span>
+        ) : undefined}
+      >
+        {peekU && (() => {
+          const manager = managerOf(peekU);
+          const directs = reportsOf(peekU);
+          const b = birthdayInfo(peekU.birthday, todayS);
+          return (
+            <div className={sp.drawer}>
+              <div className={sp.profileHead}>
+                <Avatar name={displayName(peekU)} photoKey={peekU.photo_key} size="lg" />
+                <span className={sp.chips}>
+                  {stateChip(peekU)}
+                  <span className={chipNeutral}>{cap1(roleLabel(peekU.role))}</span>
+                  {!peekU.full_name?.trim() && <span className={chipWarn}>{L("no full name", "tiada nama penuh")}</span>}
+                  {b && !isGone(peekU) && b.days <= 14 && (
+                    <span className={chipInfo}><AppIcon name="cake" />{b.days === 0 ? L(`turns ${b.turns} today`, `genap ${b.turns} hari ini`) : `${L("turns", "genap")} ${b.turns} ${L("in", "dalam")} ${b.days} ${L("day(s)", "hari")}`}</span>
+                  )}
+                </span>
+              </div>
+              <dl className={sp.facts}>
+                <div><dt>{L("Staff ID", "ID kakitangan")}</dt><dd className={sp.mono}>{peekU.employee_id || "—"}</dd></div>
+                <div><dt>{L("Position", "Jawatan")}</dt><dd>{peekU.position || "—"}</dd></div>
+                <div><dt>{L("Department", "Jabatan")}</dt><dd>{deptName(peekU) || "—"}</dd></div>
+                <div><dt>{L("Employment", "Pekerjaan")}</dt><dd>{employmentLabel(peekU.employment_status)}{peekU.joined_on ? ` · ${L("joined", "mula")} ${dmy(peekU.joined_on)}` : ""}</dd></div>
+                <div><dt>{L("Email", "E-mel")}</dt><dd>{peekU.email || "—"}</dd></div>
+                <div><dt>{L("Phone", "Telefon")}</dt><dd>{peekU.phone || "—"}</dd></div>
+                <div>
+                  <dt>{L("Reports to", "Melapor kepada")}</dt>
+                  <dd>{manager ? (
+                    <button type="button" className={sp.pill} onClick={() => setPeek(manager.id)}>
+                      <Avatar name={displayName(manager)} photoKey={manager.photo_key} size="sm" />{displayName(manager)}
+                    </button>
+                  ) : <span className={sp.muted}>{L("Not on the chart", "Tiada pada carta")}</span>}</dd>
+                </div>
+                <div>
+                  <dt>{L("Direct reports", "Melapor terus")}</dt>
+                  <dd>{directs.length === 0 ? <span className={sp.muted}>{L("None", "Tiada")}</span> : (
+                    <span className={sp.reports}>
+                      {directs.map((r) => (
+                        <button key={r.id} type="button" className={sp.pill} onClick={() => setPeek(r.id)}>
+                          <Avatar name={displayName(r)} photoKey={r.photo_key} size="sm" />{givenNames(displayName(r))}
+                        </button>
+                      ))}
+                    </span>
+                  )}</dd>
+                </div>
+              </dl>
+              <div>
+                <p className={sp.formTitle}>{L("Roles and responsibilities", "Peranan dan tanggungjawab")}</p>
+                <ResponsibilitiesView
+                  value={{ role_title: peekU.role_title, responsibilities: peekU.responsibilities, responsibilities_updated_at: peekU.responsibilities_updated_at, responsibilities_updated_by_name: peekU.responsibilities_updated_by_name }}
+                  emptyText={L("Not written yet.", "Belum ditulis.")} />
+              </div>
+            </div>
+          );
+        })()}
+      </SideDrawer>
+
+      {/* v1.201.0 - Add staff opens here, from the button on the tab row, on
+          every tab. The form, its checks and its create call are v1.4.101's,
+          unchanged. */}
+      <SideDrawer
+        open={!readOnly && showCreate}
+        onClose={() => setShowCreate(false)}
+        title={L("Add a staff member", "Tambah kakitangan")}
+        wide
+      >
+      {!readOnly && (
+      <div>
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L(
+            "Company emails (@azoneofficial.com) aren't Google accounts, so staff can't self-register — create the account here with a temporary password and hand it over. They change it on first sign-in.",
+            "E-mel syarikat (@azoneofficial.com) bukan akaun Google, jadi kakitangan tidak boleh mendaftar sendiri — cipta akaun di sini dengan kata laluan sementara dan serahkan kepada mereka. Mereka menukarnya pada log masuk pertama.",
+          )}
+        </p>
+        {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
+            so the field's purpose stays visible after typing. */}
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <Sub t={L("Company email", "E-mel syarikat")}>
+            <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
+              onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
+          </Sub>
+          <Sub t={L("Full name (as per NRIC)", "Nama penuh (seperti dalam NRIC)")}>
+            <input className={input} placeholder={L("Full name", "Nama penuh")} value={newStaff.name}
+              onChange={(e) => setNewStaff((d) => ({ ...d, name: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Role", "Peranan")}>
+            <select className={input} value={newStaff.role}
+              onChange={(e) => setNewStaff((d) => ({ ...d, role: e.target.value }))}>
+              {["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"].map((r) => (
+                <option key={r} value={r}>{L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "))}</option>
+              ))}
+            </select>
+          </Sub>
+          <Sub t={L("Employee ID (optional)", "ID pekerja (pilihan)")}>
+            <input className={input} placeholder={L("e.g. AZOOM001", "cth. AZOOM001")} value={newStaff.employee_id}
+              onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Position (optional)", "Jawatan (pilihan)")}>
+            <input className={input} placeholder={L("e.g. Marketing Executive", "cth. Eksekutif Pemasaran")} value={newStaff.position}
+              onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Department (optional)", "Jabatan (pilihan)")}>
+            <input className={input} placeholder={L("e.g. Management", "cth. Pengurusan")} value={newStaff.department}
+              onChange={(e) => setNewStaff((d) => ({ ...d, department: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Birth date (optional)", "Tarikh lahir (pilihan)")}>
+            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.birthday}
+              onChange={(e) => setNewStaff((d) => ({ ...d, birthday: e.target.value }))} />
+          </Sub>
+          <Sub t={L("ID issued on (optional)", "ID dikeluarkan pada (pilihan)")}>
+            <input className={input} placeholder="DD-MM-YYYY" value={newStaff.id_issued_on}
+              onChange={(e) => setNewStaff((d) => ({ ...d, id_issued_on: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Blood type (optional)", "Jenis darah (pilihan)")}>
+            <input className={input} placeholder={L("e.g. O+", "cth. O+")} value={newStaff.blood_type}
+              onChange={(e) => setNewStaff((d) => ({ ...d, blood_type: e.target.value }))} />
+          </Sub>
+          <Sub t={L("NRIC (optional)", "NRIC (pilihan)")}>
+            <input className={input} placeholder="XXXXXX-XX-XXXX" value={newStaff.ic_number}
+              onChange={(e) => setNewStaff((d) => ({ ...d, ic_number: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Bank (optional)", "Bank (pilihan)")}>
+            <select className={input} value={newStaff.bank_name}
+              onChange={(e) => setNewStaff((d) => ({ ...d, bank_name: e.target.value }))}>
+              <option value="">{L("— Maybank is company primary —", "— Maybank ialah bank utama syarikat —")}</option>
+              {MY_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </Sub>
+          <Sub t={L("Bank account no. (optional)", "No. akaun bank (pilihan)")}>
+            <input className={input} placeholder={L("numbers only", "nombor sahaja")} value={newStaff.bank_account}
+              onChange={(e) => setNewStaff((d) => ({ ...d, bank_account: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Temp password (10+ chars)", "Kata laluan sementara (10+ aksara)")}>
+            <PasswordInput className={input} placeholder={L("They change it on first sign-in", "Mereka menukarnya pada log masuk pertama")} value={newStaff.password}
+              onChange={(e) => setNewStaff((d) => ({ ...d, password: e.target.value }))} />
+          </Sub>
+          <Sub t={L("Staff photo (optional)", "Foto kakitangan (pilihan)")}>
+            <label className={`${input} flex cursor-pointer items-center justify-between`}>
+              <span className={newPhoto ? "" : "text-muted-foreground"}>
+                {newPhoto ? newPhoto.name : L("Choose an image", "Pilih imej")}
+              </span>
+              <span className="text-muted-foreground text-xs underline">{L("Browse", "Semak imbas")}</span>
+              <input type="file" accept="image/*" className="hidden"
+                onChange={(e) => setNewPhoto(e.target.files?.[0] ?? null)} />
+            </label>
+          </Sub>
+        </div>
+        {createMsg && <p className={`mt-2 text-xs font-medium ${createMsg.ok ?"text-success" :"text-destructive"}`}>{createMsg.text}</p>}
+        {existing && (
+          <button
+            type="button"
+            className={`${btnSm} mt-2`}
+            onClick={async () => {
+              const patch: Record<string, string> = {};
+              if (newStaff.employee_id.trim()) patch.employee_id = newStaff.employee_id.trim();
+              if (newStaff.position.trim()) patch.position = newStaff.position.trim();
+              if (newStaff.department.trim()) patch.department = newStaff.department.trim();
+              if (Object.keys(patch).length === 0) {
+                setCreateMsg({ ok: false, text: L("Fill in employee ID, position or department to update the record.", "Isi ID pekerja, jawatan atau jabatan untuk mengemas kini rekod.") });
+                return;
+              }
+              const res = await api<ErrShape>(`/users/${existing.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+              if (res.ok) {
+                setCreateMsg({ ok: true, text: L(`${existing.name}'s record updated.`, `Rekod ${existing.name} dikemas kini.`) });
+                setExisting(null);
+                setNewStaff(emptyNewStaff);
+                void load();
+              } else {
+                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Update failed — check access.", "Kemas kini gagal — semak akses.") });
+              }
+            }}
+          >
+            {L(`Update ${existing.name}'s record instead`, `Kemas kini rekod ${existing.name} sebaliknya`)}
+          </button>
+        )}
+        <div>
+          <button type="button" className={`${btn} bg-primary text-primary-foreground hover:bg-primary/85 mt-3 disabled:opacity-50`}
+            disabled={!newStaff.email.trim() || !newStaff.name.trim() || newStaff.password.length < 10}
+            onClick={async () => {
+              setCreateMsg(null);
+              const res = await api<ErrShape & { id?: number }>(`/users`, {
+                method: "POST",
+                body: JSON.stringify({
+                  ...newStaff,
+                  birthday: newStaff.birthday ? dmyToISO(newStaff.birthday) : "",
+                  id_issued_on: newStaff.id_issued_on ? dmyToISO(newStaff.id_issued_on) : "",
+                }),
+              });
+              if (res.ok) {
+                // Photo chosen up front? Attach it to the account just created.
+                let photoNote = "";
+                if (newPhoto && res.data?.id) {
+                  const compressed = await compressImage(newPhoto);
+                  const up = await csrfFetch(`${API}/users/${res.data.id}/photo`, {
+                    method: "POST",
+                    headers: { "Content-Type": compressed.type || "image/jpeg" },
+                    body: compressed,
+                  });
+                  photoNote = up.ok ? ` ${L("Photo uploaded.", "Foto dimuat naik.")}` : ` ${L("(Photo upload failed — use Upload photo on the row.)", "(Muat naik foto gagal — guna Muat naik foto pada baris.)")}`;
+                }
+                setCreateMsg({ ok: true, text: `${newStaff.name} ${L("added.", "ditambah.")}${photoNote}` });
+                setNewStaff(emptyNewStaff);
+                setNewPhoto(null);
+                setExisting(null);
+                void load();
+              } else if (res.status === 409) {
+                const match = allStaff.find(
+                  (u) => u.email.toLowerCase() === newStaff.email.toLowerCase().trim(),
+                );
+                if (match && match.role !== "customer") {
+                  setExisting(match);
+                  setCreateMsg({ ok: false, text: `${match.name} ${L("already has an account", "sudah mempunyai akaun")} (${match.role.replace(/_/g, " ")}).` });
+                } else if (match) {
+                  setExisting(null);
+                  setCreateMsg({ ok: false, text: L("This email belongs to a customer account — an admin can adjust it in /admin → Users.", "E-mel ini milik akaun pelanggan — admin boleh melaraskannya di /admin → Users.") });
+                } else {
+                  setExisting(null);
+                  setCreateMsg({ ok: false, text: L("A user with this email already exists.", "Pengguna dengan e-mel ini sudah wujud.") });
+                }
+              } else {
+                setExisting(null);
+                setCreateMsg({ ok: false, text: res.data?.error?.message ?? L("Could not add — check the fields.", "Tidak dapat menambah — semak medan.") });
+              }
+            }}>
+            {L("Create staff account", "Cipta akaun kakitangan")}
+          </button>
+        </div>
+      </div>
+      )}
+      </SideDrawer>
     </>
   );
 }

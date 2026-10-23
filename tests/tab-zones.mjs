@@ -342,7 +342,22 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   /* v1.196.0 - the history is searched (mine.filter(matchQ)); five tabs, each zone kept mounted */
   ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{view !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 6);
   ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.filter(matchQ).map((l)']));
-  ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['{renderTasks(tasks.filter((t) => t.status !== "completed")', 'L("Create / assign a task"', '{progress}', '{renderTasks(tasks.filter((t) => t.status === "completed")']));
+  /* v1.200.0 - five tabs: my work and all work (the active rows by default) before
+     creation, then the company-wide progress and the completion archive */
+  ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', 'L("Create / assign a task"', '{progress}', 'renderTasks(tasks.filter((t) => t.status === "completed")']) && /useState<StatusF>\("active"\)/.test(tasks));
+  ok("Tasks: five tabs in the brief's order (All Tasks only for the managing roles), zones hidden not unmounted", ["Overview", "My Tasks", "All Tasks", "Create / Assign Task", "Reports & Archive"].map((t) => tasks.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && /\.\.\.\(canManage \? \[\["all"/.test(tasks) && (tasks.match(/className=\{view !== "[a-z]+" \? tk\.off : ""\}/g) ?? []).length === 5);
+  /* v1.201.0 - Staff: five tabs in the brief's order, every zone kept mounted
+     and hidden with sp.off; Add staff on the tab row for everyone who could
+     add before (not the read-only COO and CCO); the toast and the question
+     outside every zone; the same record, gates and badge printing */
+  const staffDir = read("components/staff/staff-directory.tsx");
+  const staffFn = staffDir.slice(staffDir.indexOf("export function StaffDirectory("), staffDir.indexOf("/* v1.4.191 STAFF DOCUMENT VAULT"));
+  ok("Staff: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Staff Directory", "Organization Chart", "Departments & Roles", "Staff Records"].map((t) => staffFn.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (staffFn.match(/className=\{tab !== "[a-z]+" \? sp\.off : ""\}/g) ?? []).length === 5);
+  ok("Staff: Add staff on the tab row, never for the read-only roles", /aside=\{!readOnly \? \(\s*<TabAside>\s*<TabAction icon="add" onClick=\{\(\) => setShowCreate\(true\)\}>/.test(staffFn) && /open=\{!readOnly && showCreate\}/.test(staffFn));
+  ok("Staff: the toast and the question render outside every zone", staffFn.indexOf("{toastNode}{promptNode}") > 0 && staffFn.indexOf("{toastNode}{promptNode}") < staffFn.indexOf("<TabZone"));
+  ok("Staff: the record keeps its gates (Save and photo for the writers, Offboard for the amenders, role for the CEO and COO)", /open\.has\(u\.id\) && !readOnly && \(/.test(staffFn) && /open\.has\(u\.id\) && canAmend && !\["resigned", "terminated"\]/.test(staffFn) && /sec\.title === "Employment" && canSetRole && \(/.test(staffFn) && /const isLocked = \(u: Staff, key: keyof Staff\) =>\s*readOnly \|\| \(!canAmend && /.test(staffFn));
+  ok("Staff: badges print one or many, from the record, the drawer and the selection", /onClick=\{\(\) => printBadge\(merged\)\}/.test(staffFn) && /printBadge\(\{ \.\.\.peekU, \.\.\.draft\[peekU\.id\] \} as Staff\)/.test(staffFn) && /printBadges\(staff\.filter\(\(u\) => selected\.has\(u\.id\)\)/.test(staffFn));
+  ok("Staff: the profile drawer carries no IC, bank or statutory number", (() => { const d = staffFn.slice(staffFn.indexOf("THE PROFILE DRAWER"), staffFn.indexOf("Add staff opens here")); return d.length > 500 && !/ic_number|bank_name|bank_account|epf_no|socso_no|tax_no|address|emergency_/.test(d); })());
   ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
   ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));
 }

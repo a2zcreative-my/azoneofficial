@@ -10,6 +10,98 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.201.0] - 2026-10-23 - Staff, reorganised into five tabs
+
+The owner, 23-10-2026, with the original screenshot and a mockup: Staff in
+five tabs - Overview, Staff Directory, Organization Chart, Departments &
+Roles, Staff Records - keeping the gold/navy/white/grey identity, every
+staff record, staff ID, photo, role and department, Organisation, Team map,
+badge printing and every action; no change to the database, APIs, business
+logic, sign-in or permissions; no sample data; no deploy without approval.
+
+### Changed
+
+- **Staff** (`components/staff/staff-directory.tsx`, new
+  `staff-page.module.css`) is a `LineTabs` page with Add staff at the right
+  (not for the read-only COO/CCO, as before); every zone stays mounted and
+  hides with `sp.off`. The same `/staff/users` read feeds every tab.
+- **Overview**: the four figures as before (records, active, departments,
+  roles written of the working staff), department distribution (a line opens
+  the directory filtered), staff status (active / inactive / left, and
+  employment type), what needs attention (roles not written, no full name,
+  not on the chart) and quick links.
+- **Staff Directory**: a table or a grid of compact cards - avatar, name,
+  staff ID, position, department, status badge - with search, department
+  and status filters and the same sort. Badge printing is one bar: Select
+  for printing, Select all shown (so a filter prints one team), the count,
+  Print badges (up to 9 per A4). Pressing a person opens a profile drawer:
+  ID, position, department, employment, email, phone, reports to, direct
+  reports and their written role - no IC, bank or statutory number - with
+  Open full record and Print badge.
+- **Organization Chart**: the Organisation chart and the Team map, unchanged
+  in what they do (reporting lines are still set by the CEO, COO or CCO),
+  plus a "who reports to whom" list that reads on a phone. A box or a face
+  opens the profile drawer.
+- **Departments & Roles**: how many working staff have their role written,
+  then one table per department - position, role title, responsibilities
+  written or not, when and by whom - with a "not written yet" filter; Write
+  (CEO and HR tier, active staff only, as before) opens the record.
+- **Staff Records**: a searchable list with how many record fields are
+  filled, beside the full record exactly as it was - fields and their
+  locks, Save, photo, Preview/Print badge, role (CEO and COO), Offboard
+  (CEO and admins), responsibilities and the document vault.
+- **Add staff** opens the same form, checks and create call in a drawer.
+
+### Tests
+
+- `tests/tab-zones.mjs` pins the five tabs, the Add staff gate, the
+  record's gates, the three badge-print paths and a drawer without
+  sensitive fields. `clickable-data`, `portal-experience` and
+  `staff-responsibilities` follow the new door (face → profile → record).
+  The fixture gained reporting lines, a photo, a birthday and one staff
+  vault.
+
+## [1.200.0] - 2026-10-23 - Tasks, reorganised into five tabs
+
+The owner, 23-10-2026, with the original screenshot and a mockup: Tasks in
+five tabs - Overview, My Tasks, All Tasks, Create / Assign Task, Reports &
+Archive - keeping the gold/navy/white/grey identity, every task and
+checklist record, the priority, assignment, deadline and status rules, the
+APIs, permissions and workflows; no sample data; no deploy without approval.
+
+### Changed
+
+- **Tasks** (`components/portal/tasks.tsx`, new `tasks-page.module.css`) is
+  a `LineTabs` page with Create Task at the right; every zone stays mounted
+  and hides with `tk.off`.
+- **Overview**: Open, Overdue, Pending and Closed (the same counts and the
+  same overdue rule; each opens its list), tasks requiring attention
+  (overdue, not acknowledged, urgent), my active tasks with an "all caught
+  up" empty state, the task progress ring, recently closed tasks and - for
+  the managing roles - the team task summary (a name opens their tasks).
+- **My Tasks**: your tasks in a table - priority badge, deadline (overdue in
+  red), the same status dropdown, progress bar, scope checklist (who ticked
+  what), Acknowledge - with search, status/priority filters and sorting, and
+  a Board view over the three statuses the dropdown already has. On a phone
+  each task is a card.
+- **All Tasks** (managing roles only, as the server answers): every task
+  with who it is with; filter by person too. Delete stays CEO-only and asks
+  first.
+- **Create / Assign Task**: the same form and the same request, laid out in
+  two columns; Create waits for a title, counts the scope lines, and says
+  when the task is created or not.
+- **Reports & Archive**: the company-wide card as before, staff task
+  performance from the board, the completed archive (searchable, re-open
+  with the dropdown) and what task history is kept. A per-task timeline of
+  the recorded status moves is proposed, not built (needs a new read).
+
+### Tests
+
+- `tests/tab-zones.mjs` pins the five tabs and the new order. The fixture
+  gained the signed-in person's tasks, a scope checklist and the overview
+  task figures, and answers /staff/tasks as the worker does (all with
+  ?all=1, otherwise your own).
+
 ## [1.199.0] - 2026-10-23 - Assets, reorganised into five tabs
 
 The owner, 23-10-2026, with a mockup: Assets in five tabs - Overview, Asset

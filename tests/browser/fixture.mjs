@@ -34,7 +34,10 @@ function baseFixture(p) {
   if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 } };
   if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {} };
   if (p === "/staff/desk") data = { items: queue, counts: { tasks: 1 }, total: 1, missing: [] };
-  if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }], task_summary: [] };
+  if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }],
+    /* v1.200.0 - the company-wide task card, from the same rows as the board */
+    task_summary: [{ status: "open", n: 3 }, { status: "in_progress", n: 2 }, { status: "completed", n: 2 }], task_overdue: 2, task_unacked: 2,
+    task_by_staff: [{ name: "Fixture Person", role: "ceo", open_tasks: 2, done_tasks: 1 }, { name: "Nur Aisyah", role: "sales_marketing", open_tasks: 1, done_tasks: 1 }, { name: "Farid Zul", role: "live_host", open_tasks: 1, done_tasks: 0 }, { name: "Mei Ling", role: "hr_admin", open_tasks: 1, done_tasks: 0 }] };
   if (p === "/staff/inventory") data = { items };
   /* v1.193.0 - the Inventory Overview and Reports read these two */
   if (p === "/staff/inventory/manual-outs") data = { outs: [
@@ -64,15 +67,19 @@ function baseFixture(p) {
 const D = "2026-09-";
 const staff = [
   { id: 9001, name: "Fixture Person", full_name: "Fixture Person", role: "ceo", email: "fixture@example.test", status: "active", is_active: 1, department: "Management", position: "CEO", employee_id: "A2Z-001" },
-  { id: 9002, name: "Nur Aisyah", full_name: "Nur Aisyah binti Rahman", role: "sales_marketing", email: "aisyah@example.test", status: "active", is_active: 1, department: "Sales", position: "Sales Executive", employee_id: "A2Z-002", role_title: "Sales Executive — ELFIA accounts", responsibilities: "Answer every enquiry within 24 hours\nRaise quotations and invoices on the Sales tab\nLog every hotel call on the Hotels tab\nClose the day on Sales Performance", responsibilities_updated_at: "2026-09-15 10:12:00", responsibilities_updated_by_name: "Fixture Person" },
-  { id: 9003, name: "Farid Zul", full_name: "Farid Zulkifli", role: "live_host", email: "farid@example.test", status: "active", is_active: 1, department: "Live", position: "Live Host", employee_id: "A2Z-003" },
-  { id: 9004, name: "Mei Ling", full_name: "Tan Mei Ling", role: "hr_admin", email: "mei@example.test", status: "active", is_active: 0, department: "HR", position: "HR Admin", employee_id: "A2Z-004" },
+  { id: 9002, name: "Nur Aisyah", full_name: "Nur Aisyah binti Rahman", role: "sales_marketing", email: "aisyah@example.test", status: "active", is_active: 1, department: "Sales", position: "Sales Executive", employee_id: "A2Z-002", reports_to: 9001, photo_key: "staff/9002-aisyah.jpg", phone: "+60 12-345 6789", joined_on: "2025-03-03", employment_status: "permanent", birthday: "1998-09-25", role_title: "Sales Executive — ELFIA accounts", responsibilities: "Answer every enquiry within 24 hours\nRaise quotations and invoices on the Sales tab\nLog every hotel call on the Hotels tab\nClose the day on Sales Performance", responsibilities_updated_at: "2026-09-15 10:12:00", responsibilities_updated_by_name: "Fixture Person" },
+  { id: 9003, name: "Farid Zul", full_name: "Farid Zulkifli", role: "live_host", email: "farid@example.test", status: "active", is_active: 1, department: "Live", position: "Live Host", employee_id: "A2Z-003", reports_to: 9002 },
+  { id: 9004, name: "Mei Ling", full_name: "Tan Mei Ling", role: "hr_admin", email: "mei@example.test", status: "active", is_active: 0, department: "HR", position: "HR Admin", employee_id: "A2Z-004", reports_to: 9001 },
 ];
 const tasks = [
-  { id: 1, title: "Check inventory delivery", description: "ELFIA restock arrives Tuesday.", priority: "high", deadline: D + "12", status: "open", progress: 20, assignee: "Nur Aisyah", assigned_to: 9002, item_count: 3, item_done: 1, acknowledged: 1 },
-  { id: 2, title: "Prepare Raya live rundown", priority: "normal", deadline: D + "25", status: "in_progress", progress: 60, assignee: "Farid Zul", assigned_to: 9003, acknowledged: 0 },
-  { id: 3, title: "Send September payslips", priority: "normal", deadline: D + "30", status: "open", progress: 0, assignee: "Mei Ling", assigned_to: 9004, acknowledged: 1 },
-  { id: 4, title: "Renew studio insurance", priority: "low", deadline: D + "02", status: "completed", progress: 100, assignee: "Fixture Person", assigned_to: 9001, acknowledged: 1 },
+  { id: 1, title: "Check inventory delivery", description: "ELFIA restock arrives Tuesday.", priority: "high", deadline: D + "12", status: "open", progress: 20, assignee: "Nur Aisyah", assigned_to: 9002, created_by: 9001, created_at: D + "08 01:00:00", item_count: 3, item_done: 1, acknowledged: 1 },
+  { id: 2, title: "Prepare Raya live rundown", priority: "normal", deadline: D + "25", status: "in_progress", progress: 60, assignee: "Farid Zul", assigned_to: 9003, created_by: 9001, created_at: D + "10 02:00:00", acknowledged: 0 },
+  { id: 3, title: "Send September payslips", priority: "normal", deadline: D + "30", status: "open", progress: 0, assignee: "Mei Ling", assigned_to: 9004, created_by: 9004, created_at: D + "11 03:00:00", acknowledged: 1 },
+  { id: 4, title: "Renew studio insurance", priority: "low", deadline: D + "02", status: "completed", progress: 100, assignee: "Fixture Person", assigned_to: 9001, created_by: 9001, created_at: D + "01 01:00:00", acknowledged: 1 },
+  /* v1.200.0 - the signed-in person's own work, every state the Tasks tabs draw */
+  { id: 5, title: "Approve the October content plan", description: "Three campaigns, two lives a week.\nCheck the budget line.", priority: "urgent", deadline: D + "15", status: "open", progress: 33, assignee: "Fixture Person", assigned_to: 9001, created_by: 9002, created_at: D + "13 04:00:00", item_count: 3, item_done: 1, acknowledged: 0 },
+  { id: 6, title: "Sign the hotel partnership letter", priority: "normal", deadline: D + "22", status: "in_progress", progress: 50, assignee: "Fixture Person", assigned_to: 9001, created_by: 9001, created_at: D + "14 05:00:00", acknowledged: 1 },
+  { id: 7, title: "Update product photos for catalogue", priority: "normal", deadline: D + "10", status: "completed", progress: 100, assignee: "Nur Aisyah", assigned_to: 9002, created_by: 9001, created_at: D + "05 06:00:00", item_count: 2, item_done: 2, acknowledged: 1 },
 ];
 const announcements = [
   { id: 1, title: "Office closed on Malaysia Day", body: "16 September is a public holiday. Live sessions continue from home.", category: "general", created_at: D + "10 09:00:00", acked: 0 },
@@ -278,7 +285,21 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { key: "invoiced", label: "Invoiced", total_cents: 200000, months: [{ month: "2026-07", cents: 160000 }, { month: "2026-08", cents: 140000 }, { month: "2026-09", cents: 200000 }] }] };
   if (p === "/staff/sales/by-hour") data = { buckets: Array.from({ length: 24 }, (_, h) => ({ hour: h, cents: h >= 10 && h <= 22 ? 1500 + ((h * 37) % 9000) : 0, orders: h >= 10 && h <= 22 ? 1 + (h % 4) : 0 })) };
   if (p === "/birthdays-lite") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }, { id: 9003, name: "Farid Zul", birthday: "1995-10-04" }] };
-  if (p === "/staff/tasks") data = { tasks };
+  /* v1.200.0 - as the worker answers: everything with ?all=1 (managers), otherwise the caller's own */
+  if (p === "/staff/tasks") data = { tasks: q.get("all") === "1" ? tasks : tasks.filter((t) => t.assigned_to === 9001) };
+  /* v1.200.0 - a task's scope checklist, with who ticked what */
+  if (/^\/staff\/tasks\/\d+\/items$/.test(p)) {
+    const id = Number(p.split("/")[3]);
+    data = { items: id === 5 ? [
+      { id: 51, title: "Read the three campaign briefs", done: 1, done_at: D + "14 03:00:00", done_by_name: "Fixture Person" },
+      { id: 52, title: "Check the budget line", done: 0 },
+      { id: 53, title: "Reply to Nur Aisyah", done: 0 },
+    ] : id === 1 ? [
+      { id: 11, title: "Count the cartons", done: 1, done_at: D + "12 02:00:00", done_by_name: "Nur Aisyah" },
+      { id: 12, title: "Check the batch numbers", done: 0 },
+      { id: 13, title: "Update stock in Inventory", done: 0 },
+    ] : [] };
+  }
   if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
   /* v1.189.0 - the Users tabs: two with 2FA, one leaver still active, a few
      Google sign-ups as customers, and a sign-in log with a 2FA change in it */
@@ -291,6 +312,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     ];
     data = { users: us, staff: us };
   }
+  /* v1.201.0 - one staff vault for the Staff Records tab: a contract on
+     file and two of the six joining steps ticked */
+  if (/^\/staff\/users\/\d+\/documents$/.test(p)) data = p.includes("/9002/") ? {
+    documents: [{ id: 71, kind: "contract", label: null, filename: "Employment-contract.pdf", size: 182000, created_at: "2025-03-03 02:00:00", uploaded_by_name: "Fixture Person" }],
+    onboarding: { offer_letter: true, contract: true },
+  } : { documents: [], onboarding: {} };
   if (p === "/staff/users/activity") data = { events: [
     { action: "auth.login_2fa", created_at: "2026-10-22 02:19:00", name: "Fixture Person", email: "fixture@example.test" },
     { action: "auth.login", created_at: "2026-10-22 01:44:00", name: "Nur Aisyah binti Rahman", email: "aisyah@example.test" },

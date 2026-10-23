@@ -110,7 +110,7 @@ function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onE
     <span className={`bg-card border-border/70 relative flex items-center rounded-xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${editing ? "ring-primary ring-2" : ""} ${isRoot ? "min-w-[13rem]" : "min-w-[11rem]"}`}>
       <span aria-hidden className="absolute inset-y-1.5 left-0 w-1 rounded-full" style={{ background: ink }} />
       <button type="button" onClick={() => onOpen(u)}
-        title={`${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the record", "tekan untuk buka rekod")}`}
+        title={`${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the profile", "tekan untuk buka profil")}`}
         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-2 pr-2 pl-3.5 text-left focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none">
         <Face u={u} size={isRoot ? 44 : 34} />
         <span className="min-w-0">

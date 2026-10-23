@@ -95,7 +95,7 @@ ok("GET /profile returns the columns, with its own skew rung", /GET \/profile: 0
    && /role_title, responsibilities, responsibilities_updated_at\s*FROM users WHERE id = \?1/.test(staff));
 
 /* ---- 4. the tab shows it and the CEO can edit it ---- */
-ok("the directory imports the block", /import \{ ResponsibilitiesBlock, responsibilityLines \} from "@\/components\/staff\/responsibilities";/.test(dir));
+ok("the directory imports the block", /import \{ ResponsibilitiesBlock,(?: ResponsibilitiesView,)? responsibilityLines \} from "@\/components\/staff\/responsibilities";/.test(dir));
 ok("the block is drawn for working staff (a leaver's text stays readable)", /\{open\.has\(u\.id\) && \(u\.is_active \|\| u\.role_title \|\| u\.responsibilities\) && \(\s*<ResponsibilitiesBlock/.test(dir));
 ok("the button follows the permission AND the record being active", /canEdit=\{canEditResponsibilities && Boolean\(u\.is_active\)\}/.test(dir));
 ok("the saved record shows at once and the view refetches behind it", /setStaff\(merge\); setAllStaff\(merge\); void load\(\);/.test(dir));

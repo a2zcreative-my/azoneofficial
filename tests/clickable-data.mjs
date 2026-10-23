@@ -115,8 +115,14 @@ const ok = (label, cond, extra = "") => {
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
     /* v1.93.0 — the circle and the phone row both press through one
        handler, and that handler opens the record. */
-    ["a staff face opens the record", "components/staff/staff-directory.tsx",
-     /const press = \(u: Staff\) => \{[\s\S]{0,300}?setOpen\(\(o\) => \(o\.has\(u\.id\) \? new Set\(\) : new Set\(\[u\.id\]\)\)\)/, "a circle that is only a picture is the old list with the words removed"],
+    /* v1.201.0 - the five-tab Staff page: a face opens the person's profile
+       drawer, and the drawer's "Open full record" opens the record on Staff
+       Records. Still one handler, still a door, one step further. */
+    ["a staff face opens the profile, and the profile opens the record", "components/staff/staff-directory.tsx",
+     (src) => /const press = \(u: Staff\) => \{[\s\S]{0,200}?setPeek\(u\.id\)/.test(src)
+       && /const openRecord = \(id: number\) => \{[\s\S]{0,120}?setOpen\(new Set\(\[id\]\)\);\s*setTab\("records"\)/.test(src)
+       && /onClick=\{\(\) => openRecord\(peekU\.id\)\}/.test(src),
+     "a circle that is only a picture is the old list with the words removed"],
     /* v1.99.2 — asserted as a property over EVERY <StaffBubble …/> in the
        file, not as one window that a new prop can widen past. Whatever the
        layouts are, each one's face must press the single `press` handler. */

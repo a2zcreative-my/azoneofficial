@@ -83,7 +83,9 @@ ok("the bar never reorders on a count", (() => {
 ok("bottom bar and More use permission-filtered mobile sets", /mobileStops\.map\(\(stop\)/.test(page) && /mobileMore\.includes\(activeTab\)/.test(page));
 ok("More is grouped from the desktop information architecture", /const mobileGroups = SECTIONS\.map/.test(page) && /mobileGroups\.map\(\(section\)/.test(page));
 ok("More locks background scroll and restores it", /document\.body\.style\.overflow = "hidden"/.test(page) && /event\.key === "Escape"/.test(page) && /document\.body\.style\.overflow = previous/.test(page));
-ok("Staff opens as a searchable directory with both secondary views", /useState<"list" \| "circle" \| "org">\("list"\)/.test(staff) && /placeholder=\{L\("Find staff", "Cari kakitangan"\)\}/.test(staff) && /L\("Organisation", "Organisasi"\)/.test(staff) && /L\("Team map", "Peta pasukan"\)/.test(staff));
+/* v1.201.0 - five tabs: it opens on its Overview, the Directory is a tab with
+   its search, and the Organization Chart keeps both views. */
+ok("Staff opens on its overview, with a searchable directory and both chart views", /useState<StaffTab>\("overview"\)/.test(staff) && /useState<"org" \| "circle">\("org"\)/.test(staff) && /placeholder=\{L\("Find staff", "Cari kakitangan"\)\}/.test(staff) && /L\("Organisation", "Organisasi"\)/.test(staff) && /L\("Team map", "Peta pasukan"\)/.test(staff));
 /* v1.189.0 - accounts and individual access are tabs of one panel */
 ok("accounts and individual access share one surface", /<UsersPanel role=\{user\.role\} go=\{setTab\} \/>/.test(page) && /<AccessReviewCard \/>/.test(users) && /embedded = false/.test(review));
 ok("access preview uses the portal phone helper", /const phoneTabs = mobilePrimaryTabs/.test(review));
