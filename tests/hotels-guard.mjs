@@ -166,16 +166,23 @@ const { MY_STATES, formatMyPhone, cleanEmail } = await import(pathToFileURL(out)
   ok("the panel reports either way", /toast\(L\("Removed"[\s\S]{0,200}?toast\(L\("Not removed"/.test(panel));
   /* v1.101.1 - CEO, 05-09-2026: *"Every state 442 shown show the list too
      long, should scrollable at least."* 442 rows is fourteen screens with the
-     search box, the Export button and the map all off the top of it. */
-  ok("the rows scroll in their own box",
-     /<ul className="[^"]*overflow-y-auto[^"]*"[\s\S]{0,200}?hotels\.map/.test(panel),
-     "a 442-row list that only the page can scroll loses its own toolbar");
-  ok("the height is capped against the VIEWPORT, not a fixed pixel count",
-     /maxHeight: "min\(38rem, calc\(100svh - 20rem\)\)"/.test(panel),
-     "a fixed cap either swallows a laptop or wastes a monitor");
-  ok("a flick at the end of the list does not scroll the page behind it",
-     /overscroll-contain/.test(panel));
-  ok("the count says the list scrolls", /scroll the list/.test(panel));
+     search box, the Export button and the map all off the top of it.
+     v1.202.0 - the five-tab page answers the same complaint with PAGES: the
+     directory is a table of 10, 25 or 50 rows under its own toolbar, the map
+     is a tab of its own, and a new search, state or status goes back to page
+     one. What must stay true is the CEO's point - the toolbar never scrolls
+     away and the page is never 442 rows deep. */
+  ok("the directory pages instead of growing the page",
+     /const PER_PAGE = \[10, 25, 50\] as const;/.test(panel)
+     && /const pageRows = hotels\.slice\(/.test(panel) && /\.slice\(0, per\)/.test(panel)
+     && /<Pager total=\{hotels\.length\}/.test(panel),
+     "a 442-row list on one page loses its own toolbar");
+  ok("the toolbar sits above the rows it filters",
+     panel.indexOf('L("Search the directory"') > 0 && panel.indexOf('L("Search the directory"') < panel.indexOf("pageRows.map("));
+  ok("a new search, state or status goes back to page one",
+     /setQLive\(e\.target\.value\); setPage\(0\)/.test(panel) && /setState\(e\.target\.value\); setPage\(0\)/.test(panel) && /setDirStage\(e\.target\.value\); setPage\(0\)/.test(panel),
+     "page 9 of a search with two results is an empty table");
+  ok("the count says how many and which page", /Showing \$\{from\} to \$\{to\} of \$\{total\}/.test(panel));
 
   ok("the panel uses the portal's own styles, not bespoke buttons",
      /from "@\/components\/ui\/row-button"/.test(panel) && /from "@\/lib\/ui-styles"/.test(panel)

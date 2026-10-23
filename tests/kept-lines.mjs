@@ -51,12 +51,13 @@ const ok = (label, cond, why = "") => {
 /* v1.192.0 - Tailwind is retired, so a new file keeps lines through its own
    CSS module: a `css.name` class on the tag counts when that module's
    `.name` rule really says white-space: pre-line (or pre-wrap). */
+/* v1.202.0 - whatever the module is imported as (css, hp, sp ...), not only `css` */
 const modulePre = (src, open) => {
-  const mod = src.match(/import css from "\.\/([\w.-]+\.module\.css)"/);
+  const mod = src.match(/import (\w+) from "\.\/([\w.-]+\.module\.css)"/);
   if (!mod) return false;
   let sheet = "";
-  try { sheet = read(`components/portal/${mod[1]}`); } catch { return false; }
-  return [...open.matchAll(/css\.(\w+)/g)].some(([, name]) =>
+  try { sheet = read(`components/portal/${mod[2]}`); } catch { return false; }
+  return [...open.matchAll(new RegExp(`\\b${mod[1]}\\.(\\w+)`, "g"))].some(([, name]) =>
     new RegExp(`\\.${name}\\s*\\{[^}]*white-space:\\s*pre-(?:line|wrap)`).test(sheet));
 };
 

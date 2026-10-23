@@ -317,7 +317,14 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Assets: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Asset Register", "Assignments", "Maintenance & Disposal", "Reports & Audit"].map((t) => assets.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (assets.match(/className=\{view !== "[a-z]+" \? av\.off : ""\}/g) ?? []).length === 5);
   /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
      the search, the state filter and the pipeline precede it as before. */
-  ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'label={L("The map", "Peta")}', '================= THE MAP']));
+  /* v1.202.0 - five tabs in the brief's order, every zone kept mounted and
+     hidden with hp.off; within the page the filters still come before the
+     contact work and the map, and the call log lives in the hotel's drawer */
+  const hotelsFn = hotels.slice(hotels.indexOf('export function HotelsPanel'));
+  ok("Hotels: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Hotel Directory", "Outreach & Partnerships", "Reviews & Stays", "Map & Analytics"].map((t) => hotelsFn.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (hotelsFn.match(/className=\{tab !== "[a-z]+" \? hp\.off : ""\}/g) ?? []).length === 5);
+  ok("Hotels: filters and contact work before the map, the call log in the hotel's drawer", ordered(hotelsFn, ['L("Search the directory"', 'L("Filter by state"', 'L("Show hotels that are"', 'label={L("The map", "Peta")}', '================= THE MAP', '<HotelPipeline key={openHotel.id}']));
+  ok("Hotels: Add hotel only for the roles that may edit, the toast and the question outside every zone", /aside=\{canManage \? \(\s*<TabAside>\s*<TabAction icon="add" onClick=\{startAdd\}>/.test(hotelsFn) && hotelsFn.indexOf("{confirmNode}") < hotelsFn.indexOf("<TabZone"));
+  ok("Hotels: no contracts, staffing or allowance on the page (the directory has no such data)", !/allowance|contract(?:ed)?\b|staff assigned/i.test(hotelsFn.replace(/\/\*[\s\S]*?\*\//g, "")));
   /* v1.192.0 - the HR page is six tabs (hr-page.tsx): the brief's order, the
      administration gate the page used (now HR_ADMIN_ROLES inside it), the
      task report, the holidays and payslip cards behind that gate, the
@@ -357,6 +364,9 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Staff: the toast and the question render outside every zone", staffFn.indexOf("{toastNode}{promptNode}") > 0 && staffFn.indexOf("{toastNode}{promptNode}") < staffFn.indexOf("<TabZone"));
   ok("Staff: the record keeps its gates (Save and photo for the writers, Offboard for the amenders, role for the CEO and COO)", /open\.has\(u\.id\) && !readOnly && \(/.test(staffFn) && /open\.has\(u\.id\) && canAmend && !\["resigned", "terminated"\]/.test(staffFn) && /sec\.title === "Employment" && canSetRole && \(/.test(staffFn) && /const isLocked = \(u: Staff, key: keyof Staff\) =>\s*readOnly \|\| \(!canAmend && /.test(staffFn));
   ok("Staff: badges print one or many, from the record, the drawer and the selection", /onClick=\{\(\) => printBadge\(merged\)\}/.test(staffFn) && /printBadge\(\{ \.\.\.peekU, \.\.\.draft\[peekU\.id\] \} as Staff\)/.test(staffFn) && /printBadges\(staff\.filter\(\(u\) => selected\.has\(u\.id\)\)/.test(staffFn));
+  /* v1.201.1 - a leaver's status says the sign-in is blocked, which is true only
+     while the worker's login still refuses resigned and terminated */
+  ok("Staff: a leaver reads \"Sign-in blocked\", and the login still refuses leavers", /if \(s === "left"\) \{[\s\S]{0,1200}?L\("Sign-in blocked", "Log masuk disekat"\)/.test(staffFn) && /AND COALESCE\(employment_status, ''\) NOT IN \('resigned', 'terminated'\)/.test(read("worker/src/index.ts")));
   ok("Staff: the profile drawer carries no IC, bank or statutory number", (() => { const d = staffFn.slice(staffFn.indexOf("THE PROFILE DRAWER"), staffFn.indexOf("Add staff opens here")); return d.length > 500 && !/ic_number|bank_name|bank_account|epf_no|socso_no|tax_no|address|emergency_/.test(d); })());
   ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
   ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));

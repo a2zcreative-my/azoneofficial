@@ -51,16 +51,34 @@
  * The map's second colouring is reviews published per state. No money in
  * here, and the Watchers do not look in here. worker/src/hotel-pipeline.ts
  * is the other half.
+ *
+ * v1.202.0 - FIVE TABS, on the owner's mockup (23-10-2026): Overview, Hotel
+ * Directory, Outreach & Partnerships, Reviews & Stays, Map & Analytics. The
+ * same /staff/hotels reads (with the worker's own ?state, ?q, ?stage and
+ * ?due filters), the same add, edit, soft delete, CSV, stages, call log and
+ * map. New on screen, all from those reads: the overview's follow-up list
+ * and pipeline bars, a paged directory table, counts on the outreach chips,
+ * the stays-and-reviews table, a state breakdown under the map, and a hotel
+ * details drawer. The mockup's contracts, staff and allowance columns are
+ * not here - the directory has no such data. Every zone stays mounted and
+ * hides with hp.off.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { Skel, StaleHint } from "@/components/ui/skeleton";
+import { Skel, SkelRows, StaleHint } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
-import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
-import { card, inputClass, inputClassSm, fieldLabel, btnSmPrimary, btnSm } from "@/lib/ui-styles";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { card, inputClass, inputClassSm, fieldLabel, btnSmPrimary, btnSm, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess } from "@/lib/ui-styles";
+/* v1.202.0 - the five-tab page: the shared tab row, tiles, drawer and icons,
+   and this page's own module (no new utility classes). */
+import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import hp from "./hotels-page.module.css";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
@@ -329,18 +347,76 @@ const emptyHotel = (): Hotel => ({
   contacts: [{ person_name: "", phone: "", phone2: "", email: "" }],
 });
 
+
+/* v1.202.0 - the page's five tabs, the outreach chip colours (the shared
+   chip vocabulary; the call-log card above keeps its own), and the page
+   sizes of the directory table. */
+type HotelTab = "overview" | "directory" | "outreach" | "reviews" | "map";
+const STAGE_CHIP: Record<string, string> = {
+  lead: chipNeutral,
+  contacted: chipInfo,
+  agreed: chipGold,
+  reviewed: chipGold,
+  published: chipSuccess,
+  declined: chipDanger,
+};
+const PER_PAGE = [10, 25, 50] as const;
+/* Reviews & Stays: the three stages after "contacted" on the way to a published review */
+const STAY_STAGES = ["agreed", "reviewed", "published"] as const;
+const telHref = (n: string) => `tel:+60${n.replace(/\D/g, "").replace(/^0/, "")}`;
+
+/** Pages over a list that is already filtered: ‹ 1 2 … n ›, and the page size. */
+function Pager({ total, page, per, onPage, onPer, noun }: {
+  total: number; page: number; per: number; onPage: (p: number) => void; onPer: (n: number) => void; noun: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / per));
+  const p = Math.min(page, pages - 1);
+  const from = total === 0 ? 0 : p * per + 1;
+  const to = Math.min(total, (p + 1) * per);
+  /* the first, the last, and two either side of where you are */
+  const shown = [...new Set([0, pages - 1, p - 2, p - 1, p, p + 1, p + 2])].filter((x) => x >= 0 && x < pages).sort((a, b) => a - b);
+  return (
+    <div className={hp.pager}>
+      <span>{L(`Showing ${from} to ${to} of ${total} ${noun}`, `Memaparkan ${from} hingga ${to} daripada ${total} ${noun}`)}</span>
+      <span className={hp.pages}>
+        <select className={inputClassSm} value={per} aria-label={L("Rows per page", "Baris setiap halaman")} onChange={(e) => onPer(Number(e.target.value))}>
+          {PER_PAGE.map((n) => <option key={n} value={n}>{L(`${n} per page`, `${n} sehalaman`)}</option>)}
+        </select>
+        <button type="button" disabled={p === 0} onClick={() => onPage(p - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}>‹</button>
+        {shown.map((x, i) => (
+          <span key={x} className={hp.pages}>
+            {i > 0 && x - (shown[i - 1] ?? x) > 1 && <span aria-hidden>…</span>}
+            <button type="button" aria-current={x === p ? "page" : undefined} onClick={() => onPage(x)}>{x + 1}</button>
+          </span>
+        ))}
+        <button type="button" disabled={p >= pages - 1} onClick={() => onPage(p + 1)} aria-label={L("Next page", "Halaman seterusnya")}>›</button>
+      </span>
+    </div>
+  );
+}
+
 export function HotelsPanel() {
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
 
-  const [state, setState] = useState<string>("");     // "" = every state
+  /* v1.202.0 - FIVE TABS (the owner's mockup, 23-10-2026). */
+  const [tab, setTab] = useState<HotelTab>("overview");
+  const [state, setState] = useState<string>("");     // "" = every state - the map and the directory share it, as before
   const [qLive, setQLive] = useState("");
   const [q, setQ] = useState("");
+  /* the directory's outreach-status filter: "" all, "due", or a stage */
+  const [dirStage, setDirStage] = useState<string>("");
+  const [page, setPage] = useState(0);
+  const [per, setPer] = useState<number>(10);
+  /* the hotel whose details drawer is open, and the editor (create and edit alike) */
   const [open, setOpen] = useState<number | null>(null);
   const [draft, setDraft] = useState<Hotel | null>(null);
   const [saving, setSaving] = useState(false);
   /* v1.110.0 - the worklist chip ("" all, "due", or a stage) and the map's colouring */
   const [filter, setFilter] = useState<string>("");
+  const [outQ, setOutQ] = useState("");
+  const [outPage, setOutPage] = useState(0);
+  const [stayF, setStayF] = useState<string>("");
   const [mapMode, setMapMode] = useState<"hotels" | "published">("hotels");
 
   /* Typing waits for the pause — the list is 442 hotels and their people. */
@@ -349,29 +425,36 @@ export function HotelsPanel() {
     return () => window.clearTimeout(t);
   }, [qLive]);
 
-  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. The view you
-     had last time paints at once from the device; the fetch runs behind it
-     and swaps the figures in. Every (state, search) pair is its own entry,
-     so pressing Johor and then Selangor and then Johor again shows Johor
-     instantly the second time. A write on any hotel bumps the "hotels" topic
-     and the open view refetches by itself, so nobody works from a list a
-     colleague changed a minute ago. */
-  const filterQs = filter === "due" ? "&due=1" : filter ? `&stage=${filter}` : "";
-  const view = useCachedApi<ListData>(
-    `/staff/hotels?${state ? `state=${encodeURIComponent(state)}&` : ""}${q ? `q=${encodeURIComponent(q)}` : ""}${filterQs}`,
-    true, ["hotels"],
-  );
+  /* v1.104.0 (roadmap phase 02) - remembered, then refreshed. Every (state,
+     search, filter) is its own remembered view; a write on any hotel bumps
+     the "hotels" topic and every open view refetches by itself.
+     v1.202.0 - three reads of the same list, all the worker's own filters:
+     the whole directory (the figures, the map, Reviews & Stays), the
+     Directory tab's (state, search, outreach status), and the Outreach
+     tab's chip. With nothing chosen the directory IS the whole list. */
+  const qsOf = (st: string, qq: string, f: string) =>
+    `/staff/hotels?${st ? `state=${encodeURIComponent(st)}&` : ""}${qq ? `q=${encodeURIComponent(qq)}` : ""}${f === "due" ? "&due=1" : f ? `&stage=${f}` : ""}`;
+  const allView = useCachedApi<ListData>(qsOf("", "", ""), true, ["hotels"]);
+  const view = useCachedApi<ListData>(qsOf(state, q, dirStage), true, ["hotels"]);
+  const outView = useCachedApi<ListData>(qsOf("", "", filter), true, ["hotels"]);
+  const dueView = useCachedApi<ListData>(qsOf("", "", "due"), true, ["hotels"]);
+
+  const all = useMemo(() => allView.data?.hotels ?? [], [allView.data]);
   const hotels = useMemo(() => view.data?.hotels ?? [], [view.data]);
-  const states = useMemo(() => view.data?.states ?? [], [view.data]);
-  const byState = useMemo(() => view.data?.by_state ?? {}, [view.data]);
-  const statePipe = useMemo(() => view.data?.state_pipeline ?? {}, [view.data]);
-  const canManage = Boolean(view.data?.can_manage);
-  const pending = Boolean(view.data?.pending_migration);
+  const states = useMemo(() => allView.data?.states ?? view.data?.states ?? [], [allView.data, view.data]);
+  const byState = useMemo(() => allView.data?.by_state ?? {}, [allView.data]);
+  const statePipe = useMemo(() => allView.data?.state_pipeline ?? {}, [allView.data]);
+  const canManage = Boolean(allView.data?.can_manage ?? view.data?.can_manage);
+  const pending = Boolean(allView.data?.pending_migration);
   /* the pipeline columns exist once 0116 has run; before that the rows have no stage */
-  const pipelineOn = hotels.length === 0 || hotels[0]?.stage !== undefined;
-  const loaded = !view.loading;
-  const refresh = view.refresh;
-  const load = useCallback(async () => { refresh(); }, [refresh]);
+  const pipelineOn = all.length === 0 || all[0]?.stage !== undefined;
+  const loaded = !allView.loading;
+  const dirLoaded = !view.loading;
+  const refreshAll = allView.refresh;
+  const refreshDir = view.refresh;
+  const refreshOut = outView.refresh;
+  const refreshDue = dueView.refresh;
+  const load = useCallback(async () => { refreshAll(); refreshDir(); refreshOut(); refreshDue(); }, [refreshAll, refreshDir, refreshOut, refreshDue]);
 
   const total = useMemo(() => Object.values(byState).reduce((a, b) => a + b, 0), [byState]);
   const maxState = useMemo(() => Math.max(1, ...Object.values(byState)), [byState]);
@@ -387,6 +470,54 @@ export function HotelsPanel() {
   );
   const raised = useMemo(() => [...STATES].sort((a, b) => a.cy - b.cy), []);
   const today = todayMyt();
+
+  /* v1.173.0 (tab concept) - the summary tier from the figures the map
+     already weighs: hotels, states, and the pipeline's three counts. */
+  const pipeTotals = Object.values(statePipe).reduce((a, m) => ({ contacted: a.contacted + m.contacted, agreed: a.agreed + m.agreed }), { contacted: 0, agreed: 0 });
+  /* v1.202.0 - how many hotels sit at each stage, counted from the whole list */
+  const stageCount = (s: string) => all.filter((h) => (h.stage ?? "lead") === s).length;
+  const dueList = dueView.data?.hotels ?? [];
+  const statesCovered = Object.values(byState).filter((n) => n > 0).length;
+  const stateRows = Object.entries(byState).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const openHotel = open == null ? null : all.find((h) => h.id === open) ?? hotels.find((h) => h.id === open) ?? (outView.data?.hotels ?? []).find((h) => h.id === open) ?? null;
+
+  /* the directory's page, and the outreach chip's rows after its own search */
+  const pageRows = hotels.slice(Math.min(page, Math.max(0, Math.ceil(hotels.length / per) - 1)) * per).slice(0, per);
+  const outNeedle = outQ.trim().toLowerCase();
+  const outRows = (outView.data?.hotels ?? []).filter((h) => !outNeedle
+    || [h.hotel_name, h.company, h.address, h.state].some((v) => (v ?? "").toLowerCase().includes(outNeedle))
+    || h.contacts.some((c) => [c.person_name, c.phone, c.phone2, c.email].some((v) => (v ?? "").toLowerCase().includes(outNeedle))));
+  const outPageRows = outRows.slice(Math.min(outPage, Math.max(0, Math.ceil(outRows.length / per) - 1)) * per).slice(0, per);
+  const stays = all.filter((h) => (STAY_STAGES as readonly string[]).includes(h.stage ?? "lead")).filter((h) => !stayF || h.stage === stayF);
+
+  const stageChip = (s: string | undefined) => <span className={STAGE_CHIP[s ?? "lead"] ?? chipNeutral}>{stageLabel(s)}</span>;
+  const nextCall = (h: Hotel) => h.next_at
+    ? <span className={h.next_at <= today ? hp.due : undefined}>{h.next_at <= today ? L("due", "perlu") : ""} {dmy(h.next_at)}</span>
+    : <span className={hp.muted}>—</span>;
+  const head = (icon: AppIconName, well: string | undefined, title: string, sub?: string, right?: ReactNode) => (
+    <div className={hp.head}>
+      <div className={hp.lead}>
+        <span className={`${hp.well} ${well}`} aria-hidden><AppIcon name={icon} /></span>
+        <div className={hp.headText}>
+          <h3 className={hp.title}>{title}</h3>
+          {sub && <p className={hp.sub}>{sub}</p>}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+  const hotelBtn = (h: Hotel) => (
+    <button type="button" className={hp.hotelName} onClick={() => setOpen(h.id)} title={L("Open the hotel's details", "Buka butiran hotel")}>
+      <strong>{h.hotel_name}</strong>
+      <span>{h.address || h.company || L("(no address recorded)", "(tiada alamat direkodkan)")}</span>
+    </button>
+  );
+  const skelRows = (n: number, cols: number) => Array.from({ length: n }, (_, i) => (
+    <tr key={`sk-${i}`} aria-hidden><td colSpan={cols}><Skel className="h-9 w-full" /></td></tr>
+  ));
+  const goDirectory = (st: string, stage = "") => { setState(st); setDirStage(stage); setQLive(""); setPage(0); setTab("directory"); };
+  const goOutreach = (f: string) => { setFilter(f); setOutPage(0); setTab("outreach"); };
+  const startAdd = () => { setDraft({ ...emptyHotel(), state: state || "KUALA LUMPUR" }); };
 
   const save = async () => {
     if (!draft) return;
@@ -414,6 +545,8 @@ export function HotelsPanel() {
   };
 
   const remove = async (h: Hotel) => {
+    /* v1.202.0 - the details drawer closes first: the question must not sit behind it */
+    setOpen(null);
     const ok = await confirm({
       title: L(`Remove ${h.hotel_name}?`, `Buang ${h.hotel_name}?`),
       message: L("It leaves the list with its contacts. Nothing is destroyed — the record is kept and the removal is recorded against your name, so it can be restored.",
@@ -445,275 +578,404 @@ export function HotelsPanel() {
 
   const patchContact = (i: number, k: keyof Contact, v: string) =>
     setDraft((d) => d && ({ ...d, contacts: d.contacts.map((c, x) => (x === i ? { ...c, [k]: v } : c)) }));
+  const editHotel = (h: Hotel) => {
+    setOpen(null);
+    setDraft({ ...h, contacts: h.contacts.length ? h.contacts.map((c) => ({ ...c })) : [{ person_name: "", phone: "", phone2: "", email: "" }] });
+  };
 
-  /* v1.173.0 (tab concept) - the summary tier from the figures the map
-     already weighs: hotels, states, and the pipeline's three counts. */
-  const pipeTotals = Object.values(statePipe).reduce((a, m) => ({ contacted: a.contacted + m.contacted, agreed: a.agreed + m.agreed }), { contacted: 0, agreed: 0 });
+  const tableActions = (h: Hotel) => (
+    <td className={hp.actCell}>
+      <span>
+        <button type="button" className={rowBtn} onClick={() => setOpen(h.id)}>{L("View", "Lihat")}</button>
+        {canManage && <button type="button" className={rowBtn} onClick={() => editHotel(h)}>{L("Edit", "Sunting")}</button>}
+        {canManage && <button type="button" className={rowBtnDanger} onClick={() => void remove(h)}>{L("Delete", "Padam")}</button>}
+      </span>
+    </td>
+  );
 
   return (
-    /* AT A GLANCE, THE DIRECTORY (search, filter, contact work), THE MAP -
-       filters and contact work before the map, as v1.140.0 ordered. */
+    /* v1.202.0 - five tabs: OVERVIEW, HOTEL DIRECTORY (search, filter,
+       table, add / edit / delete / CSV), OUTREACH & PARTNERSHIPS (the
+       worklist chips and the call log), REVIEWS & STAYS, MAP & ANALYTICS.
+       Every zone stays mounted and hides with hp.off. */
     <TabPage>
+      {/* outside every zone: a hidden tab must not hide a toast or a question */}
       {toastNode}
       {confirmNode}
-      <TabZone label={L("At a glance", "Sepintas lalu")}>
-        <SummaryStrip cols={5} ariaLabel={L("Hotel directory summary", "Ringkasan direktori hotel")}>
-          <SummaryStat label={L("Hotels", "Hotel")} value={total} busy={!loaded} />
-          <SummaryStat label={L("States", "Negeri")} value={Object.keys(byState).length} busy={!loaded} />
-          <SummaryStat label={L("Contacted", "Dihubungi")} value={pipeTotals.contacted} tone="brand" busy={!loaded} />
-          <SummaryStat label={L("Stay agreed", "Penginapan dipersetujui")} value={pipeTotals.agreed} tone="warning" busy={!loaded} />
-          <SummaryStat label={L("Reviews published", "Ulasan diterbitkan")} value={totalPublished} tone="success" busy={!loaded} onClick={() => setMapMode(byPublished ? "hotels" : "published")} active={byPublished} title={L("Colour the map by published reviews", "Warnakan peta mengikut ulasan diterbitkan")} />
-        </SummaryStrip>
-      </TabZone>
-      <TabZone label={L("The directory", "Direktori")}>
-      {/* ================= THE LIST ================= */}
+      <LineTabs value={tab} onChange={(k) => setTab(k)} label={L("Hotels", "Hotel")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["directory", L("Hotel Directory", "Direktori Hotel")],
+        ["outreach", L("Outreach & Partnerships", "Jangkauan & Perkongsian")],
+        ["reviews", L("Reviews & Stays", "Ulasan & Penginapan")],
+        ["map", L("Map & Analytics", "Peta & Analitik")],
+      ] as const} aside={canManage ? (
+        <TabAside>
+          <TabAction icon="add" onClick={startAdd}>{L("Add hotel", "Tambah hotel")}</TabAction>
+        </TabAside>
+      ) : undefined} />
       {pending && (
-          <p className="text-warning mt-3 text-xs">
-            {L("The hotel tables are not on this database yet — run the deploy so migrations 0111 and 0112 apply.",
-               "Jadual hotel belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0111 dan 0112 digunakan.")}
-          </p>
-        )}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold">
-            {state || L("Every state", "Semua negeri")}
-            <span className="text-muted-foreground ml-2 text-xs font-normal">
-              {loaded ? `${hotels.length} ${L("shown", "dipaparkan")}${hotels.length > 12 ? L(" — scroll the list", " — tatal senarai") : ""}` : ""}
-            </span>
-            <StaleHint show={view.stale} className="ml-2" />
-          </p>
-          <span className="flex flex-wrap items-center gap-1.5">
-            <input className={`${inputClassSm} w-44`} value={qLive} placeholder={L("Find hotel, company or person", "Cari hotel, syarikat atau orang")}
-              aria-label={L("Search the directory", "Cari direktori")} onChange={(e) => setQLive(e.target.value)} />
-            <select className={`${inputClassSm} max-w-full`} value={state}
-              aria-label={L("Filter by state", "Tapis mengikut negeri")} onChange={(e) => setState(e.target.value)}>
-              <option value="">{L("All states", "Semua negeri")}</option>
-              {[...new Set([...states, ...(state ? [state] : [])])].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {qLive && (
-              <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setQLive("")}>
-                {L("Clear", "Kosongkan")}
-              </button>
-            )}
-            <button type="button" className={rowBtn} onClick={exportCsv} disabled={!loaded || hotels.length === 0}>
-              {L("Export CSV", "Eksport CSV")}
-            </button>
-            {canManage && (
-              <button type="button" className={btnSmPrimary} onClick={() => { setDraft({ ...emptyHotel(), state: state || "KUALA LUMPUR" }); setOpen(null); }}>
-                {L("+ Add hotel", "+ Tambah hotel")}
-              </button>
-            )}
-          </span>
+        <p className={hp.warnText}><AppIcon name="warning" />
+          {L("The hotel tables are not on this database yet — run the deploy so migrations 0111 and 0112 apply.",
+             "Jadual hotel belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0111 dan 0112 digunakan.")}
+        </p>
+      )}
+
+      {/* ============================== OVERVIEW ============================== */}
+      <TabZone label={L("At a glance", "Sepintas lalu")} className={tab !== "overview" ? hp.off : ""}>
+        <div className={hp.kpis}>
+          <KpiRow label={L("Hotel directory summary", "Ringkasan direktori hotel")}>
+            <KpiTile icon="store" tone="blue" label={L("Hotels", "Hotel")} value={total} busy={!loaded}
+              sub={L("In the directory", "Dalam direktori")} onClick={() => goDirectory("")} title={L("Open the directory", "Buka direktori")} />
+            <KpiTile icon="place" tone="green" label={L("States covered", "Negeri diliputi")} value={statesCovered} busy={!loaded}
+              sub={L(`of ${states.length || 15} states`, `daripada ${states.length || 15} negeri`)} onClick={() => setTab("map")} title={L("Open the map", "Buka peta")} />
+            <KpiTile icon="chat" tone="navy" label={L("Contacted", "Dihubungi")} value={pipeTotals.contacted} busy={!loaded}
+              sub={L(`${total ? Math.round((pipeTotals.contacted * 100) / total) : 0}% of hotels`, `${total ? Math.round((pipeTotals.contacted * 100) / total) : 0}% daripada hotel`)}
+              onClick={() => goOutreach("contacted")} />
+            <KpiTile icon="holiday" tone="gold" label={L("Stay agreed", "Penginapan dipersetujui")} value={pipeTotals.agreed} busy={!loaded}
+              sub={L("Agreed or reviewed", "Dipersetujui atau diulas")} onClick={() => { setStayF(""); setTab("reviews"); }} />
+            <KpiTile icon="star" tone="green" label={L("Reviews published", "Ulasan diterbitkan")} value={totalPublished} busy={!loaded}
+              sub={L("Live with a link", "Diterbitkan dengan pautan")} onClick={() => { setStayF("published"); setTab("reviews"); }}
+              title={L("Show the published reviews", "Tunjuk ulasan diterbitkan")} />
+          </KpiRow>
         </div>
 
+        <div className={hp.split}>
+          <section className={card} aria-label={L("Hotels requiring follow-up", "Hotel perlu susulan")}>
+            {head("time", hp.redWell, L("Hotels Requiring Follow-up", "Hotel Perlu Susulan"),
+              L("A call-back date that has passed, or a worked hotel quiet for ninety days.", "Tarikh panggil semula yang telah lepas, atau hotel yang senyap sembilan puluh hari."),
+              <button type="button" className={btnSm} onClick={() => goOutreach("due")}>{L("View all", "Lihat semua")}</button>)}
+            {dueView.loading ? <SkelRows rows={4} /> : dueList.length === 0 ? (
+              <p className={hp.empty}><AppIcon name="success" />{L("Nobody is due a call. Every follow-up date is ahead and no worked hotel has gone quiet.", "Tiada siapa perlu dipanggil. Semua tarikh susulan masih ke hadapan dan tiada hotel yang senyap.")}</p>
+            ) : (
+              <ul className={hp.attn}>
+                {dueList.slice(0, 6).map((h) => (
+                  <li key={h.id}>
+                    <button type="button" onClick={() => setOpen(h.id)}>
+                      <span className={`${hp.well} ${hp.goldWell}`} aria-hidden><AppIcon name="store" /></span>
+                      <span className={hp.attnText}>
+                        <strong>{h.hotel_name}</strong>
+                        <span>{h.state} · {stageLabel(h.stage)}{h.last_contact_at ? ` · ${L("spoke", "bercakap")} ${ago(h.last_contact_at)}` : ""}</span>
+                      </span>
+                      <span className={hp.due}>{h.next_at ? dmy(h.next_at) : L("quiet", "senyap")}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className={card} aria-label={L("Outreach pipeline", "Saluran jangkauan")}>
+            {head("chart", hp.blueWell, L("Outreach Pipeline", "Saluran Jangkauan"),
+              L("Where every hotel stands on the way to a published review. Press a stage for its hotels.", "Kedudukan setiap hotel ke arah ulasan diterbitkan. Tekan peringkat untuk hotelnya."))}
+            {!loaded ? <SkelRows rows={5} /> : !pipelineOn ? (
+              <p className={hp.empty}><AppIcon name="warning" />{L("The pipeline is not on this database yet — run the deploy so migrations 0116 and 0117 apply.", "Saluran belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0116 dan 0117 digunakan.")}</p>
+            ) : (
+              <ul className={hp.bars}>
+                {Object.keys(STAGE_LABEL).map((s) => {
+                  const n = stageCount(s);
+                  return (
+                    <li key={s}>
+                      <button type="button" onClick={() => goOutreach(s)}>
+                        <span>{stageLabel(s)}</span>
+                        <span className={hp.track}><span className={`${hp.fill} ${s === "published" ? hp.fillGreen : s === "declined" ? hp.fillRed : s === "lead" ? hp.fillGrey : s === "contacted" ? hp.fillBlue : ""}`} style={{ width: `${Math.max(n ? 3 : 0, total ? (n * 100) / total : 0)}%` }} /></span>
+                        <strong>{n}</strong>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <div className={hp.split}>
+          <section className={card} aria-label={L("Top states", "Negeri teratas")}>
+            {head("place", hp.goldWell, L("Hotels by State", "Hotel mengikut Negeri"), L("The states with the most hotels. Press one for its list.", "Negeri dengan hotel terbanyak. Tekan satu untuk senarainya."),
+              <button type="button" className={btnSm} onClick={() => setTab("map")}>{L("Open the map", "Buka peta")}</button>)}
+            {!loaded ? <SkelRows rows={5} /> : (
+              <ul className={hp.bars}>
+                {stateRows.slice(0, 6).map(([st, n]) => (
+                  <li key={st}>
+                    <button type="button" onClick={() => goDirectory(st)}>
+                      <span>{st}</span>
+                      <span className={hp.track}><span className={hp.fill} style={{ width: `${Math.max(3, (n / maxState) * 100)}%` }} /></span>
+                      <strong>{n}</strong>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className={card} aria-label={L("Quick actions", "Tindakan pantas")}>
+            {head("fast", hp.goldWell, L("Quick Actions", "Tindakan Pantas"))}
+            <ul className={hp.links}>
+              {canManage && (
+                <li><button type="button" className={hp.link} onClick={startAdd}>
+                  <span className={`${hp.well} ${hp.goldWell}`} aria-hidden><AppIcon name="add" /></span>
+                  <strong>{L("Add hotel", "Tambah hotel")}</strong><span>{L("A new hotel and its contacts", "Hotel baharu dan kenalannya")}</span>
+                </button></li>
+              )}
+              <li><button type="button" className={hp.link} onClick={() => goOutreach("due")}>
+                <span className={`${hp.well} ${hp.redWell}`} aria-hidden><AppIcon name="chat" /></span>
+                <strong>{L("Calls due", "Panggilan perlu")}</strong><span>{L("Who to ring back today", "Siapa perlu dipanggil semula hari ini")}</span>
+              </button></li>
+              <li><button type="button" className={hp.link} onClick={() => goOutreach("lead")}>
+                <span className={`${hp.well} ${hp.blueWell}`} aria-hidden><AppIcon name="clients" /></span>
+                <strong>{L("Not contacted", "Belum dihubungi")}</strong><span>{L("Who to ask next", "Siapa untuk ditanya seterusnya")}</span>
+              </button></li>
+              <li><button type="button" className={hp.link} onClick={() => { setStayF(""); setTab("reviews"); }}>
+                <span className={`${hp.well} ${hp.greenWell}`} aria-hidden><AppIcon name="star" /></span>
+                <strong>{L("Reviews & stays", "Ulasan & penginapan")}</strong><span>{L("Agreed, reviewed, published", "Dipersetujui, diulas, diterbitkan")}</span>
+              </button></li>
+              <li><button type="button" className={hp.link} onClick={() => setTab("map")}>
+                <span className={`${hp.well} ${hp.goldWell}`} aria-hidden><AppIcon name="place" /></span>
+                <strong>{L("Malaysia map", "Peta Malaysia")}</strong><span>{L("Hotels and reviews by state", "Hotel dan ulasan mengikut negeri")}</span>
+              </button></li>
+              <li><button type="button" className={hp.link} onClick={() => goDirectory("")}>
+                <span className={`${hp.well} ${hp.blueWell}`} aria-hidden><AppIcon name="download" /></span>
+                <strong>{L("Export CSV", "Eksport CSV")}</strong><span>{L("From the Hotel Directory", "Dari Direktori Hotel")}</span>
+              </button></li>
+            </ul>
+          </section>
+        </div>
+      </TabZone>
+
+      {/* =========================== HOTEL DIRECTORY =========================== */}
+      <TabZone label={L("The directory", "Direktori")} className={tab !== "directory" ? hp.off : ""}>
+      <section className={card} aria-label={L("Hotel directory", "Direktori hotel")}>
+        {head("store", hp.goldWell, L("All Hotels", "Semua Hotel"),
+          `${state || L("Every state", "Semua negeri")}${dirLoaded ? ` · ${hotels.length} ${L("shown", "dipaparkan")}` : ""}`,
+          <span className={hp.mapTools}>
+            <StaleHint show={view.stale} />
+            <button type="button" className={rowBtn} onClick={exportCsv} disabled={!dirLoaded || hotels.length === 0}>
+              {L("Export CSV", "Eksport CSV")}
+            </button>
+          </span>)}
+        <div className={hp.toolbar}>
+          <label className={hp.search}>
+            <AppIcon name="search" />
+            <input value={qLive} placeholder={L("Find hotel, company, location or person", "Cari hotel, syarikat, lokasi atau orang")}
+              aria-label={L("Search the directory", "Cari direktori")} onChange={(e) => { setQLive(e.target.value); setPage(0); }} />
+          </label>
+          <select className={inputClassSm} value={state}
+            aria-label={L("Filter by state", "Tapis mengikut negeri")} onChange={(e) => { setState(e.target.value); setPage(0); }}>
+            <option value="">{L("All states", "Semua negeri")}</option>
+            {[...new Set([...states, ...(state ? [state] : [])])].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {pipelineOn && (
+            <select className={inputClassSm} value={dirStage}
+              aria-label={L("Filter by outreach status", "Tapis mengikut status jangkauan")} onChange={(e) => { setDirStage(e.target.value); setPage(0); }}>
+              <option value="">{L("All outreach statuses", "Semua status jangkauan")}</option>
+              {FILTERS.filter((f) => f.key).map((f) => <option key={f.key} value={f.key}>{L(f.en, f.ms)}</option>)}
+            </select>
+          )}
+          {(qLive || state || dirStage) && (
+            <button type="button" className={btnSm} onClick={() => { setQLive(""); setState(""); setDirStage(""); setPage(0); }}>
+              {L("Clear", "Kosongkan")}
+            </button>
+          )}
+        </div>
+        <div className={`erp-table-scroll ${hp.tableWrap}`}>
+          <table className={hp.table} aria-label={L("Hotel directory", "Direktori hotel")}>
+            <thead><tr>
+              <th>{L("Hotel", "Hotel")}</th>
+              <th>{L("State", "Negeri")}</th>
+              <th>{L("Company", "Syarikat")}</th>
+              <th>{L("Rooms", "Bilik")}</th>
+              <th>{L("Contact", "Kenalan")}</th>
+              {pipelineOn && <th>{L("Outreach", "Jangkauan")}</th>}
+              <th><span className={hp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+            </tr></thead>
+            <tbody>
+              {!dirLoaded && skelRows(6, 7)}
+              {dirLoaded && hotels.length === 0 && (
+                <tr><td colSpan={7}><p className={hp.empty}><AppIcon name="search" />
+                  {q ? L("Nothing matches that.", "Tiada yang sepadan.")
+                     : dirStage === "due" ? L("Nobody is due a call. Every follow-up date is ahead and no worked hotel has gone quiet.", "Tiada siapa perlu dipanggil. Semua tarikh susulan masih ke hadapan dan tiada hotel yang senyap.")
+                     : dirStage ? L(`No hotel is at "${stageLabel(dirStage)}"${state ? ` in ${state}` : ""}.`, `Tiada hotel pada "${stageLabel(dirStage)}"${state ? ` di ${state}` : ""}.`)
+                     : L("No hotels in this state yet.", "Belum ada hotel di negeri ini.")}
+                </p></td></tr>
+              )}
+              {dirLoaded && pageRows.map((h) => (
+                <tr key={h.id}>
+                  <td className={hp.hotelCell}>{hotelBtn(h)}</td>
+                  <td data-label={L("State", "Negeri")}>{h.state}</td>
+                  <td data-label={L("Company", "Syarikat")}>{h.company || <span className={hp.muted}>—</span>}</td>
+                  <td data-label={L("Rooms", "Bilik")} className={hp.mono}>
+                    <span>{h.rooms ?? <span className={hp.muted}>—</span>}{h.stars ? <span className={hp.stars}> · {h.stars}</span> : null}</span>
+                  </td>
+                  <td data-label={L("Contact", "Kenalan")}>
+                    {h.contacts[0]?.phone
+                      ? <a className={hp.tel} href={telHref(h.contacts[0].phone)}>{h.contacts[0].phone}</a>
+                      : <span className={hp.muted}>{h.contacts.length ? `${h.contacts.length} ${L("contact", "kenalan")}` : L("none", "tiada")}</span>}
+                  </td>
+                  {pipelineOn && <td data-label={L("Outreach", "Jangkauan")}>{stageChip(h.stage)}</td>}
+                  {tableActions(h)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {dirLoaded && hotels.length > 0 && (
+          <Pager total={hotels.length} page={page} per={per} onPage={setPage} onPer={(n) => { setPer(n); setPage(0); }} noun={L("hotels", "hotel")} />
+        )}
+      </section>
+      </TabZone>
+
+      {/* ======================== OUTREACH & PARTNERSHIPS ======================== */}
+      <TabZone label={L("Outreach and partnerships", "Jangkauan dan perkongsian")} className={tab !== "outreach" ? hp.off : ""}>
+      <section className={card} aria-label={L("Outreach worklist", "Senarai kerja jangkauan")}>
+        {head("chat", hp.blueWell, L("Outreach & Partnerships", "Jangkauan & Perkongsian"),
+          L("\"Not contacted\" is who to ring; \"Due for a call\" is who to ring back. Open a hotel to see its people and log the call you just made.",
+            "\"Belum dihubungi\" ialah siapa untuk dihubungi; \"Perlu dipanggil\" ialah siapa untuk dipanggil semula. Buka hotel untuk melihat kenalannya dan merekod panggilan anda."))}
         {/* ---- v1.110.0: the worklist chips. "Never contacted" is who to ring;
             "Due" is who to ring back - a follow-up date that has passed, or a
             worked hotel quiet for ninety days. The server does the filtering
             (?stage=, ?due=1), so each chip is its own remembered view. ---- */}
-        {pipelineOn && (
-          <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label={L("Show hotels that are", "Tunjuk hotel yang")}>
-            {FILTERS.map((f) => (
-              <button key={f.key} type="button" role="tab" aria-selected={filter === f.key} onClick={() => setFilter(f.key)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${filter === f.key ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>
-                {L(f.en, f.ms)}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ---- the editor: one form, create and edit alike ---- */}
-        {draft && (
-          <div className="border-border bg-secondary/30 mt-3 rounded-xl border p-3">
-            <p className="mb-2 text-xs font-semibold">
-              {draft.id ? L("Edit hotel", "Sunting hotel") : L("New hotel", "Hotel baharu")}
-            </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <label className="sm:col-span-1">
-                <span className={fieldLabel}>{L("State", "Negeri")}</span>
-                <select className={inputClass} value={draft.state} onChange={(e) => setDraft({ ...draft, state: e.target.value })}>
-                  {(states.length ? states : PICKABLE).map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </label>
-              <label className="sm:col-span-2">
-                <span className={fieldLabel}>{L("Name of hotel", "Nama hotel")}</span>
-                <input className={inputClass} value={draft.hotel_name} maxLength={160}
-                  onChange={(e) => setDraft({ ...draft, hotel_name: e.target.value })} />
-              </label>
-              <label className="sm:col-span-2">
-                <span className={fieldLabel}>{L("Name of company", "Nama syarikat")}</span>
-                <input className={inputClass} value={draft.company ?? ""} maxLength={160}
-                  onChange={(e) => setDraft({ ...draft, company: e.target.value })} />
-              </label>
-              <label>
-                <span className={fieldLabel}>{L("Rooms", "Bilik")}</span>
-                <input className={inputClass} type="number" min={0} value={draft.rooms ?? ""}
-                  onChange={(e) => setDraft({ ...draft, rooms: e.target.value === "" ? null : Number(e.target.value) })} />
-              </label>
-              <label className="sm:col-span-3">
-                <span className={fieldLabel}>{L("Address", "Alamat")}</span>
-                <input className={inputClass} value={draft.address ?? ""} maxLength={300}
-                  onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
-              </label>
-              <label>
-                <span className={fieldLabel}>{L("Star rating", "Penarafan bintang")}</span>
-                <input className={inputClass} value={draft.stars ?? ""} maxLength={20} placeholder="****"
-                  onChange={(e) => setDraft({ ...draft, stars: e.target.value })} />
-              </label>
-              <label>
-                <span className={fieldLabel}>{L("MOF valid until", "MOF sah hingga")}</span>
-                <input className={inputClass} value={draft.mof_validity ?? ""} maxLength={40} placeholder="31.12.2027"
-                  onChange={(e) => setDraft({ ...draft, mof_validity: e.target.value })} />
-              </label>
-              <label>
-                <span className={fieldLabel}>{L("Halal valid until", "Halal sah hingga")}</span>
-                <input className={inputClass} value={draft.halal_validity ?? ""} maxLength={40} placeholder="31.12.2027"
-                  onChange={(e) => setDraft({ ...draft, halal_validity: e.target.value })} />
-              </label>
-            </div>
-
-            <p className="mt-3 mb-1 text-xs font-semibold">{L("Contact people", "Orang untuk dihubungi")}</p>
-            {draft.contacts.map((c, i) => (
-              <div key={i} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_1.2fr_auto]">
-                <input className={inputClassSm} placeholder={L("Name", "Nama")} value={c.person_name ?? ""}
-                  aria-label={L("Contact name", "Nama kenalan")} onChange={(e) => patchContact(i, "person_name", e.target.value)} />
-                <input className={inputClassSm} placeholder="012-345 6789" value={c.phone ?? ""}
-                  aria-label={L("Phone", "Telefon")} onChange={(e) => patchContact(i, "phone", e.target.value)} />
-                <input className={inputClassSm} placeholder="03-1234 5678" value={c.phone2 ?? ""}
-                  aria-label={L("Second phone", "Telefon kedua")} onChange={(e) => patchContact(i, "phone2", e.target.value)} />
-                <input className={inputClassSm} placeholder="name@hotel.com" value={c.email ?? ""}
-                  aria-label={L("Email", "E-mel")} onChange={(e) => patchContact(i, "email", e.target.value)} />
-                <button type="button" className={rowBtnDanger}
-                  onClick={() => setDraft({ ...draft, contacts: draft.contacts.filter((_, x) => x !== i) })}>
-                  ✕
+        {pipelineOn ? (
+          <div className={hp.chips} role="tablist" aria-label={L("Show hotels that are", "Tunjuk hotel yang")}>
+            {FILTERS.map((f) => {
+              const n = f.key === "" ? total : f.key === "due" ? (dueView.loading ? null : dueList.length) : (loaded ? stageCount(f.key) : null);
+              return (
+                <button key={f.key} type="button" role="tab" aria-selected={filter === f.key} className={hp.chipBtn}
+                  onClick={() => { setFilter(f.key); setOutPage(0); }}>
+                  {L(f.en, f.ms)}{n != null && <span className={hp.chipCount}>{n}</span>}
                 </button>
-              </div>
-            ))}
-            <div className="flex flex-wrap items-center gap-2">
-              {draft.contacts.length < 6 && (
-                <button type="button" className={rowBtn}
-                  onClick={() => setDraft({ ...draft, contacts: [...draft.contacts, { person_name: "", phone: "", phone2: "", email: "" }] })}>
-                  {L("+ Add contact", "+ Tambah kenalan")}
-                </button>
-              )}
-              <span className="text-muted-foreground text-[11px]">
-                {L("Phone numbers are rewritten in Malaysian form when saved — 012-345 6789, 03-1234 5678.",
-                   "Nombor telefon ditulis semula dalam bentuk Malaysia apabila disimpan — 012-345 6789, 03-1234 5678.")}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className={btnSmPrimary} disabled={saving} onClick={() => void save()}>
-                {saving ? <Skel className="inline-block h-3 w-12" /> : L("Save", "Simpan")}
-              </button>
-              <button type="button" className={btnSm} onClick={() => setDraft(null)}>{L("Cancel", "Batal")}</button>
-            </div>
+              );
+            })}
           </div>
-        )}
-
-        {/* ---- the rows ---- */}
-        {!loaded ? (
-          <div className="mt-3 space-y-2">{Array.from({ length: 6 }, (_, i) => <Skel key={i} className="h-12" />)}</div>
-        ) : hotels.length === 0 ? (
-          <p className="text-muted-foreground mt-3 text-xs">
-            {q ? L("Nothing matches that.", "Tiada yang sepadan.")
-               : filter === "due" ? L("Nobody is due a call. Every follow-up date is ahead and no worked hotel has gone quiet.", "Tiada siapa perlu dipanggil. Semua tarikh susulan masih ke hadapan dan tiada hotel yang senyap.")
-               : filter ? L(`No hotel is at "${stageLabel(filter)}"${state ? ` in ${state}` : ""}.`, `Tiada hotel pada "${stageLabel(filter)}"${state ? ` di ${state}` : ""}.`)
-               : L("No hotels in this state yet.", "Belum ada hotel di negeri ini.")}
-          </p>
         ) : (
-          /* v1.101.1 - CEO, 05-09-2026: *"Every state 442 shown show the list
-             too long, should scrollable at least."* And he is right: 442 rows
-             is a page fourteen screens deep whose Export CSV button, search
-             box and map are all off the top of it by the time you are reading
-             Johor.
-
-             So the LIST scrolls in its own box, not the page. This is not the
-             two-scrollbar mistake v1.99.4 undid on the staff circle - that was
-             a 30rem box around a 34rem PICTURE, where the scroller cut a whole
-             thing in half for no gain. A directory is a list you page through
-             by nature: the toolbar above stays put, the map stays put, and
-             flicking the rows never loses your place on the page. The height
-             is capped against the VIEWPORT so it fills a big monitor and does
-             not swallow a laptop. */
-          <ul className="divide-border mt-3 divide-y overflow-y-auto overscroll-contain pr-1"
-            style={{ maxHeight: "min(38rem, calc(100svh - 20rem))" }}>
-            {hotels.map((h) => (
-              <li key={h.id} className="py-2">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={open === h.id}
-                    onClick={() => setOpen(open === h.id ? null : h.id)}>
-                    <span className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="text-sm font-medium">{h.hotel_name}</span>
-                      <span className="bg-secondary text-muted-foreground rounded-full px-2 py-px text-[10px]">{h.state}</span>
-                      {h.stars && <span className="text-gold text-[11px]">{h.stars}</span>}
-                      {h.rooms ? <span className="text-muted-foreground text-[11px]">{h.rooms} {L("rooms", "bilik")}</span> : null}
-                    </span>
-                    <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                      {h.company || L("(no company named)", "(syarikat tidak dinyatakan)")}
-                      {h.contacts.length ? ` · ${h.contacts.length} ${h.contacts.length === 1 ? L("contact", "kenalan") : L("contacts", "kenalan")}` : ` · ${L("no contact", "tiada kenalan")}`}
-                    </span>
-                    {/* v1.110.0 - the pipeline facts on the row: stage, last spoken to, next call, the review */}
-                    {h.stage !== undefined && (
-                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                        <span className={`rounded-full px-2 py-px font-medium ${STAGE_CLASS[h.stage] ?? STAGE_CLASS.lead}`}>{stageLabel(h.stage)}</span>
-                        {h.last_contact_at && <span className="text-muted-foreground">{L("spoke", "bercakap")} {ago(h.last_contact_at)}</span>}
-                        {h.next_at && (
-                          <span className={h.next_at <= today ? "text-warning font-medium" : "text-muted-foreground"}>
-                            {h.next_at <= today ? L("call back due", "panggil semula perlu") : L("call back", "panggil semula")} {dmy(h.next_at)}
-                          </span>
-                        )}
-                        {h.review_url && <span className="text-success">{L("review out", "ulasan keluar")} ↗</span>}
-                      </span>
-                    )}
-                  </button>
-                  {canManage && (
-                    <span className="erp-row-actions">
-                      <button type="button" className={rowBtn} onClick={() => { setDraft({ ...h, contacts: h.contacts.length ? h.contacts.map((c) => ({ ...c })) : [{ person_name: "", phone: "", phone2: "", email: "" }] }); setOpen(h.id); }}>
-                        {L("Edit", "Sunting")}
-                      </button>
-                      <button type="button" className={rowBtnDanger} onClick={() => void remove(h)}>
-                        {L("Delete", "Padam")}
-                      </button>
-                    </span>
-                  )}
-                </div>
-                {open === h.id && (
-                  <div className="bg-secondary/40 mt-2 rounded-lg p-3 text-xs">
-                    {h.address && <p className="text-muted-foreground mb-2">{h.address}</p>}
-                    {(h.mof_validity || h.halal_validity) && (
-                      <p className="text-muted-foreground mb-2">
-                        {h.mof_validity ? `${L("MOF until", "MOF hingga")} ${h.mof_validity}` : ""}
-                        {h.mof_validity && h.halal_validity ? " · " : ""}
-                        {h.halal_validity ? `${L("Halal until", "Halal hingga")} ${h.halal_validity}` : ""}
-                      </p>
-                    )}
-                    {h.contacts.length === 0 ? (
-                      <p className="text-muted-foreground">{L("No contact person recorded.", "Tiada orang untuk dihubungi direkodkan.")}</p>
-                    ) : (
-                      <ul className="space-y-1.5">
-                        {h.contacts.map((c, i) => (
-                          <li key={c.id ?? i} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="font-medium">{c.person_name || L("(name not given)", "(nama tiada)")}</span>
-                            {c.phone && <a className="text-primary underline" href={`tel:+60${c.phone.replace(/\D/g, "").replace(/^0/, "")}`}>{c.phone}</a>}
-                            {c.phone2 && <a className="text-primary underline" href={`tel:+60${c.phone2.replace(/\D/g, "").replace(/^0/, "")}`}>{c.phone2}</a>}
-                            {c.email && <a className="text-primary underline" href={`mailto:${c.email}`}>{c.email}</a>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {h.notes && <p className="text-muted-foreground mt-2 whitespace-pre-wrap">{h.notes}</p>}
-                    {h.stage !== undefined && (
-                      <HotelPipeline hotel={h} canManage={canManage} toast={toast} onChanged={load} />
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+          <p className={hp.empty}><AppIcon name="warning" />{L("The pipeline is not on this database yet — run the deploy so migrations 0116 and 0117 apply.", "Saluran belum ada pada pangkalan data ini — jalankan deploy supaya migrasi 0116 dan 0117 digunakan.")}</p>
         )}
-      </div>
+        <div className={hp.toolbar}>
+          <label className={hp.search}>
+            <AppIcon name="search" />
+            <input value={outQ} onChange={(e) => { setOutQ(e.target.value); setOutPage(0); }}
+              placeholder={L("Find in this list — hotel, state or person", "Cari dalam senarai ini — hotel, negeri atau orang")} aria-label={L("Find in the outreach list", "Cari dalam senarai jangkauan")} />
+          </label>
+        </div>
+        <div className={`erp-table-scroll ${hp.tableWrap}`}>
+          <table className={hp.table} aria-label={L("Outreach worklist", "Senarai kerja jangkauan")}>
+            <thead><tr>
+              <th>{L("Hotel", "Hotel")}</th>
+              <th>{L("State", "Negeri")}</th>
+              <th>{L("Who to call", "Siapa untuk dihubungi")}</th>
+              <th>{L("Status", "Status")}</th>
+              <th>{L("Last spoke", "Terakhir bercakap")}</th>
+              <th>{L("Call back", "Panggil semula")}</th>
+              <th><span className={hp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+            </tr></thead>
+            <tbody>
+              {outView.loading && skelRows(5, 7)}
+              {!outView.loading && outRows.length === 0 && (
+                <tr><td colSpan={7}><p className={hp.empty}><AppIcon name="success" />
+                  {outQ ? L("Nothing matches that.", "Tiada yang sepadan.")
+                   : filter === "due" ? L("Nobody is due a call. Every follow-up date is ahead and no worked hotel has gone quiet.", "Tiada siapa perlu dipanggil. Semua tarikh susulan masih ke hadapan dan tiada hotel yang senyap.")
+                   : filter ? L(`No hotel is at "${stageLabel(filter)}".`, `Tiada hotel pada "${stageLabel(filter)}".`)
+                   : L("No hotels yet.", "Belum ada hotel.")}
+                </p></td></tr>
+              )}
+              {!outView.loading && outPageRows.map((h) => {
+                const c = h.contacts[0];
+                return (
+                  <tr key={h.id}>
+                    <td className={hp.hotelCell}>{hotelBtn(h)}</td>
+                    <td data-label={L("State", "Negeri")}>{h.state}</td>
+                    <td data-label={L("Who to call", "Siapa untuk dihubungi")}>
+                      {c ? (
+                        <span className={hp.personText}>
+                          <strong>{c.person_name || L("(name not given)", "(nama tiada)")}</strong>
+                          {c.phone ? <a className={hp.tel} href={telHref(c.phone)}>{c.phone}</a> : c.email ? <a className={hp.tel} href={`mailto:${c.email}`}>{c.email}</a> : null}
+                        </span>
+                      ) : <span className={hp.muted}>{L("No contact person recorded", "Tiada kenalan direkodkan")}</span>}
+                    </td>
+                    <td data-label={L("Status", "Status")}>{stageChip(h.stage)}</td>
+                    <td data-label={L("Last spoke", "Terakhir bercakap")}>{h.last_contact_at ? ago(h.last_contact_at) : <span className={hp.muted}>—</span>}</td>
+                    <td data-label={L("Call back", "Panggil semula")}>{nextCall(h)}</td>
+                    <td className={hp.actCell}>
+                      <span>
+                        <button type="button" className={canManage ? btnSmPrimary : rowBtn} onClick={() => setOpen(h.id)}>
+                          {canManage ? L("Log call", "Rekod panggilan") : L("View", "Lihat")}
+                        </button>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!outView.loading && outRows.length > 0 && (
+          <Pager total={outRows.length} page={outPage} per={per} onPage={setOutPage} onPer={(n) => { setPer(n); setOutPage(0); }} noun={L("hotels", "hotel")} />
+        )}
+      </section>
       </TabZone>
 
-      <TabZone label={L("The map", "Peta")}>
+      {/* ============================ REVIEWS & STAYS ============================ */}
+      <TabZone label={L("Reviews and stays", "Ulasan dan penginapan")} className={tab !== "reviews" ? hp.off : ""}>
+        <div className={hp.kpis}>
+          <KpiRow label={L("Reviews and stays", "Ulasan dan penginapan")}>
+            {STAY_STAGES.map((s) => (
+              <KpiTile key={s} icon={s === "published" ? "star" : s === "reviewed" ? "document" : "holiday"} tone={s === "published" ? "green" : "gold"}
+                label={stageLabel(s)} value={stageCount(s)} busy={!loaded}
+                sub={s === "agreed" ? L("A stay is agreed, not yet reviewed", "Penginapan dipersetujui, belum diulas") : s === "reviewed" ? L("Stayed and reviewed, not yet out", "Telah menginap dan mengulas, belum diterbitkan") : L("The review is out, with its link", "Ulasan telah diterbitkan, dengan pautan")}
+                onClick={() => setStayF(stayF === s ? "" : s)} />
+            ))}
+          </KpiRow>
+        </div>
+        <section className={card} aria-label={L("Stays and reviews", "Penginapan dan ulasan")}>
+          {head("star", hp.goldWell, L("Stays & Reviews", "Penginapan & Ulasan"),
+            L("Every hotel with a stay agreed, a review written or a review published. Open one to log the next step.", "Setiap hotel dengan penginapan dipersetujui, ulasan ditulis atau ulasan diterbitkan. Buka satu untuk merekod langkah seterusnya."))}
+          <div className={hp.chips} role="tablist" aria-label={L("Show stays that are", "Tunjuk penginapan yang")}>
+            {(["", ...STAY_STAGES] as const).map((s) => (
+              <button key={s || "all"} type="button" role="tab" aria-selected={stayF === s} className={hp.chipBtn} onClick={() => setStayF(s)}>
+                {s ? stageLabel(s) : L("All", "Semua")}
+                <span className={hp.chipCount}>{s ? stageCount(s) : STAY_STAGES.reduce((a, x) => a + stageCount(x), 0)}</span>
+              </button>
+            ))}
+          </div>
+          <div className={`erp-table-scroll ${hp.tableWrap}`}>
+            <table className={hp.table} aria-label={L("Stays and reviews", "Penginapan dan ulasan")}>
+              <thead><tr>
+                <th>{L("Hotel", "Hotel")}</th>
+                <th>{L("State", "Negeri")}</th>
+                <th>{L("Status", "Status")}</th>
+                <th>{L("Last spoke", "Terakhir bercakap")}</th>
+                <th>{L("Next step", "Langkah seterusnya")}</th>
+                <th>{L("Review", "Ulasan")}</th>
+                <th><span className={hp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+              </tr></thead>
+              <tbody>
+                {!loaded && skelRows(4, 7)}
+                {loaded && stays.length === 0 && (
+                  <tr><td colSpan={7}><p className={hp.empty}><AppIcon name="info" />
+                    {stayF ? L(`No hotel is at "${stageLabel(stayF)}".`, `Tiada hotel pada "${stageLabel(stayF)}".`)
+                           : L("No stay is agreed yet. Log a call with \"A stay is agreed\" on a hotel and it appears here.", "Belum ada penginapan dipersetujui. Rekod panggilan dengan \"Penginapan dipersetujui\" pada hotel dan ia muncul di sini.")}
+                  </p></td></tr>
+                )}
+                {loaded && stays.map((h) => (
+                  <tr key={h.id}>
+                    <td className={hp.hotelCell}>{hotelBtn(h)}</td>
+                    <td data-label={L("State", "Negeri")}>{h.state}</td>
+                    <td data-label={L("Status", "Status")}>{stageChip(h.stage)}</td>
+                    <td data-label={L("Last spoke", "Terakhir bercakap")}>{h.last_contact_at ? `${dmy(h.last_contact_at)} · ${ago(h.last_contact_at)}` : <span className={hp.muted}>—</span>}</td>
+                    <td data-label={L("Next step", "Langkah seterusnya")}>{nextCall(h)}</td>
+                    <td data-label={L("Review", "Ulasan")}>
+                      {h.review_url
+                        ? <a className={hp.reviewLink} href={h.review_url} target="_blank" rel="noopener noreferrer">{L("Read the review", "Baca ulasan")} ↗</a>
+                        : <span className={hp.muted}>{L("Not published yet", "Belum diterbitkan")}</span>}
+                    </td>
+                    <td className={hp.actCell}><span><button type="button" className={rowBtn} onClick={() => setOpen(h.id)}>{L("Open", "Buka")}</button></span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </TabZone>
+
+      {/* ============================ MAP & ANALYTICS ============================ */}
+      <TabZone label={L("The map", "Peta")} className={tab !== "map" ? hp.off : ""}>
       {/* ================= THE MAP ================= */}
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -742,6 +1004,11 @@ export function HotelsPanel() {
             <span className="bg-secondary text-muted-foreground rounded-full px-2.5 py-1 text-[11px] font-medium">
               {byPublished ? `${totalPublished} ${L("published", "diterbitkan")}` : `${total} ${L("hotels", "hotel")} · ${states.length} ${L("states", "negeri")}`}
             </span>
+            {state && (
+              <button type="button" className={btnSmPrimary} onClick={() => goDirectory(state)}>
+                {L(`List ${state} hotels`, `Senarai hotel ${state}`)}
+              </button>
+            )}
             {state && (
               <button type="button" className={rowBtn} onClick={() => setState("")}>
                 {L("All states", "Semua negeri")}
@@ -911,7 +1178,209 @@ export function HotelsPanel() {
           </div>
         </div>
       </div>
+
+      {/* v1.202.0 - every state in one table: hotels, how far the outreach
+          has gone there, and a door to its list. The same by_state and
+          state_pipeline the map is drawn from. */}
+      <section className={card} aria-label={L("State breakdown", "Pecahan negeri")}>
+        {head("chart", hp.goldWell, L("State Breakdown", "Pecahan Negeri"),
+          L("Hotels in each state and how far the outreach has gone there. Press a state to select it on the map.", "Hotel di setiap negeri dan sejauh mana jangkauan di sana. Tekan negeri untuk memilihnya pada peta."))}
+        <div className={`erp-table-scroll ${hp.tableWrap}`}>
+          <table className={`${hp.table} ${hp.stateTable}`} aria-label={L("State breakdown", "Pecahan negeri")}>
+            <thead><tr>
+              <th>{L("State", "Negeri")}</th>
+              <th>{L("Hotels", "Hotel")}</th>
+              <th>{L("Share", "Bahagian")}</th>
+              {pipelineOn && <th>{L("Contacted", "Dihubungi")}</th>}
+              {pipelineOn && <th>{L("Stay agreed", "Penginapan dipersetujui")}</th>}
+              {pipelineOn && <th>{L("Published", "Diterbitkan")}</th>}
+              <th><span className={hp.srOnly}>{L("Actions", "Tindakan")}</span></th>
+            </tr></thead>
+            <tbody>
+              {!loaded && skelRows(5, 7)}
+              {loaded && stateRows.length === 0 && (
+                <tr><td colSpan={7}><p className={hp.empty}>{L("No hotels yet.", "Belum ada hotel.")}</p></td></tr>
+              )}
+              {loaded && stateRows.map(([st, n]) => {
+                const sp = statePipe[st];
+                return (
+                  <tr key={st} className={state === st ? hp.stateOn : ""}>
+                    <td><button type="button" className={hp.stateBtn} aria-pressed={state === st} onClick={() => setState(state === st ? "" : st)}>{st}</button></td>
+                    <td data-label={L("Hotels", "Hotel")}>
+                      <span className={hp.barCell}>
+                        <span className={hp.track}><span className={hp.fill} style={{ width: `${Math.max(3, (n / maxState) * 100)}%` }} /></span>
+                        <strong className={hp.mono}>{n}</strong>
+                      </span>
+                    </td>
+                    <td data-label={L("Share", "Bahagian")} className={hp.mono}>{total ? Math.round((n * 100) / total) : 0}%</td>
+                    {pipelineOn && <td data-label={L("Contacted", "Dihubungi")} className={hp.mono}>{sp?.contacted ?? 0}</td>}
+                    {pipelineOn && <td data-label={L("Stay agreed", "Penginapan dipersetujui")} className={hp.mono}>{sp?.agreed ?? 0}</td>}
+                    {pipelineOn && <td data-label={L("Published", "Diterbitkan")} className={hp.mono}>{sp?.published ?? 0}</td>}
+                    <td className={hp.actCell}><span><button type="button" className={rowBtn} onClick={() => goDirectory(st)}>{L("List hotels", "Senarai hotel")}</button></span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
       </TabZone>
+
+      {/* v1.202.0 - THE HOTEL, in a drawer: what the open row used to show
+          (address, MOF and halal, the contact people, the notes) and the
+          pipeline card as it was - stage, log a call, the call log. */}
+      <SideDrawer
+        open={openHotel !== null}
+        onClose={() => setOpen(null)}
+        title={openHotel?.hotel_name ?? ""}
+        subtitle={openHotel ? [openHotel.state, openHotel.company].filter(Boolean).join(" · ") : undefined}
+        wide
+        footer={openHotel && canManage ? (
+          <span className={hp.actions}>
+            <button type="button" className={btnSm} onClick={() => editHotel(openHotel)}><AppIcon name="edit" />{L("Edit", "Sunting")}</button>
+            <button type="button" className={rowBtnDanger} onClick={() => void remove(openHotel)}>{L("Delete", "Padam")}</button>
+            <button type="button" className={btnSm} onClick={() => setOpen(null)}>{L("Close", "Tutup")}</button>
+          </span>
+        ) : undefined}
+      >
+        {openHotel && (
+          <div className={hp.drawer}>
+            <dl className={hp.facts}>
+              <div><dt>{L("State", "Negeri")}</dt><dd>{openHotel.state}</dd></div>
+              <div><dt>{L("Company", "Syarikat")}</dt><dd>{openHotel.company || L("(no company named)", "(syarikat tidak dinyatakan)")}</dd></div>
+              <div><dt>{L("Address", "Alamat")}</dt><dd>{openHotel.address || "—"}</dd></div>
+              <div><dt>{L("Rooms · stars", "Bilik · bintang")}</dt><dd>{openHotel.rooms ?? "—"}{openHotel.stars ? <span className={hp.stars}> · {openHotel.stars}</span> : null}</dd></div>
+              {(openHotel.mof_validity || openHotel.halal_validity) && (
+                <div><dt>{L("Validity", "Kesahan")}</dt><dd>
+                  {openHotel.mof_validity ? `${L("MOF until", "MOF hingga")} ${openHotel.mof_validity}` : ""}
+                  {openHotel.mof_validity && openHotel.halal_validity ? " · " : ""}
+                  {openHotel.halal_validity ? `${L("Halal until", "Halal hingga")} ${openHotel.halal_validity}` : ""}
+                </dd></div>
+              )}
+              {openHotel.notes && <div><dt>{L("Notes", "Nota")}</dt><dd className={hp.keepLines}>{openHotel.notes}</dd></div>}
+            </dl>
+            <div>
+              <p className={hp.formTitle}>{L("Contact people", "Orang untuk dihubungi")}</p>
+              {openHotel.contacts.length === 0 ? (
+                <p className={hp.hint}>{L("No contact person recorded.", "Tiada orang untuk dihubungi direkodkan.")}</p>
+              ) : (
+                <ul className={hp.contactList}>
+                  {openHotel.contacts.map((c, i) => (
+                    <li key={c.id ?? i}>
+                      <strong>{c.person_name || L("(name not given)", "(nama tiada)")}</strong>
+                      <span>
+                        {c.phone && <a className={hp.tel} href={telHref(c.phone)}>{c.phone}</a>}
+                        {c.phone2 && <a className={hp.tel} href={telHref(c.phone2)}>{c.phone2}</a>}
+                        {c.email && <a className={hp.tel} href={`mailto:${c.email}`}>{c.email}</a>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {openHotel.stage !== undefined && (
+              <HotelPipeline key={openHotel.id} hotel={openHotel} canManage={canManage} toast={toast} onChanged={load} />
+            )}
+          </div>
+        )}
+      </SideDrawer>
+
+      {/* ---- the editor: one form, create and edit alike ---- */}
+      <SideDrawer
+        open={draft !== null}
+        onClose={() => setDraft(null)}
+        title={draft?.id ? L("Edit hotel", "Sunting hotel") : L("New hotel", "Hotel baharu")}
+        subtitle={draft?.id ? draft.hotel_name : undefined}
+        wide
+        footer={draft ? (
+          <span className={hp.actions}>
+            <button type="button" className={btnSmPrimary} disabled={saving} onClick={() => void save()}>
+              {saving ? <Skel className="inline-block h-3 w-12" /> : L("Save", "Simpan")}
+            </button>
+            <button type="button" className={btnSm} onClick={() => setDraft(null)}>{L("Cancel", "Batal")}</button>
+          </span>
+        ) : undefined}
+      >
+        {draft && (
+          <div className={hp.drawer}>
+            <div className={hp.form}>
+              <label>
+                <span className={fieldLabel}>{L("State", "Negeri")}</span>
+                <select className={inputClass} value={draft.state} onChange={(e) => setDraft({ ...draft, state: e.target.value })}>
+                  {(states.length ? states : PICKABLE).map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+              <label className={hp.span2}>
+                <span className={fieldLabel}>{L("Name of hotel", "Nama hotel")}</span>
+                <input className={inputClass} value={draft.hotel_name} maxLength={160}
+                  onChange={(e) => setDraft({ ...draft, hotel_name: e.target.value })} />
+              </label>
+              <label className={hp.span2}>
+                <span className={fieldLabel}>{L("Name of company", "Nama syarikat")}</span>
+                <input className={inputClass} value={draft.company ?? ""} maxLength={160}
+                  onChange={(e) => setDraft({ ...draft, company: e.target.value })} />
+              </label>
+              <label>
+                <span className={fieldLabel}>{L("Rooms", "Bilik")}</span>
+                <input className={inputClass} type="number" min={0} value={draft.rooms ?? ""}
+                  onChange={(e) => setDraft({ ...draft, rooms: e.target.value === "" ? null : Number(e.target.value) })} />
+              </label>
+              <label className={hp.span3}>
+                <span className={fieldLabel}>{L("Address", "Alamat")}</span>
+                <input className={inputClass} value={draft.address ?? ""} maxLength={300}
+                  onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
+              </label>
+              <label>
+                <span className={fieldLabel}>{L("Star rating", "Penarafan bintang")}</span>
+                <input className={inputClass} value={draft.stars ?? ""} maxLength={20} placeholder="****"
+                  onChange={(e) => setDraft({ ...draft, stars: e.target.value })} />
+              </label>
+              <label>
+                <span className={fieldLabel}>{L("MOF valid until", "MOF sah hingga")}</span>
+                <input className={inputClass} value={draft.mof_validity ?? ""} maxLength={40} placeholder="31.12.2027"
+                  onChange={(e) => setDraft({ ...draft, mof_validity: e.target.value })} />
+              </label>
+              <label>
+                <span className={fieldLabel}>{L("Halal valid until", "Halal sah hingga")}</span>
+                <input className={inputClass} value={draft.halal_validity ?? ""} maxLength={40} placeholder="31.12.2027"
+                  onChange={(e) => setDraft({ ...draft, halal_validity: e.target.value })} />
+              </label>
+            </div>
+
+            <div className={hp.contacts}>
+              <p className={hp.formTitle}>{L("Contact people", "Orang untuk dihubungi")}</p>
+              {draft.contacts.map((c, i) => (
+                <div key={i} className={hp.contactRow}>
+                  <input className={inputClassSm} placeholder={L("Name", "Nama")} value={c.person_name ?? ""}
+                    aria-label={L("Contact name", "Nama kenalan")} onChange={(e) => patchContact(i, "person_name", e.target.value)} />
+                  <input className={inputClassSm} placeholder="012-345 6789" value={c.phone ?? ""}
+                    aria-label={L("Phone", "Telefon")} onChange={(e) => patchContact(i, "phone", e.target.value)} />
+                  <button type="button" className={rowBtnDanger} aria-label={L("Remove this contact", "Buang kenalan ini")}
+                    onClick={() => setDraft({ ...draft, contacts: draft.contacts.filter((_, x) => x !== i) })}>
+                    ✕
+                  </button>
+                  <input className={inputClassSm} placeholder="03-1234 5678" value={c.phone2 ?? ""}
+                    aria-label={L("Second phone", "Telefon kedua")} onChange={(e) => patchContact(i, "phone2", e.target.value)} />
+                  <input className={inputClassSm} placeholder="name@hotel.com" value={c.email ?? ""}
+                    aria-label={L("Email", "E-mel")} onChange={(e) => patchContact(i, "email", e.target.value)} />
+                </div>
+              ))}
+              <div className={hp.mapTools}>
+                {draft.contacts.length < 6 && (
+                  <button type="button" className={rowBtn}
+                    onClick={() => setDraft({ ...draft, contacts: [...draft.contacts, { person_name: "", phone: "", phone2: "", email: "" }] })}>
+                    {L("+ Add contact", "+ Tambah kenalan")}
+                  </button>
+                )}
+                <span className={hp.hint}>
+                  {L("Phone numbers are rewritten in Malaysian form when saved — 012-345 6789, 03-1234 5678.",
+                     "Nombor telefon ditulis semula dalam bentuk Malaysia apabila disimpan — 012-345 6789, 03-1234 5678.")}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </SideDrawer>
     </TabPage>
   );
 }

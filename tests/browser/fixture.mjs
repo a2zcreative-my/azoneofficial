@@ -116,11 +116,30 @@ const assets = [
   { id: 10, asset_tag: "AZOA-010", name: "Display rack", category: "furniture", brand_model: null, serial_no: null, purchase_date: null, purchase_price_cents: null, vendor: null, warranty_until: null, location: null, assigned_to: null, assigned_name: null, status: "spare", condition_note: null, created_at: "2026-09-15 09:00:00", updated_at: null },
   { id: 11, asset_tag: "AZOA-011", name: "Company car", category: "vehicle", brand_model: "Perodua Bezza", serial_no: "JXX 1234", purchase_date: "2024-07-01", purchase_price_cents: 4200000, vendor: null, warranty_until: "2027-07-01", location: "Office", assigned_to: 9001, assigned_name: "Fixture Person", status: "in_use", condition_note: null, created_at: "2024-07-02 09:00:00", updated_at: null },
 ];
+/* v1.202.0 - fourteen made-up hotels across eight states, every outreach
+   stage, two due for a call (a passed date, and a worked hotel quiet for
+   more than ninety days), a published review, contacts on most. Test data
+   only: the names are invented and never go near production. */
 const hotels = [
-  { id: 1, state: "Melaka", hotel_name: "Casa del Rio", company: "Casa del Rio Sdn Bhd", address: "88 Jalan Kota Laksamana", rooms: 66, stars: "5", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "agreed", last_contact_at: D + "10", next_at: D + "24", owner_id: 9002, review_url: null },
-  { id: 2, state: "Pulau Pinang", hotel_name: "Eastern & Oriental", company: null, address: "10 Lebuh Farquhar", rooms: 100, stars: "5", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "published", last_contact_at: D + "01", next_at: null, owner_id: 9002, review_url: "https://example.test/eo" },
-  { id: 3, state: "Selangor", hotel_name: "Sunway Resort", company: null, address: null, rooms: 477, stars: "5", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "contacted", last_contact_at: D + "14", next_at: D + "21", owner_id: 9003, review_url: null },
+  { id: 1, state: "MELAKA", hotel_name: "Casa del Rio", company: "Casa del Rio Sdn Bhd", address: "88 Jalan Kota Laksamana, 75200 Melaka", rooms: 66, stars: "*****", mof_validity: "31.12.2027", halal_validity: null, notes: null, contacts: [{ id: 11, person_name: "Puan Rina", phone: "012-345 6789", phone2: null, email: "sales@casa.example.test" }], stage: "agreed", last_contact_at: D + "10 03:00:00", next_at: D + "24", owner_id: 9002, review_url: null },
+  { id: 2, state: "PULAU PINANG", hotel_name: "Eastern & Oriental", company: null, address: "10 Lebuh Farquhar, 10200 George Town", rooms: 100, stars: "*****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 21, person_name: "Mr Lim", phone: "04-222 2000", phone2: null, email: null }], stage: "published", last_contact_at: D + "01 03:00:00", next_at: null, owner_id: 9002, review_url: "https://example.test/eo" },
+  { id: 3, state: "SELANGOR", hotel_name: "Sunway Resort", company: null, address: "Persiaran Lagoon, 47500 Subang Jaya", rooms: 477, stars: "*****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 31, person_name: "Cik Aida", phone: "03-7492 8000", phone2: null, email: null }], stage: "contacted", last_contact_at: D + "14 03:00:00", next_at: D + "16", owner_id: 9003, review_url: null },
+  { id: 4, state: "KUALA LUMPUR", hotel_name: "Bukit Bintang Suites", company: "BB Hospitality Sdn Bhd", address: "12 Jalan Bukit Bintang, 55100 Kuala Lumpur", rooms: 210, stars: "****", mof_validity: null, halal_validity: "30.06.2027", notes: "Prefers WhatsApp in the afternoon.", contacts: [{ id: 41, person_name: "Encik Faiz", phone: "013-222 3344", phone2: "03-2141 0000", email: "faiz@bbsuites.example.test" }, { id: 42, person_name: "Ms Tan", phone: null, phone2: null, email: "frontdesk@bbsuites.example.test" }], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
+  { id: 5, state: "KUALA LUMPUR", hotel_name: "Klang Valley Inn", company: null, address: "3 Jalan Ampang, 50450 Kuala Lumpur", rooms: 80, stars: "***", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
+  { id: 6, state: "KUALA LUMPUR", hotel_name: "Titiwangsa Lake Hotel", company: "Titiwangsa Hotels Bhd", address: "Jalan Temerloh, 53200 Kuala Lumpur", rooms: 150, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 61, person_name: "Puan Salmah", phone: "019-555 1212", phone2: null, email: null }], stage: "reviewed", last_contact_at: D + "05 03:00:00", next_at: null, owner_id: 9002, review_url: null },
+  { id: 7, state: "JOHOR", hotel_name: "Danga Bay Residence", company: null, address: "Jalan Skudai, 80200 Johor Bahru", rooms: 120, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 71, person_name: "Encik Hakim", phone: "07-222 9000", phone2: null, email: null }], stage: "contacted", last_contact_at: "2026-05-02 03:00:00", next_at: null, owner_id: 9003, review_url: null },
+  { id: 8, state: "JOHOR", hotel_name: "Desaru Shore Villas", company: "Desaru Coast Sdn Bhd", address: "Jalan Pantai 3, 81930 Bandar Penawar", rooms: 48, stars: "*****", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "declined", last_contact_at: D + "02 03:00:00", next_at: null, owner_id: 9003, review_url: null },
+  { id: 9, state: "JOHOR", hotel_name: "Puteri Harbour Hotel", company: null, address: "Persiaran Puteri Selatan, 79000 Nusajaya", rooms: 260, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
+  { id: 10, state: "PAHANG", hotel_name: "Cameron Highlands Lodge", company: null, address: "Jalan Besar, 39000 Tanah Rata", rooms: 40, stars: "***", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 101, person_name: "Mr Raj", phone: "05-491 1000", phone2: null, email: null }], stage: "published", last_contact_at: D + "03 03:00:00", next_at: null, owner_id: 9002, review_url: "https://example.test/cameron" },
+  { id: 11, state: "SABAH", hotel_name: "Kinabalu Bay Hotel", company: null, address: "Jalan Tun Fuad, 88400 Kota Kinabalu", rooms: 180, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 111, person_name: "Cik Nora", phone: "088-123 456", phone2: null, email: null }], stage: "agreed", last_contact_at: D + "12 03:00:00", next_at: D + "30", owner_id: 9002, review_url: null },
+  { id: 12, state: "SARAWAK", hotel_name: "Waterfront Kuching", company: null, address: "Jalan Tunku Abdul Rahman, 93100 Kuching", rooms: 300, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
+  { id: 13, state: "SELANGOR", hotel_name: "Shah Alam Convention Hotel", company: null, address: "Persiaran Perbandaran, 40000 Shah Alam", rooms: 220, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [{ id: 131, person_name: "Encik Zaki", phone: "03-5511 2000", phone2: null, email: null }], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
+  { id: 14, state: "KEDAH", hotel_name: "Langkawi Cove Resort", company: null, address: "Jalan Pantai Tengah, 07000 Langkawi", rooms: 90, stars: "****", mof_validity: null, halal_validity: null, notes: null, contacts: [], stage: "lead", last_contact_at: null, next_at: null, owner_id: null, review_url: null },
 ];
+const MY_STATES_FX = ["KUALA LUMPUR", "SELANGOR", "PUTRAJAYA", "NEGERI SEMBILAN", "JOHOR", "MELAKA", "KEDAH", "PERAK", "PERLIS", "TERENGGANU", "PULAU PINANG", "PAHANG", "KELANTAN", "SABAH", "SARAWAK"];
+/* the worker's isDue (hotel-pipeline.ts), against the fixture's fixed today */
+const hotelDue = (h) => (h.next_at && h.next_at.slice(0, 10) <= "2026-09-18")
+  || ((h.stage === "contacted" || h.stage === "agreed") && h.last_contact_at && (Date.parse("2026-09-18T00:00:00Z") - Date.parse(h.last_contact_at.replace(" ", "T") + "Z")) / 86400000 > 90);
 const webOrders = [
   { id: 1, store: "elfia", order_number: "ELF-1001", status: "paid", customer_name: "Aina Rahman", phone: "0174761019", address: "12 Jalan Bunga", subtotal_cents: 12000, shipping_cents: 800, total_cents: 12800, tracking_no: null, tracking_courier: null, tracking_url: null, placed_at: D + "18 10:00:00" },
   { id: 2, store: "elfia", order_number: "ELF-1002", status: "shipped", customer_name: "Farid Zul", phone: "0123456789", address: null, subtotal_cents: 4500, shipping_cents: 800, total_cents: 5300, tracking_no: "JT123", tracking_courier: "jnt", tracking_url: "https://example.test/t/JT123", placed_at: D + "17 09:00:00" },
@@ -345,7 +364,26 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { id: 902, action: "asset.update", entity: "assets", entity_id: "1", detail: JSON.stringify({ asset_tag: "A2Z-CAM-01", name: "Sony A7 IV", status: "in_use", assigned_to: "9003", location: "Studio" }), created_at: "2026-09-02 02:00:00", user_name: "Fixture Person" },
     { id: 901, action: "asset.create", entity: "assets", entity_id: "10", detail: JSON.stringify({ tag: "AZOA-010" }), created_at: "2026-09-15 01:00:00", user_name: "Mei Ling" },
   ] };
-  if (p === "/staff/hotels/" || p === "/staff/hotels") data = { hotels, states: ["Melaka", "Pulau Pinang", "Selangor"], by_state: { Melaka: 1, "Pulau Pinang": 1, Selangor: 1 }, state_pipeline: { Melaka: { contacted: 1, agreed: 1, published: 0 }, "Pulau Pinang": { contacted: 1, agreed: 1, published: 1 }, Selangor: { contacted: 1, agreed: 0, published: 0 } }, can_manage: true };
+  /* v1.202.0 - the list answers as the worker does: ?state, ?q (the hotel and
+     its people), ?stage, ?due=1; by_state and state_pipeline are always the
+     whole directory */
+  if (p === "/staff/hotels/" || p === "/staff/hotels") {
+    const st = q.get("state"), qq = (q.get("q") ?? "").toLowerCase(), stg = q.get("stage");
+    let list = hotels.filter((h) => !st || h.state === st);
+    if (qq) list = list.filter((h) => [h.hotel_name, h.company, h.address, h.state].some((v) => (v ?? "").toLowerCase().includes(qq)) || h.contacts.some((c) => [c.person_name, c.phone, c.phone2, c.email].some((v) => (v ?? "").toLowerCase().includes(qq))));
+    if (stg) list = list.filter((h) => h.stage === stg);
+    if (q.get("due") === "1") list = list.filter(hotelDue);
+    const by_state = Object.fromEntries(MY_STATES_FX.map((x) => [x, hotels.filter((h) => h.state === x).length]));
+    const state_pipeline = Object.fromEntries(MY_STATES_FX.map((x) => { const hs = hotels.filter((h) => h.state === x); return [x, { contacted: hs.filter((h) => h.stage !== "lead").length, agreed: hs.filter((h) => h.stage === "agreed" || h.stage === "reviewed").length, published: hs.filter((h) => h.stage === "published").length }]; }));
+    data = { hotels: list, total: hotels.length, states: MY_STATES_FX, by_state, state_pipeline, can_manage: true };
+  }
+  if (/^\/staff\/hotels\/\d+\/pipeline$/.test(p)) {
+    const h = hotels.find((x) => x.id === Number(p.split("/")[3]));
+    data = { hotel: { stage: h?.stage ?? "lead", review_url: h?.review_url ?? null }, calls: h?.id === 1 ? [
+      { id: 501, contact_id: 11, called_at: D + "10 03:00:00", outcome: "agreed", notes: "Two nights in October, family room.", next_at: D + "24", by_name: "Nur Aisyah", contact_name: "Puan Rina" },
+      { id: 500, contact_id: 11, called_at: D + "04 03:00:00", outcome: "callback", notes: null, next_at: D + "10", by_name: "Nur Aisyah", contact_name: "Puan Rina" },
+    ] : [] };
+  }
   if (p === "/staff/web-orders") data = { orders: q.get("status") ? webOrders.filter((o) => o.status === q.get("status")) : webOrders };
   if (p === "/stokis") data = { stokis, month: "2026-09" };
   if (p === "/content") data = { content };

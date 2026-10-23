@@ -10,6 +10,79 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.202.0] - 2026-10-23 - Hotels, reorganised into five tabs
+
+The owner, 23-10-2026, with the original screenshot and a mockup: Hotels in
+five tabs - Overview, Hotel Directory, Outreach & Partnerships, Reviews &
+Stays, Map & Analytics - keeping the gold/navy/white/grey identity, every
+hotel record and its geography, the outreach statuses and their labels,
+the interactive Malaysia map, add / edit / delete / CSV; no change to the
+database, APIs or permissions; no sample data; no deploy without approval.
+The mockup's contracts, staff-assigned and allowance columns are left out:
+the directory holds no such data.
+
+### Changed
+
+- **Hotels** (`components/portal/hotels-panel.tsx`, new
+  `hotels-page.module.css`) is a `LineTabs` page with Add hotel at the
+  right (the roles the worker lets edit, as before); every zone stays
+  mounted and hides with `hp.off`. The same `/staff/hotels` list read with
+  the worker's own `?state`, `?q`, `?stage` and `?due` filters.
+- **Overview**: hotels, states covered (states with at least one hotel),
+  contacted, stay agreed and reviews published (the same figures as
+  before), the hotels requiring follow-up (the worker's due list), the
+  outreach pipeline by stage, the states with most hotels, quick actions.
+- **Hotel Directory**: a table - hotel and address, state, company, rooms
+  and stars, first phone, outreach status - with search (hotel, company,
+  location or person), state and outreach-status filters, 10/25/50 rows a
+  page, Export CSV (the filtered list, as before), View, Edit and Delete
+  (asks first, soft, audited - unchanged).
+- **Outreach & Partnerships**: the existing chips - All, Not contacted, Due
+  for a call, Contacted, Stay agreed, Reviewed, Published, Declined - now
+  with counts, a search over the chosen list, who to call with a tap-to-dial
+  number, last spoken to, call-back date (due in amber), and Log call.
+- **Reviews & Stays**: stays agreed, reviewed and published, with the
+  review link where one is published.
+- **Map & Analytics**: the same Malaysia map (raised states, bubbles,
+  Hotels / Published colouring, the side panel), a "List hotels" button for
+  the pressed state, and a state breakdown table.
+- **Hotel drawer**: what the open row showed (address, MOF / halal, contact
+  people, notes) and the pipeline card unchanged - stage by hand, log a call
+  (still kept on the phone with no signal), the call log. The add / edit
+  form moved into a drawer, same fields and same request.
+
+### Tests
+
+- `tests/tab-zones.mjs` pins the five tabs, the zones, Add hotel's gate and
+  no contract / staffing / allowance words. `tests/hotels-guard.mjs` now
+  holds the directory to pages under its own toolbar (the CEO's "too long"
+  of v1.101.1) instead of a scrolling box. The fixture gained fourteen
+  made-up hotels across eight states and every stage, a call log, and
+  answers `?state`, `?q`, `?stage`, `?due` as the worker does.
+- `tests/kept-lines.mjs` reads a CSS module whatever it is imported as
+  (it only knew `css`); a hotel's notes keep their lines in the drawer.
+
+## [1.201.1] - 2026-10-23 - Staff: a leaver says "Sign-in blocked"
+
+The owner, 23-10-2026, on the directory: "staff resigned account active?"
+The account stays switched on (is_active) on purpose - payroll and the M2E
+file read it, so a leaver is still paid for the last month - while the
+password and Google sign-in both refuse a resigned or terminated status.
+The screen now says so.
+
+### Changed
+
+- **Staff** (`components/staff/staff-directory.tsx`): a resigned or
+  terminated person's status reads "resigned · date" with a "Sign-in
+  blocked" badge beside it, in the directory table, the grid and the
+  profile drawer. Display only - no change to sign-in, sessions, payroll or
+  data.
+
+### Tests
+
+- `tests/tab-zones.mjs` holds the badge to the worker's login query: the
+  words stay only while the login still refuses leavers.
+
 ## [1.201.0] - 2026-10-23 - Staff, reorganised into five tabs
 
 The owner, 23-10-2026, with the original screenshot and a mockup: Staff in

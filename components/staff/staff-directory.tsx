@@ -871,9 +871,22 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   const stateChip = (u: Staff) => {
     const s = stateOf(u);
     if (s === "left") {
+      /* v1.201.1 - the owner, 23-10-2026: "staff resigned account active?"
+         The account stays switched on (is_active) on purpose - payroll and
+         the M2E file read is_active, so a leaver is still paid for the last
+         month - but the password and Google sign-in both refuse a resigned
+         or terminated status. Say so beside the status, so nobody reads the
+         Users page's "active" as "can still log in". Display only. */
       return (
-        <span className={chipDanger}>
-          {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
+        <span className={sp.statusPair}>
+          <span className={chipDanger}>
+            {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
+          </span>
+          <span className={chipNeutral}
+            title={L("Password and Google sign-in refuse a resigned or terminated account. The account itself stays on so their final month is still paid.",
+                     "Log masuk kata laluan dan Google menolak akaun yang telah letak jawatan atau ditamatkan. Akaun itu sendiri kekal supaya gaji bulan terakhir mereka masih dibayar.")}>
+            <AppIcon name="lock" />{L("Sign-in blocked", "Log masuk disekat")}
+          </span>
         </span>
       );
     }

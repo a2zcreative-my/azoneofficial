@@ -436,6 +436,20 @@
   text-align: right;
 }
 
+/* v1.201.1 - a leaver's status and "Sign-in blocked", side by side */
+.statusPair {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: inherit;
+  gap: 0.25rem;
+}
+.statusPair svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+}
+
 /* ---- tables ---- */
 .tableWrap {
   margin-top: 0.875rem;
