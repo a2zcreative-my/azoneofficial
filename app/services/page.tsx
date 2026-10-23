@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
-import { SERVICES, whatsappUrl } from "@/constants/content";
+import { SERVICES, serviceSlug, whatsappUrl } from "@/constants/content";
 
 export const metadata: Metadata = {
   title: "Services",
@@ -23,6 +23,7 @@ export default function ServicesPage() {
         {SERVICES.map(({ title, description, icon: Icon }) => (
           <article
             key={title}
+            id={serviceSlug(title)}
             className="flex items-start gap-4 rounded-xl border border-border p-5"
           >
             <span className="bg-brand text-gold inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">

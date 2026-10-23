@@ -899,6 +899,7 @@ body:has(.erp-workspace) {
 html {
   overflow-y: scroll;      /* fallback: the gutter always exists */
   scrollbar-gutter: stable; /* modern browsers: reserved cleanly  */
+  scroll-padding-top: 5rem; /* v1.197.0 - an #anchor lands below the fixed public navbar */
 }
 /* v1.124.0 — SCROLL OWNERSHIP, stated once so the next person does not have to
    find it out by breaking it. The document scroll has exactly two owners:

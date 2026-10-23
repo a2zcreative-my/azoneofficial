@@ -145,8 +145,16 @@ export const HOME_MEDIA = {
   work: {
     elfia: { src: "", alt: "" },
     azone: { src: "", alt: "" },
+    /* v1.197.0 - the case study card and our own live channel card */
+    case: { src: "", alt: "" },
+    live: { src: "", alt: "" },
   } as Record<string, { src: string; alt: string }>,
 } as const;
+
+/** v1.197.0 - a service's anchor on /services (the navbar's Services menu). */
+export function serviceSlug(title: string): string {
+  return title.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
 
 export function whatsappUrl(message?: string): string {
   const text = encodeURIComponent(message ?? CONTACT.whatsappMessage);

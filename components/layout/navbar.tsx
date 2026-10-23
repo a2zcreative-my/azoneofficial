@@ -1,131 +1,164 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+/* v1.197.0 - THE PUBLIC NAVBAR, on the owner's homepage mockup: a solid white
+   bar, the A2Z mark with the company name beside it, Home and the six pages
+   in one row (Home underlined in gold where you are; Services opens the six
+   services), EN | BM, and the gold "Get a free live audit" pill.
+   Blog and Login stay in the phone menu and the footer, exactly as before;
+   on a wide screen Login is the person icon beside the language toggle.
+
+   v1.32.1's lesson stands: in Bahasa Melayu the row is long, so the full row
+   appears only from 1180px (measured in both languages at 1180-1920px)
+   and below that the menu button takes over - the language toggle stays
+   outside it so a BM reader never has to open a menu to find their language.
+   CSS Module only: Tailwind is retired (tests/tailwind-retired.mjs). */
+
+import { ArrowRight, ChevronDown, Menu, UserRound, X } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { LangToggle } from "@/components/live/lang-runtime";
-import Link from "next/link";
-import { useState } from "react";
-
-import { whatsappUrl } from "@/constants/content";
+import { SERVICES, serviceSlug, whatsappUrl } from "@/constants/content";
 import { CTA_LABEL, NAV_ITEMS, SITE_CONFIG } from "@/constants/site";
-import { cn } from "@/lib/utils";
 
 import nav from "./navbar.module.css";
 
+/* the desktop row: Home, then every page but Blog (Blog is in the footer
+   and the phone menu - the mockup's row has seven entries) */
+const ROW = [{ label: "Home", href: "/" }, ...NAV_ITEMS.filter((i) => i.href !== "/blog")];
+
+function isHere(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function Navbar() {
+  const pathname = usePathname() ?? "/";
   const [open, setOpen] = useState(false);
+  const [svc, setSvc] = useState(false);
+  const svcRef = useRef<HTMLLIElement>(null);
+
+  /* the services menu closes on Escape and on a press anywhere else */
+  useEffect(() => {
+    if (!svc) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSvc(false); };
+    const onDown = (e: PointerEvent) => {
+      if (svcRef.current && !svcRef.current.contains(e.target as Node)) setSvc(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [svc]);
 
   return (
-    <header className="border-border/60 bg-background/80 fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md">
-      <nav
-        aria-label="Main"
-        className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6"
-      >
-        <Link
-          href="/"
-          onClick={() => setOpen(false)}
-          className="flex shrink-0 items-center"
-        >
+    <header className={nav.bar}>
+      <nav aria-label="Main" className={nav.inner}>
+        <Link href="/" onClick={() => setOpen(false)} className={nav.brand} aria-label={SITE_CONFIG.name}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* v1.33.0 — h-7 → h-9/h-10. The new mark is a STACKED lockup
-              (A2Z over CREATIVE, 991×547); at 28px in a 64px bar the word
-              CREATIVE rendered about 4px tall and read as a grey smudge. At
-              40px it is legible and the bar still has 12px of breathing room
-              top and bottom. The extra ~22px of width is affordable: BM — the
-              tighter language — had 141px of slack at 1280 after v1.32.1
-              (scratch/nav-fit-measure.mjs), and nav-fit-e2e re-checks it at
-              eight widths in both languages. */}
-          <img
-            src="/logo.png"
-            alt={SITE_CONFIG.name}
-            className="h-9 w-auto sm:h-10"
-          />
+          <img src="/logo.png" alt="" className={nav.logo} width={991} height={547} />
+          <span className={nav.wordmark} data-no-translate aria-hidden="true">
+            <span>A2Z Creative</span>
+            <span>Marketing</span>
+          </span>
         </Link>
 
-        {/* v1.32.1 — the desktop row appears at xl, not md.
-            Measured (scratch/nav-fit-measure.mjs): in Bahasa Melayu the seven
-            labels plus the toggle, Login and the CTA want 1067px, and the row
-            is only 961–1057px wide between 1024 and 1120. That is why the CEO
-            saw "Tentang Kami" printed through the logo and the CTA on two
-            lines. Below xl the hamburger takes over — the language toggle
-            stays outside it so a BM reader never has to open a menu to find
-            their own language. whitespace-nowrap is the belt: a longer label
-            in future overflows visibly rather than folding into its neighbour. */}
-        <ul className={`hidden items-center xl:flex ${nav.links}`}>
-          {NAV_ITEMS.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className="text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors"
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
+        <ul className={nav.links}>
+          {ROW.map((item) => {
+            const here = isHere(pathname, item.href);
+            if (item.href === "/services") {
+              return (
+                <li key={item.href} ref={svcRef} className={`${nav.hasMenu} ${svc ? nav.menuOpen : ""}`}>
+                  <span className={nav.split}>
+                    <Link href={item.href} className={`${nav.link} ${here ? nav.here : ""}`} aria-current={here ? "page" : undefined}>
+                      {item.label}
+                    </Link>
+                    <button
+                      type="button"
+                      className={nav.caret}
+                      aria-expanded={svc}
+                      aria-controls="nav-services"
+                      aria-label="Show services"
+                      onClick={() => setSvc((v) => !v)}
+                    >
+                      <ChevronDown aria-hidden="true" />
+                    </button>
+                  </span>
+                  <ul id="nav-services" className={nav.menu}>
+                    {SERVICES.map((s) => (
+                      <li key={s.title}>
+                        <Link href={`/services#${serviceSlug(s.title)}`} className={nav.menuItem} onClick={() => setSvc(false)}>
+                          <s.icon aria-hidden="true" />
+                          <span>{s.title}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
+            }
+            return (
+              <li key={item.href}>
+                <Link href={item.href} className={`${nav.link} ${here ? nav.here : ""}`} aria-current={here ? "page" : undefined}>
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
 
-        <div className={`hidden items-center xl:flex ${nav.tools}`}>
+        <div className={nav.tools}>
           <LangToggle />
-          <Link
-            href="/login"
-            className="text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors"
-          >
-            Login
+          <Link href="/login" className={nav.login} aria-label="Login" title="Login">
+            <UserRound aria-hidden="true" />
           </Link>
-          <a
-            href={whatsappUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={nav.cta}
-          >
-            {CTA_LABEL}
+          <a href={whatsappUrl()} target="_blank" rel="noopener noreferrer" className={nav.cta}>
+            <span>{CTA_LABEL}</span>
+            <ArrowRight aria-hidden="true" />
           </a>
         </div>
 
-        <div className="flex items-center gap-2 xl:hidden">
+        <div className={nav.phoneTools}>
           <LangToggle />
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-md"
+            className={nav.menuBtn}
             aria-expanded={open}
             aria-controls="mobile-menu"
             aria-label={open ? "Close menu" : "Open menu"}
             onClick={() => setOpen((v) => !v)}
           >
-            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {open ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
           </button>
         </div>
       </nav>
 
-      <div
-        id="mobile-menu"
-        className={cn(
-          "border-border bg-background max-h-[calc(100svh-4rem)] overflow-y-auto border-b xl:hidden",
-          open ? "block" : "hidden"
-        )}
-      >
-        <ul className="flex flex-col gap-1 px-6 py-4">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className="block rounded-md px-2 py-2 text-sm"
-                onClick={() => setOpen(false)}
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
+      <div id="mobile-menu" className={nav.sheet} hidden={!open}>
+        <ul className={nav.sheetList}>
+          {[{ label: "Home", href: "/" }, ...NAV_ITEMS].map((item) => {
+            const here = isHere(pathname, item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={`${nav.sheetLink} ${here ? nav.sheetHere : ""}`}
+                  aria-current={here ? "page" : undefined}
+                  onClick={() => setOpen(false)}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
           <li>
-            <Link
-              href="/login"
-              className="block rounded-md px-2 py-2 text-sm"
-              onClick={() => setOpen(false)}
-            >
+            <Link href="/login" className={nav.sheetLink} onClick={() => setOpen(false)}>
               Login
             </Link>
           </li>
-          <li className="mt-2">
+          <li className={nav.sheetCta}>
             <a
               href={whatsappUrl()}
               target="_blank"
@@ -133,7 +166,8 @@ export function Navbar() {
               className={`${nav.cta} ${nav.ctaBlock}`}
               onClick={() => setOpen(false)}
             >
-              {CTA_LABEL}
+              <span>{CTA_LABEL}</span>
+              <ArrowRight aria-hidden="true" />
             </a>
           </li>
         </ul>

@@ -17,15 +17,16 @@ export default function HomePage() {
     <>
       <Navbar />
       <main>
-        {/* v1.195.0 - the owner's mockup order: the hero, who we are and
-            what can be checked, the services, the problems they answer, real
-            work, live commerce and its channels, the packages, the process,
-            the questions, and the final call to action. */}
+        {/* v1.197.0 - the owner's mockup order: the hero, the services and
+            selected work first; then who we are, the problems we solve, live
+            commerce and its channels, the packages, the process, the
+            questions and the final call to action - each kept short on a
+            phone (swipe rows, the first About paragraph). */}
         <Hero />
-        <About />
         <Services />
-        <Problems />
         <Work />
+        <About />
+        <Problems />
         <Showcase />
         <LiveShowcase />
         <Packages />

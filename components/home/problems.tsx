@@ -17,17 +17,19 @@ export function Problems() {
           </div>
           <p className={css.lede}>Most brands don&apos;t stall because the product is wrong — they stall on the parts nobody warned them about, from an identity that never settles to a live room that draws a crowd and sells nothing. These are the ones we get hired for.</p>
         </div>
-        <ul className={css.problems} role="list">
-          {PROBLEMS.map((item, i) => (
+        <Reveal>
+        <ul className={`${css.problems} ${css.swipe}`} role="list">
+          {PROBLEMS.map((item) => (
             <li key={item.problem}>
-              <Reveal delay={(i % 3) * 0.06} className={`${css.problem} ${css.fill100}`}>
+              <div className={`${css.problem} ${css.fill100}`}>
                 <p className={css.problemQ}>&ldquo;{item.problem}&rdquo;</p>
                 <p className={css.problemLabel}>How we solve it</p>
                 <p className={css.problemA}>{item.solution}</p>
-              </Reveal>
+              </div>
             </li>
           ))}
         </ul>
+        </Reveal>
       </div>
     </section>
   );

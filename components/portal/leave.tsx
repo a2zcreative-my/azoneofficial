@@ -19,7 +19,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { sharePdfFile } from "@/lib/doc-pdf";
 import { esc } from "@/lib/escape-html";
 import { buildLeavePdf } from "@/lib/form-pdf";
-import { dmy, dmyMYT } from "@/lib/format";
+import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
@@ -32,6 +32,9 @@ import { DOC } from "@/lib/doc-theme";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { isPartialLeave, savedCoverage } from "@/lib/leave-coverage";
 import { LeaveCalendar } from "@/components/portal/leave-calendar"; // v1.181.17
+import { LeaveOverview, TeamCalendarGrid, monthName, type LeaveView } from "@/components/portal/leave-overview"; // v1.196.0
+import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.196.0
+import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
 
 function coverageLabel(l: LeaveReq): string {
   if (!isPartialLeave(l)) return "";
@@ -717,6 +720,13 @@ export function waitingOnLabel(l: LeaveReq): string {
 
 export function Leave({ user }: { user: User }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
+  /* v1.196.0 - THE LEAVE PAGE, TABBED (the owner's brief and photo,
+     23-10-2026): Overview, Apply Leave, My Leave, Team Calendar, Approvals &
+     Management. Every zone below is the zone it was, shown under its tab and
+     hidden - never unmounted - under the others, so a half-typed application
+     survives a look at the calendar. The gates are the ones the zones had. */
+  const [view, setView] = useState<LeaveView>("overview");
+  const [leaveQ, setLeaveQ] = useState("");
   const [draft, setDraft] = useState({
     type: "annual",
     start_date: "",
@@ -963,6 +973,19 @@ export function Leave({ user }: { user: User }) {
   const canSetEntitlement = ["ceo", "super_admin"].includes(user.role);
   /* the badge on the chooser: how many applications are still in progress */
   const mgmtPending = all.filter((l) => !["approved", "rejected", "cancelled"].includes(l.stage ?? l.status)).length;
+  /* v1.196.0 - the search over a leave list: the person, the type, the
+     reason or the leave number */
+  const qNeedle = leaveQ.trim().toLowerCase();
+  const matchQ = (l: LeaveReq) => !qNeedle || [l.user_full ?? "", l.user_name ?? "", leaveTypeL(l.type), l.type, l.reason ?? "", leaveNoOf(l)]
+    .some((t) => t.toLowerCase().includes(qNeedle));
+  const searchBox = (
+    <div className={lv.search}>
+      <input className={inputClassSm} value={leaveQ} onChange={(e) => setLeaveQ(e.target.value)}
+        placeholder={L("Search staff, leave type, reason or leave no.", "Cari kakitangan, jenis cuti, sebab atau no. cuti")} aria-label={L("Search leave", "Cari cuti")} />
+    </div>
+  );
+  const canManage = canApprove || canSetEntitlement;
+  const openView = (v: LeaveView) => { setView(v); window.scrollTo({ top: 0 }); };
 
   return (
     /* v1.173.0 (tab concept): MY BALANCES (the tiles), APPLY, THE COMPANY
@@ -973,7 +996,25 @@ export function Leave({ user }: { user: User }) {
       {stepUpNode}
       {removeLeaveNode}
       {leaveToastNode}
-      <TabZone label={L("My balances", "Baki saya")}>
+      {/* v1.196.0 - the tab row, with the month and Apply leave at the right */}
+      <LineTabs value={view} onChange={(k) => openView(k)} label={L("Leave", "Cuti")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ...(!hourly ? ([["apply", L("Apply Leave", "Mohon Cuti")], ["mine", L("My Leave", "Cuti Saya")]] as const) : []),
+        ["calendar", L("Team Calendar", "Kalendar Pasukan")],
+        ...(canManage ? ([["manage", L("Approvals & Management", "Kelulusan & Pengurusan")]] as const) : []),
+      ] as readonly (readonly [LeaveView, string])[]}
+        aside={
+          <TabAside>
+            <TabPeriod>{monthName(mytToday().slice(0, 7))}</TabPeriod>
+            {!hourly && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply leave", "Mohon cuti")}</TabAction>}
+          </TabAside>
+        } />
+      <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? lv.off : ""}>
+        <LeaveOverview types={LEAVE_TYPES} unpaidTypes={UNPAID_LEAVE_TYPES} balances={balances} mine={mine} loaded={loaded} hourly={hourly}
+          inProgress={canApprove ? mgmtPending : null} canManage={canManage} open={openView}
+          onViewMine={(id) => { setOpenLeave(id); openView("mine"); }} />
+      </TabZone>
+      <TabZone label={L("My balances", "Baki saya")} className={view !== "mine" && !(hourly && view === "overview") ? lv.off : ""}>
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
           type in the same grid, so the row is the same height either way. */}
       {!loaded && (
@@ -1047,7 +1088,7 @@ export function Leave({ user }: { user: User }) {
       </TabZone>
 
       {!hourly && (
-      <TabZone label={L("Apply", "Mohon")}>
+      <TabZone label={L("Apply", "Mohon")} className={view !== "apply" ? lv.off : ""}>
         <div className={card}>
           <p className="text-sm font-semibold">
             {L("Apply for leave", "Mohon cuti")}
@@ -1149,7 +1190,7 @@ export function Leave({ user }: { user: User }) {
       )}
 
       {(canApprove || canSetEntitlement) && (
-      <TabZone label={L("The company", "Syarikat")}>
+      <TabZone label={L("The company", "Syarikat")} className={view !== "manage" ? lv.off : ""}>
       {/* v1.86.0 (CEO: "leave to review should inside the leave") — rest-day
           work waiting to become replacement leave. It is the one half of the
           old "Leave to review" card that is NOT a leave record: the other
@@ -1196,14 +1237,14 @@ export function Leave({ user }: { user: User }) {
           const TERMINAL = ["approved", "rejected", "cancelled"];
           const pending = all.filter(
             (l) => !TERMINAL.includes(l.stage ?? l.status)
-          );
+          ).filter(matchQ);
           /* v1.83.0 — the WHOLE history, filtered by month, not the last
              five. A month filter is the only one that matters here: a leave
              question is nearly always "what happened in August", and it is
              the same month the payslip is being checked against. Matched by
              OVERLAP, so a leave running from the 29th into the next month
              appears under both — it was taken in both. */
-          const decidedAll = all.filter((l) => TERMINAL.includes(l.stage ?? l.status));
+          const decidedAll = all.filter((l) => TERMINAL.includes(l.stage ?? l.status)).filter(matchQ);
           const decided = leaveMonth
             ? decidedAll.filter((l) => l.start_date <= `${leaveMonth}-31` && l.end_date >= `${leaveMonth}-01`)
             : decidedAll.slice(0, 8);
@@ -1224,6 +1265,7 @@ export function Leave({ user }: { user: User }) {
                   "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Butang tindakan muncul pada yang menunggu anda."
                 )}
               </p>
+              {searchBox}
               {/* v1.77.0 — skeleton until the first fetch lands. */}
               {!loaded && <SkelRows rows={4} className="max-h-80" />}
               {loaded && pending.length === 0 && (
@@ -1443,17 +1485,24 @@ export function Leave({ user }: { user: User }) {
             </div>
           );
         })()}
+      </TabZone>
+      )}
+      {/* v1.196.0 - THE TEAM CALENDAR: the month at a glance for everyone
+          (leave-overview.tsx), then - managers only, as before - who is
+          away person by person, with the department clashes (v1.181.17) */}
+      <TabZone label={L("Team calendar", "Kalendar pasukan")} className={view !== "calendar" ? lv.off : ""}>
+        <TeamCalendarGrid userId={user.id} />
         {/* v1.181.17 (ERP roadmap phase 5) - who is away this month, so a
             clash shows before a decision; managers only */}
         <LeaveCalendar />
       </TabZone>
-      )}
     {!hourly && (
-      <TabZone label={L("My history", "Sejarah saya")}>
+      <TabZone label={L("My history", "Sejarah saya")} className={view !== "mine" ? lv.off : ""}>
 <div className={card}>
           <p className="text-sm font-semibold">
             {L("My leave history", "Sejarah cuti saya")}
           </p>
+          {searchBox}
           {/* v1.77.0 — skeleton until the first fetch lands. */}
           {!loaded && <SkelRows rows={4} className="max-h-72" />}
           {loaded && mine.length === 0 && (
@@ -1462,7 +1511,7 @@ export function Leave({ user }: { user: User }) {
             </p>
           )}
           <div className="max-h-72 overflow-y-auto">
-            {loaded && mine.map((l) => (
+            {loaded && mine.filter(matchQ).map((l) => (
               <div
                 key={l.id}
                 className="border-border border-b py-2 text-sm last:border-0"

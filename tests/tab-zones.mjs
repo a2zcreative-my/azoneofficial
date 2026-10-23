@@ -332,7 +332,9 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   const claimsP = panels.slice(panels.indexOf('export function ClaimsPanel'));
   ok("Claims: five tabs in the brief's order", ["Overview", "Submit Claim", "My Claims", "Approvals", "Reports & Payments"].map((t) => claimsP.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
   ok("Claims: each zone stays mounted under the other tabs", (claimsP.match(/className=\{view !== [a-zA-Z"]+ \? cov\.off : ""\}/g) ?? []).length >= 5 && /hidden=\{view !== "overview"\}/.test(claimsP));
-  ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.map((l)']));
+  /* v1.196.0 - the history is searched (mine.filter(matchQ)); five tabs, each zone kept mounted */
+  ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{view !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 6);
+  ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.filter(matchQ).map((l)']));
   ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['{renderTasks(tasks.filter((t) => t.status !== "completed")', 'L("Create / assign a task"', '{progress}', '{renderTasks(tasks.filter((t) => t.status === "completed")']));
   ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
   ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));

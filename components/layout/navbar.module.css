@@ -1,22 +1,242 @@
-/* v1.195.0 - the navbar's call to action is the gold pill of the redesigned
-   homepage, on every public page. */
+/* v1.197.0 - the public navbar on the owner's mockup (navbar.tsx).
+   Tokens only; the bar stays 4rem tall so every page's top padding holds. */
+.bar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 50;
+  background: var(--background);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: 0 6px 24px -18px rgb(26 41 70 / 0.35);
+}
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  max-width: 80rem;
+  height: 4rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+@media (min-width: 640px) {
+  .inner {
+    padding: 0 1.5rem;
+  }
+}
+
+/* the mark and the company name */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 0 0 auto;
+  color: var(--foreground);
+  text-decoration: none;
+}
+.logo {
+  display: block;
+  width: auto;
+  height: 2.25rem;
+}
+.wordmark {
+  display: grid;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--brand-primary);
+}
+@media (max-width: 379px) {
+  .wordmark {
+    display: none;
+  }
+}
+/* where the row of pages first appears, the name gives it room (Bahasa
+   Melayu is the long one) - measured at 1180, 1280, 1339, 1340, 1440, 1920 */
+@media (min-width: 1180px) and (max-width: 1339px) {
+  .wordmark {
+    display: none;
+  }
+  .link {
+    padding: 0 0.5rem;
+  }
+}
+
+/* the row of pages - from 1100px */
+.links,
+.tools {
+  display: none;
+}
+.links {
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 4rem;
+  padding: 0 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.link:hover {
+  color: var(--brand-accent-deep);
+}
+.here {
+  color: var(--brand-accent-deep);
+  font-weight: 600;
+}
+.here::after {
+  content: "";
+  position: absolute;
+  left: 0.625rem;
+  right: 0.625rem;
+  bottom: 1rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gold-solid);
+}
+.link:focus-visible,
+.caret:focus-visible,
+.login:focus-visible,
+.menuBtn:focus-visible,
+.menuItem:focus-visible,
+.sheetLink:focus-visible {
+  outline: 2px solid var(--gold-solid);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Services and its menu */
+.hasMenu {
+  position: relative;
+}
+.split {
+  display: inline-flex;
+  align-items: center;
+}
+.split .link {
+  padding-right: 0.125rem;
+}
+.caret {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.caret svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  transition: transform 0.2s ease;
+}
+.menuOpen .caret svg {
+  transform: rotate(180deg);
+}
+.menu {
+  position: absolute;
+  top: calc(100% - 0.5rem);
+  left: -0.5rem;
+  display: none;
+  min-width: 17rem;
+  margin: 0;
+  padding: 0.5rem;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--background);
+  box-shadow: 0 24px 48px -24px rgb(26 41 70 / 0.45);
+}
+.menuOpen .menu {
+  display: grid;
+}
+@media (hover: hover) {
+  .hasMenu:hover .menu {
+    display: grid;
+  }
+}
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+  text-decoration: none;
+}
+.menuItem:hover {
+  background: var(--brand-neutral);
+}
+.menuItem svg {
+  flex: 0 0 auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--brand-accent-deep);
+}
+
+/* language, login, the gold call to action */
+.tools {
+  align-items: center;
+  gap: 0.625rem;
+  flex: 0 0 auto;
+}
+.login {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  color: var(--foreground);
+}
+.login:hover {
+  border-color: var(--brand-accent-deep);
+  color: var(--brand-accent-deep);
+}
+.login svg {
+  width: 1rem;
+  height: 1rem;
+}
 .cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   height: 2.5rem;
-  padding: 0 1.25rem;
+  padding: 0 1.125rem;
   border-radius: 9999px;
   background: var(--gold-solid);
   color: var(--brand-primary);
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 0.8125rem;
+  font-weight: 600;
   white-space: nowrap;
-  transition: background-color 0.2s ease;
+  text-decoration: none;
+  box-shadow: 0 10px 22px -14px rgb(201 162 39 / 0.9);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.cta svg {
+  width: 1rem;
+  height: 1rem;
 }
 .cta:hover {
   background: color-mix(in srgb, var(--gold-solid) 88%, white);
+  transform: translateY(-1px);
 }
 .cta:focus-visible {
   outline: 2px solid var(--brand-primary);
@@ -24,15 +244,72 @@
 }
 .ctaBlock {
   width: 100%;
+  height: 3rem;
+  font-size: 0.9375rem;
 }
-/* the desktop row breathes with the width: in Bahasa Melayu the seven labels
-   are long enough that a fixed 24px gap left the first one touching the logo
-   (measured at 1280-1920, before and after v1.195.0) */
-.links {
-  gap: 1.125rem;
-  margin-left: 1.25rem;
+
+/* the phone: language toggle and the menu button */
+.phoneTools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
-.tools {
-  gap: 0.875rem;
-  margin-left: 0.75rem;
+.menuBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: none;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.menuBtn svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.sheet {
+  max-height: calc(100svh - 4rem);
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+.sheet[hidden] {
+  display: none;
+}
+.sheetList {
+  display: grid;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0.75rem 1rem 1.25rem;
+  list-style: none;
+}
+.sheetLink {
+  display: block;
+  padding: 0.75rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--foreground);
+  text-decoration: none;
+}
+.sheetHere {
+  color: var(--brand-accent-deep);
+  font-weight: 600;
+}
+.sheetCta {
+  margin-top: 0.75rem;
+}
+
+@media (min-width: 1180px) {
+  .links,
+  .tools {
+    display: flex;
+  }
+  .phoneTools,
+  .sheet {
+    display: none;
+  }
 }

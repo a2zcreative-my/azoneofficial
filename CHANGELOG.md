@@ -10,6 +10,82 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.197.0] - 2026-10-23 - The homepage, closer to the mockup and shorter on a phone
+
+The owner, 23-10-2026, with the homepage mockup again: "it doesn't look like
+this photo ... easier for my client to access on the mobile or the web".
+Chosen with the owner: the layout exactly as the photo, with real photos
+from the owner (no pictures cut from the mockup, no stock), and every
+section kept but shorter on a phone. Not deployed.
+
+### Changed
+
+- **Navbar** (`components/layout/navbar.tsx`, `navbar.module.css`, now CSS
+  Module only): a solid white bar, the A2Z mark with "A2Z CREATIVE
+  MARKETING", Home underlined in gold, About, Services (a menu of the six
+  services, each landing on its own card on /services), Consultancy,
+  Packages, Portfolio, Contact, EN | BM, a person icon for Login and the gold
+  "Get a free live audit" pill. Blog and Login stay in the phone menu and
+  the footer. The row appears from 1180px; the name hides between 1180 and
+  1339px so the Bahasa Melayu row fits (measured at six widths).
+- **Hero**: full width - the copy on navy at the left, the picture to the
+  right edge fading into the navy, as on the mockup. Until a real photo is
+  set in `HOME_MEDIA.hero`, the drawn studio (A2Z sign, ring light, the phone
+  on its stand), labelled "Studio view — illustration". The subheadline is
+  the mockup's line. On a phone the drawn studio is left out; a real photo
+  shows under the copy.
+- **Order**: hero, services, selected work, then about, problems, live
+  commerce, channels, packages, process, FAQ and the final call to action.
+- **Services**: six compact cards in one row (two across on a phone) - an
+  icon, a short name, one line, a round arrow - and the mockup's intro.
+- **Selected Work**: four wide cards across the page - ELFIA, our TikTok
+  live channel, the case study, AZ ONE OFFICIAL - with a chip, a services
+  line and an arrow; a swipe row on a phone. Real work only; `HOME_MEDIA.work`
+  gained `case` and `live` photo slots.
+- **Phone length** about 40% shorter (18,510px to 10,910px at 390px):
+  problems and packages swipe, About keeps its first paragraph with "More
+  about us", the credentials and steps are compact, the simulated session
+  panel is left out (the live band shows the same).
+- `/services` cards carry anchors; the page scroll stops 5rem under the
+  fixed bar. The content column is 80rem wide, as the mockup.
+- BM: 31 new entries in `constants/ms.ts`; five retired ones removed.
+
+## [1.196.0] - 2026-10-23 - Leave, reorganised into five tabs
+
+The owner, 23-10-2026, with the original screenshot and a mockup: Leave in
+five tabs - Overview, Apply Leave, My Leave, Team Calendar, Approvals &
+Management - keeping the gold/navy/white/grey identity, every record,
+balance, entitlement, replacement-leave and overtime rule, the approval
+chain and the permissions; no database, API or business-logic change; no
+sample data; no deploy without approval. The written five tabs were used
+where the mockup's tab row differs.
+
+### Changed
+
+- **Leave** (`components/portal/leave.tsx`) is a `LineTabs` page; every
+  zone stays mounted and hides with `lv.off`, so nothing reloads or loses a
+  half-filled form between tabs. Apply Leave and My Leave stay hidden for
+  hourly staff, exactly as before; Approvals & Management shows only to
+  the roles that could already decide leave.
+- **Overview** (new `components/portal/leave-overview.tsx`): the
+  in-progress callout for deciders, four tiles (my annual balance, pending,
+  approved and rejected this month), a bar per leave type, upcoming team
+  leave (names, types and dates from `/staff/leave/month` - never reasons),
+  recent requests, public holidays and quick actions.
+- **Team Calendar**: a Sun-Sat month grid over the same `/staff/leave/month`
+  and `/staff/holidays` reads - prev/next/today, a legend, a press on a day
+  lists who is away; it fits a phone. The managers' availability grid
+  (`LeaveCalendar`) is kept below it.
+- **Search** on My Leave and on the company board (name, type, reason,
+  leave number). The approve/reject, Half Day Suggested / Half Day / Full
+  Day / Pay as OT and entitlement controls are unchanged.
+- New `components/portal/leave-page.module.css`; no new Tailwind.
+
+### Guards
+
+- `tests/tab-zones.mjs` pins the five tabs and the filtered history list;
+  `tests/unpaid-leave.mjs` accepts the Apply zone's class.
+
 ## [1.195.0] - 2026-10-23 - The homepage, redesigned on the owner's mockup
 
 The owner, 23-10-2026, with a landing-page mockup: a premium creative-agency

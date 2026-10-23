@@ -316,8 +316,9 @@ ok("the attendance panel is actually given the role",
   ok("adjusting one hourly balance is refused", /has no leave entitlement to adjust", 400\)/.test(staff));
   ok("apply-to-all skips hourly hosts", /\.filter\(\(p\) => !p\.hourly\);/.test(staff));
   ok("the Leave tab hides the form and the tiles from an hourly host and says why",
-     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("Apply", "Mohon"\)\}>\s*<div className=\{card\}>\s*<p className="text-sm font-semibold">\s*\{L\("Apply for leave"/.test(page));
-     /* v1.173.0 (tab concept): the Apply card is the APPLY zone's one card; still gated on !hourly. */
+     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("Apply", "Mohon"\)\}(?: className=\{view !== "apply" \? lv\.off : ""\})?>\s*<div className=\{card\}>\s*<p className="text-sm font-semibold">\s*\{L\("Apply for leave"/.test(page));
+     /* v1.173.0 (tab concept): the Apply card is the APPLY zone's one card; still gated on !hourly.
+        v1.196.0: the zone is the Apply Leave tab, and that tab is not offered to an hourly host. */
   ok("the entitlement table shows one quiet cell for an hourly row instead of boxes",
      /\{p\.hourly && \(\s*\n?\s*<td className=\{`\$\{td\} text-muted-foreground text-xs`\} colSpan=\{ENT_TYPES\.length \+ 1\}>/.test(page) && /\{!p\.hourly && ENT_TYPES\.map/.test(page));
 }

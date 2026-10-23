@@ -26,10 +26,11 @@ export function Packages() {
             <p className={css.lede}>Our live commerce service is sold in four tiers; creative, digital marketing, and consultancy are scoped per brief. Every engagement starts with a free live audit — we look at your products and current channels, then recommend a tier. Pricing is quoted per brand, so you only pay for the cadence and creative you actually use.</p>
           </div>
         </div>
-        <ul className={css.packages} role="list">
-          {PACKAGES.map((tier, i) => (
+        <Reveal>
+        <ul className={`${css.packages} ${css.swipe}`} role="list">
+          {PACKAGES.map((tier) => (
             <li key={tier.name}>
-              <Reveal delay={i * 0.06} className={css.fill100}>
+              <div className={css.fill100}>
                 <article className={`${css.pkg} ${tier.featured ? css.pkgFeatured : ""}`}>
                   {tier.featured && <span className={css.pkgBadge}>Most chosen</span>}
                   <h3 className={css.pkgName}>{tier.name}</h3>
@@ -47,10 +48,11 @@ export function Packages() {
                     <ArrowRight aria-hidden="true" />
                   </a>
                 </article>
-              </Reveal>
+              </div>
             </li>
           ))}
         </ul>
+        </Reveal>
         <div className={`${css.btnRow} ${css.heroCtas}`}>
           <Link className={css.btnNavy} href="/packages"><span>Compare packages</span><ArrowRight aria-hidden="true" /></Link>
           <a className={css.btnLine} href={whatsappUrl()} target="_blank" rel="noopener noreferrer"><span>{CTA_LABEL}</span></a>

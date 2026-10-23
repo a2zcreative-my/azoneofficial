@@ -8,7 +8,7 @@
    their Admin -> Content keys (about.body1..3); the companies row is
    OUR_COMPANIES from constants/brands.ts, the businesses the group owns. */
 
-import { BadgeCheck, Languages, MapPin, Store } from "lucide-react";
+import { ArrowRight, BadgeCheck, Languages, MapPin, Store } from "lucide-react";
 import Link from "next/link";
 import type { ComponentType, SVGProps } from "react";
 
@@ -55,6 +55,10 @@ export function About() {
                 <Editable k={`about.body${i + 1}`} fallback={paragraph} />
               </p>
             ))}
+            <Link className={css.moreLink} href="/about">
+              <span>More about us</span>
+              <ArrowRight aria-hidden="true" />
+            </Link>
           </Reveal>
           <Reveal delay={0.08} className={css.companies}>
             <p className={css.companiesLabel}>Our companies</p>
