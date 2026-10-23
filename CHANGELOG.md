@@ -10,6 +10,51 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.198.0] - 2026-10-23 - Payroll, reorganised into five tabs
+
+The owner, 23-10-2026, with the original screenshot and a mockup: Payroll in
+five tabs - Overview, Payroll Processing, Payslips, Reports & Export,
+Settings & Audit - keeping the gold/navy/white/grey identity; no change to any
+salary calculation, OT rate, unpaid-leave rule, formula or rounding; no
+database, API, authentication or permission change; no sample data; payment
+files only with approval; no deploy without approval.
+
+### Changed
+
+- **Payroll** (`components/portal/payroll-panel.tsx`, new
+  `payroll-page.module.css`) is a `LineTabs` page with the month picker at
+  the right; every zone stays mounted and hides with `pp.off`, so a figure
+  typed in Processing survives a look at another tab.
+- **Overview**: five tiles (staff, net payroll, payslip date, working days,
+  payslips released), a review callout (days with no clock-in, short days,
+  leave still pending, clock-ins outside employment dates, a Basic that
+  differs from the base salary, unsaved rows), the payroll summary, the
+  run's timeline from real state, quick actions and help links.
+- **Payroll Processing**: the register as before - working days, Base
+  salaries, Re-fill days, Recompute nets, the no-clock-in list (CEO only, as
+  before), every input, every explanation line, Save and Save all - with an
+  avatar, a Days column, a Status chip (Saved / Unsaved / Not saved /
+  Released) and a salary-breakdown drawer per row.
+- **Payslips**: the release schedule, Release now / Undo release and the
+  employer of record moved here, with each person's Preview and Send PDF.
+- **Reports & Export**: the M2E salary file and the CSV now ASK FIRST (month,
+  head count, net, and how many rows are unsaved, since both files read the
+  saved entries); payroll totals by kind of deduction, by department, and a
+  read-only monthly report.
+- **Settings & Audit**: base salaries, the M2E setup, the current payroll
+  configuration (the rules this month is calculated on, and the full
+  calculation text) and an audit card from what the record already says.
+- The month totals are the same reduce, computed once for the TOTAL row,
+  the Overview and Reports.
+
+### Tests
+
+- New `tests/browser/payroll-figures.py`: the TOTAL row and every Save all
+  body (net, OT pay, days) to the cent against figures captured from the
+  screen before the redesign. The fixture gained the September 2026 run.
+- `tests/tab-zones.mjs` pins the five tabs and the new order (release before
+  the bank file); `tests/payroll-days.mjs` counts the fourth incFor site.
+
 ## [1.197.0] - 2026-10-23 - The homepage, closer to the mockup and shorter on a phone
 
 The owner, 23-10-2026, with the homepage mockup again: "it doesn't look like

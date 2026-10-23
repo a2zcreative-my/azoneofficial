@@ -421,7 +421,9 @@ const AUG = (() => {
      /proration: \{ basis: proA\.basis, month_days: proA\.list\.length, unpaid_divisor: proA\.divisor \}/.test(staff)
      && /proration_days: employedDays\(proA\.list, u\.joined_on, u\.left_on, u\.rejoined_on\)\.length,/.test(staff)
      && /\? incompleteCents\(basicCents, proration\.month_days, proDays\[id\] \?\? proration\.month_days\)/.test(panel)
-     && (panel.match(/incFor\((?:id|u\.id), e\.basic_cents\)/g) ?? []).length === 3
+     /* v1.198.0 - a fourth site, the per-row figures the Overview, Reports
+        and the breakdown drawer print (figs), goes through incFor too */
+     && (panel.match(/incFor\((?:id|u\.id), e\.basic_cents\)/g) ?? []).length === 4
      && !/incompleteMonthAdj\(e\.basic_cents/.test(panel),
      "netFor, the row and the totals - the net the panel POSTs is the one that is saved");
   ok("the payslip says which fraction and which days",

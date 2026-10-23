@@ -326,7 +326,12 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("HR: task report, birthdays and lifecycle are all still on the page", hr.includes('L("Task report"') && hr.includes('L("Staff birthdays"') && hr.includes("<PeoplePanel ") && page.includes('<HrPage user={user} go={setTab} canOpen={canOpen} />'));
   ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
-  ok("Payroll: review before save, payment export, release and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("M2E salary file"', 'L("Release now"', 'id="payroll-base"', 'L("M2E setup']));
+  /* v1.198.0 - five tabs in the brief's order: the register and Save all
+     (Processing), the release (Payslips), the bank file (Reports & Export),
+     then the base salaries and the M2E setup (Settings & Audit); every zone
+     kept mounted and hidden with pp.off */
+  ok("Payroll: review before save, release, payment export and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("Release now"', 'L("M2E salary file"', 'id="payroll-base"', 'L("M2E setup (one-time)']));
+  ok("Payroll: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Payroll Processing", "Payslips", "Reports & Export", "Settings & Audit"].map((t) => pay.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (pay.match(/className=\{view !== "[a-z]+" \? pp\.off : ""\}/g) ?? []).length === 5);
   ok("Claims: submission link, pending decisions, form, records", ordered(panels.slice(panels.indexOf('export function ClaimsPanel')), ['openClaims("submit")', 'id="claims-pending"', 'id="claim-form"', 'L("All claims"']));
   /* v1.194.0 - five tabs, in the brief's order; every zone hidden, never unmounted */
   const claimsP = panels.slice(panels.indexOf('export function ClaimsPanel'));

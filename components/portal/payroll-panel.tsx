@@ -16,7 +16,7 @@ import { openPrintPreview } from "@/components/ui/document-preview";
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 import { bySeniority } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with the Staff tab
 const api = makeApi("/staff");
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { esc } from "@/lib/escape-html";
 import { displayName } from "@/lib/names";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -28,10 +28,17 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, btnSmPrimary, card, chipNeutral, inputClassSm } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
+/* v1.198.0 - the five-tab page */
+import { LineTabs } from "@/components/ui/line-tabs";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { Avatar } from "@/components/ui/avatar";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { monthName } from "@/components/portal/leave-overview";
+import pp from "./payroll-page.module.css";
 import { getLang } from "@/lib/i18n";
-import { Skel } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
+import { Skel, SkelRows } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -59,6 +66,7 @@ interface StaffRow {
   bank_name?: string | null;
   bank_account?: string | null;
   joined_on?: string | null;
+  photo_key?: string | null; // v1.198.0 - the row's avatar
 }
 
 interface Entry {
@@ -130,7 +138,7 @@ function incompleteMonthAdj(basicCents: number, payableDays: number | null | und
 // v1.4.272: the local formatter became an alias of the global — payroll's
 // numbers must print identically to every other tab's.
 import { fmtRM, rm as rmBare, dmy } from "@/lib/format";
-import { AppIcon } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 const rm = fmtRM;
 
 /** "YYYY-MM" → "MM-YYYY" for display. */
@@ -725,10 +733,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
-  const [showBase, setShowBase] = useState(false);
-  useEffect(() => {
-    if (showBase) document.getElementById("payroll-base")?.scrollIntoView({ block: "start" });
-  }, [showBase]);
+  /* v1.198.0 - the five tabs, the row being explained in the drawer, and
+     what was loaded: the pristine snapshot as state (render reads it to say
+     which rows are unsaved; pristineRef stays the one Save compares with)
+     and which people had a saved entry. */
+  type PayView = "overview" | "process" | "payslips" | "reports" | "settings";
+  const [view, setView] = useState<PayView>("overview");
+  const go = (v: PayView, anchor?: string) => {
+    setView(v);
+    if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
+  };
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [pristine, setPristine] = useState<Record<number, string>>({});
+  const [savedIds, setSavedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
@@ -862,6 +879,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       snap[u.id] = JSON.stringify([e.basic_cents, e.commission_cents, e.allowance_cents, e.ot_hours ?? null, e.deduction_cents, d ?? null, (e as Entry & { month_working_days?: number | null }).month_working_days ?? null, e.note ?? null]);
     }
     pristineRef.current = snap;
+    setPristine(snap);
+    setSavedIds((p.data?.entries ?? []).map((x) => x.user_id));
     setLoaded(true);
   }, [month]);
   useEffect(() => {
@@ -916,98 +935,270 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     showToast(L("Saved", "Disimpan"), `${L("Payslip ready to send", "Slip gaji sedia untuk dihantar")} — ${displayName(u)} ${month}`);
   };
 
-  return (
-    /* v1.173.0 (tab concept): THE RUN (the month's table, save, the M2E
-       file, the release) in one card; SETUP (base salaries, the one-time
-       M2E details) as its own cards under it - review before save, payment
-       export, release and setup, the order v1.4.x settled. */
-    <TabPage>
-    <TabZone label={L("The run", "Larian")}>
-    <div className={card}>
-      {toastNode}
-      {payConfirmNode}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{L("Payroll processing", "Pemprosesan gaji")}</p>
-          <details className="mt-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">{L("Payroll calculation details", "Butiran pengiraan gaji")}</summary>
-<p className="text-muted-foreground mt-0.5 text-xs">
-            {L(
-              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + allowance + overtime (commission retired from October 2026 - a month paid with one keeps its figure) (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (monthly wage ÷ the calendar days of the month, per day — Employment Act s.18A, so 1/30 in September and 1/31 in October; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × calendar days not employed ÷ the calendar days of the month, s.18A — joiners, leavers and re-joiners only). Months before September 2026 keep the rule their payslips were issued on: unpaid leave at 1/26 and an incomplete month on working days. Overtime and holiday work stay on ÷ 26, the ordinary rate of pay (s.60I). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
-              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (gaji bulanan ÷ hari kalendar bulan itu, bagi setiap hari — Akta Kerja s.18A, jadi 1/30 pada September dan 1/31 pada Oktober; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari kalendar tidak bekerja ÷ hari kalendar bulan itu, s.18A — pekerja baharu, berhenti dan kembali sahaja). Bulan sebelum September 2026 kekal dengan peraturan slip gajinya dikeluarkan: cuti tanpa gaji pada 1/26 dan bulan tidak lengkap mengikut hari bekerja. OT dan kerja pada cuti umum kekal ÷ 26, iaitu kadar gaji biasa (s.60I). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
-            )}
-          </p>
-          </details>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-muted-foreground text-xs" title={L("Computed automatically: Monday–Friday minus every holiday on the company calendar (public, replacement and company days). Edit only for exceptions.", "Dikira secara automatik: Isnin–Jumaat tolak setiap cuti pada kalendar syarikat (cuti umum, gantian dan hari syarikat). Sunting hanya untuk pengecualian.")}>
-            {L("Working days (auto)", "Hari bekerja (auto)")}{" "}
-            <input
-              type="number" min={1} max={31}
-              className={`${inputClassSm} w-16`}
-              value={monthDays}
-              onChange={(e) => setMonthDays(Math.max(1, Number(e.target.value)))}
-            />
-          </label>
-          <input
-            type="month"
-            className={inputClassSm}
-            aria-label={L("Payroll month", "Bulan gaji")}
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          />
-          <button
-            type="button"
-            className={btnSm}
-            title={L("Fixed monthly basic per staff — auto-fills every month; adjust here on increment", "Gaji pokok bulanan tetap bagi setiap kakitangan — terisi automatik setiap bulan; laraskan di sini apabila ada kenaikan")}
-            onClick={() => setShowBase((v) => !v)}
-          >
-            {showBase ? L("Close base salaries", "Tutup gaji asas") : L("Base salaries", "Gaji asas")}
-          </button>
-          <button
-            type="button"
-            className={btnSm}
-            title={L("Days already auto-fill from attendance on load — this re-fills every box from clock-ins, overwriting manual edits", "Hari sudah terisi automatik daripada kehadiran semasa dimuat — ini mengisi semula setiap kotak daripada rekod daftar masuk, menulis ganti suntingan manual")}
-            onClick={autoFillDays}
-          >
-            {L("Re-fill days", "Isi semula hari")}
-          </button>
-          <button
-            type="button"
-            className={btnSm}
-            title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri yang disimpan — guna selepas sebarang perubahan kalendar")}
-            onClick={async () => {
-              const r = await postPay(`/payroll/recompute`, { month });
-              if (r.ok) showToast(L("Saved", "Disimpan"), L(`Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`, `${r.data?.rows ?? 0} entri dikira semula pada ${r.data?.working_days ?? "?"} hari bekerja`));
-              else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Kira semula gagal"), "notice");
-              void load();
-            }}
-          >
-            <><AppIcon name="fix" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Recompute nets", "Kira semula bersih")}</>
-          </button>
+  /* ================= v1.198.0 - THE FIVE TABS =================
+     The owner, 23-10-2026, with a mockup: Overview, Payroll Processing,
+     Payslips, Reports & Export, Settings & Audit. Every zone is rendered and
+     the closed ones are hidden (pp.off), so a figure typed in Processing
+     survives a look at Reports. Nothing below computes pay: every figure is
+     entry(), netFor(), incFor(), otPay() or the server's unpaidInfo, exactly
+     as the table always used them; the month totals are the same reduce. */
+  const figs = (u: StaffRow) => {
+    const e = entry(u.id);
+    const hourlyRow = isHourly(u);
+    const ud = unpaidInfo[u.id];
+    return {
+      hourlyRow,
+      basic: hourlyRow ? (e.hourly_pay_live ?? e.basic_cents) : e.basic_cents,
+      ph: ud?.ph_worked_cents ?? 0,
+      comm: e.commission_cents,
+      allow: e.allowance_cents,
+      ot: hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours),
+      manual: e.deduction_cents,
+      ul: hourlyRow ? 0 : (ud?.cents ?? 0),
+      adj: hourlyRow ? 0 : incFor(u.id, e.basic_cents),
+      advance: ud?.salary_advance_cents ?? 0,
+      net: netFor(u.id),
+    };
+  };
+  /* v1.4.75: month totals — the final amount at a glance. Live: they update
+     as figures are typed, before saving. The reduce is the one the TOTAL row
+     always used, now computed once for the row, the Overview and Reports. */
+  const tot = staff.reduce(
+    (a, u) => {
+      const e = entry(u.id);
+      if (isHourly(u)) {
+        // v1.4.183: hourly rows — clocked pay, no UL/proration/OT
+        const hp = e.hourly_pay_live ?? e.basic_cents;
+        const phH = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+        const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
+        a.basic += hp; a.ph += phH; a.comm += e.commission_cents; a.allow += e.allowance_cents;
+        a.ded += e.deduction_cents + advance;
+        a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advance);
+        return a;
+      }
+      const ulDed = unpaidInfo[u.id]?.cents ?? 0;
+      const adj = incFor(u.id, e.basic_cents);
+      const ot = otPay(e.basic_cents, e.ot_hours);
+      const phW = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
+      const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
+      a.basic += e.basic_cents; a.ph += phW; a.comm += e.commission_cents;
+      a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj + advance;
+      a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj - advance);
+      return a;
+    },
+    { basic: 0, ph: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
+  );
+  /* the deductions, by kind - the same per-row figures, summed for Reports */
+  const dedBy = staff.reduce((a, u) => {
+    const f = figs(u);
+    a.manual += f.manual; a.ul += f.ul; a.adj += f.adj; a.advance += f.advance;
+    return a;
+  }, { manual: 0, ul: 0, adj: 0, advance: 0 });
 
+  /* each row's state, against what was loaded (the pristine snapshot) */
+  const isDirty = (id: number) => fingerprint(id) !== pristine[id];
+  const rowState = (id: number): "dirty" | "new" | "released" | "saved" =>
+    isDirty(id) ? "dirty" : !savedIds.includes(id) ? "new" : release?.released ? "released" : "saved";
+  const dirtyCount = loaded ? staff.filter((u) => isDirty(u.id)).length : 0;
+  const savedCount = loaded ? staff.filter((u) => savedIds.includes(u.id)).length : 0;
+  const stateChip = (id: number) => {
+    const s = rowState(id);
+    return s === "dirty" ? <span className={chipWarn}>{L("Unsaved", "Belum disimpan")}</span>
+      : s === "new" ? <span className={chipNeutral}>{L("Not saved", "Belum disimpan")}</span>
+      : s === "released" ? <span className={chipSuccess}>{L("Released", "Dikeluarkan")}</span>
+      : <span className={chipInfo}>{L("Saved", "Disimpan")}</span>;
+  };
+
+  /* what needs a look before the run is paid - only what the screen already knew */
+  const noClockDays = absences.reduce((n, a) => n + a.missing.length, 0);
+  const shortDays = absences.reduce((n, a) => n + a.short.length, 0);
+  const datesWrong = staff.filter((u) => unpaidInfo[u.id]?.clocked_beyond_employment);
+  const offBase = staff.filter((u) => !isHourly(u) && (base[u.id] ?? 0) > 0 && entry(u.id).basic_cents !== base[u.id]);
+  const m2eIncomplete = m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid;
+  const releaseAt = release ? `${dmy(release.available_from)} ${(release.available_from.split(" ")[1] ?? "").slice(0, 5)} MYT` : "";
+  const monthLabel = monthName(month);
+  const detailUser = detailId === null ? null : staff.find((x) => x.id === detailId) ?? null;
+
+  /* v1.198.0 - "Do not create or send payment files without the
+     appropriate approval": both bank files ask first, with the month, the
+     head count and the net on screen, and say what the file is built from. */
+  const confirmPaymentFile = (kind: "m2e" | "csv") => payConfirm({
+    title: kind === "m2e"
+      ? L(`Download the M2E salary file for ${monthLabel}?`, `Muat turun fail gaji M2E untuk ${monthLabel}?`)
+      : L(`Download the payment CSV for ${monthLabel}?`, `Muat turun CSV pembayaran untuk ${monthLabel}?`),
+    message: L(
+      `${staff.length} staff · net ${rm(tot.net)} on screen.\nThe file is built from the SAVED payroll entries${dirtyCount > 0 ? ` — ${dirtyCount} row${dirtyCount === 1 ? " has" : "s have"} unsaved changes that will NOT be in it until you Save all` : ""}.\nUpload it to Maybank only once this payroll has been approved.`,
+      `${staff.length} kakitangan · bersih ${rm(tot.net)} pada skrin.\nFail ini dibina daripada entri gaji yang DISIMPAN${dirtyCount > 0 ? ` — ${dirtyCount} baris mempunyai perubahan belum disimpan yang TIDAK akan dimasukkan sehingga anda Simpan semua` : ""}.\nMuat naik ke Maybank hanya selepas gaji ini diluluskan.`,
+    ),
+    confirmLabel: L("Download", "Muat turun"),
+  });
+  const downloadCsv = async () => {
+    if (!(await confirmPaymentFile("csv"))) return;
+    const a = document.createElement("a");
+    a.href = `${API}/payroll/payment-file?month=${month}`;
+    a.download = "";
+    a.click();
+  };
+
+  const head = (icon: AppIconName, tone: string | undefined, title: string, sub?: ReactNode, action?: ReactNode) => (
+    <div className={pp.head}>
+      <div className={pp.lead}>
+        <span className={`${pp.well} ${tone ?? ""}`}><AppIcon name={icon} /></span>
+        <div className={pp.headText}>
+          <p className={pp.title}>{title}</p>
+          {sub && <p className={pp.sub}>{sub}</p>}
         </div>
       </div>
-      {msg && <p className="mt-2 text-xs font-medium text-success">{msg}</p>}
+      {action}
+    </div>
+  );
 
-      {!readOnly && (<>
+  return (
+    <TabPage>
+      {toastNode}
+      {payConfirmNode}
+      <LineTabs value={view} onChange={(k) => go(k)} label={L("Payroll", "Gaji")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["process", L("Payroll Processing", "Pemprosesan Gaji")],
+        ["payslips", L("Payslips", "Slip Gaji")],
+        ["reports", L("Reports & Export", "Laporan & Eksport")],
+        ["settings", L("Settings & Audit", "Tetapan & Audit")],
+      ] as const} aside={
+        <label className={pp.monthPick}>
+          <AppIcon name="date" />
+          <input
+            type="month"
+            aria-label={L("Payroll month", "Bulan gaji")}
+            value={month}
+            onChange={(e) => { if (e.target.value) setMonth(e.target.value); }}
+          />
+        </label>
+      } />
 
+      {/* ============================== OVERVIEW ============================== */}
+      <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? pp.off : ""}>
+        <div className={pp.kpis}>
+        <KpiRow label={L(`Payroll at a glance — ${monthLabel}`, `Gaji sepintas lalu — ${monthLabel}`)}>
+          <KpiTile icon="users" tone="gold" label={L("Total Staff", "Jumlah Kakitangan")} busy={!loaded}
+            value={staff.length}
+            sub={L(`${staff.filter((u) => isHourly(u)).length} paid by the hour`, `${staff.filter((u) => isHourly(u)).length} dibayar ikut jam`)} />
+          <KpiTile icon="money" tone="green" label={L("Total Payroll (Net)", "Jumlah Gaji (Bersih)")} busy={!loaded}
+            value={rm(tot.net)}
+            sub={dirtyCount > 0 ? L(`Includes ${dirtyCount} unsaved change${dirtyCount === 1 ? "" : "s"}`, `Termasuk ${dirtyCount} perubahan belum disimpan`) : monthLabel} />
+          <KpiTile icon="date" tone="blue" label={L("Payslip Date", "Tarikh Slip Gaji")} busy={!release}
+            value={release ? dmy(release.available_from) : "—"}
+            sub={release?.released ? L("Released early", "Dikeluarkan awal") : L(`Available from ${(release?.available_from.split(" ")[1] ?? "").slice(0, 5)} MYT`, `Tersedia dari ${(release?.available_from.split(" ")[1] ?? "").slice(0, 5)} MYT`)} />
+          <KpiTile icon="time" tone="gold" label={L("Working Days", "Hari Bekerja")} busy={!loaded}
+            value={monthDays}
+            sub={calendarBasis ? L(`Prorated on ${proration?.month_days} calendar days`, `Prorata pada ${proration?.month_days} hari kalendar`) : monthLabel} />
+          <KpiTile icon="document" tone="purple" label={L("Payslips Released", "Slip Gaji Dikeluarkan")} busy={!loaded}
+            value={`${release?.released ? staff.length : 0} / ${staff.length}`}
+            sub={release?.released ? L("100% released", "100% dikeluarkan") : L("0% released", "0% dikeluarkan")} />
+        </KpiRow>
+        </div>
 
-        {/* v1.183.0 - COMMISSION IS RETIRED FROM PAY (the owner, 22-10-2026,
-            with the Commission tab). The "Pull approved commission" button
-            and the COMMISSION column are gone: no new month can carry a
-            commission figure. `commission_cents` stays in the record and in
-            every net formula, so a month that was paid with commission keeps
-            its net and its payslip line; a new month holds 0. The worker's
-            /payroll/pull-commission and the commission routes are dormant. */}
-      </>)}
+        {loaded && (noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount > 0 || release?.employer_is_legacy) && (
+          <div className={`${card} ${pp.alert}`} role="status">
+            <span className={`${pp.well} ${pp.goldWell}`}><AppIcon name="warning" /></span>
+            <div className={pp.alertBody}>
+              <p className={pp.title}>{L("Needs your review before this run is paid", "Perlu semakan anda sebelum gaji ini dibayar")}</p>
+              <ul className={pp.alertList}>
+                {canMarkUnpaid && noClockDays + shortDays > 0 && (
+                  <li>{L(`Days with no clock-in — not deducted unless you say so: ${noClockDays} with no clock-in, ${shortDays} short, across ${absences.length} staff.`,
+                         `Hari tanpa daftar masuk — tidak dipotong melainkan anda tetapkan: ${noClockDays} tanpa daftar masuk, ${shortDays} pendek, untuk ${absences.length} kakitangan.`)}</li>
+                )}
+                {canMarkUnpaid && waitingOnLeave > 0 && (
+                  <li>{L(`${waitingOnLeave} day${waitingOnLeave === 1 ? "" : "s"} waiting on a leave decision — decide the leave first.`, `${waitingOnLeave} hari menunggu keputusan cuti — putuskan cuti dahulu.`)}</li>
+                )}
+                {datesWrong.length > 0 && (
+                  <li>{L("Clock-ins outside the employment dates — check the staff record: ", "Daftar masuk di luar tarikh pekerjaan — semak rekod kakitangan: ")}<span data-no-translate>{datesWrong.map((u) => displayName(u)).join(", ")}</span></li>
+                )}
+                {offBase.length > 0 && (
+                  <li>{L("Basic differs from the base salary: ", "Gaji pokok berbeza daripada gaji asas: ")}<span data-no-translate>{offBase.map((u) => displayName(u)).join(", ")}</span></li>
+                )}
+                {dirtyCount > 0 && (
+                  <li>{L(`${dirtyCount} row${dirtyCount === 1 ? " has" : "s have"} changes not saved yet — the payslip, the bank file and Expenses read the saved figures.`, `${dirtyCount} baris mempunyai perubahan belum disimpan — slip gaji, fail bank dan Perbelanjaan membaca angka yang disimpan.`)}</li>
+                )}
+                {release?.employer_is_legacy && (
+                  <li>{L("This month was released without an employer stamp — see Settings & Audit.", "Bulan ini dikeluarkan tanpa cap majikan — lihat Tetapan & Audit.")}</li>
+                )}
+              </ul>
+            </div>
+            <button type="button" className={btnSm} onClick={() => go("process", canMarkUnpaid && absences.length > 0 ? "payroll-absences" : "payroll-table")}>
+              {L("Review attendance", "Semak kehadiran")}
+            </button>
+          </div>
+        )}
 
-      {/* v1.75.0 (CEO: "Unpaid will be count based on their no data in") —
-          days that look unpaid, offered one click at a time. Nothing here
-          deducts anything until it is pressed: a missing punch is a client
-          visit, a shoot, or a phone that died at least as often as it is an
-          absence, and taking pay off somebody for a flat battery is how a
-          payroll system loses the room. */}
+        <div className={pp.split}>
+          <section className={card} aria-label={L("Payroll summary", "Ringkasan gaji")}>
+            {head("money", pp.greenWell, L("Payroll Summary", "Ringkasan Gaji"), L(`${monthLabel} — live, as the table reads now`, `${monthLabel} — langsung, seperti jadual sekarang`))}
+            {!loaded ? <SkelRows rows={6} /> : (
+              <dl className={pp.statement}>
+                <div><dt>{L("Basic salary", "Gaji pokok")}</dt><dd>{rm(tot.basic)}</dd></div>
+                {tot.ph > 0 && <div><dt>{L("Public holidays worked", "Cuti umum bekerja")}</dt><dd>{rm(tot.ph)}</dd></div>}
+                {tot.comm > 0 && <div><dt>{L("Commission (paid months only)", "Komisen (bulan dibayar sahaja)")}</dt><dd>{rm(tot.comm)}</dd></div>}
+                <div><dt>{L("Allowances", "Elaun")}</dt><dd>{rm(tot.allow)}</dd></div>
+                <div><dt>{L("Overtime", "OT")}</dt><dd>{rm(tot.ot)}</dd></div>
+                <div className={tot.ded > 0 ? pp.minus : ""}><dt>{L("Deductions", "Potongan")}</dt><dd>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</dd></div>
+                <div className={pp.total}><dt>{L("Net pay", "Gaji bersih")}</dt><dd>{rm(tot.net)}</dd></div>
+              </dl>
+            )}
+          </section>
+
+          <section className={card} aria-label={L("Payroll timeline", "Garis masa gaji")}>
+            {head("orders", pp.blueWell, L("Payroll Timeline", "Garis Masa Gaji"), L("Where this month's run stands", "Kedudukan larian bulan ini"))}
+            <ol className={pp.steps}>
+              {[
+                { t: L("Calculate payroll", "Kira gaji"), s: L("Basic, allowance, OT and deductions", "Pokok, elaun, OT dan potongan"),
+                  done: loaded && savedCount === staff.length && dirtyCount === 0,
+                  note: loaded ? L(`${savedCount} of ${staff.length} saved`, `${savedCount} daripada ${staff.length} disimpan`) : "" },
+                { t: L("Review & adjust", "Semak & laras"), s: L("Attendance, leave and adjustments", "Kehadiran, cuti dan pelarasan"),
+                  done: loaded && noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount === 0,
+                  note: loaded ? (noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount === 0 ? L("Nothing to review", "Tiada untuk disemak") : L("Needs review", "Perlu disemak")) : "" },
+                { t: L("Generate payslips", "Jana slip gaji"), s: L("Preview and send as PDF", "Pratonton dan hantar sebagai PDF"),
+                  done: loaded && savedCount === staff.length && dirtyCount === 0,
+                  note: loaded && savedCount === staff.length && dirtyCount === 0 ? L("Ready", "Sedia") : L("After every row is saved", "Selepas setiap baris disimpan") },
+                { t: L("Release to staff", "Keluarkan kepada kakitangan"), s: L("Payslips available in the staff portal", "Slip gaji tersedia dalam portal kakitangan"),
+                  done: !!release?.released,
+                  note: release?.released ? L("Released", "Dikeluarkan") : releaseAt },
+              ].map((st, i) => (
+                <li key={st.t} className={`${pp.step} ${st.done ? pp.stepDone : ""}`}>
+                  <span className={pp.stepNo} aria-hidden="true">{st.done ? <AppIcon name="success" /> : i + 1}</span>
+                  <span className={pp.stepText}><strong>{st.t}</strong><span>{st.s}</span></span>
+                  <span className={pp.stepNote}>{st.note}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+
+        <div className={pp.split}>
+          <section className={card} aria-label={L("Quick actions", "Tindakan pantas")}>
+            {head("fast", pp.goldWell, L("Quick Actions", "Tindakan Pantas"))}
+            <div className={pp.quick}>
+              {!readOnly && <button type="button" className={pp.qa} onClick={() => go("settings", "payroll-base")}><span className={`${pp.qaIcon} ${pp.purpleWell}`}><AppIcon name="money" /></span><span><strong>{L("Base salaries", "Gaji asas")}</strong><span>{L("Update staff base pay", "Kemas kini gaji asas")}</span></span></button>}
+              <button type="button" className={pp.qa} onClick={() => go("process", "payroll-tools")}><span className={`${pp.qaIcon} ${pp.blueWell}`}><AppIcon name="date" /></span><span><strong>{L("Re-fill days", "Isi semula hari")}</strong><span>{L("Days worked from clock-ins", "Hari bekerja daripada daftar masuk")}</span></span></button>
+              <button type="button" className={pp.qa} onClick={() => go("process", "payroll-tools")}><span className={`${pp.qaIcon} ${pp.goldWell}`}><AppIcon name="fix" /></span><span><strong>{L("Recompute nets", "Kira semula bersih")}</strong><span>{L("After a calendar change", "Selepas perubahan kalendar")}</span></span></button>
+              <button type="button" className={pp.qa} onClick={() => go("reports", "payroll-export")}><span className={`${pp.qaIcon} ${pp.greenWell}`}><AppIcon name="download" /></span><span><strong>{L("Export", "Eksport")}</strong><span>{L("M2E salary file and CSV", "Fail gaji M2E dan CSV")}</span></span></button>
+            </div>
+          </section>
+          <section className={card} aria-label={L("Helpful information", "Maklumat berguna")}>
+            {head("info", pp.blueWell, L("Helpful Information", "Maklumat Berguna"))}
+            <ul className={pp.links}>
+              <li><button type="button" onClick={() => go("settings", "pay-cfg-calc")}>{L("Payroll calculation details", "Butiran pengiraan gaji")}</button></li>
+              <li><button type="button" onClick={() => go("settings", "pay-cfg-rates")}>{L("How OT and deductions work", "Cara OT dan potongan berfungsi")}</button></li>
+              <li><button type="button" onClick={() => go("process", canMarkUnpaid && absences.length > 0 ? "payroll-absences" : "payroll-table")}>{L("Days with no clock-in policy", "Polisi hari tanpa daftar masuk")}</button></li>
+              <li><button type="button" onClick={() => go("payslips", "payroll-release")}>{L("Payslip release and access", "Keluaran dan akses slip gaji")}</button></li>
+              <li><button type="button" onClick={() => go("settings", "pay-cfg-rates")}>{L("Employment Act reference", "Rujukan Akta Kerja")}</button></li>
+            </ul>
+          </section>
+        </div>
+      </TabZone>
+
+      {/* ========================= PAYROLL PROCESSING ========================= */}
+      <TabZone label={L("Payroll processing", "Pemprosesan gaji")} className={view !== "process" ? pp.off : ""}>
+      <div id="payroll-absences">
       {canMarkUnpaid && !readOnly && absences.length > 0 && (
         <div className="border-warning/40 bg-warning-soft/40 mt-3 rounded-xl border p-3">
           <p className="text-sm font-semibold">
@@ -1067,78 +1258,119 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           </div>
         </div>
       )}
-
-      {/* v1.85.0 (CEO: "payslip capture AZ ONE OFFICIAL instead of A2Z
-          Creative Marketing") — THE EMPLOYER OF RECORD, ON THE SCREEN.
-          It was only ever discoverable by opening a rendered PDF, which is
-          how a month of payslips went out under the wrong entity with
-          nothing on any screen to say so. A2Z has employed since 19-08-2026;
-          a released month still carrying no stamp says AZ ONE forever and is
-          almost certainly the 0073 deploy-window gap, so it is flagged
-          rather than merely printed. */}
-      {release?.employer && (
-        <p className={`mt-2 text-xs ${release.employer_is_legacy ?"text-warning font-medium" :"text-muted-foreground"}`}>
-          {L("Employer of record on these payslips: ", "Majikan direkodkan pada slip gaji ini: ")}
-          <span className="font-semibold">{release.employer}</span>
-          {release.employer_is_legacy && L(
-            " — this month was released without an employer stamp, so the slips print the legacy entity. Apply migration 0104, which corrects months from August 2026 onward.",
-            " — bulan ini dikeluarkan tanpa cap majikan, jadi slip mencetak entiti lama. Guna migrasi 0104, yang membetulkan bulan dari Ogos 2026 ke atas.",
+      </div>
+    <div className={card}>
+      <div className={pp.head}>
+        <div className={pp.lead}>
+          <div className={pp.headText}>
+            <p className={pp.title}>{L("Staff Payroll Details", "Butiran Gaji Kakitangan")}</p>
+            <p className={pp.sub}>
+              {L(`Review and process payroll for ${monthLabel}.`, `Semak dan proses gaji untuk ${monthLabel}.`)}{" "}
+              {release && !release.released && L(`Staff can view their payslips from ${releaseAt}.`, `Kakitangan boleh melihat slip gaji dari ${releaseAt}.`)}
+            </p>
+          </div>
+        </div>
+        <div id="payroll-tools" className={pp.tools}>
+          <label className={pp.field} title={L("Computed automatically: Monday–Friday minus every holiday on the company calendar (public, replacement and company days). Edit only for exceptions.", "Dikira secara automatik: Isnin–Jumaat tolak setiap cuti pada kalendar syarikat (cuti umum, gantian dan hari syarikat). Sunting hanya untuk pengecualian.")}>
+            <span>{L("Working days (auto)", "Hari bekerja (auto)")}</span>
+            <input
+              type="number" min={1} max={31}
+              className={`${inputClassSm} ${pp.daysBox}`}
+              value={monthDays}
+              onChange={(e) => setMonthDays(Math.max(1, Number(e.target.value)))}
+            />
+          </label>
+          {!readOnly && (
+            <button
+              type="button"
+              className={btnSm}
+              title={L("Fixed monthly basic per staff — auto-fills every month; adjust here on increment", "Gaji pokok bulanan tetap bagi setiap kakitangan — terisi automatik setiap bulan; laraskan di sini apabila ada kenaikan")}
+              onClick={() => go("settings", "payroll-base")}
+            >
+              {L("Base salaries", "Gaji asas")}
+            </button>
           )}
-        </p>
-      )}
-      {release && <p className="mt-2 text-xs">
-        {L("Payslip status", "Status slip gaji")}: {release.released
-          ? L("Released", "Dikeluarkan")
-          : L(`Available from ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`, `Tersedia dari ${dmy(release.available_from)} ${release.available_from.split(" ")[1] ?? ""} MYT`)}
-      </p>}
+          <button
+            type="button"
+            className={btnSm}
+            title={L("Days already auto-fill from attendance on load — this re-fills every box from clock-ins, overwriting manual edits", "Hari sudah terisi automatik daripada kehadiran semasa dimuat — ini mengisi semula setiap kotak daripada rekod daftar masuk, menulis ganti suntingan manual")}
+            onClick={autoFillDays}
+          >
+            {L("Re-fill days", "Isi semula hari")}
+          </button>
+          <button
+            type="button"
+            className={btnSm}
+            title={L("Server-side repair: recomputes this month's working days from the holiday calendar and re-stores every saved entry's net — use after any calendar change", "Pembaikan di pelayan: mengira semula hari bekerja bulan ini daripada kalendar cuti dan menyimpan semula bersih setiap entri yang disimpan — guna selepas sebarang perubahan kalendar")}
+            onClick={async () => {
+              const r = await postPay(`/payroll/recompute`, { month });
+              if (r.ok) showToast(L("Saved", "Disimpan"), L(`Recomputed ${r.data?.rows ?? 0} entries at ${r.data?.working_days ?? "?"} working days`, `${r.data?.rows ?? 0} entri dikira semula pada ${r.data?.working_days ?? "?"} hari bekerja`));
+              else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Recompute failed", "Kira semula gagal"), "notice");
+              void load();
+            }}
+          >
+            <><AppIcon name="fix" />{L("Recompute nets", "Kira semula bersih")}</>
+          </button>
+        </div>
+      </div>
+      {msg && <p className={pp.okMsg}>{msg}</p>}
+
+      {/* v1.183.0 - COMMISSION IS RETIRED FROM PAY (the owner, 22-10-2026,
+          with the Commission tab). The "Pull approved commission" button
+          and the COMMISSION column are gone: no new month can carry a
+          commission figure. `commission_cents` stays in the record and in
+          every net formula, so a month that was paid with commission keeps
+          its net and its payslip line; a new month holds 0. The worker's
+          /payroll/pull-commission and the commission routes are dormant. */}
+
       {/* v1.176.1 - ONE SCROLLER, SIDEWAYS. The owner, 22-09-2026: "payroll
-          tabs like that stuck". This box was `max-h-[30rem] overflow-y-auto`
-          as well as `overflow-x-auto`, so on a phone a thumb anywhere over the
-          table drove the TABLE's own vertical scroller and the page underneath
-          refused to move. The register is a record, not a widget: the page
-          scrolls it, and only the money slides sideways past the pinned name
-          column. `.erp-table-scroll` is the system's name for that. */}
-      <div className="erp-table-scroll erp-mt-3">
+          tabs like that stuck". The register is a record, not a widget: the
+          page scrolls it, and only the money slides sideways past the pinned
+          name column. `.erp-table-scroll` is the system's name for that. */}
+      <div id="payroll-table" className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
         <table className="tbl-sticky tbl-sticky-lead w-full min-w-[820px] border-collapse text-sm">
           <thead>
-            <tr className="border-border border-b">
+            <tr className={pp.headRow}>
               {([
                 ["staff", L("Staff", "Kakitangan")],
                 ["basic", L("Basic (RM)", "Gaji pokok (RM)")],
                 ["allow", L("Allowance", "Elaun")],
                 ["ot", L("OT (hrs)", "OT (jam)")],
-                /* v1.176.1 - SAY WHICH DEDUCTION THIS IS. The owner read the
-                   empty box as "nothing will be deducted" and asked for it to
-                   auto-fill. It is the MANUAL late/other deduction and always
-                   has been; the automatic ones - unpaid leave, incomplete
-                   month, salary advance - are computed by the server and
-                   already itemised under Net. No figure or rule changes: the
-                   heading now says what the box is for. */
+                /* v1.176.1 - SAY WHICH DEDUCTION THIS IS: the MANUAL
+                   late/other deduction. The automatic ones - unpaid leave,
+                   incomplete month, salary advance - are computed by the
+                   server and itemised under Net. */
                 ["deduct", L("Deduction (manual)", "Potongan (manual)")],
-                ["net", L("Net", "Bersih")]
-              ] as [PrCol, string][]).map(([col, label]) => (
-                <th key={col} className="text-muted-foreground cursor-pointer px-2 py-2 text-left text-xs font-semibold uppercase select-none"
+                ["days", L("Days", "Hari")],
+                ["net", L("Net", "Bersih")],
+                ["status", L("Status", "Status")],
+                ["actions", L("Actions", "Tindakan")],
+              ] as [PrCol | "days" | "status" | "actions", string][]).map(([col, label]) => (col === "days" || col === "status" || col === "actions") ? (
+                <th key={col} className={pp.th}>{label}</th>
+              ) : (
+                <th key={col} className={`${pp.th} ${pp.sortable}`}
+                  aria-sort={prSort.col === col ? (prSort.asc ? "ascending" : "descending") : undefined}
                   title={col === "ot" ? L("Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate\nSort by OT — click again to reverse", "Jam OT — dibayar pada 1.5 × ORP sejam (pokok ÷ 26 ÷ 8), kadar hari biasa Akta Kerja\nIsih ikut OT — klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
                   onClick={() => cyclePr(col)}>
                   {label}{prSort.col === col ? (prSort.asc ? " ▲" : " ▼") : ""}
                 </th>
               ))}
-              <th className="px-2 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {/* v1.77.0 — skeleton until the first fetch lands: six rows in the
-                real column shape (staff, basic, allowance, OT, deduction,
-                net, actions) so nothing jumps when the figures land. */}
+            {/* v1.77.0 — skeleton until the first fetch lands, in the real
+                column shape so nothing jumps when the figures land. */}
             {!loaded ? Array.from({ length: 6 }, (_, i) => (
-              <tr key={`skel-${i}`} className="border-border border-b last:border-0" aria-hidden>
-                <td className="w-[12rem] min-w-[12rem] px-2 py-1.5"><Skel className="h-4 w-32 max-w-full" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-16" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-24" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-1.5"><Skel className="h-7 w-40" /></td>
+              <tr key={`skel-${i}`} className={pp.row} aria-hidden>
+                <td className={pp.td}><Skel className="h-4 w-32 max-w-full" /></td>
+                <td className={pp.td}><Skel className="h-7 w-24" /></td>
+                <td className={pp.td}><Skel className="h-7 w-24" /></td>
+                <td className={pp.td}><Skel className="h-7 w-16" /></td>
+                <td className={pp.td}><Skel className="h-7 w-24" /></td>
+                <td className={pp.td}><Skel className="h-7 w-16" /></td>
+                <td className={pp.td}><Skel className="h-4 w-20" /></td>
+                <td className={pp.td}><Skel className="h-5 w-16" /></td>
+                <td className={pp.td}><Skel className="h-7 w-32" /></td>
               </tr>
             )) : [...staff].sort((a, b) => {
               const dir = prSort.asc ? 1 : -1;
@@ -1168,22 +1400,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               const ot = hourlyRow ? 0 : otPay(e.basic_cents, e.ot_hours);
               const net = netFor(u.id);
               return (
-                <tr key={u.id} className="border-border border-b last:border-0">
-                  <td className="w-[12rem] min-w-[12rem] px-2 py-1.5 align-top">
+                <tr key={u.id} className={`${pp.row} ${isDirty(u.id) ? pp.rowDirty : ""}`}>
+                  <td className={`${pp.td} ${pp.staffCell}`}>
                     {/* v1.4.260: the payroll row names the person the way the
-                        payslip and the bank file do. Reading a nickname here
-                        and a legal name on the slip is how a mismatch with the
-                        bank account goes unnoticed until a transfer bounces. */}
-                    {/* v1.79.0 (CEO: "why it wrapped like this?") — the name
-                        and the job title were one run of inline text, so a
-                        squeezed column broke them anywhere a space fell:
-                        "Muhammad / Zul / Hisyam / bin / …", one word per
-                        line. Two lines, and the NAME never breaks — the
-                        title underneath may, and nobody minds if it does. */}
-                    <span className="block font-medium whitespace-nowrap">{displayName(u)}</span>
-                    <span className="text-muted-foreground block text-xs leading-snug">
-                      {u.position ?? u.role}
-                      {hourlyRow && <span className="ml-1 rounded-full bg-warning-soft px-1.5 py-px text-[10px] font-medium whitespace-nowrap text-warning" title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}><><AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{L("hourly","ikut jam")}</></span>}
+                        payslip and the bank file do. v1.79.0: the NAME never
+                        breaks - the title underneath may. */}
+                    <span className={pp.who}>
+                      <Avatar name={displayName(u)} photoKey={u.photo_key} size="sm" />
+                      <span className={pp.whoText}>
+                        <span className={pp.whoName}>{displayName(u)}</span>
+                        <span className={pp.whoRole}>
+                          {u.position ?? u.role}
+                          {hourlyRow && <span className={`${chipWarn} ${pp.chipTight}`} title={L("Part-time live host — paid by the hour, RM15.00/h on clocked time; no OT","Hos siaran langsung separuh masa — dibayar mengikut jam, RM15.00/jam pada masa berdaftar; tiada OT")}><AppIcon name="time" />{L("hourly","ikut jam")}</span>}
+                        </span>
+                      </span>
                     </span>
                   </td>
                   {(["basic_cents", "allowance_cents"] as const).map((k) => (
@@ -1210,6 +1440,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                         type="number" min={0} step="0.01"
                         className={inputSm}
                         disabled={readOnly}
+                        aria-label={`${k === "basic_cents" ? L("Basic (RM)", "Gaji pokok (RM)") : L("Allowance", "Elaun")} — ${displayName(u)}`}
                         value={e[k] ? (e[k] / 100).toString() : ""}
                         placeholder="0.00"
                         onChange={(ev) => setField(u.id, k, ev.target.value)}
@@ -1238,6 +1469,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       type="number" min={0} max={300} step="0.5"
                       className={inputSm}
                       disabled={readOnly}
+                      aria-label={`${L("OT (hrs)", "OT (jam)")} — ${displayName(u)}`}
                       value={e.ot_hours ? e.ot_hours.toString() : ""}
                       placeholder="0"
                       title={ot > 0 ? L(`= ${rm(ot)} at 1.5 × hourly ORP`, `= ${rm(ot)} pada 1.5 × ORP sejam`) : L("Overtime hours (halves allowed)", "Jam OT (separuh dibenarkan)")}
@@ -1261,10 +1493,62 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       type="number" min={0} step="0.01"
                       className={inputSm}
                       disabled={readOnly}
+                      aria-label={`${L("Deduction (manual)", "Potongan (manual)")} — ${displayName(u)}`}
                       value={e.deduction_cents ? (e.deduction_cents / 100).toString() : ""}
                       placeholder="0.00"
                       onChange={(ev) => setField(u.id, "deduction_cents", ev.target.value)}
                     />
+                  </td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    {hourlyRow ? (
+                      <span className="text-muted-foreground text-xs" title={L("Hourly pay is computed from clocked time directly — no worked-days proration", "Gaji sejam dikira terus daripada masa berdaftar — tiada prorata hari bekerja")}>{hmLabel(hourlyMins)}</span>
+                    ) : !readOnly && (
+                      <>
+                        <input
+                          type="number" min={0} max={31}
+                          className={`${inputClassSm} ${pp.dayInput}`}
+                          aria-label={`${L("Days worked", "Hari bekerja")} — ${displayName(u)}`}
+                          placeholder={L("d", "h")}
+                          title={L(`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`, `Hari bekerja (daripada ${monthDays}) — kehadiran merekod ${attDays[u.id] ?? 0} hari daftar masuk bulan ini; sunting bebas untuk membetulkan ketukan yang salah atau tidak jujur`)}
+                          value={workedDays[u.id] ?? ""}
+                          onChange={(ev) => setWorkedDays((m) => {
+                            // Blank = full month (no adjustment) — an empty box
+                            // must never be read as "0 days worked".
+                            const next = { ...m };
+                            if (ev.target.value === "") delete next[u.id];
+                            else next[u.id] = Number(ev.target.value);
+                            return next;
+                          })}
+                        />
+                        <span
+                          className="text-muted-foreground ml-1 text-[10px]"
+                          title={L("Clock-in days recorded in Attendance this month", "Hari daftar masuk direkod dalam Kehadiran bulan ini")}
+                        >
+                          <AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{attDays[u.id] ?? 0}
+                        </span>
+                        {(unpaidDays[u.id] ?? 0) > 0 && (
+                          <span
+                            className="ml-1 text-[10px] font-semibold text-danger"
+                            title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at ${ulRate} of the monthly wage per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada ${ulRate} gaji bulanan sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
+                          >
+                            UL:{unpaidDays[u.id]}
+                          </span>
+                        )}
+                        {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
+                          /* v1.97.1 — a Basic that disagrees with the base is
+                             said out loud, with the two figures, not hinted at
+                             by a 10px link. The button puts the base in the
+                             draft; Save writes it. */
+                          <button type="button"
+                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning underline-offset-2 hover:underline"
+                            title={L(`Basic here is ${fmtRM(e.basic_cents)} but the base salary is ${fmtRM(base[u.id] ?? 0)}. Press to put the base in this row, then Save.`,
+                                     `Gaji pokok di sini ${fmtRM(e.basic_cents)} tetapi gaji asas ialah ${fmtRM(base[u.id] ?? 0)}. Tekan untuk meletakkan asas dalam baris ini, kemudian Simpan.`)}
+                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
+                            {L("≠ base", "≠ asas")} {fmtRM(base[u.id] ?? 0)} · {L("Use base", "Guna asas")}
+                          </button>
+                        )}
+                      </>
+                    )}
                   </td>
                   {/* v1.78.0 (CEO: "why it wrapped like this? ... I want
                       minimalist style to make it easy in order") — this cell
@@ -1327,157 +1611,101 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap">
-                    {hourlyRow ? (
-                      <span className="text-muted-foreground text-xs" title={L("Hourly pay is computed from clocked time directly — no worked-days proration", "Gaji sejam dikira terus daripada masa berdaftar — tiada prorata hari bekerja")}>{hmLabel(hourlyMins)}</span>
-                    ) : !readOnly && (
-                      <>
-                        <input
-                          type="number" min={0} max={31}
-                          className={`${inputClassSm} w-12`}
-                          placeholder={L("d", "h")}
-                          title={L(`Days worked (of ${monthDays}) — attendance recorded ${attDays[u.id] ?? 0} clock-in day(s) this month; edit freely to correct wrong or dishonest punches`, `Hari bekerja (daripada ${monthDays}) — kehadiran merekod ${attDays[u.id] ?? 0} hari daftar masuk bulan ini; sunting bebas untuk membetulkan ketukan yang salah atau tidak jujur`)}
-                          value={workedDays[u.id] ?? ""}
-                          onChange={(ev) => setWorkedDays((m) => {
-                            // Blank = full month (no adjustment) — an empty box
-                            // must never be read as "0 days worked".
-                            const next = { ...m };
-                            if (ev.target.value === "") delete next[u.id];
-                            else next[u.id] = Number(ev.target.value);
-                            return next;
-                          })}
-                        />
-                        <span
-                          className="text-muted-foreground ml-1 text-[10px]"
-                          title={L("Clock-in days recorded in Attendance this month", "Hari daftar masuk direkod dalam Kehadiran bulan ini")}
-                        >
-                          <AppIcon name="time" className="mr-0.5 -mt-0.5 h-3 w-3" />{attDays[u.id] ?? 0}
-                        </span>
-                        {(unpaidDays[u.id] ?? 0) > 0 && (
-                          <span
-                            className="ml-1 text-[10px] font-semibold text-danger"
-                            title={L(`${unpaidDays[u.id]} approved unpaid-leave day(s) — the payslip deducts this automatically at ${ulRate} of the monthly wage per day. Keep Basic full and do NOT deduct it again here.`, `${unpaidDays[u.id]} hari cuti tanpa gaji diluluskan — slip gaji memotong ini secara automatik pada ${ulRate} gaji bulanan sehari. Kekalkan Gaji pokok penuh dan JANGAN potong lagi di sini.`)}
-                          >
-                            UL:{unpaidDays[u.id]}
-                          </span>
-                        )}
-                        {(base[u.id] ?? 0) > 0 && e.basic_cents !== base[u.id] && (
-                          /* v1.97.1 — a Basic that disagrees with the base is
-                             said out loud, with the two figures, not hinted at
-                             by a 10px link. The button puts the base in the
-                             draft; Save writes it. */
-                          <button type="button"
-                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning underline-offset-2 hover:underline"
-                            title={L(`Basic here is ${fmtRM(e.basic_cents)} but the base salary is ${fmtRM(base[u.id] ?? 0)}. Press to put the base in this row, then Save.`,
-                                     `Gaji pokok di sini ${fmtRM(e.basic_cents)} tetapi gaji asas ialah ${fmtRM(base[u.id] ?? 0)}. Tekan untuk meletakkan asas dalam baris ini, kemudian Simpan.`)}
-                            onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
-                            {L("≠ base", "≠ asas")} {fmtRM(base[u.id] ?? 0)} · {L("Use base", "Guna asas")}
-                          </button>
-                        )}
-                        <button type="button" className="ml-2 text-xs underline" onClick={() => void save(u.id, u.name)}>
+                  <td className={pp.td}>{stateChip(u.id)}</td>
+                  <td className={`${pp.td} ${pp.actionsCell}`}>
+                    <span className={pp.actions}>
+                      {!readOnly && !hourlyRow && (
+                        <button type="button" className={rowBtnPrimary} onClick={() => void save(u.id, u.name)}>
                           {L("Save", "Simpan")}
                         </button>
-                      </>
-                    )}
-                    <button type="button" className={`${rowBtn} ml-2`} onClick={() => void printSlip(u)}>
-                      {L("Payslip", "Slip gaji")}
-                    </button>
-                    <button type="button" className={`${rowBtn} ml-1.5`} title={L("Send this payslip as a PDF file", "Hantar slip gaji ini sebagai fail PDF")}
-                      onClick={() => void sendSlip(u)}>
-                      {L("Send PDF", "Hantar PDF")}
-                    </button>
+                      )}
+                      <button type="button" className={`${rowBtn} ${pp.iconBtn}`} onClick={() => setDetailId(u.id)}
+                        aria-label={`${L("Salary breakdown", "Pecahan gaji")} — ${displayName(u)}`}
+                        title={L("Salary breakdown", "Pecahan gaji")}>
+                        <AppIcon name="preview" />
+                      </button>
+                      <button type="button" className={rowBtn} onClick={() => void printSlip(u)}>
+                        {L("Payslip", "Slip gaji")}
+                      </button>
+                    </span>
                   </td>
                 </tr>
               );
             })}
           </tbody>
-          {/* v1.4.75: month totals — the final amount at a glance. Live: they
-              update as figures are typed, before saving. */}
           <tfoot>
             {/* v1.77.0 — the TOTAL row is the line the CEO saw read "0 staff"
                 while loading; until the first fetch lands it is a skeleton too. */}
             {!loaded ? (
-              <tr className="border-border border-t-2" aria-hidden>
-                <td className="px-2 py-2"><Skel className="h-4 w-32" /></td>
-                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-2"><Skel className="h-4 w-20" /></td>
-                <td className="px-2 py-2"><Skel className="h-5 w-24" /></td>
-                <td className="px-2 py-2"></td>
+              <tr className={pp.footRow} aria-hidden>
+                <td className={pp.td}><Skel className="h-4 w-32" /></td>
+                <td className={pp.td}><Skel className="h-4 w-20" /></td>
+                <td className={pp.td}><Skel className="h-4 w-20" /></td>
+                <td className={pp.td}><Skel className="h-4 w-20" /></td>
+                <td className={pp.td}><Skel className="h-4 w-20" /></td>
+                <td className={pp.td}></td>
+                <td className={pp.td}><Skel className="h-5 w-24" /></td>
+                <td className={pp.td}></td>
+                <td className={pp.td}></td>
               </tr>
-            ) : (() => {
-              const tot = staff.reduce(
-                (a, u) => {
-                  const e = entry(u.id);
-                  if (isHourly(u)) {
-                    // v1.4.183: hourly rows — clocked pay, no UL/proration/OT
-                    const hp = e.hourly_pay_live ?? e.basic_cents;
-                    const phH = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
-                    const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
-                    a.basic += hp; a.ph += phH; a.comm += e.commission_cents; a.allow += e.allowance_cents;
-                    a.ded += e.deduction_cents + advance;
-                    a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advance);
-                    return a;
-                  }
-                  const ulDed = unpaidInfo[u.id]?.cents ?? 0;
-                  const adj = incFor(u.id, e.basic_cents);
-                  const ot = otPay(e.basic_cents, e.ot_hours);
-                  const phW = unpaidInfo[u.id]?.ph_worked_cents ?? 0;
-                  const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
-                  a.basic += e.basic_cents; a.ph += phW; a.comm += e.commission_cents;
-                  a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj + advance;
-                  a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj - advance);
-                  return a;
-                },
-                { basic: 0, ph: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
-              );
-              return (
-                <tr className="border-border border-t-2 font-semibold">
-                  <td className="px-2 py-2">{L("TOTAL", "JUMLAH")} — {staff.length} {L("staff", "kakitangan")}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {rm(tot.basic)}
-                    {tot.ph > 0 && (
-                      <span className="block text-[10px] font-normal text-success">
-                        +{rm(tot.ph)} {L("public holidays worked", "cuti umum bekerja")}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.allow)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{rm(tot.ot)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap text-base">{rm(tot.net)}</td>
-                  <td className="px-2 py-2"></td>
-                </tr>
-              );
-            })()}
+            ) : (
+              <tr className={pp.footRow}>
+                <td className={pp.td}>{L("TOTAL", "JUMLAH")} — {staff.length} {L("staff", "kakitangan")}</td>
+                <td className={pp.td}>
+                  {rm(tot.basic)}
+                  {tot.ph > 0 && (
+                    <span className={pp.plusNote}>
+                      +{rm(tot.ph)} {L("public holidays worked", "cuti umum bekerja")}
+                    </span>
+                  )}
+                </td>
+                <td className={pp.td}>{rm(tot.allow)}</td>
+                <td className={pp.td}>{rm(tot.ot)}</td>
+                <td className={pp.td}>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td>
+                <td className={pp.td}></td>
+                <td className={`${pp.td} ${pp.netTotal}`}>{rm(tot.net)}</td>
+                <td className={pp.td}></td>
+                <td className={pp.td}></td>
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2"><button
-            type="button"
-            className={btnSmPrimary}
-            onClick={() => void saveAll()}
-          >
-            {L("Save all", "Simpan semua")}
-          </button>
-<button
-            type="button"
-            className={btnSm}
-            title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
-            onClick={() => void downloadM2e()}
-          >
-            <><AppIcon name="pay" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("M2E salary file", "Fail gaji M2E")}</>
-          </button>
-<a
-            className={btnSm}
-            title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
-            href={`${API}/payroll/payment-file?month=${month}`}
-            download
-          >
-            CSV
-          </a></div>
+      <div className={pp.saveBar}>
+        <button
+          type="button"
+          className={btnSmPrimary}
+          onClick={() => void saveAll()}
+        >
+          {L("Save all", "Simpan semua")}
+        </button>
+        <span className={pp.sub}>
+          {dirtyCount > 0
+            ? L(`${dirtyCount} row${dirtyCount === 1 ? " has" : "s have"} unsaved changes.`, `${dirtyCount} baris mempunyai perubahan belum disimpan.`)
+            : L("Every row matches what is saved.", "Setiap baris sepadan dengan yang disimpan.")}{" "}
+          {L("Payslips and release are on Payslips; the M2E salary file and CSV on Reports & Export.", "Slip gaji dan keluaran di Slip Gaji; fail gaji M2E dan CSV di Laporan & Eksport.")}
+        </span>
+      </div>
+    </div>
+      </TabZone>
+
+      {/* ============================== PAYSLIPS ============================== */}
+      <TabZone label={L("Payslips", "Slip gaji")} className={view !== "payslips" ? pp.off : ""}>
+        <section id="payroll-release" className={card} aria-label={L("Payslip release", "Keluaran slip gaji")}>
+          {head("date", pp.blueWell, L("Payslip Release", "Keluaran Slip Gaji"),
+            L("Staff see only their own payslip, under Profile → My pay, from the release date. Until then only payroll processors see the figures.",
+              "Kakitangan hanya melihat slip gaji sendiri, di Profil → Gaji saya, dari tarikh keluaran. Sehingga itu hanya pemproses gaji melihat angkanya."),
+            release ? (release.released ? <span className={chipSuccess}>{L("Released", "Dikeluarkan")}</span> : <span className={chipInfo}>{L(`Scheduled ${releaseAt}`, `Dijadualkan ${releaseAt}`)}</span>) : null)}
+      {release?.employer && (
+        <p className={`mt-2 text-xs ${release.employer_is_legacy ?"text-warning font-medium" :"text-muted-foreground"}`}>
+          {L("Employer of record on these payslips: ", "Majikan direkodkan pada slip gaji ini: ")}
+          <span className="font-semibold">{release.employer}</span>
+          {release.employer_is_legacy && L(
+            " — this month was released without an employer stamp, so the slips print the legacy entity. Apply migration 0104, which corrects months from August 2026 onward.",
+            " — bulan ini dikeluarkan tanpa cap majikan, jadi slip mencetak entiti lama. Guna migrasi 0104, yang membetulkan bulan dari Ogos 2026 ke atas.",
+          )}
+        </p>
+      )}
       {release && (
         <p className="mt-2 text-xs">
           {release.released ? (
@@ -1571,12 +1799,150 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           )}
         </p>
       )}
-    </div>
-    </TabZone>
+        </section>
 
-    {(showBase || !readOnly) && (
-    <TabZone label={L("Setup", "Tetapan")}>
-      {showBase && (
+        <section className={card} aria-label={L("Payslips", "Slip gaji")}>
+          {head("document", pp.purpleWell, L(`Payslips — ${monthLabel}`, `Slip Gaji — ${monthLabel}`),
+            L("Preview prints the A4 payslip; Send PDF makes a file to share. Save a row first so the payslip carries the saved figures.",
+              "Pratonton mencetak slip gaji A4; Hantar PDF membuat fail untuk dikongsi. Simpan baris dahulu supaya slip gaji membawa angka yang disimpan."))}
+          {!loaded ? <SkelRows rows={4} /> : (
+            <div className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
+              <table className={pp.plain}>
+                <thead><tr><th>{L("Staff", "Kakitangan")}</th><th className={pp.num}>{L("Net pay", "Gaji bersih")}</th><th>{L("Status", "Status")}</th><th>{L("Actions", "Tindakan")}</th></tr></thead>
+                <tbody>
+                  {[...staff].sort(bySeniority).map((u) => (
+                    <tr key={u.id}>
+                      <td><span className={pp.who}><Avatar name={displayName(u)} photoKey={u.photo_key} size="sm" /><span className={pp.whoText}><span className={pp.whoName}>{displayName(u)}</span><span className={pp.whoRole}>{u.position ?? u.role}</span></span></span></td>
+                      <td className={pp.num}>{rm(Math.max(0, netFor(u.id)))}</td>
+                      <td>{stateChip(u.id)}</td>
+                      <td>
+                        <span className={pp.actions}>
+                          <button type="button" className={rowBtn} onClick={() => void printSlip(u)}>{L("Preview", "Pratonton")}</button>
+                          <button type="button" className={rowBtn} title={L("Send this payslip as a PDF file", "Hantar slip gaji ini sebagai fail PDF")}
+                            onClick={() => void sendSlip(u)}>
+                            {L("Send PDF", "Hantar PDF")}
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </TabZone>
+
+      {/* ========================== REPORTS & EXPORT ========================== */}
+      <TabZone label={L("Reports and export", "Laporan dan eksport")} className={view !== "reports" ? pp.off : ""}>
+        <section id="payroll-export" className={card} aria-label={L("Bank payment file", "Fail pembayaran bank")}>
+          {head("pay", pp.greenWell, L("Bank Payment File", "Fail Pembayaran Bank"),
+            L("Built from the SAVED entries. Both files ask before downloading; upload to Maybank only once the payroll is approved.",
+              "Dibina daripada entri yang DISIMPAN. Kedua-dua fail bertanya sebelum dimuat turun; muat naik ke Maybank hanya selepas gaji diluluskan."))}
+          <div className={pp.exportRow}>
+            <button
+              type="button"
+              className={btnSmPrimary}
+              title={L("Downloads the official Maybank2E template ALREADY FILLED — Home sheet + salary rows + value date (5th rule) — just open, enable macros, generate, upload, approve. Needs the one-time M2E setup first.", "Muat turun templat rasmi Maybank2E yang SUDAH TERISI — helaian Home + baris gaji + tarikh nilai (peraturan ke-5) — hanya buka, aktifkan makro, jana, muat naik, luluskan. Perlukan persediaan M2E sekali sahaja terlebih dahulu.")}
+              onClick={async () => { if (await confirmPaymentFile("m2e")) void downloadM2e(); }}
+            >
+              <><AppIcon name="pay" />{L("M2E salary file", "Fail gaji M2E")}</>
+            </button>
+            <button
+              type="button"
+              className={btnSm}
+              title={L("Fallback: the same rows as a CSV whose columns match the template — paste at cell A5 yourself", "Sandaran: baris yang sama sebagai CSV dengan lajur sepadan templat — tampal di sel A5 sendiri")}
+              onClick={() => void downloadCsv()}
+            >
+              <><AppIcon name="download" />CSV</>
+            </button>
+            <span className={m2eIncomplete ? pp.warnText : pp.sub}>
+              {m2eIncomplete
+                ? L("M2E setup is incomplete — finish it under Settings & Audit first.", "Persediaan M2E belum lengkap — lengkapkan di Tetapan & Audit dahulu.")
+                : L("M2E setup complete.", "Persediaan M2E lengkap.")}
+              {m2eIncomplete && <> <button type="button" className={pp.inlineLink} onClick={() => go("settings", "payroll-m2e")}>{L("Open M2E setup", "Buka persediaan M2E")}</button></>}
+            </span>
+          </div>
+        </section>
+
+        <div className={pp.split}>
+          <section className={card} aria-label={L("Payroll totals", "Jumlah gaji")}>
+            {head("chart", pp.goldWell, L(`Payroll Totals — ${monthLabel}`, `Jumlah Gaji — ${monthLabel}`), L("The same figures as the TOTAL row", "Angka yang sama dengan baris JUMLAH"))}
+            {!loaded ? <SkelRows rows={8} /> : (
+              <dl className={pp.statement}>
+                <div><dt>{L("Basic salary", "Gaji pokok")}</dt><dd>{rm(tot.basic)}</dd></div>
+                {tot.ph > 0 && <div><dt>{L("Public holidays worked", "Cuti umum bekerja")}</dt><dd>{rm(tot.ph)}</dd></div>}
+                {tot.comm > 0 && <div><dt>{L("Commission (paid months only)", "Komisen (bulan dibayar sahaja)")}</dt><dd>{rm(tot.comm)}</dd></div>}
+                <div><dt>{L("Allowances", "Elaun")}</dt><dd>{rm(tot.allow)}</dd></div>
+                <div><dt>{L("Overtime", "OT")}</dt><dd>{rm(tot.ot)}</dd></div>
+                <div className={dedBy.manual > 0 ? pp.minus : ""}><dt>{L("Manual deductions", "Potongan manual")}</dt><dd>{dedBy.manual > 0 ? `− ${rm(dedBy.manual)}` : rm(0)}</dd></div>
+                <div className={dedBy.ul > 0 ? pp.minus : ""}><dt>{L("Unpaid leave", "Cuti tanpa gaji")}</dt><dd>{dedBy.ul > 0 ? `− ${rm(dedBy.ul)}` : rm(0)}</dd></div>
+                <div className={dedBy.adj > 0 ? pp.minus : ""}><dt>{L("Incomplete month", "Bulan tidak lengkap")}</dt><dd>{dedBy.adj > 0 ? `− ${rm(dedBy.adj)}` : rm(0)}</dd></div>
+                <div className={dedBy.advance > 0 ? pp.minus : ""}><dt>{L("Salary advances", "Pendahuluan gaji")}</dt><dd>{dedBy.advance > 0 ? `− ${rm(dedBy.advance)}` : rm(0)}</dd></div>
+                <div className={tot.ded > 0 ? pp.minus : ""}><dt>{L("Total deductions", "Jumlah potongan")}</dt><dd>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</dd></div>
+                <div className={pp.total}><dt>{L("Net pay", "Gaji bersih")}</dt><dd>{rm(tot.net)}</dd></div>
+              </dl>
+            )}
+          </section>
+          <section className={card} aria-label={L("By department", "Mengikut jabatan")}>
+            {head("users", pp.blueWell, L("By Department", "Mengikut Jabatan"), L("Net pay by department, from the rows above", "Gaji bersih mengikut jabatan, daripada baris di atas"))}
+            {!loaded ? <SkelRows rows={4} /> : (
+              <table className={pp.plain}>
+                <thead><tr><th>{L("Department", "Jabatan")}</th><th className={pp.num}>{L("Staff", "Kakitangan")}</th><th className={pp.num}>{L("Net pay", "Gaji bersih")}</th></tr></thead>
+                <tbody>
+                  {Object.entries(staff.reduce<Record<string, { n: number; net: number }>>((m, u) => {
+                    const k = u.department || L("No department", "Tiada jabatan");
+                    const cur = m[k] ?? { n: 0, net: 0 };
+                    m[k] = { n: cur.n + 1, net: cur.net + Math.max(0, netFor(u.id)) };
+                    return m;
+                  }, {})).sort((a, b) => b[1].net - a[1].net).map(([k, v]) => (
+                    <tr key={k}><td>{k}</td><td className={pp.num}>{v.n}</td><td className={pp.num}>{rm(v.net)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </div>
+
+        <section className={card} aria-label={L("Monthly payroll report", "Laporan gaji bulanan")}>
+          {head("document", pp.purpleWell, L(`Monthly Report — ${monthLabel}`, `Laporan Bulanan — ${monthLabel}`), L("Every person's pay, read-only", "Gaji setiap orang, baca sahaja"))}
+          {!loaded ? <SkelRows rows={5} /> : (
+            <div className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
+              <table className={pp.plain}>
+                <thead><tr>
+                  <th>{L("Staff", "Kakitangan")}</th><th className={pp.num}>{L("Basic", "Pokok")}</th><th className={pp.num}>{L("Allowance", "Elaun")}</th>
+                  <th className={pp.num}>{L("OT", "OT")}</th><th className={pp.num}>{L("Deductions", "Potongan")}</th><th className={pp.num}>{L("Net", "Bersih")}</th>
+                </tr></thead>
+                <tbody>
+                  {[...staff].sort(bySeniority).map((u) => {
+                    const f = figs(u);
+                    const ded = f.manual + f.ul + f.adj + f.advance;
+                    return (
+                      <tr key={u.id}>
+                        <td><span className={pp.whoName}>{displayName(u)}</span></td>
+                        <td className={pp.num}>{rm(f.basic + f.ph)}</td>
+                        <td className={pp.num}>{rm(f.allow)}</td>
+                        <td className={pp.num}>{rm(f.ot)}</td>
+                        <td className={pp.num}>{ded > 0 ? `− ${rm(ded)}` : rm(0)}</td>
+                        <td className={`${pp.num} ${pp.strong}`}>{rm(Math.max(0, f.net))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot><tr>
+                  <td>{L("TOTAL", "JUMLAH")} — {staff.length} {L("staff", "kakitangan")}</td>
+                  <td className={pp.num}>{rm(tot.basic + tot.ph)}</td><td className={pp.num}>{rm(tot.allow)}</td><td className={pp.num}>{rm(tot.ot)}</td>
+                  <td className={pp.num}>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td><td className={`${pp.num} ${pp.strong}`}>{rm(tot.net)}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+          )}
+        </section>
+      </TabZone>
+
+      {/* ========================== SETTINGS & AUDIT ========================== */}
+      <TabZone label={L("Settings and audit", "Tetapan dan audit")} className={view !== "settings" ? pp.off : ""}>
+      {!readOnly && (
         <div id="payroll-base" className={`${card} scroll-mt-36`}>
           <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">
@@ -1690,6 +2056,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         </div>
       )}
 
+        <div id="payroll-m2e">
     {!readOnly && (<details className={`${card} text-xs`}>
           <summary className="text-muted-foreground cursor-pointer select-none">
             {L("M2E setup (one-time) — ", "Persediaan M2E (sekali sahaja) — ")}{m2eHasTpl === false || !m2eCid || !m2eAcc || !m2eCbid ? L("incomplete — the M2E salary file needs this", "belum lengkap — fail gaji M2E memerlukannya") : L("complete", "lengkap")}
@@ -1736,8 +2103,106 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             </p>
           </div>
         </details>)}
-    </TabZone>
-    )}
+        </div>
+
+        <section className={card} aria-label={L("Current payroll configuration", "Konfigurasi gaji semasa")}>
+          {head("balance", pp.goldWell, L("Current Payroll Configuration", "Konfigurasi Gaji Semasa"), L(`The rules this month is calculated on — ${monthLabel}`, `Peraturan bulan ini dikira — ${monthLabel}`))}
+          <dl id="pay-cfg-rates" className={pp.config}>
+            <div><dt>{L("Working days", "Hari bekerja")}</dt><dd>{L(`${monthDays} — Monday–Friday minus the holidays on the company calendar`, `${monthDays} — Isnin–Jumaat tolak cuti pada kalendar syarikat`)}</dd></div>
+            <div><dt>{L("Incomplete month", "Bulan tidak lengkap")}</dt><dd>{calendarBasis ? L(`Calendar days — ${proration?.month_days} this month (Employment Act s.18A)`, `Hari kalendar — ${proration?.month_days} bulan ini (Akta Kerja s.18A)`) : L("Working days of the month (months before September 2026)", "Hari bekerja bulan itu (bulan sebelum September 2026)")}</dd></div>
+            <div><dt>{L("Unpaid leave", "Cuti tanpa gaji")}</dt><dd>{L(`${ulRate} of the monthly wage per day; never touches a public holiday`, `${ulRate} gaji bulanan sehari; tidak menyentuh cuti umum`)}</dd></div>
+            <div><dt>{L("Overtime", "OT")}</dt><dd>{L("1.5 × hourly ORP, where hourly ORP = basic ÷ 26 ÷ 8 (Employment Act normal-day rate)", "1.5 × ORP sejam, di mana ORP sejam = pokok ÷ 26 ÷ 8 (kadar hari biasa Akta Kerja)")}</dd></div>
+            <div><dt>{L("Public holiday worked", "Cuti umum bekerja")}</dt><dd>{L("Two days' ORP each (s.60D(3)); a part-timer a second RM15/h on those hours", "Dua hari ORP setiap satu (s.60D(3)); pekerja separuh masa RM15/jam kedua bagi jam tersebut")}</dd></div>
+            <div><dt>{L("Part-time live hosts", "Hos live separuh masa")}</dt><dd>{L("RM15.00/h on clocked time; one hour unpaid break on a day past five hours; no OT", "RM15.00/jam pada masa berdaftar; satu jam rehat tanpa gaji bagi hari melebihi lima jam; tiada OT")}</dd></div>
+            <div><dt>{L("Statutory", "Berkanun")}</dt><dd>{L("No KWSP/SOCSO/EIS lines yet — registration pending", "Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai")}</dd></div>
+            <div><dt>{L("Payslip release", "Keluaran slip gaji")}</dt><dd>{L("10:00 MYT on the 5th of the next month, or the next working day", "10:00 MYT pada 5 haribulan bulan berikutnya, atau hari bekerja berikutnya")}</dd></div>
+            <div><dt>{L("Days with no clock-in", "Hari tanpa daftar masuk")}</dt><dd>{L("Listed for review, never deducted until someone marks the day", "Disenaraikan untuk semakan, tidak dipotong sehingga seseorang menandakan hari itu")}</dd></div>
+          </dl>
+          <div id="pay-cfg-calc">
+          <details className="mt-2">
+            <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">{L("Payroll calculation details", "Butiran pengiraan gaji")}</summary>
+<p className="text-muted-foreground mt-0.5 text-xs">
+            {L(
+              "One-pass flow: everything auto-fills — Basic from base salaries, working days computed (Mon–Fri minus the holidays on the company calendar for that month), days worked from attendance — review, then Save all. A holiday the team did NOT observe (worked instead, to be replaced later) must be deleted from that month in the holiday calendar — the month then counts that day as a working day — and added on the actual replacement date, which reduces THAT month's working days. After any calendar change, press Re-fill days and Save all so saved entries recompute — otherwise payslips keep the old figures and staff are over- or under-paid. Net = basic + public holidays worked (2 days' ORP each — EA s.60D(3); a part-timer gets a second RM15/h on those hours) + allowance + overtime (commission retired from October 2026 - a month paid with one keeps its figure) (hours × 1.5 × hourly ORP, where hourly = basic ÷ 26 ÷ 8) − manual deduction − unpaid leave (monthly wage ÷ the calendar days of the month, per day — Employment Act s.18A, so 1/30 in September and 1/31 in October; a week in which every working day is unpaid also loses that week's rest days, and the deduction can never touch a public holiday) − incomplete month (basic × calendar days not employed ÷ the calendar days of the month, s.18A — joiners, leavers and re-joiners only). Months before September 2026 keep the rule their payslips were issued on: unpaid leave at 1/26 and an incomplete month on working days. Overtime and holiday work stay on ÷ 26, the ordinary rate of pay (s.60I). Blank days box = full month. No KWSP/SOCSO/EIS lines yet — registration pending. Emergency leave that STARTED on or after 01-09-2026 is UNPAID and is already inside the unpaid-leave deduction — never key it in again as a manual deduction. Emergency leave that started before that date stays paid.",
+              "Aliran satu laluan: semuanya terisi automatik — Gaji pokok daripada gaji asas, hari bekerja dikira (Isnin–Jumaat tolak cuti pada kalendar syarikat bagi bulan itu), hari bekerja sebenar daripada kehadiran — semak, kemudian Simpan semua. Cuti yang TIDAK diambil oleh pasukan (bekerja seperti biasa, untuk diganti kemudian) mesti dipadam daripada bulan itu dalam kalendar cuti — bulan itu kemudian mengira hari tersebut sebagai hari bekerja — dan ditambah pada tarikh gantian sebenar, yang mengurangkan hari bekerja bulan TERSEBUT. Selepas sebarang perubahan kalendar, tekan Isi semula hari dan Simpan semua supaya entri yang disimpan dikira semula — jika tidak, slip gaji kekal dengan angka lama dan kakitangan terlebih atau terkurang bayar. Bersih = pokok + cuti umum bekerja (2 hari ORP setiap satu — Akta Kerja s.60D(3); pekerja separuh masa mendapat RM15/jam kedua bagi jam tersebut) + komisen + elaun + OT (jam × 1.5 × ORP sejam, di mana kadar sejam = pokok ÷ 26 ÷ 8) − potongan manual − cuti tanpa gaji (gaji bulanan ÷ hari kalendar bulan itu, bagi setiap hari — Akta Kerja s.18A, jadi 1/30 pada September dan 1/31 pada Oktober; minggu yang semua hari bekerjanya tanpa gaji turut kehilangan hari rehat minggu itu, dan potongan tidak sekali-kali menyentuh cuti umum) − bulan tidak lengkap (pokok × hari kalendar tidak bekerja ÷ hari kalendar bulan itu, s.18A — pekerja baharu, berhenti dan kembali sahaja). Bulan sebelum September 2026 kekal dengan peraturan slip gajinya dikeluarkan: cuti tanpa gaji pada 1/26 dan bulan tidak lengkap mengikut hari bekerja. OT dan kerja pada cuti umum kekal ÷ 26, iaitu kadar gaji biasa (s.60I). Kotak hari kosong = bulan penuh. Belum ada baris KWSP/SOCSO/EIS — pendaftaran belum selesai. Cuti kecemasan yang BERMULA pada atau selepas 01-09-2026 adalah TANPA GAJI dan sudah termasuk dalam potongan cuti tanpa gaji — jangan sekali-kali memasukkannya semula sebagai potongan manual. Cuti kecemasan yang bermula sebelum tarikh itu kekal dibayar.",
+            )}
+          </p>
+          </details>
+          </div>
+        </section>
+
+        <section className={card} aria-label={L("Audit", "Audit")}>
+          {head("verify", pp.blueWell, L("Audit", "Audit"), L("What this month's record says, checked against the screen", "Apa yang dikatakan rekod bulan ini, disemak dengan skrin"))}
+          <ul className={pp.audit}>
+            <li><span>{L("Employer of record", "Majikan direkodkan")}</span><strong className={release?.employer_is_legacy ? pp.warnText : ""}>{release?.employer ?? "—"}{release?.employer_is_legacy ? L(" — released without an employer stamp", " — dikeluarkan tanpa cap majikan") : ""}</strong></li>
+            <li><span>{L("Release", "Keluaran")}</span><strong>{release?.released ? L(`Released ${release.released.released_at.slice(0, 16)} UTC`, `Dikeluarkan ${release.released.released_at.slice(0, 16)} UTC`) : L(`Not released — scheduled ${releaseAt}`, `Belum dikeluarkan — dijadualkan ${releaseAt}`)}</strong></li>
+            <li><span>{L("Saved entries", "Entri disimpan")}</span><strong>{loaded ? L(`${savedCount} of ${staff.length}`, `${savedCount} daripada ${staff.length}`) : "—"}</strong></li>
+            <li><span>{L("Unsaved changes", "Perubahan belum disimpan")}</span><strong className={dirtyCount > 0 ? pp.warnText : ""}>{loaded ? dirtyCount : "—"}</strong></li>
+            <li><span>{L("Base salaries set", "Gaji asas ditetapkan")}</span><strong>{loaded ? L(`${staff.filter((u) => (base[u.id] ?? 0) > 0).length} of ${staff.length}`, `${staff.filter((u) => (base[u.id] ?? 0) > 0).length} daripada ${staff.length}`) : "—"}</strong></li>
+            <li><span>{L("M2E setup", "Persediaan M2E")}</span><strong className={m2eIncomplete ? pp.warnText : ""}>{m2eIncomplete ? L("Incomplete", "Belum lengkap") : L("Complete", "Lengkap")}</strong></li>
+            <li><span>{L("Changing a released month", "Mengubah bulan yang dikeluarkan")}</span><strong>{L("Asks first, and is logged under the name of whoever confirms", "Bertanya dahulu, dan dilog atas nama yang mengesahkan")}</strong></li>
+          </ul>
+        </section>
+      </TabZone>
+
+      {/* the salary breakdown - beside the table, never in it */}
+      <SideDrawer
+        open={detailUser !== null}
+        onClose={() => setDetailId(null)}
+        title={detailUser ? displayName(detailUser) : ""}
+        subtitle={detailUser ? `${detailUser.position ?? detailUser.role} · ${monthLabel}` : undefined}
+        footer={detailUser ? (
+          <span className={pp.actions}>
+            <button type="button" className={rowBtn} onClick={() => void printSlip(detailUser)}>{L("Payslip", "Slip gaji")}</button>
+            <button type="button" className={rowBtn} onClick={() => void sendSlip(detailUser)}>{L("Send PDF", "Hantar PDF")}</button>
+          </span>
+        ) : undefined}
+      >
+        {detailUser && (() => {
+          const f = figs(detailUser);
+          const e = entry(detailUser.id);
+          const ud = unpaidInfo[detailUser.id];
+          const oa = otApproved[detailUser.id];
+          return (
+            <div className={pp.drawer}>
+              <dl className={pp.statement}>
+                {f.hourlyRow
+                  ? <div><dt>{L(`Hourly pay · ${hmLabel(e.hourly_minutes_live ?? e.hourly_minutes ?? 0)} × RM15/h`, `Gaji ikut jam · ${hmLabel(e.hourly_minutes_live ?? e.hourly_minutes ?? 0)} × RM15/jam`)}</dt><dd>{rm(f.basic)}</dd></div>
+                  : <div><dt>{L("Basic salary", "Gaji pokok")}</dt><dd>{rm(f.basic)}</dd></div>}
+                {f.ph > 0 && <div><dt>{L(`Public holidays worked (${ud?.ph_worked ?? 0})`, `Cuti umum bekerja (${ud?.ph_worked ?? 0})`)}</dt><dd>+ {rm(f.ph)}</dd></div>}
+                {f.comm > 0 && <div><dt>{L("Commission", "Komisen")}</dt><dd>+ {rm(f.comm)}</dd></div>}
+                <div><dt>{L("Allowance", "Elaun")}</dt><dd>+ {rm(f.allow)}</dd></div>
+                {!f.hourlyRow && <div><dt>{L(`Overtime · ${e.ot_hours ?? 0}h × 1.5 × hourly ORP`, `OT · ${e.ot_hours ?? 0}j × 1.5 × ORP sejam`)}</dt><dd>+ {rm(f.ot)}</dd></div>}
+                <div className={f.manual > 0 ? pp.minus : ""}><dt>{L("Manual deduction", "Potongan manual")}</dt><dd>− {rm(f.manual)}</dd></div>
+                {!f.hourlyRow && <div className={f.ul > 0 ? pp.minus : ""}><dt>{L(`Unpaid leave · ${ud?.days ?? 0}d at ${ulRate}${(ud?.rest_days ?? 0) > 0 ? ` + ${ud?.rest_days} rest` : ""}${ud?.capped ? " · capped" : ""}`, `Cuti tanpa gaji · ${ud?.days ?? 0}h pada ${ulRate}${(ud?.rest_days ?? 0) > 0 ? ` + ${ud?.rest_days} rehat` : ""}${ud?.capped ? " · dihad" : ""}`)}</dt><dd>− {rm(f.ul)}</dd></div>}
+                {!f.hourlyRow && f.adj > 0 && <div className={pp.minus}><dt>{calendarBasis
+                  ? L(`Incomplete month · ${proDays[detailUser.id] ?? proration?.month_days}/${proration?.month_days} calendar days`, `Bulan tidak lengkap · ${proDays[detailUser.id] ?? proration?.month_days}/${proration?.month_days} hari kalendar`)
+                  : L(`Incomplete month · ${payableDays[detailUser.id] ?? monthDays}/${monthDays} days`, `Bulan tidak lengkap · ${payableDays[detailUser.id] ?? monthDays}/${monthDays} hari`)}</dt><dd>− {rm(f.adj)}</dd></div>}
+                {f.advance > 0 && <div className={pp.minus}><dt>{L("Salary advance", "Pendahuluan gaji")}</dt><dd>− {rm(f.advance)}</dd></div>}
+                <div className={pp.total}><dt>{L("Net pay", "Gaji bersih")}</dt><dd>{rm(Math.max(0, f.net))}</dd></div>
+              </dl>
+              <p className={pp.drawerHead}>{L("Attendance this month", "Kehadiran bulan ini")}</p>
+              <dl className={pp.config}>
+                {f.hourlyRow ? (
+                  <>
+                    <div><dt>{L("Clocked", "Berdaftar")}</dt><dd>{hmLabel(e.hourly_clocked_live ?? 0)} · {L(`${e.hourly_days_live ?? 0} day(s)`, `${e.hourly_days_live ?? 0} hari`)}</dd></div>
+                    <div><dt>{L("Unpaid break", "Rehat tanpa gaji")}</dt><dd>{hmLabel(e.hourly_break_live ?? 0)}</dd></div>
+                  </>
+                ) : (
+                  <>
+                    <div><dt>{L("Days worked box", "Kotak hari bekerja")}</dt><dd>{workedDays[detailUser.id] ?? L("blank = full month", "kosong = bulan penuh")} / {monthDays}</dd></div>
+                    <div><dt>{L("Clock-in days", "Hari daftar masuk")}</dt><dd>{attDays[detailUser.id] ?? 0}</dd></div>
+                    <div><dt>{L("Approved OT", "OT diluluskan")}</dt><dd>{oa && oa.minutes > 0 ? L(`${otHoursFrom(oa.minutes)}h · ${oa.days} day(s)`, `${otHoursFrom(oa.minutes)}j · ${oa.days} hari`) : "—"}</dd></div>
+                    <div><dt>{L("Unpaid leave days", "Hari cuti tanpa gaji")}</dt><dd>{unpaidDays[detailUser.id] ?? 0}</dd></div>
+                    <div><dt>{L("Base salary", "Gaji asas")}</dt><dd>{(base[detailUser.id] ?? 0) > 0 ? rm(base[detailUser.id] ?? 0) : "—"}</dd></div>
+                  </>
+                )}
+              </dl>
+              <p className={pp.sub}>{L("Figures are live and include anything typed but not yet saved.", "Angka adalah langsung dan termasuk apa-apa yang ditaip tetapi belum disimpan.")}</p>
+            </div>
+          );
+        })()}
+      </SideDrawer>
     </TabPage>
   );
 }

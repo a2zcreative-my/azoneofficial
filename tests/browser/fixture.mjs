@@ -167,6 +167,39 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
      sends, with the company's own kind of data: a month of punches for the
      signed-in person, the day verdicts, today's shift, who is in, the
      notifications, the events and the live sessions. */
+  /* v1.198.0 - THE PAYROLL RUN, populated, so the five Payroll tabs and the
+     calculation regression (scratch payroll capture) have every case on the
+     screen: a full-month salary, approved OT that differs from the saved
+     box, half a day of unpaid leave, a mid-month joiner (incomplete month)
+     with a public holiday worked and a salary advance, a part-time live host
+     paid by the hour, and a no-clock-in list with a pending leave day. */
+  if (p === "/staff/payroll" && (q.get("month") ?? "") === "2026-09") {
+    data = { entries: [
+      { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, worked_days: 20, month_working_days: 22, ot_hours: null, note: null },
+      { user_id: 9002, basic_cents: 210000, commission_cents: 0, allowance_cents: 15000, deduction_cents: 0, worked_days: 19, month_working_days: 22, ot_hours: 2, note: null },
+      { user_id: 9003, basic_cents: 0, commission_cents: 0, allowance_cents: 5000, deduction_cents: 0, ot_hours: null, hourly_minutes: 3600, hourly_rate_cents: 1500, hourly_minutes_live: 3600, hourly_rate_live: 1500, hourly_pay_live: 90000, hourly_clocked_live: 3900, hourly_break_live: 300, hourly_days_live: 5 },
+    ], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing" } };
+  }
+  if (p === "/staff/payroll/attendance-days" && (q.get("month") ?? "") === "2026-09") {
+    data = {
+      days: [{ user_id: 9001, days: 20 }, { user_id: 9002, days: 19 }, { user_id: 9004, days: 14 }],
+      working_days: 22,
+      unpaid: [{ user_id: 9002, days: 0.5 }],
+      unpaid_detail: [
+        { user_id: 9002, days: 0.5, rest_days: 0, cents: 3500, capped: false, clocked_beyond_employment: false, clocked_days: 19, payable_days: 22, ph_worked: 0, ph_worked_dates: [], ph_worked_cents: 0, salary_advance_cents: 0 },
+        { user_id: 9004, days: 0, rest_days: 0, cents: 0, capped: false, clocked_beyond_employment: false, clocked_days: 14, payable_days: 15, ph_worked: 1, ph_worked_dates: ["2026-09-16"], ph_worked_cents: 15385, salary_advance_cents: 10000 },
+      ],
+      ot_approved: [{ user_id: 9002, minutes: 150, days: 2 }],
+      employed: [{ user_id: 9004, payable_days: 15, proration_days: 20 }],
+      proration: { basis: "calendar", month_days: 30, unpaid_divisor: 30 },
+    };
+  }
+  if (p === "/staff/payroll/base") data = { base: [{ user_id: 9001, base_salary_cents: 400000 }, { user_id: 9002, base_salary_cents: 210000 }, { user_id: 9004, base_salary_cents: 200000 }] };
+  if (p === "/staff/payroll/absences" && (q.get("month") ?? "") === "2026-09") {
+    data = { staff: [{ user_id: 9002, name: "Nur Aisyah", missing: ["2026-09-08"], short: [{ d: "2026-09-10", hours: 5.5, of: 7, break_minutes: 60 }], pending: [{ d: "2026-09-11", type: "annual" }], partial_review: [] }] };
+  }
+  if (p === "/staff/payroll/m2e-settings") data = { corporate_id: "MY0000000", payer_account: "", client_batch_id: "", has_template: false };
+  if (p === "/staff/payroll/detail") data = { extras: null };
   if (p === "/staff/attendance") {
     const month = q.get("month") ?? "2026-09";
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -243,7 +276,7 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
      Google sign-ups as customers, and a sign-in log with a 2FA change in it */
   if (p === "/staff/users") {
     const us = [
-      ...staff.map((x, i) => ({ ...x, totp_enabled: i < 2 ? 1 : 0, ...(x.id === 9003 ? { left_on: "2026-10-01" } : {}) })),
+      ...staff.map((x, i) => ({ ...x, totp_enabled: i < 2 ? 1 : 0, ...(x.id === 9003 ? { left_on: "2026-10-01", employment_status: "part_time" } : {}) })),
       { id: 9101, name: "Narida", full_name: "Narida Binti Aziz", role: "customer", email: "narida@example.test", is_active: 1 },
       { id: 9102, name: "Kamal", full_name: null, role: "customer", email: "kamal.hashim@example.test", is_active: 1 },
       { id: 9103, name: "Siti", full_name: "Siti Nurhaliza", role: "customer", email: "siti@example.test", is_active: 0 },

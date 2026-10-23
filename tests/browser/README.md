@@ -28,6 +28,7 @@ Failures include missing tools, failed fresh build, timeout, missing completion 
 | `table-shred.py` | Table columns narrower than their longest word |
 | `ui-audit.py` | Repeated headings, shredded labels, nested scroll traps, orphan tiles, clipped labels and trapped dialogs |
 | `a11y-audit.py` | Unnamed controls and missing visible keyboard focus |
+| `payroll-figures.py` | (v1.198.0) Any payroll figure - TOTAL row, net, OT pay, days in the Save all bodies - that differs to the cent from the screen before the Payroll redesign. Run with `ROLE=ceo` on the fixture's September 2026 run |
 
 All probes now share viewport, language/theme setup and tab navigation in `probe_common.py`. Navigation checks the desktop/phone bar and More sheet. A requested tab that cannot open is an error. Accessibility must obtain real keyboard focus; if the display server does not grant it, the result is incomplete and fails instead of claiming focus passed.
 
