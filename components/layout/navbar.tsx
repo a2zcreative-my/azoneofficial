@@ -10,6 +10,8 @@ import { whatsappUrl } from "@/constants/content";
 import { CTA_LABEL, NAV_ITEMS, SITE_CONFIG } from "@/constants/site";
 import { cn } from "@/lib/utils";
 
+import nav from "./navbar.module.css";
+
 export function Navbar() {
   const [open, setOpen] = useState(false);
 
@@ -49,7 +51,7 @@ export function Navbar() {
             stays outside it so a BM reader never has to open a menu to find
             their own language. whitespace-nowrap is the belt: a longer label
             in future overflows visibly rather than folding into its neighbour. */}
-        <ul className="hidden items-center gap-6 xl:flex">
+        <ul className={`hidden items-center xl:flex ${nav.links}`}>
           {NAV_ITEMS.map((item) => (
             <li key={item.href}>
               <Link
@@ -62,7 +64,7 @@ export function Navbar() {
           ))}
         </ul>
 
-        <div className="hidden items-center gap-4 xl:flex">
+        <div className={`hidden items-center xl:flex ${nav.tools}`}>
           <LangToggle />
           <Link
             href="/login"
@@ -74,7 +76,7 @@ export function Navbar() {
             href={whatsappUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-primary text-primary-foreground hover:bg-primary/85 inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium whitespace-nowrap transition-colors"
+            className={nav.cta}
           >
             {CTA_LABEL}
           </a>
@@ -128,7 +130,7 @@ export function Navbar() {
               href={whatsappUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-primary text-primary-foreground inline-flex h-10 w-full items-center justify-center rounded-lg text-sm font-medium"
+              className={`${nav.cta} ${nav.ctaBlock}`}
               onClick={() => setOpen(false)}
             >
               {CTA_LABEL}

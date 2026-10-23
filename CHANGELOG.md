@@ -10,6 +10,59 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.195.0] - 2026-10-23 - The homepage, redesigned on the owner's mockup
+
+The owner, 23-10-2026, with a landing-page mockup: a premium creative-agency
+homepage - "Build the brand. Sell it live." - keeping the A2Z logo, navy,
+gold, white and grey, the SEO, the URLs, EN/BM, the contact and WhatsApp
+links, login and the portal; no invented clients, work, statistics or
+testimonials; no deploy without approval.
+
+### Changed
+
+- **Homepage** (`app/page.tsx`, `components/home/*`, new `home.module.css`
+  and `work.tsx`), in the mockup's order: hero, about and credentials,
+  services, the problems we solve, selected work, live commerce, the live
+  channels, packages, process, FAQ, the final call to action.
+- **Hero**: navy, the headline in two lines (the second in gold), "Get a
+  free live audit" (WhatsApp) and "Explore our work" (#work), three facts
+  that are true today, and a studio panel - the A2Z mark at a session with
+  the session's own copy, labelled "Session view — illustration". A real
+  photograph replaces it when one is set (below).
+- **Trust & credibility**: the four TRUST_SIGNALS (SSM registration, the
+  channel we run, the Johor Bahru team, BM and English hosts) as cards, the
+  About copy (Admin -> Content keys kept), and "Our companies" from the
+  brand registry. STATISTICS still renders only when it holds real figures.
+- **Services**: the six service lines as linked cards with tinted icons -
+  live commerce and hosting to Packages, consultancy to its page, the rest
+  to Services.
+- **Selected work**: ELFIA and AZ ONE OFFICIAL from PORTFOLIO_ITEMS and the
+  published case study, as image cards - each brand's own mark on its
+  colour until a real photo is set; "View all work" to /portfolio.
+- **Live commerce**: the session deliverables and the "simulated view"
+  rhythm (as before), then the TikTok embed and Shopee card restyled.
+- **Packages**: Starter, Growth, Scale and Enterprise side by side with
+  every feature unchanged, "Most chosen" on Growth as before, and a
+  "Get a quote" per tier that opens WhatsApp naming the tier.
+- **Process, FAQ, final CTA**: the same steps and questions; a navy final
+  band with the audit, a strategy call (/contact), WhatsApp, email and the
+  address.
+- **Navbar**: the call to action is the gold pill, and the desktop row
+  spacing moved to a module so the Bahasa Melayu labels no longer touch the
+  logo (they did before this release, at every width from 1280 to 1920).
+- **Real photography**: `HOME_MEDIA` in constants/content.ts - empty slots
+  for the hero and each Selected Work card. The repository holds no real
+  session or studio photo, so none is used and none is generated; drop the
+  owner's photos in /public/home/ and set the paths.
+- **EN/BM**: 21 dictionary entries for the new copy.
+
+### Kept
+
+- The metadata, canonical, Open Graph and JSON-LD (all in the layout), the
+  section anchors (#about, #services, #packages, #live, #process, #faq,
+  #contact), every Admin -> Content key, LiveTestimonials, the WhatsApp
+  number and message, /login and the portal.
+
 ## [1.194.0] - 2026-10-22 - Claims in five tabs, the overview as the photo
 
 The owner, 22-10-2026, with his Claims mockup: five tabs - Overview, Submit

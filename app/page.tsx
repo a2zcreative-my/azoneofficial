@@ -8,6 +8,7 @@ import { Problems } from "@/components/home/problems";
 import { Process } from "@/components/home/process";
 import { Services } from "@/components/home/services";
 import { Showcase } from "@/components/home/showcase";
+import { Work } from "@/components/home/work";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
 
@@ -16,13 +17,18 @@ export default function HomePage() {
     <>
       <Navbar />
       <main>
+        {/* v1.195.0 - the owner's mockup order: the hero, who we are and
+            what can be checked, the services, the problems they answer, real
+            work, live commerce and its channels, the packages, the process,
+            the questions, and the final call to action. */}
         <Hero />
         <About />
-        <Problems />
         <Services />
-        <Packages />
+        <Problems />
+        <Work />
         <Showcase />
         <LiveShowcase />
+        <Packages />
         <Process />
         <Faq />
         <Cta />

@@ -1,111 +1,93 @@
 "use client";
 
-import {
-  animate,
-  motion,
-  useInView,
-  useMotionValue,
-  useReducedMotion,
-  useTransform,
-} from "framer-motion";
-import { useEffect, useRef } from "react";
+/* v1.195.0 - TRUST & CREDIBILITY, then who we are. The four credentials are
+   TRUST_SIGNALS - facts true today (the SSM registration, the channel we run,
+   the team in Johor Bahru, BM and English hosts). No invented clients,
+   counts or awards: STATISTICS stays the only place a number can come from,
+   and it renders only when it holds real figures. The three paragraphs keep
+   their Admin -> Content keys (about.body1..3); the companies row is
+   OUR_COMPANIES from constants/brands.ts, the businesses the group owns. */
 
-import { Section } from "@/components/layout/section";
+import { BadgeCheck, Languages, MapPin, Store } from "lucide-react";
+import Link from "next/link";
+import type { ComponentType, SVGProps } from "react";
+
 import { Editable } from "@/components/live/editable";
 import { Reveal } from "@/components/ui/reveal";
+import { OUR_COMPANIES } from "@/constants/brands";
 import { ABOUT, STATISTICS, TRUST_SIGNALS } from "@/constants/content";
-import type { Statistic } from "@/types";
 
-function StatCounter({ stat }: { stat: Statistic }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
-  const reduceMotion = useReducedMotion();
-  const count = useMotionValue(0);
-  const rounded = useTransform(count, (v) => Math.round(v).toString());
+import css from "./home.module.css";
 
-  useEffect(() => {
-    if (!inView) return;
-    if (reduceMotion) {
-      count.set(stat.value);
-      return;
-    }
-    const controls = animate(count, stat.value, {
-      duration: 1.6,
-      ease: "easeOut",
-    });
-    return () => controls.stop();
-  }, [inView, reduceMotion, count, stat.value]);
-
-  return (
-    <div className="border-t border-border pt-6">
-      <p className="text-4xl font-semibold tracking-tight sm:text-5xl">
-        <motion.span ref={ref}>{rounded}</motion.span>
-        <span className="text-gold-deep">{stat.suffix}</span>
-      </p>
-      <p className="text-muted-foreground mt-2 text-sm">{stat.label}</p>
-    </div>
-  );
-}
-
-/**
- * Credibility markers used while STATISTICS is empty. Counters animate from 0,
- * so unpublished figures rendered as "0+ / 0 / 0x" — worse than showing
- * nothing. These are facts that are true on day one.
- */
-function TrustSignals() {
-  return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-1 lg:content-start xl:grid-cols-2">
-      {TRUST_SIGNALS.map((signal, i) => (
-        <Reveal key={signal.label} delay={i * 0.08}>
-          <div className="border-t border-border pt-5">
-            <p className="text-base font-semibold tracking-tight">
-              <span className="text-gold-deep mr-2" aria-hidden="true">
-                —
-              </span>
-              {signal.label}
-            </p>
-            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-              {signal.description}
-            </p>
-          </div>
-        </Reveal>
-      ))}
-    </div>
-  );
-}
+const ICONS: ComponentType<SVGProps<SVGSVGElement>>[] = [BadgeCheck, Store, MapPin, Languages];
 
 export function About() {
-  const hasStats = STATISTICS.length > 0;
-
   return (
-    <Section id="about" eyebrow={ABOUT.eyebrow} title={ABOUT.title}>
-      {/* Editable keys: about.body1, about.body2 (Admin -> Content) */}
-      <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-20">
-        <Reveal>
-          <div className="space-y-5">
+    <section id="about" className={css.section}>
+      <div className={css.wrap}>
+        <div className={css.head}>
+          <div>
+            <p className={css.eyebrow}>{ABOUT.eyebrow}</p>
+            <h2 className={css.h2}>{ABOUT.title}</h2>
+          </div>
+          <p className={css.lede}>A registered Malaysian company with its own team, studio and live channel — here is what you can check before you call us.</p>
+        </div>
+
+        <ul className={css.creds}>
+          {TRUST_SIGNALS.map((signal, i) => {
+            const Icon = ICONS[i % ICONS.length] ?? BadgeCheck;
+            return (
+              <li key={signal.label}>
+                <Reveal delay={i * 0.06} className={css.cred}>
+                  <span className={css.credIcon}><Icon aria-hidden="true" /></span>
+                  <p className={css.credTitle}>{signal.label}</p>
+                  <p className={css.credText}>{signal.description}</p>
+                </Reveal>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className={css.aboutGrid}>
+          <Reveal className={css.aboutBody}>
             {ABOUT.body.map((paragraph, i) => (
-              <p
-                key={paragraph}
-                className="text-muted-foreground text-base leading-relaxed"
-              >
+              <p key={paragraph}>
                 <Editable k={`about.body${i + 1}`} fallback={paragraph} />
               </p>
             ))}
-          </div>
-        </Reveal>
-
-        {hasStats ? (
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 lg:grid-cols-1 lg:content-start xl:grid-cols-3">
-            {STATISTICS.map((stat, i) => (
-              <Reveal key={stat.label} delay={i * 0.1}>
-                <StatCounter stat={stat} />
-              </Reveal>
-            ))}
-          </div>
-        ) : (
-          <TrustSignals />
-        )}
+          </Reveal>
+          <Reveal delay={0.08} className={css.companies}>
+            <p className={css.companiesLabel}>Our companies</p>
+            {OUR_COMPANIES.map((b) => {
+              const inner = (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className={css.companyLogo} src={b.logo} alt="" loading="lazy" />
+                  <span>
+                    <span className={css.companyName}>{b.name}</span>
+                    <span className={css.companyMeta}>{b.descriptor}</span>
+                    {b.registration && <span className={css.companyMeta} data-no-translate>{b.registration}</span>}
+                  </span>
+                </>
+              );
+              /* our own company opens About; a sister company its own site */
+              return b.code === "a2z"
+                ? <Link key={b.code} className={css.company} href="/about">{inner}</Link>
+                : <a key={b.code} className={css.company} href={b.url} target="_blank" rel="noopener noreferrer">{inner}</a>;
+            })}
+            {STATISTICS.length > 0 && (
+              <div className={css.stats}>
+                {STATISTICS.map((s) => (
+                  <p key={s.label} className={css.stat}>
+                    <strong>{s.value}{s.suffix}</strong>
+                    <span>{s.label}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+          </Reveal>
+        </div>
       </div>
-    </Section>
+    </section>
   );
 }

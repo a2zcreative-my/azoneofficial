@@ -124,6 +124,30 @@ export const LIVE_SHOWCASE = {
   scheduleNote: "Follow @azoneofficialhq so our next session lands in your feed.",
 } as const;
 
+/**
+ * v1.195.0 - REAL PHOTOGRAPHY FOR THE HOMEPAGE, when there is some.
+ *
+ * The redesigned homepage has a place for a photograph in the hero, the
+ * studio panel and each Selected Work card. The repository holds no real
+ * A2Z session or studio photo yet, and the owner's rule is no invented work
+ * and no stock pretending to be ours - so every slot is empty and the page
+ * draws its designed panel instead (logo, brand colour, real copy).
+ *
+ * To use a photo: put the file in /public/home/ (JPG or WebP, about 1600px
+ * wide, under 300 KB), set its path below (e.g. "/home/studio.jpg") and
+ * write the alt text. Only photos of A2Z's own sessions, studio and team, or
+ * of a client cleared in constants/brands.ts (permissionOnFile).
+ */
+export const HOME_MEDIA = {
+  /** The hero: a real live session or the studio. */
+  hero: { src: "", alt: "" },
+  /** Selected Work, by brand code in constants/brands.ts. */
+  work: {
+    elfia: { src: "", alt: "" },
+    azone: { src: "", alt: "" },
+  } as Record<string, { src: string; alt: string }>,
+} as const;
+
 export function whatsappUrl(message?: string): string {
   const text = encodeURIComponent(message ?? CONTACT.whatsappMessage);
   return `https://wa.me/${CONTACT.whatsapp}?text=${text}`;

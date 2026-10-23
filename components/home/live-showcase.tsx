@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Section } from "@/components/layout/section";
-import { Button } from "@/components/ui/button";
+import { ArrowRight } from "lucide-react";
+
 import { Reveal } from "@/components/ui/reveal";
 import { LIVE_SHOWCASE } from "@/constants/content";
+
+import css from "./home.module.css";
 
 /**
  * LiveShowcase (v1.4.1) — our live channels, side by side.
@@ -172,14 +174,10 @@ function ShopeePanel() {
         </li>
       </ul>
       <div className="mt-auto pt-8">
-        <Button
-          href={LIVE_SHOWCASE.shopeeLiveUrl}
-          external
-          variant="outlineLight"
-          className="sm:w-full"
-        >
-          Watch on Shopee Live
-        </Button>
+        {/* v1.195.0 - the homepage's pill buttons */}
+        <a href={LIVE_SHOWCASE.shopeeLiveUrl} target="_blank" rel="noopener noreferrer" className={`${css.btnGhost} ${css.wide}`}>
+          <span>Watch on Shopee Live</span>
+        </a>
       </div>
     </div>
   );
@@ -189,13 +187,17 @@ export function LiveShowcase() {
   const hasShopee = Boolean(LIVE_SHOWCASE.shopeeLiveUrl);
 
   return (
-    <Section
-      id="live"
-      dark
-      eyebrow={LIVE_SHOWCASE.eyebrow}
-      title={LIVE_SHOWCASE.title}
-      intro={LIVE_SHOWCASE.intro}
-    >
+    /* v1.195.0 - the homepage's dark band and heading; the two panels and
+       their platform rules are as they were */
+    <section id="live" className={css.liveBand}>
+      <div className={css.wrap}>
+        <div className={css.head}>
+          <div>
+            <p className={css.heroEyebrow}>{LIVE_SHOWCASE.eyebrow}</p>
+            <h2 className={css.h2}>{LIVE_SHOWCASE.title}</h2>
+          </div>
+          <p className={`${css.lede} ${css.ledeOnDark}`}>{LIVE_SHOWCASE.intro}</p>
+        </div>
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
         {/* TikTok — official creator embed */}
         <Reveal className="h-full">
@@ -204,14 +206,10 @@ export function LiveShowcase() {
               <TikTokEmbed />
             </div>
             <div className="pt-6">
-              <Button
-                href={LIVE_SHOWCASE.tiktokLiveUrl}
-                external
-                variant="gold"
-                className="sm:w-full"
-              >
-                Watch us live on TikTok
-              </Button>
+              <a href={LIVE_SHOWCASE.tiktokLiveUrl} target="_blank" rel="noopener noreferrer" className={`${css.btnGold} ${css.wide}`}>
+                <span>Watch us live on TikTok</span>
+                <ArrowRight aria-hidden="true" />
+              </a>
             </div>
           </div>
         </Reveal>
@@ -228,6 +226,7 @@ export function LiveShowcase() {
         Not live at this moment? The TikTok feed shows our latest sessions and
         cuts — real hosts, real orders, real reporting.
       </p>
-    </Section>
+      </div>
+    </section>
   );
 }

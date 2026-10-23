@@ -1,33 +1,34 @@
-import { Section } from "@/components/layout/section";
+/* v1.195.0 - the four steps (PROCESS, unchanged copy), numbered because
+   the order is the point. */
+
 import { Reveal } from "@/components/ui/reveal";
 import { PROCESS } from "@/constants/content";
 
+import css from "./home.module.css";
+
 export function Process() {
   return (
-    <Section
-      id="process"
-      eyebrow="Process"
-      title="From first call to first sale"
-      intro="Four steps. The order matters — each one feeds the next."
-      className="bg-brand-neutral"
-    >
-      <ol className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {PROCESS.map((step, i) => (
-          <Reveal key={step.step} delay={i * 0.1}>
-            <li className="h-full rounded-xl border border-border bg-background p-6">
-              <span className="text-gold-deep text-sm font-semibold tracking-[0.2em]">
-                {String(step.step).padStart(2, "0")}
-              </span>
-              <h3 className="mt-3 text-lg font-semibold tracking-tight">
-                {step.title}
-              </h3>
-              <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-                {step.description}
-              </p>
+    <section id="process" className={`${css.section} ${css.tint}`}>
+      <div className={css.wrap}>
+        <div className={css.head}>
+          <div>
+            <p className={css.eyebrow}>Process</p>
+            <h2 className={css.h2}>From first call to first sale</h2>
+          </div>
+          <p className={css.lede}>Four steps. The order matters — each one feeds the next.</p>
+        </div>
+        <ol className={css.steps}>
+          {PROCESS.map((step, i) => (
+            <li key={step.step}>
+              <Reveal delay={i * 0.08} className={`${css.step} ${css.fill100}`}>
+                <span className={css.stepNo} aria-hidden="true">{String(step.step).padStart(2, "0")}</span>
+                <h3 className={css.stepTitle}>{step.title}</h3>
+                <p className={css.stepText}>{step.description}</p>
+              </Reveal>
             </li>
-          </Reveal>
-        ))}
-      </ol>
-    </Section>
+          ))}
+        </ol>
+      </div>
+    </section>
   );
 }

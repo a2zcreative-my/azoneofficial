@@ -1,37 +1,55 @@
-import { Section } from "@/components/layout/section";
+/* v1.195.0 - SERVICES, on the owner's mockup: six cards in a row on a wide
+   screen, each with its own tinted icon, the existing title and description
+   from SERVICES, and a way to the page that sells it - live commerce and
+   hosting to Packages, consultancy to its own page, the rest to Services.
+   The title and intro keep their Admin -> Content keys. */
+
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+
 import { Editable } from "@/components/live/editable";
 import { Reveal } from "@/components/ui/reveal";
 import { SERVICES } from "@/constants/content";
 
+import css from "./home.module.css";
+
+const TINT = [css.tGold, css.tBlue, css.tRed, css.tGreen, css.tPurple, css.tGold];
+const HREF = ["/services", "/services", "/packages", "/packages", "/services", "/consultancy"];
+
 export function Services() {
   return (
-    <Section
-      id="services"
-      eyebrow="Services"
-      title={<Editable k="home.services.title" fallback="Everything a brand needs to grow" />}
-      intro={<Editable k="home.services.intro" fallback="Creative, digital, content, live commerce, and consultancy — pick a single lane or hand us the whole thing." />}
-      className="bg-brand-neutral"
-    >
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {SERVICES.map((service, i) => {
-          const Icon = service.icon;
-          return (
-            <Reveal key={service.title} delay={(i % 3) * 0.08}>
-              <article className="group h-full rounded-xl border border-border bg-background p-6 transition-shadow hover:shadow-sm">
-                <span className="bg-brand text-gold inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
-                  <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
-                </span>
-                <h3 className="mt-5 text-lg font-semibold tracking-tight">
-                  {service.title}
-                </h3>
-                <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-                  {service.description}
-                </p>
-              </article>
-            </Reveal>
-          );
-        })}
+    <section id="services" className={`${css.section} ${css.tint}`}>
+      <div className={css.wrap}>
+        <div className={css.head}>
+          <div>
+            <p className={css.eyebrow}>Our services</p>
+            <h2 className={css.h2}><Editable k="home.services.title" fallback="Everything a brand needs to grow" /></h2>
+          </div>
+          <p className={css.lede}>
+            <Editable k="home.services.intro" fallback="Creative, digital, content, live commerce, and consultancy — pick a single lane or hand us the whole thing." />
+          </p>
+        </div>
+        <ul className={css.services} role="list">
+          {SERVICES.map((service, i) => {
+            const Icon = service.icon;
+            return (
+              <li key={service.title}>
+                <Reveal delay={(i % 6) * 0.05} className={css.fill100}>
+                  <Link href={HREF[i] ?? "/services"} className={css.serviceCard}>
+                    <span className={`${css.serviceIcon} ${TINT[i] ?? css.tGold}`}><Icon aria-hidden="true" /></span>
+                    <h3 className={css.serviceTitle}>{service.title}</h3>
+                    <p className={css.serviceText}>{service.description}</p>
+                    <span className={css.serviceFoot}>
+                      <span>Learn more</span>
+                      <span className={css.arrow} aria-hidden="true"><ArrowRight /></span>
+                    </span>
+                  </Link>
+                </Reveal>
+              </li>
+            );
+          })}
+        </ul>
       </div>
-    </Section>
+    </section>
   );
 }

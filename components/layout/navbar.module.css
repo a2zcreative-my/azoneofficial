@@ -1,0 +1,38 @@
+/* v1.195.0 - the navbar's call to action is the gold pill of the redesigned
+   homepage, on every public page. */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding: 0 1.25rem;
+  border-radius: 9999px;
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.2s ease;
+}
+.cta:hover {
+  background: color-mix(in srgb, var(--gold-solid) 88%, white);
+}
+.cta:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+.ctaBlock {
+  width: 100%;
+}
+/* the desktop row breathes with the width: in Bahasa Melayu the seven labels
+   are long enough that a fixed 24px gap left the first one touching the logo
+   (measured at 1280-1920, before and after v1.195.0) */
+.links {
+  gap: 1.125rem;
+  margin-left: 1.25rem;
+}
+.tools {
+  gap: 0.875rem;
+  margin-left: 0.75rem;
+}
