@@ -10,6 +10,53 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.199.0] - 2026-10-23 - Assets, reorganised into five tabs
+
+The owner, 23-10-2026, with a mockup: Assets in five tabs - Overview, Asset
+Register, Assignments, Maintenance & Disposal, Reports & Audit - keeping the
+gold/navy/white/grey identity and every record, value, tag and assignment;
+no API, permission, database or business-logic change; no mock data in
+production; no deploy without approval.
+
+### Changed
+
+- **Assets** (`components/portal/assets-panel.tsx`, new
+  `assets-page.module.css`) is a `LineTabs` page; every zone stays mounted
+  and hides with `av.off`. The toast and the confirm dialog sit outside the
+  zones so a hidden tab never hides a question.
+- **Overview**: In use, Spare, In repair, Lost, Disposed (each opens the
+  register on that status) and the total asset value (the same rule: lost
+  and disposed excluded); recent assets, the status ring, assets by category
+  and by location (each opens the filtered register), assets needing
+  attention and quick actions.
+- **Asset Register**: the register with Tag, Item, Brand, Assigned to,
+  Location, Status, Value; search, status/category/location filters, sorting
+  (headers are buttons now), 10/25/50 rows per page; Edit and Remove as
+  before; the editor (Add asset) unchanged.
+- **Assignments**: assets grouped by the person holding them, unassigned
+  active assets, Reassign through the editor. Assignment history is
+  proposed, not built (needs its own record and a database change).
+- **Maintenance & Disposal**: In repair, Lost and Disposed grouped, with a
+  Change status drawer - the same PATCH with the status and note; Lost and
+  Disposed ask first. Maintenance tracking is proposed, not built.
+- **Reports & Audit**: status summary, valuation by category and by
+  location (active purchase value, the register's own figure), warranty
+  ending within 90 days, and the audit log the worker already keeps
+  (`/audit?action=asset.`, admin tier - a refusal is said on screen), plus a
+  per-asset History drawer.
+- Add, Edit, Remove and Change status show only to the roles the server
+  lets write (hr_manage, sent as `can_remove`); COO and CCO read the
+  register as before, without buttons that would be refused.
+- Status badges use the shared chip vocabulary.
+
+### Tests
+
+- `tests/clickable-data.mjs`: the status tiles open the register on their
+  status; `tests/tab-zones.mjs`: five tabs, zones hidden not unmounted.
+- Fixture: eleven assets across every status and three locations, the asset
+  audit entries, `can_remove` by role; `serve.mjs` answers a fixture refusal
+  with the worker's 403.
+
 ## [1.198.0] - 2026-10-23 - Payroll, reorganised into five tabs
 
 The owner, 23-10-2026, with the original screenshot and a mockup: Payroll in

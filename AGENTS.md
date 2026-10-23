@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 23 October 2026, version **1.198.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 23 October 2026, version **1.199.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (130 at 1.198.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (130 at 1.199.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export

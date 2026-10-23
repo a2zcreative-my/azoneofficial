@@ -48,7 +48,9 @@ const server = http.createServer((req, res) => {
         return;
       }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
-      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(data));
+      /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a
+         refusal, sent with the worker's 403, so a role-gated read can be walked */
+      res.writeHead(data?.error?.code === "forbidden" ? 403 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(data));
     });
     return;
   }

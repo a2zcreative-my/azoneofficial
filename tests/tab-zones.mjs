@@ -313,6 +313,8 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Accounting: balance before adjustment", ordered(accounting, ['L("Trial balance"', 'L("New journal entry"']));
   ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
   ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
+  /* v1.199.0 - five tabs in the brief's order, every zone kept mounted and hidden with av.off */
+  ok("Assets: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Asset Register", "Assignments", "Maintenance & Disposal", "Reports & Audit"].map((t) => assets.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (assets.match(/className=\{view !== "[a-z]+" \? av\.off : ""\}/g) ?? []).length === 5);
   /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
      the search, the state filter and the pipeline precede it as before. */
   ok("Hotels: filters and contact work before the map", ordered(hotels.slice(hotels.indexOf('export function HotelsPanel')), ['L("Search the directory"', 'L("Filter by state"', '<HotelPipeline', 'label={L("The map", "Peta")}', '================= THE MAP']));

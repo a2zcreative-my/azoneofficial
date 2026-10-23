@@ -90,8 +90,12 @@ const ok = (label, cond, extra = "") => {
      /if \(!alert\) \{[\s\S]{0,400}?aria-expanded=\{isOpenQ\}/, "one chip in the row opened and the rest did not"],
     /* v1.173.0 (tab concept): the counts are the AT A GLANCE figures (SummaryStat, a
        button with aria-pressed) - the same filter, one row up. */
+    /* v1.199.0 - the counts are Overview tiles (KpiTile, a button); pressing
+       one opens the Asset Register filtered to that status */
     ["asset counts filter the asset table", "components/portal/assets-panel.tsx",
-     /<SummaryStat key=\{k\} label=\{label\} value=\{n\}[\s\S]{0,300}?active=\{statusF === k\} onClick=\{\(\) => setStatusF\(statusF === k \? "" : k\)\}/, "the identical chip row in content-panel has filtered its table for releases"],
+     /<KpiTile key=\{k\}[\s\S]{0,300}?onClick=\{\(\) => openStatus\(k\)\}/, "the identical chip row in content-panel has filtered its table for releases"],
+    ["and the tile opens the register on that status", "components/portal/assets-panel.tsx",
+     /const openStatus = \(k: string\) => \{ setStatusF\(statusF === k && view === "register" \? "" : k\);[^\n]*go\("register"\)/, "a tile that filters a table on another tab must also show that tab"],
     ["and the asset filter keys on the CODE, not the label", "components/portal/assets-panel.tsx",
      /a\.status === statusF/, "keying on a translated label breaks the filter the moment somebody switches to BM"],
     ["the state chips scope the customer list", "components/portal/elfia-traffic-panel.tsx",
