@@ -718,14 +718,15 @@ export function waitingOnLabel(l: LeaveReq): string {
   return "CEO";
 }
 
-export function Leave({ user }: { user: User }) {
+export function Leave({ user, initialView }: { user: User; initialView?: string }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
   /* v1.196.0 - THE LEAVE PAGE, TABBED (the owner's brief and photo,
      23-10-2026): Overview, Apply Leave, My Leave, Team Calendar, Approvals &
      Management. Every zone below is the zone it was, shown under its tab and
      hidden - never unmounted - under the others, so a half-typed application
      survives a look at the calendar. The gates are the ones the zones had. */
-  const [view, setView] = useState<LeaveView>("overview");
+  /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
+  const [view, setView] = useState<LeaveView>(() => (["overview", "apply", "mine", "calendar", "manage"].includes(initialView ?? "") ? initialView as LeaveView : "overview"));
   const [leaveQ, setLeaveQ] = useState("");
   const [draft, setDraft] = useState({
     type: "annual",

@@ -33,6 +33,10 @@
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     column-gap: 1.25rem;
     align-items: start;
+    /* v1.203.0 - when "My day" (the right column) comes first in the reading
+       order, the next zone fills the left column of the SAME row instead of
+       leaving it empty and starting a row lower */
+    grid-auto-flow: row dense;
   }
   /* v1.187.0 - one rhythm between zones: 1.25rem, the same as the columns */
   .page > :where(:not(:last-child)) {
@@ -887,4 +891,17 @@
   .fenceMissingModal {
     margin-inline: 1.25rem;
   }
+}
+
+/* v1.203.0 - two views on one page: OVERVIEW (dashboard-overview.tsx) and
+   MY DAY (the zones). The zones stay mounted under the overview - the clock
+   keeps its minute tick and its punch state - and simply leave the screen. */
+.page[data-view="overview"] > [data-zone] {
+  display: none;
+}
+.viewOff {
+  display: none;
+}
+.overview {
+  min-width: 0;
 }

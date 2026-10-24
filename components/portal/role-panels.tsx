@@ -4238,7 +4238,7 @@ const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "acc
     EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
-export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?: string }) {
+export function ClaimsPanel({ userId = 0, role = "", initialView }: { userId?: number; role?: string; initialView?: string }) {
   /* v1.127.0 — the step-up dialog when a claim approval needs a code. */
   const { prompt, node: stepUpNode } = usePrompt();
   /* v1.88.0 — which figure in the summary strip the list is scoped to. */
@@ -4250,7 +4250,8 @@ export function ClaimsPanel({ userId = 0, role = "" }: { userId?: number; role?:
      look at the list. The records card ("All claims" for a decider) is the
      decider's approval history and sits under Approvals; everyone else's
      records are My Claims. */
-  const [view, setView] = useState<ClaimsView>("overview");
+  /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
+  const [view, setView] = useState<ClaimsView>(() => (["overview", "submit", "mine", "approvals", "reports"].includes(initialView ?? "") ? initialView as ClaimsView : "overview"));
   const [claimQ, setClaimQ] = useState("");
   const [repMonth, setRepMonth] = useState(() => mytToday().slice(0, 7));
   const [claims, setClaims] = useState<Claim[]>([]);

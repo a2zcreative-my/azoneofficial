@@ -31,7 +31,11 @@ function baseFixture(p) {
   let data = { records: [], tasks: [], leave: [], leaves: [], announcements: [], events: [], sessions: [], items: [], rows: [], findings: [], open: [], watchers: [], notifications: [], users: [], versions: {}, materials: [], returns: [], outs: [], birthdays: [], holidays: [], lines: [], buckets: [], staff: [], customers: [], docs: [], clients: [], hosts: [], cities: [], orders: [], rules: [], assets: [], hotels: [], states: [], by_state: {}, reports: [], claims: [], can_decide: true, expenses: [], accounts: [], rates: [], balances: {}, days: [], base: [], entries: [], banks: [], people: {}, overrides: {}, mine: { allow: [], deny: [] }, punches: [], requests: [], memberships: [], setup: [], summary: {}, counts: {}, total: 0, missing: [], targets: [], daily: [], products: [], skus: [], videos: [], lives: [], series: [], points: [], months: [] };
   const fallback = data;
   if (p === "/auth/me") data = { user: { id: 9001, name: "Fixture Person", role: ROLE, email: "fixture@example.test", status: "active" } };
-  if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 } };
+  /* v1.203.0 - the overview's Sales Performance: the month by channel, and
+     every revenue line by month (overall) - the bars include stokis and
+     ELFIA web orders, so September's bar is higher than the month figure */
+  if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 },
+    overall: { total_cents: 2_480_000, months: [["2025-12", 98000], ["2026-01", 121000], ["2026-02", 143000], ["2026-03", 187000], ["2026-04", 214000], ["2026-05", 196000], ["2026-06", 262000], ["2026-07", 301000], ["2026-08", 288000], ["2026-09", 352000]].map(([month, cents]) => ({ month, cents })) } };
   if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {} };
   if (p === "/staff/desk") data = { items: queue, counts: { tasks: 1 }, total: 1, missing: [] };
   if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }],
@@ -297,6 +301,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     attendance: { days_present: 21, on_time: 18, late: 3, half_days: 0, early_outs: 1 }, approved_leave_days: 1 }; // v1.192.0
   if (p === "/staff/leave/calendar") data = { leave: [{ user_id: 9002, name: "Nur Aisyah", start_date: D + "22", end_date: D + "23" }] };
   if (p === "/staff/live-sessions") data = { sessions: [
+    /* v1.203.0 - two still to come, for the overview's Live Sessions card */
+    { id: 3, session_date: D + "18", start_time: "20:00", end_time: "22:00", host_user_id: 9003, host_name: "Farid Zul", client_id: 1, client_name: "Aina Boutique", status: "scheduled", platform: "tiktok", notes: "Weekend bundle" },
+    { id: 4, session_date: D + "21", start_time: "15:00", end_time: "17:00", host_user_id: 9002, host_name: "Nur Aisyah", client_id: 2, client_name: "Zainab Kitchen", status: "scheduled", platform: "shopee", notes: null },
     { id: 1, session_date: D + "16", start_time: "14:00", end_time: "16:00", host_user_id: 9003, host_name: "Farid Zul", client_id: 1, client_name: "Aina Boutique", status: "scheduled", platform: "tiktok", notes: "Raya edit" },
     { id: 2, session_date: D + "17", start_time: "20:00", end_time: "22:00", host_user_id: 9002, host_name: "Nur Aisyah", client_id: 2, client_name: "Zainab Kitchen", status: "scheduled", platform: "tiktok", notes: null }] };
   if (p === "/staff/revenue/lines") data = { lines: [
@@ -356,6 +363,19 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   /* v1.199.0 - can_remove is the worker's hr_manage answer: the four roles that keep the register */
   if (p === "/staff/assets") data = { assets, can_remove: ["super_admin", "admin", "hr_admin", "ceo"].includes(ROLE) };
   /* v1.199.0 - the audit trail the Assets Reports & Audit tab reads (admin tier on the worker) */
+  /* v1.203.0 - the whole trail (no ?action), as the admin tier reads it on the overview */
+  if (p === "/audit" && !q.get("action")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
+    { id: 990, action: "auth.login", entity: "users", entity_id: "9001", detail: null, created_at: "2026-09-18 01:58:00", user_name: "Fixture Person" },
+    { id: 989, action: "hotel.update", entity: "hotels", entity_id: "1", detail: "{\"hotel_name\":\"Casa del Rio\",\"state\":\"MELAKA\"}", created_at: "2026-09-18 01:50:00", user_name: "Nur Aisyah" },
+    { id: 988, action: "leave.approve", entity: "leave_requests", entity_id: "7", detail: "{\"name\":\"Tan Mei Ling\"}", created_at: "2026-09-18 00:55:00", user_name: "Fixture Person" },
+    { id: 987, action: "task.complete", entity: "tasks", entity_id: "4", detail: "{\"title\":\"Renew studio insurance\"}", created_at: "2026-09-17 23:40:00", user_name: "Fixture Person" },
+    { id: 986, action: "asset.create", entity: "assets", entity_id: "11", detail: "{\"asset_tag\":\"AZOA-011\",\"name\":\"Company car\"}", created_at: "2026-09-17 21:00:00", user_name: "Tan Mei Ling" },
+    { id: 985, action: "staff.responsibilities_update", entity: "users", entity_id: "9002", detail: "{\"name\":\"Nur Aisyah\"}", created_at: "2026-09-17 08:00:00", user_name: "Fixture Person" },
+  ] };
+  /* v1.203.0 - what /system/health says (CEO and admin): a backup last night, nothing pending, one error today */
+  if (p === "/system/health") data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin or CEO required" } } : {
+    errors: [{ id: 41, created_at: "2026-09-18 00:12:00", source: "cron", message: "TikTok sync timed out once" }],
+    last_backup: { key: "backups/2026-09-17.sql.gz", size: 412000, uploaded: "2026-09-17T19:20:00.000Z" }, last_offsite: "2026-09-10", migrations_pending: [] };
   if (p === "/audit" && (q.get("action") ?? "") === "asset." && !["super_admin", "admin", "ceo"].includes(ROLE)) data = { error: { code: "forbidden", message: "Admin required" } };
   else if (p === "/audit" && (q.get("action") ?? "") === "asset.") data = { entries: [
     { id: 905, action: "asset.update", entity: "assets", entity_id: "3", detail: JSON.stringify({ asset_tag: "A2Z-LGT-03", name: "Godox SL60", status: "repair", assigned_to: "", location: "Studio", condition_note: "Fan noise" }), created_at: "2026-09-14 03:20:00", user_name: "Mei Ling" },
@@ -525,6 +545,8 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     /* v1.181.4 - the donut's three, so the Attendance today card draws (and
        agrees with /staff/dashboard/attendance-today below: 3 + 2 + 2 = 7) */
     attendance_on_time: 3, attendance_late: 2, staff_total: 7,
+    /* v1.203.0 - the worker's own names for the counts the overview reads */
+    open_quotations: 5, outstanding_invoices: 4, pending_leave: 1, pending_claims: 2, pending_ot: 1, low_stock: 1,
   };
   if (p === "/staff/clients/summary" || p === "/staff/clients") data = { sessions: { "1": 0, "2": 2, "3": 0 }, clients: [
     { id: 1, company: "Bambijan Food Empire", invoiced_cents: 45000, paid_cents: 45000, quotations: 1 },

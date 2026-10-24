@@ -22,6 +22,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
+import { taskFigures } from "@/lib/task-figures"; // v1.203.0
 import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
@@ -41,7 +42,7 @@ const statusL = (v: string) => v === "completed" ? L("Closed", "Selesai") : v ==
 
 /* ================= Tasks ================= */
 
-export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) {
+export function Tasks({ user, progress, initialView }: { user: User; progress?: ReactNode; initialView?: string }) {
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -75,7 +76,8 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
   const refreshBoard = board.refresh;
   const load = useCallback(async () => { refreshBoard(); }, [refreshBoard]);
 
-  const [view, setView] = useState<TaskView>("overview");
+  /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
+  const [view, setView] = useState<TaskView>(() => (["overview", "mine", "all", "create", "reports"].includes(initialView ?? "") ? initialView as TaskView : "overview"));
   const go = (v: TaskView, anchor?: string) => {
     setView(v);
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
@@ -511,10 +513,9 @@ export function Tasks({ user, progress }: { user: User; progress?: ReactNode }) 
   /* v1.173.0 (tab concept) - the summary tier: the board's own figures,
      derived from the rows already loaded, never a second request. Open and
      overdue read from the same rule the list paints red with (v1.42.0). */
-  const openTasks = tasks.filter((t) => t.status !== "completed");
-  const overdueCount = openTasks.filter((t) => !!t.deadline && t.deadline < todayISO).length;
-  const pendingCount = openTasks.filter((t) => t.status === "in_progress").length;
-  const doneCount = tasks.length - openTasks.length;
+  /* v1.203.0 - the four figures come from lib/task-figures.ts, which the
+     Dashboard's Task Overview reads too */
+  const { openTasks, overdueCount, pendingCount, doneCount } = taskFigures(tasks, todayISO);
   const unackedCount = tasks.filter(unacked).length;
   const pctOf = (n: number) => (tasks.length > 0 ? Math.round((n / tasks.length) * 100) : 0);
 

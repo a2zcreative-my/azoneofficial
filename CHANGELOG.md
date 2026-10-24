@@ -10,6 +10,73 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.203.0] - 2026-10-24 - Dashboard: the A2Z OS 2.0 overview
+
+The owner, 24-10-2026, with a reference screen and a written brief: the
+main Dashboard as an overview - welcome header, five KPI cards, three rows
+of three cards - in the existing gold/navy/white/grey, from real data only,
+reusing the modules ("FOLLOW THE DESIGN. USE REAL DATA. REUSE EXISTING
+MODULES. ZERO UNNECESSARY DUPLICATION."); no schema or business-logic
+change; no sample data; no deploy without approval.
+
+### Added
+
+- **Overview** (new `components/portal/dashboard-overview.tsx` and
+  `.module.css`), a presentation layer that writes nothing:
+  - **Welcome header** on every width: "Welcome back, <first name>", the
+    Malaysia date, and the person's own shift (opens My Day).
+  - **Five tiles**, each opening its module: Sales this month (the Sales
+    floor's figure - TikTok + paid invoices + other shipments + manual
+    sales - with the real change against last month), Open quotations (in
+    place of Total Enquiries: the Enquiries tab was retired in 1.183.0),
+    Inventory items (with low stock), Active staff (with clocked in today),
+    Open tasks (with overdue). A role without a company figure gets its own
+    instead (Waiting on me, My leave).
+  - **Recent Activities** from the audit trail every module already writes
+    (CEO and admins; sign-ins left out) - Company News for everyone else.
+    **Task Overview**: the Tasks page's own Open / Pending / Closed / Overdue.
+    **Sales Performance**: the month figure, the change, and ten months of
+    revenue bars (every revenue line - the caption says the bars include
+    stokis and ELFIA web orders, which the month figure does not).
+  - **Live Sessions** (the roster's upcoming lives, in place of Projects &
+    Campaigns: no project records exist and the Content tab is parked),
+    **Team On Shift** (who is clocked in now, managing roles; My Shift for
+    others), **Upcoming & Pending** (the Desk's decisions waiting on you, the
+    next task deadlines, company events, your own leave waiting).
+  - **Quick Actions** opening the existing forms: Create quotation, Create
+    task, Apply leave, Submit claim, Check in/out (My Day), the Desk, Hotels,
+    Staff - each only where the tab strip lets this person go. **Business
+    Summary** (in place of Module Usage, which is not measured): the worker's
+    own counts. **System Status** (CEO, admins): API answering, migrations,
+    last backup, errors in 24 h - no uptime figure, which is not measured.
+- **Two views**: Overview and My Day. My Day is the Dashboard as it was -
+  the clock card, Waiting on you, the company card, the month card, the work
+  overview, the leave applications - unchanged and still mounted. The
+  clock-first job opens on My Day, the business and sales jobs on the
+  overview.
+
+### Changed
+
+- The four v1.182.0 tiles and the phone-only greeting gave way to the
+  welcome header and the five tiles (their figures are on the overview and in
+  full on My Day).
+- `lib/task-figures.ts`: the task figures the Tasks page has used since
+  v1.173.0, moved so the Dashboard reads the same rule.
+- Tasks, Leave and Claims accept a start view, so a quick action opens the
+  form; the portal drops it when another tab is chosen (like Sales' create).
+- My Day at 1200px+ no longer leaves an empty row beside the clock when the
+  clock comes first.
+
+### Tests
+
+- New guard `tests/dashboard-overview.mjs` (108 guards): one sales sum with
+  the Sales floor, one task rule with the Tasks page, no writes, each read
+  only for the roles the worker answers, no sample or invented figures, every
+  My Day zone kept, quick actions gated by the tab strip.
+- The fixture answers the overview's reads: revenue history, the summary's
+  real field names, the audit trail and system health for the admin tier,
+  two upcoming lives.
+
 ## [1.202.0] - 2026-10-23 - Hotels, reorganised into five tabs
 
 The owner, 23-10-2026, with the original screenshot and a mockup: Hotels in

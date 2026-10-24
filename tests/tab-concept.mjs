@@ -163,7 +163,8 @@ for (const tab of SUMMARY) {
 const claims = componentOf(read("components/portal/role-panels.tsx"), "ClaimsPanel");
 ok("Claims' figures scope the list, by claim date, this month", /const monthScope = \(canDecide \? claims : claims\.filter\(\(c\) => c\.user_id === userId\)\)\.filter\(\(c\) => \(c\.claim_date \?\? ""\)\.slice\(0, 7\) === nowMytMonth\);/.test(claims) && /onClick=\{\(\) => scopeList\("pending"\)\}/.test(claims));
 const tasks = read("components/portal/tasks.tsx");
-ok("Tasks' overdue figure uses the list's own rule (deadline before today, not completed)", /const overdueCount = openTasks\.filter\(\(t\) => !!t\.deadline && t\.deadline < todayISO\)\.length;/.test(tasks));
+/* v1.203.0 - the rule moved to lib/task-figures.ts so the Dashboard's Task Overview reads it too */
+ok("Tasks' overdue figure uses the list's own rule (deadline before today, not completed), shared with the Dashboard", /const overdueCount = openTasks\.filter\(\(t\) => !!t\.deadline && t\.deadline < todayISO\)\.length;/.test(read("lib/task-figures.ts")) && /taskFigures\(tasks, todayISO\)/.test(tasks) && /taskFigures\(tasks, today\)/.test(read("components/portal/dashboard-overview.tsx")));
 ok("a figure that is not known yet is busy, never 0", /busy=\{!loaded\}/.test(tasks));
 
 /* ---- 5. pill rows, not hand-rolled ---- */

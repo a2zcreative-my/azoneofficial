@@ -65,7 +65,10 @@ export default function PortalPage() {
   const {
     user, activeTab, lang, setTab, canOpen,
     salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
+    tabStart, setTabStart,
   } = usePortal();
+  /* v1.203.0 - where a tab should open when a Dashboard quick action sent you */
+  const startOf = (t: TabName) => (tabStart?.tab === t ? tabStart.view : undefined);
 
   return (
     <>
@@ -89,11 +92,12 @@ export default function PortalPage() {
                   above. components/portal/side-columns.tsx and
                   components/ui/mini-calendar.tsx were deleted with it. */}
               <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang}
-                onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }} />
+                onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }}
+                openAt={(t, view) => { setTabStart({ tab: t, view }); setTab(t); }} />
             </>
           )}
           {activeTab === "Claims" && (
-            <ClaimsPanel userId={user.id} role={user.role} />
+            <ClaimsPanel userId={user.id} role={user.role} initialView={startOf("Claims")} />
           )}
           {activeTab === "Finance" && (
             /* v1.173.0 (tab concept): two zones. The cash position and the
@@ -119,10 +123,10 @@ export default function PortalPage() {
              v1.183.0 - Commission, Enquiries, Sales Performance, Hankei's and
              Web Orders likewise. */}
           {activeTab === "Accounting" && <AccountingPanel />}
-          {activeTab === "Leave" && <Leave user={user} />}
+          {activeTab === "Leave" && <Leave user={user} initialView={startOf("Leave")} />}
           {activeTab === "Tasks" && (
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */
-            <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} />
+            <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} initialView={startOf("Tasks")} />
           )}
           {activeTab === "Announcements" && <Announcements user={user} />}
           {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter

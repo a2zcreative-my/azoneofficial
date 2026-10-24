@@ -89,6 +89,9 @@ export interface PortalContextValue {
   setSalesStart: Dispatch<SetStateAction<"documents" | "create">>;
   salesCreateRequest: number;
   setSalesCreateRequest: Dispatch<SetStateAction<number>>;
+  /** v1.203.0 - the view a tab opens on when a quick action sent you there */
+  tabStart: { tab: TabName; view: string } | null;
+  setTabStart: Dispatch<SetStateAction<{ tab: TabName; view: string } | null>>;
   dark: boolean;
   setDark: Dispatch<SetStateAction<boolean>>;
   theme: "navy" | "plum";
@@ -175,6 +178,18 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [salesStart, setSalesStart] = useState<"documents" | "create">("documents");
   const [salesCreateRequest, setSalesCreateRequest] = useState(0);
   useEffect(() => { if (tab !== "Sales") setSalesStart("documents"); }, [tab]);
+  /* v1.203.0 - the Dashboard's quick actions open a tab on its form (Create
+     task, Apply leave, Submit claim). The start view lasts while that tab is
+     open and is dropped the moment another tab is chosen - the same rule as
+     salesStart above - so a later visit opens on the tab's own default. */
+  const [tabStart, setTabStart] = useState<{ tab: TabName; view: string } | null>(null);
+  /* adjusted while rendering (React's pattern for state that follows a
+     changing value), not in an effect: no second render with a stale view */
+  const [startSeenTab, setStartSeenTab] = useState(tab);
+  if (startSeenTab !== tab) {
+    setStartSeenTab(tab);
+    if (tabStart && tabStart.tab !== tab) setTabStart(null);
+  }
   /* v1.4.232 (CEO: "does it will accidentally appear the full tabs roles by
      accidents?"): his question exposed a shared-device edge in v1.4.231 —
      the remembered tab was stored per DEVICE, so a lower-role account
@@ -830,6 +845,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         user, setUser, checked, entryReady, navCollapsed, toggleNavCollapsed,
   tab, setTab, activeTab, tabs, canOpen, deskStop, setDeskStop,
   salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
+  tabStart, setTabStart,
   dark, setDark, theme, setTheme, lang, setLangState,
   notifs, setNotifs, unread, showNotifs, setShowNotifs,
   moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,
