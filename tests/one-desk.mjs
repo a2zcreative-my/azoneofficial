@@ -313,6 +313,9 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   const pageSrc = read("app/portal/page.tsx");
   const shellSrc = read("components/portal/portal-shell.tsx"); // the bell lives here
   const deskCard = read("components/portal/one-desk.tsx");
+  /* v1.205.0 - the bell's list moved to notifications-panel.tsx (shared with
+     the Global Search page); the badge and mark-on-close stayed in the shell */
+  const bellSrc = read("components/portal/notifications-panel.tsx");
 
   ok("the Desk page is the only place the queue is listed",
      /<DeskQueue/.test(deskPage) && !/<DeskQueue/.test(dashSrc) && !/<DeskQueue/.test(pageSrc));
@@ -321,16 +324,16 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("Tasks owns the task WORK: the Desk lists your tasks read-only (v1.190.0) and the desk card lists none",
      !/\bapi\b|csrfFetch/.test(deskPage) && !/myTasks\.map/.test(deskCard));
   ok("the bell is not a second approval queue: it links, it never decides",
-     /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(shellSrc)
-     && !/notifications\/decide|notifications\/approve/.test(shellSrc),
+     /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(bellSrc)
+     && !/notifications\/decide|notifications\/approve|\/decide"|\/approve"/.test(shellSrc + bellSrc),
      "its badge counts unread MESSAGES; what is waiting on you to decide is the Desk's own count");
   ok("an unread update reads as unread, and is marked read on CLOSE not on open",
-     /css\.notifUnread/.test(shellSrc)
+     /n\.is_read \? "" : nc\.unread/.test(bellSrc)
      && /setShowNotifs\(\(v\) => \{\s*if \(v && unread\)/.test(shellSrc),
      "marking on open cleared the badge before a word had been read");
   ok("every notification kind has somewhere to go",
      ["announcement", "ot", "attendance", "claim", "leave", "task", "watch"]
-       .every((k) => new RegExp(`${k}: \\{ tab: "`).test(shellSrc)));
+       .every((k) => new RegExp(`${k}: \\{ tab: "`).test(bellSrc)));
   ok("the Desk stop is a tab, so the header names what the person is looking at",
      /push\(\{ key: "Desk", tab: "Desk" \}\)/.test(read("lib/portal-tabs.ts"))
      && !/anchor: "one-desk"/.test(read("lib/portal-tabs.ts")));

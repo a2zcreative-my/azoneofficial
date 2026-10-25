@@ -19,6 +19,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 import { esc } from "@/lib/escape-html";
 import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
@@ -297,7 +298,7 @@ const rmR = fmtRM; // v1.4.272: global
    coloured, In / Out under the thumb - the SAME rows and the SAME handlers
    as the desk table (one data source, two renderings); price, rebate, net
    and the web toggle stay on the desk. Every action and rule is unchanged. */
-export function InventoryPanel({ role = "", statusCard }: { role?: string; statusCard?: ReactNode }) {
+export function InventoryPanel({ role = "", statusCard, focus }: { role?: string; statusCard?: ReactNode; focus?: RecordFocus | null }) {
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
   const [items, setItems] = useState<InvItem[]>([]);
@@ -429,6 +430,13 @@ export function InventoryPanel({ role = "", statusCard }: { role?: string; statu
   /* v1.77.0 — skeleton until the first fetch lands. Every list above starts
      [] so "no items yet" cannot be told from "still loading"; this flag can. */
   const [loaded, setLoaded] = useState(false);
+  /* v1.205.0 - a search hit or a stock notification opens the item's own
+     record dialog over Stock Now, the list's search and category cleared */
+  useRecordFocus(focus, loaded, (f) => {
+    if (f.kind !== "stock") return;
+    setInvQ(""); setInvCat(""); setView("stock");
+    if (items.some((it) => it.id === f.id)) setDetailId(f.id);
+  });
 
   // v1.4.169/170: an Out − goes through the modal — mandatory remark for
   // traceability, optional Sold @ that records it as a SALE in the totals.
@@ -4238,7 +4246,7 @@ const CLAIM_CATEGORIES = ["travel", "meal", "client meeting", "stationery", "acc
     EVERY decision is made by the CEO. Claimants attach a receipt (image/PDF);
     the CEO sees a pending queue with Approve / Reject and an optional note.
     Both sides are bell-notified. */
-export function ClaimsPanel({ userId = 0, role = "", initialView }: { userId?: number; role?: string; initialView?: string }) {
+export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { userId?: number; role?: string; initialView?: string; focus?: RecordFocus | null }) {
   /* v1.127.0 — the step-up dialog when a claim approval needs a code. */
   const { prompt, node: stepUpNode } = usePrompt();
   /* v1.88.0 — which figure in the summary strip the list is scoped to. */
@@ -4546,7 +4554,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView }: { userId?: n
   // v1.4.95: minimalist rows — one line collapsed; Details ▾ opens items,
   // receipt, print form and the decision trail.
   const claimRow = (c: Claim, actions: boolean) => (
-    <div key={c.id} className={cl.row}>
+    <div key={c.id} data-record={`claim:${c.id}`} className={cl.row}>
       <div className={cl.rowHead}>
         <p className={cl.rowLine}>
           {/* v1.4.249 (CEO: "globally and standardize"): the claim number is
@@ -4847,6 +4855,18 @@ export function ClaimsPanel({ userId = 0, role = "", initialView }: { userId?: n
     setView(c.status === "pending" && showApprovals && (canDecide || c.user_id !== userId) ? "approvals" : c.user_id === userId ? "mine" : recordsTab);
     window.scrollTo({ top: 0 });
   };
+  /* v1.205.0 - a search hit, a notification or a Desk item opens the claim
+     on the tab viewClaim picks (the overview's own rule), the filters
+     cleared and the record expanded */
+  const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind !== "claim") return;
+    const c = claims.find((x) => x.id === f.id);
+    setClaimF(""); setClaimQ("");
+    if (!c) { setView(recordsTab); return; }
+    setExpanded(c.id);
+    setView(c.status === "pending" && showApprovals && (canDecide || c.user_id !== userId) ? "approvals" : c.user_id === userId ? "mine" : recordsTab);
+  });
+  useScrollToRecord(focused);
   const searchBox = (
     <div className={cov.search}>
       <input className={inputClassSm} value={claimQ} onChange={(e) => setClaimQ(e.target.value)}

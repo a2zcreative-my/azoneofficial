@@ -21,6 +21,7 @@
    mounted and hides with av.off. */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
 import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm, th, td, thR2, tdR2 } from "@/lib/ui-styles";
@@ -92,7 +93,7 @@ const PER_PAGE = [10, 25, 50] as const;
 
 type AssetView = "overview" | "register" | "assign" | "care" | "reports";
 
-export function AssetsPanel() {
+export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
   type AssetCol = "tag" | "item" | "brand" | "assigned" | "location" | "status" | "value";
   const [assetSort, setAssetSort] = useState<{ col: AssetCol; asc: boolean }>({ col: "tag", asc: true });
   const cycleAsset = (col: AssetCol) => setAssetSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
@@ -288,6 +289,16 @@ export function AssetsPanel() {
   const [page, setPage] = useState(0);
   const [per, setPer] = useState<number>(10);
   const locations = useMemo(() => [...new Set(assets.map((a) => a.location || ""))].sort((a, b) => (a || "~").localeCompare(b || "~")), [assets]);
+  /* v1.205.0 - a search hit opens the asset in the register: the search set
+     to its tag (so its row is the one shown), the filters cleared */
+  const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind !== "asset") return;
+    const a = assets.find((x) => x.id === f.id);
+    setStatusF(""); setCatF(""); setLocF(""); setPage(0);
+    setQ(a ? a.asset_tag : "");
+    setView("register");
+  });
+  useScrollToRecord(focused);
   const needle = q.trim().toLowerCase();
   const filtered = [...assets].filter((a) => !statusF || a.status === statusF)
     .filter((a) => !catF || a.category === catF)
@@ -653,7 +664,7 @@ export function AssetsPanel() {
                 {shown.length === 0 ? (
                   <tr><td colSpan={8} className={av.emptyCell}>{L("No asset matches — clear the search or a filter.", "Tiada aset sepadan — kosongkan carian atau penapis.")}</td></tr>
                 ) : shown.map((a) => (
-                  <tr key={a.id}>
+                  <tr key={a.id} data-record={`asset:${a.id}`}>
                     <td className={av.mono}>{a.asset_tag}</td>
                     <td><span className={av.strong}>{a.name}</span>
                       <span className={av.muted}> · {catLabel(a.category)}</span>

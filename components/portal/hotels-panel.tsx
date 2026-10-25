@@ -82,6 +82,7 @@ import hp from "./hotels-page.module.css";
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 /* v1.100.3 — one country, one geometry: the same module the Operations map
    and the ELFIA Traffic map draw from. Its names are Title Case; the hotel
    list keeps the workbook's upper case, and `stateKey` is the one place the
@@ -395,7 +396,7 @@ function Pager({ total, page, per, onPage, onPer, noun }: {
   );
 }
 
-export function HotelsPanel() {
+export function HotelsPanel({ focus }: { focus?: RecordFocus | null }) {
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
 
@@ -480,6 +481,12 @@ export function HotelsPanel() {
   const statesCovered = Object.values(byState).filter((n) => n > 0).length;
   const stateRows = Object.entries(byState).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const openHotel = open == null ? null : all.find((h) => h.id === open) ?? hotels.find((h) => h.id === open) ?? (outView.data?.hotels ?? []).find((h) => h.id === open) ?? null;
+  /* v1.205.0 - a search hit (a hotel, or one of its people) opens the
+     hotel's own details drawer over the Directory */
+  useRecordFocus(focus, !allView.loading, (f) => {
+    if (f.kind !== "hotel") return;
+    setTab("directory"); setOpen(f.id);
+  });
 
   /* the directory's page, and the outreach chip's rows after its own search */
   const pageRows = hotels.slice(Math.min(page, Math.max(0, Math.ceil(hotels.length / per) - 1)) * per).slice(0, per);

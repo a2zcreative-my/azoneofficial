@@ -19,7 +19,13 @@
    device-local list, filtered against the tabs they may see RIGHT NOW, so a
    revoked tab is not offered back), then every destination; each row wears
    its tab's icon; the results are a real listbox for a screen reader; the
-   footer names the keys. The search contract above is unchanged. */
+   footer names the keys. The search contract above is unchanged.
+
+   v1.205.0 (Global Search brief) - a hit opens its RECORD, not only its tab
+   (onRecord; lib/record-focus.ts), and the first line of any query is "See
+   all results", which opens the Global Search page: the same hits, grouped
+   by module with their statuses. Leave, claims and invoices are hits now
+   (worker/src/search.ts). */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "framer-motion";
@@ -73,13 +79,18 @@ const GROUP_MS: Record<string, string> = {
   Stock: "Stok",
   Assets: "Aset",
   Tasks: "Tugasan",
+  Search: "Carian",
+  Invoices: "Invois",
+  Leave: "Cuti",
+  Claims: "Tuntutan",
 };
 
 /** v1.107.0 - what the worker returns for one query. */
-interface Hit { kind: string; id: number; title: string; sub: string; tab: string }
+export interface Hit { kind: string; id: number; title: string; sub: string; tab: string }
 const KIND_GROUP: Record<string, string> = {
   hotel: "Hotels", contact: "Contacts", staff: "Staff", client: "Clients",
   document: "Documents", stock: "Stock", asset: "Assets", task: "Tasks",
+  invoice: "Invoices", leave: "Leave", claim: "Claims", // v1.205.0
 };
 
 const api = makeApi("/staff");
@@ -104,11 +115,15 @@ function score(q: string, s: string): number {
   return i === query.length ? 30 : 0;
 }
 
-export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], pinned = [] }: {
+export function CommandPalette({ open, onClose, tabs, onTab, onRecord, onSeeAll, extraActions = [], pinned = [] }: {
   open: boolean;
   onClose: () => void;
   tabs: { name: string; label: string }[];
   onTab: (name: string) => void;
+  /** v1.205.0 - open the record a hit names (falls back to its tab) */
+  onRecord?: (hit: Hit) => void;
+  /** v1.205.0 - open the Global Search page on this query */
+  onSeeAll?: (q: string) => void;
   extraActions?: PaletteAction[];
   /** v1.175.0 - the person's pinned modules, in their order, already filtered
       against `tabs` by the shell. They lead the list while nothing is typed;
@@ -188,10 +203,17 @@ export function CommandPalette({ open, onClose, tabs, onTab, extraActions = [], 
      against the label (a phone-number hit has no digits in its title). */
   if (query && hitsFor === query) {
     for (const h of hits) {
-      rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, icon: h.tab, run: () => goTo(h.tab) });
+      rows.push({ group: KIND_GROUP[h.kind] ?? "Results", label: h.title, hint: h.sub, icon: h.tab,
+        run: () => { if (onRecord) { pushRecent(h.tab); onRecord(h); onClose(); } else goTo(h.tab); } });
     }
   }
-  const GROUP_ORDER = ["Pinned", "Recent", "Go to", "Actions", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Orders", "Stock", "Assets", "Tasks"];
+  /* v1.205.0 - the whole answer, on its own page. It sits after the tabs and
+     actions, so Enter still opens the best-matching tab as it always has;
+     with no tab matching, it is the first line Enter reaches. */
+  if (onSeeAll && query.length >= 2) {
+    rows.push({ group: "Search", label: L(`See all results for “${query}”`, `Lihat semua hasil untuk “${query}”`), hint: L("every module, grouped", "semua modul, berkumpulan"), run: () => { onSeeAll(query); onClose(); } });
+  }
+  const GROUP_ORDER = ["Pinned", "Recent", "Go to", "Actions", "Search", "Staff", "Hotels", "Contacts", "Clients", "Documents", "Invoices", "Orders", "Stock", "Assets", "Tasks", "Leave", "Claims"];
   const ranked = (query
     ? rows.sort((a, b) => {
         const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);

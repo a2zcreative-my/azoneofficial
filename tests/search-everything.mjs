@@ -68,6 +68,11 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
     stock: (r) => can(r, "inventory"),
     asset: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     task: () => true,
+    /* v1.205.0 - invoices are documents; leave is everyone's (their own, the
+       rule deciding whose is leaveSeesAll); claims are GET /claims's door */
+    invoice: (r) => can(r, "sales") || can(r, "exec_view"),
+    leave: () => true,
+    claim: (r) => can(r, "claims_submit"),
   };
   for (const role of roles) {
     const got = new Set(sourcesFor(role));
@@ -95,7 +100,8 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
      "an unescaped LIKE makes % in the query match everything");
   ok("phone columns are compared as digits", /const DIGITS = \(col: string\) =>/.test(src) && (src.match(/DIGITS\("/g) ?? []).length >= 3); // v1.183.0: the order source (two uses) retired
   ok("the query's digits are what they are compared to", /`%\$\{digits\}%`/.test(src));
-  ok("each source is capped", /LIMIT \$\{PER_SOURCE\}/.test(src) && /const PER_SOURCE = \d+;/.test(src));
+  /* v1.205.0 - the cap is per request now (the results page asks for more), and never past PER_SOURCE_MAX */
+  ok("each source is capped", /LIMIT \$\{per\}/.test(src) && !/LIMIT \d/.test(src) && /const PER_SOURCE = \d+;/.test(src) && /const per = Math\.min\(PER_SOURCE_MAX, /.test(src) && /const PER_SOURCE_MAX = 25;/.test(src));
   ok("one round-trip", /env\.DB\.batch<Row>\(stmts\.map\(\(s\) => s\.stmt\)\)/.test(src));
   ok("a missing table costs its source, not the search", /catch \{ rows\.push\(\[\]\); \}/.test(src));
   ok("a short query is refused before touching the database", /if \(q\.length < MIN_CHARS\) return json\(\{ hits: \[\], q \}\);/.test(src));

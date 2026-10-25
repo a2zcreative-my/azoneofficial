@@ -38,6 +38,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import Link from "next/link";
+import type { RecordFocus } from "@/lib/record-focus";
 import { installViewportSettle } from "@/lib/viewport-settle";
 
 import { api, sendOutboxEntry } from "@/lib/api";
@@ -92,6 +93,13 @@ export interface PortalContextValue {
   /** v1.203.0 - the view a tab opens on when a quick action sent you there */
   tabStart: { tab: TabName; view: string } | null;
   setTabStart: Dispatch<SetStateAction<{ tab: TabName; view: string } | null>>;
+  /** v1.205.0 - the record a search hit, a notification or a Desk item opened (lib/record-focus.ts) */
+  focus: RecordFocus | null;
+  /** v1.205.0 - open that record in its own module: the tab, and the module opens it */
+  openRecord: (tab: TabName, kind: string, id: number) => void;
+  /** v1.205.0 - the Global Search page's query; null = the page is closed */
+  searchQ: string | null;
+  setSearchQ: Dispatch<SetStateAction<string | null>>;
   dark: boolean;
   setDark: Dispatch<SetStateAction<boolean>>;
   theme: "navy" | "plum";
@@ -162,7 +170,12 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      per device (localStorage azone-tab), restored on load and validated:
      if the saved tab isn't visible to this account (role change, 🔐 tab
      access change), the guard effect below falls back to Dashboard. */
-  const [tab, setTab] = useState<TabName>("Dashboard");
+  const [tab, setTabState] = useState<TabName>("Dashboard");
+  /* v1.205.0 - the Global Search page sits over whatever tab is open; choosing
+     any tab (the sidebar, the phone bar, a link) closes it. The same setter
+     everywhere, so nothing that changes the tab can leave the page standing. */
+  const [searchQ, setSearchQ] = useState<string | null>(null);
+  const setTab = useCallback<Dispatch<SetStateAction<TabName>>>((v) => { setSearchQ(null); setTabState(v); }, []);
   /* v1.175.0 — which Dashboard stop the phone bar last used, so Home and Desk
      (both the Dashboard) can each show as current when they are. */
   const [deskStop, setDeskStop] = useState(false);
@@ -186,9 +199,21 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   /* adjusted while rendering (React's pattern for state that follows a
      changing value), not in an effect: no second render with a stale view */
   const [startSeenTab, setStartSeenTab] = useState(tab);
+  /* v1.205.0 - the record to open, and the same rule: it lasts while its tab
+     is open. A focus on the tab already open (a second hit in Leave while on
+     Leave) is a new `seq`, so the module opens it. */
+  const [focus, setFocus] = useState<RecordFocus | null>(null);
+  const focusSeq = useRef(0);
+  const openRecord = useCallback((t: TabName, kind: string, id: number) => {
+    focusSeq.current += 1;
+    setFocus({ tab: t, kind, id, seq: focusSeq.current });
+    setSearchQ(null);
+    setTabState(t);
+  }, []);
   if (startSeenTab !== tab) {
     setStartSeenTab(tab);
     if (tabStart && tabStart.tab !== tab) setTabStart(null);
+    if (focus && focus.tab !== tab) setFocus(null);
   }
   /* v1.4.232 (CEO: "does it will accidentally appear the full tabs roles by
      accidents?"): his question exposed a shared-device edge in v1.4.231 —
@@ -221,7 +246,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
          applies: a tab this account cannot see snaps to the Dashboard. */
       const wanted = new URL(window.location.href).searchParams.get("tab");
       if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {
-        setTab(wanted as TabName);
+        setTabState(wanted as TabName);
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
         window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
@@ -230,7 +255,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       }
       const saved = window.sessionStorage.getItem(`azone-tab:${user.id}`);
       if (saved && (ALL_TABS as readonly string[]).includes(saved)) {
-        setTab(saved as TabName);
+        setTabState(saved as TabName);
         settle();
         return;
       }
@@ -242,7 +267,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     const timeout = window.setTimeout(() => controller.abort(), 8000);
     void api<{ today_shift?: { entry?: { launch_shift: boolean } } }>("/staff/attendance", { signal: controller.signal })
       .then(r => {
-        if (live && r.ok && r.data?.today_shift?.entry?.launch_shift) setTab(current => current === "Dashboard" ? "On Shift" : current);
+        if (live && r.ok && r.data?.today_shift?.entry?.launch_shift) setTabState(current => current === "Dashboard" ? "On Shift" : current);
       }).catch(() => {}).finally(() => { window.clearTimeout(timeout); settle(); });
     return () => { live = false; controller.abort(); window.clearTimeout(timeout); };
   }, [user]);
@@ -603,7 +628,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides, myTabAccess));
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
-    if (!tabs.includes(tab)) setTab("Dashboard");
+    if (!tabs.includes(tab)) setTabState("Dashboard");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab]);
   /* v1.159.9 (CEO, 14-09-2026: "check the sales all link to all the tabs").
@@ -845,7 +870,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         user, setUser, checked, entryReady, navCollapsed, toggleNavCollapsed,
   tab, setTab, activeTab, tabs, canOpen, deskStop, setDeskStop,
   salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
-  tabStart, setTabStart,
+  tabStart, setTabStart, focus, openRecord, searchQ, setSearchQ,
   dark, setDark, theme, setTheme, lang, setLangState,
   notifs, setNotifs, unread, showNotifs, setShowNotifs,
   moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,

@@ -65,10 +65,13 @@ export default function PortalPage() {
   const {
     user, activeTab, lang, setTab, canOpen,
     salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
-    tabStart, setTabStart,
+    tabStart, setTabStart, focus,
   } = usePortal();
   /* v1.203.0 - where a tab should open when a Dashboard quick action sent you */
   const startOf = (t: TabName) => (tabStart?.tab === t ? tabStart.view : undefined);
+  /* v1.205.0 - the record a search hit, a notification or a Desk item opened;
+     only the tab it belongs to receives it (lib/record-focus.ts) */
+  const focusOf = (t: TabName) => (focus?.tab === t ? focus : null);
 
   return (
     <>
@@ -97,7 +100,7 @@ export default function PortalPage() {
             </>
           )}
           {activeTab === "Claims" && (
-            <ClaimsPanel userId={user.id} role={user.role} initialView={startOf("Claims")} />
+            <ClaimsPanel userId={user.id} role={user.role} initialView={startOf("Claims")} focus={focusOf("Claims")} />
           )}
           {activeTab === "Finance" && (
             /* v1.173.0 (tab concept): two zones. The cash position and the
@@ -123,10 +126,10 @@ export default function PortalPage() {
              v1.183.0 - Commission, Enquiries, Sales Performance, Hankei's and
              Web Orders likewise. */}
           {activeTab === "Accounting" && <AccountingPanel />}
-          {activeTab === "Leave" && <Leave user={user} initialView={startOf("Leave")} />}
+          {activeTab === "Leave" && <Leave user={user} initialView={startOf("Leave")} focus={focusOf("Leave")} />}
           {activeTab === "Tasks" && (
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */
-            <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} initialView={startOf("Tasks")} />
+            <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} initialView={startOf("Tasks")} focus={focusOf("Tasks")} />
           )}
           {activeTab === "Announcements" && <Announcements user={user} />}
           {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter
@@ -138,7 +141,7 @@ export default function PortalPage() {
                (the month's figures, the work, the customers); the map and
                the long view follow as two more. */
             <TabPage>
-              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
+              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
               <TabZone label={L("This month", "Bulan ini")}>
                 <SalesMap />
               </TabZone>
@@ -209,6 +212,7 @@ export default function PortalPage() {
                    account's tab strip already shows that tab */
                 go={setTab}
                 canOpen={canOpen}
+                recordFocus={focusOf("Staff Details")}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and
@@ -221,7 +225,7 @@ export default function PortalPage() {
             /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
                before the table. v1.119.0: the panel draws it, beside the
                ELFIA bridge pulse, as the first row of its STOCK NOW zone. */
-            <InventoryPanel role={user.role} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
+            <InventoryPanel role={user.role} focus={focusOf("Inventory")} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel />
@@ -236,9 +240,9 @@ export default function PortalPage() {
             <EcommercePanel user={user} lang={lang} go={setTab} canOpen={canOpen} />
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
-          {activeTab === "Assets" && <AssetsPanel />}
+          {activeTab === "Assets" && <AssetsPanel focus={focusOf("Assets")} />}
           {activeTab === "Threads" && <ThreadsPanel />}
-          {activeTab === "Hotels" && <HotelsPanel />}
+          {activeTab === "Hotels" && <HotelsPanel focus={focusOf("Hotels")} />}
           {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}

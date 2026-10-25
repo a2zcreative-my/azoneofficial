@@ -27,6 +27,7 @@ import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -1130,7 +1131,7 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   );
 }
 
-export function Sales({ user, workExtra, customersExtra, initialView = "documents", createRequest = 0 }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; initialView?: "documents" | "create"; createRequest?: number }) {
+export function Sales({ user, workExtra, customersExtra, initialView = "documents", createRequest = 0, focus }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null }) {
   /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
   const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts">(initialView);
@@ -1265,6 +1266,21 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
 
   /* v1.77.0 — skeleton until the first fetch lands (customers, then docs). */
   const [loaded, setLoaded] = useState(false);
+  /* v1.205.0 - a search hit opens the document (the list narrowed to its
+     number, its panel open) or the customer (its record open on the
+     clients list), the way pressing either here does */
+  const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind === "document") {
+      const d = docs.find((x) => x.id === f.id);
+      setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocPage(1);
+      setDocQuery(d ? d.doc_number : "");
+      if (d) setOpenDoc(d.id);
+    } else if (f.kind === "client") {
+      setCustTab("clients"); setTagFilter("");
+      if (customers.some((c) => c.id === f.id)) setOpenCust(f.id);
+    }
+  });
+  useScrollToRecord(focused);
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
@@ -2879,6 +2895,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
           {loaded && pageDocs.map((d) => (
             <div
               key={d.id}
+              data-record={`document:${d.id}`}
               className={sc.row}
               role="row"
             >
@@ -3783,6 +3800,7 @@ export function Sales({ user, workExtra, customersExtra, initialView = "document
             {loaded && customers.filter((c) => !tagFilter || crm.tags.some((t) => t.customer_id === c.id && t.tag === tagFilter)).map((c) => (
               <div
                 key={c.id}
+                data-record={`client:${c.id}`}
                 className="border-border border-b py-1.5 text-sm last:border-0"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">

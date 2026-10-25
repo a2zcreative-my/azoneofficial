@@ -25,6 +25,7 @@ import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
 import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -718,7 +719,7 @@ export function waitingOnLabel(l: LeaveReq): string {
   return "CEO";
 }
 
-export function Leave({ user, initialView }: { user: User; initialView?: string }) {
+export function Leave({ user, initialView, focus }: { user: User; initialView?: string; focus?: RecordFocus | null }) {
   const [openLeave, setOpenLeave] = useState<number | null>(null);
   /* v1.196.0 - THE LEAVE PAGE, TABBED (the owner's brief and photo,
      23-10-2026): Overview, Apply Leave, My Leave, Team Calendar, Approvals &
@@ -792,6 +793,18 @@ export function Leave({ user, initialView }: { user: User; initialView?: string 
   const loaded = !balanceView.loading && !mineView.loading && (!canApprove || !allView.loading);
   const refreshBalance = balanceView.refresh, refreshMine = mineView.refresh, refreshAll = allView.refresh;
   const load = useCallback(async () => { refreshBalance(); refreshMine(); if (canApprove) refreshAll(); }, [refreshBalance, refreshMine, refreshAll, canApprove]);
+  /* v1.205.0 - a search hit, a notification or a Desk item opens the request
+     where it already lives: your own under My Leave, anyone else's on the
+     company board under Approvals & Management - the row opened, the month
+     and search filters cleared so it is in the list */
+  const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind !== "leave") return;
+    setLeaveQ(""); setLeaveMonth("");
+    if (mine.some((l) => l.id === f.id)) { setView("mine"); setOpenLeave(f.id); return; }
+    if (canApprove && all.some((l) => l.id === f.id)) { setView("manage"); setMgmt("company"); setOpenAll(f.id); return; }
+    setView(canApprove ? "manage" : "mine");
+  });
+  useScrollToRecord(focused);
 
   /* v1.90.2 — CEO, 04-09-2026: *"One of my staff unable to update their
      leave application, please check any bug?"* Her screenshot: start date
@@ -1283,7 +1296,7 @@ export function Leave({ user, initialView }: { user: User; initialView?: string 
                       l.applicant_role ?? ""
                     ) && l.user_id !== user.id;
                   return (
-                    <div key={l.id} className="border-border border-b py-2 text-sm last:border-0">
+                    <div key={l.id} data-record={`leave:${l.id}`} className="border-border border-b py-2 text-sm last:border-0">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="min-w-0">
                         <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
@@ -1388,7 +1401,7 @@ export function Leave({ user, initialView }: { user: User; initialView?: string 
                 ) : (
                   <div className="border-border divide-border mt-2 divide-y rounded-lg border">
                     {decided.map((l) => (
-                      <div key={l.id} className="px-2.5 py-1.5">
+                      <div key={l.id} data-record={`leave:${l.id}`} className="px-2.5 py-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                           <p className="min-w-0 text-xs">
                             <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
@@ -1515,6 +1528,7 @@ export function Leave({ user, initialView }: { user: User; initialView?: string 
             {loaded && mine.filter(matchQ).map((l) => (
               <div
                 key={l.id}
+                data-record={`leave:${l.id}`}
                 className="border-border border-b py-2 text-sm last:border-0"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">

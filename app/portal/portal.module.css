@@ -197,6 +197,16 @@
   }
 }
 
+/* ---- v1.205.0 the Global Search page over the tab ---- */
+/* the tab stays mounted under the page; `contents` keeps its layout exactly
+   as it was when no search is open */
+.passThrough {
+  display: contents;
+}
+.underSearch {
+  display: none;
+}
+
 /* ---- notifications card ---- */
 .notifList {
   margin-top: 0.25rem;

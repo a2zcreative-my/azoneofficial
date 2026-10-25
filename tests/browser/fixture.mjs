@@ -289,7 +289,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   ] };
   if (p === "/staff/attendance/geofence") data = { configured: true, radius_m: 150, label: "Setia Tropika office", lat: 1.56, lng: 103.72 };
   if (p === "/staff/notifications") data = { notifications: [
-    { id: 1, kind: "leave", message: "NUR NASUHA BINTI ZAINAL ABIDIN applied for annual leave, 24-09 to 26-09", is_read: 0, created_at: D + "16 01:02:00", ref: "leave:12" },
+    { id: 1, kind: "leave", message: "Nur Aisyah binti Rahman applied for annual leave, 22-09 to 23-09", is_read: 0, created_at: D + "16 01:02:00", ref: "leave:1" },
+    { id: 4, kind: "task", message: "⏰ OVERDUE: Check inventory delivery — was due 2026-09-12", is_read: 0, created_at: D + "17 23:00:00", ref: "task:1:od:2026-09-18" },
+    { id: 5, kind: "stock", message: "ELFIA Premium product is low on stock (4 left)", is_read: 1, created_at: D + "15 03:00:00", ref: "stock:1" },
     { id: 2, kind: "claim", message: "Claim #8 (RM 1,240.00) is waiting for your decision", is_read: 0, created_at: D + "13 06:40:00", ref: "claim:8" },
     { id: 3, kind: "news", message: "Raya 2027 live schedule published", is_read: 1, created_at: D + "10 02:00:00", ref: "announcement:3" }] };
   if (p === "/staff/events") data = { staff: staff.map((x) => ({ id: x.id, name: x.name })), events: [
@@ -313,6 +315,33 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/birthdays-lite") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }, { id: 9003, name: "Farid Zul", birthday: "1995-10-04" }] };
   /* v1.200.0 - as the worker answers: everything with ?all=1 (managers), otherwise the caller's own */
   if (p === "/staff/tasks") data = { tasks: q.get("all") === "1" ? tasks : tasks.filter((t) => t.assigned_to === 9001) };
+  /* v1.205.0 - /staff/search over this fixture's own invented records (the
+     worker's shape: kind, id, title, sub, tab, status, date, photo), `per`
+     and `only` honoured. Gates are the worker's job and its guard's
+     (tests/global-search.mjs runs the real handler); every source here. */
+  if (p === "/staff/search") {
+    const needle = (q.get("q") ?? "").trim().toLowerCase();
+    const per = Math.min(25, Number(q.get("per")) || 6);
+    const only = (q.get("only") ?? "").split(",").filter(Boolean);
+    const has = (...xs) => xs.some((x) => String(x ?? "").toLowerCase().includes(needle));
+    const nm = (id) => { const u = staff.find((x) => x.id === id); return u ? (u.full_name || u.name) : ""; };
+    const src = {
+      staff: staff.filter((u) => has(u.name, u.full_name, u.position, u.department)).map((u) => ({ kind: "staff", id: u.id, title: u.full_name || u.name, sub: [u.position, u.department, u.employee_id].filter(Boolean).join(" · "), tab: "Staff Details", status: "active", photo: u.photo_key ?? null })),
+      task: tasks.filter((t) => has(t.title, t.description)).map((t) => ({ kind: "task", id: t.id, title: t.title, sub: t.assignee, tab: "Tasks", status: t.status, date: t.deadline, dateIs: "due" })),
+      leave: leave.filter((l) => has(l.user_name, l.user_full, l.type)).map((l) => ({ kind: "leave", id: l.id, title: l.type, sub: `${l.user_full || l.user_name} · ${l.start_date}${l.end_date !== l.start_date ? ` – ${l.end_date}` : ""}`, tab: "Leave", status: l.status, date: l.created_at, dateIs: "applied" })),
+      claim: claims.filter((c) => has(c.claimant, c.claimant_full, c.description, c.category)).map((c) => ({ kind: "claim", id: c.id, title: c.category, sub: `${c.claimant_full || c.claimant} · ${c.claim_date}`, tab: "Claims", status: c.paid_at ? "paid" : c.status, date: c.created_at, dateIs: "created" })),
+      hotel: hotels.filter((h) => has(h.hotel_name, h.company, h.address)).map((h) => ({ kind: "hotel", id: h.id, title: h.hotel_name, sub: `${h.company ? `${h.company} · ` : ""}${h.state}`, tab: "Hotels", status: h.stage ?? "lead", date: h.updated_at ?? null, dateIs: "updated" })),
+      contact: hotels.flatMap((h) => (h.contacts ?? []).filter((c) => has(c.person_name)).map((c) => ({ kind: "contact", id: h.id, title: c.person_name, sub: `${h.hotel_name}${c.phone ? ` · ${c.phone}` : ""}`, tab: "Hotels", status: h.stage ?? "lead" }))),
+      client: customers.filter((c) => has(c.company, c.contact)).map((c) => ({ kind: "client", id: c.id, title: c.company, sub: [c.contact, c.phone].filter(Boolean).join(" · "), tab: "Sales" })),
+      invoice: docs.filter((d) => d.doc_type === "INV" && has(d.doc_number, d.company)).map((d) => ({ kind: "invoice", id: d.id, title: `${d.doc_type} ${d.doc_number}`, sub: `${d.company} · RM ${(d.total_cents / 100).toFixed(2)}`, tab: "Sales", status: d.payment_status, date: d.created_at, dateIs: "created" })),
+      document: docs.filter((d) => d.doc_type !== "INV" && has(d.doc_number, d.company)).map((d) => ({ kind: "document", id: d.id, title: `${d.doc_type} ${d.doc_number}`, sub: `${d.company} · RM ${(d.total_cents / 100).toFixed(2)}`, tab: "Sales", status: null, date: d.created_at, dateIs: "created" })),
+      asset: assets.filter((a) => has(a.asset_tag, a.name, a.brand_model)).map((a) => ({ kind: "asset", id: a.id, title: `${a.asset_tag} — ${a.name}`, sub: [a.brand_model, a.location].filter(Boolean).join(" · "), tab: "Assets", status: a.status, date: a.updated_at, dateIs: "updated" })),
+      stock: items.filter((i) => has(i.sku, i.name)).map((i) => ({ kind: "stock", id: i.id, title: i.name, sub: `${i.sku} · ${i.stock} in stock`, tab: "Inventory", status: i.status === "low" ? "low" : "in_stock" })),
+    };
+    void nm;
+    const sources = Object.keys(src).filter((k) => only.length === 0 || only.includes(k));
+    data = needle.length < 2 ? { hits: [], q: needle } : { hits: sources.flatMap((k) => src[k].slice(0, per)), q: needle, sources: Object.keys(src) };
+  }
   /* v1.200.0 - a task's scope checklist, with who ticked what */
   if (/^\/staff\/tasks\/\d+\/items$/.test(p)) {
     const id = Number(p.split("/")[3]);

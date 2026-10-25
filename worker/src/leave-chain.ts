@@ -14,10 +14,19 @@
  */
 
 import type { Role } from "./permissions";
+import { can } from "./permissions";
 
 export const HR_STAGE_ROLES: readonly Role[] = ["super_admin", "admin", "hr_admin"];
 export const PREAPP_ROLES: readonly Role[] = ["super_admin", "admin", "coo", "cco"];
 export const FINAL_ROLES: readonly Role[] = ["super_admin", "admin", "ceo"];
+
+/** v1.205.0 - WHO READS THE WHOLE LEAVE LIST (GET /leave?all=1): the HR
+    tier and both approval stages. Lifted from staff.ts, unchanged, so the
+    search box (worker/src/search.ts) finds exactly the requests the Leave
+    tab lists for the same person - everyone else, their own. */
+export function leaveSeesAll(role: string): boolean {
+  return can(role, "hr_manage") || (PREAPP_ROLES as readonly string[]).includes(role) || (FINAL_ROLES as readonly string[]).includes(role);
+}
 
 export function leaveNextStage(stage: string, applicantRole: string): string {
   if (stage === "applied") return "hr_reviewed";

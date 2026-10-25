@@ -36,37 +36,26 @@ import { FAVOURITES_MAX, favouritesFull, toggleFavourite } from "@/lib/favourite
 import { clearApiCache } from "@/lib/cached-api";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { REVENUE_ROLES } from "@/components/portal/dashboard";
-import { PORTAL_WIDTH, btnGhost, btnHdr, btnHdrDesktop, card, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
+import { PORTAL_WIDTH, btnGhost, btnHdr, btnHdrDesktop, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { L } from "@/components/portal/page-shared";
-import { dmy } from "@/lib/format";
 import type { TabName } from "@/lib/portal-tabs";
 import { usePortal } from "@/components/portal/portal-provider";
+import { NotificationsPanel } from "@/components/portal/notifications-panel";
+import { GlobalSearch } from "@/components/portal/global-search";
+import { TAB_OF_KIND } from "@/lib/record-focus";
 import css from "@/app/portal/portal.module.css";
 
-/* v1.176.0 — WHERE AN UPDATE IS READ. The bell is for updates with links, not
-   a second approval queue: it says a thing happened and takes you to the
-   record. The DESK is where what is waiting on you to DECIDE lives, and the
-   two counts answer different questions — unread messages here, pending
-   decisions there. Kinds come from worker/src/staff.ts `notify(...)`. */
-const NOTIF_WHERE: Record<string, { tab: string; anchor?: string }> = {
-  announcement: { tab: "Announcements" },
-  ot: { tab: "Attendance", anchor: "ot-approvals" },
-  attendance: { tab: "Attendance", anchor: "pending-punches" },
-  claim: { tab: "Claims", anchor: "claims-pending" },
-  leave: { tab: "Leave" },
-  task: { tab: "Tasks" },
-  watch: { tab: "Desk" },
-  /* v1.183.0 - "enquiry" and "commission" kinds have no tab any more: an
-     old row of either kind opens nothing (the fallback below). */
-};
+/* v1.205.0 - the bell's list (and NOTIF_WHERE, where a kind is read) moved to
+   notifications-panel.tsx, shared with the Global Search page's rail. The
+   bell itself - its badge, and marking read on CLOSE - stays here. */
 
 export function PortalShell({ children }: { children: ReactNode }) {
   const {
     user, setUser, navCollapsed, toggleNavCollapsed,
-    tab, setTab, activeTab, canOpen, deskStop, setDeskStop,
+    tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ,
     setSalesStart, setSalesCreateRequest,
     dark, setDark, theme, setTheme, lang, setLangState,
-    notifs, unread, showNotifs, setShowNotifs,
+    unread, showNotifs, setShowNotifs,
     moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,
     sound, setSound, pushState, setPushState, chime,
     favourites, navItems, mobileStops, mobileMore, mobileGroups,
@@ -141,6 +130,13 @@ export function PortalShell({ children }: { children: ReactNode }) {
         tabs={navItems}
         canSeeClients={REVENUE_ROLES.includes(user.role)}
         onTab={(t) => setTab(t as TabName)}
+        /* v1.205.0 - a hit opens its record; "See all results" opens the page */
+        onRecord={(h) => {
+          const kind = h.kind === "contact" ? "hotel" : h.kind === "invoice" ? "document" : h.kind;
+          if (TAB_OF_KIND[kind] && canOpen(h.tab)) openRecord(h.tab as TabName, kind, h.id);
+          else setTab(h.tab as TabName);
+        }}
+        onSeeAll={(q) => setSearchQ(q)}
         pinned={favourites}
         extraActions={[
           {
@@ -468,58 +464,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
         </header>
 
         {showNotifs && (
-          <div className={`${card} erp-mt-4`}>
-            <p className="erp-heading">{tr("Notifications", lang)}</p>
-            <p className="erp-meta erp-mt-half">
-              {L(
-                "Last 7 days. Older notifications clear automatically.",
-                "7 hari terakhir. Pemberitahuan lama dipadam secara automatik."
-              )}
-            </p>
-            {notifs.length === 0 && (
-              <p className="erp-text-sm erp-muted erp-mt-2">
-                {L("Nothing yet.", "Tiada apa-apa lagi.")}
-              </p>
-            )}
-            <div className={css.notifList}>
-              {notifs.map((n) => (
-                /* v1.176.0 — AN UPDATE, WITH SOMEWHERE TO GO. Every row is a
-                   link now: NOTIF_WHERE maps the kind to the tab (and the
-                   section inside it) holding the record, so an overtime or
-                   claim update is no longer dead text. Unread rows are marked,
-                   and the panel marks read on CLOSE, not on open, so the state
-                   still means something while you read.
-                   THIS IS NOT AN APPROVAL QUEUE: nothing is actioned here, the
-                   badge counts unread MESSAGES, and what is waiting on you to
-                   DECIDE is the Desk's own count. Two different questions. */
-                <p key={n.id} className={`${css.notifItem} ${n.is_read ? "" : css.notifUnread}`}>
-                  {!n.is_read && <span aria-hidden className="erp-dot erp-dot-brand" />}
-                  {NOTIF_WHERE[n.kind] ? (
-                    <button
-                      type="button"
-                      className={css.notifLink}
-                      onClick={() => {
-                        const where = NOTIF_WHERE[n.kind]!;
-                        setTab(where.tab as TabName);
-                        setShowNotifs(false);
-                        if (unread)
-                          void api("/staff/notifications/read", { method: "POST", body: JSON.stringify({}) });
-                        if (where.anchor) revealAnchor(where.anchor);
-                      }}
-                    >
-                      {n.message}
-                    </button>
-                  ) : (
-                    n.message
-                  )}{" "}
-                  <span className="erp-meta">
-                    · {dmy(n.created_at)}
-                    {!n.is_read && <> · {L("new", "baharu")}</>}
-                  </span>
-                </p>
-              ))}
-            </div>
-          </div>
+          <NotificationsPanel variant="drop" onDone={() => setShowNotifs(false)} />
         )}
 
         {/* v1.8.0: the desktop tab-pill grid is replaced by the icon sidebar
@@ -811,7 +756,12 @@ export function PortalShell({ children }: { children: ReactNode }) {
 
 
         <main key={tab} className={`screen-enter ${css.main}`}>
-          {children}
+          {/* v1.205.0 - the Global Search page opens over the tab; the tab
+              stays mounted beneath it, so a half-typed form survives a search */}
+          {searchQ !== null && <GlobalSearch key={searchQ} />}
+          <div className={searchQ !== null ? css.underSearch : css.passThrough}>
+            {children}
+          </div>
         </main>
       </div>
     </AppShell>

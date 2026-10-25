@@ -24,13 +24,14 @@ import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { taskFigures } from "@/lib/task-figures"; // v1.203.0
 import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { dmy } from "@/lib/format";
+import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 import tk from "./tasks-page.module.css";
 
 type TaskView = "overview" | "mine" | "all" | "create" | "reports";
@@ -42,7 +43,7 @@ const statusL = (v: string) => v === "completed" ? L("Closed", "Selesai") : v ==
 
 /* ================= Tasks ================= */
 
-export function Tasks({ user, progress, initialView }: { user: User; progress?: ReactNode; initialView?: string }) {
+export function Tasks({ user, progress, initialView, focus }: { user: User; progress?: ReactNode; initialView?: string; focus?: RecordFocus | null }) {
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -441,7 +442,7 @@ export function Tasks({ user, progress, initialView }: { user: User; progress?: 
                    the work actually is. */
                 const overdue = isOverdue(t);
                 return [
-                  <tr key={t.id} className={overdue ? tk.rowOverdue : ""}>
+                  <tr key={t.id} data-record={`task:${t.id}`} className={overdue ? tk.rowOverdue : ""}>
                     <td className={tk.taskCell} data-label={L("Task", "Tugasan")}>
                       <span className={`${tk.taskTitle} ${overdue ? tk.danger : ""}`}>{t.title}</span>
                       {/* v1.152.2 (the CEO's kept-lines sweep): the description was
@@ -492,7 +493,7 @@ export function Tasks({ user, progress, initialView }: { user: User; progress?: 
           <section key={st} className={tk.col} aria-label={statusL(st)}>
             <p className={tk.colHead}><span className={`${tk.dot} ${st === "open" ? tk.dotOpen : st === "in_progress" ? tk.dotPending : tk.dotDone}`} />{statusL(st)}<span className={tk.count}>{col.length}</span></p>
             {col.length === 0 ? <p className={tk.colEmpty}>{L("Nothing here.", "Tiada apa-apa di sini.")}</p> : col.map((t) => (
-              <article key={t.id} className={`${tk.cardItem} ${isOverdue(t) ? tk.cardOverdue : ""}`}>
+              <article key={t.id} data-record={`task:${t.id}`} className={`${tk.cardItem} ${isOverdue(t) ? tk.cardOverdue : ""}`}>
                 <p className={`${tk.taskTitle} ${isOverdue(t) ? tk.danger : ""}`}>{t.title}</p>
                 <span className={tk.badges}>
                   <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
@@ -564,6 +565,23 @@ export function Tasks({ user, progress, initialView }: { user: User; progress?: 
     </div>
   );
   const openList = (t: Task) => { setQ(t.title); setStatusF("any"); go(canManage ? "all" : "mine"); };
+  /* v1.205.0 - a search hit, a notification or a Desk item opens the task:
+     the list narrowed to it (openList, as the overview's own rows do), its
+     filters cleared, its row in view and its scope checklist open */
+  const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind !== "task") return;
+    const t = tasks.find((x) => x.id === f.id);
+    if (!t) { setView(canManage ? "all" : "mine"); return; }
+    setPrioF(""); setWhoF(0); setMineMode("list");
+    openList(t);
+    if ((t.item_count ?? 0) > 0) { setOpenTask(t.id); setItems(null); }
+  });
+  useScrollToRecord(focused);
+  const focusedTask = focused?.kind === "task" ? focused.id : null;
+  useEffect(() => {
+    if (focusedTask == null) return;
+    void api<{ items: TaskItem[] }>(`/staff/tasks/${focusedTask}/items`).then((r) => { if (r.ok && r.data) setItems(r.data.items ?? []); });
+  }, [focusedTask]);
 
   return (
     <TabPage>

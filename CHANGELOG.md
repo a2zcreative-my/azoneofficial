@@ -10,6 +10,91 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.205.0] - 2026-10-25 - Global Search and Notifications
+
+The owner, 25-10-2026, with a reference screen: one search and one
+notification experience across A2Z OS, in the existing gold/navy/white/grey
+and sidebar; audit first; reuse the modules' APIs and records; group results
+by module with filters, statuses and links to the original records;
+notifications by Approvals, Tasks, Leave, Claims and System; a notification
+opens its original record; every role-based permission respected (HR,
+payroll and financial data above all); no duplicate notifications, approval
+workflows, tasks or databases; nothing from the mockup the architecture does
+not support unless approved; no deploy without approval. The owner chose, on
+the audit: extend /staff/search (same tables and gates), open the record
+itself, Approvals = the Desk's queue read-only, a results page beside the
+palette.
+
+### Added
+
+- **Global Search page** (`components/portal/global-search.tsx` and
+  `.module.css`): "See all results" in the Ctrl K palette opens it over the
+  current tab (the tab stays mounted beneath; choosing any tab or "Back"
+  closes it). A search box with a module filter, module chips with counts,
+  an order (as each module lists them / newest / name), and the hits grouped
+  by module - Staff, Tasks, Leave, Claims, Hotels, Hotel contacts,
+  Customers, Invoices, Quotations & DOs, Assets, Inventory - each with the
+  status its record carries (in its module's own words), its date, and a
+  link. "View all" asks the same search for that one module (up to 25). On
+  1280px and wider the notifications sit beside it. Nothing is stored or
+  written; an empty search names the modules that were searched.
+- **Every search hit and notification opens its record**
+  (`lib/record-focus.ts`): the portal passes the record's kind and id to the
+  tab that owns it, and the module opens it as pressing it there would - the
+  staff profile, the hotel's drawer, the task (list narrowed, checklist
+  open), the leave request (My Leave or the company board), the claim
+  (expanded on the tab its overview picks), the stock item's record, the
+  asset's register row, the sales document's panel, the customer's record.
+  The focus is dropped when another tab is chosen.
+- **The bell, sorted** (`components/portal/notifications-panel.tsx`, shared by
+  the top-bar panel and the search page): chips All / Approvals / Tasks /
+  Leave / Claims / System with counts, an icon and "time ago" per line, and
+  "Mark all as read" (the existing POST, now also clearing the dots on
+  screen). **Approvals** is the Desk's own "waiting on you to decide" list
+  (the request the Desk and the Dashboard already share), read-only: each
+  line opens its record, the decision is made there. **System** holds every
+  other kind (announcements, attendance, overtime, stock, lives, events,
+  watchers).
+
+### Changed
+
+- **`/staff/search`** (`worker/src/search.ts`) - the same tables, the same
+  gates, no schema change: each hit now carries its record's own status,
+  date and (staff) photo key; invoices are their own kind; two more sources,
+  each read by the rule its own list uses: **leave** (`leaveSeesAll`, the
+  GET /leave?all=1 rule - the HR tier and the approvers all, everyone else
+  their own; the reason is never searched or returned) and **claims**
+  (`claimScope`, the GET /claims scope; no amount returned). `per` (up to
+  25) and `only` (narrows, never widens) for the page. Tasks are now behind
+  `only` too.
+- The leave all-list rule moved, unchanged, into `worker/src/leave-chain.ts`
+  (`leaveSeesAll`) and the claims scope into the new
+  `worker/src/claims-scope.ts` (`claimScope`); the Leave and Claims routes
+  call them, so the list and the search cannot disagree.
+- The palette: a hit opens its record; "See all results" sits after the
+  tabs and actions, so Enter still opens the best-matching tab first.
+- `portal-provider.tsx`: `focus`/`openRecord` and `searchQ`; the tab setter
+  closes the search page (internal restores use the raw setter).
+
+### Not built from the mockup
+
+- Its sample people, IDs, tasks, hotels, counts, dates and notifications; a
+  "relevance" order (there is no score - each module's own order is kept);
+  Enquiries (retired in 1.183.0); "System update", "Payroll release
+  scheduled" and "Hotel contacted" notifications (no such notifications
+  exist); a grid view; a separate "view all notifications" page.
+
+### Guards
+
+- New `tests/global-search.mjs` (registered): runs the real search handler
+  against the migrated schema with seeded rows for a live host, HR, the COO,
+  a sales executive and the CEO (sources, own-only leave/claims/tasks, no
+  leave reason, no claim amount, `only`/`per`); one copy of each read rule;
+  the page and the bell only read; every record kind's tab receives the
+  focus and its module applies it; the hotel stages are hotels-panel's.
+- `tests/search-everything.mjs` (the cap and the three new sources),
+  `tests/one-desk.mjs` (the bell's list now in notifications-panel.tsx).
+
 ## [1.204.0] - 2026-10-25 - Staff: six tabs and one sectioned profile
 
 The owner, 25-10-2026, with a reference screen: improve the Staff module in

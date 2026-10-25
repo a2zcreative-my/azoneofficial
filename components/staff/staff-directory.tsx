@@ -87,6 +87,7 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import sp from "./staff-page.module.css";
 /* v1.204.0 - the profile's links into the modules that own their records */
 import type { TabName } from "@/lib/portal-tabs";
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import { leaveTypeL } from "@/components/portal/page-shared";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -679,7 +680,9 @@ const DEPT_COLORS = [
   "color-mix(in oklab, var(--gold-solid) 45%, var(--primary))", "var(--danger)",
 ];
 
-export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen }: {
+export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen, recordFocus }: {
+  /** v1.205.0 - a search hit or a link opened this person (lib/record-focus.ts) */
+  recordFocus?: RecordFocus | null;
   /** v1.204.0 - open another tab (the profile's links to Leave, Attendance, Payroll, Users) */
   go?: (t: TabName) => void;
   /** v1.204.0 - whether this account's tab strip shows a tab; a link is drawn only where it leads */
@@ -977,6 +980,13 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     setQuery(""); setDeptF(dept); setStateF(state); setTab("directory");
   };
   const peekU = peek == null ? null : staff.find((u) => u.id === peek) ?? null;
+  /* v1.205.0 - a search hit opens the person's profile on the Directory,
+     with the filters cleared so their row is in the list beside it */
+  useRecordFocus(recordFocus, loaded, (f) => {
+    if (f.kind !== "staff") return;
+    setQuery(""); setDeptF(""); setStateF(""); setSelectMode(false);
+    setTab("directory"); setPeek(f.id); setPeekTab("profile");
+  });
   const managerOf = (u: Staff) => (u.reports_to ? staff.find((x) => x.id === u.reports_to) ?? null : null);
   const reportsOf = (u: Staff) => staff.filter((x) => x.reports_to === u.id && !isGone(x));
   const managers = staff.filter((m) => !isGone(m) && reportsOf(m).length > 0);

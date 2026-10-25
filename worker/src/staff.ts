@@ -15,11 +15,12 @@ import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; //
 import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
-import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel } from "./leave-chain"; // v1.106.0
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
+import { claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search
 import { handleSalesMap } from "./sales-map"; // v1.113.0
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
 import { BREAK_AFTER_MINUTES, hourlyPaidForSessions } from "./hourly"; // v1.109.0 - paid by the clock, less the break; v1.133.0 - per session
@@ -5293,8 +5294,7 @@ export async function handleStaff(
        full list — HR tier (hr_manage) AND the COO/CCO pre-approvers, who
        previously fell through to "own requests only" and saw an empty
        board even with applications pending. */
-    const all = url.searchParams.get("all") === "1" &&
-      (can(user.role, "hr_manage") || PREAPP_ROLES.includes(user.role) || FINAL_ROLES.includes(user.role));
+    const all = url.searchParams.get("all") === "1" && leaveSeesAll(user.role); // v1.205.0 - the same rule, now in leave-chain.ts
     // v1.4.134: identities + per-day sequence for the printable Leave
     // Application Form (mirrors the claim form's data needs).
     const LSEL = `SELECT l.*,
@@ -5961,23 +5961,9 @@ export async function handleStaff(
            LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users d ON d.id = c.decided_by
            LEFT JOIN users hb ON hb.id = c.hr_reviewed_by LEFT JOIN users pb ON pb.id = c.pre_approved_by${withPayee ? PAYEE_JOIN : ""}`;
     const SEL = mkSel(true);
-    const STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
-    /* v1.4.174 (CEO: "if the payee is COO or CCO how? or on behalf of the
-       staff how? they need to view what the claim status is"): the PAYEE
-       always sees the claim raised in their name — every non-decider scope
-       gains OR c.payee_user_id = me, so the person being paid can track the
-       status (pending → approved → PAID) even though someone else submitted
-       it. mkScope(false) keeps a pre-0051 fallback without the column. */
-    const mkScope = (withPayee: boolean) => {
-      const P = withPayee ? " OR c.payee_user_id = ?1" : "";
-      return all ? ""
-        // v1.4.121: HR keeps the full APPROVED history too (read-only, for
-        // printing claim forms + payout proofs for compilation).
-        : user.role === "hr_admin" ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN} OR c.status = 'approved'${P})`
-        : ["coo", "admin"].includes(user.role) ? ` WHERE (c.user_id = ?1 OR u.role IN ${STAFF_CHAIN}${P})`
-          : user.role === "cco" ? ` WHERE (c.user_id = ?1 OR u.role = 'hr_admin'${P})`
-            : ` WHERE (c.user_id = ?1${P})`;
-    };
+    /* v1.205.0 - the scope moved, unchanged, to worker/src/claims-scope.ts
+       so the search box finds exactly the claims this list shows. */
+    const mkScope = (withPayee: boolean) => claimScope(user.role, all, withPayee);
     let results: unknown[];
     try {
       results = (await env.DB.prepare(
