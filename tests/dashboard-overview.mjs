@@ -87,7 +87,7 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
   const workerRevenue = list(perms, /revenue_view: \[([^\]]*)\]/);
   ok("revenue is read by the worker's revenue_view roles only", JSON.stringify(revenue) === JSON.stringify(workerRevenue), `${revenue} vs ${workerRevenue}`);
   ok("…and the request is not made for anyone else", /useCachedApi<RevenueData>\(canRevenue \? "\/staff\/revenue" : null, canRevenue\)/.test(code));
-  ok("the team monitor is the Dashboard's own request, for the managing roles", /if \(shiftOnly \|\| !MANAGE_ROLES\.includes\(user\.role\)\) return;[\s\S]{0,200}?"\/staff\/attendance\/monitor"/.test(dash)
+  ok("the team monitor is the Dashboard's own request, for the managing roles", /if \(!MANAGE_ROLES\.includes\(user\.role\)\) return;[\s\S]{0,200}?"\/staff\/attendance\/monitor"/.test(dash)
      && /monitor=\{MANAGE_ROLES\.includes\(user\.role\) \? monitor : null\}/.test(dash));
   ok("a summary figure is drawn only when the worker sent it", /typeof sum\.open_quotations === "number"/.test(code) && /if \(typeof v === "number" && can\(tab\)\)/.test(code));
 }
@@ -102,7 +102,7 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
 
 /* ---- 6. nothing of My Day is lost ---- */
 {
-  ok("the zones are still drawn, in DASHBOARD_ZONES order", /\{shiftOnly \? zoneDay : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash));
+  ok("the zones are still drawn, in DASHBOARD_ZONES order", /\{shiftOnly \? zoneShift : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash));
   ok("the clock-first job opens on My Day, the others on the overview", /const view: "overview" \| "day" = dashView \?\? \(lead === "shift" \? "day" : "overview"\);/.test(dash));
   ok("the zones only leave the screen under the overview (still mounted)", /\.page\[data-view="overview"\] > \[data-zone\] \{\s*display: none;/.test(read("components/portal/dashboard.module.css")));
   ok("On Shift is untouched: no overview, no tabs", /data-view=\{shiftOnly \? undefined : view\}/.test(dash) && /\{shiftOnly \? \(/.test(dash));

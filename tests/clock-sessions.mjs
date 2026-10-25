@@ -282,8 +282,15 @@ ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn
      second punch path: one punch(), one punchOt(). */
   ok("the Dashboard and On Shift share ONE clock card and ONE punch path",
      !/go\("On Shift"\)/.test(dashCode)
+     /* v1.208.0 - On Shift draws ONE button (Clock In or Clock Out by the
+        state) and the forgotten-punch link; the Dashboard keeps its two.
+        Every one calls the same punch() - still no second punch path. */
      && (dashCode.match(/void punch\("clock_in"\)/g) ?? []).length === 1
      && (dashCode.match(/void punch\("clock_out", forgotArmed\)/g) ?? []).length === 1
+     && (dashCode.match(/void press\(\(\) => punch\("clock_in"\)\)/g) ?? []).length === 1
+     && (dashCode.match(/void press\(\(\) => punch\("clock_out"\)\)/g) ?? []).length === 1
+     && (dashCode.match(/void press\(\(\) => punch\("clock_out", forgotArmed\)\)/g) ?? []).length === 1
+     && (dashCode.match(/const punch = async/g) ?? []).length === 1
      && /const punch = async \(type: string, forgot = false\)/.test(dashCode)
      && !/go\("Dashboard"\)/.test(dashCode),
      "the same card, the same rules, wherever the person clocks");
@@ -291,7 +298,8 @@ ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn
      the page that OWNS the punch, not on both. The Dashboard keeps a summary
      line (the hours, and how many are left) and a link into On Shift. */
   ok("the shift RULE is stated once, where the clock lives",
-     /\{shiftOnly && fence\?\.configured && \(/.test(dashCode)
+     /const fenceStrip = shiftOnly && fence\?\.configured && \(/.test(dashCode)
+     && /\{fenceStrip && \(/.test(dashCode)
      && /One clock in and out per shift/.test(dashCode)
      && (dashCode.match(/One clock in and out per shift/g) ?? []).length === 1,
      "both cards printed a paragraph about the shift, and the Dashboard's was the longer one");
@@ -469,8 +477,12 @@ ok("the card names today's shifts - pattern, roster and live board - and says th
    /Today's shifts: \$\{todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Syif hari ini/.test(dash) && /sent to the CEO as overtime/.test(dash));
 ok("a clock-out that produced overtime says so, in hours",
    /overtime sent for approval/.test(dash) && /OT dihantar untuk kelulusan/.test(dash));
+/* v1.208.0 - the pairing moved into lib/clock-sessions.ts (the server's
+   rule, one copy for every screen; tests/on-shift-module.mjs runs it against
+   clock-day.ts). The Dashboard and Attendance both read it. */
 ok("month hours are the sum of shifts, paired in order",
-   /if \(x\.type === "clock_in"\) \{ if \(openAt === null\) openAt = x\.t; \}/.test(dash),
+   /const monthDaysPaired = daysOf\(monthRecs\);/.test(dash)
+   && /const paired = new Map\(daysOf\(records\)\.map/.test(read("components/portal/attendance.tsx")),
    "first-in-to-last-out would count the hours at home between shifts");
 ok("the monitor reads 'in now' off the latest punch too",
    /last_type/.test(read("components/portal/attendance.tsx")) && /AS last_type/.test(staff));

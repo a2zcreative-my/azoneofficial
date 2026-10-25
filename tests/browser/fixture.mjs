@@ -211,11 +211,18 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
      box, half a day of unpaid leave, a mid-month joiner (incomplete month)
      with a public holiday worked and a salary advance, a part-time live host
      paid by the hour, and a no-clock-in list with a pending leave day. */
+  /* v1.207.0 - an earlier month, saved and released, for the history (invented) */
+  if (p === "/staff/payroll" && (q.get("month") ?? "") === "2026-08") {
+    data = { entries: [
+      { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, ot_hours: null, note: null, net_cents: 400000 },
+      { user_id: 9002, basic_cents: 210000, commission_cents: 0, allowance_cents: 15000, deduction_cents: 0, ot_hours: null, note: null, net_cents: 221500 },
+    ], release: { available_from: "2026-09-05 10:00:00", released: { released_at: "2026-09-05 02:00:00", issuer_code: "a2z" }, employer: "A2Z Creative Marketing" } };
+  }
   if (p === "/staff/payroll" && (q.get("month") ?? "") === "2026-09") {
     data = { entries: [
-      { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, worked_days: 20, month_working_days: 22, ot_hours: null, note: null },
+      { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, worked_days: 20, month_working_days: 22, ot_hours: null, note: null, net_cents: 400000 },
       { user_id: 9002, basic_cents: 210000, commission_cents: 0, allowance_cents: 15000, deduction_cents: 0, worked_days: 19, month_working_days: 22, ot_hours: 2, note: null },
-      { user_id: 9003, basic_cents: 0, commission_cents: 0, allowance_cents: 5000, deduction_cents: 0, ot_hours: null, hourly_minutes: 3600, hourly_rate_cents: 1500, hourly_minutes_live: 3600, hourly_rate_live: 1500, hourly_pay_live: 90000, hourly_clocked_live: 3900, hourly_break_live: 300, hourly_days_live: 5 },
+      { user_id: 9003, basic_cents: 0, commission_cents: 0, allowance_cents: 5000, deduction_cents: 0, ot_hours: null, hourly_minutes: 3600, hourly_rate_cents: 1500, hourly_minutes_live: 3600, hourly_rate_live: 1500, net_cents: 95000, hourly_pay_live: 90000, hourly_clocked_live: 3900, hourly_break_live: 300, hourly_days_live: 5 },
     ], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing" } };
   }
   if (p === "/staff/payroll/attendance-days" && (q.get("month") ?? "") === "2026-09") {

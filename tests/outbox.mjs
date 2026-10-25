@@ -257,7 +257,9 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("late / half-day is judged from the pressed time", /const myt = new Date\(punchAt\.getTime\(\) \+ 8 \* 3600 \* 1000\);/.test(punch));
   ok("the punch handler no longer reads the clock for the day", !/const todayMYT = new Date\(Date\.now\(\)/.test(punch));
   ok("a late punch is PENDING - the CEO's decision", /const pending = body\.forgot === true \|\| sentLateFrom \? 1 : null;/.test(punch));
-  ok("it records BOTH times", /created_at, offline_sent_at\)\s*VALUES \(\?1, \?2, \?3, \?4, \?5, 1, \?6, datetime\('now'\)\)/.test(punch));
+  /* v1.208.0 - the insert is conditional (one punch at a time), so it is an
+     INSERT ... SELECT; the two times are the same two columns */
+  ok("it records BOTH times", /created_at, offline_sent_at\)\s*SELECT \?1, \?2, \?3, \?4, \?5, 1, \?6, datetime\('now'\) \$\{unchanged\}/.test(punch));
   ok("the CEO is told it was sent late, with both times", /sent late from offline to approve[\s\S]{0,120}?pressed \$\{hhmm\(sentLateFrom\)\}, reached us/.test(punch));
   ok("it is audited as its own kind", /"attendance\.offline_punch"/.test(punch) && /late_by_s/.test(punch));
   ok("the dispatcher wraps every staff request", /replayOrRun\(env, request, user\.id, sub, \(\) => handleStaff\(request, env, sub, user as StaffUser\)\)/.test(index));

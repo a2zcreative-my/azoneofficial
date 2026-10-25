@@ -10,6 +10,142 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.208.0] - 2026-10-25 - On Shift: one clock, one record, desktop and phone
+
+The owner, 25-10-2026 (On Shift and Clock In/Out brief, with desktop and
+phone references): "ONE WORK SESSION. ONE AUTHORITATIVE RECORD. TWO
+CONSISTENT INTERFACES. ZERO DUPLICATION." Inspect first; reuse the punch, the
+geofence and the schedule; never show a punch as done before the server
+confirms it. The audit found On Shift already shared one punch route, one
+record and one component tree with the Dashboard (`shiftOnly`), and an
+offline outbox the owner approved on 05-09-2026 (idempotency key, pressed
+time kept, pending until the CEO approves). The owner chose: build the
+screen as proposed; keep the outbox and show a held punch as not confirmed;
+one pairing rule for hours on every screen; and the server fix for two
+phones pressing at the same instant.
+
+### Added
+
+- **On Shift, redesigned** (`components/portal/on-shift.tsx`,
+  `on-shift.module.css`, the `zoneShift` branch of `dashboard.tsx`):
+  - My Shift: the status chip, a large timer counted from the server's
+    recorded clock-in (`today_shift.entry.open_since`; display only, and it
+    does not run before a clock-in), ONE big button (Clock In or Clock Out
+    by state, 56 px) through the same `punch()`, the forgotten-punch link,
+    tiles (clocked in, last out, today's hours, shifts), today's punches
+    listed shift by shift, the OT buttons and reminder (the Dashboard's own
+    elements), Apply leave and My attendance.
+  - Today's schedule (the server's slots, ticked when clocked) with the
+    shift rule; the office location card (the existing check, now visible
+    on desktop too).
+  - This week: the person's own rows from `/staff/roster` (live sessions and
+    task blocks); the pattern applies on the other days.
+  - Recent days: the last seven days from the month already loaded, with the
+    server's own verdict for each day; Full history opens Attendance.
+  - Team On Shift (managing roles only, the same `/attendance/monitor` the
+    Dashboard reads): search and a status filter; status and times only,
+    never a position.
+  - Phone: one column in the order it is used (clock, today, past days,
+    week, team); no sideways scroll; every control at least 44 px.
+- **A punch held on the phone is shown as "not confirmed"** (from the
+  device outbox) and holds the button until the server has it; the day is
+  read again when it lands.
+- **A slow answer is said, never resent**: after 10 s "Still waiting for the
+  server. Do not press again".
+- **Double taps cannot land on the opposite action**: `punch()` now awaits
+  the re-read of the day, and On Shift's button stays held 1.5 s after a
+  punch while it turns from Clock In into Clock Out.
+- Guard `tests/on-shift-module.mjs` (47 checks).
+
+### Changed
+
+- **One pairing rule for hours** (`lib/clock-sessions.ts`, the server's
+  `pairSessions` copied import-free; the guard runs both on the same
+  punches). Attendance's My records measured first clock-in to last
+  clock-out, which counted the hours at home between two shifts (11:00-17:00
+  + 20:00-22:00 read 11h; it now reads 8h 00m · 2 shifts). The Dashboard's
+  month used its own copy with a 16-hour cap; it now reads the same function.
+  Display only; payroll reads the server and is unchanged.
+- **One punch at a time** (`worker/src/staff.ts`, POST /staff/attendance):
+  the day's punch count is read first and every save is one
+  `INSERT ... SELECT ... WHERE (count) = seen`, so two phones pressing at
+  the same instant cannot both store a clock-in; the loser gets 409 "already
+  punched" and stores nothing. No schema change. **Worker deploy needed.**
+- Guards updated to the new shape (same rules): clock-sessions, outbox,
+  dashboard-overview, one-desk.
+
+### Not changed
+
+- The punch rules, geofence, overnight, multi-shift, forgotten-punch and OT
+  rules; the offline outbox (approved 05-09-2026); permissions; the schema.
+  No break, face or tracking feature. Real PWA installation could not be
+  tested from the sandbox (tested at 390 px, light and dark, offline, slow
+  and refreshed). Reported, not changed: "Check my location" returns an
+  exact distance, so the office position could be worked out from a few
+  fake readings.
+
+## [1.207.0] - 2026-10-25 - Payroll: history, a clearer salary drawer, the export check
+
+The owner, 25-10-2026 ("A2Z OS - Payroll Management UI Improvement", with a
+reference screen): the five tabs, a clean salary-detail view, "ONE PAYROLL
+CALCULATION ENGINE. ONE AUTHORITATIVE PAYROLL RECORD. MULTIPLE CONNECTED
+VIEWS."; no statutory lines because the mockup shows them; inspect first and
+report duplication with references. The five tabs already existed
+(1.198.0). The owner approved the screen-only plan, chose a guard (not a
+rewrite) for the engine, and a warning (not a block) for the old fallback
+formulas.
+
+### Added
+
+- **Payroll History** (Reports & Export; `components/portal/payroll-history
+  .tsx`): the last twelve months from the record that exists - GET
+  /staff/payroll?month=, month by month: staff saved, the SAVED net, released
+  or not, and saved rows with no saved net. View opens that month. Read when
+  the Reports tab or a salary drawer is first opened; never cached on the
+  device.
+- **The export check**: beside the M2E file and the CSV, and in the
+  download question, the saved rows with no saved net (which the files would
+  price with their older fallback formula) and the rows not saved (not in
+  the files), by name.
+- **Overview charts**: Payroll Cost Breakdown (the TOTAL row's earnings by
+  kind, deductions shown apart) and Department Payroll Cost (the By
+  Department figures as bars).
+- **Processing**: find staff by name, ID or position, and a department
+  filter; the TOTAL row stays the whole month.
+
+### Changed
+
+- **The salary drawer**: the employee (position, department, ID, row
+  state), a summary (net, basic, other earnings, deductions), Earnings with a
+  total, Deductions with a total and the statutory line "Not calculated —
+  registration pending", Net pay, the attendance basis, and the person's
+  recent saved months. Every figure is the one the drawer already used
+  (figs()).
+- The month totals now sum netFor() instead of repeating its formula inline
+  (identical arithmetic; the payroll figures test matches before and after).
+
+### Audit findings (reported; unchanged unless approved)
+
+1. The net is composed in the browser (netFor, what Save stores; the server
+   re-applies only the salary advance) and again in Recompute nets on the
+   server; they agree - now held by a guard. Part-timers: the save route and
+   Recompute, both server-side, agree.
+2. Overtime is priced only in the browser (otPay); the server stores it.
+3. Rows with no saved net fall back to older formulas in Finance expenses
+   (staff.ts /expenses), the M2E file and the payment CSV - warned on screen
+   now, not changed.
+4. No EPF / SOCSO / EIS / PCB calculation exists anywhere (registration
+   numbers only).
+5. A cross-month leave is deducted in the month it starts (Leave audit).
+
+### Guards
+
+- New `tests/payroll-module.mjs` (registered): the browser's and the
+  server's net formulas add the same terms (salaried and part-time), the
+  totals are netFor summed, OT is priced once, the files read the saved net
+  first and the screen warns, the history and the drawer only read, no
+  statutory amount is computed, payroll reads stay with PAYROLL_PROC.
+
 ## [1.206.0] - 2026-10-25 - Leave: the second reference, one details drawer
 
 The owner, 25-10-2026 ("A2Z OS - Leave Management UI Improvement", with a

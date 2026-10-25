@@ -905,3 +905,18 @@
 .overview {
   min-width: 0;
 }
+
+/* v1.208.0 - On Shift's location card (dashboard.tsx, zoneShift). The strip
+   was drawn inside the dark hero, where the desktop showed only the guidance
+   line, in white. In its own white card both the "Check my location" control
+   and the guidance show on every width, in the card's ink. */
+.fenceCard .fenceNote {
+  display: block;
+  margin-top: 0;
+}
+.fenceCard .fenceLine {
+  display: block;
+  margin-top: 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}

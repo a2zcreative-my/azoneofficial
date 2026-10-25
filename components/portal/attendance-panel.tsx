@@ -105,7 +105,7 @@ export function AttendancePanel({ user, go }: { user: User; go: (t: TabName) => 
       )}
 
       <div hidden={view !== "mine"} className={css.body}>
-        <TabZone label={L("This month", "Bulan ini")} hint={monthLabel ? L(`Your ${monthLabel} - first clock-in to last clock-out, Malaysia time.`, `${monthLabel} anda - daftar masuk pertama hingga daftar keluar terakhir, waktu Malaysia.`) : undefined}>
+        <TabZone label={L("This month", "Bulan ini")} hint={monthLabel ? L(`Your ${monthLabel} - each shift from its clock-in to its clock-out, Malaysia time.`, `${monthLabel} anda - setiap syif dari daftar masuk hingga daftar keluarnya, waktu Malaysia.`) : undefined}>
           <SummaryStrip cols={4} ariaLabel={L("My month", "Bulan saya")}>
             <SummaryStat icon="date" tone="brand" label={L("Days worked", "Hari bekerja")} value={mine?.days ?? 0} busy={mineBusy} />
             <SummaryStat icon="time" tone="success" label={L("Hours", "Jam")} value={mine ? hm(mine.totalMs) : "—"} busy={mineBusy} />

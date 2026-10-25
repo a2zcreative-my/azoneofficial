@@ -599,3 +599,218 @@
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
+
+/* ===== v1.207.0 - the Payroll reference, second pass: cost charts, the
+   table's finder, the history, the salary drawer's groups ===== */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.donutRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+}
+.legend {
+  display: grid;
+  flex: 1 1 16rem;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.legend li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.4375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-body-sm-size);
+}
+.legend li:last-child {
+  border-bottom: 0;
+}
+.legend strong {
+  min-width: 3rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.legendDot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+  background: var(--border);
+}
+.legendAmt {
+  min-width: 6.5rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.legendMinus .legendAmt {
+  color: var(--danger);
+}
+.bars {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--type-body-sm-size);
+}
+.barName {
+  display: grid;
+  font-weight: 600;
+}
+.barName span {
+  font-size: var(--type-caption-size);
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.barTrack {
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.barAmt {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.filters select {
+  flex: 0 1 12rem;
+}
+.searchField {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 28rem;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.searchField:focus-within {
+  border-color: var(--gold-solid);
+}
+.searchField svg {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted-foreground);
+}
+.searchField input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+}
+.histOn td {
+  background: color-mix(in srgb, var(--gold-solid) 8%, transparent);
+}
+.histWarn {
+  color: var(--warning);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+}
+.dHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.dWho {
+  display: grid;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.dWho strong {
+  font-size: var(--type-body-size);
+}
+.dWho span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.dSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.dSummary > div {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.dSummary span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.dSummary strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dSummary > .dNet {
+  grid-column: 1 / -1;
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  background: var(--success-soft);
+}
+.dNet strong {
+  font-size: 1.5rem;
+  color: var(--foreground);
+}
+.statement > .subtotal {
+  background: color-mix(in srgb, var(--gold-solid) 9%, transparent);
+  padding-inline: 0.5rem;
+  border-radius: 6px;
+}
+.subtotal dt {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.statement > .muted dt,
+.statement > .muted dd {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  font-style: italic;
+  white-space: normal;
+  text-align: right;
+}
+.statement > .muted dt {
+  text-align: left;
+}

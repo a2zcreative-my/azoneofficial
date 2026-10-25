@@ -13,6 +13,7 @@ import { btnGhost, card, inputClass, selectClass, chipNeutral, chipSuccess, chip
 import { useEffect, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./attendance.module.css";
+import { daysOf, hoursLabel } from "@/lib/clock-sessions";
 
 /* ================= Attendance ================= */
 
@@ -47,17 +48,19 @@ function mineSummary(records: { type: string; created_at: string }[], today: str
     byDay.set(d, g);
   }
   const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  /* v1.208.0 - hours are the day's SHIFTS, paired in, out, in, out (the
+     server's rule, lib/clock-sessions.ts), not first clock-in to last
+     clock-out, which counted the hours at home between two shifts. */
+  const paired = new Map(daysOf(records).map((x) => [x.date, x]));
   let totalMs = 0;
   let missingOut = 0;
-  for (const [d, g] of days) {
-    const fi = g.ins.sort()[0];
-    const lo = g.outs.sort().at(-1);
-    if (fi && !lo && d < today) missingOut += 1;
-    if (!fi || !lo) continue;
-    const ms = new Date(lo.replace(" ", "T") + "Z").getTime() - new Date(fi.replace(" ", "T") + "Z").getTime();
-    if (ms > 0) totalMs += ms;
+  for (const [d] of days) {
+    const p = paired.get(d);
+    if (!p) continue;
+    if (p.open && d < today) missingOut += 1;
+    totalMs += p.minutes * 60000;
   }
-  return { days, totalMs, missingOut };
+  return { days, totalMs, missingOut, paired };
 }
 
 export function Attendance({ user, view = "all", onMonitor, onMine }: {
@@ -344,16 +347,11 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
           !reportMode &&
           records.length > 0 &&
           (() => {
-            const { days, totalMs } = mineSummary(records, "");
-            const hoursOf = (firstIn?: string, lastOut?: string) => {
-              if (!firstIn || !lastOut) return null;
-              const ms =
-                new Date(lastOut.replace(" ", "T") + "Z").getTime() -
-                new Date(firstIn.replace(" ", "T") + "Z").getTime();
-              if (ms <= 0) return null;
-              const h = Math.floor(ms / 3600000);
-              const m = Math.round((ms % 3600000) / 60000);
-              return `${h}h ${String(m).padStart(2, "0")}m`;
+            const { days, totalMs, paired } = mineSummary(records, "");
+            const hoursOf = (d: string) => {
+              const p = paired.get(d);
+              if (!p || p.minutes <= 0) return null;
+              return `${hoursLabel(p.minutes)}${p.sessions.length > 1 ? L(` · ${p.sessions.length} shifts`, ` · ${p.sessions.length} syif`) : ""}`;
             };
             return (
               <div className={css.tableWrap}>
@@ -377,8 +375,10 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
                   <tbody>
                     {days.map(([d, g]) => {
                       const firstIn = g.ins.sort()[0];
-                      const lastOut = g.outs.sort().at(-1);
-                      const hrs = hoursOf(firstIn, lastOut);
+                      /* the day's last session still open (a second shift
+                         started after the first closed) is "still in" too */
+                      const lastOut = paired.get(d)?.open ? undefined : g.outs.sort().at(-1);
+                      const hrs = hoursOf(d);
                       return (
                         <tr
                           key={d}
@@ -431,7 +431,7 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
                       <td className={css.totalCell} colSpan={2}></td>
                       <td className={`${css.totalCell} ${css.tdNowrap}`}>
                         {totalMs > 0
-                          ? `${Math.floor(totalMs / 3600000)}h ${String(Math.round((totalMs % 3600000) / 60000)).padStart(2, "0")}m`
+                          ? hoursLabel(Math.round(totalMs / 60000))
                           : "—"}
                       </td>
                     </tr>

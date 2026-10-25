@@ -3180,6 +3180,20 @@ export async function handleStaff(
        the state machine is about what was PRESSED, and approval is a
        separate question about what is PAID. */
     const todayMYT = new Date(punchAt.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    /* v1.208.0 - ONE PUNCH AT A TIME (the owner, On Shift brief 25-10-2026:
+       "Prevent double clock-in or clock-out ... handle refreshes and multiple
+       devices"). Every decision below is read first and written after, as
+       separate statements, so two phones pressing Clock in at the same
+       instant could both read "nothing open" and both be stored. The owner
+       chose the server fix: this count of the person's punches on the day
+       and the day before is read FIRST, and the save below is one statement
+       that inserts only while that count is unchanged. A punch that lost the
+       race is refused as "already punched" and stores nothing. No schema
+       change; a single punch behaves exactly as before. */
+    const seenBefore = (await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM attendance_records
+        WHERE user_id = ?1 AND date(created_at, '+8 hours') BETWEEN date(?2, '-1 day') AND ?2`,
+    ).bind(user.id, todayMYT).first<{ n: number }>())?.n ?? 0;
     const { results: pressedToday } = await env.DB.prepare(
       `SELECT type, created_at, COALESCE(pending_approval, 0) AS pending FROM attendance_records
         WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2 ORDER BY created_at`,
@@ -3347,46 +3361,63 @@ export async function handleStaff(
        the register shows both the pressed time and the arrival time. */
     const pending = body.forgot === true || sentLateFrom ? 1 : null;
     let storedPending = false;
+    /* v1.208.0 - the save happens only while nobody else's punch has landed
+       since `seenBefore` was read (?9 is the day, ?10 the count). One SQL
+       statement, so the check and the write cannot be split by a second
+       request. */
+    const unchanged = `WHERE (SELECT COUNT(*) FROM attendance_records
+        WHERE user_id = ?1 AND date(created_at, '+8 hours') BETWEEN date(?9, '-1 day') AND ?9) = ?10`;
+    let saved = 0;
     try {
       if (sentLateFrom) {
         /* created_at is WHEN IT WAS PRESSED (the phone's clock, already
            checked plausible); offline_sent_at is when it reached us. SQLite
            datetime form, UTC, like every other created_at in this table. */
         const sqlAt = sentLateFrom.toISOString().slice(0, 19).replace("T", " ");
-        await env.DB.prepare(
+        saved = (await env.DB.prepare(
           `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval, created_at, offline_sent_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, datetime('now'))`,
+           SELECT ?1, ?2, ?3, ?4, ?5, 1, ?6, datetime('now') ${unchanged}`,
         ).bind(
           user.id, body.type,
           request.headers.get("CF-Connecting-IP"),
           (request.headers.get("User-Agent") ?? "").slice(0, 300),
-          gpsVal, sqlAt,
-        ).run();
+          gpsVal, sqlAt, null, null, todayMYT, seenBefore,
+        ).run()).meta?.changes ?? 0;
       } else {
-        await env.DB.prepare(
+        saved = (await env.DB.prepare(
           `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps, pending_approval)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6 ${unchanged}`,
         ).bind(
           user.id, body.type,
           request.headers.get("CF-Connecting-IP"),
           (request.headers.get("User-Agent") ?? "").slice(0, 300),
-          gpsVal, pending,
-        ).run();
+          gpsVal, pending, null, null, todayMYT, seenBefore,
+        ).run()).meta?.changes ?? 0;
       }
-      storedPending = pending === 1;
+      storedPending = saved > 0 && pending === 1;
     } catch (ePend) {
       if (!String(ePend).includes("no such column")) throw ePend;
       /* pre-0100: the column is not there yet, so the punch is recorded as an
          ordinary one. Better a counted punch than a lost day. */
-      await env.DB.prepare(
+      saved = (await env.DB.prepare(
         `INSERT INTO attendance_records (user_id, type, ip, user_agent, gps)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
+         SELECT ?1, ?2, ?3, ?4, ?5 ${unchanged}`,
       ).bind(
         user.id, body.type,
         request.headers.get("CF-Connecting-IP"),
         (request.headers.get("User-Agent") ?? "").slice(0, 300),
-        gpsVal,
-      ).run();
+        gpsVal, null, null, null, todayMYT, seenBefore,
+      ).run()).meta?.changes ?? 0;
+    }
+    if (saved === 0) {
+      /* Another punch for this person landed between the read and this save -
+         a second phone, or a second tab. Nothing was stored; the client's
+         "already" path shows the message and reloads the day. */
+      return json(
+        { error: { code: "already_punched", message: "Another punch was saved for you at the same moment, so this one was not recorded. Your day has been refreshed - check it before pressing again." },
+          already: true },
+        409,
+      );
     }
     if (storedPending) {
       /* The CEO approves these and sets the real time, so the CEO is who

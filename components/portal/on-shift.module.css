@@ -1,0 +1,519 @@
+/* v1.208.0 - ON SHIFT (components/portal/on-shift.tsx and the shiftOnly
+   branch of dashboard.tsx). One tree for the desktop and the installed app:
+   one column on a phone, in the order a person uses it (the clock, today,
+   the week, the past, the team); two columns from 1024px. Colours are the
+   portal's own tokens only - navy (--primary), gold (--gold-solid /
+   --brand-accent), white (--card) and the greys - so both themes follow. */
+
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+.main,
+.side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
+@media (min-width: 1024px) {
+  .page {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .wide {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---- cards ---- */
+.card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+}
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: var(--type-card-size, 1rem);
+  font-weight: 700;
+  color: var(--primary);
+}
+.hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.muted {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* ---- my shift ---- */
+.shift {
+  gap: 1rem;
+}
+.shiftBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0.875rem;
+  padding: 0.5rem 0 0.25rem;
+}
+.timer {
+  display: grid;
+  justify-items: center;
+  gap: 0.375rem;
+  text-align: center;
+  min-width: 0;
+}
+.timerValue {
+  margin: 0;
+  font-size: clamp(2.75rem, 11vw, 4.25rem);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+.timerLive {
+  color: var(--primary);
+}
+.timerIdle {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+}
+.timerSec {
+  font-size: 0.55em;
+  color: var(--brand-accent-deep);
+}
+.timerIdle .timerSec {
+  color: inherit;
+}
+.timerCaption {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.timerWarn {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 0.8125rem;
+  color: var(--warning);
+}
+
+/* the one button: 56px tall, the full width of a phone, capped on a desk */
+.punchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 24rem;
+}
+.punchBtn {
+  min-height: 56px;
+  width: 100%;
+  font-size: 1rem;
+  gap: 0.625rem;
+}
+.punchBtn :global(svg) {
+  width: 20px;
+  height: 20px;
+}
+.forgot {
+  justify-self: center;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.forgot:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.why {
+  margin: 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+.slow {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--info);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+@media (min-width: 640px) {
+  .tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.tile {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+  min-width: 0;
+}
+.tileLabel {
+  font-size: var(--type-label-size, 0.6875rem);
+  font-weight: var(--type-label-weight, 600);
+  letter-spacing: var(--type-label-tracking, 0.06em);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.tileValue {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.subHead {
+  margin: 0;
+  font-size: var(--type-label-size, 0.6875rem);
+  font-weight: var(--type-label-weight, 600);
+  letter-spacing: var(--type-label-tracking, 0.06em);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* today's sessions */
+.sessions {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.session {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  background: var(--tint-navy);
+  font-variant-numeric: tabular-nums;
+}
+.sessionNo {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--brand-accent-deep);
+}
+.sessionTimes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 600;
+}
+.inTime {
+  color: var(--success);
+}
+.arrow {
+  color: var(--muted-foreground);
+}
+.sessionLen {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+/* waiting on this phone */
+.waiting {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: 12px;
+  background: var(--warning-soft);
+  color: var(--foreground);
+}
+.waiting > :global(svg) {
+  color: var(--warning);
+  margin-top: 2px;
+}
+.waitingTitle {
+  margin: 0;
+  font-weight: 700;
+}
+.waitingSub {
+  margin: 0.125rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+/* quick actions */
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+@media (min-width: 640px) {
+  .quick {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+.quick > button {
+  min-height: 44px;
+}
+
+/* today's schedule */
+.slots {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.slot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.slot[data-now] {
+  border-color: var(--brand-accent);
+  background: var(--tint-gold);
+}
+.slotTime {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  white-space: nowrap;
+}
+.slotWhat {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+/* team on shift */
+.teamRatio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin: 0;
+}
+.teamRatio strong {
+  font-size: 1.75rem;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.teamRatio span {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+.teamRatio em {
+  font-style: normal;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+.teamTools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+@media (min-width: 640px) {
+  .teamTools {
+    grid-template-columns: minmax(0, 1fr) 12rem;
+  }
+}
+.teamList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 1024px) {
+  .teamList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+  }
+}
+.teamRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "av who chip" "av times times";
+  align-items: center;
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.teamRow > :first-child { grid-area: av; }
+.teamRow > :nth-child(3) { grid-area: chip; }
+.teamWho {
+  grid-area: who;
+  display: grid;
+  min-width: 0;
+}
+.teamWho strong {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+.teamWho span {
+  font-size: 0.75rem;
+  text-transform: capitalize;
+  color: var(--muted-foreground);
+}
+.teamTimes {
+  grid-area: times;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+/* this week */
+.week {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.weekDay {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.weekDay[data-today] {
+  border-radius: 10px;
+  border-bottom-color: transparent;
+  background: var(--tint-gold);
+}
+.weekDate {
+  display: grid;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.weekDate strong {
+  font-size: 0.875rem;
+  color: var(--primary);
+}
+.weekItems {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.weekItem {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+/* recent days */
+.history {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.historyRow {
+  display: grid;
+  grid-template-columns: 5.75rem minmax(0, 1fr) auto;
+  grid-template-areas: "date times hours" "date chip chip";
+  align-items: center;
+  column-gap: 0.625rem;
+  row-gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.historyRow > :last-child {
+  grid-area: chip;
+  justify-self: start;
+}
+@media (min-width: 640px) {
+  .historyRow {
+    grid-template-columns: 6rem minmax(0, 1fr) auto 10rem;
+    grid-template-areas: "date times hours chip";
+  }
+  .historyRow > :last-child {
+    justify-self: end;
+  }
+}
+.historyDate {
+  grid-area: date;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.historyTimes {
+  grid-area: times;
+  font-size: 0.875rem;
+}
+.historyHours {
+  grid-area: hours;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.team {
+  min-width: 0;
+}
+
+/* the phone reads in the order it is used: the clock, today (schedule and
+   the office check), the past days, the week, the team. The two desktop
+   columns dissolve into the one list below 1024px. */
+.oToday { order: 2; }
+.oRecent { order: 3; }
+.oWeek { order: 4; }
+.wide { order: 5; }
+@media (max-width: 1023.98px) {
+  .main,
+  .side {
+    display: contents;
+  }
+  .main > section:first-child { order: 1; }
+}
+@media (min-width: 1024px) {
+  .oToday, .oRecent, .oWeek { order: 0; }
+}

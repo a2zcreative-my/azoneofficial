@@ -46,6 +46,9 @@ import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/u
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./dashboard.module.css";
+import shiftCss from "./on-shift.module.css";
+import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
+import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, WaitingPunches, WeekSchedule, chipForState, mytHm, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 
 /**
@@ -382,13 +385,15 @@ export function Dashboard({
      read the same request for the In today tile) */
   const [monitor, setMonitor] = useState<MonitorRow[] | null>(null);
   useEffect(() => {
-    if (shiftOnly || !MANAGE_ROLES.includes(user.role)) return;
+    /* v1.208.0 - On Shift's Team On Shift section reads it too, for the
+       same roles (the worker answers hr_manage and exec_view only) */
+    if (!MANAGE_ROLES.includes(user.role)) return;
     let live = true;
     void api<{ staff: MonitorRow[] }>("/staff/attendance/monitor").then((r) => {
       if (live) setMonitor(r.ok && r.data?.staff ? r.data.staff : []);
     });
     return () => { live = false; };
-  }, [shiftOnly, user.role]);
+  }, [user.role]);
   /* v1.25.1 (CEO's screen recording: the card showed a green "Clock in" and
      "No attendance recorded today." for half a second — while he had ALREADY
      clocked in at 09:13). Root cause: `today` starts as [], which is
@@ -413,6 +418,33 @@ export function Dashboard({
     () => cacheRead<Announcement[]>(DASH_ANNS) !== null
   );
   const [busy, setBusy] = useState("");
+  /* v1.208.0 - A SLOW ANSWER IS SAID, NOT RESENT. When the punch was pressed
+     (set in the handler), and the press that has now waited ten seconds. The
+     button stays disabled the whole time; the line only says why. */
+  const [busySince, setBusySince] = useState(0);
+  const [slowAt, setSlowAt] = useState(0);
+  useEffect(() => {
+    if (!busy || !busySince) return;
+    const t = window.setTimeout(() => setSlowAt(busySince), 10_000);
+    return () => window.clearTimeout(t);
+  }, [busy, busySince]);
+  const slow = !!busy && slowAt === busySince && busySince > 0;
+  /* v1.208.0 - AND HELD UNTIL THE DAY IS READ AGAIN. punch() clears `busy`
+     as soon as the server answers, and re-reads the day after; in between,
+     the button still showed the state from BEFORE the punch, and a second
+     tap sent a second punch (refused by the server, but sent). On Shift's
+     button stays held until punch() - which now awaits that re-read - has
+     finished, and a moment longer: the one button turns from Clock In into
+     Clock Out under the same thumb, so a double tap must not land on the
+     opposite action. */
+  const [settling, setSettling] = useState(false);
+  const press = async (run: () => Promise<void>) => {
+    if (settling) return;
+    setSettling(true);
+    try { await run(); } finally {
+      window.setTimeout(() => setSettling(false), 1500);
+    }
+  };
   // v1.4.155: minute tick so the OT buttons appear at 18:00 MYT without a
   // manual refresh — the card is often left open on a phone all day.
   const [nowTick, setNowTick] = useState(Date.now);
@@ -479,6 +511,9 @@ export function Dashboard({
      board and the task blocks, so a live booked for tonight left the phone
      saying "All shifts clocked" with Clock in disabled until a reload. */
   useLiveRefresh(["attendance", "leave", "tasks", "announcements", "live-sessions", "task-blocks"], load);
+  /* v1.208.0 - punches this phone is holding with no signal (lib/outbox.ts):
+     shown as NOT confirmed, and the day is read again when one lands */
+  const waitingPunches = usePunchesWaiting(load);
   /* v1.139.0 - AND WHEN THE DAY TURNS OVER. Everything on this card is
      computed from a fetch, and the only thing that triggers a new one is
      somebody else writing. A host who leaves the app open overnight and is
@@ -745,6 +780,7 @@ export function Dashboard({
       return;
     }
     setBusy(type);
+    setBusySince(Date.now());
     setPunchError("");
     /* v1.18.1 (CEO): location is captured on EVERY punch, fence or no fence —
        fence OFF means it is recorded for the register without being enforced;
@@ -824,7 +860,7 @@ export function Dashboard({
           variant: "notice",
         });
         window.setTimeout(() => setPunchToast(null), 6000);
-        void load();
+        await load();
         return;
       }
       setPunchToast({
@@ -879,7 +915,7 @@ export function Dashboard({
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 5200);
-      void load();
+      await load();
       return;
     }
     if (!res.ok && (res.data as { already?: boolean } | null)?.already) {
@@ -896,7 +932,7 @@ export function Dashboard({
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 3200);
-      void load();
+      await load();
       return;
     }
     if (res.ok && res.data?.flag) {
@@ -960,7 +996,7 @@ export function Dashboard({
         variant: "notice",
       });
       window.setTimeout(() => setPunchToast(null), 5200);
-      void load();
+      await load();
       return;
     } else if (
       (res.data?.error as { code?: string } | undefined)?.code === "no_clock_in"
@@ -1003,7 +1039,7 @@ export function Dashboard({
           L("Punch failed — try again.", "Punch gagal — cuba lagi.")
       );
     }
-    void load();
+    await load();
   };
 
   /* v1.134.0 — OT in / OT out. Opens only after the working schedule (the
@@ -1101,31 +1137,11 @@ export function Dashboard({
      three hours at home between an afternoon and an evening shift. A shift
      still open contributes presence but no hours (honest: we don't know the
      total yet). Same pairing rule the worker runs (clock-day.ts). */
-  const dayPairs = (() => {
-    const m = new Map<string, { hours: number; open: boolean }>();
-    const byDay = new Map<string, { type: string; t: number }[]>();
-    for (const r of monthRecs) {
-      const d = mytDateOf(r.created_at);
-      const list = byDay.get(d) ?? [];
-      list.push({ type: r.type, t: new Date(r.created_at.replace(" ", "T") + "Z").getTime() });
-      byDay.set(d, list);
-    }
-    for (const [d, list] of byDay) {
-      list.sort((a, b) => a.t - b.t);
-      let hours = 0, openAt: number | null = null;
-      for (const x of list) {
-        if (x.type === "clock_in") { if (openAt === null) openAt = x.t; }
-        else if (x.type === "clock_out" && openAt !== null) {
-          hours += Math.min((x.t - openAt) / 3_600_000, 16);
-          openAt = null;
-        }
-      }
-      m.set(d, { hours, open: openAt !== null });
-    }
-    return m;
-  })();
-  const daysPresent = dayPairs.size;
-  const monthHours = Array.from(dayPairs.values()).reduce((a, e) => a + e.hours, 0);
+  /* v1.208.0 - the pairing is lib/clock-sessions.ts, the server's own rule
+     (no 16-hour cap of its own any more: one rule on every screen). */
+  const monthDaysPaired = daysOf(monthRecs);
+  const daysPresent = monthDaysPaired.length;
+  const monthHours = monthDaysPaired.reduce((a, e) => a + e.minutes, 0) / 60;
   /* ===================================================================
      v1.175.0 — WHICH JOB THIS PERSON OPENED THE PORTAL TO DO.
 
@@ -1161,6 +1177,146 @@ export function Dashboard({
   /* where this person's own shift stands, for the header and the overview -
      the same figures the clock card states */
   const myShift = { known: attKnown && !attendanceError, open: openNow, since: (openNow ? openSince : firstIn) ?? "", out: lastOut ?? "", hasOut };
+
+  /* v1.208.0 - the pieces of the clock card that On Shift draws too. Each is
+     the SAME element on both pages (the same punchOt(), the same toast, the
+     same reminder), defined once here so neither page carries a copy. */
+  const otButtons = showOt && (
+                <>
+                  <button type="button" className={hasOtIn ? btnHero : btnHeroPrimary} disabled={!!busy || hasOtIn}
+                    onClick={() => void punchOt("ot_in")}>
+                    {hasOtIn ? "OT in ✓" : "OT in"}
+                  </button>
+                  <button type="button" className={btnHero} disabled={!!busy || !hasOtIn || hasOtOut}
+                    onClick={() => void punchOt("ot_out")}>
+                    {hasOtOut ? "OT out ✓" : "OT out"}
+                  </button>
+                </>
+  );
+  const otNote = showOt && !hasOtOut && (
+          <p className="erp-note erp-note-warning erp-mt-2">
+            {L("Working on after your schedule? Tap OT in when overtime starts and OT out when you finish — it goes to the CEO to approve, and approved overtime is paid on your payslip.",
+               "Bekerja selepas jadual anda? Tekan OT in apabila OT bermula dan OT out apabila selesai — ia dihantar kepada CEO untuk kelulusan, dan OT yang diluluskan dibayar pada slip gaji anda.")}
+          </p>
+  );
+  const punchFeedback = (
+    <>
+        {punchError && (
+          <p className={css.punchError}>
+            {punchError}
+          </p>
+        )}
+        {punchToast && (
+          <PunchToast
+            title={punchToast.title}
+            sub={punchToast.sub}
+            variant={punchToast.variant}
+          />
+        )}
+    </>
+  );
+  const clockOutNote = clockOutDue && (
+          <p className="erp-note erp-note-warning erp-mt-2">
+            <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
+            — {L("tap Check Out before you leave.", "tekan Daftar Keluar sebelum pulang.")}
+          </p>
+  );
+  /* v1.176.1 - the shift RULE, in full, is stated where the clock lives (On
+     Shift); the Dashboard carries the summary line. */
+  const shiftRule = attKnown && todayShift && (
+    <p className={css.shiftsNote}>
+      {todayShift.entry?.work_label === ""
+                ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
+                : (todayShift.slots?.length ?? todayShift.windows.length) === 0
+                  ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
+                      "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
+                  : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
+                      `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
+    </p>
+  );
+  const fenceStrip = shiftOnly && fence?.configured && (
+          <>
+            {/* v1.15.0 — phone: the reference's readiness strip. Config only,
+                deliberately NOT a live GPS probe: reading the position here
+                would fire the browser's location prompt on every Dashboard
+                open, before the person asked to punch. The real check stays
+                where it belongs — server-side, at the punch. */}
+            <div className={`erp-note ${css.fenceNote}`}>
+              <div className={css.fenceHead}>
+                <span className={css.fenceLabel}>
+                  <ShieldOk
+                    aria-hidden
+                    className="erp-icon"
+                    strokeWidth={1.75}
+                  />
+                  {lang === "ms"
+                    ? "Semakan lokasi pejabat aktif"
+                    : "Office location check is on"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void checkLocation()}
+                  disabled={gpsCheck.state === "busy"}
+                  className="erp-button erp-button-accent erp-button-compact"
+                >
+                  {gpsCheck.state === "busy"
+                    ? lang === "ms"
+                      ? "Menyemak…"
+                      : "Checking…"
+                    : lang === "ms"
+                      ? "Semak lokasi saya"
+                      : "Check my location"}
+                </button>
+              </div>
+              {gpsCheck.state === "done" && (
+                <p
+                  className={`${css.fenceResult} ${gpsCheck.inside ? css.inside : css.outside}`}
+                >
+                  <span
+                    aria-hidden
+                    className={css.fenceDot}
+                  />
+                  {gpsCheck.inside
+                    ? lang === "ms"
+                      ? `Dalam kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}`
+                      : `Inside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}`
+                    : GEOFENCE_EXEMPT_ROLES.includes(user.role)
+                      ? lang === "ms"
+                        ? `${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label} — lokasi anda direkodkan`
+                        : `${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label} — your location is recorded`
+                      : lang === "ms"
+                        ? `Luar kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}. Daftar masuk direkodkan & DITANDAKAN untuk HR.`
+                        : `Outside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}. Your punch is recorded and FLAGGED for HR.`}
+                </p>
+              )}
+              {gpsCheck.state === "error" && (
+                <p className={css.fenceError}>
+                  {gpsCheck.message}{" "}
+                  {/* v1.176.0 - the "how do I turn location on" help moved here
+                      from the duplicate block that was removed. It belongs on
+                      the one error state, not on a second copy of it. */}
+                  {gpsCheck.denied && <LocationHelp lang={lang} />}
+                </p>
+              )}
+            </div>
+            {/* v1.176.0 — THE GUIDANCE, ONCE. This paragraph used to carry a
+                SECOND "Check my location" button and a SECOND verdict, right
+                under the note above that already has both: the same control
+                and the same distance twice in one card. The required-location
+                guidance is what belongs here and it stays; the control and the
+                verdict live in the note above. No fence rule is changed. */}
+            <p className={css.fenceLine}>
+              {tr("Office check-in is on", lang)} —{" "}
+              {GEOFENCE_EXEMPT_ROLES.includes(user.role)
+                ? lang === "ms"
+                  ? "lokasi anda direkodkan pada setiap daftar masuk/keluar."
+                  : "your location is recorded with every punch."
+                : lang === "ms"
+                  ? `punch memerlukan lokasi; di luar ${fence.radius_m ?? 120} m dari ${fence.label ?? "pejabat"} ia direkodkan dan ditandakan untuk HR.`
+                  : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}
+            </p>
+          </>
+  );
 
   /* Daily actions and pending work precede metrics and company reporting. */
   const zoneDay = (
@@ -1290,53 +1446,21 @@ export function Dashboard({
                   {tr("Create quotation", lang)}
                 </button>
               )}
-              {showOt && (
-                <>
-                  <button type="button" className={hasOtIn ? btnHero : btnHeroPrimary} disabled={!!busy || hasOtIn}
-                    onClick={() => void punchOt("ot_in")}>
-                    {hasOtIn ? "OT in ✓" : "OT in"}
-                  </button>
-                  <button type="button" className={btnHero} disabled={!!busy || !hasOtIn || hasOtOut}
-                    onClick={() => void punchOt("ot_out")}>
-                    {hasOtOut ? "OT out ✓" : "OT out"}
-                  </button>
-                </>
-              )}
+              {otButtons}
             </div>
           </>
         )}
-        {showOt && !hasOtOut && (
-          <p className="erp-note erp-note-warning erp-mt-2">
-            {L("Working on after your schedule? Tap OT in when overtime starts and OT out when you finish — it goes to the CEO to approve, and approved overtime is paid on your payslip.",
-               "Bekerja selepas jadual anda? Tekan OT in apabila OT bermula dan OT out apabila selesai — ia dihantar kepada CEO untuk kelulusan, dan OT yang diluluskan dibayar pada slip gaji anda.")}
-          </p>
-        )}
-        {punchError && (
-          <p className={css.punchError}>
-            {punchError}
-          </p>
-        )}
-        {punchToast && (
-          <PunchToast
-            title={punchToast.title}
-            sub={punchToast.sub}
-            variant={punchToast.variant}
-          />
-        )}
+        {otNote}
+        {punchFeedback}
         {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
             from the cron, for the person who has the tab open right now. */}
-        {clockOutDue && (
-          <p className="erp-note erp-note-warning erp-mt-2">
-            <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
-            — {L("tap Check Out before you leave.", "tekan Daftar Keluar sebelum pulang.")}
-          </p>
-        )}
+        {clockOutNote}
         {/* v1.133.0 — the shifts this person is due to clock for today, from
             their own pattern, every block of it. Said on the card because
             the rule is new: one Clock in and one Clock out PER SHIFT, and
             anything worked outside these hours goes to the CEO as overtime
             without a second pair of buttons. */}
-        {attKnown && todayShift && (
+        {attKnown && todayShift && !shiftOnly && (
           <p className={css.shiftsNote}>
             {/* v1.133.2 — the SHIFTS, including roster and live-board
                 assignments, not only the pattern. One clock-in per shift;
@@ -1346,18 +1470,10 @@ export function Dashboard({
                 LONGER one, which is backwards. On Shift owns the punch, so it
                 carries the rule in full; the Dashboard carries the SUMMARY -
                 the hours, and how many are left. No rule is changed. */}
-            {!shiftOnly
-              ? (todayShift.slots?.length ?? todayShift.windows.length) === 0
+            {(todayShift.slots?.length ?? todayShift.windows.length) === 0
                 ? L("Rest day on your pattern.", "Hari rehat pada corak anda.")
                 : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}`,
-                    `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}`)
-              : todayShift.entry?.work_label === ""
-                ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
-                : (todayShift.slots?.length ?? todayShift.windows.length) === 0
-                  ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
-                      "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
-                  : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
-                      `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
+                    `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}`)}
           </p>
         )}
         {/* v1.176.1 - THE LOCATION STRIP HAS ONE HOME. It is configuration, not
@@ -1367,89 +1483,6 @@ export function Dashboard({
             Nothing is lost from the Dashboard punch: the real check is
             server-side AT the punch, and its failure still renders
             LocationHelp below. */}
-        {shiftOnly && fence?.configured && (
-          <>
-            {/* v1.15.0 — phone: the reference's readiness strip. Config only,
-                deliberately NOT a live GPS probe: reading the position here
-                would fire the browser's location prompt on every Dashboard
-                open, before the person asked to punch. The real check stays
-                where it belongs — server-side, at the punch. */}
-            <div className={`erp-note ${css.fenceNote}`}>
-              <div className={css.fenceHead}>
-                <span className={css.fenceLabel}>
-                  <ShieldOk
-                    aria-hidden
-                    className="erp-icon"
-                    strokeWidth={1.75}
-                  />
-                  {lang === "ms"
-                    ? "Semakan lokasi pejabat aktif"
-                    : "Office location check is on"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void checkLocation()}
-                  disabled={gpsCheck.state === "busy"}
-                  className="erp-button erp-button-accent erp-button-compact"
-                >
-                  {gpsCheck.state === "busy"
-                    ? lang === "ms"
-                      ? "Menyemak…"
-                      : "Checking…"
-                    : lang === "ms"
-                      ? "Semak lokasi saya"
-                      : "Check my location"}
-                </button>
-              </div>
-              {gpsCheck.state === "done" && (
-                <p
-                  className={`${css.fenceResult} ${gpsCheck.inside ? css.inside : css.outside}`}
-                >
-                  <span
-                    aria-hidden
-                    className={css.fenceDot}
-                  />
-                  {gpsCheck.inside
-                    ? lang === "ms"
-                      ? `Dalam kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}`
-                      : `Inside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}`
-                    : GEOFENCE_EXEMPT_ROLES.includes(user.role)
-                      ? lang === "ms"
-                        ? `${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label} — lokasi anda direkodkan`
-                        : `${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label} — your location is recorded`
-                      : lang === "ms"
-                        ? `Luar kawasan — ${fmtDist(gpsCheck.distance_m)} dari ${gpsCheck.label}. Daftar masuk direkodkan & DITANDAKAN untuk HR.`
-                        : `Outside — ${fmtDist(gpsCheck.distance_m)} from ${gpsCheck.label}. Your punch is recorded and FLAGGED for HR.`}
-                </p>
-              )}
-              {gpsCheck.state === "error" && (
-                <p className={css.fenceError}>
-                  {gpsCheck.message}{" "}
-                  {/* v1.176.0 - the "how do I turn location on" help moved here
-                      from the duplicate block that was removed. It belongs on
-                      the one error state, not on a second copy of it. */}
-                  {gpsCheck.denied && <LocationHelp lang={lang} />}
-                </p>
-              )}
-            </div>
-            {/* v1.176.0 — THE GUIDANCE, ONCE. This paragraph used to carry a
-                SECOND "Check my location" button and a SECOND verdict, right
-                under the note above that already has both: the same control
-                and the same distance twice in one card. The required-location
-                guidance is what belongs here and it stays; the control and the
-                verdict live in the note above. No fence rule is changed. */}
-            <p className={css.fenceLine}>
-              {tr("Office check-in is on", lang)} —{" "}
-              {GEOFENCE_EXEMPT_ROLES.includes(user.role)
-                ? lang === "ms"
-                  ? "lokasi anda direkodkan pada setiap daftar masuk/keluar."
-                  : "your location is recorded with every punch."
-                : lang === "ms"
-                  ? `punch memerlukan lokasi; di luar ${fence.radius_m ?? 120} m dari ${fence.label ?? "pejabat"} ia direkodkan dan ditandakan untuk HR.`
-                  : `punches require your location; outside ${fence.radius_m ?? 120} m of ${fence.label ?? "the office"} they are recorded and flagged for HR.`}
-            </p>
-          </>
-        )}
         {/* v1.176.0 — THE DAY'S RECORD, ONLY WHEN IT ADDS SOMETHING. The status
             chip above now carries the current state and its time (and both
             times once a shift is finished), so for the ordinary day — one
@@ -1681,6 +1714,130 @@ export function Dashboard({
       </section>
   );
 
+
+  /* =====================================================================
+     v1.208.0 - ON SHIFT (the owner's brief, 25-10-2026). The page that owns
+     the punch: My Shift (the state, the timer from the server's clock-in,
+     ONE button, today's punches and hours), today's schedule and the office
+     check, the week's roster, the recent days, and - for the roles the
+     worker lets read the monitor - the team. It punches through the same
+     punch() and punchOt() as the Dashboard's card; every rule stays on the
+     server. One tree for the desktop and the installed app.
+     ===================================================================== */
+  const shiftState: ShiftState = !attKnown ? (attendanceError ? "error" : "unknown") : openNow ? "open" : hasOut ? "done" : "idle";
+  const openSinceRaw = openNow ? (todayShift?.entry?.open_since ?? today[0]?.created_at ?? null) : null;
+  const sessionsNow = todaySessions(today, openSinceRaw);
+  const workedToday = sessionMinutes(sessionsNow);
+  const canAtt = canOpen ? canOpen("Attendance") : false;
+  const mytMinuteNow = (() => { const d = new Date(nowTick + 8 * 3600 * 1000); return d.getUTCHours() * 60 + d.getUTCMinutes(); })();
+  /* the button waits while a punch is held on this phone: a second press
+     would only be refused when the first one lands */
+  const holding = waitingPunches.length > 0;
+  const forgotOffered = !openNow && canClockIn && !hasOut;
+  const zoneShift = (
+    <div className={shiftCss.page} data-zone="shift">
+      <div className={shiftCss.main}>
+        <section className={`erp-card ${shiftCss.card} ${shiftCss.shift}`} aria-label={L("My shift", "Syif saya")}>
+          <div className={shiftCss.cardHead}>
+            <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
+            {attKnown && (
+              <span className={chipForState(shiftState)} role="status">
+                {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
+                  : hasOut ? L(`Clocked out at ${lastOut ?? ""}`, `Daftar keluar ${lastOut ?? ""}`)
+                  : L("Not clocked in yet", "Belum daftar masuk")}
+              </span>
+            )}
+          </div>
+          {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
+          {attendanceError && (
+            <div role="alert" className={css.heroAlert}>
+              <span>{L("Your day could not be refreshed. Check your connection and retry - nothing is assumed until the server answers.", "Hari anda tidak dapat dimuat semula. Semak sambungan dan cuba lagi - tiada apa diandaikan sehingga pelayan menjawab.")}</span>
+              <button type="button" className={btnHero} onClick={() => void load()}>
+                <AppIcon name="refresh" className="erp-icon" />{L("Retry", "Cuba lagi")}
+              </button>
+            </div>
+          )}
+          <div className={shiftCss.shiftBody}>
+            <ShiftTimer state={shiftState} openSince={openSinceRaw} workedMinutes={workedToday}
+              firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null} lastOut={hasOut ? lastOut : null} />
+            {attKnown && (
+              <div className={shiftCss.punchRow}>
+                {openNow ? (
+                  <button type="button" className={`erp-button erp-button-primary ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
+                    onClick={() => void press(() => punch("clock_out"))}>
+                    <AppIcon name="offboard" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
+                  </button>
+                ) : canClockIn ? (
+                  <button type="button" className={`erp-button erp-button-accent ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
+                    onClick={() => void press(() => punch("clock_in"))}>
+                    <AppIcon name="place" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
+                  </button>
+                ) : (
+                  <p className={shiftCss.why} role="status">{whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}</p>
+                )}
+                {forgotOffered && (
+                  <button type="button" className={shiftCss.forgot} disabled={!!busy || holding || settling}
+                    onClick={() => void press(() => punch("clock_out", forgotArmed))}>
+                    {forgotArmed ? L("Tap again to send the clock-out to the CEO", "Tekan lagi untuk hantar daftar keluar kepada CEO") : L("Forgot to clock in? Clock out for approval", "Terlupa daftar masuk? Daftar keluar untuk kelulusan")}
+                  </button>
+                )}
+                {slow && (
+                  <p className={shiftCss.slow} role="status">
+                    {L("Still waiting for the server. Do not press again - the answer will show here.", "Masih menunggu pelayan. Jangan tekan lagi - jawapannya akan dipaparkan di sini.")}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <WaitingPunches list={waitingPunches} />
+          {punchFeedback}
+          {clockOutNote}
+          <div className={shiftCss.tiles}>
+            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Clocked in", "Daftar masuk")}</span><span className={shiftCss.tileValue}>{attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"}</span></div>
+            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Last out", "Keluar terakhir")}</span><span className={shiftCss.tileValue}>{attKnown && hasOut ? lastOut : "--:--"}</span></div>
+            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Today's hours", "Jam hari ini")}</span><span className={shiftCss.tileValue}>{!attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`}</span></div>
+            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Shifts", "Syif")}</span><span className={shiftCss.tileValue}>{attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"}</span></div>
+          </div>
+          <h3 className={shiftCss.subHead}>{L("Today's punches", "Punch hari ini")}</h3>
+          <SessionRows sessions={sessionsNow} known={attKnown} />
+          {todayOt.length > 0 && (
+            <p className={shiftCss.muted}>
+              {[...todayOt].reverse().map((r) => `${r.type === "ot_in" ? L("OT in", "OT masuk") : L("OT out", "OT keluar")} ${mytHm(r.created_at)}`).join(" · ")}
+            </p>
+          )}
+          {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
+          {otNote}
+          <div className={shiftCss.quick}>
+            <button type="button" className={btnHero} onClick={() => go("Leave")}>{tr("Apply leave", lang)}</button>
+            {canAtt && <button type="button" className={btnHero} onClick={() => go("Attendance")}>{L("My attendance", "Kehadiran saya")}</button>}
+          </div>
+        </section>
+        <div className={shiftCss.oRecent}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
+          onOpenAttendance={canAtt ? () => go("Attendance") : undefined} /></div>
+      </div>
+      <div className={shiftCss.side}>
+        <section className={`erp-card ${shiftCss.card} ${shiftCss.oToday}`} aria-label={L("Today's schedule", "Jadual hari ini")}>
+          <div className={shiftCss.cardHead}>
+            <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today's schedule", "Jadual hari ini")}</h3>
+          </div>
+          <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />
+          {shiftRule}
+        </section>
+        {fenceStrip && (
+          <section className={`erp-card ${shiftCss.card} ${shiftCss.oToday} ${css.fenceCard}`} aria-label={L("Office location", "Lokasi pejabat")}>
+            {fenceStrip}
+          </section>
+        )}
+        <div className={shiftCss.oWeek}><WeekSchedule userId={user.id} onOpenRoster={canAtt ? () => go("Attendance") : undefined} /></div>
+      </div>
+      {MANAGE_ROLES.includes(user.role) && (
+        <div className={shiftCss.wide}>
+          <TeamOnShift rows={monitor} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} />
+        </div>
+      )}
+    </div>
+  );
+
   const ZONES: Record<DashboardZone, ReactNode> = {
     day: zoneDay, desk: zoneDesk, month: zoneMonth, company: zoneCompany, around: zoneAround,
   };
@@ -1721,7 +1878,7 @@ export function Dashboard({
       )}
       {/* v1.175.0 — one set of zones, the order chosen by what this person
           came to do. On Shift stays a single zone: it is the clock, alone. */}
-      {shiftOnly ? zoneDay : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}
+      {shiftOnly ? zoneShift : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}
     </div>
   );
 }

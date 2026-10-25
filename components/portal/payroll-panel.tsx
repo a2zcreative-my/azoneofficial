@@ -36,6 +36,8 @@ import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Avatar } from "@/components/ui/avatar";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { monthName } from "@/components/portal/leave-overview";
+import { usePayrollHistory } from "@/components/portal/payroll-history"; // v1.207.0
+import { Donut } from "@/components/ui/donut";
 import pp from "./payroll-page.module.css";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelRows } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
@@ -744,6 +746,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
   };
   const [detailId, setDetailId] = useState<number | null>(null);
+  /* v1.207.0 - the Processing table's search and department filter (the
+     TOTAL row and every figure stay the whole month's), the saved rows that
+     carry no saved net, and the month history - read once the Reports tab
+     or a salary drawer is first opened */
+  const [prQ, setPrQ] = useState("");
+  const [prDept, setPrDept] = useState("");
+  const [noNetIds, setNoNetIds] = useState<number[]>([]);
+  const [histWanted, setHistWanted] = useState(false);
+  if (!histWanted && (view === "reports" || detailId !== null)) setHistWanted(true);
   const [pristine, setPristine] = useState<Record<number, string>>({});
   const [savedIds, setSavedIds] = useState<number[]>([]);
 
@@ -881,6 +892,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     pristineRef.current = snap;
     setPristine(snap);
     setSavedIds((p.data?.entries ?? []).map((x) => x.user_id));
+    setNoNetIds((p.data?.entries ?? []).filter((x) => typeof (x as Entry & { net_cents?: number | null }).net_cents !== "number").map((x) => x.user_id));
     setLoaded(true);
   }, [month]);
   useEffect(() => {
@@ -973,7 +985,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
         a.basic += hp; a.ph += phH; a.comm += e.commission_cents; a.allow += e.allowance_cents;
         a.ded += e.deduction_cents + advance;
-        a.net += Math.max(0, hp + phH + e.commission_cents + e.allowance_cents - e.deduction_cents - advance);
+        a.net += netFor(u.id); // v1.207.0 - THE formula (netFor), not a second copy of it
         return a;
       }
       const ulDed = unpaidInfo[u.id]?.cents ?? 0;
@@ -983,7 +995,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       const advance = unpaidInfo[u.id]?.salary_advance_cents ?? 0;
       a.basic += e.basic_cents; a.ph += phW; a.comm += e.commission_cents;
       a.allow += e.allowance_cents; a.ot += ot; a.ded += e.deduction_cents + ulDed + adj + advance;
-      a.net += Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + ot - e.deduction_cents - ulDed - adj - advance);
+      a.net += netFor(u.id); // v1.207.0 - THE formula (netFor), not a second copy of it
       return a;
     },
     { basic: 0, ph: 0, comm: 0, allow: 0, ot: 0, ded: 0, net: 0 },
@@ -1018,6 +1030,33 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const releaseAt = release ? `${dmy(release.available_from)} ${(release.available_from.split(" ")[1] ?? "").slice(0, 5)} MYT` : "";
   const monthLabel = monthName(month);
   const detailUser = detailId === null ? null : staff.find((x) => x.id === detailId) ?? null;
+  /* v1.207.0 - the month history (saved entries per month; payroll-history.tsx) */
+  const history = usePayrollHistory(month, histWanted);
+  /* rows the bank file will not price from a saved net: saved without one
+     (it would use its older fallback) or not saved at all (not in the file) */
+  const noNetRows = loaded ? staff.filter((u) => savedIds.includes(u.id) && noNetIds.includes(u.id)) : [];
+  const notSavedRows = loaded ? staff.filter((u) => !savedIds.includes(u.id)) : [];
+  /* net pay by department, from netFor - the By Department table's own reduce */
+  const byDept = Object.entries(staff.reduce<Record<string, { n: number; net: number }>>((m, u) => {
+    const k = u.department || L("No department", "Tiada jabatan");
+    const cur = m[k] ?? { n: 0, net: 0 };
+    m[k] = { n: cur.n + 1, net: cur.net + Math.max(0, netFor(u.id)) };
+    return m;
+  }, {})).sort((a, b) => b[1].net - a[1].net);
+  const deptMax = Math.max(1, ...byDept.map(([, v]) => v.net));
+  /* what the month pays out before deductions, by kind - the TOTAL row's figures */
+  const costSlices = [
+    { label: L("Basic salary", "Gaji pokok"), value: tot.basic, color: "var(--primary)" },
+    { label: L("Public holidays worked", "Cuti umum bekerja"), value: tot.ph, color: "var(--info)" },
+    { label: L("Commission", "Komisen"), value: tot.comm, color: "var(--purple, #7c3aed)" },
+    { label: L("Allowances", "Elaun"), value: tot.allow, color: "var(--success)" },
+    { label: L("Overtime", "OT"), value: tot.ot, color: "var(--gold-solid)" },
+  ].filter((x) => x.value > 0);
+  const grossTot = costSlices.reduce((a, x) => a + x.value, 0);
+  const prNeedle = prQ.trim().toLowerCase();
+  const prDepts = [...new Set(staff.map((u) => u.department || "").filter(Boolean))].sort();
+  const prMatch = (u: StaffRow) => (!prNeedle || [displayName(u), u.employee_id ?? "", u.position ?? "", u.department ?? ""].some((t) => t.toLowerCase().includes(prNeedle)))
+    && (!prDept || (u.department ?? "") === prDept);
 
   /* v1.198.0 - "Do not create or send payment files without the
      appropriate approval": both bank files ask first, with the month, the
@@ -1027,7 +1066,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       ? L(`Download the M2E salary file for ${monthLabel}?`, `Muat turun fail gaji M2E untuk ${monthLabel}?`)
       : L(`Download the payment CSV for ${monthLabel}?`, `Muat turun CSV pembayaran untuk ${monthLabel}?`),
     message: L(
-      `${staff.length} staff · net ${rm(tot.net)} on screen.\nThe file is built from the SAVED payroll entries${dirtyCount > 0 ? ` — ${dirtyCount} row${dirtyCount === 1 ? " has" : "s have"} unsaved changes that will NOT be in it until you Save all` : ""}.\nUpload it to Maybank only once this payroll has been approved.`,
+      `${staff.length} staff · net ${rm(tot.net)} on screen.\nThe file is built from the SAVED payroll entries${dirtyCount > 0 ? ` — ${dirtyCount} row${dirtyCount === 1 ? " has" : "s have"} unsaved changes that will NOT be in it until you Save all` : ""}.${noNetRows.length > 0 ? `\n${noNetRows.length} saved row${noNetRows.length === 1 ? " has" : "s have"} no saved net and would be priced with an older formula — save ${noNetRows.length === 1 ? "it" : "them"} first.` : ""}\nUpload it to Maybank only once this payroll has been approved.`,
       `${staff.length} kakitangan · bersih ${rm(tot.net)} pada skrin.\nFail ini dibina daripada entri gaji yang DISIMPAN${dirtyCount > 0 ? ` — ${dirtyCount} baris mempunyai perubahan belum disimpan yang TIDAK akan dimasukkan sehingga anda Simpan semua` : ""}.\nMuat naik ke Maybank hanya selepas gaji ini diluluskan.`,
     ),
     confirmLabel: L("Download", "Muat turun"),
@@ -1170,6 +1209,39 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 </li>
               ))}
             </ol>
+          </section>
+        </div>
+
+        {/* v1.207.0 - the month's cost by kind and by department: the TOTAL
+            row's own figures and the By Department reduce, drawn */}
+        <div className={pp.split}>
+          <section className={card} aria-label={L("Payroll cost breakdown", "Pecahan kos gaji")}>
+            {head("chart", pp.goldWell, L("Payroll Cost Breakdown", "Pecahan Kos Gaji"), L(`${monthLabel} — what the month pays before deductions`, `${monthLabel} — yang dibayar bulan ini sebelum potongan`))}
+            {!loaded ? <SkelRows rows={5} /> : grossTot === 0 ? <p className={pp.sub}>{L("Nothing on the table yet for this month.", "Belum ada apa-apa dalam jadual bulan ini.")}</p> : (
+              <div className={pp.donutRow}>
+                <Donut slices={costSlices} centerLabel={(grossTot / 100).toLocaleString("en-MY", { maximumFractionDigits: 0 })} centerSub={L("RM gross", "RM kasar")} size={150} hideLegend />
+                <ul className={pp.legend}>
+                  {costSlices.map((x) => (
+                    <li key={x.label}><span className={pp.legendDot} style={{ background: x.color }} aria-hidden="true" /><span>{x.label}</span><strong>{Math.round((x.value * 1000) / grossTot) / 10}%</strong><span className={pp.legendAmt}>{rm(x.value)}</span></li>
+                  ))}
+                  <li className={pp.legendMinus}><span className={pp.legendDot} aria-hidden="true" /><span>{L("Deductions", "Potongan")}</span><strong /><span className={pp.legendAmt}>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</span></li>
+                </ul>
+              </div>
+            )}
+          </section>
+          <section className={card} aria-label={L("Department payroll cost", "Kos gaji jabatan")}>
+            {head("users", pp.blueWell, L("Department Payroll Cost", "Kos Gaji Jabatan"), L(`${monthLabel} — net pay by department`, `${monthLabel} — gaji bersih mengikut jabatan`))}
+            {!loaded ? <SkelRows rows={4} /> : (
+              <ul className={pp.bars}>
+                {byDept.map(([k, v]) => (
+                  <li key={k}>
+                    <span className={pp.barName}>{k}<span>{v.n} {L("staff", "kakitangan")}</span></span>
+                    <span className={pp.barTrack} aria-hidden="true"><span className={pp.barFill} style={{ width: `${(v.net / deptMax) * 100}%` }} /></span>
+                    <span className={pp.barAmt}>{rm(v.net)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
 
@@ -1327,6 +1399,18 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           tabs like that stuck". The register is a record, not a widget: the
           page scrolls it, and only the money slides sideways past the pinned
           name column. `.erp-table-scroll` is the system's name for that. */}
+      {/* v1.207.0 - find a person; the TOTAL row stays the whole month */}
+      <div className={pp.filters}>
+        <label className={pp.searchField}>
+          <AppIcon name="search" />
+          <input value={prQ} onChange={(e) => setPrQ(e.target.value)} placeholder={L("Find staff by name, ID or position", "Cari kakitangan ikut nama, ID atau jawatan")} aria-label={L("Find staff in payroll", "Cari kakitangan dalam gaji")} />
+        </label>
+        <select className={inputClassSm} value={prDept} onChange={(e) => setPrDept(e.target.value)} aria-label={L("Department", "Jabatan")}>
+          <option value="">{L("All departments", "Semua jabatan")}</option>
+          {prDepts.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        {(prQ || prDept) && <span className={pp.sub}>{L(`Showing ${staff.filter(prMatch).length} of ${staff.length} — the TOTAL row is still the whole month`, `Memaparkan ${staff.filter(prMatch).length} daripada ${staff.length} — baris JUMLAH masih seluruh bulan`)}</span>}
+      </div>
       <div id="payroll-table" className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
         <table className="tbl-sticky tbl-sticky-lead w-full min-w-[820px] border-collapse text-sm">
           <thead>
@@ -1372,7 +1456,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 <td className={pp.td}><Skel className="h-5 w-16" /></td>
                 <td className={pp.td}><Skel className="h-7 w-32" /></td>
               </tr>
-            )) : [...staff].sort((a, b) => {
+            )) : [...staff].filter(prMatch).sort((a, b) => {
               const dir = prSort.asc ? 1 : -1;
               const ea = entry(a.id);
               const eb = entry(b.id);
@@ -1856,6 +1940,17 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             >
               <><AppIcon name="download" />CSV</>
             </button>
+            {loaded && noNetRows.length + notSavedRows.length > 0 && (
+              /* v1.207.0 - audit finding 3, warned and not changed: the files
+                 price a saved row by its SAVED net; a row without one falls
+                 back to an older formula, and an unsaved row is not in them */
+              <span className={pp.warnText} role="status">
+                {noNetRows.length > 0 && L(`${noNetRows.length} saved row${noNetRows.length === 1 ? " has" : "s have"} no saved net — the files would price ${noNetRows.length === 1 ? "it" : "them"} with an older formula. Save ${noNetRows.length === 1 ? "it" : "them"} first: `, `${noNetRows.length} baris disimpan tiada bersih disimpan — fail akan mengiranya dengan formula lama. Simpan dahulu: `)}
+                {noNetRows.length > 0 && <span data-no-translate>{noNetRows.map((u) => displayName(u)).join(", ")}. </span>}
+                {notSavedRows.length > 0 && L(`${notSavedRows.length} not saved — not in the files: `, `${notSavedRows.length} belum disimpan — tiada dalam fail: `)}
+                {notSavedRows.length > 0 && <span data-no-translate>{notSavedRows.map((u) => displayName(u)).join(", ")}.</span>}
+              </span>
+            )}
             <span className={m2eIncomplete ? pp.warnText : pp.sub}>
               {m2eIncomplete
                 ? L("M2E setup is incomplete — finish it under Settings & Audit first.", "Persediaan M2E belum lengkap — lengkapkan di Tetapan & Audit dahulu.")
@@ -1863,6 +1958,35 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               {m2eIncomplete && <> <button type="button" className={pp.inlineLink} onClick={() => go("settings", "payroll-m2e")}>{L("Open M2E setup", "Buka persediaan M2E")}</button></>}
             </span>
           </div>
+        </section>
+
+        {/* v1.207.0 - the months before, as their saved records hold them */}
+        <section className={card} aria-label={L("Payroll history", "Sejarah gaji")}>
+          {head("orders", pp.purpleWell, L("Payroll History", "Sejarah Gaji"), L("The last twelve months as saved: who was saved, the saved net, and whether the payslips are out. View opens that month.", "Dua belas bulan lepas seperti disimpan: siapa disimpan, bersih disimpan, dan sama ada slip gaji sudah dikeluarkan. Lihat membuka bulan itu."))}
+          {history.loading || !histWanted ? <SkelRows rows={6} /> : (
+            <div className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
+              <table className={pp.plain} aria-label={L("Payroll history", "Sejarah gaji")}>
+                <thead><tr>
+                  <th>{L("Payroll month", "Bulan gaji")}</th><th className={pp.num}>{L("Staff saved", "Kakitangan disimpan")}</th>
+                  <th className={pp.num}>{L("Saved net", "Bersih disimpan")}</th><th>{L("Status", "Status")}</th><th><span className={pp.srOnly}>{L("Action", "Tindakan")}</span></th>
+                </tr></thead>
+                <tbody>
+                  {history.rows.map((h) => (
+                    <tr key={h.month} className={h.month === month ? pp.histOn : ""}>
+                      <td><strong>{monthName(h.month)}</strong></td>
+                      <td className={pp.num}>{h.failed ? "—" : h.saved}</td>
+                      <td className={pp.num}>{h.failed || h.saved === 0 ? "—" : rm(h.net)}{h.noNet > 0 && <span className={pp.histWarn}>{L(` · ${h.noNet} without a saved net`, ` · ${h.noNet} tanpa bersih disimpan`)}</span>}</td>
+                      <td>{h.failed ? <span className={chipNeutral}>{L("Not read", "Tidak dibaca")}</span>
+                        : h.released ? <span className={chipSuccess}>{L("Released", "Dikeluarkan")}</span>
+                        : h.saved > 0 ? <span className={chipWarn}>{L("Not released", "Belum dikeluarkan")}</span>
+                        : <span className={chipNeutral}>{L("Nothing saved", "Tiada disimpan")}</span>}</td>
+                      <td className={pp.num}>{h.month !== month && <button type="button" className={rowBtn} onClick={() => setMonth(h.month)}>{L("View", "Lihat")}</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <div className={pp.split}>
@@ -1890,12 +2014,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               <table className={pp.plain}>
                 <thead><tr><th>{L("Department", "Jabatan")}</th><th className={pp.num}>{L("Staff", "Kakitangan")}</th><th className={pp.num}>{L("Net pay", "Gaji bersih")}</th></tr></thead>
                 <tbody>
-                  {Object.entries(staff.reduce<Record<string, { n: number; net: number }>>((m, u) => {
-                    const k = u.department || L("No department", "Tiada jabatan");
-                    const cur = m[k] ?? { n: 0, net: 0 };
-                    m[k] = { n: cur.n + 1, net: cur.net + Math.max(0, netFor(u.id)) };
-                    return m;
-                  }, {})).sort((a, b) => b[1].net - a[1].net).map(([k, v]) => (
+                  {byDept.map(([k, v]) => (
                     <tr key={k}><td>{k}</td><td className={pp.num}>{v.n}</td><td className={pp.num}>{rm(v.net)}</td></tr>
                   ))}
                 </tbody>
@@ -2163,8 +2282,29 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           const e = entry(detailUser.id);
           const ud = unpaidInfo[detailUser.id];
           const oa = otApproved[detailUser.id];
+          /* v1.207.0 - the same figures (figs(): entry, netFor, incFor,
+             otPay and the server's unpaidInfo), grouped as the reference
+             groups them; gross and total deductions are sums of these lines */
+          const gross = f.basic + f.ph + f.comm + f.allow + f.ot;
+          const dedTotal = f.manual + f.ul + f.adj + f.advance;
+          const past = history.rows.filter((h) => h.month !== month && h.byUser[detailUser.id] !== undefined).slice(0, 6);
           return (
             <div className={pp.drawer}>
+              <div className={pp.dHead}>
+                <Avatar name={displayName(detailUser)} size="lg" />
+                <span className={pp.dWho}>
+                  <strong>{displayName(detailUser)}</strong>
+                  <span>{[detailUser.position ?? detailUser.role, detailUser.department, detailUser.employee_id].filter(Boolean).join(" · ")}</span>
+                </span>
+                {stateChip(detailUser.id)}
+              </div>
+              <div className={pp.dSummary}>
+                <div className={pp.dNet}><span>{L("Net pay", "Gaji bersih")}</span><strong>{rm(Math.max(0, f.net))}</strong></div>
+                <div><span>{f.hourlyRow ? L("Hourly pay", "Gaji ikut jam") : L("Basic salary", "Gaji pokok")}</span><strong>{rm(f.basic)}</strong></div>
+                <div><span>{L("Other earnings", "Pendapatan lain")}</span><strong>{rm(gross - f.basic)}</strong></div>
+                <div><span>{L("Deductions", "Potongan")}</span><strong>{dedTotal > 0 ? `− ${rm(dedTotal)}` : rm(0)}</strong></div>
+              </div>
+              <p className={pp.drawerHead}>{L("Earnings", "Pendapatan")}</p>
               <dl className={pp.statement}>
                 {f.hourlyRow
                   ? <div><dt>{L(`Hourly pay · ${hmLabel(e.hourly_minutes_live ?? e.hourly_minutes ?? 0)} × RM15/h`, `Gaji ikut jam · ${hmLabel(e.hourly_minutes_live ?? e.hourly_minutes ?? 0)} × RM15/jam`)}</dt><dd>{rm(f.basic)}</dd></div>
@@ -2173,12 +2313,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 {f.comm > 0 && <div><dt>{L("Commission", "Komisen")}</dt><dd>+ {rm(f.comm)}</dd></div>}
                 <div><dt>{L("Allowance", "Elaun")}</dt><dd>+ {rm(f.allow)}</dd></div>
                 {!f.hourlyRow && <div><dt>{L(`Overtime · ${e.ot_hours ?? 0}h × 1.5 × hourly ORP`, `OT · ${e.ot_hours ?? 0}j × 1.5 × ORP sejam`)}</dt><dd>+ {rm(f.ot)}</dd></div>}
+                <div className={pp.subtotal}><dt>{L("Total earnings", "Jumlah pendapatan")}</dt><dd>{rm(gross)}</dd></div>
+              </dl>
+              <p className={pp.drawerHead}>{L("Deductions", "Potongan")}</p>
+              <dl className={pp.statement}>
                 <div className={f.manual > 0 ? pp.minus : ""}><dt>{L("Manual deduction", "Potongan manual")}</dt><dd>− {rm(f.manual)}</dd></div>
                 {!f.hourlyRow && <div className={f.ul > 0 ? pp.minus : ""}><dt>{L(`Unpaid leave · ${ud?.days ?? 0}d at ${ulRate}${(ud?.rest_days ?? 0) > 0 ? ` + ${ud?.rest_days} rest` : ""}${ud?.capped ? " · capped" : ""}`, `Cuti tanpa gaji · ${ud?.days ?? 0}h pada ${ulRate}${(ud?.rest_days ?? 0) > 0 ? ` + ${ud?.rest_days} rehat` : ""}${ud?.capped ? " · dihad" : ""}`)}</dt><dd>− {rm(f.ul)}</dd></div>}
                 {!f.hourlyRow && f.adj > 0 && <div className={pp.minus}><dt>{calendarBasis
                   ? L(`Incomplete month · ${proDays[detailUser.id] ?? proration?.month_days}/${proration?.month_days} calendar days`, `Bulan tidak lengkap · ${proDays[detailUser.id] ?? proration?.month_days}/${proration?.month_days} hari kalendar`)
                   : L(`Incomplete month · ${payableDays[detailUser.id] ?? monthDays}/${monthDays} days`, `Bulan tidak lengkap · ${payableDays[detailUser.id] ?? monthDays}/${monthDays} hari`)}</dt><dd>− {rm(f.adj)}</dd></div>}
                 {f.advance > 0 && <div className={pp.minus}><dt>{L("Salary advance", "Pendahuluan gaji")}</dt><dd>− {rm(f.advance)}</dd></div>}
+                {/* no statutory line is calculated anywhere in this system (audit; reported for review) */}
+                <div className={pp.muted}><dt>{L("Statutory (EPF, SOCSO, EIS, PCB)", "Berkanun (KWSP, PERKESO, SIP, PCB)")}</dt><dd>{L("Not calculated — registration pending", "Tidak dikira — pendaftaran belum selesai")}</dd></div>
+                <div className={pp.subtotal}><dt>{L("Total deductions", "Jumlah potongan")}</dt><dd>{dedTotal > 0 ? `− ${rm(dedTotal)}` : rm(0)}</dd></div>
                 <div className={pp.total}><dt>{L("Net pay", "Gaji bersih")}</dt><dd>{rm(Math.max(0, f.net))}</dd></div>
               </dl>
               <p className={pp.drawerHead}>{L("Attendance this month", "Kehadiran bulan ini")}</p>
@@ -2198,6 +2345,15 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   </>
                 )}
               </dl>
+              <p className={pp.drawerHead}>{L("Recent months (saved)", "Bulan terkini (disimpan)")}</p>
+              {history.loading ? <SkelRows rows={3} /> : past.length === 0 ? <p className={pp.sub}>{L("No earlier saved month for this person.", "Tiada bulan terdahulu yang disimpan untuk orang ini.")}</p> : (
+                <dl className={pp.config}>
+                  {past.map((h) => {
+                    const v = h.byUser[detailUser.id];
+                    return <div key={h.month}><dt>{monthName(h.month)}{h.released ? "" : L(" · not released", " · belum dikeluarkan")}</dt><dd>{typeof v === "number" ? rm(v) : L("saved, no net", "disimpan, tiada bersih")}</dd></div>;
+                  })}
+                </dl>
+              )}
               <p className={pp.sub}>{L("Figures are live and include anything typed but not yet saved.", "Angka adalah langsung dan termasuk apa-apa yang ditaip tetapi belum disimpan.")}</p>
             </div>
           );

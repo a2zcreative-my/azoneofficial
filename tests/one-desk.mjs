@@ -168,7 +168,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
        sl[0] === "desk" && sl.indexOf("day") < sl.indexOf("month"), sl.join(" < "));
   }
   ok("the order is applied by rendering the named zones, so no zone can be dropped",
-     /\{shiftOnly \? zoneDay : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash)
+     /\{shiftOnly \? zoneShift : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash)
      && /const ZONES: Record<DashboardZone, ReactNode> = \{\s*day: zoneDay, desk: zoneDesk, month: zoneMonth, company: zoneCompany, around: zoneAround,/.test(dash));
   ok("which job a person is reading is decided by role AND by what they may open - never by the layout",
      /WATCHER_ROLES\.includes\(user\.role\) \? "business"/.test(dash)
