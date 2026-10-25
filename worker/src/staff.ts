@@ -7099,7 +7099,9 @@ export async function handleStaff(
     /* v1.153.0 - a removed row (a typo, 0126) leaves the register. The
        unfiltered read is the deploy-before-migrate fallback. */
     const sqlA = (filtered: boolean) =>
-      `SELECT a.*, u.name AS assigned_name FROM assets a
+      /* v1.210.0 - the holder's FULL name, as the staff list and the picker
+         show it (the owner's Assets brief: one person, one name) */
+      `SELECT a.*, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS assigned_name FROM assets a
        LEFT JOIN users u ON u.id = a.assigned_to
        ${filtered ? "WHERE a.deleted_at IS NULL" : ""}
        ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`;

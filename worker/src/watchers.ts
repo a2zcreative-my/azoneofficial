@@ -103,11 +103,14 @@ export const WATCHERS: readonly Watcher[] = [
     key: "asset_warranty", label: "Asset warranty ending", audience: ["ceo", "hr_admin"],
     thresholdLabel: "days ahead", defaultThreshold: 30, tab: "Assets",
     async check(env, t) {
+      /* v1.210.0 - out of service is LOST or DISPOSED, the Assets page's own
+         rule ("retired" was never a status); a lost camera has no warranty
+         worth a reminder. */
       /* v1.153.0 - a removed typo (0126) has no warranty to watch; the
          unfiltered read is the deploy-before-migrate fallback. */
       const sqlW = (filtered: boolean) =>
         `SELECT id, asset_tag, name, warranty_until FROM assets
-          WHERE warranty_until IS NOT NULL AND warranty_until != '' AND COALESCE(status, '') NOT IN ('disposed', 'retired')
+          WHERE warranty_until IS NOT NULL AND warranty_until != '' AND COALESCE(status, '') NOT IN ('disposed', 'lost')
           ${filtered ? "AND deleted_at IS NULL" : ""}`;
       let results: { id: number; asset_tag: string; name: string; warranty_until: string }[] = [];
       try { results = (await env.DB.prepare(sqlW(true)).all<{ id: number; asset_tag: string; name: string; warranty_until: string }>()).results ?? []; }

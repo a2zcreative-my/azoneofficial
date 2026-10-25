@@ -312,7 +312,9 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   const announcements = read("components/portal/announcements.tsx");
   ok("Accounting: balance before adjustment", ordered(accounting, ['L("Trial balance"', 'L("New journal entry"']));
   ok("Assets: status, register, editor", ordered(assets, ['L("Company assets"', 'L("Register"', 'id="asset-form"']));
-  ok("Asset edit scrolls to its relocated form", assets.includes('getElementById("asset-form")?.scrollIntoView'));
+  /* v1.210.0 (the owner's Assets brief): Add and Edit open the same form in
+     a drawer instead of scrolling down to it */
+  ok("Asset edit opens its form in a drawer", /<SideDrawer\s+open=\{openForm && canEdit\}/.test(assets) && /<div id="asset-form" className=\{av\.drawer\}>/.test(assets));
   /* v1.199.0 - five tabs in the brief's order, every zone kept mounted and hidden with av.off */
   ok("Assets: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Asset Register", "Assignments", "Maintenance & Disposal", "Reports & Audit"].map((t) => assets.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (assets.match(/className=\{view !== "[a-z]+" \? av\.off : ""\}/g) ?? []).length === 5);
   /* v1.173.0 (tab concept): the map is THE MAP zone (TabZone label "The map");
@@ -352,8 +354,10 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Leave: application, company register, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'shown.map((l)', 'mine.filter(matchQ)']));
   /* v1.200.0 - five tabs: my work and all work (the active rows by default) before
      creation, then the company-wide progress and the completion archive */
-  ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', 'L("Create / assign a task"', '{progress}', 'renderTasks(tasks.filter((t) => t.status === "completed")']) && /useState<StatusF>\("active"\)/.test(tasks));
-  ok("Tasks: five tabs in the brief's order (All Tasks only for the managing roles), zones hidden not unmounted", ["Overview", "My Tasks", "All Tasks", "Create / Assign Task", "Reports & Archive"].map((t) => tasks.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && /\.\.\.\(canManage \? \[\["all"/.test(tasks) && (tasks.match(/className=\{view !== "[a-z]+" \? tk\.off : ""\}/g) ?? []).length === 5);
+  /* v1.209.0 (the owner's Tasks brief, 25-10-2026): Create is a drawer from
+     the + button (the same form and create()), and Calendar is a tab */
+  ok("Tasks: active records, the deadlines, progress, completion archive - and creation in its drawer", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', 'L("Deadlines", "Tarikh akhir")', '{progress}', 'renderTasks(tasks.filter((t) => t.status === "completed")', '<SideDrawer open={createOpen}']) && /useState<StatusF>\("active"\)/.test(tasks) && (tasks.match(/L\("Create \/ assign a task"/g) ?? []).length === 1);
+  ok("Tasks: five tabs in the brief's order (All Tasks only for the managing roles), zones hidden not unmounted", ["Overview", "My Tasks", "All Tasks", "Calendar", "Reports & Archive"].map((t) => tasks.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && /\.\.\.\(canManage \? \[\["all"/.test(tasks) && (tasks.match(/className=\{view !== "[a-z]+" \? tk\.off : ""\}/g) ?? []).length === 5);
   /* v1.201.0 - Staff: five tabs in the brief's order, every zone kept mounted
      and hidden with sp.off; Add staff on the tab row for everyone who could
      add before (not the read-only COO and CCO); the toast and the question

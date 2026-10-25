@@ -94,12 +94,20 @@ const PER_PAGE = [10, 25, 50] as const;
 type AssetView = "overview" | "register" | "assign" | "care" | "reports";
 
 export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
-  type AssetCol = "tag" | "item" | "brand" | "assigned" | "location" | "status" | "value";
+  type AssetCol = "tag" | "item" | "brand" | "assigned" | "location" | "status" | "value" | "date";
   const [assetSort, setAssetSort] = useState<{ col: AssetCol; asc: boolean }>({ col: "tag", asc: true });
   const cycleAsset = (col: AssetCol) => setAssetSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: true });
   const [form, setForm] = useState({ ...EMPTY });
   const [editId, setEditId] = useState<number | null>(null);
   const [openForm, setOpenForm] = useState(false);
+  /* v1.210.0 (the owner's Assets brief, 25-10-2026) - ONE ASSET DRAWER: an
+     asset's record, its holder, its history and the commands the row has.
+     Opened from any tag or name, and from a search hit. */
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [regMode, setRegMode] = useState<"list" | "grid">("list");
+  /* opening it from a click also reads the history (the audit log, for the
+     roles the server lets read it); from a search hit it is one press away */
+  const openDetail = (a: Asset) => { setStatusFor(null); setDetailId(a.id); };
   const { show: showToast, node: toastNode } = useSaveToast(); // v1.4.221 standard save popup
   const { confirm, node: confirmNode } = useConfirm();
   /* v1.104.0 (roadmap phase 02) - remembered, then refreshed: the register
@@ -137,7 +145,8 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
   });
 
   const startEdit = (a: Asset) => {
-    setView("register");
+    /* v1.210.0 - the same form, in a drawer over the page you were on */
+    setDetailId(null);
     setEditId(a.id); setOpenForm(true);
     setForm({
       asset_tag: a.asset_tag, name: a.name, category: a.category,
@@ -147,13 +156,12 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
       location: a.location ?? "", assigned_to: a.assigned_to != null ? String(a.assigned_to) : "",
       status: a.status, condition_note: a.condition_note ?? "",
     });
-    requestAnimationFrame(() => document.getElementById("asset-form")?.scrollIntoView({ block: "start" }));
   };
   const startAdd = () => {
-    setView("register");
+    setDetailId(null);
     setEditId(null); setForm({ ...EMPTY }); setOpenForm(true);
-    requestAnimationFrame(() => document.getElementById("asset-form")?.scrollIntoView({ block: "start" }));
   };
+  const closeForm = () => { setOpenForm(false); setEditId(null); setForm({ ...EMPTY }); };
 
   const save = async () => {
     const body = JSON.stringify(form);
@@ -189,6 +197,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
     if (res.ok) {
       showToast(L("Entry removed", "Entri dibuang"), L(`${a.asset_tag} is off the register — recorded in the audit log`, `${a.asset_tag} dikeluarkan dari daftar — direkodkan dalam log audit`));
       if (editId === a.id) { setForm({ ...EMPTY }); setEditId(null); setOpenForm(false); }
+      if (detailId === a.id) setDetailId(null);
       load();
     } else {
       showToast(L("Not removed", "Tidak dibuang"), res.data?.error?.message ?? L("Please try again", "Sila cuba lagi"), "notice");
@@ -202,7 +211,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
   const [statusFor, setStatusFor] = useState<Asset | null>(null);
   const [nextStatus, setNextStatus] = useState("in_use");
   const [nextNote, setNextNote] = useState("");
-  const openStatusChange = (a: Asset) => { setStatusFor(a); setNextStatus(a.status); setNextNote(a.condition_note ?? ""); };
+  const openStatusChange = (a: Asset) => { setDetailId(null); setStatusFor(a); setNextStatus(a.status); setNextNote(a.condition_note ?? ""); };
   const saveStatus = async () => {
     const a = statusFor;
     if (!a) return;
@@ -244,8 +253,11 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
     if (r.ok) setAudit({ state: "ok", entries: r.data?.entries ?? [] });
     else setAudit({ state: r.status === 403 ? "denied" : "error", entries: [] });
   };
-  const [historyFor, setHistoryFor] = useState<Asset | null>(null);
-  const openHistory = (a: Asset) => { setHistoryFor(a); void loadAudit(); };
+  const showAsset = (a: Asset) => { openDetail(a); void loadAudit(); };
+  /* a tag that opens its asset */
+  const tagBtn = (a: Asset) => (
+    <button type="button" className={`${av.mono} ${av.linkBtn}`} onClick={() => showAsset(a)} aria-label={L(`Open ${a.asset_tag} — ${a.name}`, `Buka ${a.asset_tag} — ${a.name}`)}>{a.asset_tag}</button>
+  );
   const parse = (s: string | null): Record<string, unknown> => { try { return s ? (JSON.parse(s) as Record<string, unknown>) : {}; } catch { return {}; } };
   const staffName = (id: unknown) => {
     const n = Number(id);
@@ -297,6 +309,8 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
     setStatusF(""); setCatF(""); setLocF(""); setPage(0);
     setQ(a ? a.asset_tag : "");
     setView("register");
+    /* v1.210.0 - and the asset's drawer opens on it */
+    if (a) openDetail(a);
   });
   useScrollToRecord(focused);
   const needle = q.trim().toLowerCase();
@@ -315,6 +329,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
         case "location": return dir * (a.location || "").localeCompare(b.location || "");
         case "status": return dir * a.status.localeCompare(b.status);
         case "value": return dir * ((a.purchase_price_cents ?? 0) - (b.purchase_price_cents ?? 0));
+        case "date": return dir * (a.purchase_date || "").localeCompare(b.purchase_date || "");
         default: return 0;
       }
     });
@@ -329,7 +344,12 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
   const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
   const stamp = (a: Asset) => a.updated_at || a.created_at || "";
   const recent = [...assets].sort((a, b) => stamp(b).localeCompare(stamp(a)) || b.id - a.id).slice(0, 5);
-  const attention = assets.filter((a) => a.status === "repair" || a.status === "lost" || a.status === "disposed");
+  /* v1.210.0 - an active asset whose holder is not on the current staff list
+     (left, deactivated, or an account the list does not carry). Only once
+     the list has loaded, so a slow list never flags everybody. */
+  const offList = (a: Asset) => people.data != null && a.assigned_to != null && a.status !== "lost" && a.status !== "disposed"
+    && !(people.data.staff ?? []).some((u) => u.id === a.assigned_to);
+  const attention = assets.filter((a) => a.status === "repair" || a.status === "lost" || a.status === "disposed" || offList(a));
   const byCat = CATS.map(([k]) => ({ k, label: catLabel(k), list: assets.filter((a) => a.category === k) })).filter((c) => c.list.length > 0);
   const byLoc = locations.map((loc) => ({ k: loc || "-", label: loc || noLocation(), list: assets.filter((a) => (a.location || "") === loc) }))
     .sort((a, b) => b.list.length - a.list.length);
@@ -372,7 +392,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
       {canEdit && <button type="button" className={rowBtn} onClick={() => startEdit(a)}>{L("Edit", "Sunting")}</button>}
       {canEdit && <button type="button" className={rowBtn} onClick={() => openStatusChange(a)}>{L("Status", "Status")}</button>}
       {audit.state !== "denied" && (
-        <button type="button" className={`${rowBtn} ${av.iconBtn}`} onClick={() => openHistory(a)}
+        <button type="button" className={`${rowBtn} ${av.iconBtn}`} onClick={() => showAsset(a)}
           aria-label={`${L("History", "Sejarah")} — ${a.asset_tag}`} title={L("History", "Sejarah")}>
           <AppIcon name="time" />
         </button>
@@ -396,7 +416,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
         <tbody>
           {list.map((a) => (
             <tr key={a.id}>
-              <td className={av.mono}>{a.asset_tag}</td>
+              <td>{tagBtn(a)}</td>
               <td><span className={av.strong}>{a.name}</span>{a.brand_model && <span className={av.muted}> · {a.brand_model}</span>}</td>
               {cols.includes("assigned") && <td>{a.assigned_name ?? <span className={av.muted}>—</span>}</td>}
               {cols.includes("location") && <td>{a.location ?? <span className={av.muted}>—</span>}</td>}
@@ -433,6 +453,9 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
       <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? av.off : ""}>
         <div className={`${av.kpis} ${av.kpis6}`}>
           <KpiRow label={L("Assets by status", "Aset mengikut status")}>
+            <KpiTile icon="package" tone="navy" label={L("Total Assets", "Jumlah Aset")} value={total} busy={!loaded}
+              sub={L("in the register", "dalam daftar")} onClick={() => { clearFilters(); go("register"); }}
+              title={L("Open the whole register", "Buka seluruh daftar")} />
             {counts.map(([k, label, n]) => (
               <KpiTile key={k} icon={STATUS_TILE[k]?.icon ?? "package"} tone={STATUS_TILE[k]?.tone ?? "navy"} label={label} value={n} busy={!loaded}
                 sub={L(`${pct(n)}% of total`, `${pct(n)}% daripada jumlah`)}
@@ -458,7 +481,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                   <tbody>
                     {recent.map((a) => (
                       <tr key={a.id}>
-                        <td className={av.mono}>{a.asset_tag}</td>
+                        <td>{tagBtn(a)}</td>
                         <td className={av.strong}>{a.name}</td>
                         <td>{a.brand_model ?? <span className={av.muted}>—</span>}</td>
                         <td>{a.assigned_name ?? <span className={av.muted}>—</span>}</td>
@@ -531,10 +554,10 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
 
         <div className={av.split2}>
           <section className={card} aria-label={L("Assets needing attention", "Aset perlu perhatian")}>
-            {head("warning", av.redWell, L("Assets Needing Attention", "Aset Perlu Perhatian"), L("Assets that are in repair, lost or disposed.", "Aset yang dalam pembaikan, hilang atau dilupuskan."),
+            {head("warning", av.redWell, L("Assets Needing Attention", "Aset Perlu Perhatian"), L("In repair, lost or disposed — or held by someone not on the current staff list.", "Dalam pembaikan, hilang atau dilupuskan — atau dipegang oleh seseorang yang tiada dalam senarai kakitangan semasa."),
               <button type="button" className={btnSm} onClick={() => go("care")}>{L("View all", "Lihat semua")}</button>)}
             {!loaded ? <SkelRows rows={3} /> : attention.length === 0
-              ? empty(L("No assets needing attention — nothing is in repair, lost or disposed.", "Tiada aset perlu perhatian — tiada dalam pembaikan, hilang atau dilupuskan."))
+              ? empty(L("No assets needing attention — nothing is in repair, lost or disposed, and every holder is on the staff list.", "Tiada aset perlu perhatian — tiada dalam pembaikan, hilang atau dilupuskan, dan setiap pemegang ada dalam senarai kakitangan."))
               : (
                 <div className={`erp-table-scroll erp-mt-2 ${av.tableWrap}`}>
                   <table className={av.plain} aria-label={L("Assets needing attention", "Aset perlu perhatian")}>
@@ -542,9 +565,9 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                     <tbody>
                       {attention.slice(0, 5).map((a) => (
                         <tr key={a.id}>
-                          <td className={av.mono}>{a.asset_tag}</td>
+                          <td>{tagBtn(a)}</td>
                           <td className={av.strong}>{a.name}</td>
-                          <td>{a.condition_note ?? <span className={av.muted}>—</span>}</td>
+                          <td>{offList(a) ? <span className={av.warnText}>{L(`Held by ${a.assigned_name ?? `#${a.assigned_to}`} — not on the current staff list`, `Dipegang oleh ${a.assigned_name ?? `#${a.assigned_to}`} — tiada dalam senarai kakitangan semasa`)}</span> : a.condition_note ?? <span className={av.muted}>—</span>}</td>
                           <td>{chip(a.status)}</td>
                           <td>{stamp(a) ? dmyMYT(stamp(a)) : <span className={av.muted}>—</span>}</td>
                         </tr>
@@ -578,7 +601,14 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
       <div className={card}>
         <div className={av.head}>
           <p className={av.title}>{L("Register", "Daftar")}</p>
-          {canEdit && <button type="button" className={btnSm} onClick={startAdd}><AppIcon name="add" />{L("Add asset", "Tambah aset")}</button>}
+          <span className={av.headTools}>
+            {/* v1.210.0 - the same rows as a table or as cards */}
+            <span role="group" aria-label={L("View", "Paparan")} className={av.mode}>
+              <button type="button" aria-pressed={regMode === "list"} onClick={() => setRegMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
+              <button type="button" aria-pressed={regMode === "grid"} onClick={() => setRegMode("grid")}><AppIcon name="package" />{L("Grid", "Grid")}</button>
+            </span>
+            {canEdit && <button type="button" className={btnSm} onClick={startAdd}><AppIcon name="add" />{L("Add asset", "Tambah aset")}</button>}
+          </span>
         </div>
         <div className={av.toolbar} role="search">
           <label className={av.search}>
@@ -633,6 +663,24 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
           </div>
         ) : assets.length === 0 ? (
           <p className={av.empty}>{canEdit ? L("No assets yet — add the first one with Add asset.", "Belum ada aset — tambah yang pertama dengan Tambah aset.") : L("No assets yet.", "Belum ada aset.")}</p>
+        ) : regMode === "grid" ? (
+          shown.length === 0 ? <p className={av.empty}>{L("No asset matches — clear the search or a filter.", "Tiada aset sepadan — kosongkan carian atau penapis.")}</p> : (
+            <ul className={av.grid} aria-label={L("Assets", "Aset")}>
+              {shown.map((a) => (
+                <li key={a.id} data-record={`asset:${a.id}`}>
+                  <button type="button" className={av.gridCard} onClick={() => showAsset(a)}>
+                    <span className={av.gridTop}><span className={av.mono}>{a.asset_tag}</span>{chip(a.status)}</span>
+                    <strong>{a.name}</strong>
+                    <span className={av.muted}>{catLabel(a.category)}{a.brand_model ? ` · ${a.brand_model}` : ""}</span>
+                    <span className={av.gridFoot}>
+                      <span>{a.assigned_name ?? L("Unassigned", "Tidak diberikan")}{a.location ? ` · ${a.location}` : ""}</span>
+                      <strong>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</strong>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
         ) : (
           /* v1.176.1 - sideways only; the page owns the vertical gesture. */
           <div className={`tbl-sticky erp-table-scroll erp-mt-2 ${av.tableWrap}`}>
@@ -646,6 +694,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                     ["assigned", L("Assigned to", "Diberikan kepada"), ""],
                     ["location", L("Location", "Lokasi"), ""],
                     ["status", L("Status", "Status"), ""],
+                    ["date", L("Purchased", "Dibeli"), ""],
                     ["value", L("Value (RM)", "Nilai (RM)"), av.num],
                   ] as [AssetCol, string, string | undefined][]).map(([col, label, cls]) => (
                     <th key={col} className={cls ?? ""}
@@ -662,17 +711,18 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
               </thead>
               <tbody>
                 {shown.length === 0 ? (
-                  <tr><td colSpan={8} className={av.emptyCell}>{L("No asset matches — clear the search or a filter.", "Tiada aset sepadan — kosongkan carian atau penapis.")}</td></tr>
+                  <tr><td colSpan={9} className={av.emptyCell}>{L("No asset matches — clear the search or a filter.", "Tiada aset sepadan — kosongkan carian atau penapis.")}</td></tr>
                 ) : shown.map((a) => (
                   <tr key={a.id} data-record={`asset:${a.id}`}>
-                    <td className={av.mono}>{a.asset_tag}</td>
-                    <td><span className={av.strong}>{a.name}</span>
+                    <td>{tagBtn(a)}</td>
+                    <td><button type="button" className={`${av.strong} ${av.linkBtn}`} onClick={() => showAsset(a)}>{a.name}</button>
                       <span className={av.muted}> · {catLabel(a.category)}</span>
                       {a.condition_note && <span className={av.note}>{a.condition_note}</span>}</td>
                     <td>{a.brand_model ?? <span className={av.muted}>—</span>}</td>
                     <td>{a.assigned_name ?? <span className={av.muted}>—</span>}</td>
                     <td>{a.location ?? <span className={av.muted}>—</span>}</td>
                     <td>{chip(a.status)}</td>
+                    <td className={av.nowrap}>{a.purchase_date ? dmy(a.purchase_date) : <span className={av.muted}>—</span>}</td>
                     <td className={av.num}>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : "—"}</td>
                     <td>
                       <span className={rowActions}>
@@ -682,7 +732,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                             onClick={() => void remove(a)}>{L("Remove", "Buang")}</button>
                         )}
                         {audit.state !== "denied" && (
-                          <button type="button" className={`${rowBtn} ${av.iconBtn}`} onClick={() => openHistory(a)}
+                          <button type="button" className={`${rowBtn} ${av.iconBtn}`} onClick={() => showAsset(a)}
                             aria-label={`${L("History", "Sejarah")} — ${a.asset_tag}`} title={L("History", "Sejarah")}>
                             <AppIcon name="time" />
                           </button>
@@ -694,7 +744,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={6}>{L("TOTAL — active asset value", "JUMLAH — nilai aset aktif")}</td>
+                  <td colSpan={7}>{L("TOTAL — active asset value", "JUMLAH — nilai aset aktif")}</td>
                   <td className={av.num}>{rm(totalValue)}</td>
                   <td></td>
                 </tr>
@@ -717,67 +767,23 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
             </label>
             <span className={av.pageBtns}>
               <button type="button" className={btnSm} disabled={pageNow === 0} onClick={() => setPage(pageNow - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}><AppIcon name="previous" /></button>
-              <span className={av.sub}>{L(`Page ${pageNow + 1} of ${pages}`, `Halaman ${pageNow + 1} daripada ${pages}`)}</span>
+              {/* v1.210.0 - numbered pages, the first, the last and two either side */}
+              {Array.from({ length: pages }, (_, i) => i).filter((i) => i === 0 || i === pages - 1 || Math.abs(i - pageNow) <= 2).map((i, k, arr) => (
+                <span key={i} className={av.pageGroup}>
+                  {k > 0 && i - arr[k - 1]! > 1 && <span className={av.muted} aria-hidden>…</span>}
+                  <button type="button" className={`${btnSm} ${i === pageNow ? av.pageOn : ""}`} aria-current={i === pageNow ? "page" : undefined}
+                    aria-label={L(`Page ${i + 1}`, `Halaman ${i + 1}`)} onClick={() => setPage(i)}>{i + 1}</button>
+                </span>
+              ))}
               <button type="button" className={btnSm} disabled={pageNow >= pages - 1} onClick={() => setPage(pageNow + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
             </span>
           </div>
         )}
       </div>
 
-      <div id="asset-form" className={`${card} scroll-mt-36`}>
-        {canEdit ? (
-          <button type="button" className={btnClass}
-            onClick={() => { setOpenForm((v) => !v); if (openForm) { setEditId(null); setForm({ ...EMPTY }); } }}>
-            {openForm ? (editId ? L("Cancel edit", "Batal sunting") : L("Hide form", "Sembunyi borang")) : L("+ New asset — show details", "+ Aset baharu — tunjuk butiran")}
-          </button>
-        ) : (
+      <div className={card}>
+        {!canEdit && (
           <p className={av.sub}>{L("You can read the register. Adding and editing assets is for the roles that keep it (HR and the CEO).", "Anda boleh membaca daftar. Menambah dan menyunting aset adalah untuk peranan yang menyimpannya (HR dan CEO).")}</p>
-        )}
-        {openForm && canEdit && (
-          <div className="mt-3">
-            <p className={av.formTitle}>{editId ? L(`Editing ${form.asset_tag}`, `Menyunting ${form.asset_tag}`) : L("New asset", "Aset baharu")}</p>
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="identification" className="h-3.5 w-3.5" />{L("Identification", "Pengenalan")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
-                <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
-              <label className="block"><span className={lbl}>{L("Asset name *", "Nama aset *")}</span>
-                <input className={input} placeholder={L('e.g. Ring light 18"', 'cth. Ring light 18"')} {...f("name")} /></label>
-              <label className="block"><span className={lbl}>{L("Category", "Kategori")}</span>
-                <select className={input} {...f("category")}>{CATS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
-              <label className="block"><span className={lbl}>{L("Brand & model", "Jenama & model")}</span>
-                <input className={input} placeholder={L("e.g. Godox SL-60W", "cth. Godox SL-60W")} {...f("brand_model")} /></label>
-              <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
-                <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
-            </div>
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="purchase" className="h-3.5 w-3.5" />{L("Purchase", "Pembelian")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
-                <input className={input} type="date" {...f("purchase_date")} /></label>
-              <label className="block"><span className={lbl}>{L("Price (RM)", "Harga (RM)")}</span>
-                <input className={input} inputMode="decimal" placeholder="0.00" {...f("purchase_price")} /></label>
-              <label className="block"><span className={lbl}>{L("Vendor", "Pembekal")}</span>
-                <input className={input} placeholder={L("e.g. Shopee, Machines", "cth. Shopee, Machines")} {...f("vendor")} /></label>
-              <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
-                <input className={input} type="date" {...f("warranty_until")} /></label>
-            </div>
-            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="assignment" className="h-3.5 w-3.5" />{L("Assignment & status", "Penugasan & status")}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
-                <select className={input} {...f("assigned_to")}>
-                  <option value="">{L("— unassigned / shared —", "— tidak diberikan / kongsi —")}</option>
-                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select></label>
-              <label className="block"><span className={lbl}>{L("Location", "Lokasi")}</span>
-                <input className={input} placeholder={L("e.g. Studio A, Store room", "cth. Studio A, Bilik stor")} {...f("location")} /></label>
-              <label className="block"><span className={lbl}>{L("Status", "Status")}</span>
-                <select className={input} {...f("status")}>{STATUSES.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
-              <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
-                <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
-            </div>
-            <button type="button" className={`${btnClass} mt-3`} onClick={() => void save()}>
-              {editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}
-            </button>
-          </div>
         )}
         {unavailable && <p className="text-warning mt-2 text-xs font-medium">{L("Assets unavailable — deploy the worker first.", "Aset tidak tersedia — sila pasang worker dahulu.")}</p>}
         <StaleHint show={register.stale} className="mt-2" />
@@ -808,7 +814,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                   <ul className={av.holderList}>
                     {h.list.map((a) => (
                       <li key={a.id}>
-                        <span className={av.mono}>{a.asset_tag}</span>
+                        {tagBtn(a)}
                         <span>{a.name}{a.brand_model && <span className={av.muted}> · {a.brand_model}</span>}</span>
                         {chip(a.status)}
                         {canEdit && <button type="button" className={rowBtn} onClick={() => startEdit(a)}>{L("Reassign", "Tugaskan semula")}</button>}
@@ -912,7 +918,7 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
           {!loaded ? <SkelRows rows={2} /> : warrantyExpired.length + warrantySoon.length === 0 ? empty(L("No warranty ending in the next 90 days.", "Tiada waranti tamat dalam 90 hari akan datang.")) : (
             <ul className={av.warranty}>
               {[...warrantySoon.map((a) => [a, false] as const), ...warrantyExpired.map((a) => [a, true] as const)].map(([a, past]) => (
-                <li key={a.id}><span className={av.mono}>{a.asset_tag}</span><span>{a.name}</span>
+                <li key={a.id}>{tagBtn(a)}<span>{a.name}</span>
                   <span className={past ? chipNeutral : chipWarn}>{past ? L(`ended ${dmy(a.warranty_until)}`, `tamat ${dmy(a.warranty_until)}`) : L(`ends ${dmy(a.warranty_until)}`, `tamat ${dmy(a.warranty_until)}`)}</span></li>
               ))}
             </ul>
@@ -945,6 +951,65 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
             )}
         </section>
       </TabZone>
+
+
+      {/* ============================ ADD / EDIT ============================ */}
+      {/* v1.210.0 - the same form and the same save(), in a drawer from Add
+          asset or an asset's Edit, so the list stays where it was */}
+      <SideDrawer
+        open={openForm && canEdit}
+        onClose={closeForm}
+        wide
+        title={editId ? L(`Edit ${form.asset_tag}`, `Sunting ${form.asset_tag}`) : L("New asset", "Aset baharu")}
+        subtitle={editId ? form.name : L("A blank tag is numbered for you (AZOA-001…).", "Tag kosong dinomborkan untuk anda (AZOA-001…).")}
+        footer={
+          <span className={av.actions}>
+            <button type="button" className={btnClass} onClick={() => void save()}>{editId ? L("Save changes", "Simpan perubahan") : L("Add asset", "Tambah aset")}</button>
+            <button type="button" className={btnSm} onClick={closeForm}>{L("Cancel", "Batal")}</button>
+          </span>
+        }
+      >
+        <div id="asset-form" className={av.drawer}>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="identification" className="h-3.5 w-3.5" />{L("Identification", "Pengenalan")}</p>
+            <div className={av.formGrid}>
+              <label className="block"><span className={lbl}>{L("Asset tag", "Tag aset")}</span>
+                <input className={input} placeholder={L("blank = auto (AZOA-001)", "kosong = auto (AZOA-001)")} disabled={editId !== null} {...f("asset_tag")} /></label>
+              <label className="block"><span className={lbl}>{L("Asset name *", "Nama aset *")}</span>
+                <input className={input} placeholder={L('e.g. Ring light 18"', 'cth. Ring light 18"')} {...f("name")} /></label>
+              <label className="block"><span className={lbl}>{L("Category", "Kategori")}</span>
+                <select className={input} {...f("category")}>{CATS.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Brand & model", "Jenama & model")}</span>
+                <input className={input} placeholder={L("e.g. Godox SL-60W", "cth. Godox SL-60W")} {...f("brand_model")} /></label>
+              <label className="block"><span className={lbl}>{L("Serial no.", "No. siri")}</span>
+                <input className={input} placeholder={L("from the sticker", "daripada pelekat")} {...f("serial_no")} /></label>
+            </div>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="purchase" className="h-3.5 w-3.5" />{L("Purchase", "Pembelian")}</p>
+            <div className={av.formGrid}>
+              <label className="block"><span className={lbl}>{L("Purchase date", "Tarikh pembelian")}</span>
+                <input className={input} type="date" {...f("purchase_date")} /></label>
+              <label className="block"><span className={lbl}>{L("Price (RM)", "Harga (RM)")}</span>
+                <input className={input} inputMode="decimal" placeholder="0.00" {...f("purchase_price")} /></label>
+              <label className="block"><span className={lbl}>{L("Vendor", "Pembekal")}</span>
+                <input className={input} placeholder={L("e.g. Shopee, Machines", "cth. Shopee, Machines")} {...f("vendor")} /></label>
+              <label className="block"><span className={lbl}>{L("Warranty until", "Waranti sehingga")}</span>
+                <input className={input} type="date" {...f("warranty_until")} /></label>
+            </div>
+            <p className={`${sub} flex items-center gap-1.5`}><AppIcon name="assignment" className="h-3.5 w-3.5" />{L("Assignment & status", "Penugasan & status")}</p>
+            <div className={av.formGrid}>
+              <label className="block"><span className={lbl}>{L("Assigned to", "Diberikan kepada")}</span>
+                <select className={input} {...f("assigned_to")}>
+                  <option value="">{L("— unassigned / shared —", "— tidak diberikan / kongsi —")}</option>
+                  {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select></label>
+              <label className="block"><span className={lbl}>{L("Location", "Lokasi")}</span>
+                <input className={input} placeholder={L("e.g. Studio A, Store room", "cth. Studio A, Bilik stor")} {...f("location")} /></label>
+              <label className="block"><span className={lbl}>{L("Status", "Status")}</span>
+                <select className={input} {...f("status")}>{STATUSES.map(([v, l, ms]) => <option key={v} value={v}>{L(l, ms)}</option>)}</select></label>
+              <label className="block"><span className={lbl}>{L("Condition note", "Nota keadaan")}</span>
+                <input className={input} placeholder={L("e.g. scratch on left side", "cth. calar di sebelah kiri")} {...f("condition_note")} /></label>
+            </div>
+        </div>
+      </SideDrawer>
 
       {/* change status - the same PATCH, asked first for lost or disposed */}
       <SideDrawer
@@ -983,21 +1048,59 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
         )}
       </SideDrawer>
 
-      {/* one asset's history, from the audit log */}
-      <SideDrawer
-        open={historyFor !== null}
-        onClose={() => setHistoryFor(null)}
-        title={historyFor ? L(`History — ${historyFor.asset_tag}`, `Sejarah — ${historyFor.asset_tag}`) : ""}
-        subtitle={historyFor ? `${historyFor.name}${historyFor.brand_model ? ` · ${historyFor.brand_model}` : ""}` : undefined}
-      >
-        {historyFor && (
-          <div className={av.drawer}>
-            {audit.state === "idle" || audit.state === "loading" ? <SkelRows rows={3} />
-              : audit.state === "denied" ? <p className={av.empty}><AppIcon name="lock" />{L("The audit log is open to the CEO and admins.", "Log audit terbuka kepada CEO dan pentadbir.")}</p>
-              : audit.state === "error" ? <p className={av.empty}><AppIcon name="warning" />{L("The audit log could not be read just now.", "Log audit tidak dapat dibaca sekarang.")}</p>
-              : (() => {
-                const rows = audit.entries.filter((r) => r.entity_id === String(historyFor.id));
-                return rows.length === 0 ? empty(L("No change recorded for this asset in the latest 300 audit entries.", "Tiada perubahan direkodkan untuk aset ini dalam 300 entri audit terkini."))
+      {/* ============================ THE ASSET DRAWER ============================ */}
+      {/* v1.210.0 - one asset: the record as the register holds it, who has
+          it and where, its history from the audit log (for the roles the
+          server lets read it), and the commands the row already had. Nothing
+          here is computed that the record does not hold. */}
+      {(() => {
+        const a = detailId == null ? null : assets.find((x) => x.id === detailId) ?? null;
+        if (!a) return null;
+        const warr = a.warranty_until ? (a.warranty_until < today ? "ended" : a.warranty_until <= in90 ? "soon" : "ok") : null;
+        const rows = audit.state === "ok" ? audit.entries.filter((r) => r.entity_id === String(a.id)) : [];
+        return (
+          <SideDrawer open onClose={() => setDetailId(null)} wide title={a.name}
+            subtitle={<span className={av.badges}><span className={av.mono}>{a.asset_tag}</span>{chip(a.status)}<span className={chipNeutral}>{catLabel(a.category)}</span></span>}
+            footer={(canEdit || canRemove) ? (
+              <span className={av.actions}>
+                {canEdit && <button type="button" className={btnClass} onClick={() => startEdit(a)}><AppIcon name="edit" />{L("Edit", "Sunting")}</button>}
+                {canEdit && <button type="button" className={btnSm} onClick={() => openStatusChange(a)}>{L("Change status", "Tukar status")}</button>}
+                {canRemove && <button type="button" className={rowBtnDanger} onClick={() => { setDetailId(null); void remove(a); }}>{L("Remove entry", "Buang entri")}</button>}
+              </span>
+            ) : undefined}>
+            <div className={av.detail} data-record={`asset:${a.id}`}>
+              <section className={av.detailSec} aria-label={L("Basic information", "Maklumat asas")}>
+                <p className={av.title}>{L("Basic information", "Maklumat asas")}</p>
+                <dl className={av.facts}>
+                  <div><dt>{L("Asset tag", "Tag aset")}</dt><dd className={av.mono}>{a.asset_tag}</dd></div>
+                  <div><dt>{L("Asset name", "Nama aset")}</dt><dd>{a.name}</dd></div>
+                  <div><dt>{L("Category", "Kategori")}</dt><dd>{catLabel(a.category)}</dd></div>
+                  <div><dt>{L("Brand & model", "Jenama & model")}</dt><dd>{a.brand_model ?? "—"}</dd></div>
+                  <div><dt>{L("Serial no.", "No. siri")}</dt><dd>{a.serial_no ?? "—"}</dd></div>
+                  <div><dt>{L("Purchase date", "Tarikh pembelian")}</dt><dd>{a.purchase_date ? dmy(a.purchase_date) : "—"}</dd></div>
+                  <div><dt>{L("Recorded value", "Nilai direkodkan")}</dt><dd>{a.purchase_price_cents != null ? rm(a.purchase_price_cents) : L("No price recorded", "Tiada harga direkodkan")}</dd></div>
+                  <div><dt>{L("Vendor", "Pembekal")}</dt><dd>{a.vendor ?? "—"}</dd></div>
+                  <div><dt>{L("Warranty until", "Waranti sehingga")}</dt><dd>{a.warranty_until ? <>{dmy(a.warranty_until)} {warr === "ended" ? <span className={chipNeutral}>{L("ended", "tamat")}</span> : warr === "soon" ? <span className={chipWarn}>{L("ends within 90 days", "tamat dalam 90 hari")}</span> : null}</> : "—"}</dd></div>
+                  <div><dt>{L("Status", "Status")}</dt><dd>{chip(a.status)}</dd></div>
+                </dl>
+                {a.condition_note && <p className={av.noteBox}>{a.condition_note}</p>}
+                <p className={av.sub}>{L("The value is the purchase price as recorded; lost and disposed assets are not counted in the totals. No depreciation is calculated.", "Nilai ialah harga belian seperti direkodkan; aset hilang dan dilupuskan tidak dikira dalam jumlah. Tiada susut nilai dikira.")}</p>
+              </section>
+              <section className={av.detailSec} aria-label={L("Assignment", "Penugasan")}>
+                <p className={av.title}>{L("Assignment", "Penugasan")}</p>
+                <dl className={av.facts}>
+                  <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{a.assigned_name ? <span className={av.who}><Avatar name={a.assigned_name} size="sm" /><span>{a.assigned_name}</span></span> : L("Unassigned / shared", "Tidak diberikan / kongsi")}</dd></div>
+                  <div><dt>{L("Location", "Lokasi")}</dt><dd>{a.location ?? noLocation()}</dd></div>
+                </dl>
+                {offList(a) && <p className={av.warnText}>{L("The holder is not on the current staff list — check whether the asset was returned.", "Pemegang tiada dalam senarai kakitangan semasa — semak sama ada aset telah dipulangkan.")}</p>}
+              </section>
+              <section className={av.detailSec} aria-label={L("History", "Sejarah")}>
+                <p className={av.title}>{L("History", "Sejarah")}</p>
+                {audit.state === "idle" ? <button type="button" className={btnSm} onClick={() => void loadAudit()}><AppIcon name="time" />{L("Show history", "Tunjuk sejarah")}</button>
+                  : audit.state === "loading" ? <SkelRows rows={3} />
+                  : audit.state === "denied" ? <p className={av.empty}><AppIcon name="lock" />{L("The audit log is open to the CEO and admins. Ask one of them for this asset's history.", "Log audit terbuka kepada CEO dan pentadbir. Minta salah seorang daripada mereka untuk sejarah aset ini.")}</p>
+                  : audit.state === "error" ? <p className={av.empty}><AppIcon name="warning" />{L("The audit log could not be read just now.", "Log audit tidak dapat dibaca sekarang.")}</p>
+                  : rows.length === 0 ? empty(L("No change recorded for this asset in the latest 300 audit entries.", "Tiada perubahan direkodkan untuk aset ini dalam 300 entri audit terkini."))
                   : (
                     <ol className={av.timeline}>
                       {rows.map((r) => (
@@ -1008,15 +1111,16 @@ export function AssetsPanel({ focus }: { focus?: RecordFocus | null }) {
                         </li>
                       ))}
                     </ol>
-                  );
-              })()}
-            <p className={av.sub}>
-              {L(`Added ${historyFor.created_at ? dmyMYT(historyFor.created_at) : "—"}${historyFor.purchase_date ? ` · bought ${dmy(historyFor.purchase_date)}` : ""}${historyFor.vendor ? ` from ${historyFor.vendor}` : ""}${historyFor.serial_no ? ` · serial ${historyFor.serial_no}` : ""}`,
-                 `Ditambah ${historyFor.created_at ? dmyMYT(historyFor.created_at) : "—"}${historyFor.purchase_date ? ` · dibeli ${dmy(historyFor.purchase_date)}` : ""}${historyFor.vendor ? ` daripada ${historyFor.vendor}` : ""}${historyFor.serial_no ? ` · siri ${historyFor.serial_no}` : ""}`)}
-            </p>
-          </div>
-        )}
-      </SideDrawer>
+                  )}
+                <p className={av.sub}>
+                  {L(`Added ${a.created_at ? dmyMYT(a.created_at) : "—"}${a.updated_at ? ` · last changed ${dmyMYT(a.updated_at)}` : ""}`,
+                     `Ditambah ${a.created_at ? dmyMYT(a.created_at) : "—"}${a.updated_at ? ` · terakhir diubah ${dmyMYT(a.updated_at)}` : ""}`)}
+                </p>
+              </section>
+            </div>
+          </SideDrawer>
+        );
+      })()}
     </TabPage>
   );
 }

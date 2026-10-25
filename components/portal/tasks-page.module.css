@@ -692,3 +692,291 @@
   flex: 0 0 auto;
   color: var(--gold-solid);
 }
+
+/* ======================================================================
+   v1.209.0 - the owner's Tasks brief (25-10-2026): the task drawer, the
+   create drawer, the Calendar of deadlines and the paged tables. Tokens
+   only - navy (--primary), gold (--brand-accent), white (--card), greys.
+   ====================================================================== */
+
+/* a task title that opens its drawer */
+.titleBtn {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.titleBtn:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.titleBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* pages */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.pagerBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+.pageOn {
+  border-color: var(--gold-solid, var(--brand-accent));
+  background: var(--gold-solid, var(--brand-accent));
+  color: var(--brand-primary, var(--primary));
+}
+
+/* the create form inside its drawer: one column */
+.formDrawer {
+  margin-top: 0;
+}
+@media (min-width: 900px) {
+  .formDrawer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* the task drawer */
+.detail {
+  display: grid;
+  gap: 1rem;
+}
+.detailSec {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+}
+.detailHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.descBox {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 10px;
+  background: var(--tint-navy);
+  font-size: 0.875rem;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem 1rem;
+  margin: 0;
+}
+.facts > div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.facts dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.facts dd {
+  margin: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.editForm {
+  display: grid;
+  gap: 0.75rem;
+}
+.editRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.editBtns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.activity {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+.activity li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.activity li > :global(svg) {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--success);
+}
+.drawerFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* the Calendar of deadlines */
+.calNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.calMonth {
+  min-width: 9rem;
+  text-align: center;
+  color: var(--primary);
+}
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--border);
+}
+.calHead {
+  padding: 0.375rem 0.25rem;
+  background: var(--secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.calBlank,
+.calDay {
+  min-height: 5.5rem;
+  background: var(--card);
+}
+.calBlank {
+  background: color-mix(in srgb, var(--secondary) 60%, var(--card));
+}
+.calDay {
+  display: grid;
+  align-content: start;
+  gap: 0.1875rem;
+  padding: 0.25rem;
+  min-width: 0;
+}
+.calDay[data-today] {
+  background: var(--tint-gold);
+  box-shadow: inset 0 0 0 2px var(--brand-accent);
+}
+.calNum {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.calTask {
+  display: block;
+  width: 100%;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.375rem;
+  border: 0;
+  border-left: 3px solid var(--info);
+  border-radius: 4px;
+  background: var(--info-soft);
+  color: var(--foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.calLate {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+.calDone {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+.calMore {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+@media (max-width: 640px) {
+  .calBlank,
+  .calDay {
+    min-height: 3.75rem;
+  }
+  .calTask {
+    font-size: 0.625rem;
+    padding: 0.0625rem 0.25rem;
+  }
+}
+.agenda {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.agenda button {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agenda button:hover {
+  background: var(--secondary);
+}
+.agendaDate {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}

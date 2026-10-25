@@ -44,7 +44,11 @@ function useOverview(): OverviewData | null {
 /** One task, as this card needs it. */
 interface MonTask {
   id: number; title: string; status: string; deadline?: string | null;
-  assignee?: string | null; acknowledged_at?: string | null;
+  assignee?: string | null;
+  /* v1.209.0 - what GET /tasks actually sends (staff.ts): `acknowledged`
+     0/1, and who set it for whom. The card read `acknowledged_at`, a field
+     the API never had, so "Not acknowledged" listed every open task. */
+  acknowledged?: number; assigned_to?: number | null; created_by?: number | null;
 }
 
 /** v1.88.0 — the tile that opens what it counts.
@@ -88,7 +92,7 @@ export function TaskProgressCard() {
      list that disagrees with the number above it is worse than no list. */
   const matches = (t: MonTask): boolean =>
     pick === "overdue" ? Boolean(t.deadline && t.deadline.slice(0, 10) < today && t.status !== "completed")
-    : pick === "unacked" ? (!t.acknowledged_at && t.status !== "completed")
+    : pick === "unacked" ? (t.status !== "completed" && t.created_by != null && t.created_by !== t.assigned_to && t.acknowledged === 0)
     : pick === null ? false
     : t.status === pick;
   const shown = (tasks ?? []).filter(matches);

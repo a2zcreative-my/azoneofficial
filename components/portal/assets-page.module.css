@@ -656,3 +656,199 @@
 .register td:nth-child(4) {
   min-width: 8rem;
 }
+
+/* ======================================================================
+   v1.210.0 - the owner's Assets brief (25-10-2026): the asset drawer, the
+   add/edit drawer, the register's grid view and numbered pages. Tokens
+   only - navy (--primary), gold (--gold-solid / --brand-accent), white,
+   the greys.
+   ====================================================================== */
+
+/* a tag or a name that opens its asset */
+.linkBtn {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.linkBtn:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linkBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.headTools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mode {
+  display: inline-flex;
+  padding: 0.1875rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--secondary);
+}
+.mode button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.mode button[aria-pressed="true"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 3px rgb(26 41 70 / 0.12);
+}
+
+/* the register as cards */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.gridCard {
+  display: grid;
+  gap: 0.375rem;
+  width: 100%;
+  height: 100%;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  align-content: start;
+}
+.gridCard:hover {
+  border-color: var(--brand-accent);
+}
+.gridCard:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.gridCard > strong {
+  overflow-wrap: anywhere;
+}
+.gridTop,
+.gridFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+}
+.gridFoot {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.gridFoot strong {
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* numbered pages */
+.pageGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.pageOn {
+  border-color: var(--gold-solid, var(--brand-accent));
+  background: var(--gold-solid, var(--brand-accent));
+  color: var(--brand-primary, var(--primary));
+}
+
+/* the add / edit form inside its drawer */
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+@media (min-width: 900px) {
+  .formGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* the asset drawer */
+.detail {
+  display: grid;
+  gap: 1rem;
+}
+.detailSec {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem 1rem;
+  margin: 0;
+}
+.facts > div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.facts dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.facts dd {
+  margin: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.noteBox {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 10px;
+  background: var(--tint-navy);
+  font-size: 0.875rem;
+  white-space: pre-line;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}

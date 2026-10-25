@@ -10,6 +10,110 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.210.0] - 2026-10-25 - Assets: one asset drawer, Add/Edit in a drawer, a grid view
+
+The owner, 25-10-2026 ("A2Z OS - Assets Management UI Improvement", with a
+reference screen): five tabs, an asset details panel, no new financial
+fields, QR, depreciation, maintenance scheduling or transfer history
+without approval; "ONE ASSET TAG. ONE AUTHORITATIVE ASSET RECORD. MULTIPLE
+CONNECTED VIEWS." The audit found the five tabs already built (1.199.0) on
+one table and one route; Inventory and Finance hold no copy of an asset,
+and the Desk's warranty alert and the leavers checklist read the same
+table. The owner approved the screen plan and two worker fixes, and chose
+"not now" for a history route the register keepers could read.
+
+### Added
+
+- **The asset drawer** (`components/portal/assets-panel.tsx`): every tag
+  and name - register rows and cards, Overview, Assignments, Maintenance &
+  Disposal, a search hit - opens one drawer: the record as the register
+  holds it (tag, item, category, brand and model, serial, purchase date,
+  recorded value, vendor, warranty with "ends within 90 days" / "ended",
+  status, condition note), who holds it and where, its history from the
+  audit log (where the role may read it; said otherwise), and Edit, Change
+  status and Remove entry behind the same gates. It says the value is the
+  recorded purchase price and that no depreciation is calculated.
+- **Add and Edit in a drawer**: the same form and `save()`, no scroll to
+  the bottom of the register.
+- **Register**: a Purchased column (sortable), numbered pages, and a
+  list / grid toggle (cards open the drawer).
+- **Overview**: a Total Assets tile; "Needs attention" also lists an
+  active asset held by someone not on the current staff list (judged only
+  once the list has loaded).
+- Guard `tests/assets-module.mjs` (20 checks).
+
+### Changed (worker - deploy the worker too)
+
+- `GET /staff/assets` sends the holder's **full name**
+  (`COALESCE(full_name, name)`), as the staff list and the picker show it.
+- The **warranty alert** (`worker/src/watchers.ts`) skips lost and disposed
+  assets - the Assets page's own "out of service" - instead of disposed and
+  a "retired" status that never existed.
+
+### Not changed
+
+- The asset table, statuses, add/edit/status/remove rules and permissions;
+  no depreciation, QR, maintenance scheduling, transfer history or photo
+  (each needs a database change and approval); no export. An asset's
+  history still comes from the audit log, which only the CEO and admins
+  read (owner: not now for a register-keeper route).
+
+## [1.209.0] - 2026-10-25 - Tasks: a task drawer, Create in a drawer, a Calendar of deadlines
+
+The owner, 25-10-2026 ("A2Z OS - Tasks Management UI Improvement", with a
+reference screen): Overview, My Tasks, All Tasks, Calendar, Reports &
+Archive; a task details drawer; a visible + Create Task; no comments,
+attachments, statuses or fields because the mockup shows them; "ONE TASK
+RECORD, ONE SOURCE OF TRUTH, MULTIPLE CONNECTED VIEWS." The audit found the
+tabs, figures, lists, board and archive already built (1.200.0) on one task
+table and one API; the Dashboard, Desk and notifications already point at
+the task by id. The owner approved the screen plan, Edit through the route
+that already exists, "not now" for comments, and "not now, add a guard" for
+two server reads (a task's event trail; the archive past the newest 200).
+
+### Added
+
+- **The task drawer** (`components/portal/tasks.tsx`): every task title,
+  board card, attention row, scope chip, calendar entry - and a search hit,
+  notification or Desk item - opens one drawer: title, priority, status and
+  due date; description, assignee (with position), creator, deadline and
+  acknowledgement; the deliverables checklist with progress and who ticked
+  what; the activity those ticks record; and the status control,
+  Acknowledge and the CEO's delete in its footer.
+- **Edit in the drawer**, through the existing `PATCH /staff/tasks/:id`
+  (the Roster's Edit uses it too): title, description, priority, deadline;
+  managers may reassign. Only changed fields are sent; the server's
+  permission checks, notifications and audit are unchanged.
+- **Create Task opens a drawer** from the + button (and the Dashboard's
+  quick action): the same form and the same `create()`.
+- **Calendar tab**: a month of deadlines from the tasks already loaded
+  (managers: the board; staff: their own), overdue in red, closed struck
+  through, today marked; the month as a list under it (44 px targets on a
+  phone). No request, no event, no calendar data of its own.
+- **Overview**: a Total tile, and My Tasks as a three-column board.
+- **All Tasks**: a list or board view, a Position column, 15 rows a page.
+- **Archive**: paged, and it says it covers the newest 200 tasks (100 for
+  your own) - the limit the board read has.
+- Guard `tests/tasks-module.mjs` (25 checks).
+
+### Fixed
+
+- **Reports' "Not acknowledged" list** (`company-monitor.tsx`) filtered on
+  `acknowledged_at`, a field the API never sent, so it listed every open
+  task under a correct count. It now uses the server's own rule (set by
+  someone else, not closed, no acknowledgement).
+
+### Not changed
+
+- The task API, statuses (Open, Pending, Closed), the create, tick,
+  acknowledge and delete rules, permissions and the schema. Comments exist
+  on the server but stay off screen (owner: not now). Not supported, so not
+  shown: adding a checklist item later, a person or date per item, a task
+  export, the Department column (HR holds it; `/staff-list` does not send
+  it).
+- Reported for later: company progress is counted from the newest 200 rows
+  on the Overview and from every task on the Reports card.
+
 ## [1.208.0] - 2026-10-25 - On Shift: one clock, one record, desktop and phone
 
 The owner, 25-10-2026 (On Shift and Clock In/Out brief, with desktop and
