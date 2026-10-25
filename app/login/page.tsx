@@ -1,58 +1,33 @@
 "use client";
 
 /**
- * SIGN IN (/login) — one door for everyone, into A2Z CREATIVE MARKETING's
- * portals. After sign-in people are routed by role:
- *   customer -> /account · staff roles -> /portal · CMS roles -> /admin
+ * SIGN IN (/login) - the one door into A2Z CREATIVE MARKETING's portals.
+ * After sign-in the server's answer decides where a person goes; the page
+ * never decides what anyone may see.
  *
- * v1.156.0 (CEO, 12-09-2026: *"provide me implementation for the better
- * UI/UX on the login page webview and mobile apps view"*).
+ * v1.211.0 (the owner's sign-in brief, 25-10-2026: "MINIMAL PUBLIC
+ * INFORMATION. STRONG SERVER-SIDE SECURITY. EXISTING AUTHENTICATION
+ * PRESERVED. NO DUPLICATION."). This page is shared by staff, customers and
+ * clients, and is open to anyone, so it says only what a visitor needs to
+ * sign in:
+ *   - the navy panel is the mark, "Welcome to A2Z." and the copyright - no
+ *     list of what is inside, no "staff and customer portal";
+ *   - no build number;
+ *   - every failed sign-in, by password or by Google, says the same
+ *     sentence, so the page never tells anyone whether an account exists,
+ *     is switched off, or has left;
+ *   - "Forgot password?" says to contact A2Z, not how accounts are run;
+ *   - no Create account (the owner: hide it from the page).
+ * Password, Google and two-factor sign-in are exactly what they were, and
+ * the server decides every one of them (worker/src/index.ts, /auth/*).
  *
- * WHAT WAS WRONG, and what each change answers:
- *
- *   THE DESKTOP WAS A PHONE FORM ON A 1440px SCREEN. A 384px column floated
- *   in the middle of an empty white page: no brand, no anchor, nothing to
- *   read. From `lg` up the page is now TWO HALVES — the navy brand panel
- *   (logo, one sentence, what is actually inside the portal) and the form,
- *   centred in its own half. Below `lg` nothing splits: it stays the single
- *   centred column a phone wants, measured in svh with the safe-area inset,
- *   which is the v1.29.2 fix and is kept exactly.
- *
- *   THE FIELDS WERE PLACEHOLDER-ONLY. A placeholder is not a label: it
- *   disappears the moment you type, so a half-filled form stops saying what
- *   its boxes are, and screen readers are left guessing. Every field now has
- *   a real <label>, and the inputs are `inputClassLg` — 16px text on a phone,
- *   which is also what stops iOS zooming the page in when a field is tapped.
- *
- *   IT WAS NOT A FORM. Enter worked in the password box only (a hand-rolled
- *   keydown), password managers had no form to fill, and the browser had no
- *   submit to offer. It is a real <form onSubmit> now: Enter submits from any
- *   field, and the managers behave.
- *
- *   THE BUTTON WAS BORN DEAD. Disabled until both boxes had text, so the
- *   first thing anyone saw was a grey slab. It is live from the first frame
- *   and says what is missing when pressed — you can always press it, and it
- *   always tells you something.
- *
- *   YOU COULD NOT CHOOSE THE LANGUAGE AT THE ONE SCREEN YOU CANNOT SKIP.
- *   The language came from the device and the EN/BM switch lived inside the
- *   portal, so a BM-speaking staff member met English at sign-in. The switch
- *   is on this page now and writes the same `azone-lang` key the rest of the
- *   app reads.
- *
- *   A FORGOTTEN PASSWORD WAS A DEAD END. There is no self-service reset in
- *   this system - an administrator sets a new password on the Users tab - so
- *   the page says exactly that instead of leaving people to guess.
- *
- *   THE 2FA BOX FOUGHT THE PHONE. No one-time-code autofill, no paste
- *   cleanup, and you had to hunt for the button after typing six digits. It
- *   autofills, accepts a pasted code, and signs in by itself on the sixth
- *   digit.
- *
- * The language still comes from state rather than a module-scope getLang()
- * read: /login is part of the STATIC EXPORT, so a direct read would render
- * "en" into login.html and "ms" on the client and break hydration (v1.27.0).
- * Every component here is module scope (house rule #30).
+ * Kept from v1.156.0: a real <form> (Enter submits, password managers
+ * fill), labelled 16px fields, the live button that says what is missing,
+ * Caps Lock, show/hide password, the one-time-code box that signs in on the
+ * sixth digit, EN/BM on the page, and the phone column measured in svh with
+ * the safe-area inset (v1.29.2). The language is read in an effect: /login
+ * is part of the static export (v1.27.0). Every component is module scope
+ * (house rule #30).
  */
 
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
@@ -60,17 +35,14 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { inputClassLg, btnClassBlock } from "@/lib/ui-styles";
-import { APP_VERSION } from "@/lib/version";
+import css from "./login.module.css";
 
 const API = "/api/v1";
 
 interface User { id: number; email: string; name: string; role: string }
 
-// Roles whose workplace is the staff portal. Content roles (admin, editor,
-// marketing) work in /admin; everyone here goes to /portal. Keep in sync with
-// PORTAL_ROLES in app/admin/page.tsx and the Worker's login destination.
-// Everyone except super_admin/admin (→ /admin) and customer (→ /account)
-// works in /portal. editor & marketing are now portal roles too.
+/* Where the SERVER's answer sends a person after sign-in. This only picks a
+   page; every page and every API asks the server again who you are. */
 const STAFF_ONLY = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
 
 function destinationFor(role: string): string {
@@ -81,6 +53,11 @@ function destinationFor(role: string): string {
 
 /** the page's own translator, made from whichever language the device holds */
 const tr = (lang: Lang) => (en: string, ms: string) => (lang === "ms" ? ms : en);
+
+/** v1.211.0 - THE ONE SENTENCE for any sign-in that did not work, by
+    password or by Google: it never says which part was wrong, or whether
+    the account exists. */
+const FAILED: [string, string] = ["Unable to sign in with the provided credentials.", "Tidak dapat log masuk dengan maklumat yang diberikan."];
 
 /* ── module-scope pieces (house rule #30) ──────────────────────────────── */
 
@@ -112,14 +89,10 @@ function EyeIcon({ off }: { off: boolean }) {
 /** EN | BM, on the one screen nobody can skip. Writes the same key the
     portal, the admin and the public site all read. */
 function LangSwitch({ lang, onPick }: { lang: Lang; onPick: (l: Lang) => void }) {
-  const pill = (on: boolean) =>
-    `rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-      on ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"
-    }`;
   return (
-    <div className="border-border inline-flex items-center gap-0.5 rounded-full border p-0.5" role="group" aria-label="Language / Bahasa">
-      <button type="button" className={pill(lang === "en")} aria-pressed={lang === "en"} onClick={() => onPick("en")}>EN</button>
-      <button type="button" className={pill(lang === "ms")} aria-pressed={lang === "ms"} onClick={() => onPick("ms")}>BM</button>
+    <div className={css.lang} role="group" aria-label="Language / Bahasa">
+      <button type="button" aria-pressed={lang === "en"} onClick={() => onPick("en")}>EN</button>
+      <button type="button" aria-pressed={lang === "ms"} onClick={() => onPick("ms")}>BM</button>
     </div>
   );
 }
@@ -128,10 +101,10 @@ function LangSwitch({ lang, onPick }: { lang: Lang; onPick: (l: Lang) => void })
     a placeholder is a hint, never a name. */
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div>
-      <label htmlFor={id} className="mb-1.5 block text-sm font-medium">{label}</label>
+    <div className={css.field}>
+      <label htmlFor={id}>{label}</label>
       {children}
-      {hint && <p className="text-muted-foreground mt-1.5 text-xs">{hint}</p>}
+      {hint && <p className={css.hint}>{hint}</p>}
     </div>
   );
 }
@@ -140,8 +113,8 @@ function Field({ id, label, hint, children }: { id: string; label: string; hint?
     appears rather than sitting there as a red line nobody is told about. */
 function ErrorNote({ id, message }: { id: string; message: string }) {
   return (
-    <p id={id} role="alert" className="bg-danger-soft text-danger flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mt-0.5 shrink-0" aria-hidden="true">
+    <p id={id} role="alert" className={css.error}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
         <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="13" /><line x1="12" y1="16.5" x2="12" y2="16.5" />
       </svg>
       <span>{message}</span>
@@ -149,56 +122,31 @@ function ErrorNote({ id, message }: { id: string; message: string }) {
   );
 }
 
-/** The navy half, from `lg` up. It is what fills the empty screen: the mark,
-    one sentence, and the four things the portal is actually for. Decorative
-    only - nothing here is needed to sign in, which is why a phone never
-    draws it. */
+/** The navy half, from 1024px. The mark, one welcome, the copyright - and
+    nothing about what is inside (v1.211.0). Decorative only, which is why a
+    phone never draws it. */
 function BrandPanel({ lang }: { lang: Lang }) {
   const L = tr(lang);
-  const lines: [string, string][] = [
-    ["Clock in, shifts and leave", "Masuk kerja, syif dan cuti"],
-    ["Sales, orders and invoices", "Jualan, pesanan dan invois"],
-    ["Claims, payroll and payslips", "Tuntutan, gaji dan slip gaji"],
-    ["Your targets and today's figures", "Sasaran anda dan angka hari ini"],
-  ];
   return (
-    <div className="bg-brand relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
-      {/* decorative: one soft gold wash, no texture library, no image */}
-      <span aria-hidden className="bg-gold/10 pointer-events-none absolute -top-24 -right-24 h-80 w-80 rounded-full blur-3xl" />
-      <span aria-hidden className="bg-gold/10 pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rounded-full blur-3xl" />
-      <div className="relative">
+    <aside className={css.brand} aria-label="A2Z CREATIVE MARKETING">
+      <div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-white.png" alt="A2Z CREATIVE MARKETING" className="h-10 w-auto" />
-        <span className="bg-gold mt-6 block h-px w-16" aria-hidden />
+        <img src="/logo-white.png" alt="A2Z CREATIVE MARKETING" className={css.brandLogo} />
+        <span className={css.brandRule} aria-hidden />
       </div>
-      <div className="relative max-w-md">
-        <h2 className="text-3xl font-semibold tracking-tight xl:text-4xl">
-          {L("Everything your day needs, in one place.", "Segala keperluan hari anda, di satu tempat.")}
-        </h2>
-        <ul className="mt-8 space-y-3">
-          {lines.map(([en, ms]) => (
-            <li key={en} className="flex items-center gap-3 text-sm text-white/85">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-gold shrink-0" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {L(en, ms)}
-            </li>
-          ))}
-        </ul>
+      <div className={css.welcome}>
+        <h2>{L("Welcome to A2Z.", "Selamat datang ke A2Z.")}</h2>
+        <p>{L("A connected experience, designed for you.", "Pengalaman yang bersambung, direka untuk anda.")}</p>
       </div>
-      <p className="relative text-xs text-white/55">
-        {L("A2Z CREATIVE MARKETING · staff and customer portal", "A2Z CREATIVE MARKETING · portal kakitangan dan pelanggan")}
-      </p>
-    </div>
+      <p className={css.copyright}>© A2Z Creative Marketing</p>
+    </aside>
   );
 }
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [caps, setCaps] = useState(false);
@@ -273,16 +221,14 @@ export default function LoginPage() {
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data?.user) window.location.replace(destinationFor(r.data.user.role));
     });
-    if (q.get("error") === "oauth") setError(LE("Google sign-in didn't complete — please try again.", "Log masuk Google tidak selesai — sila cuba lagi."));
+    /* v1.211.0 - every Google sign-in that did not end in a session comes
+       back here (worker: OAUTH_FAILED), and says the one sentence */
+    if (q.get("error") === "oauth") setError(LE(...FAILED));
   }, []);
 
   const submit = async () => {
     /* v1.156.0 - the button is never born disabled, so what is missing is
        said here rather than left for the reader to deduce from a grey slab. */
-    if (mode === "register" && !name.trim()) {
-      setError(L("Please enter your name.", "Sila masukkan nama anda."));
-      return;
-    }
     if (!email.trim()) {
       setError(L("Please enter your email address.", "Sila masukkan alamat e-mel anda."));
       return;
@@ -291,44 +237,9 @@ export default function LoginPage() {
       setError(L("Please enter your password.", "Sila masukkan kata laluan anda."));
       return;
     }
-    if (mode === "register" && password.length < 10) {
-      setError(L("Your password needs at least 10 characters.", "Kata laluan anda perlu sekurang-kurangnya 10 aksara."));
-      return;
-    }
 
     setBusy(true);
     setError("");
-
-    if (mode === "register") {
-      const res = await api<{ user?: User }>("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, name, password }),
-      });
-      setBusy(false);
-      if (res.ok && res.data?.user) {
-        window.location.replace(destinationFor(res.data.user.role));
-      } else if (res.status === 409) {
-        setError(L(
-          "An account with this email already exists — sign in instead.",
-          "Akaun dengan e-mel ini sudah wujud — sila log masuk.",
-        ));
-      } else if (res.status === 429) {
-        setError(L("Too many registrations — try again later.", "Terlalu banyak pendaftaran — cuba lagi kemudian."));
-      } else if (res.status === 400) {
-        // Show the real reason from the API instead of guessing
-        const msg = (res.data as { error?: { message?: string } } | null)?.error?.message;
-        setError(msg ?? L("Please check the details and try again.", "Sila semak butiran dan cuba lagi."));
-      } else if (res.status === 0 || res.status === 404) {
-        setError(L(
-          "Can't reach the sign-up service. The API Worker may not be deployed yet — please contact your administrator.",
-          "Tidak dapat menghubungi perkhidmatan pendaftaran. API Worker mungkin belum digunakan — sila hubungi pentadbir anda.",
-        ));
-      } else {
-        setError(L("Sign-up failed — please try again in a moment.", "Pendaftaran gagal — sila cuba lagi sebentar nanti."));
-      }
-      return;
-    }
-
     const res = await api<{ user: User; twofa_required?: boolean; challenge?: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
@@ -350,58 +261,49 @@ export default function LoginPage() {
         "Tidak dapat menghubungi pelayan buat masa ini — sila cuba lagi sebentar nanti.",
       ));
     } else {
-      setError(L(
-        "Email or password is incorrect, or the account is inactive.",
-        "E-mel atau kata laluan tidak betul, atau akaun tidak aktif.",
-      ));
+      /* v1.211.0 - one sentence, whatever the reason */
+      setError(L(...FAILED));
     }
   };
 
-  const tab = (on: boolean) =>
-    on
-      ? "bg-background h-10 rounded-md px-4 text-sm font-medium shadow-sm"
-      : "text-muted-foreground hover:text-foreground h-10 rounded-md px-4 text-sm font-medium";
-
   /* skeleton: none — the mount-time /auth/me probe only redirects a user who is already signed in; the sign-in form draws nothing from it and renders in full from the first frame (v1.77.0) */
   return (
-    <div className="lg:grid lg:min-h-[100svh] lg:grid-cols-2">
+    <div className={css.page}>
       <BrandPanel lang={lang} />
 
-      {/* v1.29.2 (CEO, from his phone: "Sign in page I want to fit well for
-          mobile apps view"): a centred column measured in svh (the SMALL
-          viewport height, i.e. with the browser chrome showing), so the whole
-          form lands on one screen whether or not the URL bar is expanded, and
-          the safe-area inset keeps the button clear of the home indicator.
-          v1.156.0 keeps that exactly and lets it be the right half on a desk. */}
-      <div className="mx-auto flex min-h-[100svh] w-full max-w-sm flex-col justify-center px-6 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:max-w-md lg:px-10">
-        <div className="flex items-center justify-between gap-4 lg:justify-end">
-          <Link href="/" className="inline-block lg:hidden" aria-label="A2Z CREATIVE MARKETING">
+      {/* v1.29.2 (CEO, from his phone): a centred column measured in svh with
+          the safe-area inset, so the whole form lands on one screen whether
+          or not the URL bar is expanded; the right half on a desk. */}
+      <main className={css.formSide}>
+        <div className={css.topRow}>
+          <Link href="/" className={css.phoneLogo} aria-label="A2Z CREATIVE MARKETING">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="A2Z CREATIVE MARKETING" className="h-8 w-auto" />
+            <img src="/logo.png" alt="A2Z CREATIVE MARKETING" />
           </Link>
           <LangSwitch lang={lang} onPick={pickLang} />
         </div>
 
         {challenge ? (
-          <div className="mt-8">
-            <h1 className="text-2xl font-semibold tracking-tight">
+          <div>
+            <h1 className={css.title}>
               {L("Two-factor verification", "Pengesahan dua faktor")}
             </h1>
-            <p className="text-muted-foreground mt-2 text-sm">
+            <p className={css.lede}>
               {L(
                 "Enter the 6-digit code from your authenticator app. You can also use one of your backup codes.",
                 "Masukkan kod 6 digit daripada aplikasi pengesah anda. Anda juga boleh menggunakan salah satu kod sandaran anda.",
               )}
             </p>
             <form
-              className="mt-5 space-y-4"
+              className={css.form}
               onSubmit={(e) => { e.preventDefault(); if (!busy && code.length >= 6) void verifyCode(code); }}
             >
+              <div className={css.divider} aria-hidden />
               <Field id="code" label={L("Authenticator code", "Kod pengesah")}
                 hint={L("It signs you in by itself once the sixth digit is in.", "Ia log masuk dengan sendirinya sebaik digit keenam dimasukkan.")}>
                 <input
                   id="code"
-                  className={`${inputClassLg} text-center text-2xl tracking-[0.4em] tabular-nums`}
+                  className={`${inputClassLg} ${css.codeInput}`}
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   pattern="[0-9]*"
@@ -419,64 +321,26 @@ export default function LoginPage() {
                 {busy ? L("Verifying…", "Mengesahkan…") : L("Verify and sign in", "Sahkan dan log masuk")}
               </button>
             </form>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground mt-4 w-full text-xs underline"
-              onClick={() => { setChallenge(""); setCode(""); setError(""); }}
-            >
-              {L("Back to sign in", "Kembali ke log masuk")}
-            </button>
+            <div className={css.help}>
+              <button type="button" className={css.linkBtn}
+                onClick={() => { setChallenge(""); setCode(""); setError(""); }}>
+                {L("Back to sign in", "Kembali ke log masuk")}
+              </button>
+            </div>
           </div>
         ) : (
           <>
-            <h1 className="mt-6 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {mode === "login" ? L("Sign in", "Log masuk") : L("Create your account", "Buat akaun anda")}
-            </h1>
-            <p className="text-muted-foreground mt-1.5 text-sm">
-              {L(
-                "One login for everyone at A2Z CREATIVE MARKETING — you'll be taken to your own area automatically.",
-                "Satu log masuk untuk semua di A2Z CREATIVE MARKETING — anda akan dibawa ke ruangan anda sendiri secara automatik.",
-              )}
-            </p>
+            <h1 className={css.title}>{L("Sign in", "Log masuk")}</h1>
+            <p className={css.lede}>{L("Securely access your account.", "Akses akaun anda dengan selamat.")}</p>
 
-            <div
-              role="tablist"
-              aria-label={L("Sign in or create an account", "Log masuk atau buat akaun")}
-              className="border-border bg-secondary mt-6 grid grid-cols-2 gap-1 rounded-lg border p-1"
-            >
-              <button role="tab" type="button" aria-selected={mode === "login"} className={tab(mode === "login")}
-                onClick={() => { setMode("login"); setError(""); }}>
-                {L("Sign in", "Log masuk")}
-              </button>
-              <button role="tab" type="button" aria-selected={mode === "register"} className={tab(mode === "register")}
-                onClick={() => { setMode("register"); setError(""); }}>
-                {L("Create account", "Buat akaun")}
-              </button>
-            </div>
-
-            <a
-              href={`${API}/auth/google`}
-              className="border-border hover:bg-secondary mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors sm:h-11"
-            >
+            <a href={`${API}/auth/google`} className={css.google}>
               <GoogleMark />
               {L("Continue with Google", "Teruskan dengan Google")}
             </a>
 
-            <div className="my-5 flex items-center gap-3">
-              <span className="bg-border h-px flex-1" />
-              <span className="text-muted-foreground text-xs">{L("or with email", "atau dengan e-mel")}</span>
-              <span className="bg-border h-px flex-1" />
-            </div>
+            <hr className={css.divider} />
 
-            <form className="space-y-4" noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}>
-              {mode === "register" && (
-                <Field id="name" label={L("Your name", "Nama anda")}>
-                  <input id="name" className={inputClassLg} value={name} autoComplete="name"
-                    placeholder={L("e.g. Nurul Aina", "cth. Nurul Aina")}
-                    onChange={(e) => setName(e.target.value)} />
-                </Field>
-              )}
-
+            <form className={css.form} noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}>
               <Field id="email" label={L("Email", "E-mel")}>
                 <input
                   id="email"
@@ -488,7 +352,7 @@ export default function LoginPage() {
                   autoCorrect="off"
                   spellCheck={false}
                   autoComplete="username"
-                  placeholder="you@a2zcreative.my"
+                  placeholder={L("Enter your email", "Masukkan e-mel anda")}
                   aria-invalid={error ? true : undefined}
                   aria-describedby={error ? "form-error" : undefined}
                   value={email}
@@ -496,28 +360,15 @@ export default function LoginPage() {
                 />
               </Field>
 
-              <Field
-                id="password"
-                label={L("Password", "Kata laluan")}
-                hint={
-                  mode === "register"
-                    ? password.length === 0
-                      ? L("At least 10 characters.", "Sekurang-kurangnya 10 aksara.")
-                      : password.length >= 10
-                        ? L(`Long enough (${password.length} characters).`, `Cukup panjang (${password.length} aksara).`)
-                        : L(`${password.length} of 10 characters — ${10 - password.length} more needed.`, `${password.length} daripada 10 aksara — ${10 - password.length} lagi diperlukan.`)
-                    : caps
-                      ? L("Caps Lock is on.", "Caps Lock dihidupkan.")
-                      : undefined
-                }
-              >
-                <div className="relative">
+              <Field id="password" label={L("Password", "Kata laluan")}
+                hint={caps ? L("Caps Lock is on.", "Caps Lock dihidupkan.") : undefined}>
+                <div className={css.pwWrap}>
                   <input
                     id="password"
-                    className={`${inputClassLg} pr-12`}
+                    className={inputClassLg}
                     type={showPw ? "text" : "password"}
-                    autoComplete={mode === "register" ? "new-password" : "current-password"}
-                    placeholder={L("Your password", "Kata laluan anda")}
+                    autoComplete="current-password"
+                    placeholder={L("Enter your password", "Masukkan kata laluan anda")}
                     aria-invalid={error ? true : undefined}
                     aria-describedby={error ? "form-error" : undefined}
                     value={password}
@@ -530,7 +381,7 @@ export default function LoginPage() {
                     onClick={() => setShowPw((v) => !v)}
                     aria-label={showPw ? L("Hide password", "Sembunyikan kata laluan") : L("Show password", "Tunjukkan kata laluan")}
                     aria-pressed={showPw}
-                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-lg focus:outline-none focus-visible:ring-2"
+                    className={css.eye}
                   >
                     <EyeIcon off={showPw} />
                   </button>
@@ -540,40 +391,27 @@ export default function LoginPage() {
               {error && <ErrorNote id="form-error" message={error} />}
 
               <button type="submit" className={btnClassBlock} disabled={busy}>
-                {busy ? L("Please wait…", "Sila tunggu…") : mode === "login" ? L("Sign in", "Log masuk") : L("Create account", "Buat akaun")}
+                {busy ? L("Please wait…", "Sila tunggu…") : L("Sign in", "Log masuk")}
               </button>
             </form>
 
-            {mode === "login" ? (
-              <div className="mt-4">
-                <button type="button" className="text-muted-foreground hover:text-foreground text-xs underline"
-                  aria-expanded={helpOpen} onClick={() => setHelpOpen((v) => !v)}>
-                  {L("Forgot your password?", "Lupa kata laluan anda?")}
-                </button>
-                {helpOpen && (
-                  <p className="text-muted-foreground bg-secondary mt-2 rounded-lg px-3 py-2.5 text-xs">
-                    {L(
-                      "There is no self-service reset on this system. Ask an administrator (or the CEO) to set a new password for you on the Users tab — you will be signed out everywhere and can sign in again with the new one.",
-                      "Tiada tetapan semula layan diri pada sistem ini. Minta pentadbir (atau CEO) menetapkan kata laluan baharu untuk anda di tab Users — anda akan dilog keluar di semua peranti dan boleh log masuk semula dengan kata laluan baharu itu.",
-                    )}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p className="text-muted-foreground mt-4 text-xs">
-                {L(
-                  "Registration creates a customer account with access to your own details and enquiries. Staff and admin access is assigned by A2Z CREATIVE MARKETING administrators.",
-                  "Pendaftaran mencipta akaun pelanggan dengan akses kepada butiran dan pertanyaan anda sendiri. Akses kakitangan dan admin diberikan oleh pentadbir A2Z CREATIVE MARKETING.",
-                )}
-              </p>
-            )}
+            <div className={css.help}>
+              <button type="button" className={css.linkBtn}
+                aria-expanded={helpOpen} onClick={() => setHelpOpen((v) => !v)}>
+                {L("Forgot password?", "Lupa kata laluan?")}
+              </button>
+              {helpOpen && (
+                <p className={css.helpNote}>
+                  {L(
+                    "To reset your password, please contact A2Z Creative Marketing.",
+                    "Untuk menetapkan semula kata laluan anda, sila hubungi A2Z Creative Marketing.",
+                  )}
+                </p>
+              )}
+            </div>
           </>
         )}
-
-        {/* v1.23.4: visible build stamp — one glance answers "is the live
-            site on the new version?" */}
-        <p className="text-muted-foreground/60 mt-8 text-center text-[10px] tabular-nums">v{APP_VERSION}</p>
-      </div>
+      </main>
     </div>
   );
 }

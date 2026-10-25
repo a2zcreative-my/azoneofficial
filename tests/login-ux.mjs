@@ -34,8 +34,9 @@
  *      and inputMode="numeric" (so the keypad and the SMS/authenticator
  *      autofill appear), the pasted value is stripped to digits and capped
  *      at six, and the sixth digit signs in by itself.
- *   9. THE FORGOTTEN PASSWORD IS ANSWERED HONESTLY. There is no self-service
- *      reset in this system; the page says an administrator sets one.
+ *   9. THE FORGOTTEN PASSWORD IS ANSWERED NEUTRALLY (v1.211.0). There is no
+ *      self-service reset; the page says to contact A2Z - and no longer how
+ *      accounts are run inside (no "administrator", no "Users tab").
  *  10. STILL BILINGUAL, STILL STATIC-EXPORT SAFE. Every string is L(en, ms),
  *      and the language is read in an effect - never at module scope, which
  *      would render "en" into login.html and "ms" on the client (v1.27.0).
@@ -44,6 +45,13 @@
  * label (3); swapping inputClassLg for inputClass (4); putting
  * `disabled={!email || !password}` back on the submit (5); removing
  * autoComplete="one-time-code" (8); dropping the svh/safe-area column (1).
+ *
+ *  11. MINIMAL PUBLIC INFORMATION (v1.211.0, the owner's sign-in brief): no
+ *      list of what is inside, no build number, no "staff and customer
+ *      portal", no Create account; one sentence for every failed sign-in,
+ *      by password or by Google, so the page never says whether an account
+ *      exists or is switched off; and every Google failure lands HERE
+ *      (worker OAUTH_FAILED), not on /admin where nothing read it.
  *
  * Run: node tests/login-ux.mjs
  */
@@ -61,27 +69,30 @@ const ok = (label, cond, why = "") => {
 };
 
 const src = read("app/login/page.tsx");
+const css = read("app/login/login.module.css");
+const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 const styles = read("lib/ui-styles.ts");
 const i18n = read("lib/i18n.ts");
 
 /* ---- 1. two shapes, one page ---- */
 {
-  ok("from lg up the page is a two-column grid", /className="lg:grid lg:min-h-\[100svh\] lg:grid-cols-2"/.test(src));
-  ok("the brand panel is beside the form and a phone never draws it", /function BrandPanel\(/.test(src) && /hidden[^"]*lg:flex/.test(src) && /<BrandPanel lang=\{lang\} \/>/.test(src));
+  /* v1.211.0 - the layout is the page's own module (app/login/login.module.css) */
+  ok("from lg up the page is a two-column grid", /<div className=\{css\.page\}>/.test(src) && /@media \(min-width: 1024px\) \{\s*\.page \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/.test(css));
+  ok("the brand panel is beside the form and a phone never draws it", /function BrandPanel\(/.test(src) && /\.brand \{\s*display: none;\s*\}\s*@media \(min-width: 1024px\) \{\s*\.brand \{\s*display: flex;/.test(css) && /<BrandPanel lang=\{lang\} \/>/.test(src));
   ok("nothing needed to sign in lives in the brand panel", (() => {
     const panel = src.slice(src.indexOf("function BrandPanel("), src.indexOf("/* ── the page ──"));
     return !/<input|<form|type="submit"|auth\/google/.test(panel);
   })());
   /* the v1.29.2 phone fix, kept verbatim: svh, not vh, and the home indicator */
   ok("the form column is a centred svh column with the safe-area inset (v1.29.2 kept)",
-    /flex min-h-\[100svh\] w-full max-w-sm flex-col justify-center/.test(src) && /pb-\[max\(1\.5rem,env\(safe-area-inset-bottom\)\)\]/.test(src));
-  ok("and it is not capped at phone width on a desk", /lg:max-w-md/.test(src));
+    /<main className=\{css\.formSide\}>/.test(src) && /\.formSide \{[^}]*justify-content: center;[^}]*min-height: 100svh;[^}]*padding: 1\.5rem 1\.5rem max\(1\.5rem, env\(safe-area-inset-bottom\)\);/.test(css));
+  ok("and it is not capped at phone width on a desk", /@media \(min-width: 1024px\) \{\s*\.formSide \{[^}]*max-width: 28rem;/.test(css));
 }
 
 /* ---- 2. a real form ---- */
 {
-  ok("sign-in is a <form> that submits", /<form className="space-y-4" noValidate onSubmit=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy\) void submit\(\); \}\}>/.test(src));
-  ok("the code screen is a <form> too", /<form\s+className="mt-5 space-y-4"\s+onSubmit=/.test(src));
+  ok("sign-in is a <form> that submits", /<form className=\{css\.form\} noValidate onSubmit=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy\) void submit\(\); \}\}>/.test(src));
+  ok("the code screen is a <form> too", /<form\s+className=\{css\.form\}\s+onSubmit=/.test(src));
   ok("both buttons are type=submit", (src.match(/<button type="submit"/g) ?? []).length >= 2);
   ok("no hand-rolled Enter listener stands in for the form", !/onKeyDown=\{\(e\) => e\.key === "Enter"/.test(src));
 }
@@ -102,7 +113,7 @@ const i18n = read("lib/i18n.ts");
      && /\.erp-input-public \{[^}]*font-size: 1rem;/.test(v3)
      && /@media \(min-width: 640px\) \{ \.erp-input-public \{ font-size: 0\.875rem;/.test(v3));
   ok("the email field asks for the email keyboard and no autocapitalise", /inputMode="email"/.test(src) && /autoCapitalize="none"/.test(src));
-  ok("the password field keeps its autocomplete contract", /autoComplete=\{mode === "register" \? "new-password" : "current-password"\}/.test(src) && /autoComplete="username"/.test(src));
+  ok("the password field keeps its autocomplete contract", /autoComplete="current-password"/.test(src) && /autoComplete="username"/.test(src));
   ok("the password can be revealed, and the toggle says which state it is in", /aria-pressed=\{showPw\}/.test(src) && /aria-label=\{showPw \? L\("Hide password"/.test(src));
   ok("Caps Lock is reported instead of a silent wrong password", /getModifierState\?\.\("CapsLock"\)/.test(src) && /Caps Lock is on/.test(src));
 }
@@ -111,7 +122,7 @@ const i18n = read("lib/i18n.ts");
 {
   ok("the submit is disabled only while a request is in flight", /<button type="submit" className=\{btnClassBlock\} disabled=\{busy\}>/.test(src));
   ok("and what is missing is said in words", /Please enter your email address/.test(src) && /Please enter your password/.test(src) && /Sila masukkan kata laluan anda/.test(src));
-  ok("the password floor is stated, not merely enforced", /Your password needs at least 10 characters/.test(src));
+
 }
 
 /* ---- 6. errors announce themselves ---- */
@@ -139,14 +150,31 @@ const i18n = read("lib/i18n.ts");
 
 /* ---- 9 + 10. honest help, and still bilingual ---- */
 {
-  ok("the forgotten password is answered with what actually happens", /Forgot your password\?/.test(src) && /There is no self-service reset on this system/.test(src) && /Users tab/.test(src));
+  ok("the forgotten password is answered, neutrally", /Forgot password\?/.test(src) && /To reset your password, please contact A2Z Creative Marketing\./.test(src) && /sila hubungi A2Z Creative Marketing/.test(src) && !/Users tab|self-service|administrator/i.test(strip(src)));
   ok("the help is disclosed, not always shouting", /aria-expanded=\{helpOpen\}/.test(src));
   const bare = [...src.matchAll(/>([A-Z][A-Za-z' ]{6,})</g)].map((m) => m[1].trim())
     .filter((t) => !/^(A2Z|EN|BM)/.test(t));
   ok("no bare English string is rendered outside L(en, ms)", bare.length === 0, bare.slice(0, 3).join(" · "));
   ok("the language is read in an effect, never at module scope (static export)",
     /useEffect\(\(\) => \{ setLangState\(getLang\(\)\); \}, \[\]\);/.test(src) && !/^const lang = getLang\(\)/m.test(src));
-  ok("the build stamp is still on the page", /v\{APP_VERSION\}/.test(src));
+}
+
+/* ---- 11. minimal public information (v1.211.0) ---- */
+{
+  const code = strip(src);
+  ok("no build number on the page", !/APP_VERSION|lib\/version/.test(code));
+  ok("no list of what is inside, no 'staff and customer portal'", !/Clock in, shifts|Sales, orders|payroll|payslips|targets|staff and customer portal|One login for everyone|your own area/i.test(code));
+  ok("the brand panel is the mark, the welcome and the copyright", /Welcome to A2Z\./.test(src) && /A connected experience, designed for you\./.test(src) && /© A2Z Creative Marketing/.test(src));
+  ok("the right side says Sign in / Securely access your account", /L\("Sign in", "Log masuk"\)/.test(src) && /Securely access your account\./.test(src) && /Akses akaun anda dengan selamat\./.test(src));
+  ok("no Create account on the page, and no register call", !/auth\/register|Create account|Buat akaun/.test(code));
+  ok("every failed sign-in says the one sentence", /const FAILED: \[string, string\] = \["Unable to sign in with the provided credentials\.", "Tidak dapat log masuk dengan maklumat yang diberikan\."\];/.test(src)
+     && /\} else \{\s*setError\(L\(\.\.\.FAILED\)\);/.test(code) && /if \(q\.get\("error"\) === "oauth"\) setError\(LE\(\.\.\.FAILED\)\);/.test(code)
+     && !/account is inactive|already exists|API Worker|not be deployed/i.test(code));
+  ok("no company address in a placeholder", !/@a2zcreative/.test(code));
+  const worker = read("worker/src/index.ts");
+  const cb = worker.slice(worker.indexOf('const OAUTH_FAILED = "/login?error=oauth";'), worker.indexOf('const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)'));
+  ok("every Google failure lands on /login, one way", cb.length > 500 && (cb.match(/Location: OAUTH_FAILED/g) ?? []).length === 4 && !/\/admin\?(error|pending)/.test(worker));
+  ok("the server still answers a bad password and a missing account the same", /return errorResponse\("invalid_credentials", "Email or password is incorrect", 401\);/.test(worker) && /DUMMY_PASSWORD_HASH/.test(worker));
 }
 
 console.log(failed === 0

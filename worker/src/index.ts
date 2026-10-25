@@ -3900,6 +3900,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     });
   }
 
+  /* v1.211.0 (the owner's sign-in brief, 25-10-2026): every Google sign-in
+     that does not end in a session - a bad state, a refused code, an
+     unverified email, an account that is switched off or has left - lands
+     on /login with ONE neutral message. It used to land on /admin with
+     ?error=oauth or ?pending=1, which nothing read, so the person was
+     bounced to sign-in with no word at all. One message for every cause, so
+     the page does not say which accounts exist or are switched off. */
+  const OAUTH_FAILED = "/login?error=oauth";
   if (path === "/api/v1/auth/google/callback" && method === "GET") {
     const url2 = new URL(request.url);
     const code = url2.searchParams.get("code");
@@ -3910,7 +3918,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!code || !state || !cookieState || state !== cookieState) {
       return new Response(null, {
         status: 302,
-        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
       });
     }
 
@@ -3930,7 +3938,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!tokenRes.ok || !tokens?.access_token) {
       return new Response(null, {
         status: 302,
-        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
       });
     }
 
@@ -3944,7 +3952,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!profileRes.ok || !profile?.email || profile.email_verified !== true) {
       return new Response(null, {
         status: 302,
-        headers: { Location: "/admin?error=oauth", "Set-Cookie": clearState },
+        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
       });
     }
 
@@ -3984,7 +3992,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         ["resigned", "terminated"].includes(account.employment_status ?? "")) {
       return new Response(null, {
         status: 302,
-        headers: { Location: "/admin?pending=1", "Set-Cookie": clearState },
+        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
       });
     }
 

@@ -10,6 +10,64 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.211.0] - 2026-10-25 - Sign in: neutral and minimal; Google failures come back with a word
+
+The owner, 25-10-2026 ("A2Z OS - Secure & Neutral Login Page
+Improvement", with a reference screen): the page is shared by staff,
+customers and clients and is open to anyone - "MINIMAL PUBLIC
+INFORMATION. STRONG SERVER-SIDE SECURITY. EXISTING AUTHENTICATION
+PRESERVED. NO DUPLICATION." The audit found the server side sound (one
+answer for a wrong password and an unknown email, in the same time; rate
+limits per account+IP and per IP; hashed 12-hour sessions in HttpOnly
+Secure SameSite=Lax cookies, re-checked on every request; CSRF on every
+write; 2FA on password and Google; Google state, server-side exchange,
+verified email, allowed redirect, customer-only auto-sign-up; customers
+refused on every /staff route; a generic 500 with an id; no source maps)
+and the PAGE saying too much. The owner chose: build the neutral screen;
+hide Create account; a neutral reset line; fix Google failures landing on
+/admin.
+
+### Changed
+
+- **The sign-in page** (`app/login/page.tsx`, new `login.module.css`):
+  - the navy panel is the logo, "Welcome to A2Z. / A connected experience,
+    designed for you." and "© A2Z Creative Marketing" - the list of what is
+    inside and "staff and customer portal" are gone;
+  - "Sign in / Securely access your account.", Continue with Google, Email,
+    Password, Sign in, Forgot password? - in EN and BM; EN/BM kept;
+  - **one sentence for every failed sign-in**, password or Google:
+    "Unable to sign in with the provided credentials." ("Tidak dapat log
+    masuk dengan maklumat yang diberikan.") - no "account is inactive",
+    "already exists" or "API Worker" any more;
+  - Forgot password?: "To reset your password, please contact A2Z Creative
+    Marketing." - no administrators, no Users tab;
+  - no version number; no company address in the email placeholder;
+  - **no Create account** on the page (the server route is unchanged and
+    Google still creates a customer account on first sign-in);
+  - the same password, Google and two-factor sign-in, the same server
+    calls, the same routing by the server's role; 16px labelled fields,
+    the real form, Caps Lock, show/hide, the one-time-code box, the svh
+    phone column with the safe-area inset - all kept.
+- **Google sign-in failures** (worker, `/auth/google/callback`): a bad
+  state, a refused code, an unverified email, or an account that is off or
+  has left all return to `/login?error=oauth` (one constant,
+  `OAUTH_FAILED`) and the page shows the same one sentence. They used to
+  land on `/admin?error=oauth` / `?pending=1`, which nothing read.
+  **Deploy the worker too.**
+- Guard `tests/login-ux.mjs` (44 checks): the old "build stamp" and
+  "Users tab" checks are replaced by the owner's minimal-information rules.
+
+### Reported, not changed
+
+- R1: `/auth/register` still answers 409 for an existing email (5 tries
+  per hour per IP); closing it needs a verified-email sign-up - for the
+  owner to decide.
+- R3: no Cloudflare Turnstile / WAF rate rule - set in the Cloudflare
+  dashboard if wanted.
+- R4: `/api/v1/health` shows the worker version (PUSH.bat's release check
+  reads it).
+- No self-service password reset exists; none was added.
+
 ## [1.210.0] - 2026-10-25 - Assets: one asset drawer, Add/Edit in a drawer, a grid view
 
 The owner, 25-10-2026 ("A2Z OS - Assets Management UI Improvement", with a
