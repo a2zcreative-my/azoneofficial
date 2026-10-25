@@ -8,10 +8,10 @@ import { L, LeaveReq, User, leaveTypeL, withStepUp } from "@/components/portal/p
 import { RestDayCreditCard } from "@/components/portal/rest-day-credits";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
+import { DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { Skel, SkelRows, SkelTable } from "@/components/ui/skeleton";
+import { Skel, SkelTable } from "@/components/ui/skeleton";
 import { SubR } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
@@ -23,7 +23,8 @@ import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
-import { btnClass, btnGhost, btnSm, card, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipSmNeutral, chipSmWarn, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
+import { AppIcon } from "@/components/ui/app-icon";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
@@ -33,9 +34,12 @@ import { DOC } from "@/lib/doc-theme";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { isPartialLeave, savedCoverage } from "@/lib/leave-coverage";
 import { LeaveCalendar } from "@/components/portal/leave-calendar"; // v1.181.17
-import { LeaveOverview, TeamCalendarGrid, monthName, type LeaveView } from "@/components/portal/leave-overview"; // v1.196.0
+import { BalanceCard, LeaveOverview, leaveChip, TeamCalendarGrid, monthName, type LeaveView } from "@/components/portal/leave-overview"; // v1.196.0; BalanceCard v1.206.0
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.196.0
 import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
+import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - the drawer's related links
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { Avatar } from "@/components/ui/avatar";
 
 function coverageLabel(l: LeaveReq): string {
   if (!isPartialLeave(l)) return "";
@@ -272,29 +276,58 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
 export function LeaveDetail({ l, meName }: { l: LeaveReq; meName: string }) {
   const whoAt = (name?: string | null, full?: string | null, at?: string | null) =>
     name || full ? `${properName(full || name || "")}${at ? ` · ${dmyMYT(at)}` : ""}` : "";
+  /* v1.206.0 - the approval trail as steps, from the same fields the printed
+     form reads: who signed each stage and when, the stage it waits on now,
+     and a stage the CEO's override skipped left visibly unsigned */
+  const st = l.stage ?? l.status;
+  const terminal = ["approved", "rejected", "cancelled"].includes(st);
+  const topTier = l.applicant_role === "coo" || l.applicant_role === "cco";
+  const steps: { key: string; label: string; done: string; state: "done" | "now" | "todo" | "skipped" | "none" }[] = [
+    { key: "applied", label: L("Applied", "Dimohon"), done: whoAt(l.user_name, l.user_full, l.created_at), state: "done" },
+    { key: "hr", label: L("HR reviewed", "Disemak HR"), done: whoAt(l.hr_by_name, null, l.hr_at),
+      state: l.hr_by_name ? "done" : st === "applied" ? "now" : terminal ? "skipped" : "todo" },
+    { key: "pre", label: L("Pre-approved", "Pra-lulus"), done: topTier ? L("Not needed — COO and CCO go straight to the CEO", "Tidak perlu — COO dan CCO terus kepada CEO") : whoAt(l.preapp_by_name, l.preapp_by_full, l.preapp_at),
+      state: topTier ? "none" : l.preapp_by_name ? "done" : st === "hr_reviewed" ? "now" : terminal ? "skipped" : "todo" },
+    { key: "final", label: st === "rejected" ? L("Rejected", "Ditolak") : st === "cancelled" ? L("Withdrawn", "Ditarik balik") : L("Final", "Akhir"),
+      done: st === "cancelled" ? L("Withdrawn by the applicant", "Ditarik balik oleh pemohon") : whoAt(l.final_by_name, l.final_by_full, l.final_at),
+      state: st === "approved" || st === "rejected" || st === "cancelled" ? "done" : st === "pre_approved" || st === "pending_final" ? "now" : "todo" },
+  ];
+  const mc = (l as LeaveReq & { mc_media_id?: number | null }).mc_media_id;
   return (
-    <div className="mt-1">
-      <DetailGrid
-        items={[
-          {
-            label: L("Applicant", "Pemohon"),
-            wide: true,
-            value: [properName(l.user_full || l.user_name || ""), l.user_position, l.user_department].filter(Boolean).join(" · "),
-          },
-          { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
-          { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
-          { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
-          { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
-          { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
-          { label: L("Status", "Status"), value: stageL(l.stage ?? l.status) },
-          { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
-          { label: L("HR reviewed", "Disemak HR"), wide: true, value: whoAt(l.hr_by_name, null, l.hr_at) },
-          { label: L("Pre-approved", "Pra-lulus"), wide: true, value: whoAt(l.preapp_by_name, l.preapp_by_full, l.preapp_at) },
-          { label: L("Final", "Akhir"), wide: true, value: whoAt(l.final_by_name, l.final_by_full, l.final_at) },
-          { label: L("Reviewer note", "Catatan penyemak"), wide: true, value: l.review_comment ?? "" },
-        ]}
-      />
-      <div className="mt-1.5">
+    <div className={lv.detail}>
+      <section className={lv.dSection} aria-label={L("Details", "Butiran")}>
+        <p className={lv.dTitle}>{L("Details", "Butiran")}</p>
+        <DetailGrid
+          items={[
+            { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
+            { label: L("Type", "Jenis"), value: leaveTypeL(l.type).replace(/^./, (c) => c.toUpperCase()) + (UNPAID_LEAVE_TYPES.includes(l.type) ? L(" — unpaid", " — tanpa gaji") : "") },
+            { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
+            { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
+            { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
+            { label: L("Status", "Status"), value: stageL(st) },
+            { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
+            { label: L("Reviewer note", "Catatan penyemak"), wide: true, value: l.review_comment ?? "" },
+            ...(mc ? [{ label: L("Attachment", "Lampiran"), wide: true, value: L("A medical certificate is on file with this application.", "Sijil perubatan disimpan bersama permohonan ini.") }] : []),
+          ]}
+        />
+      </section>
+      <section className={lv.dSection} aria-label={L("Approval history", "Sejarah kelulusan")}>
+        <p className={lv.dTitle}>{L("Approval history", "Sejarah kelulusan")}</p>
+        <ol className={lv.steps}>
+          {steps.map((x) => (
+            <li key={x.key} className={lv[`step_${x.state}`]}>
+              <span className={lv.stepDot} aria-hidden="true" />
+              <span className={lv.stepText}>
+                <strong>{x.label}</strong>
+                <span>{x.state === "now" ? L(`Waiting on ${waitingOnLabel(l)}`, `Menunggu ${waitingOnLabel(l)}`)
+                  : x.state === "skipped" ? L("Not signed — decided at a later stage", "Tidak ditandatangani — diputuskan di peringkat kemudian")
+                  : x.state === "todo" ? L("Not yet", "Belum") : x.done || "—"}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <div>
         <button type="button" className={rowBtn}
           title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")}
           onClick={() => printLeaveForm(l, meName)}>
@@ -302,6 +335,39 @@ export function LeaveDetail({ l, meName }: { l: LeaveReq; meName: string }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/* v1.206.0 - THE RECORDS AROUND ONE LEAVE, as links to the modules that own
+   them (the brief: "Display related records using existing IDs and
+   permissions"). Staff owns the person, Attendance the days, Payroll the
+   pay: each is a link drawn only where the tab strip already shows that tab,
+   and nothing here is a copy - no punch, no figure, no deduction. */
+export function LeaveRelated({ l, onLeave }: { l: LeaveReq; onLeave: () => void }) {
+  const { canOpen, openRecord, setTab } = usePortal();
+  const unpaid = UNPAID_LEAVE_TYPES.includes(l.type);
+  return (
+    <section className={lv.dSection} aria-label={L("Related records", "Rekod berkaitan")}>
+      <p className={lv.dTitle}>{L("Related records", "Rekod berkaitan")}</p>
+      <ul className={lv.related}>
+        <li>
+          <span><strong>{L("Employee", "Pekerja")}</strong><span>{[properName(l.user_full || l.user_name || ""), l.user_position, l.user_department].filter(Boolean).join(" · ") || "—"}</span></span>
+          {l.user_id && canOpen("Staff Details") && <button type="button" className={rowBtn} onClick={() => { onLeave(); openRecord("Staff Details", "staff", l.user_id!); }}>{L("View staff profile", "Lihat profil kakitangan")}</button>}
+        </li>
+        <li>
+          <span><strong>{L("Attendance", "Kehadiran")}</strong><span>{L("Approved leave marks these days on the person's attendance; the punches and the roster are Attendance's.", "Cuti yang diluluskan menandakan hari-hari ini pada kehadiran; rekod punch dan roster milik Kehadiran.")}</span></span>
+          {canOpen("Attendance") && <button type="button" className={rowBtn} onClick={() => { onLeave(); setTab("Attendance"); }}>{L("View in Attendance", "Lihat di Kehadiran")}</button>}
+        </li>
+        {canOpen("Payroll") && (
+          <li>
+            <span><strong>{L("Payroll", "Gaji")}</strong><span>{unpaid
+              ? L("Unpaid: Payroll deducts these days by its own rule, in the payroll month the leave starts. No figure is shown here.", "Tanpa gaji: Gaji memotong hari-hari ini mengikut peraturannya sendiri, dalam bulan gaji cuti itu bermula. Tiada angka dipaparkan di sini.")
+              : L("Paid leave: no deduction.", "Cuti bergaji: tiada potongan.")}</span></span>
+            <button type="button" className={rowBtn} onClick={() => { onLeave(); setTab("Payroll"); }}>{L("View in Payroll", "Lihat di Gaji")}</button>
+          </li>
+        )}
+      </ul>
+    </section>
   );
 }
 
@@ -720,7 +786,8 @@ export function waitingOnLabel(l: LeaveReq): string {
 }
 
 export function Leave({ user, initialView, focus }: { user: User; initialView?: string; focus?: RecordFocus | null }) {
-  const [openLeave, setOpenLeave] = useState<number | null>(null);
+  /* v1.206.0 - the one leave open in the details drawer (any list, a search hit, a notification) */
+  const [drawerId, setDrawerId] = useState<number | null>(null);
   /* v1.196.0 - THE LEAVE PAGE, TABBED (the owner's brief and photo,
      23-10-2026): Overview, Apply Leave, My Leave, Team Calendar, Approvals &
      Management. Every zone below is the zone it was, shown under its tab and
@@ -756,7 +823,13 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   /* v1.92.0 — which management area is open below the personal half. */
   const [mgmt, setMgmt] = useState<"" | "company" | "entitlement">("company");
   /* v1.91.0 — which company-board row is open. */
-  const [openAll, setOpenAll] = useState<number | null>(null);
+  /* v1.206.0 - the company register's filters and page, and My Leave's status */
+  const [regQ, setRegQ] = useState("");
+  const [regDept, setRegDept] = useState("");
+  const [regStatus, setRegStatus] = useState<"" | "progress" | "approved" | "rejected" | "cancelled">("");
+  const [regPage, setRegPage] = useState(0);
+  const [regPer, setRegPer] = useState(10);
+  const [mineStatus, setMineStatus] = useState<"" | "progress" | "approved" | "rejected" | "cancelled">("");
   const [editLeave, setEditLeave] = useState<{
     id: number; type: string; start_date: string; end_date: string; days: number; reason: string; day_part: string;
   } | null>(null);
@@ -799,9 +872,9 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      and search filters cleared so it is in the list */
   const focused = useRecordFocus(focus, loaded, (f) => {
     if (f.kind !== "leave") return;
-    setLeaveQ(""); setLeaveMonth("");
-    if (mine.some((l) => l.id === f.id)) { setView("mine"); setOpenLeave(f.id); return; }
-    if (canApprove && all.some((l) => l.id === f.id)) { setView("manage"); setMgmt("company"); setOpenAll(f.id); return; }
+    setLeaveQ(""); setLeaveMonth(""); setRegQ(""); setRegDept(""); setRegStatus(""); setMineStatus("");
+    if (mine.some((l) => l.id === f.id)) { setView("mine"); setDrawerId(f.id); return; }
+    if (canApprove && all.some((l) => l.id === f.id)) { setView("manage"); setMgmt("company"); setDrawerId(f.id); return; }
     setView(canApprove ? "manage" : "mine");
   });
   useScrollToRecord(focused);
@@ -929,6 +1002,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       return;
     }
     showLeaveToast(L("Removed", "Dibuang"), L("The staff member has been told.", "Kakitangan telah dimaklumkan."));
+    setDrawerId(null);
     void load();
   };
   /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
@@ -992,12 +1066,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   const qNeedle = leaveQ.trim().toLowerCase();
   const matchQ = (l: LeaveReq) => !qNeedle || [l.user_full ?? "", l.user_name ?? "", leaveTypeL(l.type), l.type, l.reason ?? "", leaveNoOf(l)]
     .some((t) => t.toLowerCase().includes(qNeedle));
-  const searchBox = (
-    <div className={lv.search}>
-      <input className={inputClassSm} value={leaveQ} onChange={(e) => setLeaveQ(e.target.value)}
-        placeholder={L("Search staff, leave type, reason or leave no.", "Cari kakitangan, jenis cuti, sebab atau no. cuti")} aria-label={L("Search leave", "Cari cuti")} />
-    </div>
-  );
+
   const canManage = canApprove || canSetEntitlement;
   const openView = (v: LeaveView) => { setView(v); window.scrollTo({ top: 0 }); };
 
@@ -1024,9 +1093,9 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
           </TabAside>
         } />
       <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? lv.off : ""}>
-        <LeaveOverview types={LEAVE_TYPES} unpaidTypes={UNPAID_LEAVE_TYPES} balances={balances} mine={mine} loaded={loaded} hourly={hourly}
+        <LeaveOverview userId={user.id} types={LEAVE_TYPES} unpaidTypes={UNPAID_LEAVE_TYPES} balances={balances} mine={mine} loaded={loaded} hourly={hourly}
           inProgress={canApprove ? mgmtPending : null} canManage={canManage} open={openView}
-          onViewMine={(id) => { setOpenLeave(id); openView("mine"); }} />
+          onView={(id) => setDrawerId(id)} />
       </TabZone>
       <TabZone label={L("My balances", "Baki saya")} className={view !== "mine" && !(hourly && view === "overview") ? lv.off : ""}>
       {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
@@ -1052,52 +1121,15 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
         </div>
       )}
       {loaded && !hourly && (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {LEAVE_TYPES.map((t) => {
-          const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
-          // Eligible now = what has accrued this year minus what's been used.
-          const availableNow = Math.max(0, (b.accrued ?? b.entitled) - b.used);
-          /* v1.146.0 — a tile for a type with no ceiling cannot show what is
-             left of it. "0 eligible now" would read as "you may not take
-             any", which is the opposite of the rule: take what you need, and
-             each day costs a day's pay. So it says the cost and the count. */
-          const costsPay = UNPAID_LEAVE_TYPES.includes(t);
-          return (
-            <div key={t} className={card}>
-              <p className="text-xs font-medium tracking-wide uppercase">
-                {leaveTypeL(t)}
-              </p>
-              {costsPay ? (
-                <>
-                  <p className="text-warning mt-1 text-lg font-semibold">
-                    {L("Unpaid", "Tanpa gaji")}
-                  </p>
-                  <p className="text-muted-foreground text-[11px]">
-                    {L(`No limit · ${b.used} taken this year`,
-                       `Tiada had · ${b.used} diambil tahun ini`)}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="mt-1 text-lg font-semibold">
-                    {availableNow}
-                    <span className="text-muted-foreground text-xs font-normal">
-                      {" "}
-                      {L("eligible now", "layak sekarang")}
-                    </span>
-                  </p>
-                  <p className="text-muted-foreground text-[11px]">
-                    {L(
-                      `${b.entitled}/year · ${b.used} used`,
-                      `${b.entitled}/tahun · ${b.used} digunakan`
-                    )}
-                  </p>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
+        /* v1.206.0 - one card a type (leave-overview.tsx BalanceCard, the
+           Overview's own): eligible now for the paid types, and for the
+           unpaid, unrestricted ones what they cost instead of a balance */
+        <section className={card} aria-label={L("Available leave balances", "Baki cuti tersedia")}>
+          <p className={lv.title}>{L("Available leave balances", "Baki cuti tersedia")}</p>
+          <ul className={lv.balCards}>
+            {LEAVE_TYPES.map((t) => <BalanceCard key={t} type={t} b={balances[t]} unpaid={UNPAID_LEAVE_TYPES.includes(t)} />)}
+          </ul>
+        </section>
       )}
       </TabZone>
 
@@ -1247,256 +1279,131 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
 
       {canApprove && mgmt === "company" &&
         (() => {
-          /* v1.21.0 — the whole approval chain sees the whole board. */
+          /* v1.21.0 — the whole approval chain sees the whole board.
+             v1.206.0 - one register, as a table: what is in progress first
+             (whose approval it waits on), then every decided record, newest
+             first; searched by person, type, reason or leave no., filtered by
+             department, status and month (by OVERLAP, v1.83.0: a leave from
+             the 29th into the next month appears under both), and paged. The
+             decision buttons are on the row as before, for the stage that
+             waits on you; everything else opens the details drawer. */
           const TERMINAL = ["approved", "rejected", "cancelled"];
-          const pending = all.filter(
-            (l) => !TERMINAL.includes(l.stage ?? l.status)
-          ).filter(matchQ);
-          /* v1.83.0 — the WHOLE history, filtered by month, not the last
-             five. A month filter is the only one that matters here: a leave
-             question is nearly always "what happened in August", and it is
-             the same month the payslip is being checked against. Matched by
-             OVERLAP, so a leave running from the 29th into the next month
-             appears under both — it was taken in both. */
-          const decidedAll = all.filter((l) => TERMINAL.includes(l.stage ?? l.status)).filter(matchQ);
-          const decided = leaveMonth
-            ? decidedAll.filter((l) => l.start_date <= `${leaveMonth}-31` && l.end_date >= `${leaveMonth}-01`)
-            : decidedAll.slice(0, 8);
-          const waitingOn = waitingOnLabel;
-          const who = (l: LeaveReq) =>
-            properName(l.user_full || l.user_name || "");
+          const regNeedle = regQ.trim().toLowerCase();
+          const depts = [...new Set(all.map((l) => (l.user_department ?? "").trim()).filter(Boolean))].sort();
+          const months = [...new Set(all.flatMap((l) => [l.start_date.slice(0, 7), l.end_date.slice(0, 7)]))].sort().reverse();
+          const rows = all
+            .filter((l) => !regNeedle || [l.user_full ?? "", l.user_name ?? "", leaveTypeL(l.type), l.type, l.reason ?? "", leaveNoOf(l)].some((t) => t.toLowerCase().includes(regNeedle)))
+            .filter((l) => !regDept || (l.user_department ?? "").trim() === regDept)
+            .filter((l) => { const st = l.stage ?? l.status; return !regStatus || (regStatus === "progress" ? !TERMINAL.includes(st) : st === regStatus); })
+            .filter((l) => !leaveMonth || (l.start_date <= `${leaveMonth}-31` && l.end_date >= `${leaveMonth}-01`))
+            .sort((a, b) => Number(TERMINAL.includes(a.stage ?? a.status)) - Number(TERMINAL.includes(b.stage ?? b.status)) || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+          const pages = Math.max(1, Math.ceil(rows.length / regPer));
+          const page = Math.min(regPage, pages - 1);
+          const shown = rows.slice(page * regPer, page * regPer + regPer);
+          const who = (l: LeaveReq) => properName(l.user_full || l.user_name || "");
+          const reset = () => setRegPage(0);
           return (
-            <div className={card}>
-              <p className="text-sm font-semibold">
-                {L(
-                  "Leave — whole company",
-                  "Cuti — seluruh syarikat"
-                )}
-              </p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {L(
-                  "Everything in progress and whose approval it waits on, then every decided record — including unpaid days recorded from Attendance. Action buttons appear on the ones waiting on you.",
-                  "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Butang tindakan muncul pada yang menunggu anda."
-                )}
-              </p>
-              {searchBox}
-              {/* v1.77.0 — skeleton until the first fetch lands. */}
-              {!loaded && <SkelRows rows={4} className="max-h-80" />}
-              {loaded && pending.length === 0 && (
-                <p className="text-muted-foreground mt-2 text-sm">
-                  {L("Nothing in progress.", "Tiada yang sedang diproses.")}
-                </p>
-              )}
-              <div className="max-h-80 overflow-y-auto">
-                {loaded && pending.map((l) => {
-                  const mine =
-                    canActOnStage(
-                      user.role,
-                      l.stage ?? "",
-                      l.applicant_role ?? ""
-                    ) && l.user_id !== user.id;
-                  return (
-                    <div key={l.id} data-record={`leave:${l.id}`} className="border-border border-b py-2 text-sm last:border-0">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="min-w-0">
-                        <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
-                          aria-expanded={openAll === l.id}
-                          title={L("Open the application", "Buka permohonan")}
-                          onClick={() => setOpenAll(openAll === l.id ? null : l.id)}>
-                          {who(l)}
-                        </button> ·{" "}
-                        {leaveTypeL(l.type)} · {dmy(l.start_date)} →{" "}
-                        {dmy(l.end_date)} ({l.days}d) {coverageLabel(l)}
-                        <span
-                          className={`ml-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${mine ? "bg-warning-soft text-warning" : "bg-secondary text-muted-foreground"}`}
-                        >
-                          {L("waiting on", "menunggu")} {waitingOn(l)}
-                        </span>
-                      </span>
-                      {!mine && canOverride && l.user_id !== user.id && (
-                        <span className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            title={L(
-                              "Approve without waiting for the stages before you",
-                              "Luluskan tanpa menunggu peringkat sebelum anda"
-                            )}
-                            onClick={() => void overrideAct(l, "approve")}
-                          >
-                            {L("Approve now", "Luluskan terus")}
-                          </button>
-                          <button
-                            type="button"
-                            className="text-destructive text-sm underline"
-                            onClick={() => void overrideAct(l, "reject")}
-                          >
-                            {L("Reject", "Tolak")}
-                          </button>
-                        </span>
-                      )}
-                      {mine && (
-                        <span className="flex gap-2">
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            onClick={() => void act(l.id, "approve")}
-                          >
-                            {l.stage === "applied"
-                              ? L("Mark reviewed", "Tanda disemak")
-                              : l.stage === "hr_reviewed"
-                                ? L("Pre-approve", "Pra-lulus")
-                                : L("Final approve", "Kelulusan akhir")}
-                          </button>
-                          <button
-                            type="button"
-                            className="text-destructive text-sm underline"
-                            onClick={() => void act(l.id, "reject")}
-                          >
-                            {L("Reject", "Tolak")}
-                          </button>
-                        </span>
-                      )}
-                    </div>
-                    {openAll === l.id && <LeaveDetail l={l} meName={user.name} />}
-                    </div>
-                  );
-                })}
+            <section className={card} aria-label={L("Leave — whole company", "Cuti — seluruh syarikat")}>
+              <div className={lv.regHead}>
+                <div>
+                  <p className={lv.title}>{L("Leave — whole company", "Cuti — seluruh syarikat")}</p>
+                  <p className={lv.sub}>{L("Everything in progress and whose approval it waits on, then every decided record — including unpaid days recorded from Attendance. Decision buttons appear on the ones waiting on you.", "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Butang keputusan muncul pada yang menunggu anda.")}</p>
+                </div>
               </div>
-              <div className="mt-4">
-                <div className="flex flex-wrap items-end justify-between gap-2">
-                  <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
-                    {leaveMonth ? L("Decided this month", "Diputuskan bulan ini") : L("Recently decided", "Keputusan terkini")}
-                  </p>
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="month"
-                      className={inputClassSm}
-                      value={leaveMonth}
-                      /* v1.174.3 - empty means "every month", and the control
-                         says so: iOS draws nothing inside an empty month
-                         control, and this one was a blank pill on the CEO's
-                         phone. styles/erp-v3.css shows the placeholder
-                         while it is empty (an empty date control says what
-                         it is for). */
-                      placeholder={L("Every month", "Setiap bulan")}
-                      aria-label={L("Filter by month", "Tapis ikut bulan")}
-                      title={L("Show every leave taken in this month. A leave spanning two months appears under both.", "Tunjuk setiap cuti yang diambil dalam bulan ini. Cuti merentasi dua bulan muncul pada kedua-duanya.")}
-                      onChange={(e) => setLeaveMonth(e.target.value)}
-                    />
-                    {leaveMonth && (
-                      <button type="button" className="text-muted-foreground text-xs underline"
-                        onClick={() => setLeaveMonth("")}>
-                        {L("Clear", "Kosongkan")}
-                      </button>
-                    )}
+              <div className={lv.filters}>
+                <label className={lv.searchField}>
+                  <AppIcon name="search" />
+                  <input value={regQ} onChange={(e) => { setRegQ(e.target.value); reset(); }} placeholder={L("Search staff, leave type, reason or leave no.", "Cari kakitangan, jenis cuti, sebab atau no. cuti")} aria-label={L("Search the company's leave", "Cari cuti syarikat")} />
+                </label>
+                <select className={inputClassSm} value={regDept} onChange={(e) => { setRegDept(e.target.value); reset(); }} aria-label={L("Department", "Jabatan")}>
+                  <option value="">{L("All departments", "Semua jabatan")}</option>
+                  {depts.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <select className={inputClassSm} value={regStatus} onChange={(e) => { setRegStatus(e.target.value as typeof regStatus); reset(); }} aria-label={L("Status", "Status")}>
+                  <option value="">{L("All statuses", "Semua status")}</option>
+                  <option value="progress">{L("In progress", "Sedang diproses")}</option>
+                  <option value="approved">{L("Approved", "Diluluskan")}</option>
+                  <option value="rejected">{L("Rejected", "Ditolak")}</option>
+                  <option value="cancelled">{L("Cancelled", "Dibatalkan")}</option>
+                </select>
+                <select className={inputClassSm} value={leaveMonth} onChange={(e) => { setLeaveMonth(e.target.value); reset(); }} aria-label={L("Filter by month", "Tapis ikut bulan")}
+                  title={L("Show every leave taken in this month. A leave spanning two months appears under both.", "Tunjuk setiap cuti yang diambil dalam bulan ini. Cuti merentasi dua bulan muncul pada kedua-duanya.")}>
+                  <option value="">{L("Every month", "Setiap bulan")}</option>
+                  {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+                </select>
+              </div>
+              {/* v1.77.0 — skeleton until the first fetch lands. */}
+              {!loaded ? <SkelTable rows={5} cols={7} /> : (
+                <div className={lv.regWrap}>
+                  <table className={lv.reg} aria-label={L("Leave — whole company", "Cuti — seluruh syarikat")}>
+                    <thead><tr>
+                      <th>{L("Applied", "Dimohon")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Leave period", "Tempoh cuti")}</th>
+                      <th className={lv.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th><span className={lv.srOnly}>{L("Actions", "Tindakan")}</span></th>
+                    </tr></thead>
+                    <tbody>
+                      {shown.length === 0 && <tr><td colSpan={7} className={lv.emptyCell}>{all.length === 0 ? L("Nothing yet.", "Tiada lagi.") : L("No leave matches — clear the search or a filter.", "Tiada cuti sepadan — kosongkan carian atau penapis.")}</td></tr>}
+                      {shown.map((l) => {
+                        const st = l.stage ?? l.status;
+                        const inProgress = !TERMINAL.includes(st);
+                        const mine = inProgress && canActOnStage(user.role, l.stage ?? "", l.applicant_role ?? "") && l.user_id !== user.id;
+                        const chip = leaveChip(st);
+                        return (
+                          <tr key={l.id} data-record={`leave:${l.id}`} className={mine ? lv.rowMine : ""}>
+                            <td data-label={L("Applied", "Dimohon")} className={lv.muted}>{l.created_at ? dmy(l.created_at.slice(0, 10)) : "—"}</td>
+                            <td className={lv.personCell}>
+                              <button type="button" className={lv.person} onClick={() => setDrawerId(l.id)} title={L("Open the application", "Buka permohonan")}>
+                                <Avatar name={who(l)} size="sm" />
+                                <span className={lv.personText}><strong>{who(l)}</strong><span>{l.user_department || l.user_position || "—"}</span></span>
+                              </button>
+                            </td>
+                            <td data-label={L("Leave type", "Jenis cuti")} className={`${lv.cap} ${l.type === "unpaid" ? lv.danger : ""}`}>{leaveTypeL(l.type)}</td>
+                            <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
+                            <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
+                            <td data-label={L("Status", "Status")}>
+                              {inProgress
+                                ? <span className={mine ? chipSmWarn : chipSmNeutral}>{L("Waiting on", "Menunggu")} {waitingOnLabel(l)}</span>
+                                : <span className={chip[0]}>{chip[1]}</span>}
+                            </td>
+                            <td className={lv.actCell}>
+                              <span>
+                                {mine && (
+                                  <>
+                                    <button type="button" className={rowBtnPrimary} onClick={() => void act(l.id, "approve")}>
+                                      {l.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : l.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
+                                    </button>
+                                    <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "reject")}>{L("Reject", "Tolak")}</button>
+                                  </>
+                                )}
+                                {!mine && inProgress && canOverride && l.user_id !== user.id && (
+                                  <>
+                                    <button type="button" className={rowBtn} title={L("Approve without waiting for the stages before you", "Luluskan tanpa menunggu peringkat sebelum anda")} onClick={() => void overrideAct(l, "approve")}>{L("Approve now", "Luluskan terus")}</button>
+                                    <button type="button" className={rowBtnDanger} onClick={() => void overrideAct(l, "reject")}>{L("Reject", "Tolak")}</button>
+                                  </>
+                                )}
+                                <button type="button" className={rowBtn} onClick={() => setDrawerId(l.id)}>{L("View", "Lihat")}</button>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {loaded && rows.length > 0 && (
+                <div className={lv.pager}>
+                  <span>{L(`Showing ${page * regPer + 1}–${Math.min(rows.length, page * regPer + regPer)} of ${rows.length}`, `Memaparkan ${page * regPer + 1}–${Math.min(rows.length, page * regPer + regPer)} daripada ${rows.length}`)}</span>
+                  <select className={inputClassSm} value={regPer} onChange={(e) => { setRegPer(Number(e.target.value)); reset(); }} aria-label={L("Rows per page", "Baris setiap halaman")}>
+                    {[10, 25, 50].map((n) => <option key={n} value={n}>{n} / {L("page", "halaman")}</option>)}
+                  </select>
+                  <span className={lv.pageBtns}>
+                    <button type="button" className={rowBtn} disabled={page === 0} onClick={() => setRegPage(page - 1)} aria-label={L("Previous page", "Halaman sebelumnya")}><AppIcon name="previous" /></button>
+                    <span>{page + 1} / {pages}</span>
+                    <button type="button" className={rowBtn} disabled={page >= pages - 1} onClick={() => setRegPage(page + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
                   </span>
                 </div>
-                {decided.length === 0 ? (
-                  <p className="text-muted-foreground mt-2 text-xs">
-                    {leaveMonth
-                      ? L("No leave decided in that month.", "Tiada cuti diputuskan pada bulan itu.")
-                      : L("Nothing decided yet.", "Tiada keputusan lagi.")}
-                  </p>
-                ) : (
-                  <div className="border-border divide-border mt-2 divide-y rounded-lg border">
-                    {decided.map((l) => (
-                      <div key={l.id} data-record={`leave:${l.id}`} className="px-2.5 py-1.5">
-                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                          <p className="min-w-0 text-xs">
-                            <button type="button" className="font-medium underline decoration-dotted underline-offset-2"
-                              aria-expanded={openAll === l.id}
-                              title={L("Open the application", "Buka permohonan")}
-                              onClick={() => setOpenAll(openAll === l.id ? null : l.id)}>
-                              {who(l)}
-                            </button>
-                            <span className="text-muted-foreground">
-                              {" · "}<span className={l.type === "unpaid" ? "text-danger font-medium" : ""}>{leaveTypeL(l.type)}</span>
-                              {" · "}{dmy(l.start_date)}{l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}
-                              {" · "}{l.days === 1 ? L("1 day", "1 hari") : l.days === 0.5 ? L("half day", "setengah hari") : `${l.days} ${L("days", "hari")}`} {coverageLabel(l)}
-                              {" · "}{stageL(l.stage ?? l.status)}
-                            </span>
-                          </p>
-                          {canAmend && (
-                            <span className="flex shrink-0 items-center gap-2">
-                              <button type="button" className={rowBtn}
-                                title={L("Correct the type, the dates or the number of days", "Betulkan jenis, tarikh atau bilangan hari")}
-                                onClick={() => setEditLeave(editLeave?.id === l.id ? null : {
-                                  id: l.id, type: l.type, start_date: l.start_date,
-                                  end_date: l.end_date, days: l.days, reason: l.reason ?? "", day_part: l.day_part ?? "",
-                                })}>
-                                {editLeave?.id === l.id ? L("Close", "Tutup") : L("Edit", "Sunting")}
-                              </button>
-                              <button type="button" className={rowBtnDanger}
-                                onClick={() => void removeLeave(l)}>
-                                {L("Remove", "Buang")}
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                        {l.reason && editLeave?.id !== l.id && openAll !== l.id && (
-                          <p className="text-muted-foreground mt-0.5 text-[11px] whitespace-pre-line">{l.reason}</p>
-                        )}
-                        {openAll === l.id && editLeave?.id !== l.id && <LeaveDetail l={l} meName={user.name} />}
-                        {/* v1.83.0 — the amendment form, on the row it amends.
-                            A modal would hide the record being changed at the
-                            moment it matters most. */}
-                        {editLeave?.id === l.id && (
-                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
-                            <SubR t={L("Type", "Jenis")}>
-                              <select className={inputClass} value={editLeave.type}
-                                onChange={(e) => setEditLeave({ ...editLeave, type: e.target.value })}>
-                                {["annual", "medical", "emergency", "unpaid", "replacement"].map((t) => (
-                                  <option key={t} value={t}>{leaveTypeL(t)}</option>
-                                ))}
-                              </select>
-                            </SubR>
-                            <SubR t={L("Start", "Mula")}>
-                              <input type="date" className={inputClass} value={editLeave.start_date}
-                                onChange={(e) => setEditLeave({ ...editLeave, start_date: e.target.value })} />
-                            </SubR>
-                            <SubR t={L("End", "Tamat")}>
-                              <input type="date" className={inputClass} value={editLeave.end_date}
-                                onChange={(e) => setEditLeave({ ...editLeave, end_date: e.target.value })} />
-                            </SubR>
-                            <SubR t={L("Days (0.5 = half)", "Hari (0.5 = separuh)")}>
-                              <input type="number" min={0.5} step={0.5} className={inputClass}
-                                value={editLeave.days}
-                                onChange={(e) => setEditLeave({ ...editLeave, days: Number(e.target.value) })} />
-                            </SubR>
-                            {editLeave.days === 0.5 && (
-                              <SubR t={L("Scheduled workday half", "Separuh hari bekerja berjadual")}>
-                                <select className={inputClass} value={editLeave.day_part} onChange={e => setEditLeave({ ...editLeave, day_part: e.target.value })}>
-                                  <option value="">{L("Select half", "Pilih separuh")}</option>
-                                  <option value="first_half">{L("First half", "Separuh pertama")}</option>
-                                  <option value="second_half">{L("Second half", "Separuh kedua")}</option>
-                                </select>
-                              </SubR>
-                            )}
-                            <SubR t={L("Reason", "Sebab")} className="sm:col-span-3">
-                              <input className={inputClass} value={editLeave.reason}
-                                onChange={(e) => setEditLeave({ ...editLeave, reason: e.target.value })} />
-                            </SubR>
-                            <div className="flex items-end gap-2">
-                              <button type="button" className={rowBtnPrimary} onClick={() => void saveAmend()}>
-                                {L("Save", "Simpan")}
-                              </button>
-                              <button type="button" className={rowBtn} onClick={() => setEditLeave(null)}>
-                                {L("Cancel", "Batal")}
-                              </button>
-                            </div>
-                            <p className="text-muted-foreground text-[11px] sm:col-span-4">
-                              {L("Every change is recorded with who made it and what it replaced, and the staff member is notified. If this month's payroll is already saved, press Recompute nets on the Payroll tab afterwards.",
-                                 "Setiap perubahan direkodkan dengan siapa yang membuatnya dan apa yang digantikan, dan kakitangan dimaklumkan. Jika gaji bulan ini sudah disimpan, tekan Kira semula bersih pada tab Gaji selepas ini.")}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+              )}
+            </section>
           );
         })()}
       </TabZone>
@@ -1512,112 +1419,177 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       </TabZone>
     {!hourly && (
       <TabZone label={L("My history", "Sejarah saya")} className={view !== "mine" ? lv.off : ""}>
-<div className={card}>
-          <p className="text-sm font-semibold">
-            {L("My leave history", "Sejarah cuti saya")}
-          </p>
-          {searchBox}
-          {/* v1.77.0 — skeleton until the first fetch lands. */}
-          {!loaded && <SkelRows rows={4} className="max-h-72" />}
-          {loaded && mine.length === 0 && (
-            <p className="text-muted-foreground mt-2 text-sm">
-              {L("No requests yet.", "Tiada permohonan lagi.")}
-            </p>
-          )}
-          <div className="max-h-72 overflow-y-auto">
-            {loaded && mine.filter(matchQ).map((l) => (
-              <div
-                key={l.id}
-                data-record={`leave:${l.id}`}
-                className="border-border border-b py-2 text-sm last:border-0"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0">
-                    {/* v1.4.249: the leave number opens the record; type, period,
-                    reason and the reviewer's comment moved into the panel. */}
-                    <RecordToggle
-                      open={openLeave === l.id}
-                      title={L(
-                        "Type, period, reason and comments",
-                        "Jenis, tempoh, sebab dan komen"
-                      )}
-                      onToggle={() =>
-                        setOpenLeave(openLeave === l.id ? null : l.id)
-                      }
-                    >
-                      {leaveNoOf(l)}
-                    </RecordToggle>
-                    {" · "}
-                    {l.days}d {coverageLabel(l)} ·{" "}
-                    <span className="font-medium">
-                      {stageL((l as LeaveReq).stage ?? l.status)}
-                    </span>
-                  </span>
-                  <span className="flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      className={rowBtn}
-                      title={L(
-                        "Print the Leave Application Form",
-                        "Cetak Borang Permohonan Cuti"
-                      )}
-                      onClick={() => printLeaveForm(l, user.name)}
-                    >
-                      {L("Print form", "Cetak borang")}
-                    </button>
-                    {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
-                    <button
-                      type="button"
-                      className={rowBtn}
-                      title={L(
-                        "Send the leave form as a PDF file",
-                        "Hantar borang cuti sebagai fail PDF"
-                      )}
-                      onClick={() => void sendLeavePdf(l)}
-                    >
-                      {L("Send PDF", "Hantar PDF")}
-                    </button>
-                    {!["approved", "rejected", "cancelled"].includes(
-                      (l as LeaveReq).stage ?? ""
-                    ) && (
-                      <button
-                        type="button"
-                        className={rowBtnDanger}
-                        onClick={() => void act(l.id, "cancel")}
-                      >
-                        {L("Cancel", "Batal")}
-                      </button>
-                    )}
-                  </span>
-                </div>
-                {openLeave === l.id && (
-                  <DetailGrid
-                    items={[
-                      { label: L("Type", "Jenis"), value: leaveTypeL(l.type) },
-                      {
-                        label: L("Period", "Tempoh"),
-                        value: `${dmy(l.start_date)} → ${dmy(l.end_date)}`,
-                      },
-                      { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
-                      {
-                        label: L("Reason", "Sebab"),
-                        wide: true,
-                        value: l.reason ?? "",
-                      },
-                      {
-                        label: L("Reviewer note", "Catatan penyemak"),
-                        wide: true,
-                        value: l.review_comment ?? "",
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-            ))}
+        {/* v1.206.0 - your applications as a table, each opening the details
+            drawer; Print form, Send PDF and Cancel (while in progress) on the
+            row as before */}
+        <section className={card} aria-label={L("My leave history", "Sejarah cuti saya")}>
+          <p className={lv.title}>{L("My leave history", "Sejarah cuti saya")}</p>
+          <div className={lv.filters}>
+            <label className={lv.searchField}>
+              <AppIcon name="search" />
+              <input value={leaveQ} onChange={(e) => setLeaveQ(e.target.value)} placeholder={L("Search staff, leave type, reason or leave no.", "Cari kakitangan, jenis cuti, sebab atau no. cuti")} aria-label={L("Search leave", "Cari cuti")} />
+            </label>
+            <select className={inputClassSm} value={mineStatus} onChange={(e) => setMineStatus(e.target.value as typeof mineStatus)} aria-label={L("Status", "Status")}>
+              <option value="">{L("All statuses", "Semua status")}</option>
+              <option value="progress">{L("In progress", "Sedang diproses")}</option>
+              <option value="approved">{L("Approved", "Diluluskan")}</option>
+              <option value="rejected">{L("Rejected", "Ditolak")}</option>
+              <option value="cancelled">{L("Cancelled", "Dibatalkan")}</option>
+            </select>
           </div>
-        </div>
+          {/* v1.77.0 — skeleton until the first fetch lands. */}
+          {!loaded ? <SkelTable rows={4} cols={6} /> : mine.length === 0 ? (
+            <p className={lv.empty}>{L("No requests yet.", "Tiada permohonan lagi.")}</p>
+          ) : (
+            <div className={lv.regWrap}>
+              <table className={lv.reg} aria-label={L("My leave history", "Sejarah cuti saya")}>
+                <thead><tr>
+                  <th>{L("Leave no.", "No. cuti")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Leave period", "Tempoh cuti")}</th>
+                  <th className={lv.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th><span className={lv.srOnly}>{L("Actions", "Tindakan")}</span></th>
+                </tr></thead>
+                <tbody>
+                  {mine.filter(matchQ).filter((l) => { const st = l.stage ?? l.status; return !mineStatus || (mineStatus === "progress" ? !["approved", "rejected", "cancelled"].includes(st) : st === mineStatus); }).map((l) => {
+                    const st = (l as LeaveReq).stage ?? l.status;
+                    const inProgress = !["approved", "rejected", "cancelled"].includes(st);
+                    const chip = leaveChip(st);
+                    return (
+                      <tr key={l.id} data-record={`leave:${l.id}`}>
+                        <td className={lv.personCell}>
+                          <button type="button" className={lv.leaveNo} onClick={() => setDrawerId(l.id)} title={L("Type, period, reason, comments and the approval trail", "Jenis, tempoh, sebab, komen dan jejak kelulusan")}>{leaveNoOf(l)}</button>
+                        </td>
+                        <td data-label={L("Leave type", "Jenis cuti")} className={lv.cap}>{leaveTypeL(l.type)}</td>
+                        <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
+                        <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
+                        <td data-label={L("Status", "Status")}>{inProgress ? <span className={chipSmWarn}>{stageL(st)}</span> : <span className={chip[0]}>{chip[1]}</span>}</td>
+                        <td className={lv.actCell}>
+                          <span>
+                            <button type="button" className={rowBtn} onClick={() => setDrawerId(l.id)}>{L("View", "Lihat")}</button>
+                            <button type="button" className={rowBtn} title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
+                            {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
+                            <button type="button" className={rowBtn} title={L("Send the leave form as a PDF file", "Hantar borang cuti sebagai fail PDF")} onClick={() => void sendLeavePdf(l)}>{L("Send PDF", "Hantar PDF")}</button>
+                            {inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>{L("Cancel", "Batal")}</button>}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </TabZone>
       )}
+      {/* v1.206.0 - THE LEAVE DETAILS DRAWER, outside every zone (a hidden
+          tab must not hide it): the record, its approval trail, the records
+          around it as links, and the actions this person may take on it -
+          the same functions the rows call, with the same gates */}
+      {(() => {
+        const d = drawerId == null ? null : all.find((x) => x.id === drawerId) ?? mine.find((x) => x.id === drawerId) ?? null;
+        const st = d ? d.stage ?? d.status : "";
+        const TERMINAL = ["approved", "rejected", "cancelled"];
+        const inProgress = d ? !TERMINAL.includes(st) : false;
+        const own = d ? d.user_id === user.id || (!d.user_id && mine.some((x) => x.id === d.id)) : false;
+        const waitsOnMe = d ? inProgress && canActOnStage(user.role, d.stage ?? "", d.applicant_role ?? "") && !own : false;
+        const close = () => { setDrawerId(null); setEditLeave(null); };
+        return (
+          <SideDrawer open={d !== null} onClose={close} wide
+            title={d ? L("Leave application details", "Butiran permohonan cuti") : ""}
+            subtitle={d ? `${leaveNoOf(d)} · ${stageL(st)}` : undefined}
+            footer={d ? (
+              <span className={lv.drawerActions}>
+                {waitsOnMe && (
+                  <>
+                    <button type="button" className={btnClass} onClick={() => void act(d.id, "approve")}>
+                      {d.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : d.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
+                    </button>
+                    <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "reject")}>{L("Reject", "Tolak")}</button>
+                  </>
+                )}
+                {!waitsOnMe && inProgress && canOverride && !own && (
+                  <>
+                    <button type="button" className={rowBtn} onClick={() => void overrideAct(d, "approve")}>{L("Approve now", "Luluskan terus")}</button>
+                    <button type="button" className={rowBtnDanger} onClick={() => void overrideAct(d, "reject")}>{L("Reject", "Tolak")}</button>
+                  </>
+                )}
+                {own && inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "cancel")}>{L("Cancel my application", "Batalkan permohonan saya")}</button>}
+                {canAmend && !inProgress && (
+                  <>
+                    <button type="button" className={rowBtn} title={L("Correct the type, the dates or the number of days", "Betulkan jenis, tarikh atau bilangan hari")}
+                      onClick={() => setEditLeave(editLeave?.id === d.id ? null : { id: d.id, type: d.type, start_date: d.start_date, end_date: d.end_date, days: d.days, reason: d.reason ?? "", day_part: d.day_part ?? "" })}>
+                      {editLeave?.id === d.id ? L("Close editing", "Tutup suntingan") : L("Edit", "Sunting")}
+                    </button>
+                    <button type="button" className={rowBtnDanger} onClick={() => void removeLeave(d)}>{L("Remove", "Buang")}</button>
+                  </>
+                )}
+                {own && <button type="button" className={rowBtn} onClick={() => void sendLeavePdf(d)}>{L("Send PDF", "Hantar PDF")}</button>}
+                <button type="button" className={rowBtn} onClick={close}>{L("Close", "Tutup")}</button>
+              </span>
+            ) : undefined}>
+            {d && (
+              <div className={lv.drawer}>
+                <div className={lv.dHead}>
+                  <Avatar name={properName(d.user_full || d.user_name || user.name)} size="lg" />
+                  <span className={lv.dWho}>
+                    <strong>{properName(d.user_full || d.user_name || user.name)}</strong>
+                    <span>{[d.user_position, d.user_department].filter(Boolean).join(" · ") || (own ? L("You", "Anda") : "")}</span>
+                  </span>
+                  {inProgress ? <span className={waitsOnMe ? chipSmWarn : chipSmNeutral}>{L("Waiting on", "Menunggu")} {waitingOnLabel(d)}</span> : <span className={leaveChip(st)[0]}>{leaveChip(st)[1]}</span>}
+                </div>
+                {/* v1.83.0 — the amendment form, on the record it amends (CEO). */}
+                {editLeave?.id === d.id && (
+                  <div className={lv.amend}>
+                    <SubR t={L("Type", "Jenis")}>
+                      <select className={inputClass} value={editLeave.type}
+                        onChange={(e) => setEditLeave({ ...editLeave, type: e.target.value })}>
+                        {["annual", "medical", "emergency", "unpaid", "replacement"].map((t) => (
+                          <option key={t} value={t}>{leaveTypeL(t)}</option>
+                        ))}
+                      </select>
+                    </SubR>
+                    <SubR t={L("Start", "Mula")}>
+                      <input type="date" className={inputClass} value={editLeave.start_date}
+                        onChange={(e) => setEditLeave({ ...editLeave, start_date: e.target.value })} />
+                    </SubR>
+                    <SubR t={L("End", "Tamat")}>
+                      <input type="date" className={inputClass} value={editLeave.end_date}
+                        onChange={(e) => setEditLeave({ ...editLeave, end_date: e.target.value })} />
+                    </SubR>
+                    <SubR t={L("Days (0.5 = half)", "Hari (0.5 = separuh)")}>
+                      <input type="number" min={0.5} step={0.5} className={inputClass}
+                        value={editLeave.days}
+                        onChange={(e) => setEditLeave({ ...editLeave, days: Number(e.target.value) })} />
+                    </SubR>
+                    {editLeave.days === 0.5 && (
+                      <SubR t={L("Scheduled workday half", "Separuh hari bekerja berjadual")}>
+                        <select className={inputClass} value={editLeave.day_part} onChange={e => setEditLeave({ ...editLeave, day_part: e.target.value })}>
+                          <option value="">{L("Select half", "Pilih separuh")}</option>
+                          <option value="first_half">{L("First half", "Separuh pertama")}</option>
+                          <option value="second_half">{L("Second half", "Separuh kedua")}</option>
+                        </select>
+                      </SubR>
+                    )}
+                    <SubR t={L("Reason", "Sebab")}>
+                      <input className={inputClass} value={editLeave.reason}
+                        onChange={(e) => setEditLeave({ ...editLeave, reason: e.target.value })} />
+                    </SubR>
+                    <span className={lv.drawerActions}>
+                      <button type="button" className={rowBtnPrimary} onClick={() => void saveAmend()}>{L("Save", "Simpan")}</button>
+                      <button type="button" className={rowBtn} onClick={() => setEditLeave(null)}>{L("Cancel", "Batal")}</button>
+                    </span>
+                    <p className={lv.sub}>
+                      {L("Every change is recorded with who made it and what it replaced, and the staff member is notified. If this month's payroll is already saved, press Recompute nets on the Payroll tab afterwards.",
+                         "Setiap perubahan direkodkan dengan siapa yang membuatnya dan apa yang digantikan, dan kakitangan dimaklumkan. Jika gaji bulan ini sudah disimpan, tekan Kira semula bersih pada tab Gaji selepas ini.")}
+                    </p>
+                  </div>
+                )}
+                <LeaveDetail l={d} meName={user.name} />
+                <LeaveRelated l={d} onLeave={close} />
+              </div>
+            )}
+          </SideDrawer>
+        );
+      })()}
     </TabPage>
   );
 }

@@ -109,8 +109,10 @@ const modulePre = (src, open) => {
   const grid = read("components/ui/record-row.tsx");
   ok("DetailGrid keeps lines for every value", /<dd className="[^"]*whitespace-pre-line[^"]*">\{i\.value\}<\/dd>/.test(grid));
   const leave = read("components/portal/leave.tsx");
-  ok("the leave reason rides on DetailGrid (both detail views)", (leave.match(/label: L\("Reason", "Sebab"\), wide: true, value: l\.reason \?\? ""/g) ?? []).length >= 1 && /value: l\.reason \?\? "",/.test(leave));
-  ok("and keeps lines on the list line", /<p className="[^"]*whitespace-pre-line[^"]*">\{l\.reason\}<\/p>/.test(leave));
+  /* v1.206.0 - every leave opens the one details drawer, whose reason rides on
+     DetailGrid; the register lines no longer print the reason at all */
+  ok("the leave reason rides on DetailGrid (the one details drawer)", (leave.match(/label: L\("Reason", "Sebab"\), wide: true, value: l\.reason \?\? ""/g) ?? []).length >= 1);
+  ok("and no list line prints a reason without its lines", !/\{l\.reason\}<\/(?:p|span|td)>/.test(leave.replace(/<p className="[^"]*whitespace-pre-line[^"]*">\{l\.reason\}<\/p>/g, "")));
   const content = read("components/portal/content-panel.tsx");
   ok("content script and caption ride on DetailGrid", /label: L\("Script", "Skrip"\), wide: true, value: c\.script/.test(content) && /label: L\("Caption", "Kapsyen"\), wide: true, value: c\.caption/.test(content));
   const events = read("components/portal/events.tsx");

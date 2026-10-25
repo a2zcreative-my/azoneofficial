@@ -374,7 +374,8 @@ const page = readPortalSource(root);
      !/Unpaid days recorded this month/.test(card) && !/undoUnpaid/.test(card),
      "two lists of the same records is how two screens start disagreeing about what was deducted");
   ok("and the register is where an unpaid record is now managed",
-     /l\.type === "unpaid" \? "text-danger font-medium"/.test(page),
+     /* v1.206.0 - the register is a table; the unpaid type cell carries lv.danger */
+     /\$\{l\.type === "unpaid" \? lv\.danger : ""\}/.test(page) && /\.danger \{[^}]*color: var\(--danger\)/.test(read("components/portal/leave-page.module.css")),
      "the chips were the only thing making an unpaid day stand out - the register has to do that job now");
   ok("it is CEO-only on the client too",
      /const canReview = \["ceo", "super_admin"\]\.includes\(role\);/.test(card)

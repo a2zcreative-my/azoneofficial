@@ -499,3 +499,539 @@
     border-radius: 4px;
   }
 }
+
+/* ===== v1.206.0 - the second Leave reference: overview columns, balance
+   cards, the small calendar, the register, the details drawer ===== */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ovGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .ovGrid {
+    grid-template-columns: minmax(0, 1.6fr) minmax(20rem, 1fr);
+  }
+}
+.ovCol {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* balance: one card a type */
+.balCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.balCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.balIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.balIcon svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.bal_annual {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.bal_medical {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.bal_replacement {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.bal_emergency,
+.bal_unpaid {
+  background: var(--warning-soft, var(--secondary));
+  color: var(--warning);
+}
+.balText {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.balName {
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}
+.balBig {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.balBig small {
+  font-size: var(--type-caption-size);
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.balText .track {
+  grid-area: auto;
+  width: 100%;
+}
+
+/* the small calendar */
+.mini {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+.miniDow {
+  padding: 0.25rem 0;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.miniWeekend {
+  color: var(--danger);
+}
+.miniDay {
+  display: grid;
+  justify-items: center;
+  gap: 0.125rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.miniDay:hover {
+  background: var(--secondary);
+}
+.miniDay:focus-visible {
+  outline: 2px solid var(--gold-solid);
+  outline-offset: 1px;
+}
+.miniToday {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 700;
+}
+.miniToday:hover {
+  background: var(--primary);
+}
+.miniHol > span:first-child {
+  color: var(--danger);
+  font-weight: 600;
+}
+.miniToday.miniHol > span:first-child {
+  color: inherit;
+}
+.miniDots {
+  display: flex;
+  gap: 0.1875rem;
+  min-height: 0.375rem;
+}
+.miniDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+}
+.keyToday {
+  background: var(--primary);
+}
+.rowEnd {
+  display: grid;
+  justify-items: end;
+  gap: 0.125rem;
+  font-size: var(--type-body-sm-size);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* the register and My Leave tables */
+.regHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.875rem 0 0.75rem;
+}
+.filters select {
+  flex: 0 1 12rem;
+}
+.searchField {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.searchField:focus-within {
+  border-color: var(--gold-solid);
+}
+.searchField svg {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted-foreground);
+}
+.searchField input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+}
+.regWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.reg {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-body-sm-size);
+}
+.reg th {
+  padding: 0.625rem 0.75rem;
+  background: var(--secondary);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+.reg td {
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+.reg tbody tr:hover {
+  background: color-mix(in srgb, var(--secondary) 55%, transparent);
+}
+.rowMine {
+  box-shadow: inset 3px 0 0 var(--gold-solid);
+}
+.emptyCell {
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+.cov {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.cov:empty {
+  display: none;
+}
+.personCell {
+  min-width: 12rem;
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.person:focus-visible,
+.leaveNo:focus-visible {
+  outline: 2px solid var(--gold-solid);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.personText {
+  display: grid;
+  min-width: 0;
+}
+.personText strong {
+  font-weight: 600;
+}
+.personText span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.person:hover strong,
+.leaveNo:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.leaveNo {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.actCell > span {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.pager select {
+  width: auto;
+}
+.pageBtns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .reg thead {
+    display: none;
+  }
+  .reg,
+  .reg tbody,
+  .reg tr {
+    display: block;
+    width: 100%;
+  }
+  .reg tr {
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+  .reg tbody tr:first-child {
+    border-top: 0;
+  }
+  .reg td {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.3125rem 0;
+    border: 0;
+    text-align: right;
+  }
+  .reg td[data-label]::before {
+    content: attr(data-label);
+    color: var(--muted-foreground);
+    font-size: var(--type-caption-size);
+    text-align: left;
+  }
+  .reg td.personCell {
+    text-align: left;
+  }
+  .actCell > span {
+    justify-content: flex-start;
+  }
+}
+
+/* the details drawer */
+.drawer {
+  display: grid;
+  gap: 1.25rem;
+}
+.dHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.dWho {
+  display: grid;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.dWho strong {
+  font-size: var(--type-body-size);
+}
+.dWho span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.detail {
+  display: grid;
+  gap: 1.25rem;
+}
+.dSection {
+  display: grid;
+  gap: 0.5rem;
+}
+.dTitle {
+  margin: 0;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.steps li {
+  position: relative;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0 0 0.875rem;
+}
+.steps li::before {
+  content: "";
+  position: absolute;
+  top: 1rem;
+  bottom: 0;
+  left: 0.4375rem;
+  width: 2px;
+  background: var(--border);
+}
+.steps li:last-child::before {
+  display: none;
+}
+.stepDot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.125rem;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+.step_done .stepDot {
+  border-color: var(--success);
+  background: var(--success);
+}
+.step_now .stepDot {
+  border-color: var(--gold-solid);
+  background: color-mix(in srgb, var(--gold-solid) 30%, var(--card));
+}
+.step_skipped .stepDot,
+.step_none .stepDot {
+  border-style: dashed;
+}
+.stepText {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.stepText strong {
+  font-size: var(--type-body-sm-size);
+}
+.stepText span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.step_now .stepText span {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.related {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.related li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.related li:last-child {
+  border-bottom: 0;
+}
+.related li > span {
+  display: grid;
+  gap: 0.125rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.related strong {
+  font-size: var(--type-body-sm-size);
+}
+.related li > span > span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.drawerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.amend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--gold-solid);
+  border-radius: 12px;
+}
+.amend > p,
+.amend > .drawerActions {
+  grid-column: 1 / -1;
+}

@@ -348,7 +348,8 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Claims: each zone stays mounted under the other tabs", (claimsP.match(/className=\{view !== [a-zA-Z"]+ \? cov\.off : ""\}/g) ?? []).length >= 5 && /hidden=\{view !== "overview"\}/.test(claimsP));
   /* v1.196.0 - the history is searched (mine.filter(matchQ)); five tabs, each zone kept mounted */
   ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{view !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 6);
-  ok("Leave: application, pending company decisions, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'pending.map((l)', 'mine.filter(matchQ).map((l)']));
+  /* v1.206.0 - the company register is one table (shown.map), the history a table of yours (mine.filter(matchQ)) */
+  ok("Leave: application, company register, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'shown.map((l)', 'mine.filter(matchQ)']));
   /* v1.200.0 - five tabs: my work and all work (the active rows by default) before
      creation, then the company-wide progress and the completion archive */
   ok("Tasks: active records before creation, progress, completion archive", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', 'L("Create / assign a task"', '{progress}', 'renderTasks(tasks.filter((t) => t.status === "completed")']) && /useState<StatusF>\("active"\)/.test(tasks));

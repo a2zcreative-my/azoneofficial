@@ -459,8 +459,9 @@ ok("the attendance panel is actually given the role",
   ok("the cost is named where the leave is chosen",
      /UNPAID_LEAVE_TYPES\.includes\(t\) \? L\(" — unpaid"/.test(leaveTab),
      "finding out on the payslip is the worst place to find out");
+  /* v1.206.0 - the tiles became BalanceCard (leave-overview.tsx), shared by the Overview and My Leave */
   ok("an unrestricted type does not pretend to have a balance",
-     /No limit · \$\{b\.used\} taken this year/.test(leaveTab),
+     /No limit · \$\{v\.used\} taken this year/.test(read("components/portal/leave-overview.tsx")) && /<BalanceCard key=\{t\} type=\{t\} b=\{balances\[t\]\} unpaid=\{UNPAID_LEAVE_TYPES\.includes\(t\)\} \/>/.test(leaveTab),
      "\"0 eligible now\" reads as \"you may not take any\", which is the opposite of the rule");
   ok("emergency has left the entitlement grid",
      /export const ENT_TYPES = \["annual"\] as const;/.test(leaveTab),

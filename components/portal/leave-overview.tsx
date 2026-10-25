@@ -25,7 +25,7 @@ import css from "./leave-page.module.css";
 
 export type LeaveView = "overview" | "apply" | "mine" | "calendar" | "manage";
 type Balance = { entitled: number; used: number; accrued?: number };
-type MonthLeave = { id: number; user_id: number; name: string; type: string; start_date: string; end_date: string; days: number; status: string };
+type MonthLeave = { id: number; user_id: number; name: string; photo_key?: string | null; position?: string | null; type: string; start_date: string; end_date: string; days: number; status: string };
 type Holiday = { id: number; holiday_date: string; name: string; kind: string };
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -40,8 +40,6 @@ export function leaveChip(state: string): [string, string] {
   if (state === "cancelled") return [chipSmNeutral, L("Cancelled", "Dibatalkan")];
   return [chipSmWarn, L("Pending", "Menunggu")];
 }
-/* a leave touches a month when it overlaps it */
-const inMonth = (l: { start_date: string; end_date: string }, ym: string) => l.start_date <= `${ym}-31` && l.end_date >= `${ym}-01`;
 
 /** One plain GET, kept in component state only (never the device cache). */
 function usePlain<T>(path: string | null) {
@@ -70,7 +68,16 @@ function Head({ icon, tone, title, sub, action }: { icon: AppIconName; tone: str
   );
 }
 
-export function LeaveOverview({ types, unpaidTypes, balances, mine, loaded, hourly, inProgress, canManage, open, onViewMine }: {
+/* v1.206.0 - the Overview, laid out as the owner's second Leave reference
+   (25-10-2026): YOUR applications this year by state (labelled as yours -
+   the company's in-progress count is the banner above, for approvers),
+   your balance as one card a type, then the month at a glance, who is
+   away, the holidays. Every figure is the one this page already had:
+   balances from GET /staff/leave/balance (the worker's leaveAccrual), your
+   applications from GET /staff/leave, the month from GET /staff/leave/month.
+   Who is away shows names, types and dates - never the reason. */
+export function LeaveOverview({ userId, types, unpaidTypes, balances, mine, loaded, hourly, inProgress, canManage, open, onView }: {
+  userId: number;
   types: readonly string[];
   unpaidTypes: readonly string[];
   balances: Record<string, Balance>;
@@ -81,22 +88,22 @@ export function LeaveOverview({ types, unpaidTypes, balances, mine, loaded, hour
   inProgress: number | null;
   canManage: boolean;
   open: (v: LeaveView) => void;
-  onViewMine: (id: number) => void;
+  /** open one of your applications in the details drawer */
+  onView: (id: number) => void;
 }) {
   const today = mytToday();
   const ym = today.slice(0, 7);
+  const year = today.slice(0, 4);
   const cur = usePlain<{ month: string; leave: MonthLeave[] }>("/staff/leave/month");
   const next = usePlain<{ month: string; leave: MonthLeave[] }>(`/staff/leave/month?month=${shiftMonth(ym, 1)}`);
-  const hol = usePlain<{ holidays: Holiday[] }>(`/staff/holidays?year=${today.slice(0, 4)}`);
-  const holNext = usePlain<{ holidays: Holiday[] }>(today.slice(5, 7) >= "11" ? `/staff/holidays?year=${Number(today.slice(0, 4)) + 1}` : null);
+  const hol = usePlain<{ holidays: Holiday[] }>(`/staff/holidays?year=${year}`);
+  const holNext = usePlain<{ holidays: Holiday[] }>(today.slice(5, 7) >= "11" ? `/staff/holidays?year=${Number(year) + 1}` : null);
 
-  /* the four tiles: your annual balance, then your applications by state */
-  const annual = balances.annual ?? { entitled: 0, used: 0, accrued: 0 };
-  const annualNow = Math.max(0, (annual.accrued ?? annual.entitled) - annual.used);
-  const myPending = mine.filter((l) => !["approved", "rejected", "cancelled"].includes(stateOf(l)));
-  const myApproved = mine.filter((l) => stateOf(l) === "approved" && inMonth(l, ym));
-  const myRejected = mine.filter((l) => stateOf(l) === "rejected" && inMonth(l, ym));
-  const days = (list: readonly LeaveReq[]) => list.reduce((a, l) => a + (Number(l.days) || 0), 0);
+  /* your applications this year (by the year they start in), by state */
+  const thisYear = mine.filter((l) => l.start_date.startsWith(year));
+  const count = (st: string) => thisYear.filter((l) => (st === "pending" ? !["approved", "rejected", "cancelled"].includes(stateOf(l)) : stateOf(l) === st)).length;
+  const total = thisYear.length;
+  const pctOf = (n: number) => (total > 0 ? Math.round((n * 100) / total) : 0);
   const recent = [...mine].sort((a, b) => (b.created_at ?? b.start_date).localeCompare(a.created_at ?? a.start_date)).slice(0, 5);
 
   /* team leave from today on, this month and next, without duplicates */
@@ -106,6 +113,11 @@ export function LeaveOverview({ types, unpaidTypes, balances, mine, loaded, hour
     .sort((a, b) => a.start_date.localeCompare(b.start_date))
     .slice(0, 6);
   const holidays = [...(hol.data?.holidays ?? []), ...(holNext.data?.holidays ?? [])].filter((h) => h.holiday_date >= today).slice(0, 5);
+
+  const tile = (st: "approved" | "pending" | "rejected" | "cancelled", icon: AppIconName, tone: "green" | "gold" | "red" | "blue", label: string) => (
+    <KpiTile icon={icon} tone={tone} label={label} value={count(st)} busy={!loaded}
+      sub={L(`${pctOf(count(st))}% of your applications`, `${pctOf(count(st))}% daripada permohonan anda`)} onClick={() => open("mine")} />
+  );
 
   return (
     <>
@@ -117,116 +129,105 @@ export function LeaveOverview({ types, unpaidTypes, balances, mine, loaded, hour
         </p>
       )}
       {!hourly && (
-        <KpiRow label={L("My leave at a glance", "Cuti saya sepintas lalu")}>
-          <KpiTile icon="date" tone="blue" label={L("My Leave Balance", "Baki Cuti Saya")} value={`${annualNow} ${L("days", "hari")}`} busy={!loaded}
-            sub={L(`Annual leave · eligible now · ${annual.entitled}/year`, `Cuti tahunan · layak sekarang · ${annual.entitled}/tahun`)}
-            onClick={() => open("mine")} title={L("My balances and history", "Baki dan sejarah saya")} />
-          <KpiTile icon="documents" tone="green" label={L("Pending Approval", "Menunggu Kelulusan")} value={myPending.length} busy={!loaded}
-            sub={L(`${myPending.length} request${myPending.length === 1 ? "" : "s"} · ${days(myPending)} days`, `${myPending.length} permohonan · ${days(myPending)} hari`)}
-            onClick={() => open("mine")} />
-          <KpiTile icon="success" tone="gold" label={L("Approved (This Month)", "Diluluskan (Bulan Ini)")} value={myApproved.length} busy={!loaded}
-            sub={L(`${days(myApproved)} days`, `${days(myApproved)} hari`)} onClick={() => open("mine")} />
-          <KpiTile icon="error" tone="red" label={L("Rejected (This Month)", "Ditolak (Bulan Ini)")} value={myRejected.length} busy={!loaded}
-            sub={L(`${days(myRejected)} days`, `${days(myRejected)} hari`)} onClick={() => open("mine")} />
+        <KpiRow label={L(`My applications in ${year}`, `Permohonan saya pada ${year}`)}>
+          <KpiTile icon="documents" tone="navy" label={L("My applications", "Permohonan saya")} value={total} busy={!loaded}
+            sub={L(`This year (${year})`, `Tahun ini (${year})`)} onClick={() => open("mine")} />
+          {tile("approved", "success", "green", L("Approved", "Diluluskan"))}
+          {tile("pending", "pending", "gold", L("Pending", "Menunggu"))}
+          {tile("rejected", "error", "red", L("Rejected", "Ditolak"))}
+          {tile("cancelled", "blocked", "blue", L("Cancelled", "Dibatalkan"))}
         </KpiRow>
       )}
 
-      <div className={css.split}>
-        {!hourly && (
-          <section className={card} aria-label={L("Leave balance", "Baki cuti")}>
-            <Head icon="balance" tone={css.gold} title={L("Leave Balance", "Baki Cuti")} sub={L("Your entitlement and what is used, by type.", "Kelayakan anda dan yang digunakan, mengikut jenis.")}
-              action={{ label: L("Apply leave", "Mohon cuti"), onClick: () => open("apply") }} />
-            {!loaded ? <SkelRows rows={5} /> : (
-              <ul className={css.bars}>
-                {types.map((t) => {
-                  const b = balances[t] ?? { entitled: 0, used: 0, accrued: 0 };
-                  const costsPay = unpaidTypes.includes(t);
-                  const pct = b.entitled > 0 ? Math.min(100, (b.used / b.entitled) * 100) : 0;
-                  return (
-                    <li key={t} className={css.barRow}>
-                      <span className={css.barLabel}><span className={`${css.dot} ${css[`dot_${t}`] ?? ""}`} aria-hidden="true" />{leaveTypeL(t)}</span>
-                      <span className={css.barNum}>{costsPay ? L(`${b.used} taken · no limit`, `${b.used} diambil · tiada had`) : L(`${b.used} / ${b.entitled} days`, `${b.used} / ${b.entitled} hari`)}</span>
-                      <span className={css.track} aria-hidden="true"><span className={`${css.fill} ${css[`fill_${t}`] ?? ""}`} style={{ width: `${costsPay ? 0 : pct}%` }} /></span>
-                    </li>
-                  );
-                })}
+      <div className={css.ovGrid}>
+        <div className={css.ovCol}>
+          {!hourly && (
+            <section className={card} aria-label={L("My leave balance", "Baki cuti saya")}>
+              <Head icon="balance" tone={css.gold} title={L("My Leave Balance", "Baki Cuti Saya")} sub={L(`What you are entitled to in ${year} and what is used.`, `Kelayakan anda pada ${year} dan yang digunakan.`)}
+                action={{ label: L("Apply leave", "Mohon cuti"), onClick: () => open("apply") }} />
+              {!loaded ? <SkelRows rows={3} /> : (
+                <ul className={css.balCards}>
+                  {types.map((t) => <BalanceCard key={t} type={t} b={balances[t]} unpaid={unpaidTypes.includes(t)} />)}
+                </ul>
+              )}
+            </section>
+          )}
+          {!hourly && (
+            <section className={card} aria-label={L("Recent leave requests", "Permohonan cuti terkini")}>
+              <Head icon="documents" tone={css.gold} title={L("Recent Leave Requests", "Permohonan Cuti Terkini")} sub={L("Your latest applications and their status.", "Permohonan terkini anda dan statusnya.")}
+                action={{ label: L("View all", "Lihat semua"), onClick: () => open("mine") }} />
+              <div className={css.tWrap}>
+                <table className={css.t}>
+                  <thead><tr><th>{L("Applied", "Dimohon")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Period", "Tempoh")}</th><th className={css.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th><span className={css.srOnly}>{L("Action", "Tindakan")}</span></th></tr></thead>
+                  <tbody>
+                    {!loaded ? <tr><td colSpan={6}><SkelRows rows={3} /></td></tr>
+                      : recent.length === 0 ? <tr><td colSpan={6} className={css.empty}>{L("No applications yet - Apply Leave starts the first one.", "Belum ada permohonan - Mohon Cuti untuk memulakan.")}</td></tr>
+                      : recent.map((l) => {
+                        const chip = leaveChip(stateOf(l));
+                        return (
+                          <tr key={l.id}>
+                            <td className={css.muted}>{dmy((l.created_at ?? l.start_date).slice(0, 10))}</td>
+                            <td className={css.cap}>{leaveTypeL(l.type)}</td>
+                            <td className={css.muted}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</td>
+                            <td className={css.num}>{l.days}</td>
+                            <td><span className={chip[0]}>{chip[1]}</span></td>
+                            <td><button type="button" className={btnSm} onClick={() => onView(l.id)}>{L("View", "Lihat")}</button></td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
+
+        <div className={css.ovCol}>
+          <MiniCalendar userId={userId} today={today} holidays={[...(hol.data?.holidays ?? []), ...(holNext.data?.holidays ?? [])]} onOpen={() => open("calendar")} />
+
+          <section className={card} aria-label={L("Upcoming team leave", "Cuti pasukan akan datang")}>
+            <Head icon="users" tone={css.blue} title={L("Upcoming Team Leave", "Cuti Pasukan Akan Datang")} sub={L("Who is away from today, this month and next.", "Siapa bercuti mulai hari ini, bulan ini dan bulan depan.")}
+              action={{ label: L("View calendar", "Lihat kalendar"), onClick: () => open("calendar") }} />
+            {!(cur.done && next.done) ? <SkelRows rows={3} /> : upcoming.length === 0 ? (
+              <p className={css.empty}>{L("Nobody is on leave in the coming weeks.", "Tiada sesiapa bercuti dalam beberapa minggu akan datang.")}</p>
+            ) : (
+              <ul className={css.rows}>
+                {upcoming.map((l) => (
+                  <li key={l.id} className={css.row}>
+                    <Avatar name={properName(l.name)} photoKey={l.photo_key} size="sm" />
+                    <span className={css.rowMain}>
+                      <span className={css.name}>{properName(l.name)}</span>
+                      <span className={`${css.sub} ${css.cap}`}>{leaveTypeL(l.type)}{l.position ? ` · ${l.position}` : ""}</span>
+                    </span>
+                    <span className={css.rowEnd}>
+                      <span>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</span>
+                      <span className={css.sub}>{l.days} {L("day(s)", "hari")}{l.status !== "approved" ? <span className={`${chipSmWarn} ${css.gap}`}>{L("Pending", "Menunggu")}</span> : null}</span>
+                    </span>
+                  </li>
+                ))}
               </ul>
             )}
           </section>
-        )}
 
-        <section className={card} aria-label={L("Upcoming team leave", "Cuti pasukan akan datang")}>
-          <Head icon="users" tone={css.blue} title={L("Upcoming Team Leave", "Cuti Pasukan Akan Datang")} sub={L("Who is away from today, this month and next.", "Siapa bercuti mulai hari ini, bulan ini dan bulan depan.")}
-            action={{ label: L("View calendar", "Lihat kalendar"), onClick: () => open("calendar") }} />
-          <div className={css.tWrap}>
-            <table className={css.t}>
-              <thead><tr><th>{L("Staff", "Kakitangan")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Period", "Tempoh")}</th><th className={css.num}>{L("Days", "Hari")}</th></tr></thead>
-              <tbody>
-                {!(cur.done && next.done) ? <tr><td colSpan={4}><SkelRows rows={3} /></td></tr>
-                  : upcoming.length === 0 ? <tr><td colSpan={4} className={css.empty}>{L("Nobody is on leave in the coming weeks.", "Tiada sesiapa bercuti dalam beberapa minggu akan datang.")}</td></tr>
-                  : upcoming.map((l) => (
-                    <tr key={l.id}>
-                      <td><span className={css.who}><Avatar name={properName(l.name)} size="sm" /><span className={css.name}>{properName(l.name)}</span></span></td>
-                      <td className={css.cap}>{leaveTypeL(l.type)}{l.status !== "approved" && <span className={`${chipSmWarn} ${css.gap}`}>{L("Pending", "Menunggu")}</span>}</td>
-                      <td className={css.muted}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</td>
-                      <td className={css.num}>{l.days}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <div className={css.split}>
-        {!hourly && (
-          <section className={card} aria-label={L("Recent leave requests", "Permohonan cuti terkini")}>
-            <Head icon="documents" tone={css.gold} title={L("Recent Leave Requests", "Permohonan Cuti Terkini")} sub={L("Your latest applications and their status.", "Permohonan terkini anda dan statusnya.")}
-              action={{ label: L("View all", "Lihat semua"), onClick: () => open("mine") }} />
-            <div className={css.tWrap}>
-              <table className={css.t}>
-                <thead><tr><th>{L("Date", "Tarikh")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Period", "Tempoh")}</th><th className={css.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th>{L("Action", "Tindakan")}</th></tr></thead>
-                <tbody>
-                  {!loaded ? <tr><td colSpan={6}><SkelRows rows={3} /></td></tr>
-                    : recent.length === 0 ? <tr><td colSpan={6} className={css.empty}>{L("No applications yet - Apply Leave starts the first one.", "Belum ada permohonan - Mohon Cuti untuk memulakan.")}</td></tr>
-                    : recent.map((l) => {
-                      const chip = leaveChip(stateOf(l));
-                      return (
-                        <tr key={l.id}>
-                          <td className={css.muted}>{dmy((l.created_at ?? l.start_date).slice(0, 10))}</td>
-                          <td className={css.cap}>{leaveTypeL(l.type)}</td>
-                          <td className={css.muted}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</td>
-                          <td className={css.num}>{l.days}</td>
-                          <td><span className={chip[0]}>{chip[1]}</span></td>
-                          <td><button type="button" className={btnSm} onClick={() => onViewMine(l.id)}>{L("View", "Lihat")}</button></td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
+          <section className={card} aria-label={L("Public holidays", "Cuti umum")}>
+            <Head icon="holiday" tone={css.red} title={L("Public Holidays", "Cuti Umum")} sub={L("The company's holidays and replacement days ahead.", "Cuti syarikat dan hari gantian akan datang.")} />
+            {!(hol.done && holNext.done) ? <SkelRows rows={3} /> : holidays.length === 0 ? (
+              <p className={css.empty}>{L("No holidays ahead on the company calendar.", "Tiada cuti akan datang dalam kalendar syarikat.")}</p>
+            ) : (
+              <ul className={css.rows}>
+                {holidays.map((h) => (
+                  <li key={h.id} className={css.row}>
+                    <span className={css.badge} aria-hidden="true"><span className={css.badgeDay}>{h.holiday_date.slice(8, 10)}</span><span className={css.badgeMon}>{MON[Number(h.holiday_date.slice(5, 7)) - 1]}</span></span>
+                    <span className={css.rowMain}><span className={css.name}>{h.name}</span><span className={css.sub}>{dmy(h.holiday_date)}</span></span>
+                    <span className={h.kind === "replacement" ? chipSmWarn : h.kind === "company" ? chipSmInfo : chipSmDanger}>
+                      {h.kind === "replacement" ? L("Replacement day", "Hari gantian") : h.kind === "company" ? L("Company holiday", "Cuti syarikat") : L("Public holiday", "Cuti umum")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
-        )}
-
-        <section className={card} aria-label={L("Public holidays", "Cuti umum")}>
-          <Head icon="holiday" tone={css.red} title={L("Public Holidays", "Cuti Umum")} sub={L("The company's holidays and replacement days ahead.", "Cuti syarikat dan hari gantian akan datang.")}
-            action={{ label: L("View calendar", "Lihat kalendar"), onClick: () => open("calendar") }} />
-          {!(hol.done && holNext.done) ? <SkelRows rows={3} /> : holidays.length === 0 ? (
-            <p className={css.empty}>{L("No holidays ahead on the company calendar.", "Tiada cuti akan datang dalam kalendar syarikat.")}</p>
-          ) : (
-            <ul className={css.rows}>
-              {holidays.map((h) => (
-                <li key={h.id} className={css.row}>
-                  <span className={css.badge} aria-hidden="true"><span className={css.badgeDay}>{h.holiday_date.slice(8, 10)}</span><span className={css.badgeMon}>{MON[Number(h.holiday_date.slice(5, 7)) - 1]}</span></span>
-                  <span className={css.rowMain}><span className={css.name}>{h.name}</span><span className={css.sub}>{dmy(h.holiday_date)}</span></span>
-                  <span className={h.kind === "replacement" ? chipSmWarn : h.kind === "company" ? chipSmInfo : chipSmDanger}>
-                    {h.kind === "replacement" ? L("Replacement day", "Hari gantian") : h.kind === "company" ? L("Company holiday", "Cuti syarikat") : L("Public holiday", "Cuti umum")}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
       </div>
 
       <section className={card} aria-label={L("Quick actions", "Tindakan pantas")}>
@@ -239,6 +240,98 @@ export function LeaveOverview({ types, unpaidTypes, balances, mine, loaded, hour
         </div>
       </section>
     </>
+  );
+}
+
+/* One leave type's balance, from the figures the worker returns (entitled,
+   used, accrued - leaveAccrual). Annual leave accrues through the year, so
+   its headline is what you may take NOW; the unpaid, unrestricted types say
+   what they cost instead of pretending to a balance (v1.146.0). */
+export function BalanceCard({ type, b, unpaid }: { type: string; b: Balance | undefined; unpaid: boolean }) {
+  const v = b ?? { entitled: 0, used: 0, accrued: 0 };
+  const now = Math.max(0, (v.accrued ?? v.entitled) - v.used);
+  const pct = v.entitled > 0 ? Math.min(100, (v.used / v.entitled) * 100) : 0;
+  return (
+    <li className={css.balCard}>
+      <span className={`${css.balIcon} ${css[`bal_${type}`] ?? ""}`} aria-hidden="true"><AppIcon name={type === "medical" ? "verify" : type === "replacement" ? "refresh" : unpaid ? "money" : "holiday"} /></span>
+      <span className={css.balText}>
+        <span className={`${css.balName} ${css.cap}`}>{leaveTypeL(type)}{L(" leave", "")}</span>
+        {unpaid ? (
+          <>
+            <span className={css.balBig}>{L("Unpaid", "Tanpa gaji")}</span>
+            <span className={css.sub}>{L(`No limit · ${v.used} taken this year`, `Tiada had · ${v.used} diambil tahun ini`)}</span>
+          </>
+        ) : (
+          <>
+            <span className={css.balBig}>{now} <small>{L("days eligible now", "hari layak sekarang")}</small></span>
+            <span className={css.track} aria-hidden="true"><span className={`${css.fill} ${css[`fill_${type}`] ?? ""}`} style={{ width: `${pct}%` }} /></span>
+            <span className={css.sub}>{L(`${v.entitled}/year · ${v.used} used`, `${v.entitled}/tahun · ${v.used} digunakan`)}</span>
+          </>
+        )}
+      </span>
+    </li>
+  );
+}
+
+/* The month at a glance, small: a dot for your leave, the team's, a public
+   holiday; today ringed. Pressing a day opens the Team Calendar. */
+function MiniCalendar({ userId, today, holidays, onOpen }: { userId: number | null; today: string; holidays: readonly Holiday[]; onOpen: () => void }) {
+  const [ym, setYm] = useState(today.slice(0, 7));
+  const month = usePlain<{ month: string; leave: MonthLeave[] }>(`/staff/leave/month?month=${ym}`);
+  const yearHol = usePlain<{ holidays: Holiday[] }>(ym.slice(0, 4) !== today.slice(0, 4) ? `/staff/holidays?year=${ym.slice(0, 4)}` : null);
+  const [y, m] = ym.split("-").map(Number) as [number, number];
+  const first = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7; // Monday first
+  const n = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const cells: (string | null)[] = [...Array.from({ length: first }, () => null), ...Array.from({ length: n }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
+  while (cells.length % 7) cells.push(null);
+  const leave = (month.data?.leave ?? []).filter((l) => l.status !== "rejected");
+  const hols = [...holidays, ...(yearHol.data?.holidays ?? [])].filter((h) => h.holiday_date.startsWith(ym));
+  const DOWM = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const DOWM_MS = ["Isn", "Sel", "Rab", "Kha", "Jum", "Sab", "Ahd"];
+  return (
+    <section className={card} aria-label={L("Leave calendar at a glance", "Kalendar cuti sepintas lalu")}>
+      <div className={css.head}>
+        <div className={css.lead}>
+          <span className={`${css.well} ${css.gold}`}><AppIcon name="date" /></span>
+          <div className={css.headText}><p className={css.title}>{L("Leave Calendar", "Kalendar Cuti")}</p></div>
+        </div>
+        <div className={css.calNav}>
+          <button type="button" className={btnSm} aria-label={L("Previous month", "Bulan sebelumnya")} onClick={() => setYm((v) => shiftMonth(v, -1))}><AppIcon name="previous" /></button>
+          <span className={css.calMonth}>{monthName(ym)}</span>
+          <button type="button" className={btnSm} aria-label={L("Next month", "Bulan seterusnya")} onClick={() => setYm((v) => shiftMonth(v, 1))}><AppIcon name="next" /></button>
+        </div>
+      </div>
+      {!month.done ? <SkelRows rows={4} /> : (
+        <div className={css.mini} role="group" aria-label={monthName(ym)}>
+          {DOWM.map((d, i) => <span key={d} className={`${css.miniDow} ${i >= 5 ? css.miniWeekend : ""}`} aria-hidden="true">{L(d, DOWM_MS[i] ?? d)}</span>)}
+          {cells.map((d, i) => {
+            if (!d) return <span key={`e${i}`} aria-hidden="true" />;
+            const here = leave.filter((l) => l.start_date <= d && l.end_date >= d);
+            const mineHere = userId != null && here.some((l) => l.user_id === userId);
+            const team = here.some((l) => l.user_id !== userId);
+            const h = hols.find((x) => x.holiday_date === d);
+            return (
+              <button key={d} type="button" onClick={onOpen}
+                className={`${css.miniDay} ${d === today ? css.miniToday : ""} ${h ? css.miniHol : ""}`}
+                aria-label={`${dmy(d)}${h ? ` · ${h.name}` : ""}${here.length ? ` · ${here.length} ${L("away", "bercuti")}` : ""}`}>
+                <span>{Number(d.slice(8, 10))}</span>
+                <span className={css.miniDots} aria-hidden="true">
+                  {mineHere && <span className={`${css.miniDot} ${css.keyMine}`} />}
+                  {team && <span className={`${css.miniDot} ${css.keyTeam}`} />}
+                  {h && <span className={`${css.miniDot} ${css.keyHol}`} />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className={css.legend}>
+        <span><span className={`${css.key} ${css.keyMine}`} aria-hidden="true" />{L("My leave", "Cuti saya")}</span>
+        <span><span className={`${css.key} ${css.keyTeam}`} aria-hidden="true" />{L("Team leave", "Cuti pasukan")}</span>
+        <span><span className={`${css.key} ${css.keyHol}`} aria-hidden="true" />{L("Public holiday", "Cuti umum")}</span>
+        <span><span className={`${css.key} ${css.keyToday}`} aria-hidden="true" />{L("Today", "Hari ini")}</span>
+      </p>
+    </section>
   );
 }
 

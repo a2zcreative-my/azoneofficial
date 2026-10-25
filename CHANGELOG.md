@@ -10,6 +10,83 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.206.0] - 2026-10-25 - Leave: the second reference, one details drawer
+
+The owner, 25-10-2026 ("A2Z OS - Leave Management UI Improvement", with a
+reference screen): improve the Leave module in the existing colours and
+sidebar; five tabs; a clean details drawer; "ONE LEAVE REQUEST. ONE APPROVAL
+WORKFLOW. ONE AUTHORITATIVE LEAVE BALANCE. MULTIPLE CONNECTED VIEWS."; no
+policy, schema or API change; no mockup data; inspect first and present
+findings. The audit found one leave table, one decision route and chain,
+one accrual, and every other module reading the original records; it
+reported four findings (below). The owner approved the screen-only plan,
+kept /leave/month as it is for now, declined an attachment upload for now,
+and asked for a guard over the four "days used" sums.
+
+### Changed
+
+- **Overview** (`leave-overview.tsx`): five tiles of YOUR applications this
+  year (total, approved, pending, rejected, cancelled, each with its share);
+  the company's in-progress count stays the approvers' banner. **My Leave
+  Balance** as one card a type (`BalanceCard`: eligible now, the year's
+  entitlement and what is used; emergency and unpaid say "Unpaid · no
+  limit"). A small month calendar (your leave, team leave, public holidays,
+  today; Monday first), Upcoming Team Leave (names, types and dates - never
+  the reason), Public Holidays, Recent requests, Quick actions.
+- **My Leave**: the same balance cards, then your history as a table (leave
+  no., type, period, days, status) with search and a status filter; Print
+  form, Send PDF and Cancel (while in progress) on the row as before.
+- **Approvals & Management**: "Leave — whole company" is one register table
+  - in progress first (whose approval it waits on), then every decided
+  record, newest first - with search, department, status and month filters
+  (the month by overlap, now a list of months: the empty month control's
+  placeholder no longer overlaps its icon) and pages (10/25/50). The stage
+  that waits on you keeps its decision buttons on the row; the CEO's
+  override stays on the row. Rest days worked, replacement leave or OT and
+  the entitlement editor are unchanged.
+- **Leave details drawer** (every list, a search hit, a notification): the
+  employee, type, period, days and half-day coverage, applied, status,
+  reason and reviewer note; an attachment line only if one is on file; the
+  approval history as steps from the existing HR / pre-approval / final
+  fields (the stage waiting now, a stage the override skipped shown
+  unsigned, COO/CCO's "not needed"); Print form; related records as links -
+  View staff profile, View in Attendance, View in Payroll (only where the
+  tab strip shows Payroll; no figure). Its actions are the page's own
+  functions behind the same gates: the stage that waits on you, the CEO's
+  override, the CEO's Edit (the amend form, now in the drawer) and Remove,
+  your own Cancel and Send PDF.
+
+### Unchanged
+
+- No API, schema, permission, policy or calculation change. Leave
+  applications, balances, entitlements, replacement-leave and rest-day
+  rules, the approval chain and step-up, notifications, and the Payroll and
+  Attendance reads are exactly as they were.
+
+### Audit findings (reported, not changed)
+
+1. "Days used" is written four times in the worker (balance, entitlement
+   table, eligibility editor, payslip); they agree. Now held by a guard.
+2. A leave crossing a month-end is counted wholly in the month it starts by
+   the payroll deduction, the payslip and the monthly attendance summary;
+   the calendars show the real days. An existing payroll rule - the
+   owner's decision.
+3. GET /leave/month returns every leave WITH its reason to every staff
+   member (the owner's earlier choice). Kept for now; the screens show who
+   is away, not why.
+4. The database and POST /leave accept a medical-certificate media id, but
+   the form never uploads one; no leave has an attachment.
+
+### Guards
+
+- New `tests/leave-module.mjs` (registered): the four days-used sums keep one
+  rule and meet the one accrual; the page's approval lists are the worker's
+  chain and leaveSeesAll; only the Leave page calls the decision route; the
+  drawer only points (links gated by the tab strip, no figures, no requests
+  of its own) and its actions keep their gates; the team views never draw a
+  reason. Updated: tab-zones, clickable-data, kept-lines, unpaid-leave,
+  staff-order (the register is a table now).
+
 ## [1.205.0] - 2026-10-25 - Global Search and Notifications
 
 The owner, 25-10-2026, with a reference screen: one search and one

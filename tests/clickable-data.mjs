@@ -108,10 +108,13 @@ const ok = (label, cond, extra = "") => {
        see the details of the leave application!" The name is the door, on
        the in-progress rows AND the decided ones, and both open the same
        detail with the approval trail. */
-    ["a company-board leave in progress opens on its name", "components/portal/leave.tsx",
-     /aria-expanded=\{openAll === l\.id\}[\s\S]{0,400}?\{who\(l\)\}[\s\S]{0,3000}?\{openAll === l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
-    ["a decided leave opens the same way", "components/portal/leave.tsx",
-     /\{openAll === l\.id && editLeave\?\.id !== l\.id && <LeaveDetail l=\{l\} meName=\{user\.name\} \/>\}/, "one detail for both halves of the board, not two"],
+    /* v1.206.0 - one register table: the person (and View) opens the
+       details drawer, for a leave in progress and a decided one alike, and
+       the drawer draws the one LeaveDetail */
+    ["a company-board leave opens on its name", "components/portal/leave.tsx",
+     /<button type="button" className=\{lv\.person\} onClick=\{\(\) => setDrawerId\(l\.id\)\}[\s\S]{0,300}?\{who\(l\)\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
+    ["every leave opens the same drawer, with the one detail", "components/portal/leave.tsx",
+     /all\.find\(\(x\) => x\.id === drawerId\) \?\? mine\.find\(\(x\) => x\.id === drawerId\)[\s\S]{0,9000}?<LeaveDetail l=\{d\} meName=\{user\.name\} \/>/, "one detail for both halves of the board, not two"],
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
     /* v1.93.0 — the circle and the phone row both press through one
        handler, and that handler opens the record. */
