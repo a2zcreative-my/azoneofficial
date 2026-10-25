@@ -204,6 +204,11 @@ export default function PortalPage() {
                    worker/src/permissions.ts (tests/staff-responsibilities.mjs
                    holds the two lists equal). */
                 canEditResponsibilities={["super_admin", "admin", "hr_admin", "ceo"].includes(user.role)}
+                /* v1.204.0 - the profile links to the modules that own the
+                   records (Leave, Attendance, Payroll, Users), only where this
+                   account's tab strip already shows that tab */
+                go={setTab}
+                canOpen={canOpen}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and

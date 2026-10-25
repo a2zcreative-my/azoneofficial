@@ -118,6 +118,10 @@ function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onE
           <span className="text-muted-foreground block truncate text-[10px] leading-4">
             {u.position || ROLE_LABEL(u.role)}
           </span>
+          {/* v1.204.0 - the department, from the same record */}
+          {(u.department ?? "").trim() && (
+            <span className="text-muted-foreground block truncate text-[10px] leading-4">{(u.department ?? "").trim()}</span>
+          )}
         </span>
       </button>
       {headcount > 0 && (

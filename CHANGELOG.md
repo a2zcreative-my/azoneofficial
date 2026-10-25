@@ -10,6 +10,72 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.204.0] - 2026-10-25 - Staff: six tabs and one sectioned profile
+
+The owner, 25-10-2026, with a reference screen: improve the Staff module in
+the existing A2Z colours and sidebar; keep the Directory, Organisation, Team
+Map and every record (IDs, photos, positions, departments); search,
+department filters, sorting and clear status; a clean profile; Staff owns
+the profile, Users owns sign-in and permissions, Payroll owns salaries and
+payslips; reuse HR, Attendance, Leave, Payroll and Users through links to
+their own records; no separate employee, attendance, leave or payroll
+records in Staff; no sample data; no change to permissions, APIs or logic;
+no deploy without approval.
+
+### Changed
+
+- **Six tabs** (`components/staff/staff-directory.tsx`): Overview ·
+  Directory · Organisation · Team Map · Departments & Roles · Staff Records.
+  The Team Map was a toggle inside the organisation tab; it is now its own
+  tab. Every zone is still mounted and hidden with `sp.off`.
+- **Directory**: two more orders - by staff ID (numeric) and by department -
+  beside rank and name; the same search, department and status filters and
+  the same status chips (with 1.201.1's "Sign-in blocked" for leavers).
+  **Department cards** under the list (people working, leavers, faces),
+  read from the same records; pressing one filters the list, pressing it
+  again clears it.
+- **The profile, sectioned**: Profile (basic information with the photo,
+  reporting & access, roles and responsibilities) · Employment · Documents
+  (the record's own vault) · Leave · Attendance · Payroll. On a screen 1280px
+  and wider the profile docks beside the Directory list; elsewhere (and on
+  every other tab) it is the side drawer. One body draws both.
+  - **Leave** lists this person's requests from the Leave module's own read
+    (`/staff/leave?all=1`, which the worker already narrows to the person's
+    own requests for anyone outside the approval chain), with "Open in
+    Leave".
+  - **Attendance** shows today's clock from the Attendance monitor (the
+    worker's managing roles only; everyone else is told so), with "Open in
+    Attendance".
+  - **Payroll** shows no pay figure at all and asks nothing of Payroll; it is
+    a link to Payroll.
+  - **Reporting & access** shows the system role and "View in Users"; the
+    account is changed in Users.
+  - Each section is read only when it is opened, and a link is drawn only
+    where the account's tab strip already shows that tab (`go` and
+    `canOpen` from `app/portal/page.tsx`). Still no IC, bank, address,
+    emergency or statutory field on the profile - those stay on the full
+    record.
+  - The footer: Edit profile (Open full record for the read-only COO and
+    CCO) - the same Staff Records form and gates - Print badge, Close.
+- **Organisation**: each box on the chart carries the department under the
+  position (`components/staff/org-chart.tsx`).
+
+### Unchanged
+
+- No API, worker, permission, schema or data change. No new record of any
+  kind: Leave, Attendance and Payroll are read, never written, from the
+  profile. The record form, its locks, Offboard, role change, photo upload,
+  vault, badge printing and reporting-line editing are as they were.
+
+### Guards
+
+- `tests/tab-zones.mjs`: six tabs in order with six hidden zones; the
+  profile body (drawer and docked panel) holds no IC, bank, address,
+  emergency, statutory or pay field and makes no write; Leave, Attendance,
+  Payroll and Users are links gated by the tab strip.
+- `tests/portal-experience.mjs`, `tests/clickable-data.mjs`: follow the
+  derived chart view and the profile footer.
+
 ## [1.203.0] - 2026-10-24 - Dashboard: the A2Z OS 2.0 overview
 
 The owner, 24-10-2026, with a reference screen and a written brief: the

@@ -121,7 +121,7 @@ const ok = (label, cond, extra = "") => {
     ["a staff face opens the profile, and the profile opens the record", "components/staff/staff-directory.tsx",
      (src) => /const press = \(u: Staff\) => \{[\s\S]{0,200}?setPeek\(u\.id\)/.test(src)
        && /const openRecord = \(id: number\) => \{[\s\S]{0,120}?setOpen\(new Set\(\[id\]\)\);\s*setTab\("records"\)/.test(src)
-       && /onClick=\{\(\) => openRecord\(peekU\.id\)\}/.test(src),
+       && /onClick=\{\(\) => openRecord\((?:peekU|u)\.id\)\}/.test(src),
      "a circle that is only a picture is the old list with the words removed"],
     /* v1.99.2 — asserted as a property over EVERY <StaffBubble …/> in the
        file, not as one window that a new prop can widen past. Whatever the
