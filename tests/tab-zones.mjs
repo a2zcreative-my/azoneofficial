@@ -170,7 +170,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   /* v1.191.0 - the work card has no caption (the owner's photo); its Documents head opens it */
   const inner = [comp.indexOf('Documents (All)'), comp.indexOf("{editingDoc ? ("), comp.indexOf("cloneElement(workExtra"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
   ok("THE WORK precedes CUSTOMERS without duplicating their forms", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
-  ok("Sales opens records by default and keeps explicit creation intent", comp.includes('initialView = "documents"') && comp.includes('(initialView)') && page.includes('setSalesStart("create")') && dash.includes('onCreateQuotation()'));
+  ok("Sales opens records by default and keeps explicit creation intent", comp.includes('initialView = "documents"') && comp.includes('(initialView)') && page.includes('setSalesStart("create")') && read("components/portal/dashboard-overview.tsx").includes('onCreateQuotation()')); // v1.213.0 - Create quotation lives in the Overview's Quick Actions
   ok("editing a document opens its mounted form and scrolls the workspace", /setEditingDoc\(\{\s*id: d\.id, doc_number: d\.doc_number,[\s\S]{0,200}?\}\);\s*setWorkTab\("create"\)/.test(comp) && comp.includes('getElementById("sales-work")?.scrollIntoView'));
   /* v1.191.0 - the work's three bodies are reached from the Documents pill
      row (documents and the money views) and the top bar (Create document) */

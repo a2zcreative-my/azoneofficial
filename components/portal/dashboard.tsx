@@ -6,7 +6,6 @@
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
 import { AnalogClock } from "@/components/portal/analog-clock"; // v1.184.0
-import { LeaveMonthCard } from "@/components/portal/leave-month-card"; // v1.184.0
 import { LocationHelp } from "@/components/portal/location-help";
 import { DeskSummary } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
@@ -1426,28 +1425,12 @@ export function Dashboard({
                 {whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}
               </p>
             )}
-            <div className={shiftOnly ? css.actionsShift : css.actions}>
-              <button
-                type="button"
-                className={btnHero}
-                onClick={() => go("Leave")}
-              >
-                {tr("Apply leave", lang)}
-              </button>
-              {/* v1.159.9 - a quick action into a tab this account cannot see
-                  bounced to the Dashboard it was pressed on; the strip's own
-                  answer decides, so an unticked Sales tab hides the button. */}
-              {!shiftOnly && (canOpen ? canOpen("Sales") : SALES_ROLES.includes(user.role)) && (
-                <button
-                  type="button"
-                  className={btnHero}
-                  onClick={() => onCreateQuotation ? onCreateQuotation() : go("Sales")}
-                >
-                  {tr("Create quotation", lang)}
-                </button>
-              )}
-              {otButtons}
-            </div>
+            {/* v1.213.0 - the owner, 27-10-2026: "Keep both, remove exact
+                repeats only". Apply leave and Create quotation were here AND in
+                the Overview's Quick Actions (the same go("Leave") and the same
+                onCreateQuotation()); they live in Quick Actions now. The card
+                keeps the punch, and overtime when it applies. */}
+            {otButtons && <div className={shiftOnly ? css.actionsShift : css.actions}>{otButtons}</div>}
           </>
         )}
         {otNote}
@@ -1515,9 +1498,9 @@ export function Dashboard({
           </p>
         )}
       </div>
-      {/* v1.184.0 - this month's leave applications, under the clock (the
-          owner's reference). Not on On Shift: that page is the clock, alone. */}
-      {!shiftOnly && <LeaveMonthCard go={go} />}
+      {/* v1.213.0 - this month's leave applications moved to the Overview,
+          beside Upcoming & Pending (the owner, 27-10-2026); My Day keeps your
+          own pending leave in the Work overview. */}
 
       </section>
   );

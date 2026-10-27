@@ -56,6 +56,7 @@ import { useCachedApi } from "@/lib/cached-api";
 import { api } from "@/lib/api";
 import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
+import { LeaveMonthCard } from "@/components/portal/leave-month-card";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
@@ -594,11 +595,17 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         {taskCard}
         {salesCard}
       </div>
-      {/* D. the operational overview */}
-      <div className={ov.grid}>
+      {/* D. the operational overview (v1.213.0: top-aligned - the third
+          column is two cards tall, so the others keep their own height) */}
+      <div className={`${ov.grid} ${ov.gridTop}`}>
         {livesCard}
         {shiftCard}
-        {upcomingCard}
+        {/* v1.213.0 - the month's leave applications sit under Upcoming &
+            Pending (moved from My Day, the owner, 27-10-2026: one place) */}
+        <div className={ov.column}>
+          {upcomingCard}
+          <LeaveMonthCard go={go} />
+        </div>
       </div>
       {/* E. the bottom row */}
       <div className={ov.grid}>

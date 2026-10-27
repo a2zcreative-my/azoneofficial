@@ -10,6 +10,30 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.213.0] - 2026-10-27 - Dashboard: Overview and My Day stop repeating each other
+
+The owner, 27-10-2026 ("on dashboard tabs, there is overview and my day
+with duplicate function"). The audit listed every repeat between the two
+tabs; his choices: keep both tabs and remove the exact repeats only; keep
+The Company card on My Day; move the Leave Application card; drop the
+buttons under the clock. Screen only - no figure, permission or worker
+change.
+
+- My Day: the clock card no longer carries Apply leave and Create quotation
+  (the same go("Leave") and onCreateQuotation() as the Overview's Quick
+  Actions, which keeps them). It keeps Check in / Check out and the
+  overtime buttons when they apply.
+- The month's Leave Application card moved from under the clock on My Day
+  to the Overview, under Upcoming & Pending (one card, one place; every
+  staff member still sees it, the owner's v1.184.0 choice). My Day keeps
+  your own pending leave in the Work overview.
+- The Overview's middle row is top-aligned so the shorter cards keep their
+  own height.
+- Kept as they are, by choice: The Company card on My Day, the Work
+  overview's News pill, the Overview's My Shift card.
+- Guard `tests/dashboard-overview.mjs` +3 checks (negative-tested);
+  `tests/tab-zones.mjs` reads Create quotation from the Overview.
+
 ## [1.212.0] - 2026-10-26 - Ecommerce, web and phone: one order record, one stock source
 
 The owner, 26-10-2026 ("A2Z OS - Premium Ecommerce Web & Mobile PWA

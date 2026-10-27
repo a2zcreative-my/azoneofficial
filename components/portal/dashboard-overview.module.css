@@ -134,6 +134,17 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+/* v1.213.0 - two cards stacked in one column of the grid */
+.gridTop {
+  align-items: start;
+}
+.column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
 .grid:empty {
   display: none;
 }
