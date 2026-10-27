@@ -158,6 +158,20 @@ const bundle = async (src, name) => {
   ok("no break, face or tracking feature", !/start break|end break|facial|face match|track(ing)? location/i.test(on + dash));
 }
 
+/* v1.213.1 - the owner, 27-10-2026: "all_claimed" was printed under the
+   clock, and the Check In / Check Out marks are his own drawings */
+{
+  const d = read("components/portal/dashboard.tsx");
+  ok("why Clock in is not offered is said in words, never the server's code",
+     /const whyNoClockIn = noClockInWhy\(todayShift\?\.why_not \?\? null\);/.test(d) && (d.match(/\{whyNoClockIn\}/g) ?? []).length === 2
+     && /if \(code === "no_slots"\)/.test(d) && !/\{whyNoClockIn \?\?/.test(d) && !/why_not\s*\}/.test(d));
+  ok("both clocks punch under the owner's marks: PunchIcon in and out, on My Day and On Shift",
+     (d.match(/<PunchIcon kind="in" \/>/g) ?? []).length === 2 && (d.match(/<PunchIcon kind="out" \/>/g) ?? []).length === 2
+     && !/<AppIcon name="(place|offboard)" \/>\s*\{(shiftsToday|L\("Check Out"|busy === "clock_)/.test(d));
+  const pi = read("components/ui/punch-icon.tsx"), pc = read("components/ui/punch-icon.module.css");
+  ok("the marks are decorative and take the theme's tokens", /aria-hidden focusable="false"/.test(pi) && /fill: var\(--primary\)/.test(pc) && /fill: var\(--info\)/.test(pc) && /fill: var\(--success\)/.test(pc) && !/#[0-9a-f]{3,6}/i.test(pc));
+}
+
 ok("the guard is registered", /\["on-shift-module", "/.test(read("scripts/run-guards.mjs")));
 
 console.log(`  ${passed} check(s) passed.`);

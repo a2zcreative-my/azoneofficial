@@ -31,6 +31,14 @@ import { Lang, getLang, t as tr } from "@/lib/i18n";
    manager. */
 export type DashboardZone = "day" | "desk" | "month" | "company" | "around";
 export type DashboardLead = "business" | "sales" | "shift";
+/* v1.213.1 - why Clock in is not offered, in words (the server sends a code:
+   worker/src/clock-day.ts, "all_claimed" | "no_slots") */
+export function noClockInWhy(code: string | null): string {
+  const en = getLang() !== "ms";
+  if (code === "no_slots") return en ? "No shift to clock in for today." : "Tiada syif untuk didaftar masuk hari ini.";
+  return en ? "All shifts clocked ✓" : "Semua syif didaftar ✓";
+}
+
 export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = {
   /* results and decisions first; the person's own day and month stay
      together below them, the clock above the summary of it */
@@ -44,6 +52,7 @@ import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
 import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { PunchIcon } from "@/components/ui/punch-icon";
 import css from "./dashboard.module.css";
 import shiftCss from "./on-shift.module.css";
 import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
@@ -1120,7 +1129,10 @@ export function Dashboard({
      to swallow it as the label "All shifts clocked ✓" on a disabled control.
      Now the control is simply not offered and this sentence says why, which is
      the same rule stated once instead of twice. */
-  const whyNoClockIn = todayShift?.why_not ?? null;
+  /* v1.213.1 - the server answers WHY with a code ("all_claimed",
+     "no_slots"); the owner saw "all_claimed" printed under the clock. The
+     card says it in words; an unknown code falls back to the plain line. */
+  const whyNoClockIn = noClockInWhy(todayShift?.why_not ?? null);
   const shiftsLeft = (todayShift?.slots ?? []).filter((x) => !x.claimed).length;
   const hasOtIn = todayOt.some((r) => r.type === "ot_in");
   const hasOtOut = todayOt.some((r) => r.type === "ot_out");
@@ -1391,7 +1403,7 @@ export function Dashboard({
                 disabled={!!busy || openNow || !canClockIn}
                 onClick={() => void punch("clock_in")}
               >
-                <AppIcon name="place" />
+                <PunchIcon kind="in" />
                 {shiftsToday > 0 && !openNow && canClockIn ? L("Check In · next shift", "Daftar Masuk · syif seterusnya") : L("Check In", "Daftar Masuk")}
               </button>
               <button
@@ -1400,7 +1412,7 @@ export function Dashboard({
                 disabled={!!busy || !(openNow || (canClockIn && !hasOut))}
                 onClick={() => void punch("clock_out", forgotArmed)}
               >
-                <AppIcon name="offboard" />
+                <PunchIcon kind="out" />
                 {L("Check Out", "Daftar Keluar")}
               </button>
             </div>
@@ -1422,7 +1434,7 @@ export function Dashboard({
                 disabled buttons to explain themselves */}
             {!openNow && !canClockIn && (
               <p className={css.shiftsNote} role="status">
-                {whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}
+                {whyNoClockIn}
               </p>
             )}
             {/* v1.213.0 - the owner, 27-10-2026: "Keep both, remove exact
@@ -1748,15 +1760,15 @@ export function Dashboard({
                 {openNow ? (
                   <button type="button" className={`erp-button erp-button-primary ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
                     onClick={() => void press(() => punch("clock_out"))}>
-                    <AppIcon name="offboard" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
+                    <PunchIcon kind="out" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
                   </button>
                 ) : canClockIn ? (
                   <button type="button" className={`erp-button erp-button-accent ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
                     onClick={() => void press(() => punch("clock_in"))}>
-                    <AppIcon name="place" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
+                    <PunchIcon kind="in" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
                   </button>
                 ) : (
-                  <p className={shiftCss.why} role="status">{whyNoClockIn ?? L("All shifts clocked ✓", "Semua syif didaftar ✓")}</p>
+                  <p className={shiftCss.why} role="status">{whyNoClockIn}</p>
                 )}
                 {forgotOffered && (
                   <button type="button" className={shiftCss.forgot} disabled={!!busy || holding || settling}

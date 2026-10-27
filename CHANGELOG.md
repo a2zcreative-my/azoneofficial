@@ -10,6 +10,25 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.213.1] - 2026-10-27 - The clock says why in words; Check In / Check Out wear the owner's marks
+
+The owner, 27-10-2026, with a screenshot of My Day and two drawings.
+
+- "all_claimed" was printed under the clock. The server answers why Clock
+  in is not offered with a code (worker/src/clock-day.ts: `all_claimed`,
+  `no_slots`) and the card printed it as it came. `noClockInWhy()` says it
+  in words - "All shifts clocked ✓" / "No shift to clock in for today."
+  (and in BM) - on My Day and on On Shift.
+- Check In / Check Out (My Day) and Clock In / Clock Out (On Shift) now use
+  the owner's own artwork: a person with a briefcase walking in through an
+  open door, and walking out past the door with the arrow. Traced into
+  vector shapes (`components/ui/punch-icon.tsx`) so they stay sharp; the
+  door, person and arrow take the theme's navy, blue and green tokens and
+  follow the dark theme; on a disabled button the mark greys out with the
+  label.
+- Guards: `tests/on-shift-module.mjs` +3 checks (negative-tested);
+  `tests/clock-sessions.mjs` now holds the code-to-words rule.
+
 ## [1.213.0] - 2026-10-27 - Dashboard: Overview and My Day stop repeating each other
 
 The owner, 27-10-2026 ("on dashboard tabs, there is overview and my day

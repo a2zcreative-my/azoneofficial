@@ -251,8 +251,10 @@ ok("the phone is told whether a clock-in is possible, and why not",
 ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn, disabled, and the sentence says why)",
    /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash)
    && /const canClockIn = todayShift\?\.can_clock_in \?\? true;/.test(dash)
-   && /const whyNoClockIn = todayShift\?\.why_not \?\? null;/.test(dash)
-   && /\{whyNoClockIn \?\? L\("All shifts clocked/.test(dash)
+   /* v1.213.1 - why_not is a CODE (clock-day.ts: all_claimed | no_slots);
+      the owner saw "all_claimed" printed, so the page says it in words */
+   && /const whyNoClockIn = noClockInWhy\(todayShift\?\.why_not \?\? null\);/.test(dash)
+   && /\{whyNoClockIn\}/.test(dash) && /return en \? "All shifts clocked/.test(dash)
    && /No shift to clock in for/.test(dash));
 {
   /* the CODE, not the prose explaining why the code is the way it is */
