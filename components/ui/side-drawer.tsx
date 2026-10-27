@@ -39,7 +39,7 @@ const readSide = () => window.matchMedia(SIDE_QUERY).matches;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function SideDrawer({
-  open, onClose, title, subtitle, children, footer, wide = false,
+  open, onClose, title, subtitle, children, footer, wide = false, full = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +50,9 @@ export function SideDrawer({
   footer?: ReactNode;
   /** A wider panel for detail with two columns. */
   wide?: boolean;
+  /** v1.212.0 - on a phone, the whole screen rather than a sheet (a record
+      read on the move: the Ecommerce order). The desktop panel is unchanged. */
+  full?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   const fromSide = useSyncExternalStore(subscribeSide, readSide, () => true);
@@ -114,7 +117,7 @@ export function SideDrawer({
             animate={{ x: 0, y: 0 }}
             exit={reduceMotion ? undefined : offscreen}
             transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.8 }}
-            className={`erp-drawer ${wide ? "erp-drawer-wide" : ""}`}
+            className={`erp-drawer ${wide ? "erp-drawer-wide" : ""} ${full ? "erp-drawer-full" : ""}`}
           >
             {/* v1.172.1 (Interface System V3): the panel, head, body and foot
                 are named classes in styles/erp-v3.css. v1.172.2: so are the

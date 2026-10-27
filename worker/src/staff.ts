@@ -7052,16 +7052,22 @@ export async function handleStaff(
     // Orders by fulfilment status this month (MYT) + the oldest order still
     // preparing — postage_records.status: preparing | shipped | in_transit
     // | delivered | returned (schema since 0007).
+    /* v1.212.0 - TIKTOK ORDERS ONLY (the owner's Ecommerce brief, 26-10-2026).
+       This card sits on the Ecommerce page beside TikTok revenue and TikTok
+       orders, but it counted every postage record - manual shipments and
+       samples too - so "Delivered 40%" was a share of a different set. All
+       three reads (the counts, the oldest New order, the drill) now take the
+       same set the revenue takes: order_ref 'TT-%'. */
     if (!can(user.role, "revenue_view")) return err("forbidden", "Revenue access required", 403);
     const monthFS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const { results: byStatus } = await env.DB.prepare(
       `SELECT status, COUNT(*) AS n FROM postage_records
-       WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1
+       WHERE order_ref LIKE 'TT-%' AND strftime('%Y-%m', created_at, '+8 hours') = ?1
        GROUP BY status`,
     ).bind(monthFS).all<{ status: string; n: number }>();
     const oldest = await env.DB.prepare(
       `SELECT order_ref, created_at FROM postage_records
-       WHERE status = 'preparing'
+       WHERE order_ref LIKE 'TT-%' AND status = 'preparing'
        ORDER BY created_at ASC LIMIT 1`,
     ).first<{ order_ref: string; created_at: string }>();
     const oldestDays = oldest
@@ -7076,7 +7082,7 @@ export async function handleStaff(
       const { results } = await env.DB.prepare(
         `SELECT order_ref, status, courier, tracking_no, buyer_city, order_amount_cents, created_at
          FROM postage_records
-         WHERE status = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
+         WHERE order_ref LIKE 'TT-%' AND status = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
          ORDER BY created_at DESC LIMIT 200`,
       ).bind(drill, monthFS).all();
       orders = results ?? [];
@@ -14445,6 +14451,61 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
   if (path === "/postage" && method === "GET") {
     if (!can(user.role, "inventory") && !can(user.role, "exec_view")) {
       return err("forbidden", "Access required", 403);
+    }
+    /* v1.212.0 - THE PAGED TIKTOK READ (the owner's Ecommerce brief,
+       26-10-2026: "add a paged TikTok read"). The Ecommerce Orders tab used
+       to take the newest 200 rows of every source and filter TT- on the
+       phone, so an order past the 200th was unreachable and the status
+       counts were counts of a sample. ?source=tiktok answers one page of
+       TikTok orders (order_ref 'TT-%' - the reference the sync and the
+       webhook both write) with the real count per status, for the same
+       search, and how many orders moved no stock at all (counts.no_stock). Same permission, same rows, read-only; without ?source the
+       answer below is byte-for-byte the old one. */
+    const pq = new URL(request.url).searchParams;
+    if (pq.get("source") === "tiktok") {
+      const per = Math.min(50, Math.max(5, Number(pq.get("per")) || 20));
+      const page = Math.max(1, Math.floor(Number(pq.get("page")) || 1));
+      const q = (pq.get("q") ?? "").trim().toLowerCase().slice(0, 80);
+      const statusQ = pq.get("status") ?? "";
+      const status = (POSTAGE_STATUSES as readonly string[]).includes(statusQ) ? statusQ : "";
+      // instr() rather than LIKE: a typed % or _ is a character, not a wildcard
+      const searchSql = q
+        ? ` AND (instr(lower(p.order_ref), ?1) > 0 OR instr(lower(COALESCE(p.tracking_no, '')), ?1) > 0
+             OR instr(lower(COALESCE(p.courier, '')), ?1) > 0 OR instr(lower(COALESCE(p.buyer_city, '')), ?1) > 0
+             OR EXISTS (SELECT 1 FROM postage_items pi JOIN inventory_items ii ON ii.id = pi.inventory_item_id
+                        WHERE pi.postage_id = p.id AND (instr(lower(ii.name), ?1) > 0 OR instr(lower(ii.sku), ?1) > 0)))`
+        : "";
+      /* ?stock=none - the orders no stock left the shelf for (an item not
+         matched to a SKU, or short when it arrived): the Sync tab's "needs
+         attention" list. Returned orders are out of it - nothing is owed. */
+      const noStock = pq.get("stock") === "none";
+      const NO_STOCK_SQL = ` AND p.status != 'returned' AND NOT EXISTS (SELECT 1 FROM postage_items pi WHERE pi.postage_id = p.id)`;
+      const base = `FROM postage_records p WHERE p.order_ref LIKE 'TT-%'${searchSql}${noStock ? NO_STOCK_SQL : ""}`;
+      const { results: countRows } = await env.DB.prepare(
+        `SELECT p.status AS status, COUNT(*) AS n ${base} GROUP BY p.status`,
+      ).bind(...(q ? [q] : [])).all<{ status: string; n: number }>();
+      const counts: Record<string, number> = {};
+      for (const st of POSTAGE_STATUSES) counts[st] = 0;
+      let all = 0;
+      for (const r of countRows) { counts[r.status] = (counts[r.status] ?? 0) + r.n; all += r.n; }
+      counts.all = all;
+      const ns = await env.DB.prepare(`SELECT COUNT(*) AS n FROM postage_records p WHERE p.order_ref LIKE 'TT-%'${NO_STOCK_SQL}`)
+        .first<{ n: number }>();
+      counts.no_stock = ns?.n ?? 0;
+      const total = status ? (counts[status] ?? 0) : all;
+      const statusSql = status ? ` AND p.status = ?${q ? 2 : 1}` : "";
+      const binds: (string | number)[] = [...(q ? [q] : []), ...(status ? [status] : [])];
+      const { results } = await env.DB.prepare(
+        `SELECT p.id, p.order_ref, p.status, p.note, p.courier, p.tracking_no, p.buyer_city,
+           p.order_amount_cents, p.restocked, p.created_at, p.updated_at,
+           (SELECT group_concat(pi.qty || '× ' || ii.name, ', ')
+            FROM postage_items pi JOIN inventory_items ii ON ii.id = pi.inventory_item_id
+            WHERE pi.postage_id = p.id) AS items_label,
+           (SELECT COUNT(*) FROM postage_items pi WHERE pi.postage_id = p.id) AS line_count
+         ${base}${statusSql}
+         ORDER BY p.created_at DESC, p.id DESC LIMIT ${per} OFFSET ${(page - 1) * per}`,
+      ).bind(...binds).all();
+      return json({ records: results, total, page, per, counts });
     }
     const { results } = await env.DB.prepare(
       `SELECT p.*, i.name AS item_name,

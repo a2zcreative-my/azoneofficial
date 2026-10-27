@@ -170,7 +170,8 @@ ok("a cancellation seen by the SYNC puts the pieces back, once",
    && (ix.match(/await restockOrder\(env, /g) ?? []).length === 2,
    "only the webhook ever restocked, so a cancellation the webhook missed left the shelf short for good");
 ok("AWAITING_SHIPMENT is a parcel that has not moved, on both doors",
-   /: stNow\.includes\("await"\) \? "preparing"/.test(ix));
+   /* v1.212.0 - both doors now ask one function (tiktokUiStatus), the sync's rules */
+   /if \(st\.includes\("await"\)\) return "preparing";/.test(ix) && /const uiNow = tiktokUiStatus\(stNow\);/.test(ix) && /const uiStatus = tiktokUiStatus\(rawStatus\);/.test(ix));
 ok("two variants sharing one seller SKU stay two lines",
    /const key = `\$\{sku\}\|\$\{variant \|\| name\}`\.toLowerCase\(\);/.test(ix));
 ok("all-or-nothing survives: a shortage on one line holds the order, an unmatched line is just not moved",

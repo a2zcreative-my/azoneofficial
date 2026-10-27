@@ -50,55 +50,50 @@ let failed = 0, passed = 0;
 const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; console.log(`  ✗ ${label}${why ? ` — ${why}` : ""}`); } };
 
 /* v1.185.0 - THE ECOMMERCE PAGE IS ITS OWN PANEL (components/portal/
-   ecommerce-panel.tsx, the owner's reference of 22-10-2026): a tab row
-   (Overview · Orders · Products → Inventory · Fulfilment · Analytics ·
-   Setup) and an Overview that reads tiles, the orders table beside
-   fulfilment and the top states, the map, then the month's detail. The
-   page hands the whole tab to the panel; the rules below moved with it. */
+   ecommerce-panel.tsx). v1.212.0 - the owner's Ecommerce brief (26-10-2026)
+   and his approved plan: six tabs (Overview · Orders · Fulfilment · Stock &
+   Products · Analytics · Sync & Integration); the Overview reads the month's
+   tiles, what needs attention beside the month's fulfilment, then the newest
+   orders; the states, the map and the month's detail moved to Analytics.
+   The rules below moved with them (the full module rules are
+   tests/ecommerce-module.mjs). */
 const tab = read("components/portal/ecommerce-panel.tsx");
 ok("the Ecommerce block hands the tab to its panel", /\{activeTab === "Ecommerce" && \([\s\S]{0,400}?<EcommercePanel user=\{user\} lang=\{lang\} go=\{setTab\} canOpen=\{canOpen\} \/>/.test(page));
 
-/* 1. the order of the Overview */
+/* 1. the order of the Overview and of Analytics */
 const overview = tab.slice(tab.indexOf('{view === "overview" && ('), tab.indexOf('{view === "orders" &&'));
-const seq = ["{tiles}", "<TikTokOrdersTable", "<FulfilmentCard", "<TopStatesCard", "<OpsMapCard", "<RevenueAndHoursCard"];
+const seq = ["{tiles}", "{alertCard}", "<FulfilmentCard", '<TikTokOrders mode="recent"'];
 const pos = seq.map((s) => overview.indexOf(s));
-ok("every card is on the Overview", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
-ok("tiles, orders, fulfilment, top states, map, the month's detail - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
+ok("every Overview card is there", pos.every((x) => x > 0), seq.filter((s, i) => pos[i] < 0).join(","));
+ok("tiles, attention, fulfilment, recent orders - in that order", pos.every((x, i) => i === 0 || x > pos[i - 1]), pos.join(" < "));
+ok("...and each appears once", seq.every((s) => overview.split(s).length === 2));
+const analytics = tab.slice(tab.indexOf('{view === "analytics" &&'), tab.indexOf('{view === "sync" &&'));
+const aseq = ["<TopStatesCard", "<OpsMapCard", "<RevenueAndHoursCard", "<TikTokAnalyticsCard"];
+const apos = aseq.map((s) => analytics.indexOf(s));
+ok("Analytics: states, the map, the month's detail, then TikTok's own analytics", apos.every((x, i) => x > 0 && (i === 0 || x > apos[i - 1])), apos.join(" < "));
 ok("the map's side column is empty: no commission leaderboard rides there", /<OpsMapCard \/>/.test(tab) && !/LeaderboardCard/.test(tab));
-/* v1.191.0 - the owner's photo has no captions over the work row or the
-   map; the month's detail below them keeps its own */
-const caps = ["This month"];
-ok("the Overview's month detail is captioned", caps.every((c) => overview.includes(`<ZoneLabel>{L("${c}"`)), caps.filter((c) => !overview.includes(`<ZoneLabel>{L("${c}"`)).join(","));
+ok("the month's detail is captioned", analytics.includes('<ZoneLabel>{L("This month"'));
 ok("revenue stays one shared tabbed card", tab.split("<RevenueAndHoursCard").length === 2);
-/* the 2fr / 1fr split is the panel's own module, applied when the role sees revenue */
-const ecomCss = read("components/portal/ecommerce-panel.module.css");
-ok("the orders table is wide and fulfilment beside it",
-   /className=\{`\$\{css\.work\} \$\{canRevenue \? css\.workSplit : ""\}`\}/.test(tab)
-   && /\.workSplit \{\s*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 1fr\);/.test(ecomCss));
-/* v1.191.0 - the owner's photo: underline tabs (LineTabs), the month and
-   "Sync from TikTok" at the right; Products still opens Inventory */
-ok("the tab row is the shared underline tabs, and Products opens Inventory rather than pretending to be a page",
-   /<LineTabs value=\{view\}/.test(tab) && /k === \("products" as View\) \? go\("Inventory"\) : setView\(k\)/.test(tab)
-   && /canOpen\("Inventory"\) \? \(\[\["products"/.test(tab)
-   && /\{canSync && \(\s*<TabAction icon="refresh"/.test(tab) && /window\.dispatchEvent\(new Event\("azone:tiktok-sync"\)\)/.test(tab)
-   && /window\.addEventListener\("azone:tiktok-sync", run\)/.test(read("components/portal/tiktok-orders.tsx")));
+ok("the tab row is the shared underline tabs; Stock & Products is a page that reads Inventory and opens it, never a second stock list",
+   /<LineTabs value=\{view\}/.test(tab) && /\.\.\.\(canStock \? \(\[\["stock"/.test(tab) && /const canStock = canOpen\("Inventory"\);/.test(tab)
+   && /<StockProducts openInventory=\{\(\) => go\("Inventory"\)\} \/>/.test(tab)
+   && /\{tt\.canSync && \(\s*<TabAction icon="refresh" onClick=\{\(\) => void tt\.sync\(\)\}>/.test(tab));
 
 /* 2. visual and keyboard reading order agree on every viewport */
-ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab) && !/order:\s*-?\d/.test(ecomCss));
-ok("...and the cards appear once each on the Overview", seq.every((s) => overview.split(s).length === 2));
+const ecomCss = read("components/portal/ecommerce-panel.module.css");
+ok("Ecommerce uses DOM order, not viewport-dependent CSS reordering", !/\border-[12]\b/.test(tab) && !/(?<![\w-])order:\s*-?\d/.test(ecomCss)); // v1.212.0 - "border: 1px" is not a reorder
 
 /* 3. one caption component */
 ok("ZoneLabel lives in page-shared and both tabs use it", /export function ZoneLabel\(/.test(shared) && /ZoneLabel/.test(dash) && !/^function ZoneLabel\(/m.test(dash) && tab.includes("<ZoneLabel>"));
 
 /* 4. gates - the same gates the page had */
-ok("analytics stays CEO-only", /const canAnalytics = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(tab) && /\{view === "analytics" && canAnalytics && <TikTokAnalyticsCard \/>\}/.test(tab) && /\.\.\.\(canAnalytics \? \(\[\["analytics"/.test(tab));
-ok("the orders table is not behind the revenue gate", !/canRevenue && \(?\s*<TikTokOrdersTable/.test(tab) && (tab.match(/<TikTokOrdersTable role=\{user\.role\} \/>/g) ?? []).length === 2);
-ok("the tiles, fulfilment, the top states, the map and the month's detail stay behind it",
+ok("TikTok analytics stays CEO-only", /const canAnalytics = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(tab) && /\{canAnalytics && <TikTokAnalyticsCard \/>\}/.test(tab));
+ok("the orders are not behind the revenue gate", !/canRevenue && \(?\s*<TikTokOrders/.test(tab) && (tab.match(/<TikTokOrders /g) ?? []).length === 4);
+ok("the tiles, fulfilment card, the top states, the map and the month's detail stay behind it",
    /const tiles = canRevenue && \(/.test(tab)
-   && /\{canRevenue && \(\s*<div className=\{css\.aside\}>\s*<FulfilmentCard onViewAll=\{\(\) => setView\("fulfilment"\)\} \/>\s*<TopStatesCard/.test(tab)
-   && /\{canRevenue && \(\s*<div ref=\{mapRef\} className=\{css\.mapAnchor\}>\s*<OpsMapCard \/>/.test(tab)
-   && /\{canRevenue && \(\s*<section className="erp-stack-tight">[\s\S]{0,300}?<RevenueAndHoursCard/.test(tab)
-   && /\{view === "fulfilment" && canRevenue && \(/.test(tab)
+   && /\{canRevenue && <FulfilmentCard onViewAll=\{\(\) => setView\("fulfilment"\)\} \/>\}/.test(tab)
+   && /\{canRevenue && \(\s*<>\s*<div className=\{css\.two\}>\s*<TopStatesCard onViewMap=\{showMap\} \/>/.test(tab)
+   && /<div ref=\{mapRef\} className=\{css\.mapAnchor\}>\s*<OpsMapCard \/>/.test(analytics)
    && /useCachedApi<RevenueData>\(canRevenue \? "\/staff\/revenue" : null\)/.test(tab));
 ok("a tile is a figure the server states, never a guess: revenue and orders from /staff/revenue, delivered and to-ship from the fulfilment summary",
    /value=\{r \? fmtRM\(r\.tiktok\.this_cents\) : 0\}/.test(tab) && /value=\{r \? r\.tiktok\.this_orders : 0\}/.test(tab)

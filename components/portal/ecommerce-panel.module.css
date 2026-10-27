@@ -1,5 +1,7 @@
-/* v1.185.0 - the Ecommerce page's own layout. Tokens only; the cards are
-   the shared named classes. */
+/* v1.212.0 - the Ecommerce page's own layout (ecommerce-panel.tsx and
+   ecommerce-stock.tsx). Tokens only; the cards are the shared named
+   classes. Phone first: one column, nothing wider than the screen; the
+   widths are the shell's own (640 / 768 / 1024). */
 .page {
   min-width: 0;
 }
@@ -13,32 +15,306 @@
 .mapAnchor {
   scroll-margin-top: 4rem;
 }
-/* the orders table beside the fulfilment column from a desktop up; one
-   column on a phone and a tablet. Explicit tracks: an implicit auto track
-   grows to its widest child and takes the page past the phone with it. */
-.work {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+.mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  font-weight: 600;
 }
-.aside {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  align-content: start;
+
+/* ---- the month's four figures: two across and compact on a phone ---- */
+@media (max-width: 639px) {
+  .tiles [role="group"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .tiles [role="group"] > * {
+    padding: 0.75rem;
+    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tiles [role="group"] > * > span:first-child {
+    display: none;
+  }
+  /* the period moves to one caption above the four (tilesPeriod), so the
+     label and the figure get the tile's whole width */
+  .tiles [role="group"] > * > span:last-child > span:first-child > span + span {
+    display: none;
+  }
+  .tiles [role="group"] > * > span:last-child > span:nth-child(2) > span:first-child {
+    font-size: 1.375rem;
+    overflow-wrap: anywhere;
+  }
 }
+.tilesPeriod {
+  margin: 0 0 0.5rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+@media (min-width: 640px) {
+  .tilesPeriod {
+    display: none;
+  }
+}
+
+/* ---- the Overview: attention beside the month's fulfilment ---- */
+.overviewGrid,
 .two {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
 }
-@media (min-width: 1200px) {
-  .workSplit {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    align-items: start;
-  }
+@media (min-width: 1024px) {
+  .overviewGrid,
   .two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
   }
+}
+.alerts {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.alerts li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 12px;
+  font-size: var(--type-body-sm-size);
+}
+.alerts li button {
+  min-height: 44px;
+}
+.alertWarn {
+  background: var(--warning-soft);
+}
+.alertWarn > svg {
+  color: var(--warning);
+}
+.alertBad {
+  background: var(--danger-soft);
+}
+.alertBad > svg {
+  color: var(--danger);
+}
+.alertInfo {
+  background: var(--info-soft);
+}
+.alertText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.allClear {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  color: var(--success);
+  font-weight: 500;
+}
+
+/* ---- the sync line under the tabs ---- */
+.syncNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+.syncNote > span {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* ---- fulfilment lanes ---- */
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+@media (min-width: 640px) {
+  .lanes {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.lane {
+  display: grid;
+  justify-items: start;
+  gap: 0.375rem;
+  min-height: 44px;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lane:hover {
+  border-color: var(--gold-solid);
+}
+.lane:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.laneOn {
+  border-color: var(--brand-primary);
+  box-shadow: inset 0 0 0 1px var(--brand-primary);
+}
+.laneCount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- shared card pieces ---- */
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cardHead > div {
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+.cardHead p {
+  margin: 0.125rem 0 0;
+}
+.cardHead button {
+  min-height: 44px;
+}
+.warnText {
+  color: var(--warning);
+}
+.explain {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: 1.5;
+  max-width: 70ch;
+}
+.pills {
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pill {
+  flex: 0 0 auto;
+  min-height: 44px;
+  white-space: nowrap;
+}
+.itemName {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.emptyLine {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+}
+
+/* ---- the sync's facts ---- */
+.syncFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.875rem 0 0;
+}
+@media (min-width: 768px) {
+  .syncFacts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.syncFacts > div {
+  padding: 0.625rem 0.75rem;
+  border-radius: 12px;
+  background: var(--secondary);
+  min-width: 0;
+}
+.syncFacts > div:first-child {
+  grid-column: 1 / -1;
+}
+.syncFacts dt {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.syncFacts dd {
+  margin: 0.125rem 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.quiet {
+  font-weight: 400;
+  font-size: var(--type-body-sm-size);
+  color: var(--muted-foreground);
+}
+.problems {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: var(--warning-soft);
+  font-size: var(--type-body-sm-size);
+}
+.problems ul {
+  margin: 0.375rem 0 0;
+  padding-left: 1.125rem;
+  overflow-wrap: anywhere;
+}
+.problemsTitle {
+  margin: 0;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+/* ---- product performance bars ---- */
+.bars {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.75rem;
+  font-size: var(--type-body-sm-size);
+}
+.barLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.barValue {
+  white-space: nowrap;
+  text-align: right;
+}
+.barTrack {
+  grid-column: 1 / -1;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gold-solid);
 }

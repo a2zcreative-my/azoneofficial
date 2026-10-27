@@ -6,7 +6,14 @@
    keys shipped alongside this card (last_order_at, failed_events_7d).
    Self-contained on purpose: own fetch, own types, style tokens copied
    from the approved dashboard card so nothing existing is imported or
-   altered. All staff may view (the route already allows any non-customer). */
+   altered. All staff may view (the route already allows any non-customer).
+
+   v1.212.0 - THE SETUP WORDING IS FOR MANAGEMENT (the owner's Ecommerce
+   brief: "Do not expose API secrets, webhook signing keys or sensitive
+   technical information to unauthorized users"). `technical` is true for
+   the four roles the server's webhook-debug answers (ceo, coo, admin,
+   super_admin); everyone else reads the same four facts in plain words and
+   who to tell. The Partner Center app id is no longer printed anywhere. */
 
 import { useEffect, useState } from "react";
 import { btnSmWarning, card } from "@/lib/ui-styles";
@@ -45,7 +52,7 @@ interface DebugVerdict {
   current_secret_verifies?: boolean;
 }
 
-export function ConnectionStatusCard() {
+export function ConnectionStatusCard({ technical = false }: { technical?: boolean }) {
   const [st, setSt] = useState<TtStatus | null>(null);
   const [err, setErr] = useState("");
   const [dbg, setDbg] = useState<DebugVerdict | null>(null);
@@ -89,7 +96,7 @@ export function ConnectionStatusCard() {
       ) : (
         <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
           <p>{dot(st.configured && st.authorized)} <span className="font-medium">{L("Shop authorization", "Kebenaran kedai")}</span>{" "}
-            <span className="text-muted-foreground">{st.configured && st.authorized ? L("active", "aktif") : st.configured ? L("not authorized — re-authorize from Partner Center link", "tidak dibenarkan — beri kebenaran semula melalui pautan Partner Center") : L("keys not configured", "kunci belum dikonfigurasi")}</span></p>
+            <span className="text-muted-foreground">{st.configured && st.authorized ? L("active", "aktif") : !technical ? L("needs a manager to reconnect it", "perlu pengurus menyambung semula") : st.configured ? L("not authorized — re-authorize from Partner Center link", "tidak dibenarkan — beri kebenaran semula melalui pautan Partner Center") : L("keys not configured", "kunci belum dikonfigurasi")}</span></p>
           <p>{dot(!!st.last_order_at)} <span className="font-medium">{L("Last synced order", "Pesanan terakhir disegerak")}</span>{" "}
             <span className="text-muted-foreground">{myt(st.last_order_at)}</span></p>
           <p>{dot(!!st.last_event_at && st.last_event_verified !== false)} <span className="font-medium">{L("Last webhook", "Webhook terakhir")}</span>{" "}
@@ -106,6 +113,13 @@ export function ConnectionStatusCard() {
                    event, and how to trigger one;
                (c) no failures at all → nothing. */
             const okAfterFail = !!st.last_verified_at && !!st.last_failed_at && st.last_verified_at > st.last_failed_at;
+            if (st.last_event_verified === false && !technical) return (
+              <p className="flex gap-1.5 text-warning sm:col-span-2">
+                <AppIcon name="warning" className="mt-0.5 h-3.5 w-3.5" />
+                {L("A live update from TikTok was refused because it failed the security check. Orders still come in through Sync; a manager can see the fix on this tab.",
+                  "Satu kemas kini langsung dari TikTok ditolak kerana gagal semakan keselamatan. Pesanan masih masuk melalui Segerak; pengurus boleh melihat cara membetulkannya di tab ini.")}
+              </p>
+            );
             if (st.last_event_verified === false) return (
               <div className="sm:col-span-2">
                 <p className="flex gap-1.5 text-warning">
@@ -132,7 +146,7 @@ export function ConnectionStatusCard() {
                   <p className="mt-1.5 flex gap-1.5 font-semibold text-danger">
                     <AppIcon name="error" className="mt-0.5 h-3.5 w-3.5" />
                     {L("The secret now on the server does NOT match this event's signature", "Rahsia yang kini ada pada pelayan TIDAK sepadan dengan tandatangan acara ini")}{dbg.relay_header ? L(" — and the event carries a relay header (x-webhook-secret): it comes through Make/Zapier, so set TIKTOK_WEBHOOK_SECRET to the relay's value instead", " — dan acara ini membawa pengepala relay (x-webhook-secret): ia datang melalui Make/Zapier, jadi tetapkan TIKTOK_WEBHOOK_SECRET kepada nilai relay itu") : ""}.
-                    {!dbg.relay_header && L(" Re-view the App Secret in Partner Center (app 7668934538403645205 → Basic information → view + copy), then run wrangler secret put TIKTOK_APP_SECRET inside THIS project's worker/ folder.", " Lihat semula App Secret di Partner Center (app 7668934538403645205 → Basic information → lihat + salin), kemudian jalankan wrangler secret put TIKTOK_APP_SECRET dalam folder worker/ projek INI.")}
+                    {!dbg.relay_header && L(" Re-view the App Secret in Partner Center (your app → Basic information → view + copy), then run wrangler secret put TIKTOK_APP_SECRET inside THIS project's worker/ folder.", " Lihat semula App Secret di Partner Center (aplikasi anda → Basic information → lihat + salin), kemudian jalankan wrangler secret put TIKTOK_APP_SECRET dalam folder worker/ projek INI.")}
                   </p>
                 )}
                 {dbg?.state === "insufficient_data" && (

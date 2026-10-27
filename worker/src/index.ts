@@ -1716,6 +1716,31 @@ function isNonEmptyString(v: unknown, max = 500): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
 }
 
+/* v1.212.0 - ONE TIKTOK STATUS MAPPING (the owner's Ecommerce brief,
+   26-10-2026: "one shared mapping"). The sync and the webhook used to read
+   TikTok's status words with two different rule sets: the webhook's update
+   branch knew only "delivered/complete" and "ship", so IN_TRANSIT (and the
+   numeric 121/122/130 codes) fell to "preparing" and a live update moved a
+   parcel on the road back to New. Both doors now ask this one function, the
+   sync's rules, plus TikTok's numeric order codes. null = "no status sent,
+   leave the row alone". Returned is final: neither door overwrites it with
+   a later live status (the UPDATEs say AND status != 'returned'). */
+function tiktokUiStatus(raw: unknown): "preparing" | "shipped" | "delivered" | "returned" | null {
+  const st = String(raw ?? "").trim().toLowerCase();
+  if (!st) return null;
+  if (st === "140") return "returned";
+  if (st === "122" || st === "130") return "delivered";
+  if (st === "114" || st === "121") return "shipped";
+  if (st === "100" || st === "111" || st === "112") return "preparing";
+  if (st.includes("return") || st.includes("cancel") || st.includes("refund")) return "returned";
+  if (st.includes("deliver") || st.includes("complete")) return "delivered";
+  /* v1.139.0 - AWAITING_SHIPMENT and AWAITING_COLLECTION both contain
+     "ship"/"collect"; "awaiting" anything is a parcel that has not moved. */
+  if (st.includes("await")) return "preparing";
+  if (st.includes("ship") || st.includes("transit")) return "shipped";
+  return "preparing";
+}
+
 /* ---------------- router ---------------- */
 
 /** One sync pass: pull the last 30 days of TikTok orders and reconcile them
@@ -1796,18 +1821,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
     // which also made the downstream `uiNow !== "returned"` guard dead code.
     // v1.23.8: an order whose status field is MISSING from the response no
     // longer regresses to "preparing" — null means "leave status untouched".
-    const uiNow =
-      !stNow ? null
-      : stNow.includes("return") || stNow.includes("cancel") || stNow.includes("refund") ? "returned"
-      : stNow.includes("deliver") || stNow.includes("complete") ? "delivered"
-      /* v1.139.0 - AWAITING_SHIPMENT and AWAITING_COLLECTION both contain
-         "ship"/"collect" and were read as SHIPPED here while the webhook
-         recorded the same state as preparing, so every unshipped order
-         flipped out of New thirty minutes after it arrived. "Awaiting"
-         anything is a parcel that has not moved. */
-      : stNow.includes("await") ? "preparing"
-      : stNow.includes("ship") || stNow.includes("transit") ? "shipped"
-      : "preparing";
+    const uiNow = tiktokUiStatus(stNow);
     const trackNow =
       o.tracking_number ??
       o.packages?.find((pk) => pk.tracking_number)?.tracking_number ??
@@ -3199,9 +3213,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     // Shipping/other status updates: keep the tracker current without moving stock.
     if (existing && rawStatus) {
-      await env.DB.prepare(
-        `UPDATE postage_records SET status = ?1, updated_at = datetime('now') WHERE id = ?2`,
-      ).bind(rawStatus.includes("delivered") || rawStatus.includes("complete") ? "delivered" : rawStatus.includes("ship") ? "shipped" : "preparing", existing.id).run();
+      /* v1.212.0 - the sync's mapping, and a returned parcel stays returned */
+      const uiStatus = tiktokUiStatus(rawStatus);
+      if (uiStatus && uiStatus !== "returned") {
+        await env.DB.prepare(
+          `UPDATE postage_records SET status = ?1, updated_at = datetime('now') WHERE id = ?2 AND status != 'returned'`,
+        ).bind(uiStatus, existing.id).run();
+      }
     }
     return json({ ok: true, status: rawStatus });
   }

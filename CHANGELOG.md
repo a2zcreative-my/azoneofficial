@@ -10,6 +10,66 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.212.0] - 2026-10-26 - Ecommerce, web and phone: one order record, one stock source
+
+The owner, 26-10-2026 ("A2Z OS - Premium Ecommerce Web & Mobile PWA
+Redesign", with a desktop and phone reference) and his four answers to the
+audit: build as proposed; one shared TikTok status mapping; a paged TikTok
+read; fulfilment counts TikTok orders only. "ONE ORDER RECORD. ONE
+AUTHORITATIVE STOCK SOURCE. CONSISTENT SALES DATA. ZERO DUPLICATION."
+
+### Screen
+- Six tabs: Overview · Orders · Fulfilment · Stock & Products · Analytics ·
+  Sync & Integration (same colours, logo, sidebar and navigation).
+- Overview: the month's four figures with what they count ("Order totals ·
+  returned & cancelled excluded", "TikTok, by date recorded"); Needs
+  attention (orders preparing, orders that moved no stock, low / out of
+  stock, connection or sync problems - each opens where it is); the month's
+  fulfilment; the five newest orders. The map, the states and the month's
+  detail moved to Analytics.
+- Orders: every TikTok order, paged by the server (15 a page), searched on
+  the server (order no., item, SKU, tracking, courier, town), status pills
+  with the real counts. One order view: a side panel on a desktop, the whole
+  screen on a phone (`SideDrawer full`). Honest labels: Recorded (when the
+  portal stored it, not TikTok's payment time), Order total (TikTok's payment
+  total), Returned / cancelled, how it arrived (live update or Sync), stock
+  movement. No command on an order - its status is TikTok's.
+- Phone: compact two-across figures under one period caption, order cards
+  (the same rows as the desk table), 44px pills and cards, no sideways scroll.
+- Fulfilment: five lanes with every order's status today; a lane lists its
+  orders; the month's fulfilment card (TikTok only).
+- Stock & Products: the Inventory list read here (on hand, low / out, sold on
+  TikTok today and this month, ELFIA store items) with "Open Inventory";
+  writes nothing. "On hand is after orders; nothing is reserved separately."
+- Analytics: top states, the map, the month in detail, product performance
+  (the month's TikTok stock-out), TikTok's own analytics (CEO / super admin).
+- Sync & Integration: Sync now (one sync for the page; pressed twice is one
+  sync), the last result (imported / already synced / TikTok sent /
+  problems), refused live updates, orders that moved no stock, the
+  connection card. Setup wording (secrets, Partner Center, the signature
+  test) is for ceo / coo / admin / super_admin only - the server's
+  webhook-debug roles; the Partner Center app id is no longer printed.
+
+### Worker (deploy needed)
+- `tiktokUiStatus()` - one TikTok status mapping for the sync and the
+  webhook (the sync's rules plus TikTok's numeric codes). The webhook's
+  update branch read IN_TRANSIT and 121/122/130 as "preparing" and could
+  overwrite a returned order; it now asks the same function and never
+  overwrites returned.
+- `GET /staff/postage?source=tiktok&page=&per=&q=&status=&stock=none` -
+  one page of TikTok orders with the count per status and `no_stock`; same
+  permission, read-only, search by instr() (a typed % is a character).
+  Without `source` the answer is unchanged.
+- `/staff/fulfilment/summary` counts, the oldest preparing and the drill
+  take TikTok orders (`TT-`) only.
+
+### Guards
+- New `tests/ecommerce-module.mjs` (37 checks, negative-tested). Updated to
+  the approved behaviour: `tests/tab-zones.mjs` (six tabs, Analytics order;
+  a "border: 1px" false positive fixed), `tests/tiktok-line-match.mjs`
+  (awaiting is preparing, via the shared function on both doors).
+- Lint warnings 130 → 129.
+
 ## [1.211.0] - 2026-10-25 - Sign in: neutral and minimal; Google failures come back with a word
 
 The owner, 25-10-2026 ("A2Z OS - Secure & Neutral Login Page

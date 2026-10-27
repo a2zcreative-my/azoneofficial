@@ -1086,6 +1086,12 @@
     }
     .erp-drawer-wide { width: min(44rem, 92vw); }
   }
+  /* v1.212.0 - the full-screen phone view (SideDrawer full): the whole
+     screen below 768px, clear of the notch; from 768px the usual panel. */
+  @media (max-width: 767px) {
+    .erp-drawer-full { height: 100vh; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+    .erp-drawer-full .erp-drawer-head { padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)); }
+  }
   .erp-drawer-head { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
   .erp-drawer-title { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .erp-drawer-sub { margin-top: 0.125rem; font-size: 0.75rem; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -283,6 +283,24 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { id: 505, order_ref: "TT-586094180474719255", status: "in_transit", created_at: "2026-09-16 02:41:00", items_label: "2× ELFIA Premium product", courier: "jnt", tracking_no: "JT6401234570", buyer_city: "Kuantan", order_amount_cents: 7900 },
     { id: 506, order_ref: "TT-586090000000000001", status: "returned", created_at: "2026-09-12 06:10:00", items_label: "1× ELFIA Daily care", courier: "jnt", tracking_no: "JT6401234571", buyer_city: "Kuala Terengganu", order_amount_cents: 3970 },
   ] };
+  /* v1.212.0 - the paged TikTok read (GET /staff/postage?source=tiktok):
+     one page, the count per status for the same search, and the orders that
+     moved no stock (one more fixture order, 507, carries none) */
+  if (p === "/staff/postage" && q.get("source") === "tiktok") {
+    const all = [...data.records.map((r) => ({ ...r, note: r.note ?? (r.id % 2 ? "TikTok order (auto)" : "TikTok order (synced)"), line_count: 1, updated_at: r.created_at })),
+      { id: 507, order_ref: "TT-586400000000000007", status: "preparing", created_at: "2026-10-05 08:00:00", updated_at: "2026-10-05 08:00:00", items_label: null, line_count: 0, courier: "TikTok", tracking_no: null, buyer_city: "Ipoh", order_amount_cents: 4500, note: "TikTok order (synced) · not in inventory: SKU ELFIA-X9" }];
+    const term = (q.get("q") ?? "").toLowerCase();
+    const st = q.get("status") ?? "";
+    const per = Math.min(50, Math.max(5, Number(q.get("per")) || 20));
+    const page = Math.max(1, Number(q.get("page")) || 1);
+    const noMove = (r) => r.status !== "returned" && r.line_count === 0;
+    const found = all.filter((r) => !term || `${r.order_ref} ${r.tracking_no ?? ""} ${r.courier ?? ""} ${r.buyer_city ?? ""} ${r.items_label ?? ""}`.toLowerCase().includes(term))
+      .filter((r) => q.get("stock") !== "none" || noMove(r));
+    const counts = { all: found.length, no_stock: all.filter(noMove).length };
+    for (const k of ["preparing", "shipped", "in_transit", "delivered", "returned"]) counts[k] = found.filter((r) => r.status === k).length;
+    const rows = (st ? found.filter((r) => r.status === st) : found).sort((x, y) => y.created_at.localeCompare(x.created_at));
+    data = { records: rows.slice((page - 1) * per, page * per), total: rows.length, page, per, counts };
+  }
   if (p === "/staff/orders/geo") data = { cities: [
     { city: "Johor Bahru", orders: 30, cents: 80000 }, { city: "Skudai", orders: 16, cents: 43200 },
     { city: "Kuala Terengganu", orders: 2, cents: 3970 }, { city: "Melaka", orders: 2, cents: 2550 }, { city: "Kuantan", orders: 1, cents: 936 },

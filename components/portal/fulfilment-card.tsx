@@ -92,7 +92,8 @@ export function FulfilmentCard({ onViewAll }: { onViewAll?: () => void } = {}) {
         <span className={css.well}><AppIcon name="fulfilment" /></span>
         <div className={css.headText}>
           <p className={css.title}>{L("Fulfilment Overview", "Gambaran Pemenuhan")}</p>
-          <p className={css.sub}>{d ? (() => { const m = Number(d.month.slice(5, 7)) - 1; return MONTHS[m] ? `${MONTHS[m]} ${d.month.slice(0, 4)}` : dmy(d.month); })() : "…"}</p>
+          {/* v1.212.0 - TikTok orders only, by the month they were recorded (the server's rule) */}
+          <p className={css.sub}>{d ? (() => { const m = Number(d.month.slice(5, 7)) - 1; return `${L("TikTok orders recorded in", "Pesanan TikTok direkodkan pada")} ${MONTHS[m] ? `${MONTHS[m]} ${d.month.slice(0, 4)}` : dmy(d.month)}`; })() : "…"}</p>
         </div>
         {onViewAll && <button type="button" className={btnSm} onClick={onViewAll}>{L("View all", "Lihat semua")}</button>}
       </div>
