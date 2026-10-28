@@ -2252,6 +2252,24 @@ async function attributedSalesByUser(env: Env, month: string): Promise<Map<numbe
     TikTok!" — the board lists only people who sell. */
 const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
 
+/** v1.214.0 - is the closer of this invoice locked? From the first recorded
+    payment: the invoice marked paid, or any part payment not voided. Also
+    returns the SQL guard that keeps a racing write honest (without the
+    part-payment clause on a database from before 0140). */
+async function invoiceCloserLock(env: Env, invoiceId: number): Promise<{ locked: boolean; guardSql: string }> {
+  const paidRow = await env.DB.prepare(`SELECT COALESCE(payment_status, '') AS ps FROM sales_documents WHERE id = ?1`)
+    .bind(invoiceId).first<{ ps: string }>();
+  let parts = 0;
+  let hasParts = true;
+  try {
+    parts = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL`)
+      .bind(invoiceId).first<{ n: number }>())?.n ?? 0;
+  } catch { hasParts = false; }
+  const guardSql = ` AND COALESCE(payment_status, '') != 'paid'`
+    + (hasParts ? ` AND NOT EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.invoice_id = sales_documents.id AND ip.voided_at IS NULL)` : "");
+  return { locked: paidRow?.ps === "paid" || parts > 0, guardSql };
+}
+
 /** Commission (sen) for a person's attributed `sales` against their `target`,
     under whichever active rule that applies to `role` yields the most (staff-
     friendly): base_pct on all sales + bonus_pct on the amount above target. */
@@ -8918,6 +8936,32 @@ export async function handleStaff(
      * for - Edit or a credit note changes that); a quotation that is already
      * an invoice (the invoice would no longer match what it came from); and
      * a revision that changes nothing. */
+    /* v1.214.0 - THE CLOSER LOCK (the owner's Sales Workspace brief,
+       27-10-2026: "ONE VERIFIED SALE. ONE VERIFIED CLOSER", and his answer:
+       lock "at the first recorded payment"). The credited closer of a sale is
+       the invoice's salesperson_id - the quotation's, carried over when it
+       was converted. Until money is recorded on the invoice the salesperson
+       is corrected here like any other field, and the change is now audited
+       from -> to. From the first payment (marked paid, or any part payment
+       not voided) Edit refuses to move it; only POST /docs/:id/closer
+       (commission_decide, with a reason) can. */
+    let closerFrom: number | null | undefined; // undefined: the closer is not being changed
+    let lockGuard = "";
+    if (spE !== null) {
+      const curSp = await env.DB.prepare(`SELECT salesperson_id FROM sales_documents WHERE id = ?1`)
+        .bind(idE).first<{ salesperson_id: number | null }>();
+      if (curSp && Number(curSp.salesperson_id ?? 0) !== spE) {
+        if (docE.doc_type === "INV") {
+          const lock = await invoiceCloserLock(env, Number(idE));
+          if (lock.locked) {
+            return err("closer_locked",
+              "The salesperson on this invoice is locked: a payment has been recorded on it. Only the CEO can correct the closer now, with a reason.", 409);
+          }
+          lockGuard = lock.guardSql;
+        }
+        closerFrom = curSp.salesperson_id ?? null;
+      }
+    }
     let reviseFrom: { revision: number; total_cents: number } | null = null;
     if (revise) {
       if (docE.doc_type !== "QT") {
@@ -8969,7 +9013,9 @@ export async function handleStaff(
          created_at = COALESCE(?8, created_at)`;
     const baseArgs = [JSON.stringify(itemsE), discE, taxE, delE, totalE, custE, spE, dateE];
     try {
-      const upd = env.DB.prepare(`UPDATE sales_documents SET ${baseSet}, reference = ?10, delivery_address = ?11 WHERE id = ?9`)
+      /* lockGuard: a payment recorded between the check above and this
+         write still wins - the edit is refused, the closer stays */
+      const upd = env.DB.prepare(`UPDATE sales_documents SET ${baseSet}, reference = ?10, delivery_address = ?11 WHERE id = ?9${lockGuard}`)
         .bind(...baseArgs, idE, refE, shipE);
       if (reviseFrom) {
         /* the new content and the new revision number land together or not
@@ -8982,13 +9028,16 @@ export async function handleStaff(
             .bind(idE, reviseFrom.revision + 1),
         ]);
       } else {
-        await upd.run();
+        const ran = await upd.run();
+        if (lockGuard && !ran.meta.changes) {
+          return err("closer_locked", "A payment was just recorded on this invoice, so its salesperson is now locked. Nothing was changed.", 409);
+        }
       }
     } catch (e) {
       // 0062 skew: the edit still saves, minus the two optional fields.
       if (String(e).includes("no such column")) {
         try {
-          await env.DB.prepare(`UPDATE sales_documents SET ${baseSet} WHERE id = ?9`).bind(...baseArgs, idE).run();
+          await env.DB.prepare(`UPDATE sales_documents SET ${baseSet} WHERE id = ?9${lockGuard}`).bind(...baseArgs, idE).run();
         } catch (e2) {
           if (String(e2).includes("no such column")) {
             return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote", 500);
@@ -9025,8 +9074,53 @@ export async function handleStaff(
       });
       return json({ ok: true, total_cents: totalE, stock: stockE, revision: reviseFrom.revision + 1 });
     }
+    if (closerFrom !== undefined) {
+      await audit(env, user.id, "doc.closer_change", "sales_documents", idE, { doc_type: docE.doc_type, from: closerFrom, to: spE });
+    }
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
     return json({ ok: true, total_cents: totalE, stock: stockE });
+  }
+
+  /* v1.214.0 - CORRECTING THE CLOSER after the lock (the owner's brief:
+     "Any ownership correction must require an authorized review, supporting
+     reason and audit trail"). commission_decide only (CEO, super admin),
+     invoices only, a reason of at least 10 characters, the person must be a
+     current staff member, and the write is conditional on the closer still
+     being the one the reviewer saw - two corrections cannot cross. Nothing
+     else on the invoice moves. Any commission calculated later reads the
+     closer as it stands; corrections never rewrite money already decided
+     (there is no commission ledger yet - the owner has not set a policy). */
+  const closerFix = path.match(/^\/docs\/(\d+)\/closer$/);
+  if (closerFix && method === "POST") {
+    if (!can(user.role, "commission_decide")) return err("forbidden", "Only the CEO can correct the closer of a sale", 403);
+    const docId = Number(closerFix[1]);
+    const toId = typeof body?.salesperson_id === "number" && body.salesperson_id > 0 ? Math.round(body.salesperson_id) : null;
+    const fromSeen = typeof body?.from_salesperson_id === "number" ? Math.round(body.from_salesperson_id) : null;
+    const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
+    if (!toId) return err("invalid_input", "Choose the person who closed this sale.", 400);
+    if (reason.length < 10) return err("invalid_input", "Give the reason for the correction (at least 10 characters).", 400);
+    const inv = await env.DB.prepare(`SELECT id, doc_number, doc_type, salesperson_id FROM sales_documents WHERE id = ?1`)
+      .bind(docId).first<{ id: number; doc_number: string; doc_type: string; salesperson_id: number | null }>();
+    if (!inv) return err("not_found", "Document not found", 404);
+    if (inv.doc_type !== "INV") return err("invalid_input", "The closer is corrected on the invoice. A quotation's salesperson is changed with Edit.", 400);
+    const cur = inv.salesperson_id ?? null;
+    if (fromSeen !== null && fromSeen !== (cur ?? 0)) {
+      return err("conflict", "The closer on this invoice changed while you were looking. Reload and check again.", 409);
+    }
+    if (cur === toId) return err("invalid_input", "That person is already the closer.", 400);
+    const person = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer') AND ${currentStaffSql()}`,
+    ).bind(toId).first<{ id: number }>();
+    if (!person) return err("invalid_input", "That person is not on the current staff list.", 400);
+    const lock = await invoiceCloserLock(env, docId);
+    const ran = await env.DB.prepare(
+      `UPDATE sales_documents SET salesperson_id = ?1 WHERE id = ?2 AND doc_type = 'INV' AND COALESCE(salesperson_id, 0) = ?3`,
+    ).bind(toId, docId, cur ?? 0).run();
+    if (!ran.meta.changes) return err("conflict", "The closer on this invoice changed while you were looking. Reload and check again.", 409);
+    await audit(env, user.id, "doc.closer_correct", "sales_documents", String(docId), {
+      invoice: inv.doc_number, from: cur, to: toId, reason, locked: lock.locked,
+    });
+    return json({ ok: true, from: cur, to: toId });
   }
 
   /* ---- notifications ---- */

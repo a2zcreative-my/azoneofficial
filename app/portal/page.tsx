@@ -141,14 +141,19 @@ export default function PortalPage() {
                (the month's figures, the work, the customers); the map and
                the long view follow as two more. */
             <TabPage>
-              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />} />
-              <TabZone label={L("This month", "Bulan ini")}>
-                <SalesMap />
-              </TabZone>
-              <TabZone label={L("The longer view", "Pandangan lebih jauh")} cols={2}>
-                <LiveEconomicsCard />
-                <PackagesEditorCard role={user.role} />
-              </TabZone>
+              {/* v1.214.0 - the map and the longer view are the workspace's
+                  Reports tab: the same three cards, one tab instead of the
+                  bottom of a long page */}
+              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />}
+                reports={<>
+                  <TabZone label={L("This month", "Bulan ini")}>
+                    <SalesMap />
+                  </TabZone>
+                  <TabZone label={L("The longer view", "Pandangan lebih jauh")} cols={2}>
+                    <LiveEconomicsCard />
+                    <PackagesEditorCard role={user.role} />
+                  </TabZone>
+                </>} />
             </TabPage>
           )}
           {/* v1.21.0: the Pipeline tab is retired (CEO: "Sales pipeline is

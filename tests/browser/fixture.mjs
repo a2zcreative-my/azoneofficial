@@ -177,10 +177,10 @@ const expenses = [
 ];
 const docs = [
   /* v1.181.11 - revised once at the customer's request */
-  { id: 1, doc_type: "QT", doc_number: "QT-AZO150926-1", company: "Aina Boutique", total_cents: 450000, payment_status: null, delivery_status: null, created_at: D + "15 10:00:00", salesperson_name: "Nur Aisyah", kind: "service", revision: 1, revised_at: D + "18 11:20:00" },
-  { id: 2, doc_type: "INV", doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", total_cents: 280000, payment_status: "paid", delivery_status: null, created_at: D + "10 10:00:00", paid_at: D + "12 10:00:00", salesperson_name: "Nur Aisyah" },
-  { id: 3, doc_type: "INV", doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", total_cents: 990000, payment_status: "unpaid", delivery_status: null, created_at: D + "05 10:00:00", salesperson_name: "Fixture Person" },
-  { id: 4, doc_type: "INV", doc_number: "INV-AZO200826-4", company: "Hafiz Trading", total_cents: 120000, payment_status: "unpaid", delivery_status: null, created_at: "2026-08-20 10:00:00", salesperson_name: "Nur Aisyah" },
+  { id: 1, doc_type: "QT", doc_number: "QT-AZO150926-1", company: "Aina Boutique", total_cents: 450000, payment_status: null, delivery_status: null, created_at: D + "15 10:00:00", salesperson_name: "Nur Aisyah", kind: "service", revision: 1, revised_at: D + "18 11:20:00", salesperson_id: 9002 },
+  { id: 2, doc_type: "INV", doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", total_cents: 280000, payment_status: "paid", delivery_status: null, created_at: D + "10 10:00:00", paid_at: D + "12 10:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002 },
+  { id: 3, doc_type: "INV", doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", total_cents: 990000, payment_status: "unpaid", delivery_status: null, created_at: D + "05 10:00:00", salesperson_name: "Fixture Person", salesperson_id: 9001 },
+  { id: 4, doc_type: "INV", doc_number: "INV-AZO200826-4", company: "Hafiz Trading", total_cents: 120000, payment_status: "unpaid", delivery_status: null, created_at: "2026-08-20 10:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002 },
 ];
 const customers = [
   { id: 1, company: "Aina Boutique", contact: "Aina Rahman", phone: "0174761019", email: null, address: "12 Jalan Bunga, Melaka" },
@@ -555,6 +555,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { id: 3, item_id: 3, sku: "BWL-003", item_name: "ELFIA Bawal Satin Silk", system_qty: 15, counted_qty: null, posted_delta: null, stock_now: 15, unit_cost_cents: null }] };
   /* v1.181.13 - part payments on the unpaid Casa del Rio invoice, and one client's history */
   if (p === "/staff/docs/part-payments") data = { invoices: [{ invoice_id: 3, received_cents: 400000, parts: 2, last_received_on: D + "16" }] };
+  /* v1.214.0 - any other document, whole (Edit reads it) */
+  { const m = /^\/staff\/docs\/(\d+)$/.exec(p); const row = m && docs.find((x) => x.id === Number(m[1]));
+    if (row && row.id !== 1) data = { doc: { ...row, customer_id: 2, items: JSON.stringify([{ name: "TikTok LIVE hosting - 4 sessions", qty: 1, unit_price_cents: row.total_cents }]),
+      discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", revision: 0 } }; }
+  /* v1.214.0 - the paid invoice's payments read (the workspace opens it) */
+  if (p === "/staff/docs/2/payments") data = { invoice: { id: 2, doc_number: "INV-AZO100926-2", total_cents: 280000, payment_status: "paid", paid_at: D + "12 10:00:00", created_at: D + "10 10:00:00" }, can_record: true, payments: [], received_cents: 0, balance_cents: 280000 };
   if (p === "/staff/docs/3/payments") data = { invoice: { id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, payment_status: "unpaid" }, can_record: true,
     received_cents: 400000, balance_cents: 590000, payments: [
       { id: 1, amount_cents: 250000, received_on: D + "08", method: "bank_transfer", reference: "MBB080926-4471", note: null, created_at: D + "08 03:00:00", voided_at: null, void_reason: null, recorded_by: "Nur Aisyah", voided_by_name: null },

@@ -10,6 +10,82 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.214.1] - 2026-10-28 - The figure fits its tile, on every page
+
+The owner, 28-10-2026: "why the figure overflow from the card". The shared
+figure tile (`components/ui/kpi-tile.module.css`) set the number at a fixed
+1.875rem that could not wrap, beside a 3rem icon. In a row of five tiles
+beside the sidebar (Sales, Dashboard) the text column is about 7rem wide and
+"RM 12,700.00" needs about 12, so the number ran out of the card.
+
+- The tile is now a size container: the figure scales with the tile's own
+  width (never above the token, never below 1.125rem).
+- A narrow tile (18rem or less) puts its icon above the words, so the figure
+  gets the full width.
+- As a last resort the figure breaks at its space instead of spilling.
+- The page-level fixed sizes on Sales and Ecommerce (which would have
+  overridden the fit) are removed; the phone's two-across layout stays.
+- Checked on Dashboard, Sales, Ecommerce and Inventory at 1440, 1280, 1024,
+  768 and 390 for CEO and Sales & Marketing: no figure leaves its tile, up to
+  RM 1,247,267.89 on a phone.
+- Guard `tests/sales-workspace.mjs` +2 checks (negative-tested). Screen only.
+
+## [1.214.0] - 2026-10-28 - Sales Workspace: tabs on the live records; the closer locks at the first payment
+
+The owner's "A2Z OS - Sales Workspace 2.0" brief (27-10-2026), the audit
+written before any change (claude/SALES-WORKSPACE-AUDIT.md in the project)
+and his four answers: the retired modules (Commission, Enquiries, Sales
+Performance, the Pipeline) stay retired and the workspace is built on the
+live records; the screen comes first and the commission ledger waits until
+he sets a policy (no rate is invented); the closer is locked at the first
+recorded payment; a payment will count for commission only when someone
+other than the closer recorded it (for the ledger, when it is built).
+
+### Screen
+- Sales is one panel with five tabs: Overview · Quotations & Invoices ·
+  Closed Sales · Customers & Follow-ups · Reports (the map, live-hour
+  economics and the rate card, which were the bottom of a long page). The
+  bodies stay mounted, so a half-written quotation survives a look elsewhere.
+- Overview: Mine / Everyone (a consultant opens on their own sales - the
+  documents where they are the salesperson and the follow-ups they own;
+  management on everyone's), five figures with their period (Collected,
+  Quotations, Invoices, Unpaid, Follow-ups due), the month's collected trend
+  (invoices marked paid by payment date - part payments are not counted as
+  collected), where this month's quotations went (raised, open, invoiced,
+  part paid, paid, expired), follow-ups due in 7 days, and the latest
+  invoices with their closer and payment state. Every row opens its record.
+- Closed Sales: invoices with money recorded, the quotation each came from,
+  the closer (locked), total, payment state and date; this month / last
+  month / all; cards on a phone, a table from 768px. The CEO and super admin
+  get "Correct closer": who, and a reason of 10+ characters.
+- Customers & Follow-ups: every open follow-up (soonest first) above the
+  client list; a row opens the customer file where it is marked done.
+- Editing an invoice with a payment recorded shows the salesperson locked,
+  and says who can correct it.
+- No commission figure, rate or percentage appears anywhere.
+
+### Worker (deploy needed)
+- The closer lock: `/docs/:id/edit` refuses to change an invoice's
+  salesperson once a payment is recorded (marked paid, or a part payment not
+  voided) - `closer_locked`, 409 - and the write itself is guarded so a
+  payment that lands in between still wins. Every salesperson change is
+  audited from -> to (`doc.closer_change`).
+- `POST /docs/:id/closer` - the correction: commission_decide (CEO, super
+  admin), invoices only, a reason of 10+ characters, a current staff member,
+  conditional on the closer the reviewer saw; changes salesperson_id and
+  nothing else; audited with the reason (`doc.closer_correct`).
+- No new table, no migration; no figure or permission changed.
+
+### Not built (waiting for the owner)
+- The commission policy and ledger (needs his rate, basis and scope).
+- Credit notes reducing revenue; the attributed-sales month boundary (UTC
+  vs Malaysia time); the part-payment race - listed in the audit, each a
+  money-rule change for his approval.
+
+### Guards
+- New `tests/sales-workspace.mjs` (22 checks, negative-tested).
+- Lint warnings stay at 129.
+
 ## [1.213.1] - 2026-10-27 - The clock says why in words; Check In / Check Out wear the owner's marks
 
 The owner, 27-10-2026, with a screenshot of My Day and two drawings.

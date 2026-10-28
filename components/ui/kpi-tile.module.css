@@ -12,6 +12,7 @@
   }
 }
 .tile {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
@@ -97,13 +98,23 @@
   gap: 0.75rem;
   min-width: 0;
 }
+/* v1.214.1 - THE FIGURE FITS ITS TILE (the owner, 28-10-2026: "why the
+   figure overflow from the card"). The value was a fixed 1.875rem that
+   could not wrap, beside a 3rem icon well: in a row of five tiles beside
+   the sidebar the text column is about 7rem wide and "RM 12,700.00" needs
+   about 12, so it ran out of the card. Now the tile is a size container:
+   the figure scales with the tile's own width (never above the token,
+   never below 1.125rem), a narrow tile puts its icon above the words so
+   the figure gets the whole width, and as a last resort the figure may
+   break at its space rather than spill. */
 .value {
-  font-size: var(--type-kpi-lg-size);
+  min-width: 0;
+  font-size: clamp(1.125rem, 9cqi, var(--type-kpi-lg-size));
   font-weight: var(--type-kpi-lg-weight);
   line-height: var(--type-kpi-lg-lh);
   letter-spacing: var(--type-kpi-lg-tracking);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .spark {
   display: flex;
@@ -178,4 +189,20 @@
 .link:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* a narrow tile (a row of five beside the sidebar, two across on a phone):
+   the icon above the words, the words the tile's full width */
+@container (max-width: 18rem) {
+  .well {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 10px;
+  }
+  .body {
+    grid-column: 1 / -1;
+  }
+  .value {
+    font-size: clamp(1.125rem, 12.5cqi, var(--type-kpi-lg-size));
+  }
 }

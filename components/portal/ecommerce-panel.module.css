@@ -40,10 +40,6 @@
   .tiles [role="group"] > * > span:last-child > span:first-child > span + span {
     display: none;
   }
-  .tiles [role="group"] > * > span:last-child > span:nth-child(2) > span:first-child {
-    font-size: 1.375rem;
-    overflow-wrap: anywhere;
-  }
 }
 .tilesPeriod {
   margin: 0 0 0.5rem;
