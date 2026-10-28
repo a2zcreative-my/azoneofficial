@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 28 October 2026, version **1.216.2** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 28 October 2026, version **1.217.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (129 at 1.216.2)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (129 at 1.217.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -115,6 +115,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | 4 Customers (1.181.16) | Sales: client File, monthly invoices; Enquiries: Make quotation (retired with Enquiries, 1.183.0); shared link: Accept | `/customers/crm`, `/customers/:id/file`, `/customers/recurring`, `/followups/*`, `/docs/:id/acceptance`, public `/api/v1/public/doc/:token/accept` | `customer_contacts`, `customer_tags`, `customer_followups`, `customer_terms`, `recurring_invoices`, `quotation_acceptances` (0143) |
 | 5 People (1.181.17) | HR: Joining, leaving and letters; Leave: Team leave; Sales: approval limit | `/people/*`, `/quotes/approval*`, `/docs/:id/approve` | `leaving_checklists`, `probation_reviews`, `hr_letters`, `training_records`, `business_settings`, `quotation_approvals` (0144) |
 | Payroll 2.0 phase A (1.215.0) | Sales: Closed Sales - Confirm paid; Payroll: Sales Commission column (read-only) | `/docs/:id/confirm-paid`, `/docs/:id/confirm-paid/revoke`, `/payroll/commission-sources` (in `worker/src/staff.ts`) | `invoice_paid_confirmations` (0145) |
+| News 2.0 (1.217.0) | News: Feed, My Acknowledgements, Publish & Manage, Reports & Archive | `/announcements`, `/announcements/:id` (PATCH), `/:id/ack`, `/:id/versions`, `/:id/acks`, `/announcements/report`, `/:id/files` (in `worker/src/news.ts`) | `announcements`, `announcement_acks` rebuilt; `announcement_versions`, `announcement_files` (0146) |
 
 The Desk (`worker/src/desk.ts`, a pure read) lists follow-ups, monthly invoices, people steps and
 quotations to approve beside leave, claims, overtime and the rest. The guard

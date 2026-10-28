@@ -89,6 +89,13 @@ const announcements = [
   { id: 1, title: "Office closed on Malaysia Day", body: "16 September is a public holiday. Live sessions continue from home.", category: "general", created_at: D + "10 09:00:00", acked: 0 },
   { id: 2, title: "New claim form", body: "Use the Claims tab; paper forms are no longer accepted.", category: "hr", created_at: D + "03 09:00:00", acked: 1 },
   { id: 3, title: "Q3 town hall", body: "Friday 3pm at the studio.", category: "general", created_at: D + "01 09:00:00", acked: 1 },
+  /* v1.217.0 - a post from News 2.0 (invented): signed by the login, for one
+     department, important, edited once after this person acknowledged v1,
+     with one attachment */
+  { id: 4, title: "Sales targets for October", body: "Targets are on the Sales tab.\n* Confirm your follow-ups weekly", category: "kpi", created_at: "2026-08-30 02:00:00", acked: 0,
+    required: 1, acked_at: null, my_last_version: 1, version: 2, updated_at: D + "15 03:00:00", important: 1, pinned: 0, audience: ["Sales"],
+    to_line: "Sales team", memo_date: null, from_name: "Fixture Person, CEO", publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9001,
+    files: [{ id: 1, filename: "october-targets.pdf", content_type: "application/pdf", size: 120400 }] },
 ];
 const leave = [
   { id: 1, type: "annual", start_date: D + "22", end_date: D + "23", days: 2, status: "pending", stage: "hr", applicant_role: "sales_marketing", user_id: 9002, user_name: "Nur Aisyah", user_full: "Nur Aisyah binti Rahman", reason: "Family matters", created_at: D + "14 10:00:00" },
@@ -408,7 +415,14 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { action: "auth.2fa_enabled", created_at: "2026-10-19 08:00:00", name: "Fixture Person", email: "fixture@example.test" },
   ] };
   if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
-  if (p === "/staff/announcements") data = { announcements };
+  if (p === "/staff/announcements") data = { announcements, can_publish: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(ROLE), departments: ["Live", "Management", "Sales"] };
+  /* v1.217.0 - News 2.0 reads (invented) */
+  if (p === "/staff/announcements/report") data = { posts: announcements.map((a) => ({ id: a.id, title: a.title, category: a.category, version: a.version ?? 1, created_at: a.created_at,
+    publisher_name: a.publisher_name ?? "Fixture Person", audience: a.audience ?? null, important: a.important ?? 0, pinned: 0, recipients: a.audience ? 1 : 3, acknowledged: a.acked ? (a.audience ? 1 : 3) : 1 })) };
+  if (/^\/staff\/announcements\/\d+\/acks$/.test(p)) data = { id: 4, title: "Sales targets for October", version: 2, total: 2, acknowledged: 1,
+    recipients: [{ id: 9002, name: "Nur Aisyah binti Rahman", department: "Sales", acked_at: D + "16 02:00:00", last_version: 2 }, { id: 9004, name: "Tan Mei Ling", department: "Sales", acked_at: null, last_version: 1 }] };
+  if (/^\/staff\/announcements\/\d+\/versions$/.test(p)) data = { current: 2, versions: [{ version: 1, title: "Sales targets for October", body: "Targets are on the Sales tab.", category: "kpi", replaced_at: D + "15 03:00:00" }],
+    my_acks: [{ version: 1, acked_at: "2026-08-31 01:00:00" }] };
   if (p === "/staff/leave") data = { leave: q.get("all") ? leave : leave.filter((l) => l.user_id === 9001) };
   if (p === "/staff/leave/balance") data = { balances: { annual: { entitled: 14, used: 2, accrued: 10.5 }, medical: { entitled: 14, used: 0, accrued: 14 }, emergency: { entitled: 3, used: 0, accrued: 3 }, unpaid: { entitled: 0, used: 0 }, replacement: { entitled: 0, used: 0, accrued: 1 } }, hourly: false };
   if (p === "/claims") data = { claims, can_decide: true };

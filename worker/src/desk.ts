@@ -49,6 +49,7 @@ import { can } from "./permissions";
 import { leaveCanActAt } from "./leave-chain";
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
+import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
   bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes"; // v1.183.0 - commission and enquiries retired
@@ -414,13 +415,17 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
 
   /* ---- news I have not acknowledged ---- */
   await guard("news", async () => {
+    /* v1.217.0 - the News rules: a post for me, not mine, not from before I
+       joined, and not acknowledged in the version that stands (news.ts) */
+    const nv = await viewerOf(env, user);
     const { results } = await env.DB.prepare(
       `SELECT a.id, a.title, a.created_at
          FROM announcements a
         WHERE a.created_at >= datetime('now', '-30 days')
-          AND NOT EXISTS (SELECT 1 FROM announcement_acks k WHERE k.announcement_id = a.id AND k.user_id = ?1)
+          AND ${annRequiredSql("a", "?1", "?2", "?3")}
+          AND NOT ${annAckedSql("a", "?1")}
         ORDER BY a.created_at DESC LIMIT 20`,
-    ).bind(user.id).all<{ id: number; title: string; created_at: string }>();
+    ).bind(user.id, nv.dept, nv.joined).all<{ id: number; title: string; created_at: string }>();
     for (const a of results) {
       items.push({
         bucket: "news", id: `announcement:${a.id}`, tab: "Announcements", title: a.title,

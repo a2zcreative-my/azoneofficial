@@ -184,11 +184,13 @@ const kinds = (r) => [...new Set(r.hits.map((h) => h.kind))].sort();
   ok("task-close:5 is task 5", eq(recordOfRef("task-close:5"), { kind: "task", id: 5 }));
   ok("quote:9:2 is document 9", eq(recordOfRef("quote:9:2"), { kind: "document", id: 9 }));
   ok("claim:7 and stock:3", eq(recordOfRef("claim:7"), { kind: "claim", id: 7 }) && eq(recordOfRef("stock:3"), { kind: "stock", id: 3 }));
-  ok("a day, a person's week or a watcher is no single record", recordOfRef("ot:9002:2026-09-21") === null && recordOfRef("watch:stock:17") === null && recordOfRef("announcement:3") === null && recordOfRef(null) === null);
+  ok("a day, a person's week or a watcher is no single record", recordOfRef("ot:9002:2026-09-21") === null && recordOfRef("watch:stock:17") === null && recordOfRef(null) === null);
+  /* v1.217.0 - an announcement is one record now: the bell opens the post (the owner's News brief) */
+  ok("announcement:3 is announcement 3, opened on News", eq(recordOfRef("announcement:3"), { kind: "announcement", id: 3 }) && TAB_OF_KIND.announcement === "Announcements");
   const page = read("app/portal/page.tsx");
   const tabs = [...new Set(Object.values(TAB_OF_KIND))];
   ok("every tab a record lives in receives the focus", tabs.every((t) => new RegExp(`=\\{focusOf\\("${t}"\\)\\}`).test(page)), tabs.filter((t) => !new RegExp(`focusOf\\("${t}"\\)`).test(page)).join(", "));
-  const modules = { staff: "components/staff/staff-directory.tsx", hotel: "components/portal/hotels-panel.tsx", task: "components/portal/tasks.tsx", leave: "components/portal/leave.tsx", claim: "components/portal/role-panels.tsx", stock: "components/portal/role-panels.tsx", asset: "components/portal/assets-panel.tsx", document: "components/portal/sales.tsx", client: "components/portal/sales.tsx" };
+  const modules = { staff: "components/staff/staff-directory.tsx", hotel: "components/portal/hotels-panel.tsx", task: "components/portal/tasks.tsx", leave: "components/portal/leave.tsx", claim: "components/portal/role-panels.tsx", stock: "components/portal/role-panels.tsx", asset: "components/portal/assets-panel.tsx", document: "components/portal/sales.tsx", client: "components/portal/sales.tsx", announcement: "components/portal/announcements.tsx" };
   for (const [kind, file] of Object.entries(modules)) {
     ok(`${kind}: its module applies the focus for its own kind`, new RegExp(`useRecordFocus\\([a-zA-Z]+, [^,]+, \\(f\\) => \\{[\\s\\S]{0,700}?f\\.kind (?:!==|===) "${kind}"`).test(read(file)), file);
   }

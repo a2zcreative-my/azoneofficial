@@ -265,6 +265,23 @@ export interface Announcement {
   category: string;
   created_at: string;
   acked: number;
+  /* v1.217.0 - News & Announcements 2.0 (worker/src/news.ts); absent from a
+     worker before 0146, so every one is optional */
+  created_by?: number | null;
+  required?: number;
+  acked_at?: string | null;
+  my_last_version?: number | null;
+  version?: number;
+  updated_at?: string | null;
+  important?: number;
+  pinned?: number;
+  audience?: string[] | null;
+  to_line?: string | null;
+  memo_date?: string | null;
+  from_name?: string | null;
+  publisher_name?: string | null;
+  publisher_position?: string | null;
+  files?: { id: number; filename: string; content_type: string; size: number | null }[];
 }
 export interface LeaveReq {
   id: number;

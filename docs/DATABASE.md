@@ -376,3 +376,20 @@ sales_documents and invoice_payments are not altered.
 | Version | Change |
 |---|---|
 | v1.215.0 | 0145 - CEO/COO/super admin confirmation that an invoice paid in full is real (Payroll 2.0 phase A). |
+
+## v1.217.0 - migration 0146_announcements_v2.sql
+announcements rebuilt (every row and id kept): category now allows memo
+(the CHECK from 0003 refused it); new columns important, pinned, audience
+(JSON list of departments, NULL = all staff), to_line, memo_date, from_name
+(the publisher's name and position from the login), version, updated_at,
+updated_by. announcement_acks rebuilt with version in the key
+(announcement_id, user_id, version); every acknowledgement copied as version
+1 with its own acked_at. announcement_versions: the text each version
+replaced (announcement_id, version, title, body, category, to_line,
+memo_date, replaced_by/at). announcement_files: attachments in R2
+(announcement_id, r2_key, filename, content_type, size, uploaded_by/at,
+removed_at/by).
+
+| Version | Change |
+|---|---|
+| v1.217.0 | 0146 - News & Announcements 2.0: memo, versions, acknowledgements per version, audience, attachments. |

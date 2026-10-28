@@ -266,4 +266,5 @@ SST, prospects.
 
 Later additions outside the five phases: 1.215.0 (Payroll 2.0 phase A) adds
 migration `0145_invoice_paid_confirmations` - the CEO or COO confirmation
-that an invoice paid in full is real. It never changes an invoice.
+that an invoice paid in full is real. It never changes an invoice. 1.217.0
+(News & Announcements 2.0) adds migration `0146_announcements_v2`.

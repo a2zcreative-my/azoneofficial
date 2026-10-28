@@ -17,6 +17,7 @@ import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
+import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
@@ -2354,7 +2355,7 @@ export async function handleStaff(
   /* v1.155.0: the Sales Performance evidence screenshot is a raw image body. */
   const isSpEvidence = path === "/sales-performance/evidence";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template")
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path)
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -5741,44 +5742,12 @@ export async function handleStaff(
     return err("invalid_input", "action must be cancel, approve, or reject", 400);
   }
 
-  /* ---- announcements ---- */
-
-  if (path === "/announcements" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      `SELECT a.*, (SELECT COUNT(*) FROM announcement_acks k
-                    WHERE k.announcement_id = a.id AND k.user_id = ?1) AS acked
-       FROM announcements a ORDER BY a.created_at DESC LIMIT 50`,
-    ).bind(user.id).all();
-    return json({ announcements: results });
-  }
-  if (path === "/announcements" && method === "POST") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
-    if (!body || !str(body.title, 200) || !str(body.body, 5000)) {
-      return err("invalid_input", "title and body are required", 400);
-    }
-    const cats = ["news", "meeting", "holiday", "kpi", "training", "memo"]; // v1.4.215: internal memo
-    const category = typeof body.category === "string" && cats.includes(body.category) ? body.category : "news";
-    const res = await env.DB.prepare(
-      `INSERT INTO announcements (title, body, category, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
-    ).bind(body.title, body.body, category, user.id).first<{ id: number }>();
-    // Ring the bell: every active staff member gets a notification (and the
-    // off-platform relay, when configured). The poster already knows.
-    const { results: recipients } = await env.DB.prepare(
-      `SELECT id FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()} AND id != ?1`,
-    ).bind(user.id).all();
-    for (const r of recipients as { id: number }[]) {
-      await notify(env, r.id, "announcement", `New announcement: ${body.title as string}`, `announcement:${res?.id}`);
-    }
-    await audit(env, user.id, "announcement.create", "announcements", String(res?.id));
-    return json({ id: res?.id }, 201);
-  }
-  const ackMatch = path.match(/^\/announcements\/(\d+)\/ack$/);
-  if (ackMatch && method === "POST") {
-    await env.DB.prepare(
-      `INSERT INTO announcement_acks (announcement_id, user_id) VALUES (?1, ?2)
-       ON CONFLICT(announcement_id, user_id) DO NOTHING`,
-    ).bind(ackMatch[1], user.id).run();
-    return json({ ok: true });
+  /* ---- announcements ----
+     v1.217.0 - News & Announcements 2.0 lives in news.ts, at the same paths
+     over the same tables (the owner, 28-10-2026). */
+  {
+    const newsRes = await handleNews(env, request, path, method, body, user, notify);
+    if (newsRes) return newsRes;
   }
 
   /* ---- company events (v1.4.73) ---- */
@@ -15539,15 +15508,32 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     // Backfill (v1.4.34): any announcement from the last 7 days that has no
     // notification row for this user gets one now. This makes announcement
     // alerts independent of publish/deploy ordering — the bell always knows.
-    const { results: missing } = await env.DB.prepare(
-      `SELECT a.id, a.title, a.created_at FROM announcements a
-       WHERE a.created_at >= datetime('now', '-7 days')
-         AND a.created_by != ?1
-         AND NOT EXISTS (
-           SELECT 1 FROM notifications n
-           WHERE n.user_id = ?1 AND n.ref = 'announcement:' || a.id
-         )`,
-    ).bind(user.id).all();
+    /* v1.217.0 - only the posts that are for this person (everyone's, or
+       their department's); before 0146 the old query, unchanged */
+    let missing: unknown[];
+    try {
+      const nv = await viewerOf(env, user);
+      ({ results: missing } = await env.DB.prepare(
+        `SELECT a.id, a.title, a.created_at FROM announcements a
+         WHERE a.created_at >= datetime('now', '-7 days')
+           AND a.created_by != ?1
+           AND ${annForMeSql("a", "?1", "?2")}
+           AND NOT EXISTS (
+             SELECT 1 FROM notifications n
+             WHERE n.user_id = ?1 AND n.ref = 'announcement:' || a.id
+           )`,
+      ).bind(user.id, nv.dept).all());
+    } catch {
+      ({ results: missing } = await env.DB.prepare(
+        `SELECT a.id, a.title, a.created_at FROM announcements a
+         WHERE a.created_at >= datetime('now', '-7 days')
+           AND a.created_by != ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM notifications n
+             WHERE n.user_id = ?1 AND n.ref = 'announcement:' || a.id
+           )`,
+      ).bind(user.id).all());
+    }
     for (const a of missing as { id: number; title: string; created_at: string }[]) {
       await env.DB.prepare(
         `INSERT INTO notifications (user_id, kind, message, ref, created_at)

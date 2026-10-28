@@ -42,7 +42,8 @@ const ok = (label, cond, extra = "") => {
 };
 
 /* ---- 1. the server's real topics, straight from the route table ---- */
-const staff = read("worker/src/staff.ts");
+/* v1.217.0 - the announcements routes moved to news.ts, behind staff.ts */
+const staff = read("worker/src/staff.ts") + "\n" + read("worker/src/news.ts");
 const TOPICS = new Set();
 for (const m of staff.matchAll(/path (?:===|\.startsWith\()\s*"\/([a-z0-9_-]+)/g)) {
   TOPICS.add(m[1]);

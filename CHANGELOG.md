@@ -10,6 +10,47 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.217.0] - 2026-10-28 - News & Announcements 2.0
+
+The owner's brief and his answers to `claude/NEWS-ANNOUNCEMENTS-AUDIT.md`:
+approve the migration; "From" is the signed-in publisher; new joiners
+acknowledge only posts since they joined; and build important / pinned,
+department targeting, edit with versions and attachments.
+
+- **Memo posts save again.** The table kept the five-category CHECK from
+  0003, so every memo since v1.4.215 was refused while the form cleared as
+  if it had worked. Migration **0146_announcements_v2** rebuilds
+  `announcements` with every row and id kept (memo allowed), and rebuilds
+  `announcement_acks` with the version in its key (every acknowledgement
+  copied as version 1 with its own time). New: `announcement_versions` (the
+  text each version replaced) and `announcement_files` (attachments in R2,
+  removed by stamp).
+- **Four tabs:** News Feed (pinned first, search, the six categories,
+  publisher, acknowledgement state, a drawer with the whole post) · My
+  Acknowledgements (waiting, acknowledged with your time, history) · Publish
+  & Manage · Reports & Archive (management).
+- **Acknowledgement:** only the drawer's button, for the version shown; the
+  server refuses a version the person was not shown; one per person per
+  version; server time; the old acknowledgement stays when a post changes.
+- **Publisher:** signed by the login (name and position, `from_name`);
+  nobody types "From" any more.
+- **Who it is for:** all staff or chosen departments - the feed, the bell,
+  the Desk and the reports follow it; management sees every post. A post
+  from before you joined, and your own, do not wait on you.
+- **Edit with versions:** a change of subject, text, category, To or date is
+  a new version, notified again; pin, important and departments are not.
+- **Attachments:** PDF, JPEG, PNG or WebP, 10 MB, 5 per post; downloaded
+  only by those who may read the post.
+- **Reports:** every post's completion and who has not acknowledged.
+- The bell's `announcement:<id>` opens the post itself.
+- Worker: routes moved to `worker/src/news.ts` at the same paths (one door
+  in `staff.ts`); new `PATCH /announcements/:id`, `/versions`, `/acks`,
+  `/report`, `/files`. Desk and the notification backfill use the same rules.
+- Guard `tests/news-acks.mjs` (33 checks, runs the routes against SQLite;
+  negative-tested); `tab-zones`, `api-routes`, `live-topics` and
+  `global-search` updated to the approved behaviour.
+- Needs: `PUSH.bat` (applies 0146, deploys the worker).
+
 ## [1.216.2] - 2026-10-28 - The CEO confirms the CEO's own sales
 
 - The owner: "where is the button for me to confirm if I am a CEO? I also

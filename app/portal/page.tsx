@@ -131,7 +131,7 @@ export default function PortalPage() {
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */
             <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} initialView={startOf("Tasks")} focus={focusOf("Tasks")} />
           )}
-          {activeTab === "Announcements" && <Announcements user={user} />}
+          {activeTab === "Announcements" && <Announcements user={user} focus={focusOf("Announcements")} />}
           {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter
               (role default + tab-access override). The extra role re-check here
               made Sales the only tab where an override granted by the CEO

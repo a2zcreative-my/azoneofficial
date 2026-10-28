@@ -379,7 +379,11 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   })());
   ok("Staff: Leave, Attendance, Payroll and Users are links to their own records, drawn only where the tab strip shows them", /const linkTo = \(t: TabName, label: string\) => \(can\(t\) && go/.test(staffFn) && ["Leave", "Attendance", "Payroll"].every((t) => staffFn.includes(`linkTo("${t}"`)) && /can\("Users"\) && go &&/.test(staffFn) && /go=\{setTab\}\s*canOpen=\{canOpen\}/.test(page));
   ok("Staff: the profile only reads (no write from Leave, Attendance or Payroll)", (() => { const body = staffFn.slice(staffFn.indexOf("THE PROFILE, one body"), staffFn.indexOf("return (", staffFn.indexOf("const profileFooter"))); return !/method:\s*"(?:POST|PUT|PATCH|DELETE)"|csrfFetch/.test(body) && /"\/staff\/leave\?all=1"/.test(body) && /"\/staff\/attendance\/monitor"/.test(body); })());
-  ok("Announcements: unacknowledged, publishing, acknowledged archive", ordered(announcements, ['{renderAnnouncements(anns.filter((a) => !a.acked)', 'L("Publish news"', '{renderAnnouncements(anns.filter((a) => a.acked)']));
+  /* v1.217.0 - News & Announcements 2.0 (the owner, 28-10-2026): four tabs in
+     the brief's order, every zone mounted and hidden with css.off */
+  ok("Announcements: News Feed, My Acknowledgements, Publish & Manage, Reports & Archive - in order, hidden not unmounted",
+    ordered(announcements, ['L("News Feed"', 'L("My Acknowledgements"', 'L("Publish & Manage"', 'L("Reports & Archive"'])
+    && (announcements.match(/className=\{view !== "(feed|mine|publish|reports)" \? css\.off : ""\}/g) ?? []).length === 4);
   ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));
 }
 

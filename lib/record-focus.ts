@@ -35,6 +35,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
   stock: "Inventory",
   document: "Sales",
   client: "Sales",
+  announcement: "Announcements", // v1.217.0 - the bell opens the post itself
 };
 
 /** The record a notification or Desk `ref` names, or null when it names a
@@ -43,7 +44,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
     worker writes are read; anything else is left to the tab. */
 export function recordOfRef(ref: string | null | undefined): { kind: string; id: number } | null {
   if (!ref) return null;
-  const m = /^(leave|claim|task|task-close|stock|quote):(\d+)(?::|$)/.exec(ref);
+  const m = /^(leave|claim|task|task-close|stock|quote|announcement):(\d+)(?::|$)/.exec(ref);
   if (!m) return null;
   const id = Number(m[2]);
   if (!Number.isFinite(id) || id <= 0) return null;
