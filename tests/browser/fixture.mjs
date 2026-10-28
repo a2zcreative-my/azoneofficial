@@ -633,6 +633,70 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
         funnel: { ...fz, raised: 1, raised_cents: 450000 }, new_customers: 0, enquiries: 2, qualified: 0 },
     };
   }
+  /* v1.223.0 - the weekly scorecard (GET /staff/sales/week), worked by
+     hand for the week of 14-09-2026 (today Friday 18-09, the review day).
+     The targets are invented for the fixture only. A consultant always
+     gets their own week (the server forces scope=mine); management sees
+     the team. Fixture Person is At risk (open quotations cover the gap),
+     Hakim needs action and has submitted a plan, Farid has no target. */
+  const wkSum = (n, cents) => ({ n, cents });
+  const wkRow = (o) => ({ week_start_dow: 1, target_cents: null, target_from: null, target_set_by: null, target_reason: null,
+    basis_cents: 0, paid_invoices: 0, confirmed_cents: 0, confirmed_invoices: 0, quotations: wkSum(0, 0), won: wkSum(0, 0), open_quotations: wkSum(0, 0),
+    followups_done: 0, followups_overdue: 0, enquiries: 0, new_customers: 0, tasks: { open: 0, done: 0, overdue: 0 },
+    pct: null, gap_cents: null, working_days: 5, elapsed_days: 4, expected_cents: null, status: "no_target", activity: 0, plan: null, final: null, ...o });
+  const wkMe = wkRow({ user_id: 9001, name: "Fixture Person", target_cents: 500000, target_from: "2026-09-07", target_set_by: "Fixture COO", target_reason: "September push on live packages",
+    basis_cents: 120000, paid_invoices: 1, quotations: wkSum(1, 450000), open_quotations: wkSum(1, 450000), followups_done: 3, followups_overdue: 1, enquiries: 2, new_customers: 1,
+    tasks: { open: 2, done: 1, overdue: 0 }, pct: 24, gap_cents: 380000, expected_cents: 400000, status: "at_risk", activity: 7 });
+  const wkSetter = ["ceo", "coo", "super_admin"].includes(ROLE);
+  const wkAll = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+  if (p === "/staff/sales/week") {
+    const week = { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 };
+    data = q.get("scope") === "all" && wkAll ? {
+      week, scope: "all", can_set: wkSetter, can_view_all: true, commission: { policy: false },
+      company: { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, confirmed_cents: 280000, pct: 27, gap_cents: 1100000 },
+      rows: [
+        wkRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", target_reason: "September push on live packages",
+          gap_cents: 300000, pct: 0, expected_cents: 240000, status: "action", followups_overdue: 3,
+          plan: { id: 4, status: "submitted", updated_at: "2026-09-17 02:00:00", reviewed_at: null, reviewer: null } }),
+        wkRow({ user_id: 9002, name: "Nur Aisyah", target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", target_reason: "September push on live packages",
+          basis_cents: 280000, paid_invoices: 1, confirmed_cents: 280000, confirmed_invoices: 1, won: wkSum(1, 280000), followups_done: 4, pct: 93, gap_cents: 20000, expected_cents: 240000, status: "on_track", activity: 5 }),
+        { ...wkMe },
+        wkRow({ user_id: 9005, name: "Farid Zulkifli", working_days: 4.5, elapsed_days: 3.5, quotations: wkSum(2, 210000), activity: 2 }),
+      ],
+    } : { week, scope: "mine", can_set: wkSetter, can_view_all: wkAll, commission: { policy: false }, me: wkMe };
+  }
+  if (p === "/staff/sales/week/targets") data = !wkAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    week: { from: "2026-09-14", to: "2026-09-20", start_dow: 1 }, can_set: wkSetter,
+    people: [
+      { id: 9001, name: "Fixture Person", role: "sales_marketing", target_cents: 500000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
+      { id: 9005, name: "Farid Zulkifli", role: "sales_marketing", target_cents: null, from: null, set_by: null, reason: null },
+      { id: 9010, name: "Hakim Rosli", role: "sales_marketing", target_cents: 300000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
+      { id: 9002, name: "Nur Aisyah", role: "sales_marketing", target_cents: 300000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
+    ],
+    company: { target_cents: 1500000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
+    history: [
+      { id: 3, scope: "company", person: null, week_from: "2026-09-07", target_cents: 1500000, reason: "September push on live packages", set_by_name: "Fixture COO", created_at: "2026-09-06 03:00:00" },
+      { id: 2, scope: "person", person: "Hakim Rosli", week_from: "2026-09-07", target_cents: 300000, reason: "September push on live packages", set_by_name: "Fixture COO", created_at: "2026-09-06 03:00:00" },
+      { id: 1, scope: "person", person: "Fixture Person", week_from: "2026-08-31", target_cents: 400000, reason: "First weekly target", set_by_name: "Fixture COO", created_at: "2026-08-30 03:00:00" },
+    ],
+  };
+  if (p === "/staff/sales/week/plan") {
+    const uid = Number(q.get("user_id") ?? 9001);
+    const hakim = uid === 9010;
+    data = !wkAll && uid !== 9001 ? { error: { code: "forbidden", message: "Only your own plan" } } : {
+      week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18" }, user: { id: uid, name: hakim ? "Hakim Rosli" : "Fixture Person" },
+      figures: hakim ? wkRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, gap_cents: 300000, pct: 0, expected_cents: 240000, status: "action" }) : wkMe,
+      can_edit: uid === 9001, can_review: wkSetter && uid !== 9001,
+      plan: hakim ? { id: 4, status: "submitted", note: "Two clients asked for a smaller package last week.", review_note: null, reviewer: null,
+        actions: [{ key: "quotations", text: "Call Casa del Rio about QT-AZO050926-1 before it expires" }, { key: "smaller_package", text: "Offer the 2-session package to Zainab Kitchen" }] } : null,
+      facts: {
+        quotations: [{ id: 1, doc_number: "QT-AZO050926-1", company: "Casa del Rio Sdn Bhd", total_cents: 450000, valid_until: "2026-09-30", customer_id: 1 }],
+        no_next_action: [{ id: 2, company: "Zainab Kitchen" }],
+        overdue_followups: [{ id: 5, customer_id: 1, company: "Casa del Rio Sdn Bhd", due_on: "2026-09-15", note: "Send the revised quotation" }],
+        open_tasks: [{ id: 21, title: "Prepare the live package deck for Casa del Rio", deadline: "2026-09-19", status: "pending", priority: "high" }],
+      },
+    };
+  }
   /* v1.216.1 - commission starts with the November 2026 payroll; the
      CONFIRMED server pretends it started in September so the rows show */
   if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null, starts: process.env.CONFIRMED ? "2026-09" : "2026-11",

@@ -286,6 +286,11 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       <span className={chipWarn}>{L("Not acknowledged", "Belum diakui")}</span>
     )
   ) : null;
+  /* v1.223.0 (Weekly Sales): a sales task names what it is about - the same
+     task in Tasks and in Sales, never a copy */
+  const linkChip = (t: Task) => t.link_kind && t.link_id ? (
+    <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan") } as Record<string, string>)[t.link_kind] ?? t.link_kind} #{t.link_id}</span>
+  ) : null;
   const scopeChip = (t: Task) => (t.item_count ?? 0) > 0 ? (
     <button
       type="button"
@@ -483,7 +488,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       {t.description && (
                         <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{t.description}</p>
                       )}
-                      <span className={tk.badges}>{scopeChip(t)}{ackControl(t)}</span>
+                      <span className={tk.badges}>{linkChip(t)}{scopeChip(t)}{ackControl(t)}</span>
                     </td>
                     {opts.who && (
                       <td data-label={L("Assigned to", "Diberikan kepada")}>
@@ -541,7 +546,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 <span className={tk.badges}>
                   <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
                   {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`was due ${dmy(t.deadline)}`, `sepatutnya ${dmy(t.deadline)}`) : dmy(t.deadline)}</span>}
-                  {scopeChip(t)}{ackControl(t)}
+                  {linkChip(t)}{scopeChip(t)}{ackControl(t)}
                 </span>
                 {progressBar(t)}
                 <span className={tk.cardFoot}>{statusSelect(t)}{deleteBtn(t)}</span>

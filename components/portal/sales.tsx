@@ -2058,7 +2058,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               onClick={() => setWsView("customers")} title={L("Open the customers and follow-ups", "Buka pelanggan dan susulan")} />
           </KpiRow>
           </div>
-          <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm}
+          <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm} scope={scope}
             onOpenDocs={(t) => { setWorkTab("documents"); setDocType(t); setDocStatus("all"); setDocPage(1); jump("sales-work"); }}
             onOpenDoc={(d) => { setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); }}
             onOpenCustomer={(f) => openCustomerFile(f.customer_id, f.company, () => void load())}

@@ -284,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0148_journal_integrity";
+const LATEST_MIGRATION = "0149_weekly_sales";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4767,6 +4767,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0145 (CEO/COO confirmation of a paid invoice)", `SELECT id, invoice_id, confirmed_by, revoked_at FROM invoice_paid_confirmations INDEXED BY idx_paid_confirm_live WHERE invoice_id = 0 AND revoked_at IS NULL LIMIT 1`],
       ["0146 (news 2.0: memo, versions, acknowledgements per version, attachments)", `SELECT a.version, a.audience, k.version, v.version, f.r2_key FROM announcements a LEFT JOIN announcement_acks k ON 1 = 0 LEFT JOIN announcement_versions v ON 1 = 0 LEFT JOIN announcement_files f ON 1 = 0 LIMIT 1`],
       ["0147 (finance 2.0: true dates, reversals, transfers, opening balances)", `SELECT c.effective_date, c.source_key, c.reversal_of, c.transfer_id, b.opening_balance_cents, m.item_key FROM cashflow_entries c LEFT JOIN bank_accounts b ON 1 = 0 LEFT JOIN cashbook_marks m ON 1 = 0 LIMIT 1`],
+      ["0149 (weekly sales targets, week results, recovery plans, task links)", `SELECT t.week_from, r.basis_cents, p.status, k.link_kind FROM sales_week_targets t LEFT JOIN sales_week_results r ON 1 = 0 LEFT JOIN sales_recovery_plans p ON 1 = 0 LEFT JOIN tasks k ON 1 = 0 LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -4936,6 +4937,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0146_announcements_v2",
       "0147_cashbook",
       "0148_journal_integrity",
+      "0149_weekly_sales",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

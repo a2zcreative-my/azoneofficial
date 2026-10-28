@@ -275,3 +275,6 @@ columns for true dates, reversals and transfers, opening balances, and
 `0148_journal_integrity` - indexes only: a journal reference is posted once
 (new entries), and the ledger is read by the day the money moved. The books
 stay cash basis; no balance sheet until opening balances are approved.
+1.223.0 (Weekly Sales) adds migration `0149_weekly_sales` - approved weekly
+targets (insert-only), finalised week results, recovery plans, and a
+nullable link (customer, enquiry, quotation, recovery plan) on tasks.

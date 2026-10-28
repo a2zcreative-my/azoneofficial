@@ -10,6 +10,60 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.223.0] - 2026-10-28 - Weekly Sales Targets, Sales Tasks & Recovery
+
+The owner's brief and answers, 28-10-2026 (claude/WEEKLY-SALES-AUDIT.md):
+"Approved weekly targets", "Paid in full", "Tasks with a link", targets set
+by "CEO, COO, super admin". The existing Sales Overview and Tasks are
+improved - no second Sales, Tasks or Commission module. Migration **0149**
+(additive).
+
+- **Approved weekly targets.** Per person or for the company, set by the
+  CEO, COO or super admin with a reason, from a chosen week on. A change is
+  a new row; earlier weeks keep theirs and the history shows who, when and
+  why. "No target from this week" is a choice (long leave). With nothing
+  approved the card says **Target not set** - no figure is invented, and no
+  monthly pace is presented as a weekly target.
+- **The weekly scorecard** replaces the This week card on Sales -> Overview.
+  Progress on the Collected rule (invoices paid in full, by closer, on the
+  Malaysia-time paid date - the same SQL as the monthly tiles), the amount
+  confirmed by the CEO/COO beside it, Deals won, and Commission "Waiting for
+  the policy". Activity sits in its own group: follow-ups done and overdue,
+  quotations sent, open quotations, sales tasks, enquiries taken, new
+  customers.
+- **Fair status.** Expected by now = target x working days elapsed / working
+  days in the week; working days leave out public holidays and the person's
+  approved leave (half days count half). Planning until the third day of
+  the week, then On track / At risk (open quotations cover the gap and there
+  is activity) / Action required; Target reached; Below target once the week
+  is over; nothing for a week on leave. A status is a prompt to help, never
+  a judgement, and nothing is disciplinary.
+- **Final weeks.** The first management read after a week ends writes its
+  result once (`sales_week_results`, INSERT OR IGNORE). A later change - an
+  invoice reversed - shows as "changed since final"; the snapshot is never
+  rewritten. A target cannot be set for a finalised week.
+- **Management view** (super admin, admin, CEO, COO, CCO): the company line,
+  then the consultants as a table (cards on a phone) with target, collected,
+  progress, quotations, won, follow-ups, status and plan; a person's drawer
+  with "Assign a sales task" and "Recovery plan". No pay figure is shown. A
+  consultant always gets their own week only - enforced on the server.
+- **Sales tasks are Tasks.** `POST /tasks` takes an optional link to a
+  customer, enquiry or quotation (it must exist); one open task per person
+  and record - assigning the same record again returns the open task. The
+  Tasks list and board show the link. Customer follow-ups are unchanged.
+- **Recovery plan.** The consultant sees the facts (gap, open quotations,
+  customers with no next step, overdue follow-ups, open sales tasks), writes
+  their own actions and submits. The CEO, COO or super admin approves -
+  each ticked action becomes one linked task, never twice - or returns it
+  with a note. The CCO and admin can read plans. Nothing is sent to a
+  customer.
+- **Server rules:** targets only by the three setter roles (403 otherwise);
+  a reviewer never approves their own plan; an approved plan is not edited.
+  Audit: `sales.week_target`, `sales.week_start`, `sales.plan_approve`,
+  `sales.plan_return`.
+- Guard **weekly-sales** (runtime, all migrations, 55 checks, negative-tested).
+  Lint unchanged at 125 warnings.
+
 ## [1.222.0] - 2026-10-28 - Accounting & Financial Control 2.0
 
 The owner's brief and answers, 28-10-2026 (claude/ACCOUNTING-AUDIT.md):

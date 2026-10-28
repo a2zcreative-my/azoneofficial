@@ -254,6 +254,9 @@ export interface Task {
   item_count?: number;
   item_done?: number;
   acknowledged?: number;
+  // v1.223.0 — the sales record a task is about (Weekly Sales), present post-0149
+  link_kind?: "customer" | "enquiry" | "quotation" | "recovery" | null;
+  link_id?: number | null;
 }
 export interface TaskItem { // v1.42.0 — one scope deliverable
   id: number; title: string; done: number; done_at?: string | null; done_by_name?: string | null;

@@ -9,6 +9,7 @@ import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remaining
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
+import { handleWeeklySales, taskLink } from "./weekly-sales"; // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -2411,6 +2412,13 @@ export async function handleStaff(
     || path === "/quotes/approval" || path === "/quotes/approval/limit" || /^\/docs\/\d+\/approve$/.test(path)) {
     const biz = await handleBusiness(env, path, method, body, user, new URL(request.url).searchParams);
     if (biz) return biz;
+  }
+
+  /* ---- v1.223.0 Weekly Sales (weekly-sales.ts): targets, the week's
+     scorecard and recovery plans, under the Sales permission ---- */
+  if (path === "/sales/week" || path.startsWith("/sales/week/")) {
+    const wk = await handleWeeklySales(env, path, method, body, user, new URL(request.url).searchParams);
+    if (wk) return wk;
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's
@@ -7510,6 +7518,11 @@ export async function handleStaff(
     if (assignedTo !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "You can only create tasks for yourself", 403);
     }
+    /* v1.223.0 - a sales task names its customer, enquiry or quotation;
+       one open task per person and record (weekly-sales.ts taskLink) */
+    const tl = await taskLink(env, body, assignedTo);
+    if (tl instanceof Response) return tl;
+    const linkKind = tl?.kind ?? null, linkId = tl?.id ?? null;
     /* v1.66.0 Track R — assigned FROM the roster, with a slot.
        v1.67.0 — a run of days, from the form's repeat rule. One day still
        works exactly as before: `block_date` on its own is a run of one.
@@ -7531,7 +7544,21 @@ export async function handleStaff(
       if (no) return no;
     }
     const prio = ["low", "normal", "high", "urgent"];
-    const res = await env.DB.prepare(
+    const res = linkKind && linkId
+      /* v1.223.0 - the linked insert repeats the "one open task" check in the
+         same statement, so two requests at once still make one task */
+      ? await env.DB.prepare(
+        `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline, link_kind, link_id)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+          WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE link_kind = ?7 AND link_id = ?8 AND assigned_to = ?3 AND status != 'completed')
+         RETURNING id`,
+      ).bind(
+        body.title, str(body.description, 5000) ? body.description : null,
+        assignedTo, user.id,
+        typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
+        str(body.deadline, 10) ? body.deadline : null, linkKind, linkId,
+      ).first<{ id: number }>()
+      : await env.DB.prepare(
       `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
     ).bind(
@@ -7540,6 +7567,10 @@ export async function handleStaff(
       typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
       str(body.deadline, 10) ? body.deadline : null,
     ).first<{ id: number }>();
+    if (linkKind && linkId && !res?.id) {
+      const open = await env.DB.prepare(`SELECT id FROM tasks WHERE link_kind = ?1 AND link_id = ?2 AND assigned_to = ?3 AND status != 'completed' LIMIT 1`).bind(linkKind, linkId, assignedTo).first<{ id: number }>();
+      return json({ id: open?.id ?? null, existing: true });
+    }
     /* v1.42.0: the SCOPE — one deliverable per line from the form, stored as
        tickable items. Progress is then derived, not typed. */
     let itemCount = 0;

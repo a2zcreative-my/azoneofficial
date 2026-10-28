@@ -409,6 +409,19 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 |---|---|
 | v1.219.0 | 0147 - Finance 2.0: true dates, reversals, transfers, opening balances, reviewed marks. |
 | v1.222.0 | 0148 - Accounting 2.0: a journal reference is posted once (new entries). |
+| v1.223.0 | 0149 - Weekly Sales: weekly targets, week results, recovery plans, task links. |
+
+## v1.223.0 - migration 0149_weekly_sales.sql
+Additive - no row changed. `sales_week_targets` (scope person / team /
+company, user_id or team, week_from, target_cents NULL = "not set", reason,
+set_by, created_at): rows are inserted, never updated; the latest row with
+week_from on or before a week is the one in force. `sales_week_results`
+(week_from, user_id - 0 is the company -, target, basis, confirmed, status,
+figures JSON, finalised_at; UNIQUE week_from + user_id): a finished week,
+written once. `sales_recovery_plans` (user_id, week_from UNIQUE together,
+status draft / submitted / approved / returned, actions JSON, note, gap,
+review fields). `tasks` gains `link_kind` (customer, enquiry, quotation,
+recovery) and `link_id`, both nullable, with an index.
 
 ## v1.222.0 - migration 0148_journal_integrity.sql
 Indexes only - no row changed. A partial UNIQUE index on journal_entries(ref)
