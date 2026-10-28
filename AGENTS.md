@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 28 October 2026, version **1.218.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 28 October 2026, version **1.219.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (129 at 1.218.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (128 at 1.219.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -116,6 +116,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | 5 People (1.181.17) | HR: Joining, leaving and letters; Leave: Team leave; Sales: approval limit | `/people/*`, `/quotes/approval*`, `/docs/:id/approve` | `leaving_checklists`, `probation_reviews`, `hr_letters`, `training_records`, `business_settings`, `quotation_approvals` (0144) |
 | Payroll 2.0 phase A (1.215.0) | Sales: Closed Sales - Confirm paid; Payroll: Sales Commission column (read-only) | `/docs/:id/confirm-paid`, `/docs/:id/confirm-paid/revoke`, `/payroll/commission-sources` (in `worker/src/staff.ts`) | `invoice_paid_confirmations` (0145) |
 | News 2.0 (1.217.0) | News: Feed, My Acknowledgements, Publish & Manage, Reports & Archive | `/announcements`, `/announcements/:id` (PATCH), `/:id/ack`, `/:id/versions`, `/:id/acks`, `/announcements/report`, `/:id/files` (in `worker/src/news.ts`) | `announcements`, `announcement_acks` rebuilt; `announcement_versions`, `announcement_files` (0146) |
+| Finance 2.0 (1.219.0) | Finance: Overview, Transactions, Expenses, Reconciliation, Reports | `/erp/cashbook`, `/erp/cashbook/rows/:id/reverse`, `/erp/cashbook/transfer`, `/erp/cashbook/assign-bank`, `/erp/cashbook/review`, `/erp/cashbook/banks/:id` (in `worker/src/cashbook.ts`; bookings via `bookCash`) | `cashflow_entries`, `bank_accounts` gain columns; `cashbook_marks` (0147) |
 
 The Desk (`worker/src/desk.ts`, a pure read) lists follow-ups, monthly invoices, people steps and
 quotations to approve beside leave, claims, overtime and the rest. The guard

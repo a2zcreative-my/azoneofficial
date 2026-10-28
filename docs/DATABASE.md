@@ -393,3 +393,18 @@ removed_at/by).
 | Version | Change |
 |---|---|
 | v1.217.0 | 0146 - News & Announcements 2.0: memo, versions, acknowledgements per version, audience, attachments. |
+
+## v1.219.0 - migration 0147_cashbook.sql
+Additive only - no row changed, moved or deleted. cashflow_entries gains
+effective_date (the day the money moved, written by new bookings; old rows
+keep NULL and the Finance view reads their source's paid day), source_key
+(the booking key of a new row, unique where set - a retry cannot book twice),
+reversal_of (unique where set - a row is reversed once), reverse_reason, and
+transfer_id (the two halves of a transfer between company accounts); an index
+on ref. bank_accounts gains opening_balance_cents, opening_on and updated_at.
+cashbook_marks (item_key primary key): which account a receipt went through,
+and that a Reconciliation item was reviewed, with who, when and a note.
+
+| Version | Change |
+|---|---|
+| v1.219.0 | 0147 - Finance 2.0: true dates, reversals, transfers, opening balances, reviewed marks. |

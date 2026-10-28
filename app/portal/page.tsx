@@ -42,7 +42,7 @@ import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/compa
    imported statically here again. */
 import {
   CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
-  DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, CashFlowPanel,
+  DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, FinancePage,
   HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
   AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
@@ -103,17 +103,11 @@ export default function PortalPage() {
             <ClaimsPanel userId={user.id} role={user.role} initialView={startOf("Claims")} focus={focusOf("Claims")} />
           )}
           {activeTab === "Finance" && (
-            /* v1.173.0 (tab concept): two zones. The cash position and the
-               month's figures first, the payments due and the expense
-               records under them; the P&L rides inside Expenses as before. */
-            <TabPage>
-              <TabZone label={L("This month", "Bulan ini")}>
-                {/* Current cash and payments due precede reporting. */}
-                <CashFlowPanel />
-              </TabZone>
-              {/* the expense zones are the panel's own (role-panels.tsx) */}
-              <ExpensesPanel reporting={<PnlCard />} />
-            </TabPage>
+            /* v1.219.0 - Finance 2.0 (the owner's answers, 28-10-2026): one
+               page, five tabs - Overview, Transactions, Expenses,
+               Reconciliation, Reports. The Expenses panel and its P&L are
+               handed in unchanged and drawn on their own tab. */
+            <FinancePage expenses={<ExpensesPanel reporting={<PnlCard />} />} />
           )}
           {activeTab === "Attendance" && (
             /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):

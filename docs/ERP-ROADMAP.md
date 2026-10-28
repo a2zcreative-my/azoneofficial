@@ -268,3 +268,6 @@ Later additions outside the five phases: 1.215.0 (Payroll 2.0 phase A) adds
 migration `0145_invoice_paid_confirmations` - the CEO or COO confirmation
 that an invoice paid in full is real. It never changes an invoice. 1.217.0
 (News & Announcements 2.0) adds migration `0146_announcements_v2`.
+1.219.0 (Finance & Cash Flow 2.0) adds migration `0147_cashbook` - additive
+columns for true dates, reversals and transfers, opening balances, and
+`cashbook_marks`; bank import stays out of the programme.

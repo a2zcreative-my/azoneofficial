@@ -30,7 +30,8 @@ import {
   daySlots, canClockIn, claimedSlots, slotsLabel,
   type Punch, type Session,
 } from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
-import { logError as sharedLogError, postJournal, readVersions, putGuarded } from "./shared";
+import { logError as sharedLogError, readVersions, putGuarded } from "./shared";
+import { bookCash, reverseLive, handleCashbook } from "./cashbook"; // v1.219.0 - Finance 2.0
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce, checkRateLimit } from "./index"; // v1.127.0 - step-up before a signature is attached; v1.177.2 - budget the overflow reporter
 import { sendPush, type PushKeys } from "./webpush";
@@ -1778,25 +1779,17 @@ async function logError(env: Env, source: string, message: string): Promise<void
    idempotently — the `ref` is unique per event, so re-toggling "paid" can
    never write a second row. Pre-0071 DBs (no cashflow_entries table) no-op
    silently: the legacy flows must never break on an unmigrated database. */
+/* v1.219.0 (Finance 2.0) - the booking itself moved to cashbook.ts
+   (bookCash): the check and the write are now ONE statement with a unique
+   key (0147), so a double tap or a retry cannot book twice (audit D1/D2);
+   the row carries the day the money really moved; and an event whose
+   payment was undone can book again after its reversal. Same name, same
+   callers, same journal entry. */
 async function recordBankMovement(
   env: Env, userId: number, ref: string, amountCents: number, category: string, description: string,
-  direction: "in" | "out" = "out",
+  direction: "in" | "out" = "out", effectiveDate: string | null = null,
 ): Promise<void> {
-  if (amountCents <= 0) return;
-  try {
-    const dup = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE ref = ?1 LIMIT 1`)
-      .bind(ref).first<{ id: number }>();
-    if (dup) return;
-    await env.DB.prepare(
-      `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
-       VALUES (date('now', '+8 hours'), ?6, ?1, ?2, ?3, ?4, ?5)`,
-    ).bind(category, amountCents, description.slice(0, 200), ref, userId, direction).run();
-    // v1.20.0 C5: the movement drafts its journal entry — same ref, same
-    // idempotency, so the books can never double-post.
-    // v1.21.0: money-in joined (paid invoices, channel settlements) — the
-    // CEO's "cash flow must sync with Finance, semi-automation not manual".
-    await postJournal(env, userId, ref, description, category, amountCents, direction);
-  } catch { /* pre-0071 — Finance bank section simply not in use yet */ }
+  await bookCash(env, userId, ref, amountCents, category, description, direction, effectiveDate);
 }
 
 const LEAVE_TYPES = ["annual", "medical", "emergency", "unpaid", "replacement"] as const;
@@ -2369,6 +2362,12 @@ export async function handleStaff(
 
   /* ---- ERP modules (v1.18.0): orders, cash flow, reconciliation,
      commission, ads fund, purchasing, accounting — see erp.ts ---- */
+  /* v1.219.0 - Finance 2.0: the cash book's view and its corrections
+     (cashbook.ts), at /erp/cashbook, before the rest of the ERP door */
+  if (path === "/erp/cashbook" || path.startsWith("/erp/cashbook/")) {
+    const cb = await handleCashbook(env, path.slice("/erp".length), method, body, user, new URL(request.url).searchParams);
+    if (cb) return cb;
+  }
   if (path.startsWith("/erp/")) {
     return handleErp(env, path.slice("/erp".length), method, body, user);
   }
@@ -6864,7 +6863,12 @@ export async function handleStaff(
         ? `UPDATE expenses SET paid_at = NULL WHERE id = ?1`
         : `UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`,
     ).bind(exPaid[1]).run();
-    if (!unpay) {
+    if (unpay) {
+      /* v1.219.0 (Finance 2.0, audit F10): undoing "paid" used to leave the
+         money-out row behind, counted as real money. It is now reversed - a
+         row the other way with the reason - never deleted. */
+      await reverseLive(env, user.id, `EXP-${exPaid[1]}`, "Expense marked unpaid");
+    } else {
       // v1.19.0 C2: the paid expense becomes a bank movement, once.
       const exRow = await env.DB.prepare(`SELECT amount_cents, category, vendor, description FROM expenses WHERE id = ?1`)
         .bind(exPaid[1]).first<{ amount_cents: number; category: string; vendor: string | null; description: string | null }>();
@@ -6899,12 +6903,21 @@ export async function handleStaff(
       user.id,
     ).first<{ id: number }>();
     await audit(env, user.id, "expense.create", "expenses", String(res?.id), { category: categoryE, amount_cents: centsE });
+    /* v1.219.0 (audit F13): an expense created already paid books its money
+       out the same way "Mark paid" does - before, only the backfill found it */
+    if (body.paid === true && res?.id) {
+      await recordBankMovement(env, user.id, `EXP-${res.id}`, centsE, categoryE,
+        [typeof body.vendor === "string" ? body.vendor : "", typeof body.description === "string" ? body.description : ""].filter(Boolean).join(" — ") || "Expense payment");
+    }
     return json({ id: res?.id }, 201);
   }
   const exMatch = path.match(/^\/expenses\/(\d+)$/);
   if (exMatch && method === "DELETE") {
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     await env.DB.prepare(`DELETE FROM expenses WHERE id = ?1`).bind(exMatch[1]).run();
+    /* v1.219.0 (audit F11): a deleted expense takes its payment out of the
+       cash book by a reversal, not by leaving an orphan behind */
+    await reverseLive(env, user.id, `EXP-${exMatch[1]}`, "Expense deleted");
     await audit(env, user.id, "expense.delete", "expenses", exMatch[1]);
     return json({ ok: true });
   }
@@ -8728,7 +8741,7 @@ export async function handleStaff(
       ).bind(typeof body.payment_ref === "string" ? body.payment_ref.slice(0, 120) : null, payDate, res.id).run();
       // v1.21.0: a born-paid invoice books its money-in the same way the
       // mark-paid route does — one ref (INV-<id>), one row, one journal entry.
-      await recordBankMovement(env, user.id, `INV-${res.id}`, total, "sales", `Invoice ${number} paid`, "in");
+      await recordBankMovement(env, user.id, `INV-${res.id}`, total, "sales", `Invoice ${number} paid`, "in", payDate ? payDate.slice(0, 10) : null);
     }
     // v1.4.263: a product invoice moves stock the moment it exists.
     let stockMove: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
@@ -8843,8 +8856,12 @@ export async function handleStaff(
            automation instead of manually logged"): a PAID invoice IS money
            in the bank, so it writes its own money-in row + journal entry.
            Ref INV-<id> — unmark/remark can never double-book. */
+        /* v1.219.0: the row carries the day the money landed (paid_at, in
+           Malaysia time), not the day the box was ticked (audit F9) */
+        const landed = await env.DB.prepare(`SELECT date(paid_at, '+8 hours') AS d FROM sales_documents WHERE id = ?1`)
+          .bind(id).first<{ d: string | null }>();
         await recordBankMovement(env, user.id, `INV-${id}`, doc.total_cents ?? 0,
-          "sales", `Invoice ${doc.doc_number} paid`, "in");
+          "sales", `Invoice ${doc.doc_number} paid`, "in", landed?.d ?? null);
       } else {
         await env.DB.prepare(
           `UPDATE sales_documents SET payment_status = ?1, payment_method = NULL, payment_ref = NULL, paid_at = NULL WHERE id = ?2`,
@@ -8852,6 +8869,9 @@ export async function handleStaff(
         /* v1.215.0 - an invoice that is no longer paid can no longer be
            vouched for: its CEO/COO confirmation is taken back, with a trail */
         await revokePaidConfirmation(env, Number(id), user.id, `Invoice marked ${String(body!.payment_status)}`);
+        /* v1.219.0 (audit F10): its money-in row is reversed with the reason,
+           so marking it paid again books afresh instead of finding the old row */
+        await reverseLive(env, user.id, `INV-${id}`, `Invoice marked ${String(body!.payment_status)}`);
       }
     } else if (doc.doc_type === "DO") {
       if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
@@ -8928,6 +8948,7 @@ export async function handleStaff(
     if (inv.payment_status === "paid") return err("invalid_input", "A PAID invoice cannot be reversed — unmark the payment first if this is truly a mistake", 400);
     const restoredU = await restoreForInvoice(env, inv.id, inv.doc_number); // v1.4.263
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(inv.id).run();
+    await reverseLive(env, user.id, `INV-${inv.id}`, "Invoice reversed back to its quotation"); // v1.219.0 (F11/F12)
     await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from, stock_restored_rows: restoredU });
     return json({ ok: true });
   }
@@ -8950,6 +8971,9 @@ export async function handleStaff(
     }
     const restoredD = dd.doc_type === "INV" ? await restoreForInvoice(env, dd.id, dd.doc_number) : 0; // v1.4.263
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(dd.id).run();
+    /* v1.219.0 (audit F11/F12): a deleted invoice leaves no live money-in row
+       behind - and so a later invoice that reuses its id can still book */
+    if (dd.doc_type === "INV") await reverseLive(env, user.id, `INV-${dd.id}`, "Invoice deleted");
     /* v1.181.11 - a deleted quotation takes its earlier versions with it */
     try { await env.DB.prepare(`DELETE FROM sales_document_revisions WHERE doc_id = ?1`).bind(dd.id).run(); } catch { /* pre-0139 */ }
     await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type, stock_restored_rows: restoredD });

@@ -117,7 +117,7 @@ const BODY = {
   "Leave": ["components/portal/leave.tsx#Leave"],
   "Claims": ["components/portal/role-panels.tsx#ClaimsPanel"],
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
-  "Finance": ["components/portal/role-panels.tsx#ExpensesPanel", "components/portal/finance-panels.tsx#CashFlowPanel"],
+  "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
@@ -195,7 +195,9 @@ ok("Attendance: OVERVIEW, ATTENDANCE, ON SHIFT, ROSTER, TEAM, REPORTS, SETTINGS"
 /* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
 ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMER ACCOUNTS, ROLES & PERMISSIONS, SECURITY & SETTINGS", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customer Accounts", "Akaun pelanggan")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Settings", "Keselamatan & tetapan")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(read("components/portal/users-panel.tsx")));
 ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay", "Security and privacy"].every((c) => blockOf("Profile").includes(`label={L("${c}"`)));
-ok("Finance: THIS MONTH (cash) then the expense zones from the panel", /label=\{L\("This month", "Bulan ini"\)\}>\s*(?:\{\/\*[\s\S]*?\*\/\}\s*)?<CashFlowPanel \/>/.test(blockOf("Finance")) && /<ExpensesPanel reporting=\{<PnlCard \/>\} \/>/.test(blockOf("Finance")));
+/* v1.219.0 - Finance 2.0 (the owner's answers, 28-10-2026): five tabs, the
+   cash figures first, the Expenses panel and its P&L handed in unchanged */
+ok("Finance: OVERVIEW, TRANSACTIONS, EXPENSES, RECONCILIATION, REPORTS - the expense panel handed in whole", ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => read("components/portal/finance-panels.tsx").includes(t)) && /<FinancePage expenses=\{<ExpensesPanel reporting=\{<PnlCard \/>\} \/>\} \/>/.test(blockOf("Finance")));
 ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab === "[^"]+" && \(\s*<div className="erp-stack">/.test(page));
 
 /* ---- 7. no grid blowout on a phone (v1.174.1) ----

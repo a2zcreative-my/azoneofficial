@@ -17,6 +17,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
+import { bookCash } from "./cashbook"; // v1.219.0 - Finance 2.0: one booking, atomic and dated
 import { can } from "./permissions";
 import { STAFF_ORDER_SQL } from "./staff"; // v1.95.0 - one company order, everywhere
 
@@ -118,10 +119,11 @@ export async function handleErp(
       const m = /^\/cashflow\/(\d+)$/.exec(path);
       if (m && method === "DELETE") {
         if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
-        const r = await env.DB.prepare(`DELETE FROM cashflow_entries WHERE id = ?1`).bind(Number(m[1])).run();
-        if (!r.meta.changes) return err("not_found", "Entry not found", 404);
-        await audit(env, user.id, "erp.cashflow_delete", "cashflow_entries", m[1]);
-        return json({ ok: true });
+        /* v1.219.0 (Finance 2.0, audit D9): a cash movement is never deleted
+           - deleting one left its journal entry behind and erased the trail.
+           It is reversed instead (POST /erp/cashbook/rows/:id/reverse, with a
+           reason), which keeps both and mirrors the journal. */
+        return err("reverse_instead", "Cash movements are not deleted. Reverse it, with a reason, under Finance > Transactions.", 409);
       }
     }
 
@@ -144,50 +146,45 @@ export async function handleErp(
         return err("migration_missing", "The cash-flow table is not migrated yet — run DEPLOY.bat so step 2 applies migration 0071, then retry.", 409);
       }
       let created = 0;
-      const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out") => {
-        if (amountCents <= 0) return;
-        const dup = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE ref = ?1 LIMIT 1`)
-          .bind(ref).first<{ id: number }>();
-        if (dup) return;
-        await env.DB.prepare(
-          `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
-           VALUES (date('now', '+8 hours'), ?6, ?1, ?2, ?3, ?4, ?5)`,
-        ).bind(category, amountCents, description.slice(0, 200), ref, user.id, direction).run();
-        await postJournal(env, user.id, ref, description, category, amountCents, direction);
-        created++;
+      /* v1.219.0 - the one booking (cashbook.ts bookCash): atomic, keyed,
+         and dated the day the money moved (`day`, from the source record) */
+      const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out", day: string | null = null) => {
+        if (await bookCash(env, user.id, ref, amountCents, category, description, direction, day)) created++;
       };
       try {
         const ex = await env.DB.prepare(
-          `SELECT id, amount_cents, category, vendor, description FROM expenses WHERE paid_at IS NOT NULL`,
-        ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null }>();
+          `SELECT id, amount_cents, category, vendor, description, date(paid_at, '+8 hours') AS day FROM expenses WHERE paid_at IS NOT NULL`,
+        ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null; day: string | null }>();
         for (const r of ex.results ?? []) {
           await book(`EXP-${r.id}`, r.amount_cents, r.category,
-            [r.vendor, r.description].filter(Boolean).join(" — ") || "Expense payment", "out");
+            [r.vendor, r.description].filter(Boolean).join(" — ") || "Expense payment", "out", r.day);
         }
       } catch { /* expenses table variant — skip */ }
       try {
         const cl = await env.DB.prepare(
-          `SELECT id, amount_cents FROM claims WHERE paid_at IS NOT NULL`,
-        ).all<{ id: number; amount_cents: number }>();
+          `SELECT id, amount_cents, claim_type, date(paid_at, '+8 hours') AS day FROM claims WHERE paid_at IS NOT NULL`,
+        ).all<{ id: number; amount_cents: number; claim_type: string | null; day: string | null }>();
         for (const r of cl.results ?? []) {
-          await book(`CLM-${r.id}`, r.amount_cents, "claims", "Staff claim reimbursement", "out");
+          /* the same category the pay-out route books (salary_advances for an advance) */
+          const adv = r.claim_type === "salary_advance";
+          await book(`CLM-${r.id}`, r.amount_cents, adv ? "salary_advances" : "claims", adv ? "Staff salary advance" : "Staff claim reimbursement", "out", r.day);
         }
       } catch { /* pre-claims schema — skip */ }
       try {
-        const months = await env.DB.prepare(`SELECT month FROM payroll_payments`).all<{ month: string }>();
+        const months = await env.DB.prepare(`SELECT month, date(paid_at, '+8 hours') AS day FROM payroll_payments`).all<{ month: string; day: string | null }>();
         for (const r of months.results ?? []) {
           const net = await env.DB.prepare(
             `SELECT COALESCE(SUM(net_cents), 0) AS n FROM payroll_entries WHERE month = ?1`,
           ).bind(r.month).first<{ n: number }>();
-          await book(`PAYROLL-${r.month}`, net?.n ?? 0, "salaries", `Payroll bank run ${r.month}`, "out");
+          await book(`PAYROLL-${r.month}`, net?.n ?? 0, "salaries", `Payroll bank run ${r.month}`, "out", r.day);
         }
       } catch { /* pre-payroll schema — skip */ }
       try {
         const inv = await env.DB.prepare(
-          `SELECT id, doc_number, total_cents FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'`,
-        ).all<{ id: number; doc_number: string; total_cents: number }>();
+          `SELECT id, doc_number, total_cents, date(COALESCE(paid_at, created_at), '+8 hours') AS day FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'`,
+        ).all<{ id: number; doc_number: string; total_cents: number; day: string | null }>();
         for (const r of inv.results ?? []) {
-          await book(`INV-${r.id}`, r.total_cents, "sales", `Invoice ${r.doc_number} paid`, "in");
+          await book(`INV-${r.id}`, r.total_cents, "sales", `Invoice ${r.doc_number} paid`, "in", r.day);
         }
       } catch { /* pre-docs schema — skip */ }
       await audit(env, user.id, "erp.cashflow_backfill", "cashflow_entries", "backfill", { created });

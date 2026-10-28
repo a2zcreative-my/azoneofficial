@@ -10,6 +10,65 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.219.0] - 2026-10-28 - Finance & Cash Flow 2.0
+
+The owner's brief and his answers to `claude/FINANCE-AUDIT.md`: money in by
+the Sales rule ("Same as Sales"), true dates with issues flagged ("Show true
+dates, flag issues"), migration 0147 approved, and Expenses as its own tab.
+
+- **The Finance tab is one page with five tabs** - Overview, Transactions,
+  Expenses, Reconciliation, Reports - and one period picker (this month, last
+  month, this quarter, this year, custom; Malaysia time) that every figure
+  obeys. All five are drawn from one read, `GET /staff/erp/cashbook`
+  (`worker/src/cashbook.ts`); the screen adds nothing up itself.
+- **Money in follows the Sales rule.** Each part payment counts on the day it
+  landed, the rest of a paid invoice on its paid day - the same rule as the
+  Sales "Cash received" tile. Before, the cash book held the full total on
+  the day "Mark paid" was clicked and never saw a part payment. The INV- rows
+  in the book stay (with their journal entries) and are not counted twice.
+- **Every movement on the day its money moved.** A claim, expense or payroll
+  row is shown on its source's paid day when the row itself does not carry
+  one (everything "Sync existing Finance data" booked sat on one day). New
+  rows carry the date (`effective_date`). No stored row is rewritten.
+- **"Balance" is now "Net cash movement"** - in less out for the period, not a
+  bank balance. An account shows a **book balance** only from an opening
+  balance the CEO or COO enters (and the date it was true).
+- **Undo means reverse, never delete.** Marking an expense unpaid or deleting
+  it, setting an invoice back to unpaid, deleting or un-converting an invoice
+  now add a reversal row with the reason and mirror the journal entry; before,
+  the old money-in/out row stayed and counted as real money. Paying again
+  books afresh. A cash row can no longer be deleted (the API answers
+  "reverse it instead"). A later invoice that reuses a deleted invoice's id
+  books normally (audit F12).
+- **One booking per event, enforced.** Every module books through one
+  function (`bookCash`): the check and the write are one statement and the
+  key is unique (0147), so a double tap, a retry or a backfill re-run cannot
+  book twice. An expense created already paid now books itself.
+- **Transfers** between two company accounts are one recorded pair, neither
+  money in nor money out.
+- **Reconciliation** (internal checks only - no bank connection or import):
+  unverified receipts (no CEO/COO confirmation), no account, no payment
+  reference, out of step with the source record, possible duplicates, ELFIA
+  cancelled after payment, paid but not in the cash book. Actions: assign an
+  account, reverse with a reason, mark reviewed with a note, book missing.
+- **Reports** from the same read: 12 months, by category, account summary,
+  source breakdown, a CSV of the period; links to the accrual P&L and Books.
+- **Phone:** transactions as cards with search and direction; drawers for
+  details, Add transaction and accounts.
+- **Access, unchanged:** Finance is read by `cashflow_manage` (CEO, COO,
+  admin, super admin). Corrections - reverse, assign an account, mark
+  reviewed, opening balances, edit or deactivate an account - are a new,
+  narrower `cashbook_correct`: CEO, COO, super admin. Nobody gains access.
+- **Migration 0147_cashbook** (additive only): `cashflow_entries` gains
+  `effective_date`, `source_key` (unique where set), `reversal_of` (unique
+  where set), `reverse_reason`, `transfer_id`; `bank_accounts` gains
+  `opening_balance_cents`, `opening_on`, `updated_at`; new `cashbook_marks`.
+- Guard `tests/cashflow.mjs` (runs the worker on SQLite); `tab-concept`
+  updated to the new page.
+
+### Deploy
+- `PUSH.bat` - applies 0147 (after 0145 and 0146) and deploys the worker.
+
 ## [1.218.0] - 2026-10-28 - Digital Business Cards 2.0
 
 The owner's brief and his answers to `claude/CARDS-AUDIT.md`: fix the images

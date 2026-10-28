@@ -485,6 +485,44 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/commission/rates") data = { rates: [{ id: 1, host_id: 9003, host_name: "Farid Zul", percent: 5, per_hour_cents: 0, effective_from: "2026-01-01" }] };
   if (p === "/hosts") data = { hosts: [{ id: 9003, name: "Farid Zul" }, { id: 9002, name: "Nur Aisyah" }] };
   if (p === "/cashflow") data = { entries: cash };
+  /* v1.219.0 - Finance 2.0: the cash book view (worker/src/cashbook.ts) in
+     the shape it sends - test rows only, the fixture company's own kind. */
+  if (p === "/cashbook") {
+    const from = q.get("from") ?? D + "01", to = q.get("to") ?? D + "30";
+    const it = (o) => ({ row_id: null, booked_on: null, category: "sales", group: "sales", link: null, bank_id: null, bank_name: null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: null, ...o, counts: o.counts === undefined ? o.type : o.counts });
+    const all = [
+      it({ key: "INV:2", date: D + "12", type: "in", amount_cents: 280000, source: "sales", status: process.env.CONFIRMED ? "verified" : "unverified", description: "INV-AZO100926-2 - Zainab Kitchen", ref: "INV-AZO100926-2", link: { kind: "invoice", id: 2 }, payment_ref: "MBB-77120", bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "PART:1", date: D + "08", type: "in", amount_cents: 250000, source: "part", status: "unverified", description: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", ref: "INV-AZO050926-3", link: { kind: "invoice", id: 3 } }),
+      it({ key: "CF:12", row_id: 12, booked_on: D + "06", date: D + "06", type: "out", amount_cents: 1450000, category: "salaries", group: "payroll", source: "payroll", status: "recorded", description: "Payroll bank run 2026-08", ref: "PAYROLL-2026-08", link: { kind: "payroll", id: "2026-08" }, bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:13", row_id: 13, booked_on: D + "12", date: D + "12", type: "out", amount_cents: 12900, category: "software", group: "gl6900", source: "expenses", status: "recorded", description: "Adobe — Creative Cloud", ref: "EXP-1", link: { kind: "expense", id: 1 } }),
+      it({ key: "CF:14", row_id: 14, booked_on: D + "15", date: D + "03", type: "out", amount_cents: 80000, category: "marketing", group: "gl6000", source: "expenses", status: "recorded", description: "TikTok Ads — Boost", ref: "EXP-3", link: { kind: "expense", id: 3 } }),
+      it({ key: "CF:15", row_id: 15, booked_on: D + "14", date: D + "14", type: "out", amount_cents: 18500, category: "claims", group: "claims", source: "claims", status: "recorded", description: "Staff claim reimbursement", ref: "CLM-7", link: { kind: "claim", id: 7 } }),
+      it({ key: "CF:16", row_id: 16, booked_on: D + "10", date: D + "10", type: "in", amount_cents: 500000, category: "Capital", group: "manual:Capital", source: "manual", status: "manual", description: "Owner capital top-up", ref: "", bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:17", row_id: 17, booked_on: D + "11", date: D + "11", type: "out", amount_cents: 100000, category: "transfer", group: "other_out", source: "transfer", status: "transfer", description: "Transfer to CIMB Savings", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:18", row_id: 18, booked_on: D + "11", date: D + "11", type: "in", amount_cents: 100000, category: "transfer", group: "other_in", source: "transfer", status: "transfer", description: "Transfer from Maybank Operating", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 2, bank_name: "CIMB Savings" }),
+    ];
+    const items = all.filter((i) => i.date >= from && i.date <= to);
+    const sum = (d) => items.filter((i) => i.counts === d).reduce((a, i) => a + i.sign * i.amount_cents, 0);
+    const grp = (d) => Object.entries(items.filter((i) => i.counts === d).reduce((m, i) => ({ ...m, [i.group]: (m[i.group] ?? 0) + i.amount_cents }), {})).map(([group, cents]) => ({ group, cents })).sort((a, b) => b.cents - a.cents);
+    const can = ["ceo", "coo", "super_admin"].includes(ROLE);
+    data = {
+      period: { from, to, today: D + "18" },
+      totals: { in_cents: sum("in"), out_cents: sum("out"), net_cents: sum("in") - sum("out"), count: items.length },
+      groups: { in: grp("in"), out: grp("out") },
+      trend: ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"].map((m, k) => ({ month: m, in_cents: m === "2026-09" ? 1030000 : 600000 + k * 90000, out_cents: m === "2026-09" ? 1561400 : 1400000 - k * 40000 })),
+      items,
+      banks: [
+        { id: 1, name: "Maybank Operating", bank: "Maybank", number_masked: "•••• 5621", active: 1, opening_balance_cents: 2500000, opening_on: D + "01", book_balance_cents: 1717100 },
+        { id: 2, name: "CIMB Savings", bank: "CIMB", number_masked: "•••• 0412", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null },
+      ],
+      exceptions: [
+        { kind: "unverified", key: "PART:1", item_key: "PART:1", date: D + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Recorded as received; not yet confirmed by the CEO or COO.", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["confirm", "review"] },
+        { kind: "no_bank", key: "CF:13", item_key: "CF:13", date: D + "12", title: "Adobe — Creative Cloud", detail: "Which account did this money move through?", amount_cents: 12900, type: "out", row_id: 13, link: { kind: "expense", id: 1 }, actions: ["bank", "review"] },
+        { kind: "out_of_step", key: "CF:9", item_key: "CF:9", date: D + "04", title: "INV-AZO010926-9", detail: "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it.", amount_cents: 64000, type: "in", row_id: 9, link: null, actions: ["reverse", "review"] },
+      ],
+      can_correct: can, can_enter: true, pending_migration: false, confirmations: true,
+    };
+  }
   if (p === "/banks") data = { banks: [{ id: 1, name: "Maybank", account_no: "5621", balance_cents: 2500000 }] };
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };
   /* v1.215.0 - the CEO/COO paid confirmation (0145). CONFIRMED=1 serves

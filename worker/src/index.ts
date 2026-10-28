@@ -284,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0146_announcements_v2";
+const LATEST_MIGRATION = "0147_cashbook";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4721,6 +4721,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0144 (joining and leaving, probation, letters, training, approval limit)", `SELECT k.items, p.ends_on, l.ref_no, t.title, s.value, a.revision FROM leaving_checklists k LEFT JOIN probation_reviews p ON 1 = 0 LEFT JOIN hr_letters l ON 1 = 0 LEFT JOIN training_records t ON 1 = 0 LEFT JOIN business_settings s ON 1 = 0 LEFT JOIN quotation_approvals a ON 1 = 0 LIMIT 1`],
       ["0145 (CEO/COO confirmation of a paid invoice)", `SELECT id, invoice_id, confirmed_by, revoked_at FROM invoice_paid_confirmations INDEXED BY idx_paid_confirm_live WHERE invoice_id = 0 AND revoked_at IS NULL LIMIT 1`],
       ["0146 (news 2.0: memo, versions, acknowledgements per version, attachments)", `SELECT a.version, a.audience, k.version, v.version, f.r2_key FROM announcements a LEFT JOIN announcement_acks k ON 1 = 0 LEFT JOIN announcement_versions v ON 1 = 0 LEFT JOIN announcement_files f ON 1 = 0 LIMIT 1`],
+      ["0147 (finance 2.0: true dates, reversals, transfers, opening balances)", `SELECT c.effective_date, c.source_key, c.reversal_of, c.transfer_id, b.opening_balance_cents, m.item_key FROM cashflow_entries c LEFT JOIN bank_accounts b ON 1 = 0 LEFT JOIN cashbook_marks m ON 1 = 0 LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
     for (const [label, probe] of probes) {
@@ -4887,6 +4888,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0144_people",
       "0145_invoice_paid_confirmations",
       "0146_announcements_v2",
+      "0147_cashbook",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

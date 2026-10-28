@@ -63,6 +63,12 @@ export const PERMS: Record<string, readonly Role[]> = {
   // mirrors these; this matrix is the one that is actually enforced. ===
   orders_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
   cashflow_manage: ["super_admin", "admin", "ceo", "coo"],
+  /* v1.219.0 - Finance 2.0 corrections (cashbook.ts): reverse a movement,
+     say which account it went through, mark an exception reviewed, set an
+     opening balance. NARROWER than cashflow_manage, never wider: the CEO, the
+     COO and super admin (the Finance audit, 28-10-2026). Nobody gains access
+     they did not have. */
+  cashbook_correct: ["super_admin", "ceo", "coo"],
   reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   commission_decide: ["super_admin", "ceo"],
