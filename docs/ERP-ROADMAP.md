@@ -271,3 +271,7 @@ that an invoice paid in full is real. It never changes an invoice. 1.217.0
 1.219.0 (Finance & Cash Flow 2.0) adds migration `0147_cashbook` - additive
 columns for true dates, reversals and transfers, opening balances, and
 `cashbook_marks`; bank import stays out of the programme.
+1.222.0 (Accounting & Financial Control 2.0) adds migration
+`0148_journal_integrity` - indexes only: a journal reference is posted once
+(new entries), and the ledger is read by the day the money moved. The books
+stay cash basis; no balance sheet until opening balances are approved.

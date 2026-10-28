@@ -160,6 +160,7 @@ const GUARDS = [
   ["movement-purpose", "the REASON a movement happened decides whether it is a sale - a marketing loan is neither revenue nor a loss, and a return is not a revert"],
   ["company-review", "company reconciliation never infers ownership and saves review plus audit atomically"],
   ["companies-v2", "Companies 2.0 - counted figures, read-only history, a previewed all-or-nothing bulk review, company access not active"],
+  ["accounting-v2", "Accounting 2.0 - atomic, dated, once-only posting; soft month-end control; manual reversal; read-only ledger views"],
   ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
   ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
   ["workforce-flow", "Threads stays retired; claims submit once; paid advances reach payroll; OT becomes pay or replacement leave"],

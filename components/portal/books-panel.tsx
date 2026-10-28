@@ -39,7 +39,7 @@ import css from "./business.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-type FigKey = "invoiced_cents" | "received_cents" | "part_payments_cents" | "expenses_cents" | "stock_received_cents" | "payroll_net_cents" | "documents";
+type FigKey = "invoiced_cents" | "received_cents" | "part_payments_cents" | "expenses_cents" | "stock_received_cents" | "payroll_net_cents" | "documents" | "gl_income_cents" | "gl_expense_cents" | "gl_entries";
 type Figures = Record<FigKey, number>;
 interface Month {
   month: string; figures: Figures;
@@ -62,11 +62,15 @@ const FIGS: [FigKey, string, string][] = [
   ["stock_received_cents", "Stock received", "Stok diterima"],
   ["payroll_net_cents", "Payroll net", "Gaji bersih"],
   ["documents", "Documents", "Dokumen"],
+  /* v1.222.0 - the ledger's own month (Accounting 2.0, "Soft control") */
+  ["gl_income_cents", "Ledger income", "Pendapatan lejar"],
+  ["gl_expense_cents", "Ledger expense", "Perbelanjaan lejar"],
+  ["gl_entries", "Journal entries", "Catatan jurnal"],
 ];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const MONTHS_MS = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"];
 const monthName = (m: string) => `${(getLang() === "ms" ? MONTHS_MS : MONTHS_EN)[Number(m.slice(5, 7)) - 1] ?? m} ${m.slice(0, 4)}`;
-const fig = (k: FigKey, v: number) => (k === "documents" ? String(v) : fmtRM(v));
+const fig = (k: FigKey, v: number) => (k === "documents" || k === "gl_entries" ? String(v) : fmtRM(v ?? 0));
 const signed = (k: FigKey, v: number) => `${v > 0 ? "+" : "-"}${fig(k, Math.abs(v))}`;
 const inv = (d: Debtor) => d.doc_number || `#${d.id}`;
 

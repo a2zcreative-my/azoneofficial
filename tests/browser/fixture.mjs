@@ -748,6 +748,65 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/staff/customers") data = { customers };
   if (p === "/gl/accounts") data = { accounts };
   if (p === "/gl/trial-balance") data = { accounts, rows: accounts };
+  /* v1.222.0 - Accounting 2.0 (worker/src/ledger.ts) in the shape it sends:
+     the four test accounts above, a cash-basis month, one half-written entry
+     and one unbooked movement to show the checks, a closed month with a
+     post-close adjustment. Test figures only. */
+  {
+    const acc = (a) => ({ ...a, normal: a.type === "asset" || a.type === "expense" ? "debit" : "credit", balance_cents: a.type === "asset" || a.type === "expense" ? a.debit_cents - a.credit_cents : a.credit_cents - a.debit_cents, active: 1 });
+    const recent = [
+      { id: 41, ref: "INV-3", memo: "Invoice INV-AZO050926-3 paid", eff: D + "16", entry_date: D + "16", created_at: D + "16 03:00:00", who: "Fixture Person", amount_cents: 990000, lines: 2, source: "sales", reversed_by: null },
+      { id: 40, ref: "PAYROLL-2026-08", memo: "Payroll bank run 2026-08", eff: D + "05", entry_date: D + "05", created_at: D + "05 02:00:00", who: "Fixture Person", amount_cents: 1450000, lines: 2, source: "payroll", reversed_by: null },
+      { id: 39, ref: "MJ-1a2b3c4d", memo: "August TikTok payout banked", eff: D + "02", entry_date: D + "02", created_at: D + "02 06:00:00", who: "Fixture Person", amount_cents: 125000, lines: 2, source: "manual", reversed_by: null },
+      { id: 38, ref: "EXP-12", memo: "Canva — Pro yearly", eff: "2026-08-28", entry_date: "2026-09-01", created_at: "2026-09-01 02:00:00", who: "Nur Aisyah", amount_cents: 54900, lines: 2, source: "expenses", reversed_by: null },
+    ];
+    if (p === "/gl/overview") data = {
+      period: { from: q.get("from") ?? D + "01", to: q.get("to") ?? D + "18", today: D + "18" }, basis: "cash",
+      accounts: { total: 4, used: 4 },
+      trial: { debit_cents: 3950000, credit_cents: 3950000, balanced: true, difference_cents: 0 },
+      money: { in_cents: 1115000, out_cents: 1450000, net_cents: -335000 },
+      trend: [["2026-04", 400000, 380000], ["2026-05", 520000, 410000], ["2026-06", 610000, 650000], ["2026-07", 980000, 720000], ["2026-08", 860000, 1310000], ["2026-09", 1115000, 1450000]].map(([month, i, o]) => ({ month, in_cents: i, out_cents: o, net_cents: i - o })),
+      top_expenses: [{ id: 3, code: "5000", name: "Payroll", cents: 1450000 }],
+      balances: accounts.map(acc), bank: { code: "1000", name: "Maybank current", balance_cents: 2500000 },
+      exceptions: { unbalanced: [{ id: 17, ref: "CF-9", debit_cents: 12000, credit_cents: 0, lines: 1 }], duplicates: [], unjournaled: [{ id: 5, ref: "CF-5", type: "out", amount_cents: 8800, date: "2026-07-14" }], payroll_drift: [], part_payments: { count: 1, cents: 100000 } },
+      recent, entries: 41,
+    };
+    if (p === "/gl/journal" && q.has("page")) {
+      const src = q.get("source") ?? "", qq = (q.get("q") ?? "").toLowerCase();
+      const list = recent.filter((e) => (!src || e.source === src) && (!qq || `${e.ref} ${e.memo}`.toLowerCase().includes(qq)));
+      data = { entries: list, total: list.length, page: 0 };
+    }
+    const one = /^\/gl\/journal\/(\d+)$/.exec(p);
+    if (one) {
+      const e = recent.find((x) => x.id === Number(one[1])) ?? recent[0];
+      data = { entry: { ...e, credit_cents: e.amount_cents }, lines: [{ account_id: 1, code: "1000", name: "Maybank current", type: "asset", debit_cents: e.source === "sales" || e.source === "manual" ? e.amount_cents : 0, credit_cents: e.source === "sales" || e.source === "manual" ? 0 : e.amount_cents }, { account_id: 2, code: "4000", name: "Sales", type: "income", debit_cents: e.source === "sales" || e.source === "manual" ? 0 : e.amount_cents, credit_cents: e.source === "sales" || e.source === "manual" ? e.amount_cents : 0 }],
+        manual: e.source === "manual", tab: e.source === "sales" ? "Sales" : e.source === "manual" ? null : "Finance",
+        detail: e.source === "sales" ? { document: "INV-AZO050926-3", issuer: "a2z", kind: "service", payment_status: "paid", paid_on: D + "16", total_cents: 990000, confirmed_on: null } : null,
+        reversed_by: null, reverses: null, post_close_reason: null };
+    }
+    if (p === "/gl/ledger") data = { account: { id: Number(q.get("account_id") ?? 1), code: "1000", name: "Maybank current", type: "asset", normal: "debit" }, period: { from: q.get("from") || null, to: q.get("to") ?? D + "18" }, opening_cents: 0, closing_cents: 2500000, debit_cents: 3950000, credit_cents: 1450000,
+      lines: [{ line_id: 1, entry_id: 39, ref: "MJ-1a2b3c4d", memo: "August TikTok payout banked", eff: D + "02", source: "manual", debit_cents: 125000, credit_cents: 0, balance_cents: 125000 }, { line_id: 2, entry_id: 40, ref: "PAYROLL-2026-08", memo: "Payroll bank run 2026-08", eff: D + "05", source: "payroll", debit_cents: 0, credit_cents: 1450000, balance_cents: -1325000 }], total: 2, page: 0 };
+    if (p === "/gl/pnl") data = { basis: "cash", period: { from: q.get("from") ?? D + "01", to: q.get("to") ?? D + "18" }, previous: { from: "2026-08-01", to: "2026-08-31" },
+      income: [{ id: 2, code: "4000", name: "Sales", cents: 1115000, prev_cents: 860000 }], expense: [{ id: 3, code: "5000", name: "Payroll", cents: 1450000, prev_cents: 1310000 }],
+      totals: { income_cents: 1115000, expense_cents: 1450000, net_cents: -335000, prev_income_cents: 860000, prev_expense_cents: 1310000, prev_net_cents: -450000 } };
+    if (p === "/gl/trial-balance" && q.has("as_of")) data = { as_of: q.get("as_of"), basis: "cash", accounts: accounts.map(acc), debit_cents: 3950000, credit_cents: 3950000, balanced: true, difference_cents: 0 };
+    if (p === "/gl/month-end") {
+      const m = q.get("month") ?? "2026-08";
+      const closed = m === "2026-08";
+      data = { month: m, from: m + "-01", to: m + "-31", today: D + "18", basis: "cash", ended: m < "2026-09",
+        checks: [
+          { key: "balanced", level: "block", ok: true, detail: { debit_cents: 3950000, credit_cents: 3950000, difference_cents: 0 } },
+          { key: "posting", level: "block", ok: false, detail: { unbalanced: 1, duplicates: 0, unjournaled: 0 } },
+          { key: "reconciliation", level: "warn", ok: false, detail: { readable: true, total: 2, by_kind: { unverified: 1, no_bank: 1 } } },
+          { key: "payroll", level: "warn", ok: true, detail: { saved: 2, paid: true, drift: null } },
+          { key: "part_payments", level: "info", ok: false, detail: { count: 1, cents: 100000 } },
+          { key: "ownership", level: "warn", ok: false, detail: { unassigned: 46, readable: true } },
+        ], ready: false,
+        close: closed ? { id: 3, closed_at: "2026-09-02 03:08:00", by: "Fixture Person", note: null } : null,
+        adjustments: closed ? [{ ...recent[3], reason: "Canva renewal belongs to August - card statement line 7" }] : [],
+        figures: { in_cents: 860000, out_cents: 1310000, net_cents: -450000, entries: 14 } };
+    }
+  }
   if (p === "/task-reports") data = { reports: [{ id: 1, report_date: D + "15", author: "Nur Aisyah", period: "daily", content: "Called 6 hotels, 2 agreed to a stay." },
     { id: 2, report_date: D + "14", author: "Fixture Person", period: "weekly", content: "Week 37:\n- 4 lives, 2 over target\n- Raya stock counted\n- Two claims settled" }] }; // v1.192.0 - the route's own column (period)
   if (p === "/birthdays") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }] };

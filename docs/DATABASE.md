@@ -408,3 +408,13 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | Version | Change |
 |---|---|
 | v1.219.0 | 0147 - Finance 2.0: true dates, reversals, transfers, opening balances, reviewed marks. |
+| v1.222.0 | 0148 - Accounting 2.0: a journal reference is posted once (new entries). |
+
+## v1.222.0 - migration 0148_journal_integrity.sql
+Indexes only - no row changed. A partial UNIQUE index on journal_entries(ref)
+for entries written from 2026-10-29 (ref not empty), so two requests at once
+cannot book the same event twice; the history before that date is neither
+checked nor changed (the code's check by ref still covers it). Plain indexes
+on journal_entries(ref) and (entry_date) for the ledger reads. Journal entries
+are never updated or deleted: a manual entry is reversed by a mirror entry
+(ref REVJ-<id>), an automatic one at its source.

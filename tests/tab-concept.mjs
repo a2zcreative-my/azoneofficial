@@ -344,7 +344,8 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
   const rp = stripComments(read("components/portal/role-panels.tsx"));
   ok("the attendance register's two name cells are one-line cells",
      (rp.match(/<td className=\{tdOneLine\}>\{properName\((?:l|r)\.name\)\}<\/td>/g) ?? []).length === 2);
-  ok("the accounting code column is a one-line cell", /className=\{`\$\{tdOneLine\} tabular-nums`\}>\{t\.code\}/.test(stripComments(read("components/portal/accounting-panel.tsx"))));
+  /* v1.222.0 - Accounting 2.0 moved the chart to its own CSS module; the code cell is still one line */
+  ok("the accounting code column is a one-line cell", /<td className=\{css\.nowrap\}>\{a\.code\}<\/td>/.test(stripComments(read("components/portal/accounting-panel.tsx"))) && /\.nowrap \{\s*white-space: nowrap;/.test(read("components/portal/accounting.module.css")));
   /* Nobody may put `anywhere` back on a cell from a module either. */
   const modules = globSync("components/**/*.module.css").concat(globSync("app/**/*.module.css"), globSync("styles/*.css"));
   const offenders = [];

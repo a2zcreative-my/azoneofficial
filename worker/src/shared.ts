@@ -123,10 +123,21 @@ export function glCodeFor(category: string, direction: "in" | "out"): string {
   return direction === "out" ? "6900" : "4000";
 }
 
-/** Draft one balanced two-line journal entry, idempotent by ref. */
+/** Draft one balanced two-line journal entry, idempotent by ref.
+ *
+ *  v1.222.0 (Accounting 2.0, the owner's answers 28-10-2026: "Atomic +
+ *  duplicate guard", "Date by money-moved day"):
+ *   - the entry and both lines are ONE D1 batch - a half-written entry (an
+ *     entry with one line, which puts the trial balance out) cannot exist;
+ *   - a new entry's ref is unique (0148's partial index), so two requests at
+ *     once book one entry; the older check by ref still covers history;
+ *   - `entryDate` is the day the money moved (the cash book's effective
+ *     date); without it, today in Malaysia, as before.
+ *  Never throws: a payment that was recorded must not fail because its
+ *  journal could not be. */
 export async function postJournal(
   env: Env, userId: number, ref: string, memo: string, category: string,
-  amountCents: number, direction: "in" | "out",
+  amountCents: number, direction: "in" | "out", entryDate: string | null = null,
 ): Promise<void> {
   if (amountCents <= 0) return;
   try {
@@ -140,20 +151,22 @@ export async function postJournal(
     const bankId = await acc(GL_BANK);
     const otherId = await acc(otherCode);
     if (!bankId || !otherId) return; // chart edited away — skip, never block
-    const entry = await env.DB.prepare(
-      `INSERT INTO journal_entries (entry_date, memo, ref, created_by)
-       VALUES (date('now', '+8 hours'), ?1, ?2, ?3) RETURNING id`,
-    ).bind(memo.slice(0, 200), ref, userId).first<{ id: number }>();
-    if (!entry?.id) return;
+    const day = entryDate && /^\d{4}-\d{2}-\d{2}$/.test(entryDate) ? entryDate : null;
     // out: debit expense, credit bank · in: debit bank, credit income
     const [debitAcc, creditAcc] = direction === "out" ? [otherId, bankId] : [bankId, otherId];
-    await env.DB.prepare(
-      `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, ?3, 0)`,
-    ).bind(entry.id, debitAcc, amountCents).run();
-    await env.DB.prepare(
-      `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, 0, ?3)`,
-    ).bind(entry.id, creditAcc, amountCents).run();
-  } catch { /* pre-0071 — Accounting simply not in use yet */ }
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO journal_entries (entry_date, memo, ref, created_by)
+         VALUES (COALESCE(?4, date('now', '+8 hours')), ?1, ?2, ?3)`,
+      ).bind(memo.slice(0, 200), ref, userId, day),
+      env.DB.prepare(
+        `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents)
+         SELECT e.id, ?2, ?4, 0 FROM journal_entries e WHERE e.id = (SELECT MAX(id) FROM journal_entries WHERE ref = ?1)
+         UNION ALL
+         SELECT e.id, ?3, 0, ?4 FROM journal_entries e WHERE e.id = (SELECT MAX(id) FROM journal_entries WHERE ref = ?1)`,
+      ).bind(ref, debitAcc, creditAcc, amountCents),
+    ]);
+  } catch { /* pre-0071, or a twin request booked it first (0148) */ }
 }
 
 /* ===================== v1.65.0 — live cards =============================

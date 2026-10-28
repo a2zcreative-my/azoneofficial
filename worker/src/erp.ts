@@ -17,6 +17,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
+import { handleLedger, isManualRef } from "./ledger"; // v1.222.0 - Accounting 2.0 reads
 import { bookCash } from "./cashbook"; // v1.219.0 - Finance 2.0: one booking, atomic and dated
 import { can } from "./permissions";
 import { STAFF_ORDER_SQL } from "./staff"; // v1.95.0 - one company order, everywhere
@@ -48,6 +49,7 @@ export async function handleErp(
   method: string,
   body: Record<string, unknown> | null,
   user: StaffUser,
+  params: URLSearchParams = new URLSearchParams(), // v1.222.0 - the ledger reads take filters
 ): Promise<Response | null> {
   try {
     /* ================= orders (RETIRED, consolidation C1) =================
@@ -110,7 +112,7 @@ export async function handleErp(
       if (res?.id) {
         await postJournal(env, user.id, `CF-${res.id}`,
           str(body?.description, 500) ? (body!.description as string).trim() : "Bank movement",
-          str(body?.category, 100) ? (body!.category as string).trim() : "", amount, type);
+          str(body?.category, 100) ? (body!.category as string).trim() : "", amount, type, entryDate); // v1.222.0: the movement's own day
       }
       await audit(env, user.id, "erp.cashflow_create", "cashflow_entries", String(res?.id), { type, amount });
       return json({ id: res?.id }, 201);
@@ -580,6 +582,13 @@ export async function handleErp(
 
     /* ================= Phase 7 — Accounting ================= */
 
+    /* v1.222.0 - the Accounting 2.0 reads (ledger.ts): figures, exceptions,
+       month-end checks, an account's ledger, P&L, one entry and its source */
+    {
+      const led = await handleLedger(env, path, method, user, params);
+      if (led) return led;
+    }
+
     if (path === "/gl/accounts" && method === "GET") {
       if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
       const rows = await env.DB.prepare(`SELECT * FROM gl_accounts ORDER BY code`).all();
@@ -642,20 +651,87 @@ export async function handleErp(
         return err("unbalanced",
           `Debits (RM ${(totalDebit / 100).toFixed(2)}) must equal credits (RM ${(totalCredit / 100).toFixed(2)})`, 400);
       }
-      const res = await env.DB.prepare(
-        `INSERT INTO journal_entries (entry_date, memo, ref, created_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
-      ).bind(entryDate,
-        str(body?.memo, 300) ? (body!.memo as string).trim() : "",
-        str(body?.ref, 100) ? (body!.ref as string).trim() : "", user.id).first<{ id: number }>();
-      const entryId = res?.id;
-      if (!entryId) return err("server", "Journal insert failed", 500);
-      for (const l of lines) {
-        await env.DB.prepare(
-          `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, ?3, ?4)`,
-        ).bind(entryId, l.account_id, l.debit, l.credit).run();
+      /* v1.222.0 (Accounting 2.0, "Soft control"): a manual entry dated in a
+         month that has been closed is allowed - nothing is locked - but it
+         needs a reason, which the audit keeps and Month-End lists as a
+         post-close adjustment. */
+      let postCloseReason: string | null = null;
+      try {
+        const closed = await env.DB.prepare(`SELECT closed_at FROM period_closes WHERE month = ?1 AND reopened_at IS NULL`)
+          .bind(entryDate.slice(0, 7)).first<{ closed_at: string }>();
+        if (closed) {
+          postCloseReason = str(body?.post_close_reason, 300) ? (body!.post_close_reason as string).trim() : "";
+          if (postCloseReason.length < 8) {
+            return err("closed_period", `${entryDate.slice(0, 7)} has been closed. Say why this entry belongs in it (at least 8 characters); it will be listed as a post-close adjustment.`, 409);
+          }
+        }
+      } catch { /* pre-0142: no month close */ }
+      /* v1.222.0 ("Atomic + duplicate guard"): the entry and its lines are one
+         batch, and the entry gets a ref of its own (MJ-...) so it can be found,
+         reversed, and never posted twice. */
+      const ref = str(body?.ref, 100) && (body!.ref as string).trim() ? (body!.ref as string).trim() : `MJ-${crypto.randomUUID().slice(0, 8)}`;
+      const taken = await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1 LIMIT 1`).bind(ref).first();
+      if (taken) return err("duplicate", `A journal entry with reference ${ref} already exists`, 409);
+      try {
+        await env.DB.batch([
+          env.DB.prepare(`INSERT INTO journal_entries (entry_date, memo, ref, created_by) VALUES (?1, ?2, ?3, ?4)`)
+            .bind(entryDate, str(body?.memo, 300) ? (body!.memo as string).trim() : "", ref, user.id),
+          ...lines.map((l) => env.DB.prepare(
+            `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents)
+             SELECT (SELECT MAX(id) FROM journal_entries WHERE ref = ?1), ?2, ?3, ?4`,
+          ).bind(ref, l.account_id, l.debit, l.credit)),
+        ]);
+      } catch (e) {
+        if (/UNIQUE/i.test(String(e))) return err("duplicate", `A journal entry with reference ${ref} already exists`, 409);
+        throw e;
       }
-      await audit(env, user.id, "erp.journal_create", "journal_entries", String(entryId), { total: totalDebit });
-      return json({ id: entryId }, 201);
+      const entryId = (await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1 ORDER BY id DESC LIMIT 1`).bind(ref).first<{ id: number }>())?.id;
+      if (!entryId) return err("server", "Journal insert failed", 500);
+      await audit(env, user.id, "erp.journal_create", "journal_entries", String(entryId), { total: totalDebit, ref, ...(postCloseReason ? { post_close_reason: postCloseReason, month: entryDate.slice(0, 7) } : {}) });
+      return json({ id: entryId, ref }, 201);
+    }
+
+    /* v1.222.0 (Accounting 2.0, "Reverse manual journals"): a manual entry
+       is corrected by its mirror - debits and credits swapped, today, with a
+       reason - never by editing or deleting it. An entry booked by a source
+       (an invoice, expense, claim, payroll run, cash movement) is reversed
+       where it came from, so the cash book and the books stay in step. */
+    {
+      const rv = /^\/gl\/journal\/(\d+)\/reverse$/.exec(path);
+      if (rv && method === "POST") {
+        if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+        const reason = str(body?.reason, 300) ? (body!.reason as string).trim() : "";
+        if (reason.length < 8) return err("validation", "Say why this entry is being reversed (at least 8 characters)", 400);
+        const id = Number(rv[1]);
+        const entry = await env.DB.prepare(`SELECT id, ref, memo FROM journal_entries WHERE id = ?1`).bind(id).first<{ id: number; ref: string; memo: string }>();
+        if (!entry) return err("not_found", "Journal entry not found", 404);
+        if (/^REVJ-/.test(entry.ref)) return err("is_reversal", "A reversal is not reversed again. Post a new entry if it was wrong.", 409);
+        if (!isManualRef(entry.ref)) {
+          return err("source_entry", "This entry was booked by its source record. Reverse it there (Finance > Transactions, or undo the payment) so the cash book and the books stay in step.", 409);
+        }
+        const key = `REVJ-${id}`;
+        const done = await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1 LIMIT 1`).bind(key).first();
+        if (done) return err("already_reversed", "This entry has already been reversed", 409);
+        const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM journal_lines WHERE entry_id = ?1`).bind(id).first<{ n: number }>();
+        if (!n?.n) return err("validation", "This entry has no lines to reverse", 400);
+        try {
+          await env.DB.batch([
+            env.DB.prepare(`INSERT INTO journal_entries (entry_date, memo, ref, created_by) VALUES (date('now', '+8 hours'), ?1, ?2, ?3)`)
+              .bind(`Reversal of journal #${id}: ${reason}`.slice(0, 300), key, user.id),
+            env.DB.prepare(
+              `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents)
+               SELECT (SELECT MAX(id) FROM journal_entries WHERE ref = ?1), l.account_id, l.credit_cents, l.debit_cents
+                 FROM journal_lines l WHERE l.entry_id = ?2 ORDER BY l.id`,
+            ).bind(key, id),
+          ]);
+        } catch (e) {
+          if (/UNIQUE/i.test(String(e))) return err("already_reversed", "This entry has already been reversed", 409);
+          throw e;
+        }
+        const rid = (await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1`).bind(key).first<{ id: number }>())?.id;
+        await audit(env, user.id, "erp.journal_reverse", "journal_entries", String(id), { reversal_id: rid, reason });
+        return json({ ok: true, id: rid }, 201);
+      }
     }
 
     if (path === "/gl/trial-balance" && method === "GET") {

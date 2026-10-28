@@ -2372,7 +2372,7 @@ export async function handleStaff(
     if (cb) return cb;
   }
   if (path.startsWith("/erp/")) {
-    return handleErp(env, path.slice("/erp".length), method, body, user);
+    return handleErp(env, path.slice("/erp".length), method, body, user, new URL(request.url).searchParams);
   }
 
   /* ---- Watchers (v1.108.0) — see watchers.ts. Rules over the company's

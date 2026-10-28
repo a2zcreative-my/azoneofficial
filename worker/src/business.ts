@@ -28,6 +28,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str, num } from "./shared";
 import { can } from "./permissions";
+import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
 
 /* ── time ──────────────────────────────────────────────────────────────── */
 const mytNow = () => new Date(Date.now() + 8 * 3600 * 1000);
@@ -595,6 +596,10 @@ export async function handleBusiness(
       /* payroll net saved for the month (Payroll) */
       payroll_net_cents: await one(`SELECT COALESCE(SUM(net_cents), 0) AS c FROM payroll_entries WHERE month = ?1`, m),
       documents: await one(`SELECT COUNT(*) AS c FROM sales_documents WHERE strftime('%Y-%m', created_at, '+8 hours') = ?1`, m),
+      /* v1.222.0 (Accounting 2.0, "Soft control"): the ledger's own month -
+         income, expense and entries by the day the money moved - so a close
+         also notices a later change in the books (ledger.ts reads only) */
+      ...(await glMonthFigures(env, m)),
     };
   };
   type Figures = Awaited<ReturnType<typeof monthFigures>>;
@@ -629,6 +634,9 @@ export async function handleBusiness(
         try { snap = JSON.parse(active.figures) as Partial<Figures>; } catch { snap = {}; }
         changed = {};
         for (const k of Object.keys(now_) as (keyof Figures)[]) {
+          /* v1.222.0 - a figure the close did not record (a close taken
+             before the ledger joined the snapshot) is not a change */
+          if (!(k in snap)) continue;
           const was = Number(snap[k] ?? 0);
           if (was !== now_[k]) changed[k] = now_[k] - was;
         }

@@ -140,8 +140,17 @@ const idx = read("worker/src/index.ts");
   /* the books only ever write their own snapshot table */
   const p3writes = [...p3.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)/gi)].map((m) => m[2].toLowerCase());
   ok("the books write to period_closes and nothing else", p3writes.length >= 2 && p3writes.every((t) => t === "period_closes"), p3writes.join(", "));
-  ok("closing a month locks nothing: no other route reads period_closes", (biz.match(/period_closes/g) ?? []).length === (p3.match(/period_closes/g) ?? []).length
-    && !/period_closes/.test(staff) && !/period_closes/.test(read("worker/src/erp.ts")));
+  /* v1.222.0 (Accounting 2.0, the owner's "Soft control"): the ledger READS
+     period_closes for its month-end checks, and a manual journal dated in a
+     closed month asks for a reason - it is never refused for being late, and
+     nothing writes period_closes but the books themselves */
+  const erpSrc = read("worker/src/erp.ts"), ledgerSrc = read("worker/src/ledger.ts");
+  ok("closing a month locks nothing: other routes only read period_closes, and a late manual journal is asked for a reason, never refused",
+    (biz.match(/period_closes/g) ?? []).length === (p3.match(/period_closes/g) ?? []).length
+    && !/period_closes/.test(staff)
+    && !/(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+period_closes/i.test(erpSrc + ledgerSrc)
+    && (erpSrc.match(/period_closes/g) ?? []).length === 1
+    && /if \(postCloseReason\.length < 8\) \{\s*return err\("closed_period"/.test(erpSrc));
   ok("only a month that has ended can be closed", /if \(m >= thisMonth\(\)\) return err\("invalid_input"/.test(p3));
   ok("a reopen needs a reason and keeps the close on record", /reason\.length < 3/.test(p3) && /UPDATE period_closes SET reopened_at = datetime\('now'\)/.test(p3) && !/DELETE FROM period_closes/.test(biz));
   ok("the books are for the Accounting tab's own permission", /const BOOKS = can\(user\.role, "accounting_manage"\);/.test(p3)

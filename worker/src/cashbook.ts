@@ -89,8 +89,20 @@ export async function bookCash(
       key = ref;
     }
     if (!written) return false;
-    // v1.20.0 C5: the movement drafts its journal entry under the same key
-    await postJournal(env, userId, key, desc, category, amountCents, direction);
+    /* v1.20.0 C5: the movement drafts its journal entry under the same key.
+       v1.222.0 (Accounting 2.0): dated the day the money moved, and a paid
+       SERVICE invoice books to 4100 Sales - services, not 4000 products
+       (the owner: "Service invoices -> 4100"; forward only - the cash book
+       keeps its category). */
+    let glCategory = category;
+    const inv = /^INV-(\d+)$/.exec(ref);
+    if (inv && direction === "in") {
+      try {
+        const doc = await env.DB.prepare(`SELECT kind FROM sales_documents WHERE id = ?1`).bind(Number(inv[1])).first<{ kind: string | null }>();
+        if (doc?.kind === "service") glCategory = "service";
+      } catch { /* pre-0061: no kind - products, as before */ }
+    }
+    await postJournal(env, userId, key, desc, glCategory, amountCents, direction, eff ?? null);
     return true;
   } catch {
     return false; // pre-0071: Finance is not in use on this database
@@ -115,17 +127,19 @@ async function mirrorJournal(env: Env, userId: number, fromRef: string, newRef: 
     if (dup) return;
     const orig = await env.DB.prepare(`SELECT id FROM journal_entries WHERE ref = ?1 ORDER BY id LIMIT 1`).bind(fromRef).first<{ id: number }>();
     if (!orig) return;
-    const { results } = await env.DB.prepare(`SELECT account_id, debit_cents, credit_cents FROM journal_lines WHERE entry_id = ?1`)
-      .bind(orig.id).all<{ account_id: number; debit_cents: number; credit_cents: number }>();
-    if (!results?.length) return;
-    const entry = await env.DB.prepare(
-      `INSERT INTO journal_entries (entry_date, memo, ref, created_by) VALUES (date('now', '+8 hours'), ?1, ?2, ?3) RETURNING id`,
-    ).bind(memo.slice(0, 200), newRef, userId).first<{ id: number }>();
-    if (!entry?.id) return;
-    for (const l of results) {
-      await env.DB.prepare(`INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (?1, ?2, ?3, ?4)`)
-        .bind(entry.id, l.account_id, l.credit_cents, l.debit_cents).run();
-    }
+    const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM journal_lines WHERE entry_id = ?1`).bind(orig.id).first<{ n: number }>();
+    if (!n?.n) return;
+    /* v1.222.0 - the mirror and its lines are one batch: all or nothing */
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO journal_entries (entry_date, memo, ref, created_by) VALUES (date('now', '+8 hours'), ?1, ?2, ?3)`,
+      ).bind(memo.slice(0, 200), newRef, userId),
+      env.DB.prepare(
+        `INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents)
+         SELECT (SELECT MAX(id) FROM journal_entries WHERE ref = ?1), l.account_id, l.credit_cents, l.debit_cents
+           FROM journal_lines l WHERE l.entry_id = ?2 ORDER BY l.id`,
+      ).bind(newRef, orig.id),
+    ]);
   } catch { /* pre-0071: no books to mirror */ }
 }
 
@@ -558,6 +572,19 @@ const signedCents = (v: unknown): number | null => {
 };
 
 const ITEM_KEY = /^(CF|PART|INV):\d+$/;
+
+/** v1.222.0 (Accounting 2.0) - Finance's own reconciliation list for a
+    period, for the month-end checklist: the same items and the same rules
+    as Finance > Reconciliation, never a second copy. null when the cash
+    book cannot be read on this database. */
+export async function cashExceptionsFor(env: Env, from: string, to: string): Promise<Exception[] | null> {
+  try {
+    const data = await loadAll(env);
+    return await exceptionsOf(env, data, buildItems(data), from, to);
+  } catch {
+    return null;
+  }
+}
 
 export async function handleCashbook(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams,

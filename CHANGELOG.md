@@ -10,6 +10,60 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.222.0] - 2026-10-28 - Accounting & Financial Control 2.0
+
+The owner's brief and answers, 28-10-2026 (claude/ACCOUNTING-AUDIT.md):
+"Four tabs, read-only"; posting fixes "Atomic + duplicate guard", "Date by
+money-moved day", "Reverse manual journals", "Service invoices -> 4100";
+month end "Soft control"; paid authority "Flag it, don't restrict". One
+ledger - nothing duplicated, no figure invented. Migration **0148** (indexes
+only).
+
+- **Four tabs.** Overview, General Ledger, Financial Reports, Month-End &
+  Audit, over the journal that already exists. The books are cash basis and
+  every view says so; Bank - operating is the net of what the portal booked,
+  never called a bank balance.
+- **Read by the day the money moved.** Automatic entries were dated the day
+  they were booked (the 1.219.0 backfill put a whole history on one day).
+  Nothing is rewritten: each entry is read on its cash row's effective date,
+  a manual entry on its own date.
+- **Overview:** trial balance status, money in and out for the month, six
+  months of money in vs out (not debits vs credits - those are always equal),
+  top expense accounts, posting exceptions (half-written or unbalanced
+  entries, a reference posted twice, cash movements not in the books, payroll
+  changed after its bank run, part payments outside the books) and recent
+  entries, each opening with its lines and its source record.
+- **General Ledger:** the chart with each balance on its own side (Dr/Cr),
+  search, type filter, CSV, New account; an account's ledger with opening and
+  running balance; the journal with search, source and date filters; the
+  adjustment composer.
+- **Financial Reports:** trial balance as at a date, Profit & Loss (cash
+  basis) with the previous period, an account's general ledger; CSV and
+  print. **A balance sheet is not drawn**, and the screen says why (no
+  opening balances, no equity, AR/AP not posted, one ledger for two companies).
+- **Month-End & Audit:** a four-step closing with a checklist read from the
+  ledger, Finance's own reconciliation list, payroll, part payments and
+  company ownership; post-close adjustments listed with their reason; the
+  existing Month end, Position and Audit trail below. The close snapshot now
+  includes the ledger's income, expense and entry count; an older close does
+  not report those as changes.
+- **Posting (forward only):** a journal and its lines are one batch - a
+  half-written entry cannot happen; a new reference is unique (0148); new
+  automatic entries are dated the day the money moved; a paid service invoice
+  books to 4100 Sales - live services (the cash book keeps "sales"); a manual
+  entry gets an MJ- reference.
+- **Soft control:** a manual entry dated in a closed month is asked for a
+  reason (kept in the audit) - never refused for being late. Nothing locks.
+- **Reverse manual journals:** a mirror entry with a reason (REVJ-<id>),
+  once; an automatic entry is corrected at its source; a reversal is not
+  reversed again.
+- **Not changed:** who may mark an invoice paid (receipts not yet confirmed
+  by the CEO/COO are listed in the month-end checklist), payroll and
+  commission calculations, company access.
+- Guard `accounting-v2` (54 runtime checks, negative-tested); `business-joins`
+  allows the ledger to read month closes and the soft control to ask, never
+  refuse; `cashflow` accepts a newer migration.
+
 ## [1.221.1] - 2026-10-28 - Companies: staff set up from the payslip, several at a time
 
 The owner's screenshot of Staff Access, 28-10-2026 ("please check this
