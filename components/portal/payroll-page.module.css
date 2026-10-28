@@ -37,9 +37,13 @@
 .kpis {
   --type-kpi-lg-size: 1.5rem;
 }
+/* v1.216.1 (the owner, 28-10-2026: "why Total Payroll (Net) card was not
+   same the other") - five EQUAL columns. The uneven ones (the Net tile 1.35x)
+   made that tile wider than the 18rem at which the shared tile puts its icon
+   above the words (v1.214.1), so it alone kept the icon beside them. */
 @media (min-width: 1440px) {
   .kpis > div {
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr) minmax(0, 1.2fr) minmax(0, 0.95fr) minmax(0, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 

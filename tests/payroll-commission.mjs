@@ -65,7 +65,11 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   ok("the CEO, COO and super admin confirm - nobody else", /const CONFIRM_PAID_ROLES = \["ceo", "coo", "super_admin"\];/.test(staffCode));
   const c = between(staffCode, "const confirmPaid = path.match(", "const confirmRevoke = path.match(");
   ok("the route is gated on those roles", /if \(!CONFIRM_PAID_ROLES\.includes\(user\.role\)\) return err\("forbidden"/.test(c));
-  ok("never on the confirmer's own sale", /if \(inv\.salesperson_id === user\.id\) return err\("forbidden"/.test(c));
+  /* v1.216.2 - the owner: "CEO can self-confirm"; the COO and super admin still cannot */
+  ok("only the CEO confirms their own sale", /const SELF_CONFIRM_ROLES = \["ceo"\];/.test(staffCode)
+     && /const selfConfirm = inv\.salesperson_id === user\.id;\s*if \(selfConfirm && !SELF_CONFIRM_ROLES\.includes\(user\.role\)\) return err\("forbidden"/.test(c));
+  ok("...and a self-confirmation is audited and shown as one", /self_confirmed: selfConfirm,/.test(c) && /r\.paid_confirmed_self = c\.confirmed_by === r\.salesperson_id;/.test(staffCode)
+     && /can_confirm_own: SELF_CONFIRM_ROLES\.includes\(user\.role\)/.test(staffCode));
   ok("only an invoice marked paid in full", /if \(inv\.doc_type !== "INV"\)/.test(c) && /if \(inv\.payment_status !== "paid"\) \{/.test(c));
   ok("for exactly its total, with the tick", /if \(amount !== inv\.total_cents\) \{/.test(c) && /if \(body\?\.checked !== true\) return err/.test(c));
   ok("written only while the invoice is still paid at that total, once",
@@ -101,6 +105,16 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
      /policy: null/.test(src) && !/UPDATE|INSERT|DELETE|commission_cents|rate/i.test(src));
 }
 
+/* ---- 4b. v1.216.1 - the owner: commission "will start to effectively on 1st Nov payroll" ---- */
+{
+  const src = between(staffCode, 'if (path === "/payroll/commission-sources" && method === "GET") {', 'if (path === "/payroll/pull-commission"');
+  ok("commission starts with the November 2026 payroll", /const COMMISSION_START_MONTH = "2026-11";/.test(staffCode));
+  ok("...no month before it lists anything, and an invoice paid before 1 November never counts",
+     /if \(mS < COMMISSION_START_MONTH\) return json\(\{ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: \[\] \}\);/.test(src)
+     && /AND date\(COALESCE\(d\.paid_at, d\.created_at\), '\+8 hours'\) >= \?2/.test(src) && /\.bind\(mS, `\$\{COMMISSION_START_MONTH\}-01`\)/.test(src));
+  ok("...and the payroll screen says so before it starts", /const beforeComm = commStarts !== null && month < commStarts;/.test(payCode) && /Starts with the \$\{startsLabel\} payroll/.test(pay));
+}
+
 /* ---- 5. the payroll table ---- */
 {
   ok("no OT column: the column set is staff, basic, allowance, commission, deduction, net",
@@ -125,7 +139,9 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
      /setCanConfirmPaid\(d\.data\?\.can_confirm_paid === true\);/.test(sales) && /canConfirm=\{canConfirmPaid\}/.test(sales)
      && /if \(!canConfirm \|\| d\.doc_type !== "INV" \|\| d\.payment_status !== "paid"\) return null;/.test(wsCode)
      && /\{canConfirm && <ConfirmPaid /.test(wsCode));
-  ok("...never on your own sale", /if \(d\.salesperson_id === userId\) return <span/.test(wsCode));
+  ok("...on your own sale only where the server says you may (the CEO), marked Self-confirmed",
+     /if \(d\.salesperson_id === userId && !canConfirmOwn\) return <span/.test(wsCode) && /setCanConfirmOwn\(d\.data\?\.can_confirm_own === true\);/.test(sales)
+     && /if \(d\.paid_confirmed_self\) \{/.test(wsCode));
   ok("the confirmation sends the invoice total and the tick; taking back sends the reason",
      /body: JSON\.stringify\(\{ amount_cents: doc\.total_cents, checked: true, payment_ref:/.test(wsCode) && /confirm-paid\/revoke`, \{ method: "POST", body: JSON\.stringify\(\{ reason \}\) \}/.test(wsCode)
      && /const ready = revoke \? reason\.trim\(\)\.length >= 10 : checked;/.test(wsCode));

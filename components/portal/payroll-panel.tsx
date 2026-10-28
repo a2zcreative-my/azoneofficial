@@ -480,6 +480,7 @@ type UnpaidDetail = {
 interface CommSource {
   invoice_id: number; doc_number: string; company: string | null; amount_cents: number; payment_ref: string | null;
   paid_at: string | null; confirmed_at: string; confirmed_by_name: string | null; salesperson_id: number | null; closer_name: string | null;
+  self_confirmed?: number; // v1.216.2 - the closer (the CEO) confirmed it
 }
 
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
@@ -768,7 +769,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
      commission policy is set yet, so nothing is calculated from them: the
      Sales Commission column shows the row's saved commission (RM 0.00 for
      every month since commission left pay on 22-10-2026) and says why. */
-  const [commSrc, setCommSrc] = useState<{ month: string; policy: null | object; rows: CommSource[]; failed?: boolean } | null>(null);
+  const [commSrc, setCommSrc] = useState<{ month: string; policy: null | object; starts?: string; rows: CommSource[]; failed?: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     void api<{ month: string; policy: null | object; rows: CommSource[] }>(`/payroll/commission-sources?month=${month}`)
@@ -776,6 +777,12 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     return () => { alive = false; };
   }, [month]);
   const commOf = (uid: number) => (commSrc?.month === month ? commSrc.rows.filter((r) => r.salesperson_id === uid) : []);
+  /* v1.216.1 - the owner, 28-10-2026: commission starts with the November
+     2026 payroll (the server's COMMISSION_START_MONTH). Before it, the column
+     says so instead of counting invoices. */
+  const commStarts = commSrc?.month === month ? commSrc.starts ?? null : null;
+  const beforeComm = commStarts !== null && month < commStarts;
+  const startsLabel = commStarts ? monthName(commStarts) : "";
   const [savedIds, setSavedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
@@ -1575,11 +1582,11 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     <span className={pp.commCell}>
                       <span className={pp.commAmt}>{rm(e.commission_cents || 0)}</span>
                       <span className={pp.commSub}>
-                        {commSrc === null ? "…" : commOf(u.id).length === 0
+                        {commSrc === null ? "…" : beforeComm ? L(`Starts with the ${startsLabel} payroll`, `Bermula dengan gaji ${startsLabel}`) : commOf(u.id).length === 0
                           ? L("No confirmed invoices", "Tiada invois disahkan")
                           : L(`${commOf(u.id).length} confirmed paid invoice${commOf(u.id).length === 1 ? "" : "s"}`, `${commOf(u.id).length} invois disahkan dibayar`)}
                       </span>
-                      <span className={pp.commChip}>{L("No policy yet", "Tiada polisi lagi")}</span>
+                      {!beforeComm && <span className={pp.commChip}>{L("No policy yet", "Tiada polisi lagi")}</span>}
                       <button type="button" className={pp.commLink} onClick={() => setDetailId(u.id)}
                         aria-label={`${L("Commission breakdown", "Pecahan komisen")} — ${displayName(u)}`}>
                         {L("View breakdown", "Lihat pecahan")}
@@ -2360,7 +2367,9 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   the invoices the CEO/COO confirmed as paid in full this month
                   for this closer. Read-only; no amount is typed anywhere. */}
               <p className={pp.drawerHead}>{L("Sales commission", "Komisen jualan")}</p>
-              {commSrc === null ? <SkelRows rows={2} /> : commSrc.failed ? (
+              {commSrc === null ? <SkelRows rows={2} /> : beforeComm ? (
+                <p className={pp.sub}>{L(`Sales commission starts with the ${startsLabel} payroll: only invoices paid from 1 ${startsLabel} count. This month carries none.`, `Komisen jualan bermula dengan gaji ${startsLabel}: hanya invois yang dibayar dari 1 ${startsLabel} dikira. Bulan ini tiada.`)}</p>
+              ) : commSrc.failed ? (
                 <p className={pp.sub}>{L("The confirmed invoices could not be read just now.", "Invois yang disahkan tidak dapat dibaca sekarang.")}</p>
               ) : commOf(detailUser.id).length === 0 ? (
                 <p className={pp.sub}>{L("No invoice of this person's was confirmed as paid in full this month.", "Tiada invois orang ini disahkan dibayar penuh bulan ini.")}</p>
@@ -2370,7 +2379,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     <li key={r.invoice_id}>
                       <span className={pp.commInv}><strong>{r.doc_number}</strong><span>{r.company ?? "—"}</span></span>
                       <span className={pp.commInvAmt}>{rm(r.amount_cents)}</span>
-                      <span className={pp.commBy}>{L(`Confirmed by ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`, `Disahkan oleh ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`)}</span>
+                      <span className={pp.commBy}>{L(`${r.self_confirmed ? "Self-confirmed" : "Confirmed"} by ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`, `Disahkan oleh ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`)}</span>
                     </li>
                   ))}
                 </ul>

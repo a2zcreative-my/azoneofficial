@@ -472,6 +472,7 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/staff/docs") data = {
     docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d) : docs,
     can_confirm_paid: ["ceo", "coo", "super_admin"].includes(ROLE),
+    can_confirm_own: ROLE === "ceo", // v1.216.2
   };
   /* v1.216.0 - the Sales figures over the whole table, worked out by hand
      from the documents above (scope=all) and for the signed-in 9001 (mine);
@@ -496,7 +497,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
         funnel: { ...fz, raised: 1, raised_cents: 450000 }, new_customers: 0, enquiries: 2, qualified: 0 },
     };
   }
-  if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null,
+  /* v1.216.1 - commission starts with the November 2026 payroll; the
+     CONFIRMED server pretends it started in September so the rows show */
+  if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null, starts: process.env.CONFIRMED ? "2026-09" : "2026-11",
     rows: process.env.CONFIRMED && (q.get("month") ?? "") === "2026-09" ? [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", amount_cents: 280000, payment_ref: null,
       paid_at: D + "12 10:00:00", confirmed_at: D + "13 02:00:00", confirmed_by_name: "Fixture COO", salesperson_id: 9002, closer_name: "Nur Aisyah" }] : [] };
   /* v1.181.11 - the quotation above, whole, and the version its revision replaced */

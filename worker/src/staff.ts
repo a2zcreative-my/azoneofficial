@@ -2258,6 +2258,16 @@ const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
     owner's Payroll 2.0 answers, 28-10-2026: CEO, COO and super admin). The
     CCO reviews only; recording a payment stays with the finance roles. */
 const CONFIRM_PAID_ROLES = ["ceo", "coo", "super_admin"];
+/** v1.216.2 - the owner, 28-10-2026 ("I also can make the sales"; answer
+    "CEO can self-confirm"): the CEO may confirm the CEO's own sale. It is
+    shown as "Self-confirmed" everywhere and audited as such. The COO and
+    super admin still cannot confirm their own sales. */
+const SELF_CONFIRM_ROLES = ["ceo"];
+/** v1.216.1 - the owner, 28-10-2026: sales commission "will start to
+    effectively on 1st Nov payroll". The first payroll month that can carry
+    commission, and the first day a payment can earn it: an invoice paid
+    before this day never counts, even if it is confirmed later. */
+const COMMISSION_START_MONTH = "2026-11";
 
 /** v1.215.0 - take back a live paid confirmation when the invoice it vouched
     for changes under it (marked unpaid, or a new total). Stamped and audited,
@@ -8512,17 +8522,20 @@ export async function handleStaff(
        answers the list. */
     try {
       const { results: conf } = await env.DB.prepare(
-        `SELECT c.invoice_id, c.confirmed_at, c.amount_cents, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
+        `SELECT c.invoice_id, c.confirmed_at, c.amount_cents, c.confirmed_by, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
            FROM invoice_paid_confirmations c LEFT JOIN users u ON u.id = c.confirmed_by
           WHERE c.revoked_at IS NULL`,
-      ).all<{ invoice_id: number; confirmed_at: string; amount_cents: number; by_name: string | null }>();
+      ).all<{ invoice_id: number; confirmed_at: string; amount_cents: number; confirmed_by: number; by_name: string | null }>();
       const byInv = new Map(conf.map((c) => [c.invoice_id, c]));
       for (const r of results as Record<string, unknown>[]) {
         const c = byInv.get(r.id as number);
-        if (c) { r.paid_confirmed_at = c.confirmed_at; r.paid_confirmed_by = c.by_name; r.paid_confirmed_cents = c.amount_cents; }
+        if (c) {
+          r.paid_confirmed_at = c.confirmed_at; r.paid_confirmed_by = c.by_name; r.paid_confirmed_cents = c.amount_cents;
+          r.paid_confirmed_self = c.confirmed_by === r.salesperson_id; // v1.216.2 - the closer confirmed it
+        }
       }
     } catch { /* pre-0145 */ }
-    return json({ docs: results, can_confirm_paid: CONFIRM_PAID_ROLES.includes(user.role) });
+    return json({ docs: results, can_confirm_paid: CONFIRM_PAID_ROLES.includes(user.role), can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
   }
   /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
      there is any discount staff will insert the discount amount. SKU need to
@@ -9349,7 +9362,8 @@ export async function handleStaff(
     if (!inv) return err("not_found", "Invoice not found", 404);
     /* the owner: a payment counts "only if someone else recorded it" - so the
        closer never confirms their own sale; another of the three does */
-    if (inv.salesperson_id === user.id) return err("forbidden", `${inv.doc_number} is your own sale - another of the CEO, COO or super admin confirms it.`, 403);
+    const selfConfirm = inv.salesperson_id === user.id;
+    if (selfConfirm && !SELF_CONFIRM_ROLES.includes(user.role)) return err("forbidden", `${inv.doc_number} is your own sale - the CEO or another of the COO and super admin confirms it.`, 403);
     if (inv.doc_type !== "INV") return err("invalid_input", "Only an invoice is confirmed as paid.", 400);
     if (inv.payment_status !== "paid") {
       return err("invalid_input", `${inv.doc_number} is not marked paid in full. Record the payment first; commission counts only on an invoice paid in full.`, 400);
@@ -9374,7 +9388,7 @@ export async function handleStaff(
     }
     if (!row) return err("conflict", `${inv.doc_number} is already confirmed, or changed while you were confirming it. Reload and check.`, 409);
     await audit(env, user.id, "invoice.paid_confirm", "sales_documents", String(invId), {
-      invoice: inv.doc_number, amount_cents: amount, payment_ref: ref, paid_at: inv.paid_at,
+      invoice: inv.doc_number, amount_cents: amount, payment_ref: ref, paid_at: inv.paid_at, self_confirmed: selfConfirm,
     });
     return json({ ok: true, id: row.id }, 201);
   }
@@ -11607,23 +11621,27 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const mS = new URL(request.url).searchParams.get("month") ?? "";
     if (!/^\d{4}-\d{2}$/.test(mS)) return err("invalid_input", "month must be YYYY-MM", 400);
+    /* before the start month there is no commission to show at all */
+    if (mS < COMMISSION_START_MONTH) return json({ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: [] });
     try {
       const { results } = await env.DB.prepare(
         `SELECT c.invoice_id, c.amount_cents, c.payment_ref, c.paid_at, c.confirmed_at,
                 COALESCE(NULLIF(TRIM(cu.full_name), ''), cu.name) AS confirmed_by_name,
                 d.doc_number, d.salesperson_id, k.company,
-                COALESCE(NULLIF(TRIM(sp.full_name), ''), sp.name) AS closer_name
+                COALESCE(NULLIF(TRIM(sp.full_name), ''), sp.name) AS closer_name,
+                CASE WHEN c.confirmed_by = d.salesperson_id THEN 1 ELSE 0 END AS self_confirmed
            FROM invoice_paid_confirmations c
            JOIN sales_documents d ON d.id = c.invoice_id
            LEFT JOIN customers k ON k.id = d.customer_id
            LEFT JOIN users cu ON cu.id = c.confirmed_by
            LEFT JOIN users sp ON sp.id = d.salesperson_id
           WHERE c.revoked_at IS NULL AND strftime('%Y-%m', c.confirmed_at, '+8 hours') = ?1
+            AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') >= ?2
           ORDER BY c.confirmed_at`,
-      ).bind(mS).all();
-      return json({ month: mS, policy: null, rows: results });
+      ).bind(mS, `${COMMISSION_START_MONTH}-01`).all();
+      return json({ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: results });
     } catch (e) {
-      if (String(e).includes("no such table")) return json({ month: mS, policy: null, rows: [], pending_migration: true });
+      if (String(e).includes("no such table")) return json({ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: [], pending_migration: true });
       throw e;
     }
   }

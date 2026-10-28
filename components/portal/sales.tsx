@@ -79,6 +79,7 @@ export interface SalesDoc {
   /* v1.215.0 - the CEO/COO confirmation that the money arrived in full (0145) */
   paid_confirmed_at?: string | null;
   paid_confirmed_by?: string | null;
+  paid_confirmed_self?: boolean; // v1.216.2
   valid_until?: string | null;
   customer_id?: number;
   customer_phone?: string | null;
@@ -1176,6 +1177,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      -> sen). Display only: an invoice is paid when it is marked paid. */
   const [partPaid, setPartPaid] = useState<Record<number, number>>({});
   const [canConfirmPaid, setCanConfirmPaid] = useState(false); // v1.215.0 - the server says (CEO, COO, super admin)
+  const [canConfirmOwn, setCanConfirmOwn] = useState(false); // v1.216.2 - the server says (the CEO)
   /* v1.181.16 - the client file beside each customer: tags (the list
      filters by them), credit terms (a NEW invoice takes its due date from
      them) and the monthly invoices due. Nothing here changes a customer. */
@@ -1316,11 +1318,12 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
-    const d = await api<{ docs: SalesDoc[]; can_confirm_paid?: boolean; error?: { message?: string } }>(
+    const d = await api<{ docs: SalesDoc[]; can_confirm_paid?: boolean; can_confirm_own?: boolean; error?: { message?: string } }>(
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
     setCanConfirmPaid(d.data?.can_confirm_paid === true);
+    setCanConfirmOwn(d.data?.can_confirm_own === true);
     void loadSummary();
     setLoaded(true);
     const pp = await api<{ invoices?: { invoice_id: number; received_cents: number }[] }>(`/staff/docs/part-payments`);
@@ -2068,7 +2071,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             <ScopeSwitch scope={scope} onChange={setScope} />
           </div>
           <ClosedSales docs={sDocs} partPaid={partPaid} monthKey={monthKey} canFix={["ceo", "super_admin"].includes(user.role)}
-            canConfirm={canConfirmPaid} userId={user.id}
+            canConfirm={canConfirmPaid} canConfirmOwn={canConfirmOwn} userId={user.id}
             onConfirmed={(msg) => { void load(); showToast(L("Saved", "Disimpan"), msg); }}
             staff={staffList.map((x) => ({ id: x.id, name: x.name }))}
             onOpenDoc={(d) => { setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); }}

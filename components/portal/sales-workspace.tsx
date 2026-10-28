@@ -40,6 +40,7 @@ export interface WsDoc {
   converted_from?: number | null; invoiced_as?: string | null; valid_until?: string | null; customer_id?: number;
   payment_ref?: string | null;
   paid_confirmed_at?: string | null; paid_confirmed_by?: string | null; // v1.215.0 - the CEO/COO confirmation (0145)
+  paid_confirmed_self?: boolean; // v1.216.2 - the closer (the CEO) confirmed their own sale
 }
 export interface WsFollowUp { id: number; customer_id: number; company: string; due_on: string; note: string | null; owner_id: number | null; owner_name: string | null }
 export type WsScope = "mine" | "all";
@@ -73,6 +74,9 @@ const ymd = (ts?: string | null) => (ts ? mytDateOf(ts) : "");
 function confirmState(d: WsDoc): { label: string; chip: string } | null {
   if (d.doc_type !== "INV" || d.payment_status !== "paid") return null;
   if (d.paid_confirmed_at) {
+    if (d.paid_confirmed_self) {
+      return { label: L(`Self-confirmed · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`, `Disahkan sendiri · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`), chip: "erp-chip-info" };
+    }
     return { label: L(`Confirmed · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`, `Disahkan · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`), chip: "erp-chip-success" };
   }
   return { label: L("Awaiting CEO/COO confirmation", "Menunggu pengesahan CEO/COO"), chip: "erp-chip-warning" };
@@ -318,11 +322,12 @@ function WeekCard({ s }: { s: SalesSummary }) {
 /* ---- Closed sales: every invoice with money recorded, its closer and the
    quotation it came from; the CEO corrects a closer here ---- */
 const PER = 15;
-export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc, onFixed, canConfirm = false, userId = 0, onConfirmed }: {
+export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc, onFixed, canConfirm = false, canConfirmOwn = false, userId = 0, onConfirmed }: {
   docs: WsDoc[]; partPaid: Record<number, number>; monthKey: string; canFix: boolean;
   staff: { id: number; name: string }[]; onOpenDoc: (d: WsDoc) => void; onFixed: () => void;
   /* v1.215.0 - the server's can_confirm_paid (CEO, COO, super admin); everyone else sees the state only */
   canConfirm?: boolean; userId?: number; onConfirmed?: (msg: string) => void;
+  canConfirmOwn?: boolean; // v1.216.2 - the server's can_confirm_own (the CEO)
 }) {
   const [period, setPeriod] = useState<"month" | "last" | "all">("month");
   const [page, setPage] = useState(1);
@@ -332,7 +337,7 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
   const confirmBtn = (d: WsDoc) => {
     if (!canConfirm || d.doc_type !== "INV" || d.payment_status !== "paid") return null;
     if (d.paid_confirmed_at) return <button type="button" className={btnSm} onClick={() => setConf({ doc: d, mode: "revoke" })}>{L("Take back", "Tarik balik")}</button>;
-    if (d.salesperson_id === userId) return <span className={css.dim} title={L("Your own sale - another of the CEO, COO or super admin confirms it", "Jualan anda sendiri - CEO, COO atau super admin lain mengesahkannya")}>{L("Your sale", "Jualan anda")}</span>;
+    if (d.salesperson_id === userId && !canConfirmOwn) return <span className={css.dim}>{L("Your sale - the CEO confirms it", "Jualan anda - CEO mengesahkannya")}</span>;
     return <button type="button" className={btnSmPrimary} onClick={() => setConf({ doc: d, mode: "confirm" })}>{L("Confirm paid", "Sahkan dibayar")}</button>;
   };
   const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -433,7 +438,7 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
         </>
       )}
       {canFix && <CloserFix doc={fix} staff={staff} onClose={() => setFix(null)} onDone={() => { setFix(null); onFixed(); }} />}
-      {canConfirm && <ConfirmPaid job={conf} onClose={() => setConf(null)} onDone={(msg) => { setConf(null); onConfirmed?.(msg); }} />}
+      {canConfirm && <ConfirmPaid job={conf} own={!!conf && conf.doc.salesperson_id === userId} onClose={() => setConf(null)} onDone={(msg) => { setConf(null); onConfirmed?.(msg); }} />}
     </section>
   );
 }
@@ -488,7 +493,7 @@ function CloserFix({ doc, staff, onClose, onDone }: { doc: WsDoc | null; staff: 
     take a confirmation back with a reason. The server checks the invoice is
     still paid at this total, keeps one live confirmation per invoice and
     audits both. Nothing here touches the invoice or its payments. */
-function ConfirmPaid({ job, onClose, onDone }: { job: { doc: WsDoc; mode: "confirm" | "revoke" } | null; onClose: () => void; onDone: (msg: string) => void }) {
+function ConfirmPaid({ job, own = false, onClose, onDone }: { job: { doc: WsDoc; mode: "confirm" | "revoke" } | null; own?: boolean; onClose: () => void; onDone: (msg: string) => void }) {
   const [checked, setChecked] = useState(false);
   const [ref, setRef] = useState("");
   const [reason, setReason] = useState("");
@@ -548,6 +553,7 @@ function ConfirmPaid({ job, onClose, onDone }: { job: { doc: WsDoc; mode: "confi
                 <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
                 <span>{L(`I checked the bank: ${fmtRM(doc.total_cents)} for this invoice has arrived in full.`, `Saya telah menyemak bank: ${fmtRM(doc.total_cents)} untuk invois ini telah diterima sepenuhnya.`)}</span>
               </label>
+              {own && <p className="erp-note erp-note-info">{L("This is your own sale. It will show as Self-confirmed, and the audit trail records it.", "Ini jualan anda sendiri. Ia akan dipaparkan sebagai Disahkan sendiri, dan jejak audit merekodkannya.")}</p>}
             </>
           )}
           <p className={css.meta}>{revoke

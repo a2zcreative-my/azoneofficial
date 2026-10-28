@@ -10,6 +10,34 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.216.2] - 2026-10-28 - The CEO confirms the CEO's own sales
+
+- The owner: "where is the button for me to confirm if I am a CEO? I also
+  can make the sales" - answer "CEO can self-confirm". The CEO now gets
+  Confirm paid on the CEO's own invoices; the row shows **Self-confirmed**
+  (on Closed Sales and in the payroll breakdown) and the audit records
+  `self_confirmed: true`. The COO and super admin still cannot confirm their
+  own sales; their row says "Your sale - the CEO confirms it".
+- Commission policy answers recorded (basis: invoice total; earned by every
+  closer, the CEO included). Nothing is calculated until the rate is set.
+- Guard `payroll-commission` updated to the new rule (negative-tested).
+  Worker deploy via `PUSH.bat`.
+
+## [1.216.1] - 2026-10-28 - Payroll figures line up; commission starts with the November payroll
+
+- The owner: "why Total Payroll (Net) card was not same the other". From
+  1440px the Payroll Overview gave the Net tile a wider column (1.35x); wider
+  than 18rem, the shared tile keeps its icon beside the words, so that tile
+  alone looked different. The five tiles now share equal columns.
+- The owner: commission "will start to effectively on 1st Nov payroll". The
+  server holds `COMMISSION_START_MONTH = "2026-11"`: no payroll month before
+  November 2026 lists commission sources, and an invoice paid before
+  1 November 2026 never counts, even if confirmed later. Before November the
+  Sales Commission column says "Starts with the November 2026 payroll".
+  Nothing is calculated yet - the rate and basis are still to come.
+- Guard `payroll-commission` +3 checks (negative-tested). Worker deploy via
+  `PUSH.bat`.
+
 ## [1.216.0] - 2026-10-28 - Sales figures from every record, new enquiries on Sales, this week
 
 The owner's answers to the Sales growth audit (`claude/SALES-GROWTH-AUDIT.md`):
