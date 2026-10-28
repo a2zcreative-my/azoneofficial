@@ -184,6 +184,18 @@
 }
 /* v1.214.0 - the workspace's Mine / Everyone switch and its line (the tab
    row replaced the v1.191.0 breadcrumb bar) */
+/* v1.216.0 - six figures: three across, then six once there is room, so no
+   tile is left alone on a row (the phone keeps two across, below) */
+@media (min-width: 640px) {
+  .tiles [role="group"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1680px) {
+  .tiles [role="group"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
 /* the five figures on a phone: two across, the icon well folded away (the
    Ecommerce rule, v1.212.0); the figure's size is the tile's own (v1.214.1) */
 @media (max-width: 639px) {

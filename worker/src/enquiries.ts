@@ -48,8 +48,23 @@ export function isOverdue(e: { status: string; created_at: string; replied_at?: 
     nobody is told, because a push that lands on no tab is noise. The live
     topic is still bumped. The parameters stay so the two callers (the
     website form and the customer account) are untouched. */
-export async function announceEnquiry(env: Env, _id: number | null, _name: string, _category: string | null, _source: "site" | "account"): Promise<void> {
+/* v1.216.0 - the owner, 28-10-2026 (the Sales growth audit, M1: "Show on
+   Sales, notify"): a new enquiry is a lead, so it is announced again - ONCE,
+   to the active sales consultants and the CEO, landing on Sales, where
+   Customers & Follow-ups lists it. The Enquiries tab stays retired. It is
+   called once, after the row is saved (the website form, a customer account). */
+export async function announceEnquiry(env: Env, id: number | null, name: string, _category: string | null, source: "site" | "account"): Promise<void> {
   try { await bumpVersion(env, "enquiries"); } catch { /* best-effort */ }
+  if (id === null) return;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM users WHERE is_active = 1 AND role IN ('sales_marketing', 'ceo')`,
+    ).all<{ id: number }>();
+    const from = source === "site" ? "the website" : "a customer account";
+    for (const u of results) {
+      await notify(env, u.id, "enquiry", `New enquiry from ${name.slice(0, 80)} (${from}) - answer it on Sales, Customers & Follow-ups`, `enquiry:new:${id}`);
+    }
+  } catch { /* best-effort: the enquiry is saved either way */ }
 }
 
 interface EnquiryRow {

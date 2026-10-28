@@ -9,7 +9,8 @@ import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
-import { ClosedSales, FollowUps, SalesOverviewCards, ScopeSwitch, closerLocked, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { ClosedSales, FollowUps, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -1148,6 +1149,17 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      consultant opens on their own sales, management on everyone's. */
   const [wsView, setWsView] = useState<"overview" | "documents" | "closed" | "customers" | "reports">(initialView === "create" ? "documents" : "overview");
   const [scope, setScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");
+  /* v1.216.0 - the figures over the whole table (GET /staff/docs/summary),
+     for the scope on screen; refreshed with every load */
+  const [summary, setSummary] = useState<SalesSummary | null>(null);
+  const scopeRef = useRef(scope);
+  const loadSummary = useCallback(async () => {
+    const want = scopeRef.current;
+    const r = await api<SalesSummary>(`/staff/docs/summary?scope=${want}`);
+    if (scopeRef.current !== want) return;
+    setSummary(r.ok && r.data && typeof r.data.collected?.cents === "number" ? r.data : null);
+  }, []);
+  useEffect(() => { scopeRef.current = scope; void loadSummary(); }, [scope, loadSummary]);
   const jump = (id: "sales-work" | "sales-customers") => {
     setWsView(id === "sales-work" ? "documents" : "customers");
     requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" })));
@@ -1309,6 +1321,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     );
     setDocs(d.data?.docs ?? []);
     setCanConfirmPaid(d.data?.can_confirm_paid === true);
+    void loadSummary();
     setLoaded(true);
     const pp = await api<{ invoices?: { invoice_id: number; received_cents: number }[] }>(`/staff/docs/part-payments`);
     const ppMap: Record<number, number> = {};
@@ -1336,7 +1349,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       items?: { name: string; sku: string; unit_price_cents?: number }[];
     }>(`/staff/inventory`);
     setInvItems(inv.data?.items ?? []);
-  }, []);
+  }, [loadSummary]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -1944,6 +1957,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const paidThisMonth = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid"
     && mytYm(d.paid_at ?? d.created_at) === monthKey);
   const unpaidInv = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
+  /* v1.216.0 - the server's figures, when they are for this month and this scope */
+  const sm = summary && summary.month === monthKey && summary.scope === scope ? summary : null;
   const cents = (list: SalesDoc[]) => list.reduce((a, d) => a + d.total_cents, 0);
   /* v1.186.0 (the owner's reference): last month's figures beside this
      month's, by the same two rules - raised by created_at, paid by paid_at */
@@ -2006,25 +2021,41 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               : L("Everyone's sales.", "Jualan semua orang.")}</span>
           </div>
           <div className={sc.tiles}>
+          {/* v1.216.0 - the figures come from GET /staff/docs/summary (every
+              row, the same rules); the screen's own sums over the documents it
+              holds are the fallback for a worker without that route. */}
           <KpiRow label={L("Sales this month", "Jualan bulan ini")}>
-            <KpiTile icon="paid" tone="green" label={L("Collected", "Dikutip")} value={fmtRM(cents(paidThisMonth))} busy={!loaded}
-              sub={L(`This month · ${paidThisMonth.length} paid, by payment date`, `Bulan ini · ${paidThisMonth.length} dibayar, ikut tarikh bayaran`)} delta={vsLast(cents(paidThisMonth), cents(lastPaid))}
+            <KpiTile icon="paid" tone="green" label={L("Collected", "Dikutip")} value={fmtRM(sm ? sm.collected.cents : cents(paidThisMonth))} busy={!loaded}
+              sub={L(`This month · ${sm ? sm.collected.n : paidThisMonth.length} paid in full, by payment date`, `Bulan ini · ${sm ? sm.collected.n : paidThisMonth.length} dibayar penuh, ikut tarikh bayaran`)}
+              delta={sm ? vsLast(sm.collected.cents, sm.collected_last.cents) : vsLast(cents(paidThisMonth), cents(lastPaid))}
               onClick={() => setWsView("closed")} title={L("Open the closed sales", "Buka jualan ditutup")} />
-            <KpiTile icon="document" tone="gold" label={L("Quotations", "Sebut harga")} value={monthQt.length} busy={!loaded}
-              spark={qtSpark} sub={L(`This month · ${fmtRM(cents(monthQt))}`, `Bulan ini · ${fmtRM(cents(monthQt))}`)}
+            {sm && (
+              <KpiTile icon="money" tone="green" label={L("Cash received", "Wang diterima")} value={fmtRM(sm.cash_cents)}
+                sub={L("This month · part payments included", "Bulan ini · termasuk bayaran separa")} delta={vsLast(sm.cash_cents, sm.cash_last_cents)}
+                title={L("Money received this month: part payments on the day they arrived, and what was left on each invoice marked paid this month. Collected is unchanged: it counts an invoice once it is paid in full.", "Wang diterima bulan ini: bayaran separa pada hari ia tiba, dan baki setiap invois yang ditanda dibayar bulan ini. Dikutip tidak berubah: ia mengira invois setelah dibayar penuh.")} />
+            )}
+            <KpiTile icon="document" tone="gold" label={L("Quotations", "Sebut harga")} value={sm ? sm.quotations.n : monthQt.length} busy={!loaded}
+              spark={sm ? sm.quotations_spark : qtSpark} sub={L(`This month · ${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}`, `Bulan ini · ${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}`)}
               onClick={() => { setWorkTab("documents"); setDocType("QT"); setDocPage(1); jump("sales-work"); }} title={L("Open the quotations", "Buka sebut harga")} />
-            <KpiTile icon="documents" tone="navy" label={L("Invoices", "Invois")} value={fmtRM(cents(monthInv))} busy={!loaded}
-              sub={L(`This month · ${monthInv.length} raised`, `Bulan ini · ${monthInv.length} dikeluarkan`)} delta={vsLast(cents(monthInv), cents(lastInv))}
+            <KpiTile icon="documents" tone="navy" label={L("Invoices", "Invois")} value={fmtRM(sm ? sm.invoiced.cents : cents(monthInv))} busy={!loaded}
+              sub={L(`This month · ${sm ? sm.invoiced.n : monthInv.length} raised`, `Bulan ini · ${sm ? sm.invoiced.n : monthInv.length} dikeluarkan`)}
+              delta={sm ? vsLast(sm.invoiced.cents, sm.invoiced_last.cents) : vsLast(cents(monthInv), cents(lastInv))}
               onClick={() => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); jump("sales-work"); }} title={L("Open the invoices", "Buka invois")} />
-            <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={unpaidInv.length} busy={!loaded}
-              sub={L(`Any month · ${fmtRM(cents(unpaidInv))}`, `Mana-mana bulan · ${fmtRM(cents(unpaidInv))}`)}
-              onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
+            {sm ? (
+              <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={fmtRM(sm.outstanding.balance_cents)} busy={!loaded}
+                sub={L(`Still owed · ${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month`, `Masih terhutang · ${sm.outstanding.n} invois · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan`)}
+                onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
+            ) : (
+              <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={unpaidInv.length} busy={!loaded}
+                sub={L(`Any month · ${fmtRM(cents(unpaidInv))}`, `Mana-mana bulan · ${fmtRM(cents(unpaidInv))}`)}
+                onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
+            )}
             <KpiTile icon="date" tone="blue" label={L("Follow-ups due", "Susulan perlu dibuat")} value={sFollowups.filter((f) => f.due_on <= mytToday()).length} busy={!loaded}
               sub={L(`Today or earlier · ${sFollowups.filter((f) => f.due_on < mytToday()).length} overdue`, `Hari ini atau lebih awal · ${sFollowups.filter((f) => f.due_on < mytToday()).length} lewat`)}
               onClick={() => setWsView("customers")} title={L("Open the customers and follow-ups", "Buka pelanggan dan susulan")} />
           </KpiRow>
           </div>
-          <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()}
+          <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm}
             onOpenDocs={(t) => { setWorkTab("documents"); setDocType(t); setDocStatus("all"); setDocPage(1); jump("sales-work"); }}
             onOpenDoc={(d) => { setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); }}
             onOpenCustomer={(f) => openCustomerFile(f.customer_id, f.company, () => void load())}
@@ -3645,6 +3676,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       {wsView === "customers" && (
         <>
           <div className={sc.scopeRow}><ScopeSwitch scope={scope} onChange={setScope} /></div>
+          {/* v1.216.0 - new enquiries from the website and customer accounts
+              (the owner, 28-10-2026: "Show on Sales, notify"); the server
+              decides who may see them (enquiry_manage) */}
+          <SalesEnquiries scope={scope} userId={user.id} onQuote={(e: Enquiry) => {
+            applyPrefill({ source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name, phone: e.phone ?? "", reference: `Enquiry #${e.id}` });
+            if (customers.some((c) => c.company.trim().toLowerCase() === ((e.company ?? "").trim() || e.name).toLowerCase())) setWsView("documents");
+          }} />
           <FollowUps all rows={sFollowups} today={mytToday()} onOpen={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
         </>
       )}

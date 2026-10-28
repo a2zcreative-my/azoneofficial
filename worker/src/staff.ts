@@ -1652,7 +1652,9 @@ const PUSH_TAB: Record<string, string> = {
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
   /* v1.183.0 - "enquiry" and "hankeis" left with their tabs: a push of either
-     kind (an old row, a dormant route) lands on the portal, not a dead tab */
+     kind (an old row, a dormant route) lands on the portal, not a dead tab.
+     v1.216.0 - new enquiries are listed on Sales again (the owner, 28-10-2026) */
+  enquiry: "Sales",
 };
 
 export async function notify(
@@ -8329,6 +8331,143 @@ export async function handleStaff(
 
   /* ---- sales documents (QT / DO / INV) ---- */
 
+  /* v1.216.0 - THE SALES FIGURES, FROM THE WHOLE TABLE (the owner, 28-10-2026,
+     the Sales growth audit R1-R5, "Whole table + show balance"). The Sales
+     tiles were worked out on the screen from GET /docs, which returns the 200
+     newest documents: past 200, an older unpaid invoice left "Unpaid" and an
+     old invoice paid this month left "Collected". This reads the same rules
+     over every row - nothing here is a new formula:
+       collected   an invoice marked paid, by COALESCE(paid_at, created_at) in
+                   Malaysia time (the /revenue rule, the Paid tile's rule)
+       invoiced    invoices by created_at (issue date)
+       outstanding every invoice not marked paid: its total AND its balance
+                   (total less part payments not voided)
+       cash        money received in the month: part payments by received_on,
+                   plus, for an invoice marked paid this month, what was left
+                   on it (total less its part payments) - so nothing is
+                   counted twice and Collected is unchanged
+       funnel      the month's quotations and where they went
+       week        Monday-Sunday (Malaysia time): the same rules, plus new
+                   enquiries and customers; the target is the APPROVED monthly
+                   target spread over the month's calendar days ("pace") -
+                   none set, none shown. Read-only; "mine" = the documents
+                   where you are the salesperson (the screen's own rule). */
+  if (path === "/docs/summary" && method === "GET") {
+    if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
+    const sp = new URL(request.url).searchParams;
+    const nowMyt = new Date(Date.now() + 8 * 3600 * 1000);
+    const today = nowMyt.toISOString().slice(0, 10);
+    const month = /^\d{4}-\d{2}$/.test(sp.get("month") ?? "") ? String(sp.get("month")) : today.slice(0, 7);
+    const mine = sp.get("scope") === "mine";
+    const ymShift = (ym: string, n: number) => { const d = new Date(`${ym}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); };
+    const last = ymShift(month, -1);
+    /* the week: Monday of the week holding today (or ?week=) */
+    const wRaw = sp.get("week") ?? "";
+    const wBase = /^\d{4}-\d{2}-\d{2}$/.test(wRaw) ? new Date(`${wRaw}T00:00:00Z`) : new Date(`${today}T00:00:00Z`);
+    wBase.setUTCDate(wBase.getUTCDate() - ((wBase.getUTCDay() + 6) % 7));
+    const wFrom = wBase.toISOString().slice(0, 10);
+    const wEnd = new Date(wBase); wEnd.setUTCDate(wEnd.getUTCDate() + 6);
+    const wTo = wEnd.toISOString().slice(0, 10);
+    const who = mine ? ` AND d.salesperson_id = ${Number(user.id)}` : "";
+    const one = async <T>(sql: string, ...b: unknown[]) => (await env.DB.prepare(sql).bind(...b).first<T>()) as T;
+    const PAID_DAY = `date(COALESCE(d.paid_at, d.created_at), '+8 hours')`;
+    const MADE_DAY = `date(d.created_at, '+8 hours')`;
+    type Sum = { cents: number; n: number };
+    const collected = (from: string, to: string) => one<Sum>(
+      `SELECT COALESCE(SUM(d.total_cents), 0) AS cents, COUNT(*) AS n FROM sales_documents d
+        WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2${who}`, from, to);
+    const raised = (type: "QT" | "INV", from: string, to: string) => one<Sum>(
+      `SELECT COALESCE(SUM(d.total_cents), 0) AS cents, COUNT(*) AS n FROM sales_documents d
+        WHERE d.doc_type = ?3 AND ${MADE_DAY} BETWEEN ?1 AND ?2${who}`, from, to, type);
+    const monthRange = (ym: string): [string, string] => {
+      const end = new Date(`${ymShift(ym, 1)}-01T00:00:00Z`); end.setUTCDate(0);
+      return [`${ym}-01`, end.toISOString().slice(0, 10)];
+    };
+    const [mFrom, mTo] = monthRange(month);
+    const [lFrom, lTo] = monthRange(last);
+    /* part payments (0140): one place that knows the table may be missing */
+    let hasParts = true;
+    try { await env.DB.prepare(`SELECT 1 FROM invoice_payments LIMIT 1`).first(); } catch { hasParts = false; }
+    const PARTS = (alias: string) => hasParts
+      ? `COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = ${alias}.id AND p.voided_at IS NULL), 0)` : "0";
+    const cash = async (from: string, to: string) => {
+      const fin = await one<{ c: number }>(
+        `SELECT COALESCE(SUM(d.total_cents - ${PARTS("d")}), 0) AS c FROM sales_documents d
+          WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2${who}`, from, to);
+      const parts = hasParts ? await one<{ c: number }>(
+        `SELECT COALESCE(SUM(p.amount_cents), 0) AS c FROM invoice_payments p JOIN sales_documents d ON d.id = p.invoice_id
+          WHERE p.voided_at IS NULL AND p.received_on BETWEEN ?1 AND ?2${who}`, from, to) : { c: 0 };
+      return (fin?.c ?? 0) + (parts?.c ?? 0);
+    };
+    const funnel = async (from: string, to: string) => one<{ raised: number; raised_cents: number; invoiced: number; won_cents: number; paid: number; part: number; expired: number }>(
+      `SELECT COUNT(*) AS raised, COALESCE(SUM(q.total_cents), 0) AS raised_cents,
+              COALESCE(SUM(CASE WHEN i.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS invoiced,
+              COALESCE(SUM(CASE WHEN i.id IS NOT NULL THEN q.total_cents ELSE 0 END), 0) AS won_cents,
+              COALESCE(SUM(CASE WHEN i.payment_status = 'paid' THEN 1 ELSE 0 END), 0) AS paid,
+              COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND COALESCE(i.payment_status, '') != 'paid' AND ${PARTS("i")} > 0 THEN 1 ELSE 0 END), 0) AS part,
+              COALESCE(SUM(CASE WHEN i.id IS NULL AND q.valid_until IS NOT NULL AND substr(q.valid_until, 1, 10) < ?3 THEN 1 ELSE 0 END), 0) AS expired
+         FROM sales_documents q
+         LEFT JOIN sales_documents i ON i.id = (SELECT MAX(x.id) FROM sales_documents x WHERE x.converted_from = q.id AND x.doc_type = 'INV')
+        WHERE q.doc_type = 'QT' AND date(q.created_at, '+8 hours') BETWEEN ?1 AND ?2${mine ? ` AND q.salesperson_id = ${Number(user.id)}` : ""}`, from, to, today);
+    const out = await one<{ n: number; total: number; balance: number }>(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(d.total_cents), 0) AS total, COALESCE(SUM(d.total_cents - ${PARTS("d")}), 0) AS balance
+         FROM sales_documents d WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'paid'${who}`);
+    const { results: daily } = await env.DB.prepare(
+      `SELECT ${PAID_DAY} AS day, SUM(d.total_cents) AS cents FROM sales_documents d
+        WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2${who} GROUP BY day ORDER BY day`,
+    ).bind(mFrom, mTo).all<{ day: string; cents: number }>();
+    const spark: number[] = [];
+    for (let i = 5; i >= 0; i--) { const [a, b] = monthRange(ymShift(month, -i)); spark.push((await raised("QT", a, b))?.n ?? 0); }
+    /* the approved monthly target behind the week's pace - yours on "mine",
+       the company's on "everyone" (and only for those who may read revenue) */
+    const targetOf = async (ym: string): Promise<number | null> => {
+      try {
+        if (mine) return (await one<{ t: number } | null>(`SELECT target_cents AS t FROM user_sales_targets WHERE user_id = ?1 AND month = ?2`, user.id, ym))?.t ?? null;
+        if (!can(user.role, "revenue_view")) return null;
+        return (await one<{ t: number } | null>(`SELECT target_cents AS t FROM sales_targets WHERE month = ?1`, ym))?.t ?? null;
+      } catch { return null; }
+    };
+    let pace: number | null = 0;
+    const tCache = new Map<string, number | null>();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(wBase); d.setUTCDate(d.getUTCDate() + i);
+      const day = d.toISOString().slice(0, 10); const ym = day.slice(0, 7);
+      if (!tCache.has(ym)) tCache.set(ym, await targetOf(ym));
+      const t = tCache.get(ym);
+      if (t == null || t <= 0) { pace = null; break; }
+      const [, end] = monthRange(ym);
+      pace = (pace ?? 0) + t / Number(end.slice(8, 10));
+    }
+    let enq: { n: number; qualified: number } | null = null;
+    if (can(user.role, "enquiry_manage")) {
+      try {
+        enq = await one<{ n: number; qualified: number }>(
+          `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END), 0) AS qualified FROM enquiries
+            WHERE date(created_at, '+8 hours') BETWEEN ?1 AND ?2${mine ? ` AND assigned_to = ${Number(user.id)}` : ""}`, wFrom, wTo);
+      } catch { enq = null; }
+    }
+    const newCustomers = await one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM customers WHERE date(created_at, '+8 hours') BETWEEN ?1 AND ?2${mine ? ` AND created_by = ${Number(user.id)}` : ""}`, wFrom, wTo);
+    const won = await one<Sum>(
+      `SELECT COALESCE(SUM(d.total_cents), 0) AS cents, COUNT(*) AS n FROM sales_documents d
+        WHERE d.doc_type = 'INV' AND d.converted_from IS NOT NULL AND ${MADE_DAY} BETWEEN ?1 AND ?2${who}`, wFrom, wTo);
+    return json({
+      month, scope: mine ? "mine" : "all", today,
+      collected: await collected(mFrom, mTo), collected_last: await collected(lFrom, lTo),
+      invoiced: await raised("INV", mFrom, mTo), invoiced_last: await raised("INV", lFrom, lTo),
+      quotations: await raised("QT", mFrom, mTo), quotations_spark: spark,
+      outstanding: { n: out?.n ?? 0, total_cents: out?.total ?? 0, balance_cents: out?.balance ?? 0 },
+      cash_cents: await cash(mFrom, mTo), cash_last_cents: await cash(lFrom, lTo), parts_known: hasParts,
+      daily, funnel: await funnel(mFrom, mTo),
+      week: {
+        from: wFrom, to: wTo, target_pace_cents: pace === null ? null : Math.round(pace),
+        collected: await collected(wFrom, wTo), quotations: await raised("QT", wFrom, wTo), won,
+        funnel: await funnel(wFrom, wTo), new_customers: newCustomers?.n ?? 0,
+        enquiries: enq ? enq.n : null, qualified: enq ? enq.qualified : null,
+      },
+    });
+  }
+
   if (path === "/docs" && method === "GET") {
     if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
     const url = new URL(request.url);
@@ -8348,6 +8487,26 @@ export async function handleStaff(
        ORDER BY d.created_at DESC LIMIT 200`,
     );
     const { results } = await (typed ? stmt.bind(typed) : stmt).all();
+    /* v1.216.0 (the owner, 28-10-2026: "Whole table") - the 200 newest are
+       not the whole story for the money: every invoice still unpaid, and
+       every invoice paid since the start of last month (Malaysia time), is
+       added when it is older than the 200, so Closed Sales and the unpaid
+       lists agree with the figures from /docs/summary. */
+    if (!typed || typed === "INV") {
+      try {
+        const have = new Set((results as { id: number }[]).map((r) => r.id));
+        const { results: more } = await env.DB.prepare(
+          `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name, NULL AS invoiced_as, NULL AS invoiced_as_id
+             FROM sales_documents d
+             LEFT JOIN users sp ON sp.id = d.salesperson_id
+             JOIN customers c ON c.id = d.customer_id
+            WHERE d.doc_type = 'INV' AND (COALESCE(d.payment_status, '') != 'paid'
+               OR date(COALESCE(d.paid_at, d.created_at), '+8 hours') >= date('now', '+8 hours', 'start of month', '-1 month'))
+            ORDER BY d.created_at DESC LIMIT 1000`,
+        ).all<{ id: number }>();
+        for (const r of more) if (!have.has(r.id)) (results as unknown[]).push(r);
+      } catch { /* the 200 still answer */ }
+    }
     /* v1.215.0 - each invoice's live CEO/COO paid confirmation, if any.
        Read apart from the main query so a database before 0145 still
        answers the list. */

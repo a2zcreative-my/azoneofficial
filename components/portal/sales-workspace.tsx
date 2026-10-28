@@ -44,6 +44,27 @@ export interface WsDoc {
 export interface WsFollowUp { id: number; customer_id: number; company: string; due_on: string; note: string | null; owner_id: number | null; owner_name: string | null }
 export type WsScope = "mine" | "all";
 
+/* v1.216.0 - GET /staff/docs/summary: the Sales figures over the WHOLE table
+   (the owner, 28-10-2026, "Whole table + show balance"). Same rules as the
+   screen used on its 200 newest documents; null until it answers, and an
+   older worker without the route leaves the screen on its own figures. */
+type WsSum = { cents: number; n: number };
+export interface WsFunnel { raised: number; raised_cents: number; invoiced: number; won_cents: number; paid: number; part: number; expired: number }
+export interface SalesSummary {
+  month: string; scope: WsScope; today: string;
+  collected: WsSum; collected_last: WsSum; invoiced: WsSum; invoiced_last: WsSum; quotations: WsSum; quotations_spark: number[];
+  outstanding: { n: number; total_cents: number; balance_cents: number };
+  cash_cents: number; cash_last_cents: number; parts_known: boolean;
+  daily: { day: string; cents: number }[]; funnel: WsFunnel;
+  week: {
+    from: string; to: string; target_pace_cents: number | null; collected: WsSum; quotations: WsSum; won: WsSum;
+    funnel: WsFunnel; new_customers: number; enquiries: number | null; qualified: number | null;
+  };
+}
+/** "3 of 8 · 38%" - the share of a cohort of quotations that became invoices */
+const convText = (f: WsFunnel) => f.raised === 0 ? L("No quotations raised", "Tiada sebut harga")
+  : L(`${f.invoiced} of ${f.raised} invoiced · ${Math.round((f.invoiced / f.raised) * 100)}%`, `${f.invoiced} daripada ${f.raised} diinvois · ${Math.round((f.invoiced / f.raised) * 100)}%`);
+
 const ymd = (ts?: string | null) => (ts ? mytDateOf(ts) : "");
 
 /* v1.215.0 - PAYROLL 2.0, PHASE A: the CEO/COO confirm that the money of an
@@ -79,7 +100,7 @@ export function ScopeSwitch({ scope, onChange }: { scope: WsScope; onChange: (s:
 }
 
 /* the month's money in, day by day, as a running total */
-function CollectedTrend({ docs, monthKey, today }: { docs: WsDoc[]; monthKey: string; today: string }) {
+function CollectedTrend({ docs, monthKey, today, daily }: { docs: WsDoc[]; monthKey: string; today: string; daily?: { day: string; cents: number }[] }) {
   const days = new Date(Date.UTC(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)), 0)).getUTCDate();
   const lastDay = today.startsWith(monthKey) ? Number(today.slice(8, 10)) : days;
   const perDay = Array.from({ length: days }, () => 0);
@@ -88,6 +109,11 @@ function CollectedTrend({ docs, monthKey, today }: { docs: WsDoc[]; monthKey: st
     const day = ymd(d.paid_at ?? d.created_at);
     const i = Number(day.slice(8, 10)) - 1;
     if (day.startsWith(monthKey) && i >= 0 && i < days) perDay[i] = (perDay[i] ?? 0) + d.total_cents;
+  }
+  /* v1.216.0 - the server's days (the whole table) replace the screen's when they are here */
+  if (daily) {
+    perDay.fill(0);
+    for (const r of daily) { const i = Number(r.day.slice(8, 10)) - 1; if (r.day.startsWith(monthKey) && i >= 0 && i < days) perDay[i] = r.cents; }
   }
   let run = 0;
   const cum = perDay.slice(0, lastDay).map((c) => (run += c));
@@ -104,7 +130,7 @@ function CollectedTrend({ docs, monthKey, today }: { docs: WsDoc[]; monthKey: st
         <PanelTitle icon="paid">{L("Collected this month", "Dikutip bulan ini")}</PanelTitle>
         <strong className={css.big}>{fmtRM(total)}</strong>
       </div>
-      <p className={css.meta}>{L("Invoices marked paid, by the day the money landed. Part payments are not counted until the invoice is paid.", "Invois ditanda dibayar, ikut hari wang diterima. Bayaran separa tidak dikira sehingga invois dibayar.")}</p>
+      <p className={css.meta}>{L("Invoices marked paid, by the day the money landed. Part payments are not counted until the invoice is paid. Invoices only - the Dashboard adds TikTok and other channels.", "Invois ditanda dibayar, ikut hari wang diterima. Bayaran separa tidak dikira sehingga invois dibayar. Invois sahaja - Papan Pemuka menambah TikTok dan saluran lain.")}</p>
       {total === 0 ? <p className={css.empty}>{L("Nothing collected yet this month.", "Belum ada kutipan bulan ini.")}</p> : (
         <svg className={css.chart} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={L(`Running total, ${fmtRM(total)} by day ${lastDay}`, `Jumlah berjalan, ${fmtRM(total)} pada hari ${lastDay}`)}>
           <line x1={P} x2={W - P} y1={H - P} y2={H - P} className={css.axis} />
@@ -119,7 +145,7 @@ function CollectedTrend({ docs, monthKey, today }: { docs: WsDoc[]; monthKey: st
 }
 
 /* where this month's quotations went */
-function QuoteFunnel({ docs, partPaid, monthKey, today, onOpen }: { docs: WsDoc[]; partPaid: Record<number, number>; monthKey: string; today: string; onOpen: (q: string) => void }) {
+function QuoteFunnel({ docs, partPaid, monthKey, today, onOpen, server }: { docs: WsDoc[]; partPaid: Record<number, number>; monthKey: string; today: string; onOpen: (q: string) => void; server?: WsFunnel }) {
   const invOf = new Map<number, WsDoc>();
   for (const d of docs) if (d.doc_type === "INV" && d.converted_from) invOf.set(d.converted_from, d);
   const qts = docs.filter((d) => d.doc_type === "QT" && ymd(d.created_at).startsWith(monthKey));
@@ -128,13 +154,16 @@ function QuoteFunnel({ docs, partPaid, monthKey, today, onOpen }: { docs: WsDoc[
   const part = invoiced.filter((q) => { const i = invOf.get(q.id); return i && i.payment_status !== "paid" && (partPaid[i.id] ?? 0) > 0; });
   const expired = qts.filter((q) => !invOf.has(q.id) && !q.invoiced_as && q.valid_until && q.valid_until.slice(0, 10) < today);
   const open = qts.length - invoiced.length - expired.length;
+  /* v1.216.0 - the server's counts (every quotation, not the newest 200) when they are here */
+  const f: WsFunnel = server ?? { raised: qts.length, raised_cents: qts.reduce((a, q) => a + q.total_cents, 0), invoiced: invoiced.length,
+    won_cents: invoiced.reduce((a, q) => a + q.total_cents, 0), paid: paid.length, part: part.length, expired: expired.length };
   const steps: [string, number, string | undefined][] = [
-    [L("Raised", "Dikeluarkan"), qts.length, css.s1],
-    [L("Still open", "Masih terbuka"), open, css.s2],
-    [L("Invoiced", "Diinvois"), invoiced.length, css.s3],
-    [L("Part paid", "Bayar separa"), part.length, css.s4],
-    [L("Paid", "Dibayar"), paid.length, css.s5],
-    [L("Expired", "Tamat tempoh"), expired.length, css.s6],
+    [L("Raised", "Dikeluarkan"), f.raised, css.s1],
+    [L("Still open", "Masih terbuka"), server ? f.raised - f.invoiced - f.expired : open, css.s2],
+    [L("Invoiced", "Diinvois"), f.invoiced, css.s3],
+    [L("Part paid", "Bayar separa"), f.part, css.s4],
+    [L("Paid", "Dibayar"), f.paid, css.s5],
+    [L("Expired", "Tamat tempoh"), f.expired, css.s6],
   ];
   return (
     <section className={card} aria-label={L("Quotations this month", "Sebut harga bulan ini")}>
@@ -143,6 +172,7 @@ function QuoteFunnel({ docs, partPaid, monthKey, today, onOpen }: { docs: WsDoc[
         <button type="button" className={btnSm} onClick={() => onOpen("QT")}>{L("Open quotations", "Buka sebut harga")}</button>
       </div>
       <p className={css.meta}>{L("Quotations raised this month and where each one is now.", "Sebut harga yang dikeluarkan bulan ini dan di mana setiap satu sekarang.")}</p>
+      <p className={css.conv}><strong>{L("Conversion", "Penukaran")}</strong> {convText(f)}{f.raised > 0 && <> · {L(`${fmtRM(f.won_cents)} of ${fmtRM(f.raised_cents)} quoted`, `${fmtRM(f.won_cents)} daripada ${fmtRM(f.raised_cents)} disebut`)}</>}</p>
       <ul className={css.funnel}>
         {steps.map(([label, n, tone]) => (
           <li key={label} className={tone ?? ""}><span className={css.fnN}>{n}</span><span className={css.fnL}>{label}</span></li>
@@ -226,20 +256,62 @@ function LatestInvoices({ docs, partPaid, onOpen, onAll }: { docs: WsDoc[]; part
 }
 
 export function SalesOverviewCards(p: {
-  docs: WsDoc[]; partPaid: Record<number, number>; followups: WsFollowUp[]; monthKey: string; today: string;
+  docs: WsDoc[]; partPaid: Record<number, number>; followups: WsFollowUp[]; monthKey: string; today: string; summary?: SalesSummary | null;
   onOpenDocs: (filter: "QT" | "INV") => void; onOpenDoc: (d: WsDoc) => void; onOpenCustomer: (f: WsFollowUp) => void; onClosed: () => void;
 }) {
   return (
     <>
+      {p.summary && <WeekCard s={p.summary} />}
       <div className={css.grid2}>
-        <CollectedTrend docs={p.docs} monthKey={p.monthKey} today={p.today} />
-        <QuoteFunnel docs={p.docs} partPaid={p.partPaid} monthKey={p.monthKey} today={p.today} onOpen={() => p.onOpenDocs("QT")} />
+        <CollectedTrend docs={p.docs} monthKey={p.monthKey} today={p.today} daily={p.summary?.month === p.monthKey ? p.summary.daily : undefined} />
+        <QuoteFunnel docs={p.docs} partPaid={p.partPaid} monthKey={p.monthKey} today={p.today} onOpen={() => p.onOpenDocs("QT")} server={p.summary?.month === p.monthKey ? p.summary.funnel : undefined} />
       </div>
       <div className={css.grid2}>
         <FollowUps rows={p.followups} today={p.today} onOpen={p.onOpenCustomer} />
         <LatestInvoices docs={p.docs} partPaid={p.partPaid} onOpen={p.onOpenDoc} onAll={p.onClosed} />
       </div>
     </>
+  );
+}
+
+/* ---- v1.216.0 - THIS WEEK (the owner, 28-10-2026: "Pace of monthly
+   target"). Monday-Sunday, Malaysia time, from the server. The target line
+   is the APPROVED monthly target spread over the month's days - shown only
+   when one is set; no figure is invented. Commission stays off the screen
+   until a commission policy exists. ---- */
+function WeekCard({ s }: { s: SalesSummary }) {
+  const w = s.week;
+  const pace = w.target_pace_cents;
+  const pct = pace && pace > 0 ? Math.min(100, Math.round((w.collected.cents / pace) * 100)) : null;
+  const items: [string, string, string][] = [
+    [L("Collected", "Dikutip"), fmtRM(w.collected.cents), L(`${w.collected.n} paid in full`, `${w.collected.n} dibayar penuh`)],
+    [L("Quotations sent", "Sebut harga dihantar"), String(w.quotations.n), fmtRM(w.quotations.cents)],
+    [L("Deals won", "Jualan dimenangi"), String(w.won.n), L(`${fmtRM(w.won.cents)} invoiced from a quotation`, `${fmtRM(w.won.cents)} diinvois daripada sebut harga`)],
+    [L("Conversion", "Penukaran"), w.funnel.raised ? `${Math.round((w.funnel.invoiced / w.funnel.raised) * 100)}%` : "—", L("of this week's quotations", "daripada sebut harga minggu ini")],
+    ...(w.enquiries !== null ? [[L("New enquiries", "Pertanyaan baharu"), String(w.enquiries), L(`${w.qualified ?? 0} qualified`, `${w.qualified ?? 0} layak`)] as [string, string, string]] : []),
+    [L("New customers", "Pelanggan baharu"), String(w.new_customers), s.scope === "mine" ? L("added by you", "ditambah oleh anda") : L("added by anyone", "ditambah oleh sesiapa")],
+  ];
+  return (
+    <section className={card} aria-label={L("This week", "Minggu ini")}>
+      <div className={css.head}>
+        <div>
+          <PanelTitle icon="date">{L("This week", "Minggu ini")}</PanelTitle>
+          <p className={css.meta}>{dmy(w.from)} – {dmy(w.to)} · {s.scope === "mine" ? L("your sales", "jualan anda") : L("everyone", "semua orang")}</p>
+        </div>
+      </div>
+      {pace === null ? (
+        <p className={css.weekTarget}>{L("No target set for this month - the week shows what happened, not a goal.", "Tiada sasaran ditetapkan untuk bulan ini - minggu ini menunjukkan apa yang berlaku, bukan matlamat.")}</p>
+      ) : (
+        <div className={css.weekTarget}>
+          <span>{L(`${fmtRM(w.collected.cents)} of ${fmtRM(pace)} this week`, `${fmtRM(w.collected.cents)} daripada ${fmtRM(pace)} minggu ini`)}</span>
+          <span className={css.bar} role="img" aria-label={L(`${pct}% of the week's pace`, `${pct}% daripada rentak minggu ini`)}><span style={{ width: `${pct}%` }} /></span>
+          <span className={css.dim}>{L("Pace: the approved monthly target spread over the month's days", "Rentak: sasaran bulanan yang diluluskan dibahagi mengikut hari dalam bulan")}</span>
+        </div>
+      )}
+      <ul className={css.weekGrid}>
+        {items.map(([k, v, sub]) => <li key={k}><span className={css.fnL}>{k}</span><strong>{v}</strong><span className={css.dim}>{sub}</span></li>)}
+      </ul>
+    </section>
   );
 }
 

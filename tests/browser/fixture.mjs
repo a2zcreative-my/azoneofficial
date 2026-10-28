@@ -473,6 +473,29 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d) : docs,
     can_confirm_paid: ["ceo", "coo", "super_admin"].includes(ROLE),
   };
+  /* v1.216.0 - the Sales figures over the whole table, worked out by hand
+     from the documents above (scope=all) and for the signed-in 9001 (mine);
+     the company's September target (invented) gives the week its pace */
+  if (p === "/staff/docs/summary") {
+    const mine = q.get("scope") === "mine";
+    const z = { cents: 0, n: 0 };
+    const fz = { raised: 0, raised_cents: 0, invoiced: 0, won_cents: 0, paid: 0, part: 0, expired: 0 };
+    data = mine ? {
+      month: "2026-09", scope: "mine", today: "2026-09-18",
+      collected: z, collected_last: z, invoiced: { cents: 990000, n: 1 }, invoiced_last: z, quotations: z, quotations_spark: [0, 0, 0, 0, 0, 0],
+      outstanding: { n: 1, total_cents: 990000, balance_cents: 590000 }, cash_cents: 400000, cash_last_cents: 0, parts_known: true,
+      daily: [], funnel: fz,
+      week: { from: "2026-09-14", to: "2026-09-20", target_pace_cents: null, collected: z, quotations: z, won: z, funnel: fz, new_customers: 0, enquiries: 0, qualified: 0 },
+    } : {
+      month: "2026-09", scope: "all", today: "2026-09-18",
+      collected: { cents: 280000, n: 1 }, collected_last: z, invoiced: { cents: 1270000, n: 2 }, invoiced_last: { cents: 120000, n: 1 },
+      quotations: { cents: 450000, n: 1 }, quotations_spark: [0, 0, 0, 0, 0, 1],
+      outstanding: { n: 2, total_cents: 1110000, balance_cents: 710000 }, cash_cents: 680000, cash_last_cents: 0, parts_known: true,
+      daily: [{ day: "2026-09-12", cents: 280000 }], funnel: { ...fz, raised: 1, raised_cents: 450000 },
+      week: { from: "2026-09-14", to: "2026-09-20", target_pace_cents: 700000, collected: z, quotations: { cents: 450000, n: 1 }, won: z,
+        funnel: { ...fz, raised: 1, raised_cents: 450000 }, new_customers: 0, enquiries: 2, qualified: 0 },
+    };
+  }
   if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null,
     rows: process.env.CONFIRMED && (q.get("month") ?? "") === "2026-09" ? [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", amount_cents: 280000, payment_ref: null,
       paid_at: D + "12 10:00:00", confirmed_at: D + "13 02:00:00", confirmed_by_name: "Fixture COO", salesperson_id: 9002, closer_name: "Nur Aisyah" }] : [] };

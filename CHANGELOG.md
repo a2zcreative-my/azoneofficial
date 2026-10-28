@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.216.0] - 2026-10-28 - Sales figures from every record, new enquiries on Sales, this week
+
+The owner's answers to the Sales growth audit (`claude/SALES-GROWTH-AUDIT.md`):
+"Whole table + show balance", "Show on Sales, notify", "Pace of monthly
+target"; the CCO keeps recording payments ("Keep as is").
+
+- **Sales figures from every record.** The tiles were worked out on the
+  screen from the 200 newest documents, so past 200 an old unpaid invoice
+  left "Unpaid" and an old invoice paid this month left "Collected". New
+  read-only `GET /staff/docs/summary?scope=` computes the same rules over the
+  whole table (paid by `COALESCE(paid_at, created_at)` in Malaysia time, as
+  `/revenue`; raised by `created_at`). `GET /docs` also carries every unpaid
+  invoice and every invoice paid since last month beyond its 200, so Closed
+  Sales agrees. An older worker without the route leaves the screen on its
+  own figures.
+- **Unpaid Invoices** now shows what is still owed (total less part payments
+  not voided) beside what was invoiced. **Cash received** is a new tile: part
+  payments on the day they arrived, plus the rest of each invoice marked paid
+  this month - nothing counted twice. Collected is unchanged.
+- **Quotation funnel** says its conversion (invoiced of raised, and value
+  won of value quoted). The trend says it is invoices only (the Dashboard
+  adds TikTok and other channels).
+- **This week** card (Monday-Sunday): collected, quotations sent, deals won,
+  conversion, new enquiries (qualified), new customers; the target line is
+  the approved monthly target spread over the month's days, and says "No
+  target set" when there is none. No commission shown.
+- **New enquiries on Sales**, Customers & Follow-ups: take, hand over,
+  reply, status, Make quotation (the existing prefill), over the enquiry
+  routes that already existed. A new enquiry notifies the sales consultants
+  and the CEO once, landing on Sales. The Enquiries tab stays retired.
+- Six figures sit three across (six on very wide screens), two on a phone.
+- Guard `tests/sales-figures.mjs` (26 checks, runs the route against
+  SQLite past 200 documents; negative-tested).
+- Needs: `PUSH.bat` (worker deploy). No migration.
+
 ## [1.215.0] - 2026-10-28 - Payroll 2.0, phase A: Sales Commission column and CEO/COO paid confirmation
 
 The owner's "Payroll 2.0" brief and his answers to the audit
