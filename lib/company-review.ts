@@ -35,6 +35,11 @@ export interface ReviewDecision {
 }
 export interface ReviewRecord {
   id: number;
+  /** v1.221.0 - who it is with (vendor, customer, channel, bank) and its category: evidence on screen only */
+  party?: string | null;
+  category?: string | null;
+  /** v1.221.0 - the evidence hash the list was drawn from (bulk review refuses a changed record) */
+  snapshot?: string;
   title: string;
   date: string | null;
   amount_cents: number | null;

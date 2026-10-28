@@ -2,7 +2,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { can } from "./permissions";
 import { err, json, str } from "./shared";
-import { REVIEW_KINDS, isCompanyCode, type ReviewKind, type ReviewRecord, type ReviewDecision, type CompanyMembership } from "../../lib/company-review";
+import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, isCompanyCode, type ReviewKind, type ReviewRecord, type ReviewDecision, type CompanyMembership } from "../../lib/company-review";
 
 type Source = Record<string, string | number | null> & { id: number };
 const LABELS: Record<ReviewKind, string[]> = {
@@ -21,9 +21,15 @@ async function hash(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
+/* v1.221.0 - who the record is with, and its category, for the table and
+   search (evidence on screen - never used to infer the owner) */
+const PARTY = ["vendor", "customer", "supplier_name", "channel", "bank"];
+const CATEGORY = ["category", "reason", "source"];
+const firstOf = (row: Source, keys: string[]) => { for (const k of keys) { const v = row[k]; if (v !== null && v !== undefined && v !== "") return String(v); } return null; };
 function record(kind: ReviewKind, row: Source, decision: ReviewDecision | null): ReviewRecord {
   return {
-    id: row.id, title: title(kind, row), date: String(row.expense_date ?? row.entry_date ?? row.period ?? row.created_at ?? "") || null,
+    party: firstOf(row, PARTY), category: firstOf(row, CATEGORY),
+    id: row.id, title: title(kind, row), date: String(row.effective_date ?? row.expense_date ?? row.entry_date ?? row.out_date ?? row.period ?? row.created_at ?? "") || null,
     amount_cents: typeof row.amount_cents === "number" ? row.amount_cents : typeof row.total_cents === "number" ? row.total_cents : null,
     quantity: typeof row.stock === "number" ? row.stock : typeof row.qty === "number" ? row.qty : typeof row.delta === "number" ? row.delta : null,
     state: !decision ? "unassigned" : decision.source_json !== canonical(row) ? "stale" : decision.proposed_company ? "proposed" : "deferred",
@@ -91,6 +97,134 @@ export async function handleCompanyReview(env: Env, url: URL, path: string, meth
   try {
     // Migration absence is not an empty queue.
     await env.DB.prepare(`SELECT record_id FROM company_review_decisions LIMIT 1`).first();
+    /* ================= v1.221.0 - Companies 2.0 (the owner's answers,
+       28-10-2026: "Build the 3 tabs", "Bulk with preview", "Checklist now,
+       enforce later", "Count them, read-only"). Read-only figures, the
+       company-wide history, and a bulk review that is the single review
+       repeated - one guarded event per record, all or nothing. ============ */
+    if (path === "/summary" && method === "GET") {
+      const registers: { kind: ReviewKind; total: number; unassigned: number; proposed: number; deferred: number; stale: number; by_company: Record<string, number> }[] = [];
+      for (const kind of Object.keys(REVIEW_KINDS) as ReviewKind[]) {
+        const rows = (await env.DB.prepare(`SELECT s.* FROM ${kind} s`).all<Source>().catch(() => ({ results: [] as Source[] }))).results ?? [];
+        const decisions = (await env.DB.prepare(`SELECT record_id, proposed_company, source_json FROM company_review_decisions WHERE record_kind=?1`).bind(kind).all<{ record_id: number; proposed_company: string | null; source_json: string }>()).results ?? [];
+        const byId = new Map(decisions.map(d => [d.record_id, d]));
+        const reg = { kind, total: rows.length, unassigned: 0, proposed: 0, deferred: 0, stale: 0, by_company: {} as Record<string, number> };
+        for (const row of rows) {
+          const d = byId.get(row.id);
+          if (!d) { reg.unassigned++; continue; }
+          if (d.source_json !== canonical(row)) { reg.stale++; continue; }
+          if (d.proposed_company) { reg.proposed++; reg.by_company[d.proposed_company] = (reg.by_company[d.proposed_company] ?? 0) + 1; }
+          else reg.deferred++;
+        }
+        registers.push(reg);
+      }
+      const staff = (await env.DB.prepare(`SELECT u.id, u.role, s.employer_code, (SELECT COUNT(*) FROM company_memberships m WHERE m.user_id=u.id) AS memberships,
+          (SELECT COUNT(*) FROM company_memberships m WHERE m.user_id=u.id AND m.access_mode='write') AS writes
+        FROM users u LEFT JOIN company_staff_setup s ON s.user_id=u.id WHERE u.role!='customer' AND u.is_active=1`).all<{ id: number; role: string; employer_code: string | null; memberships: number; writes: number }>()).results ?? [];
+      /* documents already stamped with their company when issued - counted
+         only, never reviewed or changed here */
+      const stamped: { register: string; company: string; n: number }[] = [];
+      const count = async (register: string, sql: string) => {
+        try { for (const r of (await env.DB.prepare(sql).all<{ company: string; n: number }>()).results ?? []) stamped.push({ register, company: r.company, n: r.n }); } catch { /* register not in this database */ }
+      };
+      await count("invoices", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM sales_documents WHERE doc_type='INV' GROUP BY 1`);
+      await count("quotations", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM sales_documents WHERE doc_type='QT' GROUP BY 1`);
+      await count("delivery_orders", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM sales_documents WHERE doc_type='DO' GROUP BY 1`);
+      await count("receipts", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM receipts GROUP BY 1`);
+      await count("credit_notes", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM credit_notes GROUP BY 1`);
+      await count("claims", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM claims GROUP BY 1`);
+      await count("payslip_months", `SELECT COALESCE(issuer_code,'legacy') AS company, COUNT(*) AS n FROM payslip_releases GROUP BY 1`);
+      const sum = (k: "unassigned" | "proposed" | "deferred" | "stale") => registers.reduce((a, r) => a + r[k], 0);
+      const mgmt = staff.filter(s => ["ceo", "coo", "super_admin"].includes(s.role));
+      const checklist = [
+        { key: "reviewed", done: sum("unassigned") === 0, detail: `${sum("unassigned")}` },
+        { key: "settled", done: sum("stale") === 0 && sum("deferred") === 0, detail: `${sum("stale")}/${sum("deferred")}` },
+        { key: "staff_setup", done: staff.length > 0 && staff.every(s => s.employer_code && s.memberships > 0), detail: `${staff.filter(s => s.employer_code && s.memberships > 0).length}/${staff.length}` },
+        { key: "management", done: mgmt.length > 0 && mgmt.every(s => s.writes >= 2), detail: `${mgmt.filter(s => s.writes >= 2).length}/${mgmt.length}` },
+        { key: "ownership_columns", done: false, detail: "not_built" },
+        { key: "scoped_queries", done: false, detail: "not_built" },
+        { key: "jobs_scope", done: false, detail: "not_built" },
+        { key: "pilot", done: false, detail: "not_run" },
+        { key: "rollback_switch", done: false, detail: "not_built" },
+      ];
+      return json({
+        companies: COMPANY_CODES.map(code => ({ code, name: COMPANY_NAMES[code] })),
+        registers,
+        totals: { unassigned: sum("unassigned"), proposed: sum("proposed"), deferred: sum("deferred"), stale: sum("stale"), pending: sum("proposed") + sum("deferred") + sum("stale") },
+        staff: { active: staff.length, with_employer: staff.filter(s => s.employer_code).length, with_access: staff.filter(s => s.memberships > 0).length, without_access: staff.filter(s => s.memberships === 0).length },
+        stamped, checklist, enforcement: "not_active", mode: "reconciliation_only",
+      });
+    }
+    if (path === "/events" && method === "GET") {
+      const page = Number(url.searchParams.get("page") ?? 0);
+      if (!Number.isSafeInteger(page) || page < 0 || page > 100000) return err("validation", "Invalid page", 400);
+      const type = url.searchParams.get("type") ?? "all";
+      if (!["all", "ownership", "staff"].includes(type)) return err("validation", "Invalid activity type", 400);
+      const from = url.searchParams.get("from") ?? "", to = url.searchParams.get("to") ?? "";
+      const day = /^\d{4}-\d{2}-\d{2}$/;
+      const where: string[] = [];
+      const args: unknown[] = [];
+      if (type === "staff") where.push(`e.subject_kind = 'staff'`);
+      if (type === "ownership") where.push(`e.subject_kind != 'staff'`);
+      if (day.test(from)) { args.push(from); where.push(`date(e.created_at, '+8 hours') >= ?${args.length}`); }
+      if (day.test(to)) { args.push(to); where.push(`date(e.created_at, '+8 hours') <= ?${args.length}`); }
+      const sql = `FROM company_review_events e LEFT JOIN users u ON u.id = e.actor_id LEFT JOIN users w ON e.subject_kind = 'staff' AND w.id = e.subject_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
+      const total = await env.DB.prepare(`SELECT COUNT(*) AS n ${sql}`).bind(...args).first<{ n: number }>();
+      const rows = (await env.DB.prepare(`SELECT e.rowid AS seq, e.created_at, e.subject_kind, e.subject_id, e.before_json, e.after_json, u.name AS actor_name, w.name AS staff_name ${sql} ORDER BY e.created_at DESC, e.rowid DESC LIMIT 25 OFFSET ?${args.length + 1}`).bind(...args, page * 25).all()).results ?? [];
+      return json({ events: rows, total: total?.n ?? 0, page, mode: "reconciliation_only" });
+    }
+    if (path === "/records/bulk" && method === "PUT") {
+      const kind = typeof body?.kind === "string" && isKind(body.kind) ? body.kind as ReviewKind : null;
+      const items = Array.isArray(body?.items) ? body!.items as { id?: unknown; snapshot?: unknown; version?: unknown }[] : [];
+      if (!kind || items.length === 0 || items.length > 100 || !str(body?.request_id, 60) || !/^[a-zA-Z0-9-]{16,60}$/.test(body!.request_id as string)
+        || !str(body?.reason, 1000) || (body!.reason as string).trim().length < 8 || !(body?.proposed_company === null || isCompanyCode(body?.proposed_company))
+        || !items.every(i => positiveId(i.id) && typeof i.snapshot === "string" && /^[a-f0-9]{64}$/.test(i.snapshot) && versionNumber(i.version))
+        || new Set(items.map(i => i.id)).size !== items.length) {
+        return err("validation", "Choose records of one register, a company or defer, and a reason of at least 8 characters", 400);
+      }
+      const reason = (body!.reason as string).trim();
+      const company = body!.proposed_company as string | null;
+      const requestOf = (i: { id?: unknown; snapshot?: unknown; version?: unknown }) => JSON.stringify({ kind, id: i.id, company, reason, version: i.version, snapshot: i.snapshot, bulk: true });
+      /* a retry of a save that already went through answers "done" before the
+         records are re-checked (their versions have moved on since) - only
+         for the same person and the very same decision */
+      if (body?.dry_run !== true) {
+        const prior = (await env.DB.prepare(`SELECT actor_id, subject_id, request_json FROM company_review_events WHERE request_id LIKE ?1`).bind(`${body!.request_id}-%`).all<{ actor_id: number; subject_id: number; request_json: string }>()).results ?? [];
+        if (prior.length > 0) {
+          const same = prior.length === items.length && prior.every(p => p.actor_id === user.id && items.some(i => i.id === p.subject_id && requestOf(i) === p.request_json));
+          return same ? json({ ok: true, replayed: true, count: prior.length }) : err("idempotency_conflict", "This request ID was already used for a different decision", 409);
+        }
+      }
+      const checked: { id: number; source: Source; before: ReviewDecision | null; version: number; requestJson: string; rid: string }[] = [];
+      let total = 0;
+      for (const i of items) {
+        const id = i.id as number;
+        const source = await sourceFor(env, kind, id);
+        if (!source) return err("not_found", `Record #${id} no longer exists`, 404);
+        const before = await decisionFor(env, kind, id);
+        if ((before?.version ?? 0) !== i.version || await hash(canonical(source)) !== i.snapshot) return err("stale_review", `Record #${id} changed since it was listed. Reload before saving`, 409);
+        const rid = `${body!.request_id}-${id}`;
+        const requestJson = requestOf(i);
+        checked.push({ id, source, before, version: i.version as number, requestJson, rid });
+        total += typeof source.amount_cents === "number" ? source.amount_cents : typeof source.total_cents === "number" ? source.total_cents : 0;
+      }
+      /* the impact preview: what would be saved, nothing written */
+      if (body?.dry_run === true) return json({ ok: true, dry_run: true, count: checked.length, total_cents: total, company });
+      const statements = [];
+      for (const c of checked) {
+        const after = { proposed_company: company, reason, version: c.version + 1, source_json: canonical(c.source), bulk: true };
+        const entries = Object.entries(c.source);
+        const columns = entries.map(([key]) => `"${key.replaceAll('"', '""')}" IS ?`).join(" AND ");
+        const guard = `EXISTS(SELECT 1 FROM ${kind} WHERE ${columns}) AND COALESCE((SELECT version FROM company_review_decisions WHERE record_kind=? AND record_id=?),0)=?`;
+        statements.push(
+          event(env, user, c.rid, kind, c.id, c.requestJson, c.before, after, guard, [...entries.map(([, value]) => value), kind, c.id, c.version]),
+          env.DB.prepare(`INSERT INTO company_review_decisions (record_kind,record_id,proposed_company,source_json,reason,version,reviewed_by) VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(record_kind,record_id) DO UPDATE SET proposed_company=excluded.proposed_company,source_json=excluded.source_json,reason=excluded.reason,version=excluded.version,reviewed_by=excluded.reviewed_by,reviewed_at=datetime('now')`).bind(kind, c.id, company, canonical(c.source), reason, after.version, user.id),
+          auditStatement(env, user, kind, c.id, c.rid),
+        );
+      }
+      await env.DB.batch(statements);
+      return json({ ok: true, count: checked.length, total_cents: total });
+    }
     if (path === "/records" && method === "GET") {
       const kind = url.searchParams.get("kind") ?? "expenses";
       if (!isKind(kind)) return err("validation", "Unknown record type", 400);
@@ -98,11 +232,32 @@ export async function handleCompanyReview(env: Env, url: URL, path: string, meth
       if (!Number.isSafeInteger(page) || page < 0 || page > 100000) return err("validation", "Invalid page", 400);
       const filter = url.searchParams.get("filter") ?? "unassigned";
       if (!["all", "unassigned", "reviewed"].includes(filter)) return err("validation", "Invalid filter", 400);
+      /* v1.221.0 - by state (proposed / deferred / changed need the snapshot
+         compared, so they are filtered here, not in SQL), search and dates */
+      const state = url.searchParams.get("state");
+      const q = (url.searchParams.get("q") ?? "").trim().toLowerCase().slice(0, 80);
+      const from = url.searchParams.get("from") ?? "", to = url.searchParams.get("to") ?? "";
+      if (state !== null && !["all", "unassigned", "proposed", "deferred", "stale"].includes(state)) return err("validation", "Invalid state", 400);
+      if (state !== null || q || from || to) {
+        const all = (await env.DB.prepare(`SELECT s.* FROM ${kind} s ORDER BY s.id DESC LIMIT 20000`).all<Source>()).results ?? [];
+        const decided = (await env.DB.prepare(`SELECT d.*, u.name AS reviewed_by_name FROM company_review_decisions d LEFT JOIN users u ON u.id=d.reviewed_by WHERE d.record_kind=?1`).bind(kind).all<ReviewDecision & { record_id: number }>()).results ?? [];
+        const byId = new Map(decided.map(d => [d.record_id, d]));
+        const list = all.map(row => record(kind, row, byId.get(row.id) ?? null)).filter(r =>
+          (!state || state === "all" || r.state === state)
+          && (!q || `${r.title} ${r.party ?? ""} ${r.category ?? ""} #${r.id}`.toLowerCase().includes(q))
+          && (!/^\d{4}-\d{2}-\d{2}$/.test(from) || (r.date ?? "").slice(0, 10) >= from)
+          && (!/^\d{4}-\d{2}-\d{2}$/.test(to) || ((r.date ?? "").slice(0, 10) !== "" && (r.date ?? "").slice(0, 10) <= to)));
+        const shown = list.slice(page * 25, page * 25 + 25);
+        const rowOf = new Map(all.map(row => [row.id, row]));
+        return json({ records: await Promise.all(shown.map(async r => ({ ...r, snapshot: await hash(canonical(rowOf.get(r.id)!)) }))), total: list.length, page, mode: "reconciliation_only" });
+      }
       const where = filter === "unassigned" ? "AND d.record_id IS NULL" : filter === "reviewed" ? "AND d.record_id IS NOT NULL" : "";
       const total = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${kind} s LEFT JOIN company_review_decisions d ON d.record_kind=?1 AND d.record_id=s.id WHERE 1=1 ${where}`).bind(kind).first<{ n: number }>();
       const rows = (await env.DB.prepare(`SELECT s.* FROM ${kind} s LEFT JOIN company_review_decisions d ON d.record_kind=?1 AND d.record_id=s.id WHERE 1=1 ${where} ORDER BY s.id DESC LIMIT 25 OFFSET ?2`).bind(kind, page * 25).all<Source>()).results;
       const decisions = (await env.DB.prepare(`SELECT d.*, u.name AS reviewed_by_name FROM company_review_decisions d LEFT JOIN users u ON u.id=d.reviewed_by WHERE d.record_kind=?1 AND d.record_id IN (SELECT s.id FROM ${kind} s LEFT JOIN company_review_decisions q ON q.record_kind=?1 AND q.record_id=s.id WHERE 1=1 ${where.replaceAll("d.", "q.")} ORDER BY s.id DESC LIMIT 25 OFFSET ?2)`).bind(kind, page * 25).all<ReviewDecision & { record_id: number }>()).results;
-      return json({ records: rows.map(row => record(kind, row, decisions.find(d => d.record_id === row.id) ?? null)), total: total?.n ?? 0, page, mode: "reconciliation_only" });
+      /* v1.221.0 - each row carries its evidence snapshot, so a bulk review
+         is refused if any record changed after it was listed */
+      return json({ records: await Promise.all(rows.map(async row => ({ ...record(kind, row, decisions.find(d => d.record_id === row.id) ?? null), snapshot: await hash(canonical(row)) }))), total: total?.n ?? 0, page, mode: "reconciliation_only" });
     }
     const match = /^\/records\/([a-z_]+)\/(\d+)$/.exec(path);
     if (match && isKind(match[1]!)) {

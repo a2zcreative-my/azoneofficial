@@ -10,6 +10,50 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.221.0] - 2026-10-28 - Companies 2.0: three tabs, bulk review with preview
+
+The owner's Companies brief and answers, 28-10-2026: "Build the 3 tabs",
+"Bulk with preview", "Checklist now, enforce later", "Count them,
+read-only". Reconciliation only - nothing restricts anyone; roles still
+decide what each person can open. No migration.
+
+- **Three tabs** (underline tabs): Ownership Review, Staff Access, Audit &
+  History, under a standing "Reconciliation only" notice and four figures -
+  the two companies, records not yet reviewed, reviewed but not settled
+  (proposed / deferred / changed), and company access "Not active" with
+  its readiness steps.
+- **Ownership Review**: every register at a glance (not reviewed, by
+  company, deferred, changed), then the records with register, status, date
+  range and search (description, party, category, #id); a table on desk,
+  cards on a phone. A record opens in a drawer with its source evidence and
+  linked records; the save flow is unchanged (company or defer, a reason,
+  confirm). Documents already stamped when issued (invoices, quotations,
+  delivery orders, receipts, credit notes, claims, payslip months) are
+  COUNTED by company, read-only, never reviewed here.
+- **Bulk review with preview**: tick up to 100 records of one register,
+  choose a company or defer, give one reason, Preview impact (a dry run:
+  how many, their value, the decision - nothing written), then Save. Each
+  record gets its own review, event and audit line in one batch - all or
+  nothing; any record changed since it was listed refuses the lot; a retry
+  of the same request does not write twice. Never inferred from a name or
+  category; never changes a record, an invoice's Paid status or commission.
+- **Staff Access**: each person's employer and planned AZ ONE / A2Z access
+  (search, inactive on request), set up in a drawer labelled "Planned
+  access - not enforced yet", and the readiness checklist: the data steps
+  done on this page, and the build steps (ownership columns, scoped
+  queries, jobs, pilot, rollback switch) marked for a later release you
+  approve. Nothing on the page switches restrictions on.
+- **Audit & History**: every review and access plan, newest first, Malaysia
+  time, with who and the reason, filtered by type and date; read-only.
+- Worker (`worker/src/company-review.ts`): `GET /staff/companies/summary`,
+  `GET /staff/companies/events`, `PUT /staff/companies/records/bulk`
+  (`dry_run`), and `/records` takes `state`, `q`, `from`, `to`; listed rows
+  carry `party`, `category` and their evidence `snapshot`. CEO and super
+  admin only, as before.
+- Guard `companies-v2` (73 runtime checks, negative-tested); `tab-concept`
+  now expects the underline tabs on Companies; the panel uses no legacy
+  utility class (budget 68 to 0).
+
 ## [1.220.2] - 2026-10-28 - Finance: accounts first, then matching
 
 The owner's screenshot of a movement's details, 28-10-2026: "there is no

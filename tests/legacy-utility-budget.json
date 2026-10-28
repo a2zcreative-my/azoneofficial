@@ -53,7 +53,7 @@
   "components/portal/announcements.tsx": 47,
   "components/portal/assets-panel.tsx": 59,
   "components/portal/cards-panel.tsx": 73,
-  "components/portal/companies-panel.tsx": 68,
+  "components/portal/companies-panel.tsx": 0,
   "components/portal/company-monitor.tsx": 68,
   "components/portal/connection-status-card.tsx": 27,
   "components/portal/content-panel.tsx": 57,

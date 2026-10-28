@@ -496,6 +496,70 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
         extras: { working_day: 21, public_holiday: 1, annual_leave: 0, medical_leave: 0, annual_bal: 8, sick_bal: 14 }, joined_on: "2023-01-01", release_issuer_code: "a2z" };
   if (p === "/auth/2fa/status") data = { enabled: false, eligible: true, backup_codes_left: 0, reauth: "password" };
   if (p === "/cashflow") data = { entries: cash };
+  /* v1.221.0 - Companies 2.0 (worker/src/company-review.ts) in the shape it
+     sends: test rows only - two companies, nine registers, one reviewed,
+     one deferred, one changed since its review, and a staff access plan. */
+  if (p0.startsWith("/staff/companies/")) {
+    const cp = p0.slice("/staff/companies".length);
+    const dec = (company, version, by = "Fixture Person") => ({ proposed_company: company, reason: "Matched to the AZ ONE purchase order and its bank slip", version, reviewed_at: D + "10 03:00:00", reviewed_by_name: by, source_json: "{}" });
+    const rows = [
+      { id: 41, title: "Adobe Systems / Creative Cloud team plan / software", party: "Adobe Systems", category: "software", date: D + "03", amount_cents: 32900, quantity: null, state: "unassigned", decision: null },
+      { id: 40, title: "Shopee Ads / Live campaign boost / marketing", party: "Shopee Ads", category: "marketing", date: D + "02", amount_cents: 150000, quantity: null, state: "unassigned", decision: null },
+      { id: 39, title: "Pos Laju / Courier to Johor Bahru / postage", party: "Pos Laju", category: "postage", date: "2026-08-28", amount_cents: 1850, quantity: null, state: "unassigned", decision: null },
+      { id: 38, title: "Tenaga Nasional / Office electricity Aug / utilities", party: "Tenaga Nasional", category: "utilities", date: "2026-08-25", amount_cents: 48760, quantity: null, state: "proposed", decision: dec("azoo", 1) },
+      { id: 37, title: "Grab / Client visit Melaka / travel", party: "Grab", category: "travel", date: "2026-08-20", amount_cents: 6420, quantity: null, state: "deferred", decision: { ...dec(null, 1), reason: "Shared trip - waiting for the client list" } },
+      { id: 36, title: "Canva / Pro yearly / software", party: "Canva", category: "software", date: "2026-08-12", amount_cents: 54900, quantity: null, state: "stale", decision: dec("a2z", 2) },
+    ].map((r) => ({ ...r, snapshot: String(r.id).padStart(64, "a") }));
+    if (cp === "/summary") data = {
+      companies: [{ code: "azoo", name: "AZ ONE" }, { code: "a2z", name: "A2Z Creative" }],
+      registers: [
+        { kind: "expenses", total: 6, unassigned: 3, proposed: 1, deferred: 1, stale: 1, by_company: { azoo: 1 } },
+        { kind: "purchase_orders", total: 2, unassigned: 2, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+        { kind: "bank_accounts", total: 3, unassigned: 0, proposed: 3, deferred: 0, stale: 0, by_company: { azoo: 1, a2z: 2 } },
+        { kind: "cashflow_entries", total: 14, unassigned: 12, proposed: 2, deferred: 0, stale: 0, by_company: { a2z: 2 } },
+        { kind: "reconciliations", total: 0, unassigned: 0, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+        { kind: "inventory_items", total: 9, unassigned: 9, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+        { kind: "manual_stockouts", total: 4, unassigned: 4, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+        { kind: "stock_ledger", total: 11, unassigned: 11, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+        { kind: "journal_entries", total: 5, unassigned: 5, proposed: 0, deferred: 0, stale: 0, by_company: {} },
+      ],
+      totals: { unassigned: 46, proposed: 6, deferred: 1, stale: 1, pending: 8 },
+      staff: { active: 3, with_employer: 2, with_access: 2, without_access: 1 },
+      stamped: [{ register: "invoices", company: "azoo", n: 12 }, { register: "invoices", company: "a2z", n: 30 }, { register: "invoices", company: "legacy", n: 4 }, { register: "quotations", company: "a2z", n: 18 }, { register: "receipts", company: "azoo", n: 7 }],
+      checklist: [
+        { key: "reviewed", done: false, detail: "46" }, { key: "settled", done: false, detail: "1/1" }, { key: "staff_setup", done: false, detail: "2/3" }, { key: "management", done: true, detail: "1/1" },
+        { key: "ownership_columns", done: false, detail: "not_built" }, { key: "scoped_queries", done: false, detail: "not_built" }, { key: "jobs_scope", done: false, detail: "not_built" }, { key: "pilot", done: false, detail: "not_run" }, { key: "rollback_switch", done: false, detail: "not_built" },
+      ],
+      enforcement: "not_active", mode: "reconciliation_only",
+    };
+    if (cp === "/records") {
+      const kind = q.get("kind") ?? "expenses", st = q.get("state") ?? "unassigned", qq = (q.get("q") ?? "").toLowerCase();
+      const list = kind !== "expenses" ? [] : rows.filter((r) => (st === "all" || r.state === st) && (!qq || `${r.title} ${r.party} #${r.id}`.toLowerCase().includes(qq)));
+      data = { records: list, total: list.length, page: 0, mode: "reconciliation_only" };
+    }
+    const m = /^\/records\/([a-z_]+)\/(\d+)$/.exec(cp);
+    if (m) {
+      const r = rows.find((x) => x.id === Number(m[2])) ?? rows[0];
+      data = { ...r, kind: m[1], snapshot: r.snapshot, source: { id: r.id, vendor: r.party, description: r.title.split(" / ")[1], category: r.category, amount_cents: r.amount_cents, expense_date: r.date }, related: [], related_truncated: false,
+        history: r.decision ? [{ actor_name: "Fixture Person", created_at: D + "10 03:00:00", after_json: JSON.stringify({ proposed_company: r.decision.proposed_company, reason: r.decision.reason }) }] : [] };
+    }
+    if (cp === "/staff") data = { staff: [
+      { id: 9001, name: "Fixture Person", role: "ceo", is_active: 1, employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "write" }, { company_code: "azoo", access_mode: "write" }], version: 1 },
+      { id: 9002, name: "Nur Aisyah binti Abdullah", role: "sales_marketing", is_active: 1, employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "read" }], version: 1 },
+      { id: 9003, name: "Muhammad Hafizuddin", role: "live_host", is_active: 1, employer_code: null, memberships: [], version: 0 },
+      { id: 9005, name: "Former Staff", role: "hr_admin", is_active: 0, employer_code: null, memberships: [], version: 0 },
+    ], mode: "reconciliation_only" };
+    if (/^\/staff\/\d+$/.test(cp)) data = { history: [] };
+    if (cp === "/events") {
+      const type = q.get("type") ?? "all";
+      const ev = [
+        { seq: 3, created_at: D + "17 06:30:00", subject_kind: "expenses", subject_id: 36, before_json: JSON.stringify({ proposed_company: "azoo" }), after_json: JSON.stringify({ proposed_company: "a2z", reason: "Billed to the A2Z card - statement line 14", bulk: true }), actor_name: "Fixture Person", staff_name: null },
+        { seq: 2, created_at: D + "16 01:15:00", subject_kind: "staff", subject_id: 9002, before_json: JSON.stringify({ employer_code: null, memberships: [] }), after_json: JSON.stringify({ employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "read" }], reason: "Offer letter is from A2Z Creative" }), actor_name: "Fixture Person", staff_name: "Nur Aisyah binti Abdullah" },
+        { seq: 1, created_at: D + "10 03:00:00", subject_kind: "expenses", subject_id: 38, before_json: "null", after_json: JSON.stringify({ proposed_company: "azoo", reason: "Matched to the AZ ONE purchase order and its bank slip" }), actor_name: "Fixture Person", staff_name: null },
+      ].filter((e) => type === "all" || (type === "staff") === (e.subject_kind === "staff"));
+      data = { events: ev, total: ev.length, page: 0, mode: "reconciliation_only" };
+    }
+  }
   /* v1.219.0 - Finance 2.0: the cash book view (worker/src/cashbook.ts) in
      the shape it sends - test rows only, the fixture company's own kind. */
   if (p === "/cashbook") {
