@@ -263,3 +263,7 @@ only after a successful `PUSH.bat` run, which applies migrations 0140 to 0144
 in order. Not in this programme (owner's decision): purchasing, locations,
 batches, client portal, appraisals, statutory payslip lines, bank import,
 SST, prospects.
+
+Later additions outside the five phases: 1.215.0 (Payroll 2.0 phase A) adds
+migration `0145_invoice_paid_confirmations` - the CEO or COO confirmation
+that an invoice paid in full is real. It never changes an invoice.

@@ -346,3 +346,54 @@
 .drawerFoot button {
   min-height: 44px;
 }
+
+/* v1.215.0 - the CEO/COO paid confirmation on Closed Sales */
+.rowActs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.cardRow > .rowActs button {
+  min-height: 44px;
+}
+.cardRow > :global(.erp-chip) {
+  justify-self: start;
+}
+.confirmFacts {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: var(--type-body-sm-size);
+}
+.confirmFacts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.confirmFacts dt {
+  color: var(--muted-foreground);
+}
+.confirmFacts dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: var(--type-body-sm-size);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.125rem;
+  flex: none;
+}

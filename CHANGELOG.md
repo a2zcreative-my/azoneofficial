@@ -10,6 +10,46 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.215.0] - 2026-10-28 - Payroll 2.0, phase A: Sales Commission column and CEO/COO paid confirmation
+
+The owner's "Payroll 2.0" brief and his answers to the audit
+(`claude/PAYROLL-COMMISSION-AUDIT.md`): two phases, phase A now; the CEO,
+COO and super admin confirm a paid invoice; commission only when an invoice
+is fully paid and confirmed; OT as a small line under Net plus the row
+details. No salary rule changed and no commission is calculated - there is
+no commission policy yet (phase B waits for the rate and basis).
+
+- Payroll Processing: the OT column is gone and a read-only **Sales
+  Commission** column takes its place - the row's saved commission, how many
+  invoices were confirmed paid this month for that closer, "No policy yet",
+  and View breakdown. There is no box to type a commission.
+- Overtime is still paid and still in Net (hours x 1.5 x basic / 26 / 8):
+  "incl. OT h - RM" sits under Net, with a warning when the row's hours
+  differ from the approved overtime. The hours are corrected in the row's
+  details (Attendance this month - OT hours on this row) and saved as before.
+  The payslip still prints the OVERTIME line.
+- The row's details gain a **Sales commission** section: the invoices
+  confirmed as paid in full this month, who confirmed them and when.
+- Sales - Closed Sales: a **Confirmed** column ("Confirmed - name - date" or
+  "Awaiting CEO/COO confirmation"). The CEO, COO and super admin get
+  **Confirm paid** (shows the total; tick "I checked the bank"; optional bank
+  reference) and **Take back** (reason of 10+ characters). Nobody confirms
+  their own sale. Everyone else, the CCO included, sees the state only.
+- Worker: migration **0145_invoice_paid_confirmations** (one live
+  confirmation per invoice by a partial unique index; revoked with a stamp
+  and reason, never deleted). `POST /docs/:id/confirm-paid` (paid in full,
+  amount = total, the tick, written only while the invoice is still paid at
+  that total, audited `invoice.paid_confirm`), `POST
+  /docs/:id/confirm-paid/revoke` (reason, audited). A confirmation is taken
+  back automatically, with a trail, when the invoice is marked unpaid or
+  overdue or its total is edited. `GET /docs` carries `paid_confirmed_at`,
+  `paid_confirmed_by` and `can_confirm_paid`. `GET
+  /payroll/commission-sources?month=` (payroll processors) lists the month's
+  live confirmations and writes nothing.
+- Guard `tests/payroll-commission.mjs` (27 checks, negative-tested);
+  `sales-workspace` allows the two new requests.
+- Needs: `PUSH.bat` (applies 0145 and deploys the worker).
+
 ## [1.214.1] - 2026-10-28 - The figure fits its tile, on every page
 
 The owner, 28-10-2026: "why the figure overflow from the card". The shared

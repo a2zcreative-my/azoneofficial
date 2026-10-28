@@ -139,7 +139,7 @@ function incompleteMonthAdj(basicCents: number, payableDays: number | null | und
 
 // v1.4.272: the local formatter became an alias of the global — payroll's
 // numbers must print identically to every other tab's.
-import { fmtRM, rm as rmBare, dmy } from "@/lib/format";
+import { fmtRM, rm as rmBare, dmy, dmyMYT } from "@/lib/format";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 const rm = fmtRM;
 
@@ -476,6 +476,12 @@ type UnpaidDetail = {
   salary_advance_cents: number;
 };
 
+/** v1.215.0 - one invoice the CEO/COO confirmed as paid in full (GET /payroll/commission-sources) */
+interface CommSource {
+  invoice_id: number; doc_number: string; company: string | null; amount_cents: number; payment_ref: string | null;
+  paid_at: string | null; confirmed_at: string; confirmed_by_name: string | null; salesperson_id: number | null; closer_name: string | null;
+}
+
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
   const [month, setMonth] = useState(payrollCycleMonth());
@@ -495,7 +501,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
-  type PrCol = "rank" | "staff" | "basic" | "allow" | "ot" | "deduct" | "net"; // v1.183.0 - "comm" retired
+  type PrCol = "rank" | "staff" | "basic" | "allow" | "comm" | "deduct" | "net"; // v1.215.0 - Sales Commission back; OT under Net
   /* v1.78.0 (CEO: "payroll should ascending with position which is CEO, COO,
      CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer and
      lastly Live host and Part time last host") - the run opens in company
@@ -756,6 +762,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [histWanted, setHistWanted] = useState(false);
   if (!histWanted && (view === "reports" || detailId !== null)) setHistWanted(true);
   const [pristine, setPristine] = useState<Record<number, string>>({});
+  /* v1.215.0 - PAYROLL 2.0, PHASE A (the owner's brief and answers,
+     28-10-2026). The invoices the CEO/COO confirmed as paid in full this
+     month, by closer - read-only, from /payroll/commission-sources. No
+     commission policy is set yet, so nothing is calculated from them: the
+     Sales Commission column shows the row's saved commission (RM 0.00 for
+     every month since commission left pay on 22-10-2026) and says why. */
+  const [commSrc, setCommSrc] = useState<{ month: string; policy: null | object; rows: CommSource[]; failed?: boolean } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api<{ month: string; policy: null | object; rows: CommSource[] }>(`/payroll/commission-sources?month=${month}`)
+      .then((r) => { if (alive) setCommSrc(r.ok && r.data ? r.data : { month, policy: null, rows: [], failed: true }); });
+    return () => { alive = false; };
+  }, [month]);
+  const commOf = (uid: number) => (commSrc?.month === month ? commSrc.rows.filter((r) => r.salesperson_id === uid) : []);
   const [savedIds, setSavedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
@@ -1419,7 +1439,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 ["staff", L("Staff", "Kakitangan")],
                 ["basic", L("Basic (RM)", "Gaji pokok (RM)")],
                 ["allow", L("Allowance", "Elaun")],
-                ["ot", L("OT (hrs)", "OT (jam)")],
+                ["comm", L("Sales Commission (RM)", "Komisen Jualan (RM)")],
                 /* v1.176.1 - SAY WHICH DEDUCTION THIS IS: the MANUAL
                    late/other deduction. The automatic ones - unpaid leave,
                    incomplete month, salary advance - are computed by the
@@ -1434,7 +1454,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               ) : (
                 <th key={col} className={`${pp.th} ${pp.sortable}`}
                   aria-sort={prSort.col === col ? (prSort.asc ? "ascending" : "descending") : undefined}
-                  title={col === "ot" ? L("Overtime hours — paid at 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate\nSort by OT — click again to reverse", "Jam OT — dibayar pada 1.5 × ORP sejam (pokok ÷ 26 ÷ 8), kadar hari biasa Akta Kerja\nIsih ikut OT — klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
+                  title={col === "comm" ? L("Sales commission - read-only. It counts only invoices the CEO/COO confirmed as paid in full; no commission policy is set yet, so nothing is calculated.\nSort by commission - click again to reverse", "Komisen jualan - baca sahaja. Hanya invois yang disahkan dibayar penuh oleh CEO/COO dikira; tiada polisi komisen lagi, jadi tiada apa dikira.\nIsih ikut komisen - klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
                   onClick={() => cyclePr(col)}>
                   {label}{prSort.col === col ? (prSort.asc ? " ▲" : " ▼") : ""}
                 </th>
@@ -1465,7 +1485,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 case "staff": return dir * displayName(a).localeCompare(displayName(b));
                 case "basic": return dir * (ea.basic_cents - eb.basic_cents);
                 case "allow": return dir * (ea.allowance_cents - eb.allowance_cents);
-                case "ot": return dir * ((ea.ot_hours || 0) - (eb.ot_hours || 0));
+                case "comm": return dir * ((ea.commission_cents || 0) - (eb.commission_cents || 0));
                 case "deduct": return dir * (ea.deduction_cents - eb.deduction_cents);
                 case "net": return dir * (netFor(a.id) - netFor(b.id));
                 default: return 0;
@@ -1545,32 +1565,26 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       )}
                     </td>
                   ))}
-                  <td className="px-2 py-1.5">
-                    {hourlyRow ? (
-                      <span className="text-muted-foreground text-xs" title={L("Part-time live hosts are not OT-eligible (CEO rule) — contract/permanent live hosts are", "Hos siaran langsung separuh masa tidak layak OT (peraturan CEO) — hos kontrak/tetap layak")}>—</span>
-                    ) : (
-                    <input
-                      type="number" min={0} max={300} step="0.5"
-                      className={inputSm}
-                      disabled={readOnly}
-                      aria-label={`${L("OT (hrs)", "OT (jam)")} — ${displayName(u)}`}
-                      value={e.ot_hours ? e.ot_hours.toString() : ""}
-                      placeholder="0"
-                      title={ot > 0 ? L(`= ${rm(ot)} at 1.5 × hourly ORP`, `= ${rm(ot)} pada 1.5 × ORP sejam`) : L("Overtime hours (halves allowed)", "Jam OT (separuh dibenarkan)")}
-                      onChange={(ev) => {
-                        const h = ev.target.value === "" ? null : Math.max(0, Number(ev.target.value));
-                        setEntries((m) => ({ ...m, [u.id]: { ...e, ot_hours: h } }));
-                      }}
-                    />
-                    )}
-                    {ot > 0 && <span className="text-muted-foreground block text-[10px]">= {rm(ot)}</span>}
-                    {!hourlyRow && otApproved[u.id] && otApproved[u.id]!.minutes > 0 && (
-                      <span className={`block text-[10px] ${(e.ot_hours ?? 0) === otHoursFrom(otApproved[u.id]!.minutes) ? "text-success" : "text-warning"}`}
-                        title={L("Approved overtime this month, from the Attendance approvals. A different figure in the box is a manual override.", "OT diluluskan bulan ini, daripada kelulusan Kehadiran. Angka berbeza dalam kotak ialah pindaan manual.")}>
-                        {L(`approved: ${otHoursFrom(otApproved[u.id]!.minutes)}h · ${otApproved[u.id]!.days} day${otApproved[u.id]!.days === 1 ? "" : "s"}`,
-                           `diluluskan: ${otHoursFrom(otApproved[u.id]!.minutes)}j · ${otApproved[u.id]!.days} hari`)}
+                  {/* v1.215.0 - SALES COMMISSION replaces the OT column (the
+                      owner's Payroll 2.0 brief). Read-only: the row's saved
+                      commission (no box - the server sums it once a policy
+                      exists), how many invoices the CEO/COO confirmed as paid
+                      for this closer this month, the sync state, and the
+                      breakdown. OT is still paid - it moved under Net. */}
+                  <td className={pp.td}>
+                    <span className={pp.commCell}>
+                      <span className={pp.commAmt}>{rm(e.commission_cents || 0)}</span>
+                      <span className={pp.commSub}>
+                        {commSrc === null ? "…" : commOf(u.id).length === 0
+                          ? L("No confirmed invoices", "Tiada invois disahkan")
+                          : L(`${commOf(u.id).length} confirmed paid invoice${commOf(u.id).length === 1 ? "" : "s"}`, `${commOf(u.id).length} invois disahkan dibayar`)}
                       </span>
-                    )}
+                      <span className={pp.commChip}>{L("No policy yet", "Tiada polisi lagi")}</span>
+                      <button type="button" className={pp.commLink} onClick={() => setDetailId(u.id)}
+                        aria-label={`${L("Commission breakdown", "Pecahan komisen")} — ${displayName(u)}`}>
+                        {L("View breakdown", "Lihat pecahan")}
+                      </button>
+                    </span>
                   </td>
                   <td className="px-2 py-1.5">
                     <input
@@ -1646,6 +1660,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       hover. */}
                   <td className="w-[13rem] px-2 py-1.5 align-top">
                     <span className="block font-medium whitespace-nowrap">{rm(Math.max(0, net))}</span>
+                    {/* v1.215.0 - overtime is still paid, and still in Net: it
+                        is said here, under the figure it is part of. The hours
+                        follow CEO-approved overtime; a different figure is
+                        typed in the row's details. */}
+                    {!hourlyRow && ot > 0 && (
+                      <span className={pp.otLine} title={L("Overtime included in Net: hours × 1.5 × hourly ORP (basic ÷ 26 ÷ 8), Employment Act normal-day rate", "OT termasuk dalam Bersih: jam × 1.5 × ORP sejam (pokok ÷ 26 ÷ 8), kadar hari biasa Akta Kerja")}>
+                        {L(`incl. OT ${e.ot_hours ?? 0} h · ${rm(ot)}`, `termasuk OT ${e.ot_hours ?? 0} j · ${rm(ot)}`)}
+                      </span>
+                    )}
+                    {!hourlyRow && otApproved[u.id] && otApproved[u.id]!.minutes > 0 && (e.ot_hours ?? 0) !== otHoursFrom(otApproved[u.id]!.minutes) && (
+                      <span className={pp.otWarn} title={L("The OT hours on this row differ from the overtime approved this month - check the row's details.", "Jam OT pada baris ini berbeza daripada OT yang diluluskan bulan ini - semak butiran baris.")}>
+                        {L(`approved OT ${otHoursFrom(otApproved[u.id]!.minutes)} h - row differs`, `OT diluluskan ${otHoursFrom(otApproved[u.id]!.minutes)} j - baris berbeza`)}
+                      </span>
+                    )}
                     {/* v1.77.0 — THE REASON IS ON THE SCREEN NOW.
                         It used to be a hover tooltip reading "− RM X auto",
                         and two completely different deductions rendered
@@ -1744,10 +1772,10 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   )}
                 </td>
                 <td className={pp.td}>{rm(tot.allow)}</td>
-                <td className={pp.td}>{rm(tot.ot)}</td>
+                <td className={pp.td}>{rm(tot.comm)}</td>
                 <td className={pp.td}>{tot.ded > 0 ? `− ${rm(tot.ded)}` : rm(0)}</td>
                 <td className={pp.td}></td>
-                <td className={`${pp.td} ${pp.netTotal}`}>{rm(tot.net)}</td>
+                <td className={`${pp.td} ${pp.netTotal}`}>{rm(tot.net)}{tot.ot > 0 && <span className={pp.otLine}>{L(`incl. OT ${rm(tot.ot)}`, `termasuk OT ${rm(tot.ot)}`)}</span>}</td>
                 <td className={pp.td}></td>
                 <td className={pp.td}></td>
               </tr>
@@ -2328,6 +2356,26 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 <div className={pp.subtotal}><dt>{L("Total deductions", "Jumlah potongan")}</dt><dd>{dedTotal > 0 ? `− ${rm(dedTotal)}` : rm(0)}</dd></div>
                 <div className={pp.total}><dt>{L("Net pay", "Gaji bersih")}</dt><dd>{rm(Math.max(0, f.net))}</dd></div>
               </dl>
+              {/* v1.215.0 - the breakdown behind the Sales Commission column:
+                  the invoices the CEO/COO confirmed as paid in full this month
+                  for this closer. Read-only; no amount is typed anywhere. */}
+              <p className={pp.drawerHead}>{L("Sales commission", "Komisen jualan")}</p>
+              {commSrc === null ? <SkelRows rows={2} /> : commSrc.failed ? (
+                <p className={pp.sub}>{L("The confirmed invoices could not be read just now.", "Invois yang disahkan tidak dapat dibaca sekarang.")}</p>
+              ) : commOf(detailUser.id).length === 0 ? (
+                <p className={pp.sub}>{L("No invoice of this person's was confirmed as paid in full this month.", "Tiada invois orang ini disahkan dibayar penuh bulan ini.")}</p>
+              ) : (
+                <ul className={pp.commList}>
+                  {commOf(detailUser.id).map((r) => (
+                    <li key={r.invoice_id}>
+                      <span className={pp.commInv}><strong>{r.doc_number}</strong><span>{r.company ?? "—"}</span></span>
+                      <span className={pp.commInvAmt}>{rm(r.amount_cents)}</span>
+                      <span className={pp.commBy}>{L(`Confirmed by ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`, `Disahkan oleh ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className={pp.commNote}>{L("No commission policy is set - nothing is calculated from these invoices yet. The commission on this row is the saved figure.", "Tiada polisi komisen ditetapkan - tiada apa dikira daripada invois ini lagi. Komisen pada baris ini ialah angka yang disimpan.")}</p>
               <p className={pp.drawerHead}>{L("Attendance this month", "Kehadiran bulan ini")}</p>
               <dl className={pp.config}>
                 {f.hourlyRow ? (
@@ -2340,6 +2388,20 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     <div><dt>{L("Days worked box", "Kotak hari bekerja")}</dt><dd>{workedDays[detailUser.id] ?? L("blank = full month", "kosong = bulan penuh")} / {monthDays}</dd></div>
                     <div><dt>{L("Clock-in days", "Hari daftar masuk")}</dt><dd>{attDays[detailUser.id] ?? 0}</dd></div>
                     <div><dt>{L("Approved OT", "OT diluluskan")}</dt><dd>{oa && oa.minutes > 0 ? L(`${otHoursFrom(oa.minutes)}h · ${oa.days} day(s)`, `${otHoursFrom(oa.minutes)}j · ${oa.days} hari`) : "—"}</dd></div>
+                    {/* v1.215.0 - the OT box left the table (the owner's
+                        Payroll 2.0 brief); the hours are still the row's own
+                        and are corrected here, then saved with Save as before. */}
+                    <div><dt><label htmlFor={`ot-h-${detailUser.id}`}>{L("OT hours on this row", "Jam OT pada baris ini")}</label></dt><dd>
+                      {readOnly ? `${e.ot_hours ?? 0} h` : (
+                        <input id={`ot-h-${detailUser.id}`} type="number" min={0} step="0.5"
+                          className={`${inputClassSm} ${pp.otInput}`}
+                          value={e.ot_hours ?? ""} placeholder="0"
+                          onChange={(ev) => {
+                            const h = ev.target.value === "" ? null : Math.max(0, Number(ev.target.value));
+                            setEntries((m) => ({ ...m, [detailUser.id]: { ...e, ot_hours: h } }));
+                          }} />
+                      )}
+                    </dd></div>
                     <div><dt>{L("Unpaid leave days", "Hari cuti tanpa gaji")}</dt><dd>{unpaidDays[detailUser.id] ?? 0}</dd></div>
                     <div><dt>{L("Base salary", "Gaji asas")}</dt><dd>{(base[detailUser.id] ?? 0) > 0 ? rm(base[detailUser.id] ?? 0) : "—"}</dd></div>
                   </>

@@ -73,7 +73,8 @@ const salesCode = strip(sales);
 /* ---- 3. the workspace writes nothing else and invents nothing ---- */
 {
   const calls = [...wsCode.matchAll(/api(?:<[^>]*>)?\(\s*`([^`]+)`/g)].map((m) => m[1]);
-  ok("its one request is the closer correction", JSON.stringify(calls) === JSON.stringify(["/staff/docs/${doc.id}/closer"]) && !/fetch\(|csrfFetch/.test(wsCode), calls.join(","));
+  /* v1.215.0 - and the CEO/COO paid confirmation and its take-back (tests/payroll-commission.mjs) */
+  ok("its requests are the closer correction and the paid confirmation", JSON.stringify(calls) === JSON.stringify(["/staff/docs/${doc.id}/closer", "/staff/docs/${doc.id}/confirm-paid/revoke", "/staff/docs/${doc.id}/confirm-paid"]) && !/fetch\(|csrfFetch/.test(wsCode), calls.join(","));
   ok("no commission figure, rate or percentage on the screen (no policy is set)", !/commission_cents|rate_bp|base_pct|bonus_pct|\d+(\.\d+)?\s*%|percent/i.test(wsCode));
   ok("no retired module is called", !/\/enquiries|\/erp\/commission|\/commission|\/sales-performance|\/leaderboard|\/prospects/.test(wsCode + salesCode));
   ok("no sample data from the reference", !/Kedai Rasa|ABC Trading|Creative Express|Siti Enterprise|QT-DEMO|INV-DEMO|Consultant AF|31\.80|RM 6,500|RM 10,000/.test(ws + sales));

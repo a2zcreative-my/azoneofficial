@@ -814,3 +814,106 @@
 .statement > .muted dt {
   text-align: left;
 }
+
+/* ===== v1.215.0 - Payroll 2.0, phase A: the Sales Commission column
+   (read-only), overtime under Net, and the commission breakdown ===== */
+.commCell {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
+  min-width: 9.5rem;
+}
+.commAmt {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.commSub {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.commChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+.commLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--info);
+  cursor: pointer;
+  text-underline-offset: 2px;
+}
+.commLink:hover,
+.commLink:focus-visible {
+  text-decoration: underline;
+}
+.otLine {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--type-caption-size);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.otWarn {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--warning);
+  white-space: normal;
+}
+.otInput {
+  width: 6rem;
+  text-align: right;
+}
+.commList {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.commList > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.commInv {
+  display: grid;
+  min-width: 0;
+}
+.commInv > span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.commInvAmt {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.commBy {
+  grid-column: 1 / -1;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.commNote {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  font-style: italic;
+}

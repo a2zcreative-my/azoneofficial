@@ -2252,6 +2252,26 @@ async function attributedSalesByUser(env: Env, month: string): Promise<Map<numbe
     TikTok!" — the board lists only people who sell. */
 const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
 
+/** v1.215.0 - who may CONFIRM that an invoice's payment is real (the
+    owner's Payroll 2.0 answers, 28-10-2026: CEO, COO and super admin). The
+    CCO reviews only; recording a payment stays with the finance roles. */
+const CONFIRM_PAID_ROLES = ["ceo", "coo", "super_admin"];
+
+/** v1.215.0 - take back a live paid confirmation when the invoice it vouched
+    for changes under it (marked unpaid, or a new total). Stamped and audited,
+    never deleted; a database from before 0145 simply has nothing to revoke. */
+async function revokePaidConfirmation(env: Env, invoiceId: number, userId: number, reason: string, onlyIfAmountNot?: number): Promise<number> {
+  try {
+    const r = await env.DB.prepare(
+      `UPDATE invoice_paid_confirmations SET revoked_at = datetime('now'), revoked_by = ?2, revoke_reason = ?3
+        WHERE invoice_id = ?1 AND revoked_at IS NULL${onlyIfAmountNot !== undefined ? " AND amount_cents != ?4" : ""}`,
+    ).bind(...(onlyIfAmountNot !== undefined ? [invoiceId, userId, reason, onlyIfAmountNot] : [invoiceId, userId, reason])).run();
+    const n = r.meta.changes ?? 0;
+    if (n) await audit(env, userId, "invoice.paid_confirm_revoke", "sales_documents", String(invoiceId), { reason, automatic: true });
+    return n;
+  } catch { return 0; }
+}
+
 /** v1.214.0 - is the closer of this invoice locked? From the first recorded
     payment: the invoice marked paid, or any part payment not voided. Also
     returns the SQL guard that keeps a racing write honest (without the
@@ -8328,7 +8348,22 @@ export async function handleStaff(
        ORDER BY d.created_at DESC LIMIT 200`,
     );
     const { results } = await (typed ? stmt.bind(typed) : stmt).all();
-    return json({ docs: results });
+    /* v1.215.0 - each invoice's live CEO/COO paid confirmation, if any.
+       Read apart from the main query so a database before 0145 still
+       answers the list. */
+    try {
+      const { results: conf } = await env.DB.prepare(
+        `SELECT c.invoice_id, c.confirmed_at, c.amount_cents, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
+           FROM invoice_paid_confirmations c LEFT JOIN users u ON u.id = c.confirmed_by
+          WHERE c.revoked_at IS NULL`,
+      ).all<{ invoice_id: number; confirmed_at: string; amount_cents: number; by_name: string | null }>();
+      const byInv = new Map(conf.map((c) => [c.invoice_id, c]));
+      for (const r of results as Record<string, unknown>[]) {
+        const c = byInv.get(r.id as number);
+        if (c) { r.paid_confirmed_at = c.confirmed_at; r.paid_confirmed_by = c.by_name; r.paid_confirmed_cents = c.amount_cents; }
+      }
+    } catch { /* pre-0145 */ }
+    return json({ docs: results, can_confirm_paid: CONFIRM_PAID_ROLES.includes(user.role) });
   }
   /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
      there is any discount staff will insert the discount amount. SKU need to
@@ -8656,6 +8691,9 @@ export async function handleStaff(
         await env.DB.prepare(
           `UPDATE sales_documents SET payment_status = ?1, payment_method = NULL, payment_ref = NULL, paid_at = NULL WHERE id = ?2`,
         ).bind(body!.payment_status, id).run();
+        /* v1.215.0 - an invoice that is no longer paid can no longer be
+           vouched for: its CEO/COO confirmation is taken back, with a trail */
+        await revokePaidConfirmation(env, Number(id), user.id, `Invoice marked ${String(body!.payment_status)}`);
       }
     } else if (doc.doc_type === "DO") {
       if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
@@ -9077,6 +9115,9 @@ export async function handleStaff(
     if (closerFrom !== undefined) {
       await audit(env, user.id, "doc.closer_change", "sales_documents", idE, { doc_type: docE.doc_type, from: closerFrom, to: spE });
     }
+    /* v1.215.0 - a confirmed invoice whose total changed was confirmed for a
+       different amount: the confirmation is taken back and must be redone */
+    if (docE.doc_type === "INV") await revokePaidConfirmation(env, Number(idE), user.id, "Invoice total changed after the confirmation", totalE);
     await audit(env, user.id, "doc.edit", "sales_documents", idE, { total_cents: totalE });
     return json({ ok: true, total_cents: totalE, stock: stockE });
   }
@@ -9121,6 +9162,78 @@ export async function handleStaff(
       invoice: inv.doc_number, from: cur, to: toId, reason, locked: lock.locked,
     });
     return json({ ok: true, from: cur, to: toId });
+  }
+
+  /* v1.215.0 - CONFIRM PAID (the owner's Payroll 2.0 brief and answers,
+     28-10-2026). The second, separate step after Finance records a payment:
+     the CEO, COO or super admin checks the money really arrived and vouches
+     for it. Only a confirmed invoice will earn commission (when a policy is
+     set). Rules, all on the server:
+       - CONFIRM_PAID_ROLES only - the CCO, HR admin, admin and sales staff
+         are refused, whatever the screen shows;
+       - an invoice, marked paid IN FULL (the owner: commission counts only
+         when fully paid), and the verified amount must be its total;
+       - the person ticks that they checked the money;
+       - one live confirmation per invoice (partial unique index), written
+         only while the invoice is still paid at that total, so a retry or a
+         race confirms it once;
+       - taking it back needs a reason; marking the invoice unpaid or
+         changing its total takes it back automatically.
+     It never changes the invoice. */
+  const confirmPaid = path.match(/^\/docs\/(\d+)\/confirm-paid$/);
+  if (confirmPaid && method === "POST") {
+    if (!CONFIRM_PAID_ROLES.includes(user.role)) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
+    const invId = Number(confirmPaid[1]);
+    const inv = await env.DB.prepare(
+      `SELECT id, doc_number, doc_type, total_cents, payment_status, payment_ref, paid_at, salesperson_id FROM sales_documents WHERE id = ?1`,
+    ).bind(invId).first<{ id: number; doc_number: string; doc_type: string; total_cents: number; payment_status: string | null; payment_ref: string | null; paid_at: string | null; salesperson_id: number | null }>();
+    if (!inv) return err("not_found", "Invoice not found", 404);
+    /* the owner: a payment counts "only if someone else recorded it" - so the
+       closer never confirms their own sale; another of the three does */
+    if (inv.salesperson_id === user.id) return err("forbidden", `${inv.doc_number} is your own sale - another of the CEO, COO or super admin confirms it.`, 403);
+    if (inv.doc_type !== "INV") return err("invalid_input", "Only an invoice is confirmed as paid.", 400);
+    if (inv.payment_status !== "paid") {
+      return err("invalid_input", `${inv.doc_number} is not marked paid in full. Record the payment first; commission counts only on an invoice paid in full.`, 400);
+    }
+    const amount = typeof body?.amount_cents === "number" ? Math.round(body.amount_cents) : null;
+    if (amount !== inv.total_cents) {
+      return err("invalid_input", `The verified amount must be the invoice total, RM ${(inv.total_cents / 100).toFixed(2)}.`, 400);
+    }
+    if (body?.checked !== true) return err("invalid_input", "Tick that you have checked the money arrived.", 400);
+    const ref = str(body?.payment_ref, 120) ? String(body!.payment_ref).trim() : inv.payment_ref;
+    let row: { id: number } | null = null;
+    try {
+      row = await env.DB.prepare(
+        `INSERT OR IGNORE INTO invoice_paid_confirmations (invoice_id, amount_cents, payment_ref, paid_at, confirmed_by)
+         SELECT ?1, ?2, ?3, ?4, ?5
+          WHERE EXISTS (SELECT 1 FROM sales_documents WHERE id = ?1 AND doc_type = 'INV' AND payment_status = 'paid' AND total_cents = ?2)
+         RETURNING id`,
+      ).bind(invId, amount, ref, inv.paid_at, user.id).first<{ id: number }>();
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0145_invoice_paid_confirmations)", 500);
+      throw e;
+    }
+    if (!row) return err("conflict", `${inv.doc_number} is already confirmed, or changed while you were confirming it. Reload and check.`, 409);
+    await audit(env, user.id, "invoice.paid_confirm", "sales_documents", String(invId), {
+      invoice: inv.doc_number, amount_cents: amount, payment_ref: ref, paid_at: inv.paid_at,
+    });
+    return json({ ok: true, id: row.id }, 201);
+  }
+  const confirmRevoke = path.match(/^\/docs\/(\d+)\/confirm-paid\/revoke$/);
+  if (confirmRevoke && method === "POST") {
+    if (!CONFIRM_PAID_ROLES.includes(user.role)) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
+    const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
+    if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
+    let n = 0;
+    try {
+      n = (await env.DB.prepare(
+        `UPDATE invoice_paid_confirmations SET revoked_at = datetime('now'), revoked_by = ?2, revoke_reason = ?3
+          WHERE invoice_id = ?1 AND revoked_at IS NULL`,
+      ).bind(Number(confirmRevoke[1]), user.id, reason).run()).meta.changes ?? 0;
+    } catch { n = 0; }
+    if (!n) return err("not_found", "That invoice has no live confirmation.", 404);
+    await audit(env, user.id, "invoice.paid_confirm_revoke", "sales_documents", confirmRevoke[1]!, { reason, automatic: false });
+    return json({ ok: true });
   }
 
   /* ---- notifications ---- */
@@ -11324,6 +11437,36 @@ export async function handleStaff(
     } catch { /* pre-0041 net_cents */ }
     await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
     return json({ ok: true });
+  }
+  /* v1.215.0 - THE INVOICES BEHIND A MONTH'S SALES COMMISSION (Payroll 2.0,
+     phase A). Payroll processors read which invoices the CEO/COO confirmed
+     as paid in full during the month, grouped by their closer. Read-only:
+     no commission is calculated here - no policy is set (the owner,
+     27-10-2026: "No fixed rule yet"), so the answer says so and every
+     amount stays the invoice's own. */
+  if (path === "/payroll/commission-sources" && method === "GET") {
+    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    const mS = new URL(request.url).searchParams.get("month") ?? "";
+    if (!/^\d{4}-\d{2}$/.test(mS)) return err("invalid_input", "month must be YYYY-MM", 400);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT c.invoice_id, c.amount_cents, c.payment_ref, c.paid_at, c.confirmed_at,
+                COALESCE(NULLIF(TRIM(cu.full_name), ''), cu.name) AS confirmed_by_name,
+                d.doc_number, d.salesperson_id, k.company,
+                COALESCE(NULLIF(TRIM(sp.full_name), ''), sp.name) AS closer_name
+           FROM invoice_paid_confirmations c
+           JOIN sales_documents d ON d.id = c.invoice_id
+           LEFT JOIN customers k ON k.id = d.customer_id
+           LEFT JOIN users cu ON cu.id = c.confirmed_by
+           LEFT JOIN users sp ON sp.id = d.salesperson_id
+          WHERE c.revoked_at IS NULL AND strftime('%Y-%m', c.confirmed_at, '+8 hours') = ?1
+          ORDER BY c.confirmed_at`,
+      ).bind(mS).all();
+      return json({ month: mS, policy: null, rows: results });
+    } catch (e) {
+      if (String(e).includes("no such table")) return json({ month: mS, policy: null, rows: [], pending_migration: true });
+      throw e;
+    }
   }
   if (path === "/payroll/pull-commission" && method === "POST") {
     /* v1.19.0 (consolidation C3) — closes the DOUBLE-PAYMENT path. Approved

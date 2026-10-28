@@ -25,8 +25,11 @@ PORT = sys.argv[1] if len(sys.argv) > 1 else "4177"
 NAMES = {9001: "Fixture Person", 9002: "Nur Aisyah binti Rahman", 9003: "Farid Zulkifli", 9004: "Tan Mei Ling"}
 
 # captured from v1.197.0 (the screen before the redesign)
-TOTALS_BEFORE = ["RM 9,000.00", "RM 153.85", "RM 200.00", "RM 37.86", "RM 801.67", "RM 8,590.04"]
-TOTALS_AFTER = ["RM 9,000.00", "RM 153.85", "RM 200.00", "RM 37.86", "RM 851.03", "RM 8,540.68"]
+# v1.215.0 (Payroll 2.0, phase A): the same figures to the cent; the OT column
+# became the read-only Sales Commission column (RM 0.00 - no policy is set)
+# and the OT total moved under Net ("incl. OT RM 37.86")
+TOTALS_BEFORE = ["RM 9,000.00", "RM 153.85", "RM 200.00", "RM 0.00", "RM 801.67", "RM 8,590.04", "RM 37.86"]
+TOTALS_AFTER = ["RM 9,000.00", "RM 153.85", "RM 200.00", "RM 0.00", "RM 851.03", "RM 8,540.68", "RM 37.86"]
 SAVED = {
     9001: {"basic_cents": 400000, "allowance_cents": 0, "deduction_cents": 1234, "ot_cents": 0, "net_cents": 398766, "worked_days": 20, "month_working_days": 22, "salary_advance_cents": 0},
     9002: {"basic_cents": 210000, "allowance_cents": 15000, "deduction_cents": 1234, "ot_hours": 2.5, "ot_cents": 3786, "net_cents": 224052, "worked_days": 19, "month_working_days": 22, "salary_advance_cents": 0},

@@ -364,3 +364,15 @@ not altered.
 | Version | Change |
 |---|---|
 | v1.181.17 | 0144 - joining and leaving, probation, letters, training, approval limit (ERP roadmap phase 5). |
+
+## v1.215.0 - migration 0145_invoice_paid_confirmations.sql
+invoice_paid_confirmations: id, invoice_id, amount_cents (the invoice total
+the confirmer checked), payment_ref, paid_at (copied from the invoice),
+confirmed_by, confirmed_at, revoked_at/by, revoke_reason. A partial unique
+index (idx_paid_confirm_live) allows one live confirmation per invoice; a
+confirmation is revoked with a stamp and a reason and never deleted.
+sales_documents and invoice_payments are not altered.
+
+| Version | Change |
+|---|---|
+| v1.215.0 | 0145 - CEO/COO/super admin confirmation that an invoice paid in full is real (Payroll 2.0 phase A). |

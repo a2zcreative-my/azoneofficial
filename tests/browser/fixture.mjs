@@ -467,7 +467,15 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/cashflow") data = { entries: cash };
   if (p === "/banks") data = { banks: [{ id: 1, name: "Maybank", account_no: "5621", balance_cents: 2500000 }] };
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };
-  if (p === "/staff/docs") data = { docs };
+  /* v1.215.0 - the CEO/COO paid confirmation (0145). CONFIRMED=1 serves
+     INV-AZO100926-2 as confirmed; otherwise it awaits confirmation. */
+  if (p === "/staff/docs") data = {
+    docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d) : docs,
+    can_confirm_paid: ["ceo", "coo", "super_admin"].includes(ROLE),
+  };
+  if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null,
+    rows: process.env.CONFIRMED && (q.get("month") ?? "") === "2026-09" ? [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", amount_cents: 280000, payment_ref: null,
+      paid_at: D + "12 10:00:00", confirmed_at: D + "13 02:00:00", confirmed_by_name: "Fixture COO", salesperson_id: 9002, closer_name: "Nur Aisyah" }] : [] };
   /* v1.181.11 - the quotation above, whole, and the version its revision replaced */
   if (p === "/staff/docs/1") data = { doc: { ...docs[0], customer_id: 1, salesperson_id: 9002, contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
     items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),

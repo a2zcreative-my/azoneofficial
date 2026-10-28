@@ -38,11 +38,24 @@ export interface WsDoc {
   payment_status: string | null; created_at: string; paid_at?: string | null;
   salesperson_id?: number | null; salesperson_name?: string | null;
   converted_from?: number | null; invoiced_as?: string | null; valid_until?: string | null; customer_id?: number;
+  payment_ref?: string | null;
+  paid_confirmed_at?: string | null; paid_confirmed_by?: string | null; // v1.215.0 - the CEO/COO confirmation (0145)
 }
 export interface WsFollowUp { id: number; customer_id: number; company: string; due_on: string; note: string | null; owner_id: number | null; owner_name: string | null }
 export type WsScope = "mine" | "all";
 
 const ymd = (ts?: string | null) => (ts ? mytDateOf(ts) : "");
+
+/* v1.215.0 - PAYROLL 2.0, PHASE A: the CEO/COO confirm that the money of an
+   invoice paid in full arrived. Only a confirmed invoice will count toward
+   commission once the owner sets a policy; nothing is calculated here. */
+function confirmState(d: WsDoc): { label: string; chip: string } | null {
+  if (d.doc_type !== "INV" || d.payment_status !== "paid") return null;
+  if (d.paid_confirmed_at) {
+    return { label: L(`Confirmed · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`, `Disahkan · ${d.paid_confirmed_by ?? "—"} · ${dmy(ymd(d.paid_confirmed_at))}`), chip: "erp-chip-success" };
+  }
+  return { label: L("Awaiting CEO/COO confirmation", "Menunggu pengesahan CEO/COO"), chip: "erp-chip-warning" };
+}
 /** The closer of an invoice is locked from its first recorded payment (the server's rule). */
 export const closerLocked = (d: WsDoc, partPaid: Record<number, number>) =>
   d.doc_type === "INV" && (d.payment_status === "paid" || (partPaid[d.id] ?? 0) > 0);
@@ -233,13 +246,23 @@ export function SalesOverviewCards(p: {
 /* ---- Closed sales: every invoice with money recorded, its closer and the
    quotation it came from; the CEO corrects a closer here ---- */
 const PER = 15;
-export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc, onFixed }: {
+export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc, onFixed, canConfirm = false, userId = 0, onConfirmed }: {
   docs: WsDoc[]; partPaid: Record<number, number>; monthKey: string; canFix: boolean;
   staff: { id: number; name: string }[]; onOpenDoc: (d: WsDoc) => void; onFixed: () => void;
+  /* v1.215.0 - the server's can_confirm_paid (CEO, COO, super admin); everyone else sees the state only */
+  canConfirm?: boolean; userId?: number; onConfirmed?: (msg: string) => void;
 }) {
   const [period, setPeriod] = useState<"month" | "last" | "all">("month");
   const [page, setPage] = useState(1);
   const [fix, setFix] = useState<WsDoc | null>(null);
+  const [conf, setConf] = useState<{ doc: WsDoc; mode: "confirm" | "revoke" } | null>(null);
+  /* the confirm / take-back control for one row: never on the confirmer's own sale */
+  const confirmBtn = (d: WsDoc) => {
+    if (!canConfirm || d.doc_type !== "INV" || d.payment_status !== "paid") return null;
+    if (d.paid_confirmed_at) return <button type="button" className={btnSm} onClick={() => setConf({ doc: d, mode: "revoke" })}>{L("Take back", "Tarik balik")}</button>;
+    if (d.salesperson_id === userId) return <span className={css.dim} title={L("Your own sale - another of the CEO, COO or super admin confirms it", "Jualan anda sendiri - CEO, COO atau super admin lain mengesahkannya")}>{L("Your sale", "Jualan anda")}</span>;
+    return <button type="button" className={btnSmPrimary} onClick={() => setConf({ doc: d, mode: "confirm" })}>{L("Confirm paid", "Sahkan dibayar")}</button>;
+  };
   const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
   const qtNo = useMemo(() => new Map(docs.filter((d) => d.doc_type === "QT").map((d) => [d.id, d.doc_number])), [docs]);
   const rows = docs
@@ -253,6 +276,8 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
   const pages = Math.max(1, Math.ceil(rows.length / PER));
   const shown = rows.slice((Math.min(page, pages) - 1) * PER, Math.min(page, pages) * PER);
   const collected = rows.filter((d) => d.payment_status === "paid").reduce((a, d) => a + d.total_cents, 0);
+  const paidN = rows.filter((d) => d.payment_status === "paid").length;
+  const confirmedN = rows.filter((d) => d.payment_status === "paid" && d.paid_confirmed_at).length;
   return (
     <section className={card} aria-label={L("Closed sales", "Jualan ditutup")}>
       <div className={css.head}>
@@ -266,12 +291,14 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
           ))}
         </div>
       </div>
-      <p className={css.sum}>{L(`${rows.length} invoice${rows.length === 1 ? "" : "s"} · ${fmtRM(collected)} collected (paid in full)`, `${rows.length} invois · ${fmtRM(collected)} dikutip (dibayar penuh)`)}</p>
+      <p className={css.sum}>{L(`${rows.length} invoice${rows.length === 1 ? "" : "s"} · ${fmtRM(collected)} collected (paid in full)`, `${rows.length} invois · ${fmtRM(collected)} dikutip (dibayar penuh)`)}
+        {paidN > 0 && <> · {L(`${confirmedN} of ${paidN} confirmed by the CEO/COO`, `${confirmedN} daripada ${paidN} disahkan oleh CEO/COO`)}</>}</p>
       {rows.length === 0 ? <p className={css.empty}>{L("No closed sales in this period.", "Tiada jualan ditutup dalam tempoh ini.")}</p> : (
         <>
           <ul className={css.cards}>
             {shown.map((d) => {
               const ps = payState(d, partPaid);
+              const cs = confirmState(d);
               return (
                 <li key={d.id} className={css.cardRow}>
                   <button type="button" className={css.cardOpen} onClick={() => onOpenDoc(d)}>
@@ -283,7 +310,11 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
                     <span>{L("Closer", "Penutup")}: <strong>{d.salesperson_name ?? L("not set", "belum ditetapkan")}</strong></span>
                     <span className="erp-num">{fmtRM(d.total_cents)}</span>
                   </span>
-                  {canFix && <button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button>}
+                  {cs && <span className={`erp-chip erp-chip-sm ${cs.chip}`}>{cs.label}</span>}
+                  {(canFix || confirmBtn(d)) && <span className={css.rowActs}>
+                    {confirmBtn(d)}
+                    {canFix && <button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button>}
+                  </span>}
                 </li>
               );
             })}
@@ -293,11 +324,13 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
               <thead><tr>
                 <th>{L("Invoice", "Invois")}</th><th>{L("Customer", "Pelanggan")}</th><th>{L("Quotation", "Sebut harga")}</th>
                 <th>{L("Closer", "Penutup")}</th><th className={css.num}>{L("Total", "Jumlah")}</th><th>{L("Payment", "Bayaran")}</th><th>{L("Paid on", "Dibayar pada")}</th>
-                {canFix && <th><span className="erp-sr-only">{L("Correct", "Betulkan")}</span></th>}
+                <th>{L("Confirmed", "Disahkan")}</th>
+                {(canFix || canConfirm) && <th><span className="erp-sr-only">{L("Actions", "Tindakan")}</span></th>}
               </tr></thead>
               <tbody>
                 {shown.map((d) => {
                   const ps = payState(d, partPaid);
+                  const cs = confirmState(d);
                   return (
                     <tr key={d.id}>
                       <td><button type="button" className={css.link} onClick={() => onOpenDoc(d)}>{d.doc_number}</button></td>
@@ -307,7 +340,11 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
                       <td className={`${css.num} erp-num`}>{fmtRM(d.total_cents)}</td>
                       <td><span className={`erp-chip erp-chip-sm ${ps.chip}`}>{ps.label}</span></td>
                       <td className="erp-num">{d.payment_status === "paid" && d.paid_at ? dmy(ymd(d.paid_at)) : <span className={css.dim}>—</span>}</td>
-                      {canFix && <td><button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button></td>}
+                      <td>{cs ? <span className={`erp-chip erp-chip-sm ${cs.chip}`}>{cs.label}</span> : <span className={css.dim} title={L("Only an invoice paid in full is confirmed", "Hanya invois dibayar penuh disahkan")}>—</span>}</td>
+                      {(canFix || canConfirm) && <td><span className={css.rowActs}>
+                        {confirmBtn(d)}
+                        {canFix && <button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button>}
+                      </span></td>}
                     </tr>
                   );
                 })}
@@ -324,6 +361,7 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
         </>
       )}
       {canFix && <CloserFix doc={fix} staff={staff} onClose={() => setFix(null)} onDone={() => { setFix(null); onFixed(); }} />}
+      {canConfirm && <ConfirmPaid job={conf} onClose={() => setConf(null)} onDone={(msg) => { setConf(null); onConfirmed?.(msg); }} />}
     </section>
   );
 }
@@ -367,6 +405,82 @@ function CloserFix({ doc, staff, onClose, onDone }: { doc: WsDoc | null; staff: 
               placeholder={L("What the review found", "Apa yang didapati semakan")} />
           </label>
           <p className={css.meta}>{L("The invoice, its total and its payments do not change. The old and new closer, your name and the reason are recorded.", "Invois, jumlah dan bayarannya tidak berubah. Penutup lama dan baharu, nama anda dan sebab direkodkan.")}</p>
+          {msg && <p className="erp-note erp-note-warning" role="alert">{msg}</p>}
+        </div>
+      )}
+    </SideDrawer>
+  );
+}
+
+/** v1.215.0 - the CEO/COO confirm that an invoice's money arrived in full, or
+    take a confirmation back with a reason. The server checks the invoice is
+    still paid at this total, keeps one live confirmation per invoice and
+    audits both. Nothing here touches the invoice or its payments. */
+function ConfirmPaid({ job, onClose, onDone }: { job: { doc: WsDoc; mode: "confirm" | "revoke" } | null; onClose: () => void; onDone: (msg: string) => void }) {
+  const [checked, setChecked] = useState(false);
+  const [ref, setRef] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const reset = () => { setChecked(false); setRef(""); setReason(""); setMsg(""); };
+  const close = () => { reset(); onClose(); };
+  const doc = job?.doc ?? null;
+  const revoke = job?.mode === "revoke";
+  const save = async () => {
+    if (!doc || busy) return;
+    setBusy(true); setMsg("");
+    const r = revoke
+      ? await api<{ error?: { message?: string } }>(`/staff/docs/${doc.id}/confirm-paid/revoke`, { method: "POST", body: JSON.stringify({ reason }) })
+      : await api<{ error?: { message?: string } }>(`/staff/docs/${doc.id}/confirm-paid`, {
+        method: "POST", body: JSON.stringify({ amount_cents: doc.total_cents, checked: true, payment_ref: ref.trim() || undefined }),
+      });
+    setBusy(false);
+    if (r.ok) {
+      reset();
+      onDone(revoke ? L(`${doc.doc_number} confirmation taken back`, `Pengesahan ${doc.doc_number} ditarik balik`) : L(`${doc.doc_number} confirmed as paid in full`, `${doc.doc_number} disahkan dibayar penuh`));
+    } else setMsg(r.status === 0 ? L("No connection - nothing was changed.", "Tiada sambungan - tiada apa diubah.") : r.data?.error?.message ?? L("Nothing was saved.", "Tiada apa disimpan."));
+  };
+  const ready = revoke ? reason.trim().length >= 10 : checked;
+  return (
+    <SideDrawer open={!!doc} onClose={close}
+      title={revoke ? L("Take back the confirmation", "Tarik balik pengesahan") : L("Confirm paid in full", "Sahkan dibayar penuh")}
+      subtitle={doc ? `${doc.doc_number} · ${doc.company}` : undefined}
+      footer={<div className={css.drawerFoot}>
+        <button type="button" className={btnSm} onClick={close}>{L("Cancel", "Batal")}</button>
+        <button type="button" className={btnSmPrimary} disabled={busy || !ready} onClick={() => void save()}>
+          {busy ? L("Saving…", "Menyimpan…") : revoke ? L("Take back", "Tarik balik") : L("Confirm paid", "Sahkan dibayar")}
+        </button>
+      </div>}>
+      {doc && (
+        <div className={css.drawer}>
+          <dl className={css.confirmFacts}>
+            <div><dt>{L("Invoice total", "Jumlah invois")}</dt><dd className="erp-num">{fmtRM(doc.total_cents)}</dd></div>
+            <div><dt>{L("Closer", "Penutup")}</dt><dd>{doc.salesperson_name ?? L("not set", "belum ditetapkan")}</dd></div>
+            <div><dt>{L("Marked paid on", "Ditanda dibayar pada")}</dt><dd>{doc.paid_at ? dmy(ymd(doc.paid_at)) : "—"}</dd></div>
+            {doc.payment_ref && <div><dt>{L("Payment reference", "Rujukan bayaran")}</dt><dd>{doc.payment_ref}</dd></div>}
+            {revoke && <div><dt>{L("Confirmed", "Disahkan")}</dt><dd>{doc.paid_confirmed_by ?? "—"} · {dmy(ymd(doc.paid_confirmed_at))}</dd></div>}
+          </dl>
+          {revoke ? (
+            <label className={css.field}>
+              <span>{L("Reason (kept in the audit trail)", "Sebab (disimpan dalam jejak audit)")}</span>
+              <textarea className={inputClass} rows={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)}
+                placeholder={L("What the check found", "Apa yang didapati semakan")} />
+            </label>
+          ) : (
+            <>
+              <label className={css.field}>
+                <span>{L("Bank reference you checked (optional)", "Rujukan bank yang anda semak (pilihan)")}</span>
+                <input className={inputClass} maxLength={120} value={ref} onChange={(e) => setRef(e.target.value)} />
+              </label>
+              <label className={css.check}>
+                <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+                <span>{L(`I checked the bank: ${fmtRM(doc.total_cents)} for this invoice has arrived in full.`, `Saya telah menyemak bank: ${fmtRM(doc.total_cents)} untuk invois ini telah diterima sepenuhnya.`)}</span>
+              </label>
+            </>
+          )}
+          <p className={css.meta}>{revoke
+            ? L("The invoice and its payments do not change. The invoice stops counting toward commission until it is confirmed again.", "Invois dan bayarannya tidak berubah. Invois berhenti dikira untuk komisen sehingga disahkan semula.")
+            : L("Only an invoice confirmed here will count toward sales commission, once a commission policy is set. A receipt or message alone never confirms a payment.", "Hanya invois yang disahkan di sini akan dikira untuk komisen jualan, setelah polisi komisen ditetapkan. Resit atau mesej sahaja tidak pernah mengesahkan bayaran.")}</p>
           {msg && <p className="erp-note erp-note-warning" role="alert">{msg}</p>}
         </div>
       )}
