@@ -2,6 +2,14 @@
 
 /**
  * v1.128.0 — the digital business card's body, bilingual.
+ * v1.218.0 — Cards 2.0 (the owner's brief and answers, 28-10-2026: "Full
+ * redesign", "Website only"): the same page at the same URL from the same
+ * record, redrawn as a premium card - the A2Z logo and the BM/EN switch on a
+ * navy face, a large photo in a gold ring, the name and title, a full-width
+ * gold Save contact, WhatsApp, an icon row (Call, Email, Website, Location),
+ * and "Share this card" (the phone's own share sheet, or the link copied).
+ * The page now pads for the notch and the home bar (viewport-fit=cover is
+ * site-wide). Styles moved to card-view.module.css.
  *
  * CEO, 06-09-2026: a BM/EN switcher on /farhan, /zoll and /izz, defaulting to
  * BM, switching without a page reload, holding the choice while the visitor
@@ -10,47 +18,37 @@
  * WHY THIS COMPONENT EXISTS AT ALL
  * The page above it stays a SERVER component: it owns generateStaticParams,
  * generateMetadata and the schema.org block, none of which can live in a
- * component that holds state. Only the readable body moved here, so the card
- * is still a file on a CDN with one small script on it — which was the whole
- * argument of v1.71.0 and is not given up for a toggle.
+ * component that holds state. Only the readable body is here, so the card is
+ * still a file on a CDN with one small script on it - no fetch, no API: a
+ * printed URL has to open on a bad day.
  *
  * NO FLASH, AND NO HYDRATION MISMATCH
- * The initial render is BM on both sides — server HTML and first client
- * render — so React hydrates against exactly what it sent, and the default
- * visitor never sees a language change. Only a visitor who previously chose
- * EN sees one repaint, in useEffect, after mount. That is the honest way
- * round: the common case is silent, the deliberate case costs a frame.
+ * The initial render is BM on both sides - server HTML and first client
+ * render - so React hydrates against exactly what it sent. Only a visitor who
+ * previously chose EN sees one repaint, after mount.
  *
  * ONE LANGUAGE PREFERENCE PER DEVICE
- * The site has had an EN/BM toggle since v1.32.0 (components/live/
- * lang-runtime.tsx), stored under `azone-lang` and broadcast on
- * `azone-lang-change`. The card reads and writes the SAME key and fires the
- * SAME event, so a visitor who switches here and then taps through to
- * /services stays in Malay, and the navbar's own toggle stays in step. A
- * second, private preference would have been two switchers disagreeing on
- * one site.
+ * The card reads and writes the site's own key (`azone-lang`) and event, so a
+ * visitor who switches here stays in that language on the rest of the site.
+ * The card carries `data-no-translate` so the site-wide text-swap runtime
+ * leaves it alone: it renders from typed pairs instead.
  *
- * BUT NOT the same MECHANISM. That runtime translates by walking text nodes
- * and matching rendered English against a dictionary — right for twelve
- * marketing pages, wrong for a page whose every string is known at build
- * time. So the card carries `data-no-translate`, which that runtime already
- * honours, and renders from typed pairs instead. Two mechanisms editing the
- * same text nodes is how half-Malay sentences happen.
+ * ONE PIECE OF STATE. "Share this card" holds none: the share sheet is the
+ * phone's, and the "Link copied" receipt is written on the button itself.
  *
- * DEFAULT BM, WITHOUT OVERRIDING A CHOICE
- * "Default" means the untouched state. Nothing stored (a client opening the
- * link off a card for the first time — the case this page exists for) reads
- * as BM. An explicit earlier choice of English is honoured, because that was
- * a person telling us something.
+ * ONLY THE RECORD. Everything shown comes from constants/team.ts (the
+ * approved public profile), constants/card-copy.ts and SITE_CONFIG - never
+ * from a staff record.
  */
 
-import { Mail, MapPin, MessageCircle, Phone, UserPlus } from "lucide-react";
+import { Globe, Mail, MapPin, MessageCircle, Phone, Share2, UserPlus } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 
 import { CARD_COPY, CARD_LINKS, pick, type CardLang } from "@/constants/card-copy";
 import { SITE_CONFIG } from "@/constants/site";
 import { CARD_COMPANY, cardMonogram, type TeamCard } from "@/constants/team";
+import css from "./card-view.module.css";
 
 /** The same storage key and event the site-wide toggle uses (v1.32.0). */
 const KEY = "azone-lang";
@@ -60,66 +58,35 @@ const MAP_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComp
   SITE_CONFIG.address,
 )}`;
 
-/** The three action buttons under the name share one look. */
-const ACTION =
-  "flex h-12 items-center justify-center gap-2 rounded-lg border border-white/20 text-sm font-medium text-white transition-colors hover:bg-white/10";
+/** The short role chip on the photo: the part after the slash ("CEO"). */
+const badge = (role: string) => role.split("/").pop()?.trim() ?? "";
 
 function LangSwitch({ lang, onChange }: { lang: CardLang; onChange: (l: CardLang) => void }) {
-  /* A segmented pair, not a single button that toggles: a visitor has to be
-     able to see WHICH language is on without pressing it to find out. Gold on
-     navy for the active half is the card's own accent doing the work, so the
-     control needs no colour of its own.
-
-     `role="group"` with two real buttons and aria-pressed, rather than a
-     radiogroup: these are actions with an immediate effect, not a form field
-     somebody submits. Each is 44px wide and 28px tall — comfortably tappable
-     without becoming a feature of the header. */
-  const on = "bg-gold text-black";
-  const off = "text-white/70 hover:text-white";
+  /* A segmented pair, not a toggle: a visitor sees WHICH language is on.
+     Two real buttons with aria-pressed - actions, not a form field. */
   return (
-    <div
-      role="group"
-      aria-label={`${CARD_COPY.langLabel.ms} / ${CARD_COPY.langLabel.en}`}
-      className="flex shrink-0 items-center rounded-full border border-white/20 p-0.5 text-[11px] font-semibold"
-    >
-      <button
-        type="button"
-        lang="ms"
-        aria-pressed={lang === "ms"}
-        onClick={() => onChange("ms")}
-        className={`rounded-full px-2.5 py-1 transition-colors ${lang === "ms" ? on : off}`}
-      >
+    <div role="group" aria-label={`${CARD_COPY.langLabel.ms} / ${CARD_COPY.langLabel.en}`} className={css.lang}>
+      <button type="button" lang="ms" aria-pressed={lang === "ms"} onClick={() => onChange("ms")}>
         BM
       </button>
-      <button
-        type="button"
-        lang="en"
-        aria-pressed={lang === "en"}
-        onClick={() => onChange("en")}
-        className={`rounded-full px-2.5 py-1 transition-colors ${lang === "en" ? on : off}`}
-      >
+      <button type="button" lang="en" aria-pressed={lang === "en"} onClick={() => onChange("en")}>
         EN
       </button>
     </div>
   );
 }
 
-export function CardView({ m }: { m: TeamCard }) {
-  /* BM on the server AND on the first client render — see the header note. */
+export function CardView({ m, embedded = false }: { m: TeamCard; embedded?: boolean }) {
+  /* BM on the server AND on the first client render - see the header note. */
   const [lang, setLang] = useState<CardLang>("ms");
 
   useEffect(() => {
-    /* An explicit earlier choice of English is the only thing that moves the
-       card off its default. Anything else — nothing stored, "ms", a private
-       window that throws on read — leaves it in Malay. */
+    /* Only an explicit earlier choice of English moves the card off Malay. */
     try {
       if (window.localStorage.getItem(KEY) === "en") setLang("en");
     } catch {
-      /* private mode: the default stands, which is the right one anyway */
+      /* private mode: the default stands */
     }
-    /* Keep in step if the choice changes elsewhere in the tab (the navbar's
-       toggle on a page the visitor came from, or another card in the same
-       session). */
     const sync = () => {
       try {
         setLang(window.localStorage.getItem(KEY) === "en" ? "en" : "ms");
@@ -131,216 +98,159 @@ export function CardView({ m }: { m: TeamCard }) {
 
   const choose = useCallback((next: CardLang) => {
     setLang(next);
-    /* Persist and broadcast: the rest of the site listens on this event, and
-       the choice has to survive tapping through to /services and back. */
     try {
       window.localStorage.setItem(KEY, next);
       window.dispatchEvent(new Event(EVENT));
     } catch { /* private mode: the card still switched, it just will not stick */ }
-    document.documentElement.lang = next === "ms" ? "ms" : "en";
-  }, []);
+    if (!embedded) document.documentElement.lang = next === "ms" ? "ms" : "en";
+  }, [embedded]);
 
   const t = (v: { en: string; ms: string }) => pick(v, lang);
   const cardUrl = `${SITE_CONFIG.url}/${m.slug}`;
   const waHref = `https://wa.me/${m.mobileE164.replace(/[^0-9]/g, "")}`;
   const duties = m.duties[lang];
 
+  /* The phone's own share sheet; where there is none, the link is copied and
+     the button says so on itself for two seconds (no second state). */
+  const share = async (e: MouseEvent<HTMLButtonElement>) => {
+    const label = e.currentTarget.querySelector("[data-label]");
+    const nav = window.navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+    if (typeof nav.share === "function") {
+      try { await nav.share({ title: `${m.name} - ${t(m.role)}`, text: `${m.name} - ${t(m.role)}, ${SITE_CONFIG.name}`, url: cardUrl }); } catch { /* cancelled */ }
+      return;
+    }
+    try {
+      await nav.clipboard.writeText(cardUrl);
+      if (label) {
+        label.textContent = t(CARD_COPY.shared);
+        window.setTimeout(() => { label.textContent = t(CARD_COPY.share); }, 2000);
+      }
+    } catch { /* clipboard refused: the address bar still holds the link */ }
+  };
+
   return (
-    /* data-no-translate: the site-wide BM runtime skips this subtree, because
-       the card translates itself properly. */
-    <main data-no-translate className="bg-background text-foreground min-h-screen">
-      {/* The card face. Navy and gold, the same object as the paper. */}
-      <header className="bg-brand text-white">
-        <div className="mx-auto w-full max-w-xl px-6 pt-8 pb-10 sm:pt-12">
-          {/* The switcher sits on the eyebrow line: top-right, level with the
-              company name, so it costs the card no vertical space at all. */}
-          {/* items-start, and the eyebrow WRAPS rather than truncating. At
-              320px the company name in 11px/0.3em tracking is ~215px and the
-              switcher ~76px, which does not fit the 272px between the page
-              gutters — measured, not guessed. Truncating it turned "A2Z
-              CREATIVE MARKETING" into an ellipsis on the smallest phones,
-              which is the company's name on the first line of its own card.
-              Two lines is the right answer; the switcher stays level with the
-              first one. */}
-          <div className="flex items-start justify-between gap-3">
-            <Link
-              href="/"
-              className="text-gold min-w-0 text-[11px] leading-5 font-medium tracking-[0.3em] uppercase"
-            >
-              {SITE_CONFIG.name}
+    /* data-no-translate: the site-wide BM runtime skips this subtree. */
+    <main data-no-translate className={`${css.page} ${embedded ? css.embedded : ""}`}>
+      <article className={css.card} aria-label={`${m.name} - ${t(m.role)}`}>
+        {/* ---- the navy face ---- */}
+        <header className={css.face}>
+          <div className={css.top}>
+            <Link href="/" className={css.brand} aria-label={SITE_CONFIG.name}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-white.png" alt="" width={991} height={547} className={css.logo} />
+              <span>{SITE_CONFIG.name}</span>
             </Link>
             <LangSwitch lang={lang} onChange={choose} />
           </div>
-
-          <div className="mt-8 flex items-center gap-5">
+          <div className={css.portrait}>
             {m.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={m.photo}
-                alt={m.name}
-                className="border-gold/40 h-20 w-20 shrink-0 rounded-full border object-cover"
-              />
+              <img src={m.photo} alt={m.name} width={224} height={224} className={css.photo} />
             ) : (
-              <span
-                aria-hidden="true"
-                className="border-gold/40 text-gold flex h-20 w-20 shrink-0 items-center justify-center rounded-full border text-2xl font-semibold tracking-wide"
-              >
-                {cardMonogram(m)}
-              </span>
+              <span aria-hidden="true" className={css.mono}>{cardMonogram(m)}</span>
             )}
-            <div className="min-w-0">
-              <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl">
-                {m.name}
-              </h1>
-              {/* text-balance and no truncation: "Chief Commercial Officer /
-                  CCO" is 30 characters, and on a 320px screen beside a 80px
-                  photo it needs two lines rather than an ellipsis. */}
-              <p className="text-gold mt-2 text-sm font-medium text-balance">{t(m.role)}</p>
-              <p className="mt-1 text-sm text-white/60">{t(m.known)}</p>
-            </div>
+            <span className={css.badge}>{badge(m.role.en)}</span>
           </div>
+          <h1 className={css.name}>{m.name}</h1>
+          {/* no truncation: "Chief Commercial Officer / CCO" wraps at 320px */}
+          <p className={css.role}>{t(m.role)}</p>
+          <p className={css.company}>{SITE_CONFIG.name} · {t(m.known)}</p>
+        </header>
 
-          <p className="mt-6 text-sm leading-relaxed text-white/70">{t(m.lead)}</p>
-
+        {/* ---- the actions ---- */}
+        <div className={css.actions}>
           {/* The headline feature: a real vCard, not a picture of a card. */}
-          <a
-            href={`/cards/${m.slug}.vcf`}
-            download={`${m.slug}-a2z.vcf`}
-            className="bg-gold focus-visible:outline-gold hover:bg-gold/85 mt-8 flex h-12 w-full items-center justify-center gap-2 rounded-lg px-6 text-sm font-medium text-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            <UserPlus className="h-4 w-4" aria-hidden="true" />
+          <a href={`/cards/${m.slug}.vcf`} download={`${m.slug}-a2z.vcf`} className={css.save}>
+            <UserPlus aria-hidden="true" />
             {t(CARD_COPY.save)}
           </a>
-
-          {/* Three across on every width. "Telefon bimbit" never appears here
-              — the buttons take the short BM verbs, which fit the same grid
-              the English ones do. */}
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            <a href={`tel:${m.mobileE164}`} className={ACTION}>
-              <Phone className="h-4 w-4" aria-hidden="true" />
-              {t(CARD_COPY.call)}
-            </a>
-            <a href={waHref} target="_blank" rel="noopener noreferrer" className={ACTION}>
-              <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              {t(CARD_COPY.whatsapp)}
-            </a>
-            <a href={`mailto:${m.email}`} className={ACTION}>
-              <Mail className="h-4 w-4" aria-hidden="true" />
-              {t(CARD_COPY.email)}
-            </a>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto w-full max-w-xl px-6 py-12">
-        {/* v1.128.0 — what this person owns, between who they are and how to
-            reach them: the order a client actually reads a card in. */}
-        <section>
-          <h2 className="text-muted-foreground text-[11px] font-medium tracking-[0.3em] uppercase">
-            {t(CARD_COPY.responsibilities)}
-          </h2>
-          <ul className="border-border divide-border mt-4 divide-y rounded-xl border">
-            {duties.map((d) => (
-              <li key={d} className="flex items-start gap-3 px-4 py-3">
-                <span aria-hidden="true" className="bg-gold mt-2 h-1 w-1 shrink-0 rounded-full" />
-                <span className="text-sm leading-relaxed">{d}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* Everything printed on the paper, in the same order it is read. */}
-        <section className="mt-10">
-          <h2 className="text-muted-foreground text-[11px] font-medium tracking-[0.3em] uppercase">
-            {t(CARD_COPY.direct)}
-          </h2>
-          {/* Label above value, and the value wraps. A long address on one line
-              with the label beside it truncated izzudin.amdan@... on a phone,
-              which is a contact detail the page exists to hand over. */}
-          <dl className="border-border divide-border mt-4 divide-y rounded-xl border">
-            <div className="flex flex-col gap-1 px-4 py-3">
-              <dt className="text-muted-foreground text-xs">{t(CARD_COPY.mobile)}</dt>
-              <dd>
-                <a href={`tel:${m.mobileE164}`} className="text-sm font-medium">
-                  {m.mobile}
-                </a>
-              </dd>
-            </div>
-            <div className="flex flex-col gap-1 px-4 py-3">
-              <dt className="text-muted-foreground text-xs">{t(CARD_COPY.emailLabel)}</dt>
-              <dd>
-                <a href={`mailto:${m.email}`} className="text-sm font-medium break-all">
-                  {m.email}
-                </a>
-              </dd>
-            </div>
-            <div className="flex flex-col gap-1 px-4 py-3">
-              <dt className="text-muted-foreground text-xs">{t(CARD_COPY.office)}</dt>
-              <dd>
-                <a href={`mailto:${CARD_COMPANY.email}`} className="text-sm font-medium break-all">
-                  {CARD_COMPANY.email}
-                </a>
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className="mt-10">
-          <h2 className="text-muted-foreground text-[11px] font-medium tracking-[0.3em] uppercase">
-            {t(CARD_COPY.visit)}
-          </h2>
-          <a
-            href={MAP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="border-border mt-4 flex items-start gap-3 rounded-xl border px-4 py-4"
-          >
-            <MapPin className="text-gold-deep mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            {/* One source of truth: this is the address that prints on every
-                invoice this company issues (lib/issuers.ts feeds it). An
-                address is not translated — a courier has to read it. */}
-            <span className="text-sm leading-relaxed">{SITE_CONFIG.address}</span>
+          <a href={waHref} target="_blank" rel="noopener noreferrer" className={css.wa}>
+            <MessageCircle aria-hidden="true" />
+            {t(CARD_COPY.whatsapp)}
           </a>
-        </section>
-
-        <section className="mt-10">
-          <h2 className="text-muted-foreground text-[11px] font-medium tracking-[0.3em] uppercase">
-            {t(CARD_COPY.elsewhere)}
-          </h2>
-          <ul className="border-border divide-border mt-4 divide-y rounded-xl border">
-            {CARD_LINKS.map((l) => (
-              <li key={l.href}>
-                <Link href={l.href} className="flex flex-col gap-0.5 px-4 py-3">
-                  <span className="text-sm font-medium">{t(l.label)}</span>
-                  <span className="text-muted-foreground text-xs">{t(l.note)}</span>
-                </Link>
-              </li>
-            ))}
+          <ul className={css.icons}>
+            <li><a href={`tel:${m.mobileE164}`}><span><Phone aria-hidden="true" /></span>{t(CARD_COPY.call)}</a></li>
+            <li><a href={`mailto:${m.email}`}><span><Mail aria-hidden="true" /></span>{t(CARD_COPY.email)}</a></li>
+            <li><Link href="/"><span><Globe aria-hidden="true" /></span>{t(CARD_COPY.website)}</Link></li>
+            <li><a href={MAP_URL} target="_blank" rel="noopener noreferrer"><span><MapPin aria-hidden="true" /></span>{t(CARD_COPY.location)}</a></li>
           </ul>
-        </section>
+          <button type="button" className={css.share} onClick={(e) => void share(e)}>
+            <Share2 aria-hidden="true" />
+            <span data-label aria-live="polite">{t(CARD_COPY.share)}</span>
+          </button>
+        </div>
 
-        {/* For when the cards run out: show the screen, let them scan it. */}
-        <section className="mt-10 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/cards/${m.slug}-qr.png`}
-            alt={`${t(CARD_COPY.qrAlt)} ${cardUrl}`}
-            width={180}
-            height={180}
-            className="border-border mx-auto h-[180px] w-[180px] rounded-xl border bg-white p-3"
-          />
-          <p className="text-muted-foreground mt-3 text-xs">{t(CARD_COPY.outOfCards)}</p>
-          <p className="mt-1 text-xs font-medium">{cardUrl.replace("https://", "")}</p>
-        </section>
+        {/* ---- the body ---- */}
+        <div className={css.body}>
+          <section>
+            <h2 className={css.h2}>{t(CARD_COPY.about)}</h2>
+            <p className={css.lead}>{t(m.lead)}</p>
+          </section>
 
-        <footer className="border-border text-muted-foreground mt-12 border-t pt-6 text-center text-xs">
-          {/* The registered name and the brand line are legal identification
-              and a brand asset. Neither is translated, for the same reason the
-              letterheads are English-only (lib/issuers.ts). */}
-          <p>{SITE_CONFIG.legalName}</p>
-          <p className="mt-1">{SITE_CONFIG.brandTagline}</p>
-        </footer>
-      </div>
+          <section>
+            <h2 className={css.h2}>{t(CARD_COPY.responsibilities)}</h2>
+            <ul className={css.duties}>
+              {duties.map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          </section>
+
+          {/* Everything printed on the paper, label above value, values wrap. */}
+          <section>
+            <h2 className={css.h2}>{t(CARD_COPY.direct)}</h2>
+            <dl className={css.contacts}>
+              <div>
+                <dt>{t(CARD_COPY.mobile)}</dt>
+                <dd><a href={`tel:${m.mobileE164}`}>{m.mobile}</a></dd>
+              </div>
+              <div>
+                <dt>{t(CARD_COPY.emailLabel)}</dt>
+                <dd><a href={`mailto:${m.email}`}>{m.email}</a></dd>
+              </div>
+              <div>
+                <dt>{t(CARD_COPY.office)}</dt>
+                <dd><a href={`mailto:${CARD_COMPANY.email}`}>{CARD_COMPANY.email}</a></dd>
+              </div>
+            </dl>
+          </section>
+
+          <section>
+            <h2 className={css.h2}>{t(CARD_COPY.visit)}</h2>
+            {/* the address that prints on every invoice; not translated */}
+            <a href={MAP_URL} target="_blank" rel="noopener noreferrer" className={css.address}>
+              <MapPin aria-hidden="true" />
+              <span>{SITE_CONFIG.address}</span>
+            </a>
+          </section>
+
+          <section>
+            <h2 className={css.h2}>{t(CARD_COPY.elsewhere)}</h2>
+            <ul className={css.links}>
+              {CARD_LINKS.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href}>
+                    <strong>{t(l.label)}</strong>
+                    <span>{t(l.note)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* For when the cards run out: show the screen, let them scan it. */}
+          <section className={css.qr}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/cards/${m.slug}-qr.png`} alt={`${t(CARD_COPY.qrAlt)} ${cardUrl}`} width={180} height={180} />
+            <p>{t(CARD_COPY.outOfCards)}</p>
+            <p className={css.url}>{cardUrl.replace("https://", "")}</p>
+          </section>
+
+          <footer className={css.foot}>
+            {/* legal identification and the brand line are not translated */}
+            <p>{SITE_CONFIG.legalName}</p>
+            <p>{SITE_CONFIG.brandTagline}</p>
+          </footer>
+        </div>
+      </article>
     </main>
   );
 }

@@ -5742,6 +5742,23 @@ export async function handleStaff(
     return err("invalid_input", "action must be cancel, approve, or reject", 400);
   }
 
+  /* ---- v1.218.0 - Cards 2.0: does each card still match the staff record?
+     The owner, 28-10-2026 ("Mismatch warning"): the public card stays a fixed
+     page built from constants/team.ts; the Cards tab compares it with the
+     officer's staff record and says when they differ. Read-only, and only the
+     four fields a card shows - never the rest of the staff record (no IC,
+     bank, address or staff ID). The same people the Cards tab is for. */
+  if (path === "/cards/profile-check" && method === "GET") {
+    if (!can(user.role, "exec_view")) return err("forbidden", "Management access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, position, phone,
+              CASE WHEN photo_key IS NOT NULL AND photo_key != '' THEN 1 ELSE 0 END AS has_photo
+         FROM users WHERE role IN ('ceo', 'coo', 'cco') AND is_active = 1 AND ${currentStaffSql()}
+        ORDER BY role`,
+    ).all<{ role: string; name: string; position: string | null; phone: string | null; has_photo: number }>();
+    return json({ officers: results });
+  }
+
   /* ---- announcements ----
      v1.217.0 - News & Announcements 2.0 lives in news.ts, at the same paths
      over the same tables (the owner, 28-10-2026). */

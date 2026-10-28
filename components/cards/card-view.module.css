@@ -1,0 +1,400 @@
+/* v1.218.0 - the public digital business card (Cards 2.0). The brand's own
+   tokens: navy face, gold accents, the site's light/dark body. Mobile first;
+   on a wide screen it stays a card on a light page. */
+.page {
+  min-height: 100svh;
+  padding: max(env(safe-area-inset-top, 0px), 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: var(--background);
+  color: var(--foreground);
+}
+@media (min-width: 640px) {
+  .page {
+    padding: max(2.5rem, env(safe-area-inset-top, 0px)) 1.5rem max(2.5rem, env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--brand-primary) 6%, var(--background));
+  }
+}
+.embedded {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+.card {
+  width: 100%;
+  max-width: 30rem;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--background);
+}
+@media (min-width: 640px) {
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    box-shadow: 0 20px 50px -24px color-mix(in srgb, var(--brand-primary) 45%, transparent);
+  }
+}
+.embedded .card {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+/* ---- the navy face ---- */
+.face {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  padding: max(1.25rem, env(safe-area-inset-top, 0px)) 1.5rem 2rem;
+  background:
+    radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--brand-accent) 18%, transparent), transparent 60%),
+    var(--brand-primary);
+  color: #fff;
+  text-align: center;
+}
+.embedded .face {
+  padding-top: 1.25rem;
+}
+.face::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 4px;
+  background: linear-gradient(90deg, transparent, var(--brand-accent), transparent);
+}
+.top {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.brand {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--brand-accent);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: uppercase;
+}
+.logo {
+  width: 3rem;
+  height: auto;
+  flex: none;
+}
+.lang {
+  display: flex;
+  flex: none;
+  padding: 0.125rem;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 999px;
+}
+.lang button {
+  min-width: 2.75rem;
+  min-height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgb(255 255 255 / 0.75);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lang button[aria-pressed="true"] {
+  background: var(--brand-accent);
+  color: var(--brand-primary);
+}
+.portrait {
+  position: relative;
+  margin-top: 1.5rem;
+}
+.photo,
+.mono {
+  display: grid;
+  width: 7rem;
+  height: 7rem;
+  place-items: center;
+  border: 3px solid var(--brand-accent);
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--brand-primary-soft, #243759);
+  color: var(--brand-accent);
+  font-size: 2rem;
+  font-weight: 600;
+  box-shadow: 0 0 0 6px rgb(255 255 255 / 0.06);
+}
+.badge {
+  position: absolute;
+  left: 50%;
+  bottom: -0.625rem;
+  transform: translateX(-50%);
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  background: var(--brand-accent);
+  color: var(--brand-primary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.name {
+  margin: 1.5rem 0 0;
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.role {
+  margin: 0.375rem 0 0;
+  color: var(--brand-accent);
+  font-size: 1rem;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.company {
+  margin: 0.25rem 0 0;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 0.875rem;
+}
+
+/* ---- the actions ---- */
+.actions {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.5rem 1.25rem 0.5rem;
+}
+.save,
+.wa,
+.share {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.save svg,
+.wa svg,
+.share svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.save {
+  background: var(--brand-accent);
+  color: var(--brand-primary);
+  box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--brand-accent) 80%, transparent);
+}
+.save:hover,
+.save:focus-visible {
+  background: color-mix(in srgb, var(--brand-accent) 88%, #000);
+}
+.wa {
+  border: 1.5px solid var(--border);
+  color: var(--foreground);
+}
+.wa svg {
+  color: #1faa59;
+}
+.icons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.icons a {
+  display: grid;
+  justify-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+.icons a > span {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--brand-primary);
+}
+.icons a:hover > span,
+.icons a:focus-visible > span {
+  border-color: var(--brand-accent);
+}
+.icons svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.share {
+  min-height: 2.75rem;
+  border: 0;
+  background: none;
+  color: var(--brand-accent-deep);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ---- the body ---- */
+.body {
+  display: grid;
+  gap: 1.75rem;
+  padding: 1.25rem 1.25rem max(2rem, env(safe-area-inset-bottom, 0px));
+}
+.body section {
+  display: grid;
+  gap: 0.625rem;
+}
+.h2 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.lead {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+.duties,
+.contacts,
+.links {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  list-style: none;
+}
+.duties > li,
+.contacts > div,
+.links > li {
+  border-bottom: 1px solid var(--border);
+}
+.duties > li:last-child,
+.contacts > div:last-child,
+.links > li:last-child {
+  border-bottom: 0;
+}
+.duties > li {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+.duties > li::before {
+  content: "";
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-top: 0.5rem;
+  border-radius: 50%;
+  background: var(--brand-accent);
+}
+.contacts > div {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.75rem 1rem;
+}
+.contacts dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.contacts dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.contacts a {
+  color: inherit;
+}
+.address {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: inherit;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  text-decoration: none;
+}
+.address svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  margin-top: 0.125rem;
+  color: var(--brand-accent-deep);
+}
+.links a {
+  display: grid;
+  gap: 0.125rem;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
+  color: inherit;
+  text-decoration: none;
+}
+.links strong {
+  font-size: 0.875rem;
+}
+.links span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.qr {
+  justify-items: center;
+  text-align: center;
+}
+.qr img {
+  width: 11.25rem;
+  height: 11.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+}
+.qr p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.qr .url {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.foot {
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+}
+.foot p {
+  margin: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .save,
+  .wa,
+  .icons a > span {
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+}

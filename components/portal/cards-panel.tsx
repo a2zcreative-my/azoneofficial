@@ -2,6 +2,12 @@
 
 /**
  * v1.129.0 — THE CARDS TAB: share a director's digital business card.
+ * v1.218.0 — Cards 2.0 (the owner's brief and answers, 28-10-2026): the three
+ * officer cards redrawn as card faces, the four share actions kept (Copy link,
+ * WhatsApp, Show QR, Download image - now the portrait card image), a "Share &
+ * print" strip, the public card previewed inside the portal (a drawer showing
+ * the very component the public page renders, at desktop or phone width), and
+ * a read-only check that each card still matches the officer's staff record.
  *
  * CEO, 06-09-2026: *"only ceo, coo, cco can share their business card to
  * client and the other staff cant access this tabs ... at the same time make
@@ -10,46 +16,37 @@
  * WHAT THE RESTRICTION IS, SAID PLAINLY.
  * The tab is drawn for ceo / coo / cco only (TAB_ROLES in lib/portal-tabs.ts),
  * so no other staff member is offered a way to share a director's card. That
- * is an ORGANISATIONAL boundary, and it is worth being honest about what it
- * is not: the cards themselves are PUBLIC pages — a2zcreative.my/farhan is a
- * static file on a CDN, printed on paper, with a QR code pointing at it. This
- * tab cannot make a card private and does not try to. It decides who the
- * PORTAL hands a share button to.
+ * is an ORGANISATIONAL boundary: the cards themselves are PUBLIC pages -
+ * a2zcreative.my/farhan is a static file on a CDN, printed on paper, with a
+ * QR code pointing at it. This tab cannot make a card private and does not
+ * try to. It decides who the PORTAL hands a share button to.
  *
- * There is therefore no API behind this tab and nothing for a server-side
- * gate to protect: the three records are static (constants/team.ts) and the
- * page is a link away for anybody on earth. A tab whose data is already
- * public needs no second lock; claiming one would be theatre.
- *
- * WHAT "NICE ON MOBILE" MEANT HERE.
- * The person using this tab is holding a phone in front of a client. So the
- * four actions are 44px targets in a two-by-two grid that stays two-by-two at
- * 320px; the QR opens FULL SCREEN at the largest square the viewport allows,
- * because it is going to be scanned across a table by a camera; and the card
- * preview is the real navy face, not a description of one — you are about to
- * send it, so you should see it.
- *
- * WHY NOT ONE CARD PER OFFICER. His own card is first and marked, but all
- * three are here: introducing a client to the COO because the job is
- * operational, or the CCO because it is commercial, is exactly when a second
- * card gets sent, and asking a colleague to send their own link mid-meeting
- * is the thing this tab exists to avoid.
+ * ONE PUBLIC PROFILE. Every card here reads constants/team.ts, the approved
+ * public profile, exactly as the public page does. The staff record is only
+ * compared (GET /staff/cards/profile-check: four fields, read-only); nothing
+ * is copied from it and nothing is edited here.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { CardView } from "@/components/cards/card-view";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { SideDrawer } from "@/components/ui/side-drawer";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { Skel } from "@/components/ui/skeleton";
 import { SITE_CONFIG } from "@/constants/site";
 import { TEAM, cardMonogram, type TeamCard } from "@/constants/team";
+import { api } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { card, insetCard } from "@/lib/ui-styles";
+import css from "./cards-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 /** Which record belongs to the person looking at the tab. */
 const OWN_SLUG: Record<string, string> = { ceo: "farhan", coo: "zoll", cco: "izz" };
+const ROLE_OF: Record<string, string> = { farhan: "ceo", zoll: "coo", izz: "cco" };
 
 /** The message that rides with the link on WhatsApp — bilingual, because the
     client on the other end reads one of the two and the card opens in BM. */
@@ -57,28 +54,49 @@ const shareText = (m: TeamCard, url: string) =>
   getLang() === "ms"
     ? `Salam, ini kad perniagaan digital ${m.known.ms} — ${m.role.ms}, ${SITE_CONFIG.name}.\n${url}`
     : `Hello, here is ${m.known.en}'s digital business card — ${m.role.en}, ${SITE_CONFIG.name}.\n${url}`;
+const badge = (m: TeamCard) => m.role.en.split("/").pop()?.trim() ?? "";
+const digits = (s: string) => s.replace(/[^0-9]/g, "").replace(/^0/, "60");
+
+type Officer = { role: string; name: string; position: string | null; phone: string | null; has_photo: number };
+
+/** What differs between a card and its officer's staff record - said, never fixed. */
+function differences(m: TeamCard, o: Officer | undefined): string[] {
+  if (!o) return [L("No current staff record holds this role.", "Tiada rekod kakitangan semasa memegang jawatan ini.")];
+  const out: string[] = [];
+  const staffWords = o.name.toUpperCase().split(/\s+/);
+  if (!m.name.toUpperCase().split(/\s+/).every((w) => staffWords.includes(w))) {
+    out.push(L(`Name - staff record: ${o.name}; card: ${m.name}`, `Nama - rekod kakitangan: ${o.name}; kad: ${m.name}`));
+  }
+  if (!o.phone) out.push(L("The staff record has no phone number.", "Rekod kakitangan tiada nombor telefon."));
+  else if (digits(o.phone) !== digits(m.mobileE164)) {
+    out.push(L(`Phone - staff record: ${o.phone}; card: ${m.mobile}`, `Telefon - rekod kakitangan: ${o.phone}; kad: ${m.mobile}`));
+  }
+  if (o.position && !o.position.toUpperCase().includes(badge(m).toUpperCase())) {
+    out.push(L(`Position - staff record: ${o.position}; card: ${m.role.en}`, `Jawatan - rekod kakitangan: ${o.position}; kad: ${m.role.ms}`));
+  }
+  return out;
+}
 
 /** One action button. 44px tall: this is used one-handed, in front of a client. */
-function Action({ icon, label, onClick, href }: {
+function Action({ icon, label, onClick, href, download }: {
   icon: Parameters<typeof AppIcon>[0]["name"];
   label: string;
   onClick?: () => void;
   href?: string;
+  download?: string;
 }) {
-  const cls =
-    "border-border hover:bg-secondary flex h-11 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors";
   if (href) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+      <a href={href} target={download ? undefined : "_blank"} rel="noopener noreferrer" download={download} className={css.action}>
         <AppIcon name={icon} />
-        <span className="truncate">{label}</span>
+        <span>{label}</span>
       </a>
     );
   }
   return (
-    <button type="button" onClick={onClick} className={cls}>
+    <button type="button" onClick={onClick} className={css.action}>
       <AppIcon name={icon} />
-      <span className="truncate">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -98,41 +116,25 @@ function QrScreen({ m, url, onClose }: { m: TeamCard; url: string; onClose: () =
     };
   }, [onClose]);
   return (
-    <div
-      className="bg-brand fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 p-6 text-white"
-      role="dialog"
-      aria-modal="true"
-      aria-label={L(`QR code for ${m.name}`, `Kod QR untuk ${m.name}`)}
-      onClick={onClose}
-    >
-      <p className="text-gold text-[11px] font-semibold tracking-[0.3em] uppercase">
-        {SITE_CONFIG.name}
-      </p>
-      {/* min(78vw, 78vh) — the largest square that fits either way up, so
-          turning the phone sideways to show it across a table still works.
-          White plate: a QR on navy does not scan. */}
+    <div className={css.qrScreen} role="dialog" aria-modal="true" aria-label={L(`QR code for ${m.name}`, `Kod QR untuk ${m.name}`)} onClick={onClose}>
+      <p className={css.qrEyebrow}>{SITE_CONFIG.name}</p>
+      {/* min(78vw, 78vh) - the largest square that fits either way up. White plate: a QR on navy does not scan. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={`/cards/${m.slug}-qr.png`}
-        alt={url}
-        className="h-[min(78vw,78vh)] w-[min(78vw,78vh)] rounded-2xl bg-white p-4"
-      />
-      <div className="text-center">
-        <p className="text-lg font-semibold">{m.name}</p>
-        <p className="text-gold mt-0.5 text-sm">{m.role.ms}</p>
-        <p className="mt-2 text-sm text-white/70">{url.replace("https://", "")}</p>
+      <img src={`/cards/${m.slug}-qr.png`} alt={url} className={css.qrImg} />
+      <div className={css.qrWho}>
+        <p>{m.name}</p>
+        <p>{m.role.ms}</p>
+        <p>{url.replace("https://", "")}</p>
       </div>
-      <p className="text-xs text-white/50">{L("Tap anywhere to close", "Ketik di mana-mana untuk tutup")}</p>
+      <p className={css.qrHint}>{L("Tap anywhere to close", "Ketik di mana-mana untuk tutup")}</p>
     </div>
   );
 }
 
-function OfficerCard({ m, mine }: { m: TeamCard; mine: boolean }) {
+/** Copy a card's link, and say so either way. */
+function useCopy() {
   const { show: showToast, node: toastNode } = useSaveToast();
-  const [qr, setQr] = useState(false);
-  const url = `${SITE_CONFIG.url}/${m.slug}`;
-
-  const copy = useCallback(async () => {
+  const copy = useCallback(async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
       showToast(L("Link copied", "Pautan disalin"), url.replace("https://", ""));
@@ -146,60 +148,76 @@ function OfficerCard({ m, mine }: { m: TeamCard; mine: boolean }) {
         "notice",
       );
     }
-  }, [url, showToast]);
+  }, [showToast]);
+  return { copy, toastNode };
+}
+
+function OfficerCard({ m, mine, check, onPreview, reading }: { m: TeamCard; mine: boolean; check: string[] | null | undefined; onPreview: () => void; reading: ReactNode }) {
+  const { copy, toastNode } = useCopy();
+  const [qr, setQr] = useState(false);
+  const url = `${SITE_CONFIG.url}/${m.slug}`;
 
   return (
-    <div className={insetCard}>
+    <article className={css.officer} aria-label={m.name}>
       {toastNode}
       {qr && <QrScreen m={m} url={url} onClose={() => setQr(false)} />}
 
-      {/* The navy face, at a glance — you are about to send this. */}
-      <div className="bg-brand -m-3 mb-3 flex items-center gap-3 rounded-t-xl p-3 text-white">
-        {m.photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={m.photo} alt="" className="border-gold/40 h-12 w-12 shrink-0 rounded-full border object-cover" />
-        ) : (
-          <span aria-hidden className="border-gold/40 text-gold flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-sm font-semibold">
-            {cardMonogram(m)}
+      {/* The navy face, at a glance - you are about to send this. */}
+      <div className={css.face}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-white.png" alt="" className={css.logo} width={991} height={547} />
+        {mine && <span className={css.yours}>{L("Yours", "Anda")}</span>}
+        <div className={css.who}>
+          <span className={css.portrait}>
+            {m.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={m.photo} alt="" className={css.photo} />
+            ) : (
+              <span aria-hidden className={css.mono}>{cardMonogram(m)}</span>
+            )}
           </span>
-        )}
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{m.name}</p>
-          {/* The Malay title: the card opens in BM and so does the vCard. */}
-          <p className="text-gold truncate text-xs">{m.role.ms}</p>
+          <span className={css.lines}>
+            <span className={css.badge}>{badge(m)}</span>
+            <strong>{m.name}</strong>
+            {/* The Malay title: the card opens in BM and so does the vCard. */}
+            <span>{m.role.ms}</span>
+            <span className={css.co}>{SITE_CONFIG.name}</span>
+          </span>
         </div>
-        {mine && (
-          <span className="bg-gold ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-black">
-            {L("Yours", "Anda")}
-          </span>
-        )}
       </div>
 
-      <p className="text-muted-foreground text-xs break-all">{url.replace("https://", "")}</p>
+      <div className={css.linkRow}>
+        <AppIcon name="link" />
+        <span>{url.replace("https://", "")}</span>
+        <button type="button" onClick={() => void copy(url)} aria-label={L(`Copy ${m.name}'s link`, `Salin pautan ${m.name}`)}><AppIcon name="documents" /></button>
+      </div>
 
-      {/* Two by two, and it stays two by two at 320px — four across would
-          put "Send on WhatsApp" on two lines inside a 70px button. */}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Action icon="link" label={L("Copy link", "Salin pautan")} onClick={copy} />
-        <Action
-          icon="chat"
-          label={L("WhatsApp", "WhatsApp")}
-          href={`https://wa.me/?text=${encodeURIComponent(shareText(m, url))}`}
-        />
+      {/* Two by two, and it stays two by two at 320px. */}
+      <div className={css.actions}>
+        <Action icon="link" label={L("Copy link", "Salin pautan")} onClick={() => void copy(url)} />
+        <Action icon="chat" label="WhatsApp" href={`https://wa.me/?text=${encodeURIComponent(shareText(m, url))}`} />
         <Action icon="qr" label={L("Show QR", "Tunjuk QR")} onClick={() => setQr(true)} />
-        <Action icon="download" label={L("Image", "Imej")} href={`/cards/${m.slug}-og.png`} />
+        <Action icon="download" label={L("Download image", "Muat turun imej")} href={`/cards/${m.slug}-card.png`} download={`${m.slug}-a2z-card.png`} />
       </div>
 
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-muted-foreground mt-2 inline-flex items-center gap-1.5 text-xs underline"
-      >
-        <AppIcon name="preview" className="h-3.5 w-3.5" />
-        {L("Open the card as a client sees it", "Buka kad seperti dilihat pelanggan")}
-      </a>
-    </div>
+      <button type="button" className={css.preview} onClick={onPreview}>
+        <AppIcon name="preview" />
+        {L("Preview as a client sees it", "Pratonton seperti dilihat pelanggan")}
+      </button>
+
+      {/* the staff-record check: a line-shaped skeleton while it is read */}
+      {check === undefined && reading}
+      {check && (
+        check.length === 0 ? (
+          <p className={css.match}><AppIcon name="success" /> {L("Matches the staff record", "Sepadan dengan rekod kakitangan")}</p>
+        ) : (
+          <div className={css.mismatch} role="note">
+            <p><AppIcon name="warning" /> {L("Differs from the staff record - decide which is right:", "Berbeza daripada rekod kakitangan - tentukan yang betul:")}</p>
+            <ul>{check.map((c) => <li key={c}>{c}</li>)}</ul>
+          </div>
+        )
+      )}
+    </article>
   );
 }
 
@@ -210,31 +228,115 @@ export function CardsPanel({ role = "" }: { role?: string }) {
   const ordered = [...TEAM].sort((a, b) =>
     a.slug === own ? -1 : b.slug === own ? 1 : 0,
   );
+  const [preview, setPreview] = useState<TeamCard | null>(null);
+  const [frame, setFrame] = useState<"mobile" | "desktop">("mobile");
+  const [pick, setPick] = useState<string>(ordered[0]?.slug ?? "");
+  /* undefined = still reading; null = not available (refused, or an older worker) */
+  const [officers, setOfficers] = useState<Officer[] | null | undefined>(undefined);
+  const { copy, toastNode } = useCopy();
+
+  /* the read-only staff-record comparison; a refusal or an older worker shows nothing */
+  useEffect(() => {
+    let alive = true;
+    void api<{ officers: Officer[] }>(`/staff/cards/profile-check`).then((r) => {
+      if (alive) setOfficers(r.ok && r.data?.officers ? r.data.officers : null);
+    });
+    return () => { alive = false; };
+  }, []);
+  const checkOf = (m: TeamCard) => (officers === undefined ? undefined : officers ? differences(m, officers.find((o) => o.role === ROLE_OF[m.slug])) : null);
+  const chosen = ordered.find((m) => m.slug === pick) ?? ordered[0]!;
+  const chosenUrl = `${SITE_CONFIG.url}/${chosen.slug}`;
 
   return (
-    /* v1.173.0 (tab concept): one zone, the three officers' cards in it. */
     <TabPage>
+      {toastNode}
       <TabZone label={L("The officers", "Pegawai")}>
-      <div className={card}>
-        <PanelTitle icon="person">{L("Business cards", "Kad perniagaan")}</PanelTitle>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {L("Send a client the digital card — it opens in Malay, switches to English, and saves straight into their phone contacts.",
-             "Hantar kad digital kepada pelanggan — ia dibuka dalam Bahasa Melayu, boleh tukar ke Bahasa Inggeris, dan disimpan terus ke dalam kenalan telefon mereka.")}
-        </p>
-        {/* Said here, not only in a code comment: somebody will otherwise
-            assume this tab makes the cards private. */}
-        <p className="text-muted-foreground mt-1.5 text-xs">
-          {L("This tab is limited to the CEO, COO and CCO. The cards themselves are public pages — they are printed on paper with a QR code — so this controls who shares them from the portal, not who can open one.",
-             "Tab ini terhad kepada CEO, COO dan CCO. Kad itu sendiri ialah halaman awam — ia dicetak pada kad dengan kod QR — jadi ini mengawal siapa yang berkongsi daripada portal, bukan siapa yang boleh membukanya.")}
-        </p>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {ordered.map((m) => (
-            <OfficerCard key={m.slug} m={m} mine={m.slug === own} />
-          ))}
-        </div>
-      </div>
+        <section className={card} aria-label={L("Digital business cards", "Kad perniagaan digital")}>
+          <PanelTitle icon="person">{L("Digital business cards", "Kad perniagaan digital")}</PanelTitle>
+          <p className={css.meta}>
+            {L("Send a client the digital card — it opens in Malay, switches to English, and saves straight into their phone contacts.",
+               "Hantar kad digital kepada pelanggan — ia dibuka dalam Bahasa Melayu, boleh tukar ke Bahasa Inggeris, dan disimpan terus ke dalam kenalan telefon mereka.")}
+          </p>
+          {/* Said here, not only in a code comment: somebody will otherwise
+              assume this tab makes the cards private. */}
+          <p className={css.note}>
+            <AppIcon name="info" />
+            {L("This tab is limited to the CEO, COO and CCO. The cards themselves are public pages — they are printed on paper with a QR code — so this controls who shares them from the portal, not who can open one.",
+               "Tab ini terhad kepada CEO, COO dan CCO. Kad itu sendiri ialah halaman awam — ia dicetak pada kad dengan kod QR — jadi ini mengawal siapa yang berkongsi daripada portal, bukan siapa yang boleh membukanya.")}
+          </p>
+          <div className={css.grid}>
+            {ordered.map((m) => (
+              <OfficerCard key={m.slug} m={m} mine={m.slug === own} check={checkOf(m)} onPreview={() => setPreview(m)}
+                reading={<span className={css.checkSkel}><Skel h={14} w="70%" /></span>} />
+            ))}
+          </div>
+        </section>
       </TabZone>
+
+      <TabZone label={L("Share & print", "Kongsi & cetak")}>
+        <section className={card} aria-label={L("Share & print", "Kongsi & cetak")}>
+          <div className={css.head}>
+            <div>
+              <PanelTitle icon="print">{L("Share & print", "Kongsi & cetak")}</PanelTitle>
+              <p className={css.meta}>{L("The same files and link as the card above - for print, a slide or a message.", "Fail dan pautan yang sama seperti kad di atas - untuk cetakan, slaid atau mesej.")}</p>
+            </div>
+            <div className={css.pick} role="group" aria-label={L("Whose card", "Kad siapa")}>
+              {ordered.map((m) => <button key={m.slug} type="button" aria-pressed={pick === m.slug} onClick={() => setPick(m.slug)}>{badge(m)}</button>)}
+            </div>
+          </div>
+          <ul className={css.tools}>
+            <li className={insetCard}>
+              <span className={css.well}><AppIcon name="qr" /></span>
+              <strong>{L("QR code", "Kod QR")}</strong>
+              <span>{L("High resolution (900 px) for printing.", "Resolusi tinggi (900 px) untuk cetakan.")}</span>
+              <a className={css.tool} href={`/cards/${chosen.slug}-qr.png`} download={`${chosen.slug}-a2z-qr.png`}>{L("Download QR", "Muat turun QR")}</a>
+            </li>
+            <li className={insetCard}>
+              <span className={css.well}><AppIcon name="document" /></span>
+              <strong>{L("Card image", "Imej kad")}</strong>
+              <span>{L("Portrait card (1080 × 1350) for a phone or a print.", "Kad potret (1080 × 1350) untuk telefon atau cetakan.")}</span>
+              <a className={css.tool} href={`/cards/${chosen.slug}-card.png`} download={`${chosen.slug}-a2z-card.png`}>{L("Download image", "Muat turun imej")}</a>
+            </li>
+            <li className={insetCard}>
+              <span className={css.well}><AppIcon name="link" /></span>
+              <strong>{L("Share link", "Pautan kongsi")}</strong>
+              <span>{chosenUrl.replace("https://", "")}</span>
+              <button type="button" className={css.tool} onClick={() => void copy(chosenUrl)}>{L("Copy link", "Salin pautan")}</button>
+            </li>
+            <li className={insetCard}>
+              <span className={css.well}><AppIcon name="chat" /></span>
+              <strong>{L("WhatsApp share", "Kongsi WhatsApp")}</strong>
+              <span>{L("Opens WhatsApp with the link and a short greeting.", "Membuka WhatsApp dengan pautan dan ucapan ringkas.")}</span>
+              <a className={css.tool} href={`https://wa.me/?text=${encodeURIComponent(shareText(chosen, chosenUrl))}`} target="_blank" rel="noopener noreferrer">{L("Share on WhatsApp", "Kongsi di WhatsApp")}</a>
+            </li>
+          </ul>
+          <p className={css.note}>
+            <AppIcon name="lock" />
+            {L("Only the approved public details are on a card - name, title, work email, the printed mobile and the office. Staff ID, IC, payroll and private details never are. To change a card, ask the administrator: it is published, not edited here.",
+               "Hanya butiran awam yang diluluskan ada pada kad - nama, jawatan, e-mel kerja, nombor telefon yang dicetak dan pejabat. ID kakitangan, IC, gaji dan butiran peribadi tidak sesekali. Untuk menukar kad, minta pentadbir: ia diterbitkan, bukan disunting di sini.")}
+            {" "}<a href={`/cards/${chosen.slug}-og.png`} target="_blank" rel="noopener noreferrer">{L("Link preview image", "Imej pratonton pautan")}</a>
+          </p>
+        </section>
+      </TabZone>
+
+      <SideDrawer open={!!preview} onClose={() => setPreview(null)} wide
+        title={L("Public card preview", "Pratonton kad awam")}
+        subtitle={L("Exactly what a client sees - the same card, not a copy.", "Tepat seperti dilihat pelanggan - kad yang sama, bukan salinan.")}>
+        {preview && (
+          <div className={css.previewWrap}>
+            <div className={css.frames} role="group" aria-label={L("Preview size", "Saiz pratonton")}>
+              <button type="button" aria-pressed={frame === "desktop"} onClick={() => setFrame("desktop")}>{L("Desktop", "Desktop")}</button>
+              <button type="button" aria-pressed={frame === "mobile"} onClick={() => setFrame("mobile")}>{L("Mobile", "Mudah alih")}</button>
+            </div>
+            <div className={frame === "mobile" ? css.phone : css.desk}>
+              <CardView m={preview} embedded />
+            </div>
+            <a className={css.preview} href={`${SITE_CONFIG.url}/${preview.slug}`} target="_blank" rel="noopener noreferrer">
+              <AppIcon name="external" /> {L("Open the live page", "Buka halaman sebenar")}
+            </a>
+          </div>
+        )}
+      </SideDrawer>
     </TabPage>
   );
 }

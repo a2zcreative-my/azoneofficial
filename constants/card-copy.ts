@@ -54,6 +54,13 @@ export const CARD_COPY = {
   /* --- the QR block --- */
   qrAlt: { en: "QR code for", ms: "Kod QR untuk" },
   outOfCards: { en: "Out of cards? Show this.", ms: "Kad habis? Tunjukkan ini." },
+
+  /* --- v1.218.0 (Cards 2.0): the icon row and passing the card on --- */
+  website: { en: "Website", ms: "Laman web" },
+  location: { en: "Location", ms: "Lokasi" },
+  share: { en: "Share this card", ms: "Kongsi kad ini" },
+  shared: { en: "Link copied", ms: "Pautan disalin" },
+  about: { en: "About", ms: "Tentang" },
 } as const satisfies Record<string, Bilingual>;
 
 /** The links out of the card, at the foot of the page. */

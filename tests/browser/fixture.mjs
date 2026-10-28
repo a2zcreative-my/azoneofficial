@@ -416,6 +416,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   ] };
   if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
   if (p === "/staff/announcements") data = { announcements, can_publish: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(ROLE), departments: ["Live", "Management", "Sales"] };
+  /* v1.218.0 - the Cards staff-record check (invented): the COO's record differs */
+  if (p === "/staff/cards/profile-check") data = { officers: [
+    { role: "ceo", name: "Mohd Alif Farhan bin Nazarudin", position: "Managing Director / CEO", phone: "012-2461823", has_photo: 1 },
+    { role: "cco", name: "Mohamad Izzudin bin Amdan", position: "Chief Commercial Officer / CCO", phone: "+60 12-708 7920", has_photo: 1 },
+    { role: "coo", name: "Zolkefli bin Ahmad", position: "Operations Manager", phone: "014-3569000", has_photo: 0 },
+  ] };
   /* v1.217.0 - News 2.0 reads (invented) */
   if (p === "/staff/announcements/report") data = { posts: announcements.map((a) => ({ id: a.id, title: a.title, category: a.category, version: a.version ?? 1, created_at: a.created_at,
     publisher_name: a.publisher_name ?? "Fixture Person", audience: a.audience ?? null, important: a.important ?? 0, pinned: 0, recipients: a.audience ? 1 : 3, acknowledged: a.acked ? (a.audience ? 1 : 3) : 1 })) };

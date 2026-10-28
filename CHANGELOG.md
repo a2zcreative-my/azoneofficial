@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.218.0] - 2026-10-28 - Digital Business Cards 2.0
+
+The owner's brief and his answers to `claude/CARDS-AUDIT.md`: fix the images
+and add a card image; full redesign of the public card; website only (no
+social links); a mismatch warning against the staff record.
+
+- **The share image was out of date.** `scripts/card-og.py` still read the
+  pre-v1.128.0 single-language records, matched none, and could not run, so
+  the preview images kept the titles of 30 August (Izz: "Director / CCO").
+  It now reads the bilingual records and prints the Malay title; the three
+  preview images are remade at the same URLs. It also draws a portrait
+  **card image** (`<slug>-card.png`, 1080 × 1350: photo, name, title, the
+  printed mobile, work email, link and QR). **An existing QR is never
+  redrawn** - the printed ones are byte-for-byte unchanged.
+- **Public card (/farhan, /izz, /zoll), same URLs, same record:** the A2Z
+  logo and BM/EN on a navy face, a large photo in a gold ring with the role
+  badge, a full-width gold Save to contacts (the same vCard), WhatsApp, a
+  Call / Email / Website / Location row, **Share this card** (the phone's
+  share sheet, or the link copied), the about text, responsibilities,
+  contacts, office, links, QR. Pads for the iPhone notch and home bar. Still
+  a static page: no fetch, no API, one piece of state. Styles in
+  `card-view.module.css`.
+- **Cards tab:** card faces with the logo, photo, badge, title; the link row;
+  Copy link, WhatsApp, Show QR, Download image (now the card image); a
+  **preview drawer** showing the public card itself at desktop or phone
+  width; a **Share & print** strip (QR, card image, link, WhatsApp) for the
+  chosen officer; a privacy note.
+- **Staff-record check:** `GET /staff/cards/profile-check` (exec_view,
+  read-only) returns the three officers' name, position, phone and whether a
+  photo exists - nothing else. The tab says "Matches the staff record" or
+  lists what differs; nothing is copied or changed.
+- Guard `tests/cards-public.mjs` (20 checks, negative-tested). Existing
+  `business-cards`, `cards-tab` and `card-vocabulary` pass unchanged.
+- Needs: `PUSH.bat` (site and worker). No migration.
+
 ## [1.217.0] - 2026-10-28 - News & Announcements 2.0
 
 The owner's brief and his answers to `claude/NEWS-ANNOUNCEMENTS-AUDIT.md`:
