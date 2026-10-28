@@ -414,7 +414,7 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     { action: "auth.2fa_backup_used", created_at: "2026-10-20 03:02:00", name: "Tan Mei Ling", email: "mei@example.test" },
     { action: "auth.2fa_enabled", created_at: "2026-10-19 08:00:00", name: "Fixture Person", email: "fixture@example.test" },
   ] };
-  if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
+  if (p === "/staff/profile") data = { profile: { id: 9001, email: "fixture@example.test", name: "Fixture Person", full_name: "Fixture Person bin Test", role: ROLE, employee_id: "A2Z-001", position: "CEO", department: "Management", phone: "0123456789", employment_status: "permanent", joined_on: "2023-01-01", is_active: 1, photo_key: "staff/9001-fixture.jpg", role_title: "Chief Executive Officer", responsibilities: "Set the direction and the targets\nApprove claims, leave entitlement and payroll\nOwn the client relationships", responsibilities_updated_at: "2026-09-10 09:00:00" } };
   if (p === "/staff/announcements") data = { announcements, can_publish: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(ROLE), departments: ["Live", "Management", "Sales"] };
   /* v1.218.0 - the Cards staff-record check (invented): the COO's record differs */
   if (p === "/staff/cards/profile-check") data = { officers: [
@@ -484,6 +484,17 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/commission") data = { entries: commission };
   if (p === "/commission/rates") data = { rates: [{ id: 1, host_id: 9003, host_name: "Farid Zul", percent: 5, per_hour_cents: 0, effective_from: "2026-01-01" }] };
   if (p === "/hosts") data = { hosts: [{ id: 9003, name: "Farid Zul" }, { id: 9002, name: "Nur Aisyah" }] };
+  /* v1.220.0 - Profile 2.0: the person's months (no figures) and the 2FA status */
+  if (p === "/staff/payroll/self/months") data = { months: [
+    { month: "2026-09", open: false, available_from: "2026-10-05 10:00" },
+    { month: "2026-08", open: true, available_from: "2026-09-05 10:00" },
+    { month: "2026-07", open: true, available_from: "2026-08-05 10:00" },
+  ], joined_on: "2023-01-01" };
+  if (p === "/staff/payroll/self") data = q.get("month") === "2026-09"
+    ? { month: "2026-09", entry: null, extras: null, locked: true, available_from: "2026-10-05 10:00" }
+    : { month: q.get("month"), entry: { user_id: 9001, month: q.get("month"), basic_cents: 350000, commission_cents: 42000, allowance_cents: 20000, deduction_cents: 5000, ot_hours: 0, ot_cents: 0, note: null, name: "Fixture Person", full_name: "Fixture Person bin Test", employee_id: "A2Z-001", position: "CEO", department: "Management", employment_status: "permanent", bank_name: "Maybank", bank_account: "•••• 5621", joined_on: "2023-01-01" },
+        extras: { working_day: 21, public_holiday: 1, annual_leave: 0, medical_leave: 0, annual_bal: 8, sick_bal: 14 }, joined_on: "2023-01-01", release_issuer_code: "a2z" };
+  if (p === "/auth/2fa/status") data = { enabled: false, eligible: true, backup_codes_left: 0, reauth: "password" };
   if (p === "/cashflow") data = { entries: cash };
   /* v1.219.0 - Finance 2.0: the cash book view (worker/src/cashbook.ts) in
      the shape it sends - test rows only, the fixture company's own kind. */

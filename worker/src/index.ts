@@ -1349,6 +1349,36 @@ async function tiktokOrderItems(env: Env, orderId: string): Promise<{ items: Ret
   return { items: groupLineItems(order?.line_items ?? []), city };
 }
 
+/* v1.220.0 - the proof asked for before a second factor is added: the
+   current password (rate-limited like sign-in), or for a Google-only account
+   a session that began within the last ten minutes. Returns the refusal, or
+   null when the person is who the session says. Never logs what was typed. */
+async function twoFactorReauth(
+  request: Request, env: Env, userId: number, body: Record<string, unknown> | null,
+): Promise<Response | null> {
+  const row = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
+    .bind(userId).first<{ password_hash: string }>();
+  if (!row) return errorResponse("unauthorized", "Sign in required", 401);
+  if (!row.password_hash.startsWith("oauth$")) {
+    if (!(await checkRateLimit(env, `2fa-reauth:${userId}`, 10, 900))) {
+      return errorResponse("rate_limited", "Too many attempts - wait 15 minutes and try again", 429);
+    }
+    if (!body || !isNonEmptyString(body.password, 200) ||
+        !(await verifyPassword(body.password as string, row.password_hash, env.SESSION_PEPPER))) {
+      return errorResponse("reauth_required", "Enter your current password to turn on two-factor", 401);
+    }
+    return null;
+  }
+  const raw = getCookie(request, SESSION_COOKIE);
+  const fresh = raw ? await env.DB.prepare(
+    `SELECT 1 AS ok FROM sessions WHERE id = ?1 AND user_id = ?2 AND created_at >= datetime('now', '-10 minutes')`,
+  ).bind(await sha256Hex(raw), userId).first<{ ok: number }>() : null;
+  if (!fresh) {
+    return errorResponse("reauth_required", "For your safety, sign out and sign in with Google again, then turn on two-factor within 10 minutes", 401);
+  }
+  return null;
+}
+
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = randomHex(32);
   // Store only the hash: a leaked sessions table cannot be replayed.
@@ -3659,8 +3689,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/2fa/status" && method === "GET") {
     const me = await getSessionUser(request, env);
     if (!me) return errorResponse("unauthorized", "Sign in required", 401);
-    const row = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
-      .bind(me.id).first<{ totp_enabled: number }>();
+    const row = await env.DB.prepare(`SELECT totp_enabled, password_hash FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_enabled: number; password_hash: string }>();
     const codes = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`,
     ).bind(me.id).first<{ n: number }>();
@@ -3668,6 +3698,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       enabled: Boolean(row?.totp_enabled),
       eligible: TWOFA_ELIGIBLE(me.role),
       backup_codes_left: codes?.n ?? 0,
+      /* v1.220.0 - what turning it on will ask for (see twoFactorReauth) */
+      reauth: row?.password_hash?.startsWith("oauth$") ? "recent_sign_in" : "password",
     });
   }
 
@@ -3676,6 +3708,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!me) return errorResponse("unauthorized", "Sign in required", 401);
     if (!TWOFA_ELIGIBLE(me.role)) {
       return errorResponse("forbidden", "Two-factor is available for staff accounts", 403);
+    }
+    /* v1.220.0 - RE-AUTHENTICATE BEFORE A FACTOR IS ADDED (Profile 2.0
+       audit P3; the owner approved it, 28-10-2026). Turning two-factor OFF
+       has always needed the password; turning it ON needed nothing, so a
+       stolen session cookie could enrol the thief's own authenticator and
+       lock the owner out at the next sign-in. The secret is only handed out
+       after the person proves it is them: the current password, or - for a
+       Google-only account, which has none - a sign-in within the last ten
+       minutes. /enable needs a code from that secret, so it is covered. */
+    {
+      const bodyRa = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      const refused = await twoFactorReauth(request, env, me.id, bodyRa);
+      if (refused) return refused;
     }
     const current = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
       .bind(me.id).first<{ totp_enabled: number }>();

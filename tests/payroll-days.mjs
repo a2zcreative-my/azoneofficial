@@ -300,7 +300,9 @@ const AUG = (() => {
      /const phW = unpaidInfo\[id\]\?\.ph_worked_cents \?\? 0;/.test(panel) &&
      /const phH = unpaidInfo\[id\]\?\.ph_worked_cents \?\? 0;/.test(panel) &&
      /a\.ph \+= phW;/.test(panel) && /a\.ph \+= phH;/.test(panel) &&
-     /\(extras\?\.ph_worked_cents \?\? 0\)/.test(panel),
+     /* v1.220.0 - the staff self-view shows payslipData(), which adds it */
+     /const phCents = x\?\.ph_worked_cents \?\? 0;\s*const gross = e\.basic_cents \+ phCents/.test(panel) &&
+     /const D = shown\?\.entry \? payslipData\(/.test(panel),
      "netFor, the totals row and the staff self-view");
   ok("the hourly rate constant is at module scope",
      /^export const PART_TIME_LH_RATE_CENTS = 1500;/m.test(staff),

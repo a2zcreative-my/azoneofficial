@@ -44,7 +44,8 @@ export const TAB_OF_KIND: Record<string, TabName> = {
     worker writes are read; anything else is left to the tab. */
 export function recordOfRef(ref: string | null | undefined): { kind: string; id: number } | null {
   if (!ref) return null;
-  const m = /^(leave|claim|task|task-close|stock|quote|announcement):(\d+)(?::|$)/.exec(ref);
+  /* v1.220.0 - staff:<id>: a request to update someone's responsibilities opens that person on the Staff tab */
+  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff):(\d+)(?::|$)/.exec(ref);
   if (!m) return null;
   const id = Number(m[2]);
   if (!Number.isFinite(id) || id <= 0) return null;

@@ -384,7 +384,11 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Announcements: News Feed, My Acknowledgements, Publish & Manage, Reports & Archive - in order, hidden not unmounted",
     ordered(announcements, ['L("News Feed"', 'L("My Acknowledgements"', 'L("Publish & Manage"', 'L("Reports & Archive"'])
     && (announcements.match(/className=\{view !== "(feed|mine|publish|reports)" \? css\.off : ""\}/g) ?? []).length === 4);
-  ok("Profile already keeps personal details ahead of pay and security", ordered(page.slice(page.indexOf('{activeTab === "Profile"')), ['<Profile />', '<MyPayslip />', '<TwoFactorPanel />', 'href="/privacy"']));
+  /* v1.220.0 - Profile 2.0: three tabs in that order, details, then security (and the PDPA notice), then the payslips handed in */
+  const profileSrc = read("components/portal/profile.tsx");
+  ok("Profile already keeps personal details ahead of pay and security", /<Profile payslips=\{<MyPayslip \/>\} \/>/.test(page)
+    && ordered(profileSrc, ['["profile", L("My Profile"', '["security", L("Security & Account"', '["payslips", L("My Payslips"'])
+    && ordered(profileSrc, ['<ResponsibilitiesView', '<ChangePasswordForm />', '<TwoFactorPanel />', 'href="/privacy"', 'payslips : null']));
 }
 
 if (failed) { console.log(`\n${failed} check(s) failed.`); process.exit(1); }

@@ -23,11 +23,12 @@ const input =
 
 export function TwoFactorPanel() {
   const { show: showToast, node: toastNode } = useSaveToast();
-  const [status, setStatus] = useState<{ enabled: boolean; eligible: boolean; backup_codes_left: number } | null>(null);
+  const [status, setStatus] = useState<{ enabled: boolean; eligible: boolean; backup_codes_left: number; reauth?: "password" | "recent_sign_in" } | null>(null);
   const [secret, setSecret] = useState("");
   const [otpauth, setOtpauth] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [setupPw, setSetupPw] = useState(""); // v1.220.0 - the proof before setup
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -38,7 +39,7 @@ export function TwoFactorPanel() {
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     try {
-      const res = await api<{ enabled: boolean; eligible: boolean; backup_codes_left: number }>("/auth/2fa/status");
+      const res = await api<{ enabled: boolean; eligible: boolean; backup_codes_left: number; reauth?: "password" | "recent_sign_in" }>("/auth/2fa/status");
       if (res.data) setStatus(res.data);
     } finally {
       setLoaded(true);
@@ -63,15 +64,23 @@ export function TwoFactorPanel() {
   }
   if (!status?.eligible) return null;
 
+  /* v1.220.0 - setup now asks who you are first (the server refuses
+     without it): your current password, or for a Google account a sign-in
+     within the last ten minutes. The password is sent once and cleared. */
   const startSetup = async () => {
     setErr("");
-    const res = await api<{ secret: string; otpauth: string }>("/auth/2fa/setup", { method: "POST" });
+    const res = await api<{ secret: string; otpauth: string; error?: { message?: string } }>("/auth/2fa/setup", {
+      method: "POST",
+      body: JSON.stringify(status.reauth === "password" ? { password: setupPw } : {}),
+    });
+    setSetupPw("");
     if (res.ok && res.data) {
       setSecret(res.data.secret);
       setOtpauth(res.data.otpauth);
     } else {
-      setErr(L("Could not start setup — try again.", "Tidak dapat memulakan persediaan — cuba lagi."));
-      showToast(L("No changes", "Tiada perubahan"), L("Could not start two-factor setup — try again", "Tidak dapat memulakan persediaan dua faktor — cuba lagi"), "notice");
+      const m = res.data?.error?.message ?? L("Could not start setup — try again.", "Tidak dapat memulakan persediaan — cuba lagi.");
+      setErr(m);
+      showToast(L("No changes", "Tiada perubahan"), m, "notice");
     }
   };
 
@@ -149,9 +158,26 @@ export function TwoFactorPanel() {
       )}
 
       {!status.enabled && !secret && backupCodes.length === 0 && (
-        <button type="button" className={`${btn} mt-3`} onClick={() => void startSetup()}>
-          {L("Turn on two-factor", "Aktifkan dua faktor")}
-        </button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {status.reauth === "password" ? (
+            <input
+              type="password"
+              autoComplete="current-password"
+              className={`${input} max-w-56`}
+              aria-label={L("Current password", "Kata laluan semasa")}
+              placeholder={L("Current password", "Kata laluan semasa")}
+              value={setupPw}
+              onChange={(e) => setSetupPw(e.target.value)}
+            />
+          ) : (
+            <p className="text-muted-foreground w-full text-xs">
+              {L("You sign in with Google: turn this on within 10 minutes of signing in.", "Anda log masuk dengan Google: aktifkan dalam masa 10 minit selepas log masuk.")}
+            </p>
+          )}
+          <button type="button" className={btn} disabled={status.reauth === "password" && !setupPw} onClick={() => void startSetup()}>
+            {L("Turn on two-factor", "Aktifkan dua faktor")}
+          </button>
+        </div>
       )}
 
       {!status.enabled && secret && (

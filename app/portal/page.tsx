@@ -33,7 +33,6 @@
 import { Fragment } from "react";
 import { usePortal } from "@/components/portal/portal-provider";
 import { InstallCoach } from "@/components/ui/install-coach";
-import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/company-monitor";
 /* v1.103.0 (roadmap phase 01) - every tab panel that is NOT on the first
    screen arrives through next/dynamic, one chunk per module, fetched the
@@ -254,33 +253,11 @@ export default function PortalPage() {
               their cards into users-panel.tsx. */}
           {activeTab === "Users" && <UsersPanel role={user.role} go={setTab} />}
           {activeTab === "Profile" && (
-            /* v1.173.0 (tab concept): three zones - who I am, my pay, my
-               security - in the order the tab has always read. */
-            <TabPage>
-              <TabZone label={L("My details", "Butiran saya")}>
-                <Profile />
-              </TabZone>
-              <TabZone label={L("My pay", "Gaji saya")}>
-                <MyPayslip />
-              </TabZone>
-              <TabZone label={L("Security and privacy", "Keselamatan dan privasi")}>
-              <TwoFactorPanel />
-              {/* v1.4.191: staff read how their personal data (NRIC, bank,
-                photos, payroll) is handled — PDPA notice */}
-              <p className={css.privacyNote}>
-                <a
-                  href="/privacy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {L(
-                    "How your personal data is handled — Privacy Notice (PDPA)",
-                    "Bagaimana data peribadi anda diurus — Notis Privasi (PDPA)"
-                  )}
-                </a>
-              </p>
-              </TabZone>
-            </TabPage>
+            /* v1.220.0 - Profile 2.0 (the owner's answers, 28-10-2026): one
+               page, three tabs - My Profile, Security & Account, My Payslips.
+               Payroll's own payslip view is handed in and drawn on its tab;
+               the security cards and the PDPA notice live on the second. */
+            <Profile payslips={<MyPayslip />} />
           )}
     </>
   );

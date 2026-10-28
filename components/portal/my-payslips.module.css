@@ -1,0 +1,162 @@
+/* v1.220.0 - My Payslips on the Profile page (payroll-panel.tsx MyPayslip):
+   the month list beside the slip; one column on a phone. */
+.wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .wrap {
+    grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.title {
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}
+.meta {
+  margin: 0.25rem 0 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-body-sm-size);
+}
+.list ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  max-height: 26rem;
+  overflow-y: auto;
+  list-style: none;
+}
+.list button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  text-align: left;
+  cursor: pointer;
+}
+.list button:hover {
+  background: var(--surface-hover);
+}
+.list button[aria-pressed="true"] {
+  border-color: var(--brand-accent);
+  background: var(--brand-accent-soft);
+  font-weight: 600;
+}
+.month {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.slip {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.slipHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (min-width: 640px) {
+  .cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.sub {
+  margin: 0 0 0.375rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.lines {
+  display: grid;
+  margin: 0;
+}
+.lines div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4375rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-caption-size);
+}
+.lines dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lines dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lines .comm dt {
+  font-weight: 600;
+}
+.lines .total {
+  border-bottom: 0;
+  font-weight: 700;
+}
+.net {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: var(--brand-primary);
+  color: #fff;
+}
+.net strong {
+  font-size: var(--type-card-size);
+  font-variant-numeric: tabular-nums;
+}
+.locked {
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  line-height: 1.6;
+}
+.locked svg {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.25rem;
+  vertical-align: -0.1875rem;
+  color: var(--muted-foreground);
+}
+.skRow {
+  display: block;
+  height: 2.25rem;
+  margin-bottom: 0.5rem;
+}
+.skBlock {
+  display: block;
+  height: 10rem;
+}

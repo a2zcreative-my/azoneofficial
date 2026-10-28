@@ -121,7 +121,7 @@ const BODY = {
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
-  "Profile": [],
+  "Profile": ["components/portal/profile.tsx"], // v1.220.0 - Profile 2.0: the page is its own tabbed panel
   "Users": ["components/portal/users-panel.tsx"], // v1.189.0 - the page is its own tabbed panel
   "Stokis": ["components/portal/stokis-panel.tsx"],
   "Content": ["components/portal/content-panel.tsx"],
@@ -194,7 +194,8 @@ ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/compo
 ok("Attendance: OVERVIEW, ATTENDANCE, ON SHIFT, ROSTER, TEAM, REPORTS, SETTINGS", ['L("Overview", "Gambaran")', 'L("Attendance", "Kehadiran")', 'L("On Shift", "Syif Saya")', 'L("Roster", "Roster")', 'L("Team", "Pasukan")', 'L("Reports", "Laporan")', 'L("Settings", "Tetapan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
 /* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
 ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMER ACCOUNTS, ROLES & PERMISSIONS, SECURITY & SETTINGS", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customer Accounts", "Akaun pelanggan")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Settings", "Keselamatan & tetapan")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Access and locations", "Akses dan lokasi"\)\} cols=\{2\}/.test(read("components/portal/users-panel.tsx")));
-ok("Profile: MY DETAILS, MY PAY, SECURITY AND PRIVACY", ["My details", "My pay", "Security and privacy"].every((c) => blockOf("Profile").includes(`label={L("${c}"`)));
+/* v1.220.0 - Profile 2.0 (the owner's answers, 28-10-2026): three tabs, Payroll's payslip view handed in */
+ok("Profile: MY PROFILE, SECURITY & ACCOUNT, MY PAYSLIPS - the payslips handed in from Payroll", ['L("My Profile", "Profil Saya")', 'L("Security & Account", "Keselamatan & Akaun")', 'L("My Payslips", "Slip Gaji Saya")'].every((t) => read("components/portal/profile.tsx").includes(t)) && /<Profile payslips=\{<MyPayslip \/>\} \/>/.test(blockOf("Profile")));
 /* v1.219.0 - Finance 2.0 (the owner's answers, 28-10-2026): five tabs, the
    cash figures first, the Expenses panel and its P&L handed in unchanged */
 ok("Finance: OVERVIEW, TRANSACTIONS, EXPENSES, RECONCILIATION, REPORTS - the expense panel handed in whole", ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => read("components/portal/finance-panels.tsx").includes(t)) && /<FinancePage expenses=\{<ExpensesPanel reporting=\{<PnlCard \/>\} \/>\} \/>/.test(blockOf("Finance")));
@@ -223,7 +224,11 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
   }
   ok("stacks and zones are shrinkable grid/flex items", /\.erp-stack, \.erp-stack-tight \{ min-width: 0; \}/.test(v3) && /\.erp-tab-zone \{ min-width: 0;/.test(v3));
   ok("the frozen sheet's arbitrary grids have shrinkable items", /\.erp-workspace \[class\*="grid-cols-\["\] > \* \{ min-width: 0; \}/.test(v3));
-  ok("the Ecommerce root is a TabPage, not a grid", /{activeTab === "Ecommerce" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<TabPage>/.test(page) && !/ecomStack \{/.test(read("app/portal/portal.module.css").replace(/\/\*[\s\S]*?\*\//g, "")));
+  /* v1.220.0 - this check's lazy [\s\S]*? used to run from the Ecommerce
+     comment on to ANOTHER tab's comment end before a TabPage (Finance, then Profile), so
+     it passed on their markup, not Ecommerce's. Since v1.185.0 the Ecommerce
+     page is its own panel; the check now reads that panel's root. */
+  ok("the Ecommerce root is a TabPage, not a grid", /{activeTab === "Ecommerce" && \(\s*(?:\/\*(?:(?!\*\/)[\s\S])*\*\/\s*)?<EcommercePanel /.test(page) && /return \(\s*<TabPage className=\{[^}]+\}>/.test(read("components/portal/ecommerce-panel.tsx")) && !/ecomStack \{/.test(read("app/portal/portal.module.css").replace(/\/\*[\s\S]*?\*\//g, "")));
   ok("every erp grid track is minmax(0, ...)", !/grid-template-columns:[^;]*(?<![\w(,\s]minmax\([^)]*)(?:^|\s)1fr(?![^;]*\))/.test(v3.replace(/minmax\([^)]*\)/g, "M")));
   const shell = read("components/layout/app-shell.module.css");
   ok("the phone workspace fills the screen (no white band under a short tab)", /@media \(max-width: 767px\) \{[\s\S]*?\.workspace \{\s*min-height: 100dvh;/.test(shell));

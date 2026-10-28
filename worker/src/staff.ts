@@ -1657,6 +1657,9 @@ const PUSH_TAB: Record<string, string> = {
      kind (an old row, a dormant route) lands on the portal, not a dead tab.
      v1.216.0 - new enquiries are listed on Sales again (the owner, 28-10-2026) */
   enquiry: "Sales",
+  /* v1.220.0 - a request to update someone's responsibilities lands on the
+     Staff tab, where the CEO and HR write them */
+  profile_request: "Staff Details",
 };
 
 export async function notify(
@@ -2449,37 +2452,70 @@ export async function handleStaff(
     let row: Record<string, unknown> | null;
     try {
       row = await env.DB.prepare(
-        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status, photo_key,
-                role_title, responsibilities, responsibilities_updated_at
+        `SELECT id, email, name, full_name, role, employee_id, position, department, phone, employment_status, photo_key,
+                joined_on, is_active, role_title, responsibilities, responsibilities_updated_at
          FROM users WHERE id = ?1`,
       ).bind(user.id).first();
     } catch (e) {
       if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
       await logError(env, "migration_skew", "GET /profile: 0137 responsibilities columns missing - run wrangler d1 migrations apply");
       row = await env.DB.prepare(
-        `SELECT id, email, name, role, employee_id, position, department, phone, employment_status, photo_key
+        `SELECT id, email, name, full_name, role, employee_id, position, department, phone, employment_status, photo_key,
+                joined_on, is_active
          FROM users WHERE id = ?1`,
       ).bind(user.id).first();
     }
     return json({ profile: row });
   }
   if (path === "/profile" && method === "PATCH") {
-    // staff may update their own phone + name only
-    const sets: string[] = [];
-    const vals: (string | number | null)[] = [];
-    if (typeof body?.phone === "string" && body.phone.length <= 40) {
-      sets.push(`phone = ?${sets.length + 1}`);
-      vals.push(body.phone.trim() || null);
+    /* v1.220.0 - Profile 2.0 (the owner's answer, 28-10-2026: "Phone only,
+       name locked"). A person changes ONE thing about themselves here: their
+       phone. Their name - like their position, employee ID, role and pay -
+       belongs to the staff record, which the CEO and HR keep on the Staff
+       tab. Until now this route also took a self-chosen `name` (no screen
+       sent it); it is refused, with a sentence that says where it is
+       changed. The phone is checked (a real number: 7 to 15 digits, with the
+       usual + - ( ) and spaces), and the audit keeps the old and new value. */
+    if (body && "name" in body) return err("protected_field", "Your name is kept on your staff record. Ask HR or the CEO to change it.", 403);
+    for (const k of ["full_name", "email", "role", "employee_id", "position", "department", "employment_status", "joined_on", "base_salary_cents", "bank_account", "bank_name"]) {
+      if (body && k in body) return err("protected_field", "That detail is kept on your staff record and cannot be changed here.", 403);
     }
-    if (typeof body?.name === "string" && body.name.trim().length > 0 && body.name.length <= 120) {
-      sets.push(`name = ?${sets.length + 1}`);
-      vals.push(body.name.trim());
+    if (typeof body?.phone !== "string" || body.phone.length > 40) return err("invalid_input", "Nothing to update", 400);
+    const phoneIn = body.phone.trim();
+    const digits = phoneIn.replace(/\D/g, "");
+    if (phoneIn && (!/^\+?[0-9\s\-()]+$/.test(phoneIn) || digits.length < 7 || digits.length > 15)) {
+      return err("invalid_phone", "Enter a phone number of 7 to 15 digits, for example +60 12-345 6789", 400);
     }
-    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-    await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
-      .bind(...vals, user.id).run();
-    await audit(env, user.id, "staff.profile_update");
+    const before = await env.DB.prepare(`SELECT phone FROM users WHERE id = ?1`).bind(user.id).first<{ phone: string | null }>();
+    const next = phoneIn || null;
+    if ((before?.phone ?? null) === next) return json({ ok: true, unchanged: true });
+    await env.DB.prepare(`UPDATE users SET phone = ?1 WHERE id = ?2`).bind(next, user.id).run();
+    await audit(env, user.id, "staff.profile_update", "users", String(user.id), { field: "phone", from: before?.phone ?? null, to: next });
     return json({ ok: true });
+  }
+
+  /* v1.220.0 - "PLEASE UPDATE MY RESPONSIBILITIES" (the owner's answer,
+     28-10-2026: "Button notifies HR and CEO"). One bell to each active HR
+     admin and the CEO, with the person's note, opening that person on the
+     Staff tab - where the responsibilities are written. Nothing is stored
+     but the bell and the audit line; the responsibilities themselves are
+     only ever changed there. Three a day per person. */
+  if (path === "/profile/update-request" && method === "POST") {
+    const note = typeof body?.note === "string" ? body.note.trim() : "";
+    if (note.length < 5 || note.length > 500) return err("invalid_input", "Say what should change (5 to 500 characters)", 400);
+    if (!(await checkRateLimit(env, `profile-request:${user.id}`, 3, 86400))) {
+      return err("rate_limited", "You have sent three requests today. HR and the CEO have them.", 429);
+    }
+    const me = await env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`)
+      .bind(user.id).first<{ name: string }>();
+    const { results: to } = await env.DB.prepare(
+      `SELECT id FROM users WHERE role IN ('hr_admin', 'ceo') AND is_active = 1 AND id != ?1`,
+    ).bind(user.id).all<{ id: number }>();
+    for (const r of to ?? []) {
+      await notify(env, r.id, "profile_request", `${me?.name ?? "A staff member"} asks for an update to their role and responsibilities: "${note.slice(0, 300)}"`, `staff:${user.id}`);
+    }
+    await audit(env, user.id, "staff.profile_update_request", "users", String(user.id), { recipients: (to ?? []).length });
+    return json({ ok: true, sent_to: (to ?? []).length });
   }
 
   /* ---- staff directory (managers) ---- */
@@ -11439,9 +11475,35 @@ export async function handleStaff(
   };
 
   // Every staff member can view (and print) their OWN payslip — never edit.
+  /* v1.220.0 - MY PAYSLIPS, AS A LIST (the owner's answer, 28-10-2026:
+     "History + slip figures"). The person's own months that have a payroll
+     entry, each with whether it is open yet - the SAME release rule as
+     /payroll/self below (released, or past the 5th-of-next-month moment).
+     No figure is sent here: a locked month stays locked, and an open one is
+     read through /payroll/self, as before. Only the session user's rows. */
+  if (path === "/payroll/self/months" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT month FROM payroll_entries WHERE user_id = ?1 ORDER BY month DESC LIMIT 120`,
+    ).bind(user.id).all<{ month: string }>();
+    const { results: rel } = await env.DB.prepare(`SELECT month FROM payslip_releases`).all<{ month: string }>();
+    const released = new Set((rel ?? []).map((r) => r.month));
+    const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+    const months = [];
+    for (const r of results ?? []) {
+      if (!/^\d{4}-\d{2}$/.test(r.month)) continue;
+      const availableFrom = await payslipAvailableFrom(r.month);
+      months.push({ month: r.month, open: released.has(r.month) || nowMyt >= availableFrom, available_from: availableFrom });
+    }
+    const joined = await env.DB.prepare(`SELECT joined_on FROM users WHERE id = ?1`).bind(user.id).first<{ joined_on: string | null }>();
+    return json({ months, joined_on: joined?.joined_on ?? null });
+  }
   if (path === "/payroll/self" && method === "GET") {
     const url0 = new URL(request.url);
-    const m0 = url0.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const mQ = url0.searchParams.get("month");
+    /* v1.220.0 - a month is YYYY-MM or nothing; any other text was handed
+       to the release-date helper as it came */
+    if (mQ !== null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(mQ)) return err("invalid_input", "month must be YYYY-MM", 400);
+    const m0 = mQ ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     // v1.4.80: a month's slip is visible only from the release moment (5th of
     // the next month, 10:00 MYT, next working day if that's a holiday or
     // weekend) — or once the month is manually released.

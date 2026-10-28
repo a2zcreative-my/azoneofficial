@@ -10,6 +10,46 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.220.0] - 2026-10-28 - Profile 2.0
+
+The owner's brief and his answers to `claude/PROFILE-AUDIT.md`: "Phone only,
+name locked"; "Re-auth to turn 2FA on" and "Sign out all devices button";
+"Button notifies HR and CEO"; "History + slip figures".
+
+- **Profile is three tabs** - My Profile, Security & Account, My Payslips.
+- **My Profile** reads the person's own staff record (now also the official
+  name, the joined date and whether the account is active): photo, name,
+  Active, position and department, then employee ID, role (as a label),
+  department, employment type, email, phone, joined. The one self-edit is
+  the phone, in an Edit contact drawer.
+- **Phone only, name locked.** `PATCH /staff/profile` refuses the name (it
+  used to accept one, though no screen sent it) and every protected field;
+  the phone must be a real number (7-15 digits) and the audit keeps the old
+  and new value.
+- **Request update.** Under the responsibilities (still written only on the
+  Staff tab), a request with a note rings every active HR admin and the CEO,
+  opening that person on the Staff tab. It changes nothing on the record;
+  three a day.
+- **Security & Account:** the existing password form and two-factor panel,
+  and **Sign out of all devices** over the existing `/auth/logout` route.
+- **Two-factor: re-authenticate before adding it.** `/auth/2fa/setup` now
+  needs the current password - or, for a Google-only account, a sign-in in
+  the last ten minutes - before it hands out a secret (before, a stolen
+  session could enrol its own phone). Turning it off and changing the
+  password are unchanged.
+- **My Payslips:** a history of the person's months (`GET
+  /staff/payroll/self/months`: released or "opens on", no figures) and the
+  chosen slip's earnings - Commission on its own line - deductions and net,
+  all from `payslipData()`, the same figures as Print and the PDF. The old
+  one-line summary did its own sum and could disagree with the slip.
+  `/payroll/self` refuses a month that is not YYYY-MM.
+- Guard `tests/profile-self.mjs` (runs the worker on SQLite). `tab-concept`
+  updated; its Ecommerce check no longer passes on another tab's markup.
+- No database change.
+
+### Deploy
+- `PUSH.bat` (site and worker).
+
 ## [1.219.0] - 2026-10-28 - Finance & Cash Flow 2.0
 
 The owner's brief and his answers to `claude/FINANCE-AUDIT.md`: money in by

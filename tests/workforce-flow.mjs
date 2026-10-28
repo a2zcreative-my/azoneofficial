@@ -31,7 +31,9 @@ assert.match(staff, /claim_type = 'salary_advance'[\s\S]+status = 'approved' AND
 assert.match(staff, /claim_type = 'reimbursement'/, "advances must stay out of expense totals");
 assert.match(staff, /advanceAtR\(e\.user_id\)/, "payroll recompute must recover advances");
 assert.match(payroll, /SALARY ADVANCE \(\$\{month\}\)/, "the payslip must name the advance deduction");
-assert.match(payroll, /salary_advance_cents[^\n]+autoDed|autoDed[\s\S]{0,180}salary_advance_cents/, "the employee payslip total must include the advance");
+/* v1.220.0 - the employee view shows payslipData(), whose total deductions carry the advance */
+assert.match(payroll, /const salaryAdvance = x\?\.salary_advance_cents \?\? 0;\s*const totalDed = e\.deduction_cents \+ unpaidDed \+ incompAdj \+ salaryAdvance;/, "the employee payslip total must include the advance");
+assert.match(payroll, /const D = shown\?\.entry \? payslipData\(/, "the employee payslip view must use the slip's own figures");
 
 assert.match(staff, /decision === "replacement"[\s\S]+env\.DB\.batch/, "OT conversion must credit leave and decide OT atomically");
 assert.match(staff, /status = 'replacement'/, "replacement OT must not be selected by payroll's approved-only query");

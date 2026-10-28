@@ -39,6 +39,7 @@ import { monthName } from "@/components/portal/leave-overview";
 import { usePayrollHistory } from "@/components/portal/payroll-history"; // v1.207.0
 import { Donut } from "@/components/ui/donut";
 import pp from "./payroll-page.module.css";
+import mp from "./my-payslips.module.css"; // v1.220.0 - Profile 2.0: My Payslips
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelRows } from "@/components/ui/skeleton"; // v1.77.0 — skeletons until the first fetch lands
 
@@ -2439,146 +2440,118 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
  * payslip for a chosen month — amounts are display-only, editing lives with
  * the payroll processors (CEO/COO). No entry yet → clearly says so.
  */
+/* v1.220.0 - MY PAYSLIPS (Profile 2.0; the owner's answer, 28-10-2026:
+   "History + slip figures"). The person's months come from GET
+   /payroll/self/months (their own rows, each open or not by the release rule;
+   no figures); an open month is read through /payroll/self as before and
+   shown with payslipData() - the SAME figures Print and the PDF use, so the
+   screen can no longer add up a different net (the old summary line did its
+   own sum, without the hourly, unpaid-leave and part-month rules). A locked
+   month says when it opens and nothing else. Payroll owns every figure:
+   nothing here edits or recomputes pay. */
 export function MyPayslip() {
-  // v1.4.86: future months are not selectable — no payslip can exist for a
-  // month that hasn't happened. v1.4.89: the picker follows the payroll
-  // CYCLE — until the 5th the latest month offered (and shown by default)
-  // is the PREVIOUS month, whose slip is the one about to release; the
-  // present month only appears from the 5th, after the cycle closes.
-  const nowMonth = payrollCycleMonth();
-  const [month, setMonth] = useState(nowMonth);
-  const [entry, setEntry] = useState<(Entry & StaffRow) | null>(null);
-  const [extras, setExtras] = useState<Parameters<typeof printPayslip>[3]>(null);
-  const [joinedOn, setJoinedOn] = useState<string | null>(null);
-  /* v1.28.0: the month's release-row issuer_code — the EMPLOYER this slip
-     prints under. NULL = legacy month = AZ ONE OFFICIAL. */
-  const [releaseIssuer, setReleaseIssuer] = useState<string | null>(null);
-
-  // v1.4.80: a month's payslip unlocks on the 5th of the following month at
-  // 10:00 MYT (next working day if that's a weekend/holiday), unless payroll
-  // released it early.
-  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
-  /* v1.77.0 — skeleton until the first fetch lands. `entry === null` is also
-     the honest "no payslip yet" state, so it cannot double as "loading";
-     this flag flips once the first request settles, ok or not. */
-  const [loaded, setLoaded] = useState(false);
+  const [months, setMonths] = useState<{ month: string; open: boolean; available_from: string }[] | null>(null);
+  const [pick, setPick] = useState<string | null>(null);
+  const [slip, setSlip] = useState<{ month: string; entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; issuer: string | null; locked: boolean } | null>(null);
 
   useEffect(() => {
-    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; joined_on?: string | null; locked?: boolean; available_from?: string; release_issuer_code?: string | null }>(
-      `/payroll/self?month=${month}`,
+    let live = true;
+    void api<{ months: { month: string; open: boolean; available_from: string }[] }>(`/payroll/self/months`).then((r) => {
+      if (!live) return;
+      const list = r.data?.months ?? [];
+      setMonths(list);
+      setPick((p) => p ?? list.find((m) => m.open)?.month ?? list[0]?.month ?? null);
+    });
+    return () => { live = false; };
+  }, []);
+
+  const chosen = months?.find((m) => m.month === pick) ?? null;
+  useEffect(() => {
+    if (!chosen || !chosen.open) return;
+    let live = true;
+    void api<{ entry: (Entry & StaffRow) | null; extras: Parameters<typeof printPayslip>[3]; locked?: boolean; release_issuer_code?: string | null }>(
+      `/payroll/self?month=${chosen.month}`,
     ).then((r) => {
-      setEntry(r.data?.entry ?? null);
-      setExtras(r.data?.extras ?? null);
-      setJoinedOn(r.data?.joined_on ?? null);
-      setReleaseIssuer(r.data?.release_issuer_code ?? null); // v1.28.0
-      setLockedUntil(r.data?.locked ? (r.data.available_from ?? null) : null);
-    }).finally(() => setLoaded(true));
-  }, [month]);
+      if (!live) return;
+      setSlip({ month: chosen.month, entry: r.data?.entry ?? null, extras: r.data?.extras ?? null, issuer: r.data?.release_issuer_code ?? null, locked: Boolean(r.data?.locked) });
+    });
+    return () => { live = false; };
+  }, [chosen]);
 
-  // Months before the person joined the company have no payslip — the
-  // button greys out instead of pretending one could exist.
-  const beforeJoining = Boolean(joinedOn && month < joinedOn.slice(0, 7));
+  const shown = slip && chosen && slip.month === chosen.month ? slip : null;
+  const D = shown?.entry ? payslipData(shown.entry, shown.entry, shown.month, shown.extras, shown.issuer) : null;
+  const opens = (a: string) => `${dmy(a)}, ${(a.split(" ")[1] ?? "").slice(0, 5)} MYT`;
 
-  const autoDed = entry
-    ? (extras?.unpaid_deduction_cents ?? 0) + (extras?.incomplete_deduction_cents ?? 0) + (extras?.salary_advance_cents ?? 0)
-    : 0;
-  const otC = entry ? (entry.ot_cents ?? otPay(entry.basic_cents, entry.ot_hours)) : 0;
-  const net = entry
-    ? entry.basic_cents + (extras?.ph_worked_cents ?? 0) + entry.commission_cents + entry.allowance_cents + otC - entry.deduction_cents - autoDed
-    : 0;
-
-  return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{L("My payslip", "Slip gaji saya")}</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {L(
-              "View and print your payslip. Amounts are set by payroll processing and cannot be edited here.",
-              "Lihat dan cetak slip gaji anda. Amaun ditetapkan oleh pemprosesan gaji dan tidak boleh disunting di sini.",
-            )}
-          </p>
-        </div>
-        <input
-          type="month"
-          className={inputClassSm}
-          value={month}
-          min={joinedOn ? joinedOn.slice(0, 7) : undefined}
-          max={nowMonth}
-          onChange={(e) => {
-            // Some browsers render max but still allow typing past it —
-            // clamp so a future month can never be requested.
-            const v = e.target.value;
-            if (!v) return;
-            setMonth(v > nowMonth ? nowMonth : v);
-          }}
-        />
+  if (months === null) {
+    return (
+      <div className={mp.wrap} aria-busy="true">
+        <div className={`${card} ${mp.list}`}><Skel className={mp.skRow} /><Skel className={mp.skRow} /><Skel className={mp.skRow} /></div>
+        <div className={card}><Skel className={mp.skRow} /><Skel className={mp.skBlock} /></div>
       </div>
-      {/* v1.77.0 — skeleton until the first fetch lands: the amounts line and
-          its two buttons, in the row's real layout, so nothing jumps. */}
-      {!loaded ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm" aria-hidden>
-          <Skel className="h-4 w-full max-w-md" />
-          <span className={rowActions}>
-            <Skel className="h-7 w-24" />
-            <Skel className="h-7 w-20" />
-          </span>
-        </div>
-      ) : lockedUntil ? (
-        <div className="border-border mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-          <p className="text-sm">
-            <><AppIcon name="lock" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Your payslip for", "Slip gaji anda untuk")}</> <span className="font-medium">{monthDMY(month)}</span> {L("will be available on", "akan tersedia pada")}{" "}
-            <span className="font-semibold">{dmy(lockedUntil)}, {lockedUntil.split(" ")[1]} MYT</span>.
-          </p>
-          <button
-            type="button"
-            disabled
-            className={`${btnSm} cursor-not-allowed`}
-          >
-            {L("Print payslip", "Cetak slip gaji")}
-          </button>
-        </div>
-      ) : beforeJoining ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-muted-foreground text-sm">
-            {/* v1.28.0: entity-neutral — which company employs the person is
-                the payslip's business, not this helper line's. */}
-            {L("You joined us on", "Anda menyertai kami pada")} {dmy(joinedOn)}{L(" — no payslip exists for this month.", " — tiada slip gaji wujud untuk bulan ini.")}
-          </p>
-          <button
-            type="button"
-            disabled
-            className={`${btnSm} cursor-not-allowed`}
-          >
-            {L("Print payslip", "Cetak slip gaji")}
-          </button>
-        </div>
-      ) : entry ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>
-            {L("Basic", "Pokok")} {rm(entry.basic_cents)} ·{" "}{entry.commission_cents > 0 ? <>{L("Commission", "Komisen")} {rm(entry.commission_cents)} ·{" "}</> : null}
-            {L("Allowance", "Elaun")} {rm(entry.allowance_cents)} · OT {rm(otC)} ·{" "}
-            {L("Deductions", "Potongan")} {rm(entry.deduction_cents + autoDed)} ·{" "}
-            <span className="font-semibold">{L("Net", "Bersih")} {rm(Math.max(0, net))}</span>
-          </span>
-          <span className={rowActions}>
-            <button type="button" className={rowBtn}
-              onClick={() => printPayslip(entry, entry, month, extras, releaseIssuer)}>
-              {L("Print payslip", "Cetak slip gaji")}
-            </button>
-            {/* v1.4.257: the errand this exists for is a bank or a landlord
-                asking for a payslip while you are standing at their counter. */}
-            <button type="button" className={rowBtnPrimary} title={L("Send the payslip as a PDF file", "Hantar slip gaji sebagai fail PDF")}
-              onClick={() => void sendPayslipPdf(entry, entry, month, extras, releaseIssuer)}>
-              {L("Send PDF", "Hantar PDF")}
-            </button>
-          </span>
-        </div>
-      ) : (
-        <p className="text-muted-foreground mt-3 text-sm">
-          {L("No payslip for this month yet — it appears once payroll is processed.", "Belum ada slip gaji untuk bulan ini — ia muncul setelah gaji diproses.")}
-        </p>
-      )}
+    );
+  }
+  if (months.length === 0) {
+    return <p className={`${card} ${mp.empty}`}>{L("No payslips yet - they appear here once payroll is processed and released.", "Belum ada slip gaji - ia muncul di sini setelah gaji diproses dan dikeluarkan.")}</p>;
+  }
+  return (
+    <div className={mp.wrap}>
+      <section className={`${card} ${mp.list}`} aria-label={L("Payslip history", "Sejarah slip gaji")}>
+        <p className={mp.title}>{L("Payslip history", "Sejarah slip gaji")}</p>
+        <ul>
+          {months.map((m) => (
+            <li key={m.month}>
+              <button type="button" aria-pressed={m.month === pick} onClick={() => setPick(m.month)}>
+                <span className={mp.month}>{monthName(m.month)}</span>
+                {m.open
+                  ? <span className={chipSuccess}>{L("Released", "Dikeluarkan")}</span>
+                  : <span className={chipNeutral}>{L(`Opens ${dmy(m.available_from)}`, `Dibuka ${dmy(m.available_from)}`)}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className={`${card} ${mp.slip}`} aria-label={chosen ? `${L("Payslip", "Slip gaji")} ${monthName(chosen.month)}` : L("Payslip", "Slip gaji")}>
+        {!chosen ? null : !chosen.open || shown?.locked ? (
+          <p className={mp.locked}><AppIcon name="lock" /> {L("Your payslip for", "Slip gaji anda untuk")} <strong>{monthName(chosen.month)}</strong> {L("will be available on", "akan tersedia pada")} <strong>{opens(chosen.available_from)}</strong>.</p>
+        ) : !shown ? (
+          <><Skel className={mp.skRow} /><Skel className={mp.skBlock} /></>
+        ) : !D || !shown.entry ? (
+          <p className={mp.empty}>{L("No payslip for this month.", "Tiada slip gaji untuk bulan ini.")}</p>
+        ) : (
+          <>
+            <div className={mp.slipHead}>
+              <div>
+                <p className={mp.title}>{monthName(shown.month)}</p>
+                <p className={mp.meta}>{resolveIssuer(shown.issuer).name} · {L("period", "tempoh")} 01-{monthDMY(shown.month)} – {String(new Date(Date.UTC(Number(shown.month.slice(0, 4)), Number(shown.month.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0")}-{monthDMY(shown.month)}</p>
+              </div>
+              <span className={rowActions}>
+                <button type="button" className={rowBtn} onClick={() => printPayslip(shown.entry!, shown.entry!, shown.month, shown.extras, shown.issuer)}>{L("View & print", "Lihat & cetak")}</button>
+                <button type="button" className={rowBtnPrimary} title={L("Send the payslip as a PDF file", "Hantar slip gaji sebagai fail PDF")}
+                  onClick={() => void sendPayslipPdf(shown.entry!, shown.entry!, shown.month, shown.extras, shown.issuer)}>PDF</button>
+              </span>
+            </div>
+            <div className={mp.cols}>
+              <div>
+                <p className={mp.sub}>{L("Earnings", "Pendapatan")}</p>
+                <dl className={mp.lines}>
+                  {D.earnings.map(([k, v]) => <div key={k} className={k === "COMMISSION" ? mp.comm : undefined}><dt>{k}</dt><dd>{rm(v)}</dd></div>)}
+                  <div className={mp.total}><dt>{L("Gross", "Kasar")}</dt><dd>{rm(D.gross_cents)}</dd></div>
+                </dl>
+              </div>
+              <div>
+                <p className={mp.sub}>{L("Deductions", "Potongan")}</p>
+                <dl className={mp.lines}>
+                  {D.deductions.length === 0 ? <div><dt>{L("None", "Tiada")}</dt><dd>{rm(0)}</dd></div> : D.deductions.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{rm(v)}</dd></div>)}
+                  <div className={mp.total}><dt>{L("Total deductions", "Jumlah potongan")}</dt><dd>{rm(D.deduction_cents)}</dd></div>
+                </dl>
+              </div>
+            </div>
+            <p className={mp.net}><span>{L("Net pay", "Gaji bersih")}</span><strong>{rm(D.net_cents)}</strong></p>
+            <p className={mp.meta}>{L("Figures from Payroll, exactly as on the printed slip. They cannot be changed here.", "Angka daripada Gaji, sama seperti slip bercetak. Ia tidak boleh diubah di sini.")}</p>
+          </>
+        )}
+      </section>
     </div>
   );
 }
