@@ -20,6 +20,11 @@
  *   - no proposal changes a source record, an invoice's Paid status or its
  *     issuer (the company-reconciliation constraints);
  *   - the history (/events) is read-only, filtered by type and Malaysia date.
+ *   - v1.221.1: "settled" is not met while records are unreviewed; the staff
+ *     list shows the employer on each person's latest RELEASED payslip as
+ *     evidence and saves nothing; staff set up several at a time is the
+ *     single setup repeated - preview writes nothing, all or nothing, a
+ *     retry does not double-write, "keep" keeps each person's own plan.
  *
  * Negative-tested by: making /summary insert a decision; dropping the
  * dry_run early return; letting one stale item through the bulk check;
@@ -61,7 +66,11 @@ try {
     CREATE TABLE stock_ledger(id INTEGER PRIMARY KEY,item_id INTEGER,delta INTEGER,source TEXT);
     CREATE TABLE journal_entries(id INTEGER PRIMARY KEY,memo TEXT,ref TEXT);
     CREATE TABLE sales_documents(id INTEGER PRIMARY KEY,doc_type TEXT,issuer_code TEXT,payment_status TEXT,total_cents INTEGER);
-    INSERT INTO sales_documents VALUES(1,'INV','azoo','paid',10000),(2,'INV','a2z','unpaid',20000),(3,'INV',NULL,'paid',5000),(4,'QT','a2z',NULL,7000);`);
+    INSERT INTO sales_documents VALUES(1,'INV','azoo','paid',10000),(2,'INV','a2z','unpaid',20000),(3,'INV',NULL,'paid',5000),(4,'QT','a2z',NULL,7000);
+    CREATE TABLE payroll_entries(id INTEGER PRIMARY KEY,user_id INTEGER,month TEXT);
+    INSERT INTO payroll_entries(user_id,month) VALUES(2,'2026-07'),(2,'2026-09'),(2,'2026-10'),(3,'2026-07');
+    CREATE TABLE payslip_releases(month TEXT PRIMARY KEY,released_by INTEGER,released_at TEXT,issuer_code TEXT);
+    INSERT INTO payslip_releases VALUES('2026-07',1,'2026-08-05 02:00:00',NULL),('2026-09',1,'2026-10-05 02:00:00','a2z');`);
   db.exec(readFileSync("worker/migrations/0134_company_review.sql", "utf8"));
   let failAt = null, beforeBatch = null;
   const DB = {
@@ -113,6 +122,8 @@ try {
   eq([inv("azoo"), inv("a2z"), inv("legacy")], [1, 1, 1], "invoices counted by their own issuer_code; an unstamped one is 'legacy'");
   eq(s.stamped.find((x) => x.register === "quotations")?.n, 1, "quotations counted apart from invoices");
   ok(!s.stamped.some((x) => x.register === "receipts"), "a register this database lacks is skipped, not an error");
+  eq(s.checklist.find((c) => c.key === "settled").done, false, "v1.221.1: nothing deferred or changed is not 'settled' while every record is unreviewed");
+  eq(s.checklist.filter((c) => c.done).length, 0, "...so no readiness step is done on an untouched database");
   eq(s.staff, { active: 3, with_employer: 0, with_access: 0, without_access: 3 }, "active non-customer staff, nobody set up yet");
 
   /* ---- the list: snapshot per row, state/search/date filters ---- */
@@ -206,6 +217,46 @@ try {
   ok(immutable, "a history entry cannot be edited");
   eq((await call("/events?type=everything")).status, 400, "an unknown type is refused");
   eq(count("company_review_events"), nEvents, "reading the history writes nothing");
+
+  /* ---- v1.221.1 - the payslip evidence, and staff set up several at a time ---- */
+  const untouched2 = sources() + JSON.stringify(db.prepare("SELECT * FROM payroll_entries").all()) + JSON.stringify(db.prepare("SELECT * FROM payslip_releases").all());
+  const before2 = [count("company_review_events"), count("company_staff_setup"), count("company_memberships"), count("audit_log")];
+  let people = (await parsed(await call("/staff"))).staff;
+  const who = (id) => people.find((x) => x.id === id);
+  eq(who(2).payslip, { month: "2026-09", company: "a2z" }, "evidence: the employer on the latest RELEASED payslip (October is not released)");
+  eq(who(3).payslip, { month: "2026-07", company: "azoo" }, "an unstamped month prints AZ ONE, as the payslip renderer does");
+  eq(who(1).payslip, null, "no payslip, no evidence");
+  ok(people.every((x) => x.employer_code === null), "evidence is shown, never saved: every employer is still unassigned");
+  eq(before2, [count("company_review_events"), count("company_staff_setup"), count("company_memberships"), count("audit_log")], "reading the staff list writes nothing");
+  const sitem = (id) => ({ id, version: who(id).version });
+  const sbulk = (body, role = "ceo", id = 1) => call("/staff/bulk", "PUT", { employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "read" }], reason: "Employment contract with A2Z Creative", request_id: crypto.randomUUID(), items: [sitem(2), sitem(3)], ...body }, role, id);
+  for (const role of ["coo", "hr_admin", "sales_marketing"]) eq((await sbulk({}, role)).status, 403, `${role}: no staff bulk setup`);
+  eq((await sbulk({ reason: "short" })).status, 400, "staff bulk: a reason under 8 characters is refused");
+  eq((await sbulk({ employer_code: "elfia" })).status, 400, "staff bulk: only the two companies");
+  eq((await sbulk({ items: [sitem(2), sitem(2)] })).status, 400, "staff bulk: a person twice is refused");
+  eq((await sbulk({ items: Array.from({ length: 51 }, (_, i) => ({ id: i + 1, version: 0 })) })).status, 400, "staff bulk: at most 50 at a time");
+  eq((await sbulk({ items: [{ id: 4, version: 0 }] })).status, 404, "staff bulk: a customer is not staff");
+  const sdry = await parsed(await sbulk({ dry_run: true }));
+  eq(sdry.changes.map((c) => [c.name, c.from, c.to]), [["Sales", null, "a2z"], ["Ops", null, "a2z"]], "the staff preview lists each person's change");
+  eq(before2, [count("company_review_events"), count("company_staff_setup"), count("company_memberships"), count("audit_log")], "the staff preview writes nothing");
+  eq((await sbulk({ items: [sitem(2), { id: 3, version: 4 }] })).status, 409, "one person's setup changed since listing refuses the lot");
+  failAt = 2;
+  eq((await sbulk({})).status, 500, "the second person's audit fails");
+  eq(before2, [count("company_review_events"), count("company_staff_setup"), count("company_memberships"), count("audit_log")], "no partial staff setup committed");
+  const srid = crypto.randomUUID();
+  eq((await parsed(await sbulk({ request_id: srid }))).count, 2, "two setups saved");
+  eq([count("company_staff_setup"), count("company_memberships")], [2, 2], "one setup and one membership each");
+  ok((await parsed(await sbulk({ request_id: srid }))).replayed === true && count("company_staff_setup") === 2, "a retry does not write twice");
+  people = (await parsed(await call("/staff"))).staff;
+  eq((await parsed(await sbulk({ employer_code: "azoo", memberships: null, items: [sitem(2)] }))).count, 1, "employer only, access plan kept");
+  people = (await parsed(await call("/staff"))).staff;
+  eq([who(2).employer_code, who(2).memberships], ["azoo", [{ company_code: "a2z", access_mode: "read" }]], "'keep' keeps that person's own plan");
+  eq((await parsed(await call("/events?type=staff"))).total, 3, "every staff setup is in the history");
+  ok(JSON.parse((await parsed(await call("/events?type=staff"))).events[0].after_json).bulk === true, "marked as a bulk setup");
+  s = await parsed(await call("/summary"));
+  eq([s.staff.with_employer, s.staff.with_access], [2, 2], "the figures follow");
+  eq(s.enforcement, "not_active", "still a plan: access is not enforced");
+  eq(sources() + JSON.stringify(db.prepare("SELECT * FROM payroll_entries").all()) + JSON.stringify(db.prepare("SELECT * FROM payslip_releases").all()), untouched2, "no source record, invoice, payroll entry or payslip changed");
 
   console.log(`Companies 2.0: ${checks} checks passed - counted figures, read-only history, previewed all-or-nothing bulk review, access not active.`);
 } finally {

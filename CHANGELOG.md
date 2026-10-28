@@ -10,6 +10,32 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.221.1] - 2026-10-28 - Companies: staff set up from the payslip, several at a time
+
+The owner's screenshot of Staff Access, 28-10-2026 ("please check this
+one"), and his answer "Suggest + bulk".
+
+- **The readiness figure was wrong.** "No deferred or changed reviews" was
+  counted done while every record was still unreviewed, so the page read
+  "1 of 9 readiness steps" on day one. It is met only once everything is
+  reviewed and nothing is deferred or changed.
+- **Roles read as names** (CEO, HR Admin, Sales & Marketing), not codes.
+- **The payslip is the evidence.** Staff Access shows the employer printed
+  on each person's latest released payslip (an unstamped month prints AZ
+  ONE OFFICIAL, as the payslip does). With no employer saved yet, a
+  person's setup opens with that employer chosen and says so - nothing is
+  saved until you confirm with a reason.
+- **Several people at once.** Tick staff (up to 50), "Set up selected…":
+  one employer (pre-chosen when every selected person's payslip agrees),
+  keep each person's access plan or give everyone the same one, one
+  reason, Preview changes (each person's from → to; nothing written), then
+  Save - one setup, event and audit line per person, all or nothing; a
+  changed setup refuses the lot. `PUT /staff/companies/staff/bulk`
+  (`dry_run`, `memberships: null` keeps each plan). Still a plan: nobody's
+  access changes.
+- Guard `companies-v2` 103 checks; browser test covers the suggestion and
+  the bulk setup.
+
 ## [1.221.0] - 2026-10-28 - Companies 2.0: three tabs, bulk review with preview
 
 The owner's Companies brief and answers, 28-10-2026: "Build the 3 tabs",

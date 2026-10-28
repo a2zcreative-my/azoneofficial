@@ -20,7 +20,8 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { makeApi, type ApiResult } from "@/lib/api";
 import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, type CompanyCode, type CompanyStaffSetup, type ReviewDetail, type ReviewKind, type ReviewRecord, type ReviewState } from "@/lib/company-review";
-import { dmy, dmyMYT, fmtRM } from "@/lib/format";
+import { dmy, dmyMYT, fmtRM, ym } from "@/lib/format";
+import { roleLabel } from "@/components/portal/users-shared";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
@@ -232,7 +233,10 @@ function BulkDrawer({ kind, items, preset, onClose, onSaved }: { kind: ReviewKin
  * One person's planned company access.
  * ------------------------------------------------------------------ */
 function StaffSetup({ employee, onSaved }: { employee: CompanyStaffSetup; onSaved: () => void }) {
-  const [employer, setEmployer] = useState<CompanyCode | "">(employee.employer_code ?? "");
+  /* v1.221.1 - with no employer saved yet, the one printed on their latest
+     payslip is chosen for you - shown as such, saved only on confirm */
+  const suggested = !employee.employer_code && employee.payslip ? employee.payslip : null;
+  const [employer, setEmployer] = useState<CompanyCode | "">(employee.employer_code ?? suggested?.company ?? "");
   const [memberships, setMemberships] = useState(employee.memberships);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -270,6 +274,7 @@ function StaffSetup({ employee, onSaved }: { employee: CompanyStaffSetup; onSave
             <option value="">{L("Unassigned", "Belum ditetapkan")}</option>{COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
           </select>
         </label>
+        {suggested && employer === suggested.company && <p className={css.hint}><AppIcon name="document" />{L(`Printed on their latest payslip (${ym(suggested.month)}) - not saved until you confirm`, `Tercetak pada slip gaji terkini (${ym(suggested.month)}) - belum disimpan sehingga anda sahkan`)}</p>}
         <div className={css.planRow}>
           <span className={fieldLabel}>{L("Company access plan", "Pelan akses syarikat")}</span>
           {COMPANY_CODES.map(code => {
@@ -289,6 +294,83 @@ function StaffSetup({ employee, onSaved }: { employee: CompanyStaffSetup; onSave
     {error && <p role="alert" className={css.error}>{error}</p>}
     {history ? <HistoryList rows={history} /> : historyError ? <p role="alert" className={css.error}>{historyError}</p> : <SkelRows rows={2} />}
   </section>;
+}
+
+/* ------------------------------------------------------------------ *
+ * v1.221.1 - several people at once: one employer, one access plan (or
+ * each person's own kept), one reason - previewed, then all or nothing.
+ * ------------------------------------------------------------------ */
+type StaffChange = { id: number; name: string; from: CompanyCode | null; to: CompanyCode | null; memberships_from: { company_code: CompanyCode; access_mode: string }[]; memberships_to: { company_code: CompanyCode; access_mode: string }[] };
+const planWord = (ms: { company_code: string; access_mode: string }[]) => ms.length ? ms.map(m => `${companyName(m.company_code)} ${m.access_mode === "write" ? L("R/W", "B/T") : L("read", "baca")}`).join(", ") : L("none", "tiada");
+function StaffBulkDrawer({ people, onClose, onSaved }: { people: CompanyStaffSetup[]; onClose: () => void; onSaved: (count: number) => void }) {
+  const common = people.every(p => !p.employer_code && p.payslip && p.payslip.company === people[0]?.payslip?.company) ? people[0]?.payslip?.company ?? null : null;
+  const [employer, setEmployer] = useState<CompanyCode | "">(common ?? "");
+  const [keep, setKeep] = useState(true);
+  const [memberships, setMemberships] = useState<{ company_code: CompanyCode; access_mode: "read" | "write" }[]>([]);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState<{ signature: string; changes: StaffChange[] } | null>(null);
+  const attempt = useRef<Attempt>(null);
+  const payload = useMemo(() => ({ employer_code: employer || null, memberships: keep ? null : memberships, reason: reason.trim(), items: people.map(p => ({ id: p.id, version: p.version })) }), [employer, keep, memberships, reason, people]);
+  const signature = JSON.stringify(payload);
+  const previewed = preview?.signature === signature ? preview : null;
+  const run = async (dry: boolean) => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await api<{ count?: number; changes?: StaffChange[] }>("/staff/bulk", { method: "PUT", body: JSON.stringify({ ...payload, request_id: requestId(attempt, payload), ...(dry ? { dry_run: true } : {}) }) });
+      if (!r.ok) { setError(message(r)); setPreview(null); return; }
+      if (dry) setPreview({ signature, changes: r.data?.changes ?? people.map(p => ({ id: p.id, name: p.name, from: p.employer_code, to: employer || null, memberships_from: p.memberships, memberships_to: keep ? p.memberships : memberships })) });
+      else onSaved(r.data?.count ?? people.length);
+    } finally { setBusy(false); }
+  };
+  return <SideDrawer open onClose={onClose} title={L("Set up selected staff", "Tetapkan staf dipilih")} subtitle={`${people.length} ${L("people", "orang")}`}>
+    <div className={css.drawerBody}>
+      <p className={css.notice}><AppIcon name="info" /><span>{L("Planned access - not enforced yet. Roles still decide what each person can open.", "Akses dirancang - belum dikuatkuasakan. Peranan masih menentukan apa yang boleh dibuka.")}</span></p>
+      <fieldset disabled={busy} className={css.form}>
+        <label>{L("Employer", "Majikan")}
+          <select aria-label={L("Employer for the selection", "Majikan untuk pilihan")} className={inputClass} value={employer} onChange={e => setEmployer(e.target.value as CompanyCode | "")}>
+            <option value="">{L("Unassigned", "Belum ditetapkan")}</option>{COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
+          </select>
+        </label>
+        {common && employer === common && <p className={css.hint}><AppIcon name="document" />{L("Printed on every selected person's latest payslip - not saved until you confirm", "Tercetak pada slip gaji terkini setiap orang dipilih - belum disimpan sehingga anda sahkan")}</p>}
+        <div className={css.planRow}>
+          <span className={fieldLabel}>{L("Company access plan", "Pelan akses syarikat")}</span>
+          <label className={css.planCheck}><input type="radio" name="bulk-plan" checked={keep} onChange={() => setKeep(true)} />{L("Keep each person's current plan", "Kekalkan pelan semasa setiap orang")}</label>
+          <label className={css.planCheck}><input type="radio" name="bulk-plan" checked={!keep} onChange={() => setKeep(false)} />{L("Give everyone the same plan", "Beri semua orang pelan yang sama")}</label>
+          {!keep && COMPANY_CODES.map(code => {
+            const member = memberships.find(m => m.company_code === code);
+            return <div key={code} className={css.planRow}>
+              <label className={css.planCheck}><input type="checkbox" checked={Boolean(member)} onChange={e => setMemberships(current => e.target.checked ? [...current, { company_code: code, access_mode: "read" }] : current.filter(m => m.company_code !== code))} />{COMPANY_NAMES[code]}</label>
+              {member && <select aria-label={`${COMPANY_NAMES[code]} ${L("access for the selection", "akses untuk pilihan")}`} className={inputClass} value={member.access_mode} onChange={e => setMemberships(current => current.map(m => m.company_code === code ? { ...m, access_mode: e.target.value as "read" | "write" } : m))}>
+                <option value="read">{L("Read only", "Baca sahaja")}</option><option value="write">{L("Read and write", "Baca dan tulis")}</option>
+              </select>}
+            </div>;
+          })}
+        </div>
+        <label>{L("Reason (saved for every person)", "Sebab (disimpan untuk setiap orang)")}
+          <textarea aria-label={L("Reason for the staff selection", "Sebab untuk pilihan staf")} className={inputClass} required minLength={8} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} />
+        </label>
+        {!previewed && <div className={css.formRow}><button type="button" className={btnClass} disabled={reason.trim().length < 8} onClick={() => void run(true)}><AppIcon name="preview" />{L("Preview changes", "Pratonton perubahan")}</button></div>}
+      </fieldset>
+      {previewed && <section className={css.preview} aria-label={L("Staff changes preview", "Pratonton perubahan staf")}>
+        <ul className={css.history}>
+          {previewed.changes.map(c => <li key={c.id}>
+            <strong>{c.name}</strong>
+            <span>{L("Employer", "Majikan")}: {companyName(c.from)} → {companyName(c.to)}</span>
+            <span className={css.muted}>{L("Access", "Akses")}: {planWord(c.memberships_from)} → {planWord(c.memberships_to)}</span>
+          </li>)}
+        </ul>
+        <p className={css.sub}>{L("Nothing is saved yet. Saving records one setup, with your name and reason, for each person - all of them or none. It is a plan: nobody's access changes today.", "Belum disimpan. Menyimpan merekod satu tetapan, dengan nama dan sebab anda, untuk setiap orang - semua atau tiada. Ia pelan: akses sesiapa tidak berubah hari ini.")}</p>
+        <div className={css.formRow}>
+          <button type="button" className={btnClass} disabled={busy} onClick={() => void run(false)}><AppIcon name="save" />{L(`Save ${previewed.changes.length} setups`, `Simpan ${previewed.changes.length} tetapan`)}</button>
+          <button type="button" className={btnSm} disabled={busy} onClick={() => setPreview(null)}>{L("Change", "Ubah")}</button>
+        </div>
+      </section>}
+      {error && <p role="alert" className={css.error}>{error}</p>}
+    </div>
+  </SideDrawer>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -409,6 +491,8 @@ export function CompaniesPanel() {
   const [staffQ, setStaffQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [person, setPerson] = useState<number | null>(null);
+  const [staffPicked, setStaffPicked] = useState<Set<number>>(new Set());
+  const [staffBulk, setStaffBulk] = useState(false);
   useEffect(() => {
     if (!seen.staff) return;
     const controller = new AbortController();
@@ -420,6 +504,10 @@ export function CompaniesPanel() {
   }, [seen.staff, revision]);
   const shownStaff = (staff ?? []).filter(s => (showInactive || s.is_active) && (!staffQ.trim() || s.name.toLowerCase().includes(staffQ.trim().toLowerCase())));
   const employee = staff?.find(s => s.id === person) ?? null;
+  const toggleStaff = (id: number) => setStaffPicked(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else if (next.size < 50) next.add(id); return next; });
+  const allStaff = shownStaff.length > 0 && shownStaff.every(s => staffPicked.has(s.id));
+  const toggleAllStaff = () => setStaffPicked(current => { const next = new Set(current); if (allStaff) shownStaff.forEach(s => next.delete(s.id)); else shownStaff.forEach(s => { if (next.size < 50) next.add(s.id); }); return next; });
+  const pickedPeople = (staff ?? []).filter(s => staffPicked.has(s.id));
 
   /* ---- Audit & History ---- */
   const [evType, setEvType] = useState<"all" | "ownership" | "staff">("all");
@@ -587,12 +675,14 @@ export function CompaniesPanel() {
           {staffError ? <p role="alert" className={css.error}>{staffError}</p> : staff === null ? <div className={css.tableWrap}><SkelRows rows={6} /></div> : shownStaff.length === 0 ? <p className={css.empty}>{L("No staff match.", "Tiada staf sepadan.")}</p> : <>
             <div className={`${css.desk} ${css.tableWrap}`}>
               <table className={css.table} aria-label={L("Staff access plan", "Pelan akses staf")}>
-                <thead><tr><th>{L("Name", "Nama")}</th><th>{L("Role", "Peranan")}</th><th>{L("Employer", "Majikan")}</th>{COMPANY_CODES.map(c => <th key={c}>{COMPANY_NAMES[c]}</th>)}<th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
+                <thead><tr><th className={css.checkCell}><input type="checkbox" aria-label={L("Select everyone shown", "Pilih semua yang dipaparkan")} checked={allStaff} onChange={toggleAllStaff} /></th><th>{L("Name", "Nama")}</th><th>{L("Role", "Peranan")}</th><th>{L("Employer", "Majikan")}</th><th>{L("Latest payslip", "Slip gaji terkini")}</th>{COMPANY_CODES.map(c => <th key={c}>{COMPANY_NAMES[c]}</th>)}<th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
                 <tbody>
-                  {shownStaff.map(s => <tr key={s.id} onClick={() => setPerson(s.id)}>
+                  {shownStaff.map(s => <tr key={s.id} className={staffPicked.has(s.id) ? css.picked : undefined} onClick={() => setPerson(s.id)}>
+                    <td className={css.checkCell} onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={L(`Select ${s.name}`, `Pilih ${s.name}`)} checked={staffPicked.has(s.id)} onChange={() => toggleStaff(s.id)} /></td>
                     <td><span className={css.recTitle}>{s.name}</span>{!s.is_active && <span className={css.recId}>{L("Inactive", "Tidak aktif")}</span>}</td>
-                    <td className={css.muted}>{s.role.replaceAll("_", " ")}</td>
+                    <td className={css.muted}>{roleLabel(s.role)}</td>
                     <td>{s.employer_code ? companyName(s.employer_code) : <span className={chipWarn}>{L("Unassigned", "Belum ditetapkan")}</span>}</td>
+                    <td>{s.payslip ? <><span>{companyName(s.payslip.company)}</span><span className={css.recId}>{ym(s.payslip.month)}</span></> : <span className={css.muted}>-</span>}</td>
                     {COMPANY_CODES.map(c => { const m = s.memberships.find(x => x.company_code === c); return <td key={c}><span className={m ? css.access : `${css.access} ${css.none}`}>{m ? accessWord(m.access_mode) : "-"}</span></td>; })}
                     <td><button type="button" className={css.openBtn} aria-label={L(`Set up ${s.name}`, `Tetapkan ${s.name}`)} onClick={e => { e.stopPropagation(); setPerson(s.id); }}><AppIcon name="next" /></button></td>
                   </tr>)}
@@ -600,15 +690,24 @@ export function CompaniesPanel() {
               </table>
             </div>
             <ul className={css.phone} aria-label={L("Staff access plan", "Pelan akses staf")}>
-              {shownStaff.map(s => <li key={s.id} className={`${css.card} ${css.cardWide}`}>
+              {shownStaff.map(s => <li key={s.id} className={`${css.card} ${staffPicked.has(s.id) ? css.picked : ""}`}>
+                <span className={css.cardCheck}><input type="checkbox" aria-label={L(`Select ${s.name}`, `Pilih ${s.name}`)} checked={staffPicked.has(s.id)} onChange={() => toggleStaff(s.id)} /></span>
                 <button type="button" className={css.cardOpen} onClick={() => setPerson(s.id)}>
-                  <span className={css.cardTop}><span>{s.role.replaceAll("_", " ")}{!s.is_active ? ` · ${L("Inactive", "Tidak aktif")}` : ""}</span><strong>{companyName(s.employer_code)}</strong></span>
+                  <span className={css.cardTop}><span>{roleLabel(s.role)}{!s.is_active ? ` · ${L("Inactive", "Tidak aktif")}` : ""}</span><strong>{companyName(s.employer_code)}</strong></span>
                   <span className={css.recTitle}>{s.name}</span>
                   <span className={css.cardChips}>{COMPANY_CODES.map(c => { const m = s.memberships.find(x => x.company_code === c); return <span key={c} className={m ? chipNeutral : css.none}>{COMPANY_NAMES[c]}: {m ? accessWord(m.access_mode) : "-"}</span>; })}</span>
+                  {s.payslip && <span className={css.recId}>{L("Latest payslip", "Slip gaji terkini")}: {companyName(s.payslip.company)} · {ym(s.payslip.month)}</span>}
                 </button>
               </li>)}
             </ul>
           </>}
+          {staffPicked.size > 0 && <div className={css.bulk} role="region" aria-label={L("Selected staff", "Staf dipilih")}>
+            <span><strong>{staffPicked.size}</strong> {L("selected", "dipilih")}{staffPicked.size >= 50 ? ` · ${L("50 at a time", "50 pada satu masa")}` : ""}</span>
+            <div className={css.bulkBtns}>
+              <button type="button" className={btnSmPrimary} onClick={() => setStaffBulk(true)}>{L("Set up selected…", "Tetapkan dipilih…")}</button>
+              <button type="button" className={btnSm} onClick={() => setStaffPicked(new Set())}>{L("Clear", "Kosongkan")}</button>
+            </div>
+          </div>}
         </div>
       </TabZone>
       <TabZone label={L("Before access can be switched on", "Sebelum akses boleh dihidupkan")} hint={L("A checklist only. Switching restrictions on is a separate release that you approve; nothing on this page turns it on.", "Senarai semak sahaja. Menghidupkan sekatan ialah keluaran berasingan yang anda luluskan; tiada apa di halaman ini menghidupkannya.")}>
@@ -666,7 +765,8 @@ export function CompaniesPanel() {
 
     <RecordDrawer target={target} onClose={() => setTarget(null)} onSaved={reviewSaved} onRelated={(k, id) => setTarget({ kind: k, id })} />
     {bulk !== null && pickedList.length > 0 && <BulkDrawer kind={kind} items={pickedList} preset={bulk} onClose={() => setBulk(null)} onSaved={bulkSaved} />}
-    <SideDrawer open={Boolean(employee)} onClose={() => setPerson(null)} title={employee?.name ?? ""} subtitle={employee ? `${employee.role.replaceAll("_", " ")} · ${companyName(employee.employer_code)}` : undefined}>
+    {staffBulk && pickedPeople.length > 0 && <StaffBulkDrawer people={pickedPeople} onClose={() => setStaffBulk(false)} onSaved={n => { toast(L(`${n} setups saved`, `${n} tetapan disimpan`), L("Planned only - not enforced", "Dirancang sahaja - belum dikuatkuasakan")); setStaffBulk(false); setStaffPicked(new Set()); reload(); }} />}
+    <SideDrawer open={Boolean(employee)} onClose={() => setPerson(null)} title={employee?.name ?? ""} subtitle={employee ? `${roleLabel(employee.role)} · ${companyName(employee.employer_code)}` : undefined}>
       {employee && <StaffSetup key={`${employee.id}-${employee.version}`} employee={employee} onSaved={() => { toast(L("Access plan saved", "Pelan akses disimpan"), L("Planned only - not enforced", "Dirancang sahaja - belum dikuatkuasakan")); setPerson(null); reload(); }} />}
     </SideDrawer>
   </TabPage>;

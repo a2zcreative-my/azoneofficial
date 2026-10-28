@@ -64,6 +64,8 @@ export interface CompanyStaffSetup {
   employer_code: CompanyCode | null;
   memberships: CompanyMembership[];
   version: number;
+  /** v1.221.1 - the employer printed on their latest released payslip: evidence, offered as a suggestion only */
+  payslip?: { month: string; company: CompanyCode } | null;
 }
 export function isCompanyCode(value: unknown): value is CompanyCode {
   return value === "azoo" || value === "a2z";

@@ -138,7 +138,10 @@ export async function handleCompanyReview(env: Env, url: URL, path: string, meth
       const mgmt = staff.filter(s => ["ceo", "coo", "super_admin"].includes(s.role));
       const checklist = [
         { key: "reviewed", done: sum("unassigned") === 0, detail: `${sum("unassigned")}` },
-        { key: "settled", done: sum("stale") === 0 && sum("deferred") === 0, detail: `${sum("stale")}/${sum("deferred")}` },
+        /* v1.221.1 - "nothing deferred or changed" is only met once there is
+           something reviewed to settle: with every record unreviewed it was
+           counted done, and the page read "1 of 9 readiness steps" */
+        { key: "settled", done: sum("unassigned") === 0 && sum("stale") === 0 && sum("deferred") === 0, detail: `${sum("stale")}/${sum("deferred")}` },
         { key: "staff_setup", done: staff.length > 0 && staff.every(s => s.employer_code && s.memberships > 0), detail: `${staff.filter(s => s.employer_code && s.memberships > 0).length}/${staff.length}` },
         { key: "management", done: mgmt.length > 0 && mgmt.every(s => s.writes >= 2), detail: `${mgmt.filter(s => s.writes >= 2).length}/${mgmt.length}` },
         { key: "ownership_columns", done: false, detail: "not_built" },
@@ -295,7 +298,76 @@ export async function handleCompanyReview(env: Env, url: URL, path: string, meth
     if (path === "/staff" && method === "GET") {
       const staff = (await env.DB.prepare(`SELECT u.id,u.name,u.role,u.is_active,s.employer_code,COALESCE(s.version,0) AS version FROM users u LEFT JOIN company_staff_setup s ON s.user_id=u.id WHERE u.role!='customer' ORDER BY u.is_active DESC,u.name,u.id`).all()).results;
       const memberships = (await env.DB.prepare(`SELECT user_id,company_code,access_mode FROM company_memberships ORDER BY company_code`).all<CompanyMembership & { user_id: number }>()).results;
-      return json({ staff: staff.map(s => ({ ...s, memberships: memberships.filter(m => m.user_id === s.id).map(({ company_code, access_mode }) => ({ company_code, access_mode })) })), mode: "reconciliation_only" });
+      /* v1.221.1 - the evidence already in the portal: the employer printed on
+         each person's latest released payslip (payslip_releases.issuer_code;
+         an unstamped month prints AZ ONE OFFICIAL, as the payslip renderer
+         does). Shown and offered as a suggestion only - never saved without
+         a person confirming it with a reason. */
+      const payslips = new Map<number, { month: string; company: string }>();
+      try {
+        const rows = (await env.DB.prepare(`SELECT p.user_id, r.month, r.issuer_code FROM payroll_entries p JOIN payslip_releases r ON r.month = p.month
+          WHERE r.month = (SELECT MAX(r2.month) FROM payroll_entries p2 JOIN payslip_releases r2 ON r2.month = p2.month WHERE p2.user_id = p.user_id)`).all<{ user_id: number; month: string; issuer_code: string | null }>()).results ?? [];
+        for (const r of rows) payslips.set(r.user_id, { month: r.month, company: isCompanyCode(r.issuer_code) ? r.issuer_code : "azoo" });
+      } catch { /* no payroll tables in this database - no evidence to show */ }
+      return json({ staff: staff.map(s => ({ ...s, payslip: payslips.get(s.id as number) ?? null, memberships: memberships.filter(m => m.user_id === s.id).map(({ company_code, access_mode }) => ({ company_code, access_mode })) })), mode: "reconciliation_only" });
+    }
+    /* v1.221.1 - staff setup for several people at once (the owner's answer,
+       28-10-2026: "Suggest + bulk"): the single setup repeated - one employer,
+       one access plan or "keep each person's", one reason; a dry run that
+       writes nothing; one guarded event + setup + audit per person in one
+       batch, all or nothing. Planning data only - nothing is enforced. */
+    if (path === "/staff/bulk" && method === "PUT") {
+      const items = Array.isArray(body?.items) ? body!.items as { id?: unknown; version?: unknown }[] : [];
+      const keep = body?.memberships === null;
+      const input = body?.memberships;
+      if (items.length === 0 || items.length > 50 || !str(body?.request_id, 60) || !/^[a-zA-Z0-9-]{16,60}$/.test(body!.request_id as string)
+        || !str(body?.reason, 1000) || (body!.reason as string).trim().length < 8 || !(body?.employer_code === null || isCompanyCode(body?.employer_code))
+        || !(keep || (Array.isArray(input) && input.length <= 2))
+        || !items.every(i => positiveId(i.id) && versionNumber(i.version)) || new Set(items.map(i => i.id)).size !== items.length) {
+        return err("validation", "Choose staff, an employer or unassigned, an access plan, and a reason of at least 8 characters", 400);
+      }
+      const memberships: CompanyMembership[] = [];
+      if (!keep) for (const m of input as { company_code?: unknown; access_mode?: unknown }[]) {
+        if (!m || !isCompanyCode(m.company_code) || !["read", "write"].includes(m.access_mode as string) || memberships.some(p => p.company_code === m.company_code)) return err("validation", "Invalid or duplicate company membership", 400);
+        memberships.push({ company_code: m.company_code, access_mode: m.access_mode as "read" | "write" });
+      }
+      memberships.sort((a, b) => a.company_code.localeCompare(b.company_code));
+      const reason = (body!.reason as string).trim();
+      const employer = body!.employer_code as string | null;
+      const requestOf = (i: { id?: unknown; version?: unknown }) => JSON.stringify({ kind: "staff", id: i.id, employer_code: employer, memberships: keep ? "keep" : memberships, version: i.version, reason, bulk: true });
+      if (body?.dry_run !== true) {
+        const prior = (await env.DB.prepare(`SELECT actor_id, subject_id, request_json FROM company_review_events WHERE request_id LIKE ?1`).bind(`${body!.request_id}-%`).all<{ actor_id: number; subject_id: number; request_json: string }>()).results ?? [];
+        if (prior.length > 0) {
+          const same = prior.length === items.length && prior.every(p => p.actor_id === user.id && items.some(i => i.id === p.subject_id && requestOf(i) === p.request_json));
+          return same ? json({ ok: true, replayed: true, count: prior.length }) : err("idempotency_conflict", "This request ID was already used for a different setup", 409);
+        }
+      }
+      const checked: { id: number; name: string; version: number; before: { employer_code: string | null; memberships: CompanyMembership[]; version: number }; after: { employer_code: string | null; memberships: CompanyMembership[]; version: number; reason: string; bulk: true } }[] = [];
+      for (const i of items) {
+        const id = i.id as number;
+        const employee = await env.DB.prepare(`SELECT id, name FROM users WHERE id=?1 AND role!='customer'`).bind(id).first<{ id: number; name: string }>();
+        if (!employee) return err("not_found", `Staff member #${id} not found`, 404);
+        const setup = await env.DB.prepare(`SELECT employer_code,version FROM company_staff_setup WHERE user_id=?1`).bind(id).first<{ employer_code: string | null; version: number }>();
+        if ((setup?.version ?? 0) !== i.version) return err("stale_review", `${employee.name}'s setup changed since it was listed. Reload before saving`, 409);
+        const current = await membershipsFor(env, id);
+        checked.push({ id, name: employee.name, version: i.version as number,
+          before: { employer_code: setup?.employer_code ?? null, memberships: current, version: setup?.version ?? 0 },
+          after: { employer_code: employer, memberships: keep ? current : memberships, version: (i.version as number) + 1, reason, bulk: true } });
+      }
+      if (body?.dry_run === true) return json({ ok: true, dry_run: true, count: checked.length, changes: checked.map(c => ({ id: c.id, name: c.name, from: c.before.employer_code, to: c.after.employer_code, memberships_from: c.before.memberships, memberships_to: c.after.memberships })) });
+      const statements = [];
+      for (const c of checked) {
+        const rid = `${body!.request_id}-${c.id}`;
+        statements.push(
+          event(env, user, rid, "staff", c.id, requestOf({ id: c.id, version: c.version }), c.before, c.after, `EXISTS(SELECT 1 FROM users WHERE id=? AND role!='customer') AND COALESCE((SELECT version FROM company_staff_setup WHERE user_id=?),0)=?`, [c.id, c.id, c.version]),
+          env.DB.prepare(`INSERT INTO company_staff_setup (user_id,employer_code,version,updated_by) VALUES (?1,?2,?3,?4) ON CONFLICT(user_id) DO UPDATE SET employer_code=excluded.employer_code,version=excluded.version,updated_by=excluded.updated_by,updated_at=datetime('now')`).bind(c.id, c.after.employer_code, c.after.version, user.id),
+          env.DB.prepare(`DELETE FROM company_memberships WHERE user_id=?1`).bind(c.id),
+          ...c.after.memberships.map(m => env.DB.prepare(`INSERT INTO company_memberships (user_id,company_code,access_mode) VALUES (?1,?2,?3)`).bind(c.id, m.company_code, m.access_mode)),
+          auditStatement(env, user, "staff", c.id, rid),
+        );
+      }
+      await env.DB.batch(statements);
+      return json({ ok: true, count: checked.length });
     }
     const staffMatch = /^\/staff\/(\d+)$/.exec(path);
     if (staffMatch && method === "GET") {

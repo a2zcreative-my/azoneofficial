@@ -573,3 +573,19 @@
 .filters + .sub {
   margin-top: 0.625rem;
 }
+
+/* v1.221.1 - a suggestion from evidence the portal already holds */
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: -0.375rem 0 0;
+  color: var(--success);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+}
+.hint svg {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+}

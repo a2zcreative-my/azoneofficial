@@ -545,8 +545,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     }
     if (cp === "/staff") data = { staff: [
       { id: 9001, name: "Fixture Person", role: "ceo", is_active: 1, employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "write" }, { company_code: "azoo", access_mode: "write" }], version: 1 },
-      { id: 9002, name: "Nur Aisyah binti Abdullah", role: "sales_marketing", is_active: 1, employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "read" }], version: 1 },
-      { id: 9003, name: "Muhammad Hafizuddin", role: "live_host", is_active: 1, employer_code: null, memberships: [], version: 0 },
+      { id: 9002, name: "Nur Aisyah binti Abdullah", role: "sales_marketing", is_active: 1, employer_code: "a2z", memberships: [{ company_code: "a2z", access_mode: "read" }], version: 1, payslip: { month: "2026-09", company: "a2z" } },
+      { id: 9003, name: "Muhammad Hafizuddin", role: "live_host", is_active: 1, employer_code: null, memberships: [], version: 0, payslip: { month: "2026-09", company: "a2z" } },
+      { id: 9004, name: "Siti Mariam", role: "hr_admin", is_active: 1, employer_code: null, memberships: [], version: 0, payslip: { month: "2026-09", company: "a2z" } },
       { id: 9005, name: "Former Staff", role: "hr_admin", is_active: 0, employer_code: null, memberships: [], version: 0 },
     ], mode: "reconciliation_only" };
     if (/^\/staff\/\d+$/.test(cp)) data = { history: [] };
