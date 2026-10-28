@@ -83,10 +83,19 @@ async function workingDays(env: Env, uid: number, from: string, to: string): Pro
       for (const l of results ?? []) for (let d = l.start_date > from ? l.start_date : from; d <= (l.end_date < to ? l.end_date : to); d = addDays(d, 1)) leave.set(d, 1);
     } catch { /* no leave table */ }
   }
+  /* v1.223.1 - only the days they were employed: not before joining, not
+     after the last day on the Staff record (a re-joiner counts again) */
+  let emp: { joined_on: string | null; left_on: string | null; rejoined_on: string | null } | null = null;
+  try { emp = await env.DB.prepare(`SELECT joined_on, left_on, rejoined_on FROM users WHERE id = ?1`).bind(uid).first(); } catch { emp = null; }
+  const employed = (d: string) => {
+    if (emp?.joined_on && d < emp.joined_on.slice(0, 10)) return false;
+    if (emp?.left_on && d > emp.left_on.slice(0, 10)) return Boolean(emp.rejoined_on && d >= emp.rejoined_on.slice(0, 10));
+    return true;
+  };
   const days: { day: string; weight: number }[] = [];
   for (let d = from; d <= to; d = addDays(d, 1)) {
     const w = dow(d);
-    if (w === 0 || w === 6 || holidays.has(d)) continue;
+    if (w === 0 || w === 6 || holidays.has(d) || !employed(d)) continue;
     const weight = 1 - (leave.get(d) ?? 0);
     if (weight > 0) days.push({ day: d, weight });
   }
@@ -151,14 +160,44 @@ export function statusOf(p: { target: number | null; basis: number; open: number
   return { status: "action", expected };
 }
 
-async function staffList(env: Env, week: string): Promise<{ id: number; name: string; role: string }[]> {
+/** v1.223.1 (the owner, 28-10-2026: a resigned consultant was still listed,
+    and the people who really close sales were missing). ON STAFF FOR THE
+    WEEK, from the Staff record: someone whose last day (left_on) is before
+    the week is gone; someone marked Resigned or Terminated on the Staff tab
+    with no last day is gone too; a re-joiner is back. Someone who leaves
+    mid-week still counts for that week. Bound: ?1 = week start, ?2 = week end. */
+export const onStaffForWeekSql = (a = "u.") =>
+  `((${a}left_on IS NULL AND COALESCE(${a}employment_status, '') NOT IN ('resigned', 'terminated'))
+    OR substr(${a}left_on, 1, 10) >= ?1
+    OR (${a}rejoined_on IS NOT NULL AND substr(${a}rejoined_on, 1, 10) <= ?2))`;
+
+/** The scorecard's people for a week: staff on the books that week (never
+    a leaver, never a system account) who are sales consultants, OR have an
+    approved target in force, OR closed a sale that week (salesperson on a
+    quotation raised or an invoice paid in it). */
+async function staffList(env: Env, from: string, to: string): Promise<{ id: number; name: string; role: string }[]> {
   const { results } = await env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u
-      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
         AND (u.role IN (${SELLER_ROLES.map((r) => `'${r}'`).join(", ")})
-             OR EXISTS (SELECT 1 FROM sales_week_targets t WHERE t.scope = 'person' AND t.user_id = u.id AND t.week_from <= ?1 AND t.target_cents IS NOT NULL))
+             OR (SELECT t.target_cents FROM sales_week_targets t WHERE t.scope = 'person' AND t.user_id = u.id AND t.week_from <= ?1
+                  ORDER BY t.week_from DESC, t.id DESC LIMIT 1) IS NOT NULL
+             OR EXISTS (SELECT 1 FROM sales_documents d WHERE d.salesperson_id = u.id
+                  AND ((d.doc_type = 'QT' AND date(d.created_at, '+8 hours') BETWEEN ?1 AND ?2)
+                    OR (d.doc_type = 'INV' AND d.payment_status = 'paid' AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') BETWEEN ?1 AND ?2))))
       ORDER BY name`,
-  ).bind(week).all<{ id: number; name: string; role: string }>();
+  ).bind(from, to).all<{ id: number; name: string; role: string }>();
+  return results ?? [];
+}
+
+/** Everyone a target can be set for that week: staff on the books, any role
+    but customers and the system accounts (the CEO closes sales too). */
+async function targetCandidates(env: Env, from: string, to: string): Promise<{ id: number; name: string; role: string }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u
+      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
+      ORDER BY name`,
+  ).bind(from, to).all<{ id: number; name: string; role: string }>();
   return results ?? [];
 }
 
@@ -265,7 +304,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
       const row = await weekFor(env, user.id, me?.name ?? "", from, to, today, startDow);
       return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "mine", can_set: isSetter, can_view_all: allowAll, me: row, commission: { policy: false } });
     }
-    const people = await staffList(env, from);
+    const people = await staffList(env, from, to);
     const rows = [];
     for (const p of people) rows.push(await weekFor(env, p.id, p.name, from, to, today, startDow));
     const company = await targetFor(env, "company", null, from);
@@ -289,7 +328,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     if (!allowAll) return err("forbidden", "Management access required", 403);
     /* the sales consultants (and anyone who already has a target) - the
        people the weekly scorecard lists */
-    const people = await staffList(env, from);
+    const people = await staffList(env, from, to);
     const list = [];
     for (const p of people) list.push({ ...p, ...(await targetFor(env, "person", p.id, from)) });
     let history: unknown[] = [];
@@ -301,7 +340,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
           ORDER BY t.id DESC LIMIT 60`,
       ).all()).results ?? [];
     } catch { history = []; }
-    return json({ week: { from, to, start_dow: startDow }, can_set: isSetter, people: list, company: await targetFor(env, "company", null, from), history });
+    return json({ week: { from, to, start_dow: startDow }, can_set: isSetter, people: list, candidates: isSetter ? await targetCandidates(env, from, to) : [], company: await targetFor(env, "company", null, from), history });
   }
   if (path === "/sales/week/targets" && method === "POST") {
     if (!isSetter) return err("forbidden", "Only the CEO, COO or super admin sets a weekly target", 403);
@@ -315,8 +354,9 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     }
     const uid = scope === "person" ? Math.round(Number(body?.user_id)) : null;
     if (scope === "person") {
-      const u = await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role != 'customer'`).bind(uid).first();
-      if (!u) return err("not_found", "Staff member not found", 404);
+      const u = await env.DB.prepare(`SELECT id FROM users WHERE id = ?3 AND is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql("")}`)
+        .bind(week, addDays(week, 6), uid).first();
+      if (!u) return err("not_found", "That person is not on staff for that week (resigned, or not found)", 404);
     }
     /* a finished week is written down; its target is not changed after */
     if (week < weekStartOf(today, startDow)) {

@@ -10,6 +10,31 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.223.1] - 2026-10-28 - Weekly Sales: the right people, and targets you can set
+
+The owner, 28-10-2026, on the live Weekly sales targets drawer: "I cant edit
+and the list only appear this lady name which is already resigned! ...
+resigned need to be reflected". No migration.
+
+- **Resigned staff are gone from the weekly card.** The people come from
+  the Staff record: a last day before the week, or a Resigned / Terminated
+  status with no last day, removes them; a re-joiner is back. Someone who
+  leaves mid-week still counts for that week, on the days they were
+  employed only. Earlier weeks they worked still show them.
+- **The people who really sell are listed.** Besides sales consultants, the
+  table lists anyone with an approved target and anyone who closed a sale
+  that week (a quotation raised or an invoice paid with them as closer),
+  whatever their role.
+- **Targets can be set for anyone on staff** that week - the "For" list
+  offers every current staff member, the CEO and live hosts included, not
+  only the people already in the table. The server refuses a target for a
+  leaver (404).
+- **Setting a target is clearer:** pick any day and it means the week that
+  holds it (the date box no longer fights a 7-day step); the form says what
+  is missing (an amount, or a reason of 8 characters) while Save is grey; a
+  person's drawer has "Set weekly target" for the CEO, COO and super admin.
+- Guard weekly-sales: 69 checks (14 new, negative-tested).
+
 ## [1.223.0] - 2026-10-28 - Weekly Sales Targets, Sales Tasks & Recovery
 
 The owner's brief and answers, 28-10-2026 (claude/WEEKLY-SALES-AUDIT.md):

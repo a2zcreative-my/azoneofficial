@@ -673,6 +673,11 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       { id: 9010, name: "Hakim Rosli", role: "sales_marketing", target_cents: 300000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
       { id: 9002, name: "Nur Aisyah", role: "sales_marketing", target_cents: 300000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
     ],
+    /* v1.223.1 - everyone on staff that week, for the "For" list (setters only) */
+    candidates: wkSetter ? [
+      { id: 9001, name: "Fixture Person", role: "ceo" }, { id: 9005, name: "Farid Zulkifli", role: "sales_marketing" },
+      { id: 9010, name: "Hakim Rosli", role: "sales_marketing" }, { id: 9011, name: "Lina Live", role: "live_host" }, { id: 9002, name: "Nur Aisyah", role: "sales_marketing" },
+    ] : [],
     company: { target_cents: 1500000, from: "2026-09-07", set_by: "Fixture COO", reason: "September push on live packages" },
     history: [
       { id: 3, scope: "company", person: null, week_from: "2026-09-07", target_cents: 1500000, reason: "September push on live packages", set_by_name: "Fixture COO", created_at: "2026-09-06 03:00:00" },

@@ -27,10 +27,17 @@
  *   - a sales task names an existing customer, enquiry or quotation, and one
  *     open task per person and record is enough.
  *
+ *   - v1.223.1: the people come from the Staff record - no leaver, no
+ *     "Resigned" without a last day, a mid-week leaver for that week only
+ *     (and only their employed days), a re-joiner back, any role that
+ *     closed a sale; a target cannot be set for a leaver.
+ *
  * Negative-tested by: dropping the WEEK_TARGET_ROLES check; counting part-
  * paid invoices; ignoring approved leave; judging before the checkpoint;
  * INSERT instead of INSERT OR IGNORE for results; letting scope=all through
- * for a consultant; removing the task de-duplication.
+ * for a consultant; removing the task de-duplication; (1.223.1) dropping the left_on
+ * test, the employment_status test or the closer clause from the staff
+ * list, and the employed-days filter.
  *
  *   node tests/weekly-sales.mjs
  */
@@ -192,6 +199,39 @@ try {
   ok("once done, a new task for the same record may be assigned", (await task(1, { title: "Second round QT-10", assigned_to: 4, link_kind: "quotation", link_id: 10 })).j?.existing !== true);
   ok("sales tasks count in the week", (await call("/sales/week", 4)).j.me.tasks.done === 1);
   ok("...and show in the consultant's own Tasks list, with their link", ((await call("/tasks", 4)).j?.tasks ?? []).some((t) => t.link_kind === "quotation" && t.link_id === 10));
+
+  /* 9. v1.223.1 (the owner, 28-10-2026: "the list only appear this lady name
+     which is already resigned"). The people come from the Staff record:
+     a leaver is gone, a "Resigned" status with no last day is gone, someone
+     who leaves mid-week counts for that week only, a re-joiner is back, and
+     whoever closed a sale that week is listed whatever their role. */
+  db.exec(`INSERT INTO users (id, name, email, role, is_active, password_hash, employment_status, left_on, rejoined_on) VALUES
+    (8,'Nasuha','n@x.t','sales_marketing',1,'x','resigned','2026-09-01',NULL),
+    (9,'Zul','z@x.t','sales_marketing',1,'x','resigned',NULL,NULL),
+    (10,'Mira','m@x.t','sales_marketing',1,'x','resigned','2026-09-16',NULL),
+    (11,'Lina','l@x.t','live_host',1,'x','permanent',NULL,NULL),
+    (12,'Rafi','r@x.t','sales_marketing',1,'x','permanent','2026-06-30','2026-09-01')`);
+  ROLE[8] = "sales_marketing"; ROLE[11] = "live_host";
+  doc.run(16, "INV", "INV-16", 1, 120000, "paid", "2026-09-15 03:00:00", 11, "2026-09-15 05:00:00", null, null); // Lina closed one
+  const rows = (await call("/sales/week?scope=all", 1)).j.rows;
+  const ids = rows.map((r) => r.user_id);
+  ok("a leaver whose last day is before the week is not listed", !ids.includes(8), JSON.stringify(ids));
+  ok("a 'Resigned' status on the Staff tab with no last day is not listed either", !ids.includes(9), JSON.stringify(ids));
+  ok("someone leaving mid-week counts for that week", ids.includes(10));
+  ok("...on the days they were still employed only", rows.find((r) => r.user_id === 10)?.working_days === 2, String(rows.find((r) => r.user_id === 10)?.working_days));
+  ok("a re-joiner is back", ids.includes(12));
+  ok("whoever closed a sale that week is listed, whatever their role", ids.includes(11) && rows.find((r) => r.user_id === 11).basis_cents === 120000);
+  ok("system accounts are never listed", !ids.includes(6) && !ids.includes(7));
+  const earlier = (await call("/sales/week?scope=all&week=2026-08-31", 1)).j.rows.map((r) => r.user_id);
+  ok("the leaver still shows for a week they worked", earlier.includes(8) && !earlier.includes(9), JSON.stringify(earlier));
+  const tg = (await call("/sales/week/targets", 1)).j;
+  const cand = (tg.candidates ?? []).map((c) => c.id);
+  ok("a target can be set for anyone on staff - the CEO and a live host included - but not a leaver", cand.includes(1) && cand.includes(11) && !cand.includes(8) && !cand.includes(9) && !cand.includes(7), JSON.stringify(cand));
+  ok("the targets list itself carries no leaver", !tg.people.some((p) => p.id === 8 || p.id === 9));
+  ok("only a setter is offered the candidates", ((await call("/sales/week/targets", 3)).j.candidates ?? []).length === 0);
+  ok("a target for a leaver is refused", (await setT(1, { scope: "person", user_id: 8, week_from: "2026-09-14", target_cents: 100000, reason: "Should not be possible" })).status === 404);
+  ok("...and for a 'Resigned' status with no last day", (await setT(1, { scope: "person", user_id: 9, week_from: "2026-09-14", target_cents: 100000, reason: "Should not be possible" })).status === 404);
+  ok("a target for a live host who sells is accepted", (await setT(1, { scope: "person", user_id: 11, week_from: "2026-09-14", target_cents: 100000, reason: "Lina sells on live too" })).status === 201);
 } catch (e) {
   failed++;
   console.log(`  ✗ runtime: ${e?.stack ?? e}`);

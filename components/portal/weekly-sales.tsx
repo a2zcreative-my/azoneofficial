@@ -24,6 +24,8 @@ import css from "./weekly-sales.module.css";
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const message = (r: ApiResult<unknown>) => (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Connection failed. Retry when online.", "Sambungan gagal. Cuba semula apabila dalam talian.");
+/* v1.223.1 - any day picked means the week that holds it */
+const weekStart = (d: string, startDow: number) => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return addDays(d, -((w - startDow + 7) % 7)); };
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 type Status = "no_target" | "not_working" | "planning" | "achieved" | "on_track" | "at_risk" | "action" | "missed";
@@ -260,11 +262,11 @@ function PlanDrawer({ userId, week, onClose, onSaved }: { userId: number | null;
 }
 
 /* ---- set targets (CEO, COO, super admin) ---- */
-interface TargetsResp { week: { from: string; to: string; start_dow: number }; can_set: boolean; people: { id: number; name: string; role: string; target_cents: number | null; from: string | null; set_by: string | null }[]; company: { target_cents: number | null; from: string | null }; history: { id: number; scope: string; person: string | null; week_from: string; target_cents: number | null; reason: string; set_by_name: string | null; created_at: string }[] }
-function TargetsDrawer({ week, onClose, onSaved }: { week: string; onClose: () => void; onSaved: () => void }) {
+interface TargetsResp { week: { from: string; to: string; start_dow: number }; can_set: boolean; people: { id: number; name: string; role: string; target_cents: number | null; from: string | null; set_by: string | null }[]; candidates?: { id: number; name: string; role: string }[]; company: { target_cents: number | null; from: string | null }; history: { id: number; scope: string; person: string | null; week_from: string; target_cents: number | null; reason: string; set_by_name: string | null; created_at: string }[] }
+function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; initialWho?: number; onClose: () => void; onSaved: () => void }) {
   const [got, setGot] = useState<{ d: TargetsResp | null; e: string } | null>(null);
   const [tick, setTick] = useState(0);
-  const [who, setWho] = useState<string>("company");
+  const [who, setWho] = useState<string>(initialWho ? String(initialWho) : "company");
   const [amount, setAmount] = useState("");
   const [none, setNone] = useState(false);
   const [from, setFrom] = useState(week);
@@ -300,8 +302,9 @@ function TargetsDrawer({ week, onClose, onSaved }: { week: string; onClose: () =
             <fieldset className={css.form} disabled={busy}>
               <p className={css.groupLabel}>{L("Set or change a target", "Tetapkan atau ubah sasaran")}</p>
               <div className={css.row}>
-                <label>{L("For", "Untuk")}<select aria-label={L("Target for", "Sasaran untuk")} className={inputClass} value={who} onChange={(e) => setWho(e.target.value)}><option value="company">{L("The company", "Syarikat")}</option>{d.people.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}</select></label>
-                <label>{L("From the week starting", "Mulai minggu bermula")}<input type="date" aria-label={L("Target from", "Sasaran mulai")} className={inputClass} step={7} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+                <label>{L("For", "Untuk")}<select aria-label={L("Target for", "Sasaran untuk")} className={inputClass} value={who} onChange={(e) => setWho(e.target.value)}><option value="company">{L("The company", "Syarikat")}</option>{(d.candidates?.length ? d.candidates : d.people).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}</select></label>
+                <label>{L("From the week of", "Mulai minggu")}<input type="date" aria-label={L("Target from", "Sasaran mulai")} className={inputClass} value={from} onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setFrom(weekStart(e.target.value, d.week.start_dow)); }} />
+                  <span className={css.sub}>{L(`Week ${dmy(from)} – ${dmy(addDays(from, 6))}`, `Minggu ${dmy(from)} – ${dmy(addDays(from, 6))}`)}</span></label>
               </div>
               <div className={css.row}>
                 <label>{L("Amount (RM)", "Jumlah (RM)")}<input type="number" aria-label={L("Target amount", "Jumlah sasaran")} min="0" step="0.01" className={inputClass} disabled={none} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
@@ -309,7 +312,8 @@ function TargetsDrawer({ week, onClose, onSaved }: { week: string; onClose: () =
               </div>
               <label>{L("Reason", "Sebab")}<textarea aria-label={L("Target reason", "Sebab sasaran")} className={inputClass} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
               <p className={css.sub}>{L("Leave and short weeks are already allowed for: the expectation counts working days, less public holidays and approved leave.", "Cuti dan minggu pendek sudah diambil kira: jangkaan mengira hari bekerja, tolak cuti umum dan cuti diluluskan.")}</p>
-              <div className={css.formRow}><button type="button" className={btnClass} disabled={reason.trim().length < 8 || (!none && !(Number(amount) > 0))} onClick={() => void save()}><AppIcon name="save" />{L("Save target", "Simpan sasaran")}</button></div>
+              <div className={css.formRow}><button type="button" className={btnClass} disabled={reason.trim().length < 8 || (!none && !(Number(amount) > 0))} onClick={() => void save()}><AppIcon name="save" />{L("Save target", "Simpan sasaran")}</button>
+                {(reason.trim().length < 8 || (!none && !(Number(amount) > 0))) && <span className={css.sub}>{!none && !(Number(amount) > 0) ? L("Enter an amount, or tick \"No target\".", "Masukkan jumlah, atau tanda \"Tiada sasaran\".") : L("Add a reason (at least 8 characters).", "Tambah sebab (sekurang-kurangnya 8 aksara).")}</span>}</div>
               {error && <p role="alert" className={css.error}>{error}</p>}
             </fieldset>
           ) : <p className={css.note}>{L("Only the CEO, COO or super admin sets weekly targets. You can read them here.", "Hanya CEO, COO atau super admin menetapkan sasaran mingguan.")}</p>}
@@ -375,7 +379,7 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
   const [got, setGot] = useState<{ key: string; d: WeekResp | null; status: number; e: string } | null>(null);
   const [plan, setPlan] = useState<number | null>(null);
   const [person, setPerson] = useState<WeekRow | null>(null);
-  const [targets, setTargets] = useState(false);
+  const [targets, setTargets] = useState<false | { who?: number }>(false);
   const [assign, setAssign] = useState<{ id: number; name: string } | null>(null);
   const { show: toast, node: toastNode } = useSaveToast();
   useEffect(() => {
@@ -406,7 +410,7 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
         </div>
         <div className={css.tools}>
           {nav}
-          {d?.scope === "all" && <button type="button" className={d.can_set ? btnSmPrimary : btnSm} onClick={() => setTargets(true)}><AppIcon name="target" />{d.can_set ? L("Set targets", "Tetapkan sasaran") : L("Targets", "Sasaran")}</button>}
+          {d?.scope === "all" && <button type="button" className={d.can_set ? btnSmPrimary : btnSm} onClick={() => setTargets({})}><AppIcon name="target" />{d.can_set ? L("Set targets", "Tetapkan sasaran") : L("Targets", "Sasaran")}</button>}
         </div>
       </div>
       {mine?.e ? <p role="alert" className={css.error}>{mine.e}</p> : !d ? <SkelRows rows={6} /> : d.scope === "mine" && d.me ? (
@@ -471,13 +475,14 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
         <SideDrawer open onClose={() => setPerson(null)} wide title={person.name} subtitle={`${dmy(w.from)} – ${dmy(w.to)}`}
           footer={<div className={css.formRow}>
             <button type="button" className={btnSmPrimary} onClick={() => setAssign({ id: person.user_id, name: person.name })}><AppIcon name="add" />{L("Assign a sales task", "Beri tugasan jualan")}</button>
+            {d?.can_set && <button type="button" className={btnSm} onClick={() => { setTargets({ who: person.user_id }); setPerson(null); }}><AppIcon name="target" />{L("Set weekly target", "Tetapkan sasaran mingguan")}</button>}
             <button type="button" className={btnSm} onClick={() => setPlan(person.user_id)}><AppIcon name="idea" />{person.plan ? L("Open the recovery plan", "Buka pelan pemulihan") : L("Recovery plan", "Pelan pemulihan")}</button>
           </div>}>
           <div className={css.drawerBody}><Progress r={person} /><Figures r={person} /></div>
         </SideDrawer>
       )}
       <PlanDrawer userId={plan} week={w?.from ?? ""} onClose={() => setPlan(null)} onSaved={reload} />
-      {targets && w && <TargetsDrawer week={w.from} onClose={() => setTargets(false)} onSaved={reload} />}
+      {targets && w && <TargetsDrawer key={targets.who ?? 0} week={w.from} initialWho={targets.who} onClose={() => setTargets(false)} onSaved={reload} />}
       {assign && w && <AssignTask person={assign} week={w.from} onClose={() => setAssign(null)} onSaved={(m) => { setAssign(null); toast(L("Sales task", "Tugasan jualan"), m); reload(); }} />}
     </section>
   );
