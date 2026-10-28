@@ -232,6 +232,8 @@ export interface CashItem {
   reverse_reason: string | null;
   transfer_id: string | null;
   payment_ref: string | null;
+  /** v1.220.2 - an invoice receipt's issuing company ("a2z", "azoo", or null = legacy AZ ONE) */
+  issuer?: string | null;
 }
 
 const sourceOfRef = (ref: string): Source =>
@@ -269,7 +271,7 @@ function groupOf(source: Source, category: string, type: "in" | "out"): string {
    tab. The live Finance tab answered "could not be read" on 28-10-2026; the
    cause was not visible from the screen, so the read no longer depends on
    every source being there, and a failure now says what it was. */
-interface Has { v2: boolean; claims: boolean; expenses: boolean; payroll: boolean; web: boolean; customers: boolean; parts: boolean; confirm: boolean }
+interface Has { v2: boolean; claims: boolean; expenses: boolean; payroll: boolean; web: boolean; customers: boolean; parts: boolean; confirm: boolean; issuer: boolean }
 const RAW_ROW_SQL = (h: Has) => `
   SELECT c.id, c.entry_date, c.type, c.category, c.bank_id, c.amount_cents, c.description, c.ref,
          ${h.v2 ? "c.effective_date, c.source_key, c.reversal_of, c.reverse_reason, c.transfer_id" : "NULL AS effective_date, NULL AS source_key, NULL AS reversal_of, NULL AS reverse_reason, NULL AS transfer_id"},
@@ -316,6 +318,7 @@ async function loadAll(env: Env) {
     customers: await probe(`SELECT id, company FROM customers LIMIT 1`),
     parts: await probe(`SELECT id, invoice_id, amount_cents, received_on, method, reference, voided_at FROM invoice_payments LIMIT 1`),
     confirm: await probe(`SELECT invoice_id, revoked_at FROM invoice_paid_confirmations LIMIT 1`),
+    issuer: await probe(`SELECT issuer_code FROM sales_documents LIMIT 1`),
   };
   const v2 = h.v2;
   /* text columns are NOT NULL in the schema; a row written some other way
@@ -331,6 +334,10 @@ async function loadAll(env: Env) {
   const hasConfirm = h.confirm;
   const CUST = h.customers ? "cu.company" : "NULL AS company";
   const CUST_JOIN = h.customers ? "LEFT JOIN customers cu ON cu.id = d.customer_id" : "";
+  /* v1.220.2 - which company issued the invoice: its letterhead prints the
+     account the customer was told to pay into (lib/issuers.ts), which the
+     screen offers as the suggested account - a suggestion, never assigned */
+  const ISSUER = h.issuer ? "d.issuer_code" : "NULL AS issuer_code";
   const CONFIRMED = (alias: string) => hasConfirm
     ? `EXISTS (SELECT 1 FROM invoice_paid_confirmations k WHERE k.invoice_id = ${alias}.id AND k.revoked_at IS NULL)` : "0";
   const PARTS = (alias: string) => hasParts
@@ -340,17 +347,17 @@ async function loadAll(env: Env) {
   const invoices = (await env.DB.prepare(
     `SELECT d.id, d.doc_number, d.total_cents, ${PARTS("d")} AS parts_cents, d.payment_ref, d.payment_method,
             COALESCE(date(d.paid_at, '+8 hours'), date(d.created_at, '+8 hours'), substr(COALESCE(d.paid_at, d.created_at), 1, 10)) AS paid_day, ${CUST},
-            ${CONFIRMED("d")} AS confirmed
+            ${CONFIRMED("d")} AS confirmed, ${ISSUER}
        FROM sales_documents d ${CUST_JOIN}
       WHERE d.doc_type = 'INV' AND d.payment_status = 'paid'`,
-  ).all<{ id: number; doc_number: string; total_cents: number; parts_cents: number; payment_ref: string | null; payment_method: string | null; paid_day: string; company: string | null; confirmed: number }>()).results ?? [];
+  ).all<{ id: number; doc_number: string; total_cents: number; parts_cents: number; payment_ref: string | null; payment_method: string | null; paid_day: string; company: string | null; confirmed: number; issuer_code: string | null }>()).results ?? [];
   const parts = hasParts ? ((await env.DB.prepare(
     `SELECT p.id, p.invoice_id, p.amount_cents, p.received_on, p.method, p.reference, d.doc_number, d.payment_status, ${CUST},
-            ${CONFIRMED("d")} AS confirmed
+            ${CONFIRMED("d")} AS confirmed, ${ISSUER}
        FROM invoice_payments p JOIN sales_documents d ON d.id = p.invoice_id AND d.doc_type = 'INV'
        ${CUST_JOIN}
       WHERE p.voided_at IS NULL`,
-  ).all<{ id: number; invoice_id: number; amount_cents: number; received_on: string; method: string | null; reference: string | null; doc_number: string; payment_status: string | null; company: string | null; confirmed: number }>()).results ?? []) : [];
+  ).all<{ id: number; invoice_id: number; amount_cents: number; received_on: string; method: string | null; reference: string | null; doc_number: string; payment_status: string | null; company: string | null; confirmed: number; issuer_code: string | null }>()).results ?? []) : [];
   return { v2, rows, banks, marks, invoices, parts, hasConfirm, has: h };
 }
 
@@ -419,6 +426,7 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
       description: `${inv.doc_number}${inv.company ? ` - ${inv.company}` : ""}${inv.parts_cents > 0 ? " (balance)" : ""}`,
       ref: inv.doc_number, link: { kind: "invoice", id: inv.id }, ...withBank(key, null),
       counts: "in", sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: inv.payment_ref,
+      issuer: inv.issuer_code ?? null,
     });
   }
   for (const p of data.parts) {
@@ -431,6 +439,7 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
       description: `${p.doc_number}${p.company ? ` - ${p.company}` : ""} (part payment)`,
       ref: p.doc_number, link: { kind: "invoice", id: p.invoice_id }, ...withBank(key, null),
       counts: "in", sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: p.reference,
+      issuer: p.issuer_code ?? null,
     });
   }
   items.sort((a, b) => (a.date === b.date ? (b.row_id ?? 0) - (a.row_id ?? 0) : a.date < b.date ? 1 : -1));
@@ -460,6 +469,10 @@ async function exceptionsOf(env: Env, data: Awaited<ReturnType<typeof loadAll>>,
   const out: Exception[] = [];
   const add = (x: Exception) => { if (!reviewed.has(`${x.kind}|${x.key}`)) out.push(x); };
   const inPeriod = (d: string) => d >= from && d <= to;
+  /* v1.220.2 - "which account?" is only a question once there is an account
+     to choose: with none set up, the tab asks for that first instead of
+     listing every movement (the owner, 28-10-2026: "no account appear") */
+  const anyAccount = data.banks.some((b) => b.active);
   const reversedIds = new Set(data.rows.filter((x) => x.reversal_of).map((x) => x.reversal_of as number));
   const live = (r: RawRow) => !r.reversal_of && !reversedIds.has(r.id);
 
@@ -468,7 +481,7 @@ async function exceptionsOf(env: Env, data: Awaited<ReturnType<typeof loadAll>>,
     if ((it.source === "sales" || it.source === "part") && it.status === "unverified") {
       add({ kind: "unverified", key: it.key, item_key: it.key, date: it.date, title: it.description, detail: "Recorded as received; not yet confirmed by the CEO or COO.", amount_cents: it.amount_cents, type: "in", row_id: null, link: it.link, actions: ["confirm", "review"] });
     }
-    if (it.counts && !it.bank_id && it.status !== "reversal" && it.status !== "reversed") {
+    if (anyAccount && it.counts && !it.bank_id && it.status !== "reversal" && it.status !== "reversed") {
       add({ kind: "no_bank", key: it.key, item_key: it.key, date: it.date, title: it.description || it.category, detail: "Which account did this money move through?", amount_cents: it.amount_cents, type: it.type, row_id: it.row_id, link: it.link, actions: ["bank", "review"] });
     }
     if ((it.source === "sales" || it.source === "part") && !(it.payment_ref ?? "").trim()) {
@@ -662,30 +675,41 @@ export async function handleCashbook(
 
   /* ---- which account an item moved through (evidence, never a guess) ---- */
   if (path === "/cashbook/assign-bank" && method === "POST") {
+    /* v1.220.2 - one item (item_key) or many at once (item_keys, up to 500):
+       the same rule for each - a row that was recorded with its own account
+       is left as it is - and one audit line for the batch */
     if (!canFix) return err("forbidden", "Only the CEO or COO can assign an account", 403);
-    const key = typeof body?.item_key === "string" && ITEM_KEY.test(body.item_key) ? body.item_key : null;
+    const keys: string[] = Array.isArray(body?.item_keys)
+      ? (body!.item_keys as unknown[]).filter((k): k is string => typeof k === "string" && ITEM_KEY.test(k)).slice(0, 500)
+      : typeof body?.item_key === "string" && ITEM_KEY.test(body.item_key) ? [body.item_key] : [];
     const bankId = Number(body?.bank_id);
-    if (!key || !Number.isInteger(bankId)) return err("validation", "Choose an item and an account", 400);
+    if (!keys.length || !Number.isInteger(bankId)) return err("validation", "Choose an item and an account", 400);
     const bank = await env.DB.prepare(`SELECT id FROM bank_accounts WHERE id = ?1 AND active = 1`).bind(bankId).first();
     if (!bank) return err("validation", "That account does not exist or is inactive", 400);
-    if (key.startsWith("CF:")) {
-      const row = await env.DB.prepare(`SELECT bank_id FROM cashflow_entries WHERE id = ?1`).bind(Number(key.slice(3))).first<{ bank_id: number | null }>();
-      if (!row) return err("not_found", "Entry not found", 404);
-      if (row.bank_id) return err("has_bank", "This entry was recorded with its account; it is not changed here", 409);
-    }
     const note = str(body?.note, 200) ? (body!.note as string).trim() : null;
-    const before = await env.DB.prepare(`SELECT bank_id FROM cashbook_marks WHERE item_key = ?1`).bind(key).first<{ bank_id: number | null }>().catch(() => null);
-    try {
-      await env.DB.prepare(
-        `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
-         ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
-      ).bind(key, bankId, note, user.id).run();
-    } catch (e) {
-      if (/no such table/i.test(String(e))) return err("pending_migration", "Run PUSH.bat so migration 0147 applies, then retry", 409);
-      throw e;
+    let done = 0, skipped = 0;
+    for (const key of keys) {
+      if (key.startsWith("CF:")) {
+        const row = await env.DB.prepare(`SELECT bank_id FROM cashflow_entries WHERE id = ?1`).bind(Number(key.slice(3))).first<{ bank_id: number | null }>();
+        if (!row || row.bank_id) {
+          if (keys.length === 1) return row ? err("has_bank", "This entry was recorded with its account; it is not changed here", 409) : err("not_found", "Entry not found", 404);
+          skipped++;
+          continue;
+        }
+      }
+      try {
+        await env.DB.prepare(
+          `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
+           ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
+        ).bind(key, bankId, note, user.id).run();
+        done++;
+      } catch (e) {
+        if (/no such table/i.test(String(e))) return err("pending_migration", "Run PUSH.bat so migration 0147 applies, then retry", 409);
+        throw e;
+      }
     }
-    await audit(env, user.id, "cashbook.assign_bank", "cashbook_marks", key, { bank_id: bankId, was: before?.bank_id ?? null, note });
-    return json({ ok: true });
+    await audit(env, user.id, "cashbook.assign_bank", "cashbook_marks", keys.length === 1 ? keys[0] : `${keys.length} items`, { bank_id: bankId, items: keys.slice(0, 50), assigned: done, skipped, note });
+    return json({ ok: true, assigned: done, skipped });
   }
 
   /* ---- an exception looked at and accepted, with a note ---- */

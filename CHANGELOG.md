@@ -10,6 +10,33 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.220.2] - 2026-10-28 - Finance: accounts first, then matching
+
+The owner's screenshot of a movement's details, 28-10-2026: "there is no
+account appear on the drop box. I think finance you need to check the flow."
+No company account had been added, so "Assign" offered an empty list and
+Reconciliation asked "which account?" for every movement.
+
+- **Accounts come first.** With none set up, the Overview's Accounts card,
+  the movement drawer and Reconciliation each say so and offer **Set up
+  accounts**; no empty list is shown, and "No account" items are not listed
+  until there is an account to choose.
+- **Start from the accounts already printed on your invoices.** The
+  accounts drawer lists the two Maybank accounts on the A2Z and AZ ONE
+  letterheads (lib/issuers.ts) with one Add each - masked (last four
+  digits), no balance.
+- **The invoice's own account is offered.** An invoice receipt or part
+  payment opens with the account its invoice printed already chosen, marked
+  "Printed on the invoice"; it is saved only when Assign is pressed (a
+  customer can pay elsewhere).
+- **Many at once.** Reconciliation's "No account" list has "Use the account
+  printed on each invoice (n)" and tick boxes with "Assign selected" to one
+  account; `POST /staff/erp/cashbook/assign-bank` takes `item_keys` (up to
+  500), the same rules per item, one audit line.
+- Receipts carry their invoice's issuer (`issuer`). Guard `cashflow` and the
+  Finance browser tests cover the set-up flow, the suggestion and bulk
+  assignment.
+
 ## [1.220.1] - 2026-10-28 - Finance: the tab reads, or says why it cannot
 
 The owner's screenshot of the live Finance tab: "Finance could not be read.

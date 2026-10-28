@@ -77,6 +77,8 @@ ok("undo paths reverse: expense unpaid and deleted, invoice unpaid, deleted and 
 ok("nothing books commission as its own cash movement", !/["`]COMM-/.test(staff + erp + cb + strip(read("worker/src/business.ts"))));
 ok("a failure says what it was, and is logged", /await logError\(env, "cashbook", `GET \/erp\/cashbook: \$\{msg\}`\);\s*return err\("cashbook_failed", `Finance could not be read: \$\{msg\.slice\(0, 240\)\}`, 500\);/.test(cb));
 ok("the screen shows the reason and the status, and a worker older than the page", /r\.status === 404 \? L\("The API worker is older than this page/.test(read("components/portal/finance-panels.tsx")) && /\(HTTP \$\{r\.status\}/.test(read("components/portal/finance-panels.tsx")));
+ok("the invoice accounts are added masked - the full number never leaves the letterhead", /number_masked: `•••• \$\{last4\(i\.bank\)\}`/.test(read("components/portal/finance-panels.tsx")) && !/number_masked: i\.bank/.test(read("components/portal/finance-panels.tsx")));
+ok("an invoice's account is offered, never assigned without a press", /function suggestedBank\(/.test(read("components/portal/finance-panels.tsx")) && !/suggestedBank\([^)]*\)[^;]*onBank\(/.test(read("components/portal/finance-panels.tsx").split("function AssignRow")[0]));
 ok("the view only reads", !/\b(INSERT|UPDATE|DELETE)\b/.test(cb.slice(cb.indexOf("async function loadAll"), cb.indexOf("export async function handleCashbook"))));
 
 /* ---- runtime ---- */
@@ -210,6 +212,22 @@ try {
   db.exec(`DROP TABLE web_orders`);
   const tough = await call(`/erp/cashbook?from=2026-09-01&to=${END}`, 1);
   ok("a missing source table and an unreadable paid date do not take the tab down", tough.status === 200 && tough.j?.items?.some((i) => i.key === "INV:14" && i.date === "2026-09-03"), `${tough.status} ${JSON.stringify(tough.j?.error ?? "")}`);
+
+  /* v1.220.2 - the owner, 28-10-2026: "no account appear on the drop box".
+     Receipts carry their invoice's issuer (the screen suggests the account
+     printed on it); many can be assigned at once; and "which account?" is
+     not asked while no account is set up. */
+  db.exec(`UPDATE sales_documents SET issuer_code = 'a2z' WHERE id = 11`);
+  let v3 = await view();
+  ok("a receipt carries its invoice's issuer", v3.items.find((i) => i.key === "INV:11")?.issuer === "a2z" && v3.items.find((i) => i.key === "INV:10")?.issuer === null);
+  const many = await call("/erp/cashbook/assign-bank", 1, "POST", { item_keys: ["INV:11", "PART:2", "bad key"], bank_id: 2 });
+  ok("many receipts assigned at once, a bad key ignored", many.status === 200 && many.j?.assigned === 2, JSON.stringify(many.j));
+  v3 = await view();
+  ok("...and they carry the account", v3.items.find((i) => i.key === "INV:11")?.bank_id === 2 && v3.items.find((i) => i.key === "PART:2")?.bank_id === 2);
+  ok("the CCO cannot assign many either", (await call("/erp/cashbook/assign-bank", 3, "POST", { item_keys: ["INV:12"], bank_id: 2 })).status === 403);
+  db.exec(`UPDATE bank_accounts SET active = 0`);
+  ok("with no account set up, no 'which account?' items", (await view()).exceptions.every((e) => e.kind !== "no_bank"));
+  db.exec(`UPDATE bank_accounts SET active = 1`);
 
   /* 6. access */
   for (const [id, who] of [[3, "the CCO"], [4, "sales"], [6, "HR"]]) ok(`${who} cannot read Finance`, (await call("/erp/cashbook", id)).status === 403);

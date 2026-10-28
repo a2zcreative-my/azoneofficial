@@ -36,6 +36,7 @@ import { usePortal } from "@/components/portal/portal-provider";
 import { makeApi } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
 import { fmtRM, mytToday } from "@/lib/format";
+import { resolveIssuer } from "@/lib/issuers"; // v1.220.2 - the account printed on each invoice
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import css from "./finance.module.css";
@@ -55,6 +56,7 @@ interface CashItem {
   link: { kind: "invoice" | "claim" | "payroll" | "expense" | "elfia"; id: number | string } | null;
   bank_id: number | null; bank_name: string | null; counts: "in" | "out" | null; sign: 1 | -1;
   reversal_of: number | null; reversed_by: number | null; reverse_reason: string | null; transfer_id: string | null; payment_ref: string | null;
+  issuer?: string | null;
 }
 interface Bank { id: number; name: string; bank: string; number_masked: string; active: number; opening_balance_cents: number | null; opening_on: string | null; book_balance_cents: number | null }
 type ExKind = "unverified" | "no_bank" | "no_reference" | "out_of_step" | "duplicate" | "elfia_cancelled" | "not_booked";
@@ -123,6 +125,26 @@ const STATUS: Record<Status, [string, string, string]> = {
   reversal: ["Reversal", "Pembalikan", chipNeutral],
 };
 const StatusChip = ({ s }: { s: Status }) => <span className={STATUS[s][2]}>{L(STATUS[s][0], STATUS[s][1])}</span>;
+
+/* v1.220.2 - THE ACCOUNTS THE COMPANY ALREADY PRINTS (the owner, 28-10-2026:
+   "no account appear on the drop box ... check the flow"). Every invoice's
+   letterhead names the account the customer pays into (lib/issuers.ts, the
+   CEO-supplied numbers). Finance starts from those two instead of an empty
+   list: one button adds them (masked, no balance), and an invoice receipt is
+   OFFERED the account its own invoice printed - still assigned by a person,
+   because a customer can pay elsewhere. */
+const last4 = (t: string) => t.replace(/\D/g, "").slice(-4);
+const INVOICE_ACCOUNTS = ["a2z", "azoo"].map((code) => {
+  const i = resolveIssuer(code);
+  const bankWord = i.bank.split(/\s+/)[0] ?? "";
+  return { code, name: `${i.name} - ${bankWord.charAt(0)}${bankWord.slice(1).toLowerCase()}`, bank: `${bankWord.charAt(0)}${bankWord.slice(1).toLowerCase()}`, number_masked: `•••• ${last4(i.bank)}`, last4: last4(i.bank) };
+});
+/** The company account printed on this receipt's invoice, when it is set up here. */
+function suggestedBank(it: CashItem | undefined, banks: Bank[]): Bank | null {
+  if (!it || (it.source !== "sales" && it.source !== "part")) return null;
+  const want = last4(resolveIssuer(it.issuer ?? null).bank);
+  return banks.find((b) => b.active && last4(b.number_masked) === want) ?? null;
+}
 
 const EX: Record<ExKind, [string, string, string, string]> = {
   unverified: ["Unverified receipts", "Penerimaan belum disahkan", "Recorded as received, not yet confirmed by the CEO or COO. Confirm it on the invoice in Sales.", "Direkod sebagai diterima, belum disahkan oleh CEO atau COO. Sahkan pada invois di Jualan."],
@@ -228,6 +250,11 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
     if (r.ok) { toast(L("Account assigned", "Akaun ditetapkan"), L("Recorded with your name", "Direkod dengan nama anda")); setOpen(null); reload(); }
     else toast(L("Not assigned", "Tidak ditetapkan"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
   };
+  const assignMany = async (keys: string[], bankId: number) => {
+    const r = await api<{ assigned?: number; skipped?: number; error?: { message?: string } }>(`/cashbook/assign-bank`, { method: "POST", body: JSON.stringify({ item_keys: keys, bank_id: bankId }) });
+    if (r.ok) { toast(L("Accounts assigned", "Akaun ditetapkan"), L(`${r.data?.assigned ?? 0} movement(s), recorded with your name`, `${r.data?.assigned ?? 0} pergerakan, direkod dengan nama anda`)); reload(); }
+    else toast(L("Not assigned", "Tidak ditetapkan"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
+  };
   const bookMissing = async () => {
     const r = await api<{ created?: number; error?: { message?: string } }>(`/cashflow/backfill`, { method: "POST", body: JSON.stringify({}) });
     if (r.ok) { toast(L("Booked", "Direkod"), L(`${r.data?.created ?? 0} movement(s), dated the day each was paid`, `${r.data?.created ?? 0} pergerakan, bertarikh hari setiap satu dibayar`)); reload(); }
@@ -306,7 +333,7 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
               <PanelTitle icon="pay">{L("Accounts", "Akaun")}</PanelTitle>
               {view_?.can_enter && <button type="button" className={btnSm} onClick={() => setAccounts(true)}>{L("Manage accounts", "Urus akaun")}</button>}
             </div>
-            {busy ? <Skel className={css.listSkel} /> : <AccountList banks={view_!.banks} />}
+            {busy ? <Skel className={css.listSkel} /> : <AccountList banks={view_!.banks} onSetup={view_!.can_enter ? () => setAccounts(true) : undefined} />}
           </section>
           <section className={card} aria-label={L("Needs attention", "Perlu perhatian")}>
             <div className={css.head}><PanelTitle icon="warning">{L("Needs attention", "Perlu perhatian")}</PanelTitle></div>
@@ -354,7 +381,8 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
           {busy ? <Skel className={css.listSkel} /> : (
             <Reconciliation view={view_!} filter={exFilter} setFilter={setExFilter}
               onReverse={(x) => x.row_id && void reverse(x.row_id, x.title)} onReview={(x) => void review(x)}
-              onBank={(x, b) => void assignBank(x.item_key, b)} onBook={() => void bookMissing()} onOpen={openSource} />
+              onBank={(x, b) => void assignBank(x.item_key, b)} onBulk={(keys, b) => void assignMany(keys, b)} onSetup={() => setAccounts(true)}
+              onBook={() => void bookMissing()} onOpen={openSource} />
           )}
         </TabZone>
       </div>
@@ -366,7 +394,8 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
 
       {/* ---- drawers ---- */}
       <ItemDrawer item={open} view={view_} onClose={() => setOpen(null)} onSource={openSource}
-        onReverse={(it) => it.row_id && void reverse(it.row_id, it.description || it.ref)} onBank={(it, b) => void assignBank(it.key, b)} />
+        onReverse={(it) => it.row_id && void reverse(it.row_id, it.description || it.ref)} onBank={(it, b) => void assignBank(it.key, b)}
+        onSetup={() => { setOpen(null); setAccounts(true); }} />
       {view_ && adding && <AddDrawer view={view_} onClose={() => setAdding(false)} onSaved={(t, s) => { toast(t, s); setAdding(false); reload(); }} onError={(m) => toast(L("Not saved", "Tidak disimpan"), m, "notice")} />}
       {view_ && accounts && <AccountsDrawer view={view_} onClose={() => setAccounts(false)} onSaved={(t) => { toast(L("Saved", "Disimpan"), t); reload(); }} onError={(m) => toast(L("Not saved", "Tidak disimpan"), m, "notice")} />}
     </TabPage>
@@ -458,9 +487,14 @@ function GroupBars({ groups, total, empty }: { groups: { group: string; cents: n
   );
 }
 
-function AccountList({ banks }: { banks: Bank[] }) {
+function AccountList({ banks, onSetup }: { banks: Bank[]; onSetup?: () => void }) {
   const live = banks.filter((b) => b.active);
-  if (!live.length) return <p className={css.empty}>{L("No company accounts yet. Add one under Manage accounts; a book balance appears once it has an opening balance.", "Tiada akaun syarikat lagi. Tambah di Urus akaun; baki buku muncul setelah ada baki pembukaan.")}</p>;
+  if (!live.length) return (
+    <div className={css.setup}>
+      <p className={css.empty}>{L("No company accounts yet. Start with the accounts printed on your invoices, then match each movement to the account it went through.", "Tiada akaun syarikat lagi. Mulakan dengan akaun yang tercetak pada invois anda, kemudian padankan setiap pergerakan dengan akaunnya.")}</p>
+      {onSetup && <button type="button" className={btnSmPrimary} onClick={onSetup}>{L("Set up accounts", "Sediakan akaun")}</button>}
+    </div>
+  );
   return (
     <ul className={css.accounts}>
       {live.map((b) => (
@@ -563,11 +597,26 @@ function Transactions({ items, banks, onOpen }: { items: CashItem[]; banks: Bank
   );
 }
 
-function ItemDrawer({ item, view, onClose, onSource, onReverse, onBank }: {
+/** Choose the account a movement went through; the invoice's own account is
+    pre-chosen when it is set up, and says so. Nothing is saved until Assign. */
+function AssignRow({ banks, suggested, onAssign }: { banks: Bank[]; suggested: Bank | null; onAssign: (bankId: number) => void }) {
+  const [bank, setBank] = useState(suggested ? String(suggested.id) : "");
+  return (
+    <span className={css.assign}>
+      {suggested && String(suggested.id) === bank && <span className={css.hint}>{L("Printed on the invoice", "Tercetak pada invois")}</span>}
+      <select className={inputClass} value={bank} onChange={(e) => setBank(e.target.value)} aria-label={L("Account", "Akaun")}>
+        <option value="">{L("Choose account…", "Pilih akaun…")}</option>
+        {banks.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
+      <button type="button" className={btnSmPrimary} disabled={!bank} onClick={() => onAssign(Number(bank))}>{L("Assign", "Tetapkan")}</button>
+    </span>
+  );
+}
+
+function ItemDrawer({ item, view, onClose, onSource, onReverse, onBank, onSetup }: {
   item: CashItem | null; view: CashbookView | null; onClose: () => void; onSource: (l: CashItem["link"]) => void;
-  onReverse: (i: CashItem) => void; onBank: (i: CashItem, bankId: number) => void;
+  onReverse: (i: CashItem) => void; onBank: (i: CashItem, bankId: number) => void; onSetup: () => void;
 }) {
-  const [bank, setBank] = useState("");
   const i = item;
   const canFix = Boolean(view?.can_correct);
   const reversible = Boolean(i && i.row_id && canFix && i.status !== "reversal" && i.status !== "reversed");
@@ -589,15 +638,14 @@ function ItemDrawer({ item, view, onClose, onSource, onReverse, onBank }: {
     <SideDrawer open={Boolean(i)} onClose={onClose} title={i ? (i.description || groupWord(i.group)) : ""} subtitle={i ? `${i.type === "in" ? "+" : "−"}${fmtRM(i.amount_cents)}` : undefined}
       footer={i && (reversible || assignable) ? (
         <div className={css.drawerFoot}>
-          {assignable && view && (
-            <span className={css.assign}>
-              <select className={inputClass} value={bank} onChange={(e) => setBank(e.target.value)} aria-label={L("Account", "Akaun")}>
-                <option value="">{L("Choose account…", "Pilih akaun…")}</option>
-                {view.banks.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <button type="button" className={btnSmPrimary} disabled={!bank} onClick={() => onBank(i, Number(bank))}>{L("Assign", "Tetapkan")}</button>
-            </span>
-          )}
+          {assignable && view && (view.banks.some((b) => b.active)
+            ? <AssignRow key={i.key} banks={view.banks} suggested={suggestedBank(i, view.banks)} onAssign={(b) => onBank(i, b)} />
+            : (
+              <span className={css.assignNone}>
+                {L("No company account to choose yet.", "Belum ada akaun syarikat untuk dipilih.")}
+                {view.can_enter && <button type="button" className={btnSmPrimary} onClick={onSetup}>{L("Set up accounts", "Sediakan akaun")}</button>}
+              </span>
+            ))}
           {reversible && <button type="button" className={btnSm} onClick={() => onReverse(i)}>{L("Reverse…", "Balikkan…")}</button>}
         </div>
       ) : undefined}>
@@ -684,6 +732,13 @@ function AccountsDrawer({ view, onClose, onSaved, onError }: { view: CashbookVie
     if (r.ok) { setNb({ name: "", bank: "", number_masked: "" }); onSaved(L("Account added", "Akaun ditambah")); }
     else onError(r.data?.error?.message ?? L("The account needs a name", "Akaun perlu ada nama"));
   };
+  const [adding, setAdding] = useState(false);
+  const addInvoiceAccount = async (a: (typeof INVOICE_ACCOUNTS)[number]) => {
+    setAdding(true);
+    const r = await api<{ error?: { message?: string } }>(`/banks`, { method: "POST", body: JSON.stringify({ name: a.name, bank: a.bank, number_masked: a.number_masked }) });
+    setAdding(false);
+    if (r.ok) onSaved(L(`${a.name} added`, `${a.name} ditambah`)); else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
+  };
   const patch = async (id: number, body: Record<string, unknown>, done: string) => {
     const r = await api<{ error?: { message?: string } }>(`/cashbook/banks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     if (r.ok) onSaved(done); else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
@@ -691,6 +746,22 @@ function AccountsDrawer({ view, onClose, onSaved, onError }: { view: CashbookVie
   return (
     <SideDrawer open onClose={onClose} title={L("Company accounts", "Akaun syarikat")} subtitle={L("Masked numbers only. A book balance is shown only from an opening balance you enter - the portal never guesses one.", "Nombor bertopeng sahaja. Baki buku dipaparkan hanya dari baki pembukaan yang anda masukkan - portal tidak meneka.")}>
       <div className={css.form}>
+        <div className={css.accEdit}>
+          <p className={css.subhead}>{L("Accounts printed on your invoices", "Akaun yang tercetak pada invois anda")}</p>
+          <p className={css.meta}>{L("Customers are told to pay into these. Add them here so receipts can be matched to them.", "Pelanggan diminta membayar ke akaun ini. Tambah di sini supaya penerimaan boleh dipadankan.")}</p>
+          <ul className={css.invAcc}>
+            {INVOICE_ACCOUNTS.map((a) => {
+              const have = view.banks.some((b) => last4(b.number_masked) === a.last4);
+              return (
+                <li key={a.code}>
+                  <span><strong>{a.name}</strong><small>{a.number_masked}</small></span>
+                  {have ? <span className={chipSuccess}>{L("Added", "Ditambah")}</span>
+                    : <button type="button" className={btnSmPrimary} disabled={adding} onClick={() => void addInvoiceAccount(a)}>{L("Add", "Tambah")}</button>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
         {view.banks.length === 0 && <p className={css.empty}>{L("No accounts yet.", "Tiada akaun lagi.")}</p>}
         {view.banks.map((b) => {
           const e = edit[b.id] ?? { opening: b.opening_balance_cents != null ? (b.opening_balance_cents / 100).toFixed(2) : "", on: b.opening_on ?? "" };
@@ -730,16 +801,33 @@ function AccountsDrawer({ view, onClose, onSaved, onError }: { view: CashbookVie
  * Reconciliation.
  * ================================================================== */
 
-function Reconciliation({ view, filter, setFilter, onReverse, onReview, onBank, onBook, onOpen }: {
+function Reconciliation({ view, filter, setFilter, onReverse, onReview, onBank, onBulk, onSetup, onBook, onOpen }: {
   view: CashbookView; filter: ExKind | ""; setFilter: (k: ExKind | "") => void;
-  onReverse: (x: Exception) => void; onReview: (x: Exception) => void; onBank: (x: Exception, bankId: number) => void; onBook: () => void; onOpen: (l: CashItem["link"]) => void;
+  onReverse: (x: Exception) => void; onReview: (x: Exception) => void; onBank: (x: Exception, bankId: number) => void;
+  onBulk: (keys: string[], bankId: number) => void; onSetup: () => void; onBook: () => void; onOpen: (l: CashItem["link"]) => void;
 }) {
   const [pick, setPick] = useState<Record<string, string>>({});
+  const [sel, setSel] = useState<Set<string>>(() => new Set());
+  const [bulkBank, setBulkBank] = useState("");
+  /* a tick only chooses rows on this screen; nothing is saved until "Assign selected" */
+  const pickRow = (key: string, on: boolean) => setSel((s0) => new Set(on ? [...s0, key] : [...s0].filter((k) => k !== key)));
+  const noAccounts = !view.banks.some((b) => b.active);
   const kinds = EX_ORDER.filter((k) => view.exceptions.some((x) => x.kind === k));
-  if (!kinds.length) return <p className={css.empty}>{L("Nothing out of step. Every movement matches its record.", "Tiada yang tidak sepadan. Setiap pergerakan sepadan dengan rekodnya.")}</p>;
+  const itemOf = (key: string) => view.items.find((i) => i.key === key);
+  /* the no-account receipts whose invoice names an account that is set up */
+  const byInvoice = view.exceptions.filter((x) => x.kind === "no_bank").map((x) => ({ x, b: suggestedBank(itemOf(x.item_key), view.banks) })).filter((r) => r.b);
+  const setup = noAccounts && view.can_enter ? (
+    <section className={`${card} ${css.setup}`} aria-label={L("Set up accounts", "Sediakan akaun")}>
+      <PanelTitle icon="pay">{L("First, the company's accounts", "Pertama, akaun syarikat")}</PanelTitle>
+      <p className={css.meta}>{L("Matching each movement to the account it went through needs the accounts. Start with the two printed on your invoices.", "Memadankan setiap pergerakan dengan akaunnya memerlukan akaun itu. Mulakan dengan dua yang tercetak pada invois anda.")}</p>
+      <button type="button" className={btnSmPrimary} onClick={onSetup}>{L("Set up accounts", "Sediakan akaun")}</button>
+    </section>
+  ) : null;
+  if (!kinds.length) return <div className={css.recon}>{setup}<p className={css.empty}>{L("Nothing out of step. Every movement matches its record.", "Tiada yang tidak sepadan. Setiap pergerakan sepadan dengan rekodnya.")}</p></div>;
   const shown = filter ? kinds.filter((k) => k === filter) : kinds;
   return (
     <div className={css.recon}>
+      {setup}
       <div className={css.pills} role="group" aria-label={L("Show", "Tunjuk")}>
         <button type="button" aria-pressed={!filter} onClick={() => setFilter("")}>{L("All", "Semua")} · {view.exceptions.length}</button>
         {kinds.map((k) => <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{L(EX[k][0], EX[k][1])} · {view.exceptions.filter((x) => x.kind === k).length}</button>)}
@@ -753,11 +841,37 @@ function Reconciliation({ view, filter, setFilter, onReverse, onReview, onBank, 
               {k === "not_booked" && view.can_enter && <button type="button" className={btnSmPrimary} onClick={onBook}>{L("Book all missing", "Rekod semua yang tiada")}</button>}
             </div>
             <p className={css.meta}>{L(EX[k][2], EX[k][3])}</p>
+            {k === "no_bank" && view.can_correct && (
+              /* v1.220.2 - many at once: the receipts whose invoice printed an
+                 account that is set up, or any ticked rows to one account */
+              <div className={css.bulk}>
+                {byInvoice.length > 0 && (
+                  <button type="button" className={btnSmPrimary} onClick={() => { const groups = new Map<number, string[]>(); for (const r of byInvoice) groups.set(r.b!.id, [...(groups.get(r.b!.id) ?? []), r.x.item_key]); for (const [b, keys] of groups) onBulk(keys, b); }}>
+                    {L(`Use the account printed on each invoice (${byInvoice.length})`, `Guna akaun yang tercetak pada setiap invois (${byInvoice.length})`)}
+                  </button>
+                )}
+                <label className={css.check}><input type="checkbox" checked={list.length > 0 && list.slice(0, 100).every((x) => sel.has(x.item_key))}
+                  onChange={(e) => setSel(e.target.checked ? new Set(list.slice(0, 100).map((x) => x.item_key)) : new Set())} /> {L("Select all", "Pilih semua")}</label>
+                <span className={css.assign}>
+                  <select className={inputClass} aria-label={L("Account for the selected", "Akaun untuk yang dipilih")} value={bulkBank} onChange={(e) => setBulkBank(e.target.value)}>
+                    <option value="">{L("Account…", "Akaun…")}</option>
+                    {view.banks.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                  <button type="button" className={btnSm} disabled={!bulkBank || sel.size === 0} onClick={() => { onBulk([...sel], Number(bulkBank)); setSel(new Set()); }}>{L(`Assign selected (${sel.size})`, `Tetapkan yang dipilih (${sel.size})`)}</button>
+                </span>
+              </div>
+            )}
             <ul className={css.exList}>
               {list.slice(0, 100).map((x) => (
                 <li key={`${x.kind}|${x.key}`}>
                   <span className={css.exMain}>
-                    <span className={css.exTitle}>{x.title}</span>
+                    <span className={css.exTitle}>
+                      {k === "no_bank" && view.can_correct && (
+                        <input type="checkbox" className={css.rowCheck} aria-label={L(`Select ${x.title}`, `Pilih ${x.title}`)} checked={sel.has(x.item_key)}
+                          onChange={(e) => pickRow(x.item_key, e.target.checked)} />
+                      )}
+                      {x.title}
+                    </span>
                     <span className={css.meta}>{dmy(x.date)} · {x.detail}</span>
                   </span>
                   <span className={x.type === "in" ? css.amtIn : css.amtOut}>{x.type === "in" ? "+" : "−"}{fmtRM(x.amount_cents)}</span>
@@ -765,11 +879,11 @@ function Reconciliation({ view, filter, setFilter, onReverse, onReview, onBank, 
                     {x.link && <button type="button" className={btnSm} onClick={() => onOpen(x.link)}>{x.actions.includes("confirm") ? L("Open to confirm", "Buka untuk sahkan") : L("Open record", "Buka rekod")}</button>}
                     {view.can_correct && x.actions.includes("bank") && (
                       <span className={css.assign}>
-                        <select className={inputClass} aria-label={L("Account", "Akaun")} value={pick[x.key] ?? ""} onChange={(e) => setPick((p) => ({ ...p, [x.key]: e.target.value }))}>
+                        <select className={inputClass} aria-label={L("Account", "Akaun")} value={pick[x.key] ?? String(suggestedBank(itemOf(x.item_key), view.banks)?.id ?? "")} onChange={(e) => setPick((p) => ({ ...p, [x.key]: e.target.value }))}>
                           <option value="">{L("Account…", "Akaun…")}</option>
                           {view.banks.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <button type="button" className={btnSm} disabled={!pick[x.key]} onClick={() => onBank(x, Number(pick[x.key]))}>{L("Assign", "Tetapkan")}</button>
+                        <button type="button" className={btnSm} disabled={!(pick[x.key] ?? suggestedBank(itemOf(x.item_key), view.banks)?.id)} onClick={() => onBank(x, Number(pick[x.key] ?? suggestedBank(itemOf(x.item_key), view.banks)?.id))}>{L("Assign", "Tetapkan")}</button>
                       </span>
                     )}
                     {view.can_correct && x.actions.includes("reverse") && x.row_id && <button type="button" className={btnSm} onClick={() => onReverse(x)}>{L("Reverse…", "Balikkan…")}</button>}

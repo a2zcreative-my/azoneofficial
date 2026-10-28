@@ -503,7 +503,7 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     const it = (o) => ({ row_id: null, booked_on: null, category: "sales", group: "sales", link: null, bank_id: null, bank_name: null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: null, ...o, counts: o.counts === undefined ? o.type : o.counts });
     const all = [
       it({ key: "INV:2", date: D + "12", type: "in", amount_cents: 280000, source: "sales", status: process.env.CONFIRMED ? "verified" : "unverified", description: "INV-AZO100926-2 - Zainab Kitchen", ref: "INV-AZO100926-2", link: { kind: "invoice", id: 2 }, payment_ref: "MBB-77120", bank_id: 1, bank_name: "Maybank Operating" }),
-      it({ key: "PART:1", date: D + "08", type: "in", amount_cents: 250000, source: "part", status: "unverified", description: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", ref: "INV-AZO050926-3", link: { kind: "invoice", id: 3 } }),
+      it({ key: "PART:1", date: D + "08", type: "in", amount_cents: 250000, source: "part", status: "unverified", description: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", ref: "INV-AZO050926-3", link: { kind: "invoice", id: 3 }, issuer: "a2z" }),
       it({ key: "CF:12", row_id: 12, booked_on: D + "06", date: D + "06", type: "out", amount_cents: 1450000, category: "salaries", group: "payroll", source: "payroll", status: "recorded", description: "Payroll bank run 2026-08", ref: "PAYROLL-2026-08", link: { kind: "payroll", id: "2026-08" }, bank_id: 1, bank_name: "Maybank Operating" }),
       it({ key: "CF:13", row_id: 13, booked_on: D + "12", date: D + "12", type: "out", amount_cents: 12900, category: "software", group: "gl6900", source: "expenses", status: "recorded", description: "Adobe — Creative Cloud", ref: "EXP-1", link: { kind: "expense", id: 1 } }),
       it({ key: "CF:14", row_id: 14, booked_on: D + "15", date: D + "03", type: "out", amount_cents: 80000, category: "marketing", group: "gl6000", source: "expenses", status: "recorded", description: "TikTok Ads — Boost", ref: "EXP-3", link: { kind: "expense", id: 3 } }),
@@ -525,10 +525,12 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       banks: [
         { id: 1, name: "Maybank Operating", bank: "Maybank", number_masked: "•••• 5621", active: 1, opening_balance_cents: 2500000, opening_on: D + "01", book_balance_cents: 1717100 },
         { id: 2, name: "CIMB Savings", bank: "CIMB", number_masked: "•••• 0412", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null },
-      ],
+        { id: 3, name: "A2Z CREATIVE MARKETING - Maybank", bank: "Maybank", number_masked: "•••• 5300", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null },
+      ].filter(() => !process.env.NOBANKS),
       exceptions: [
         { kind: "unverified", key: "PART:1", item_key: "PART:1", date: D + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Recorded as received; not yet confirmed by the CEO or COO.", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["confirm", "review"] },
-        { kind: "no_bank", key: "CF:13", item_key: "CF:13", date: D + "12", title: "Adobe — Creative Cloud", detail: "Which account did this money move through?", amount_cents: 12900, type: "out", row_id: 13, link: { kind: "expense", id: 1 }, actions: ["bank", "review"] },
+        ...(process.env.NOBANKS ? [] : [{ kind: "no_bank", key: "PART:1", item_key: "PART:1", date: D + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Which account did this money move through?", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["bank", "review"] }]),
+        ...(process.env.NOBANKS ? [] : [{ kind: "no_bank", key: "CF:13", item_key: "CF:13", date: D + "12", title: "Adobe — Creative Cloud", detail: "Which account did this money move through?", amount_cents: 12900, type: "out", row_id: 13, link: { kind: "expense", id: 1 }, actions: ["bank", "review"] }]),
         { kind: "out_of_step", key: "CF:9", item_key: "CF:9", date: D + "04", title: "INV-AZO010926-9", detail: "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it.", amount_cents: 64000, type: "in", row_id: 9, link: null, actions: ["reverse", "review"] },
       ],
       can_correct: can, can_enter: true, pending_migration: false, confirmations: true,
