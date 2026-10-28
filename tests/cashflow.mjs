@@ -75,6 +75,8 @@ ok("undo paths reverse: expense unpaid and deleted, invoice unpaid, deleted and 
    && /reverseLive\(env, user\.id, `INV-\$\{id\}`, `Invoice marked/.test(staff) && /reverseLive\(env, user\.id, `INV-\$\{dd\.id\}`, "Invoice deleted"\)/.test(staff)
    && /reverseLive\(env, user\.id, `INV-\$\{inv\.id\}`, "Invoice reversed back to its quotation"\)/.test(staff));
 ok("nothing books commission as its own cash movement", !/["`]COMM-/.test(staff + erp + cb + strip(read("worker/src/business.ts"))));
+ok("a failure says what it was, and is logged", /await logError\(env, "cashbook", `GET \/erp\/cashbook: \$\{msg\}`\);\s*return err\("cashbook_failed", `Finance could not be read: \$\{msg\.slice\(0, 240\)\}`, 500\);/.test(cb));
+ok("the screen shows the reason and the status, and a worker older than the page", /r\.status === 404 \? L\("The API worker is older than this page/.test(read("components/portal/finance-panels.tsx")) && /\(HTTP \$\{r\.status\}/.test(read("components/portal/finance-panels.tsx")));
 ok("the view only reads", !/\b(INSERT|UPDATE|DELETE)\b/.test(cb.slice(cb.indexOf("async function loadAll"), cb.indexOf("export async function handleCashbook"))));
 
 /* ---- runtime ---- */
@@ -200,6 +202,15 @@ try {
   const revRow = v.items.find((i) => i.reversal_of === manualId);
   ok("a reversal cannot itself be reversed", revRow && (await call(`/erp/cashbook/rows/${revRow.row_id}/reverse`, 1, "POST", { reason: "undo the undo" })).status === 409);
 
+  /* v1.220.1 - the live tab once said only "could not be read". The read now
+     survives a source that is missing and a date it cannot parse, and a
+     failure says what it was. */
+  ins.run(14, "INV", "INV-14", 50000, "paid", "2026-09-03 02:00:00");
+  db.exec(`UPDATE sales_documents SET paid_at = '' WHERE id = 14`);
+  db.exec(`DROP TABLE web_orders`);
+  const tough = await call(`/erp/cashbook?from=2026-09-01&to=${END}`, 1);
+  ok("a missing source table and an unreadable paid date do not take the tab down", tough.status === 200 && tough.j?.items?.some((i) => i.key === "INV:14" && i.date === "2026-09-03"), `${tough.status} ${JSON.stringify(tough.j?.error ?? "")}`);
+
   /* 6. access */
   for (const [id, who] of [[3, "the CCO"], [4, "sales"], [6, "HR"]]) ok(`${who} cannot read Finance`, (await call("/erp/cashbook", id)).status === 403);
   const adm = await view(undefined, 5);
@@ -216,7 +227,7 @@ const finCode = strip(fin);
 ok("the Finance tab is one page: Overview, Transactions, Expenses, Reconciliation, Reports",
    ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => fin.includes(t))
    && /<FinancePage expenses=\{<ExpensesPanel reporting=\{<PnlCard \/>\} \/>\} \/>/.test(page));
-ok("one read for every tab, by period", /api<CashbookView>\(`\/cashbook\?from=\$\{period\.from\}&to=\$\{period\.to\}&months=12`\)/.test(finCode));
+ok("one read for every tab, by period", /api<CashbookView(?: & \{[^>]*\})?>\(`\/cashbook\?from=\$\{period\.from\}&to=\$\{period\.to\}&months=12`\)/.test(finCode));
 ok("a period's movement is never called a balance", /L\("Net cash movement", "Pergerakan tunai bersih"\)/.test(fin) && !/L\("Balance", "Baki"\)/.test(fin));
 ok("the screen adds up nothing itself: the figures are the server's", !/\.reduce\(\(a, e\) => a \+ e\.amount_cents/.test(finCode) && /view\.totals\.in_cents/.test(finCode));
 ok("corrections shown only to those the server allows", /view\.can_correct &&/.test(finCode));

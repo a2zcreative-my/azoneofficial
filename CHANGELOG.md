@@ -10,6 +10,29 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.220.1] - 2026-10-28 - Finance: the tab reads, or says why it cannot
+
+The owner's screenshot of the live Finance tab: "Finance could not be read.
+Try again." - and nothing else, so the cause could not be seen.
+
+- **The read no longer depends on every source being there.** `GET
+  /staff/erp/cashbook` first checks which tables and columns this database
+  has (claims, expenses, payroll runs, ELFIA orders, customers, part
+  payments, confirmations, the 0147 columns) and builds its query from
+  them; a missing one contributes nothing instead of failing the tab.
+- **Dates it cannot read no longer break it.** An invoice whose paid date is
+  empty or malformed falls back to its created date; a row with no readable
+  date is left out of the figures rather than stopping the page.
+- **A failure says what it was.** The route answers `cashbook_failed` with
+  the database's own sentence, and writes it to the error log. The screen
+  shows that sentence with the HTTP status - or, on a 404, that the API
+  worker is older than the page (PUSH.bat did not finish the worker deploy).
+- Guard `cashflow`: a missing source table and an unreadable paid date keep
+  the tab working; the error path and the screen's message are held.
+
+### Deploy
+- `PUSH.bat`.
+
 ## [1.220.0] - 2026-10-28 - Profile 2.0
 
 The owner's brief and his answers to `claude/PROFILE-AUDIT.md`: "Phone only,

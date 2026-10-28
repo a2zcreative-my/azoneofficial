@@ -181,15 +181,22 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
 
   useEffect(() => {
     let live = true;
-    void api<CashbookView>(`/cashbook?from=${period.from}&to=${period.to}&months=12`).then((r) => {
+    void api<CashbookView & { error?: { code?: string; message?: string } }>(`/cashbook?from=${period.from}&to=${period.to}&months=12`).then((r) => {
       if (!live) return;
-      if (r.ok && r.data) { setData(r.data); setFailed(null); }
-      else setFailed(r.status === 403 ? L("Your role has no access to Finance.", "Peranan anda tiada akses Kewangan.") : L("Finance could not be read. Try again.", "Kewangan tidak dapat dibaca. Cuba lagi."));
+      if (r.ok && r.data?.period) { setData(r.data); setFailed(null); return; }
+      /* v1.220.1 - say WHY (the live tab once answered only "could not be
+         read"): no access, a worker older than the site, or the server's own
+         sentence with its code and the HTTP status */
+      const why = r.status === 403 ? L("Your role has no access to Finance.", "Peranan anda tiada akses Kewangan.")
+        : r.status === 404 ? L("The API worker is older than this page - run PUSH.bat again so the worker deploys, then reload.", "Worker API lebih lama daripada halaman ini - jalankan PUSH.bat semula supaya worker dilancarkan, kemudian muat semula.")
+        : r.data?.error?.message ? `${r.data.error.message} (HTTP ${r.status}${r.data.error.code ? `, ${r.data.error.code}` : ""})`
+        : L(`Finance could not be read (HTTP ${r.status || "no connection"}). Try again.`, `Kewangan tidak dapat dibaca (HTTP ${r.status || "tiada sambungan"}). Cuba lagi.`);
+      setFailed(why);
     });
     return () => { live = false; };
   }, [period.from, period.to, tick]);
 
-  const view_ = data && data.period.from === period.from && data.period.to === period.to ? data : null;
+  const view_ = data?.period && data.period.from === period.from && data.period.to === period.to ? data : null;
   const busy = !view_;
 
   /* the record behind an item, opened where it lives */

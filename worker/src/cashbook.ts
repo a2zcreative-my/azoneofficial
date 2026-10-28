@@ -30,7 +30,7 @@
 
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { audit, cents, err, glCodeFor, json, postJournal, str } from "./shared";
+import { audit, cents, err, glCodeFor, json, logError, postJournal, str } from "./shared";
 import { can } from "./permissions";
 
 /* ------------------------------------------------------------------ *
@@ -264,22 +264,28 @@ function groupOf(source: Source, category: string, type: "in" | "out"): string {
   }
 }
 
-const RAW_ROW_SQL = (v2: boolean) => `
+/* v1.220.1 - the read is built from what THIS database has: a source table
+   (or column) that is missing contributes NULLs instead of failing the whole
+   tab. The live Finance tab answered "could not be read" on 28-10-2026; the
+   cause was not visible from the screen, so the read no longer depends on
+   every source being there, and a failure now says what it was. */
+interface Has { v2: boolean; claims: boolean; expenses: boolean; payroll: boolean; web: boolean; customers: boolean; parts: boolean; confirm: boolean }
+const RAW_ROW_SQL = (h: Has) => `
   SELECT c.id, c.entry_date, c.type, c.category, c.bank_id, c.amount_cents, c.description, c.ref,
-         ${v2 ? "c.effective_date, c.source_key, c.reversal_of, c.reverse_reason, c.transfer_id" : "NULL AS effective_date, NULL AS source_key, NULL AS reversal_of, NULL AS reverse_reason, NULL AS transfer_id"},
+         ${h.v2 ? "c.effective_date, c.source_key, c.reversal_of, c.reverse_reason, c.transfer_id" : "NULL AS effective_date, NULL AS source_key, NULL AS reversal_of, NULL AS reverse_reason, NULL AS transfer_id"},
          b.name AS bank_name,
-         cl.id AS clm_id, date(cl.paid_at, '+8 hours') AS clm_paid, cl.amount_cents AS clm_amount, cl.claim_type AS clm_type, cl.payment_proof_key AS clm_proof,
-         ex.id AS exp_id, date(ex.paid_at, '+8 hours') AS exp_paid, ex.amount_cents AS exp_amount,
-         date(pp.paid_at, '+8 hours') AS pay_paid, pp.month AS pay_month,
+         ${h.claims ? "cl.id AS clm_id, date(cl.paid_at, '+8 hours') AS clm_paid, cl.amount_cents AS clm_amount, cl.claim_type AS clm_type, cl.payment_proof_key AS clm_proof" : "NULL AS clm_id, NULL AS clm_paid, NULL AS clm_amount, NULL AS clm_type, NULL AS clm_proof"},
+         ${h.expenses ? "ex.id AS exp_id, date(ex.paid_at, '+8 hours') AS exp_paid, ex.amount_cents AS exp_amount" : "NULL AS exp_id, NULL AS exp_paid, NULL AS exp_amount"},
+         ${h.payroll ? "date(pp.paid_at, '+8 hours') AS pay_paid, pp.month AS pay_month" : "NULL AS pay_paid, NULL AS pay_month"},
          d.id AS inv_id, d.payment_status AS inv_status, d.doc_number AS inv_number,
-         w.id AS web_id, w.refund_flagged_at AS web_refund
+         ${h.web ? "w.id AS web_id, w.refund_flagged_at AS web_refund" : "NULL AS web_id, NULL AS web_refund"}
     FROM cashflow_entries c
     LEFT JOIN bank_accounts b ON b.id = c.bank_id
-    LEFT JOIN claims cl ON c.ref LIKE 'CLM-%' AND cl.id = CAST(substr(c.ref, 5) AS INTEGER)
-    LEFT JOIN expenses ex ON c.ref LIKE 'EXP-%' AND ex.id = CAST(substr(c.ref, 5) AS INTEGER)
-    LEFT JOIN payroll_payments pp ON c.ref LIKE 'PAYROLL-%' AND pp.month = substr(c.ref, 9)
+    ${h.claims ? "LEFT JOIN claims cl ON c.ref LIKE 'CLM-%' AND cl.id = CAST(substr(c.ref, 5) AS INTEGER)" : ""}
+    ${h.expenses ? "LEFT JOIN expenses ex ON c.ref LIKE 'EXP-%' AND ex.id = CAST(substr(c.ref, 5) AS INTEGER)" : ""}
+    ${h.payroll ? "LEFT JOIN payroll_payments pp ON c.ref LIKE 'PAYROLL-%' AND pp.month = substr(c.ref, 9)" : ""}
     LEFT JOIN sales_documents d ON c.ref LIKE 'INV-%' AND d.id = CAST(substr(c.ref, 5) AS INTEGER) AND d.doc_type = 'INV'
-    LEFT JOIN web_orders w ON c.ref LIKE 'ELF-%' AND w.store = 'elfia' AND w.order_number = substr(c.ref, 5)`;
+    ${h.web ? "LEFT JOIN web_orders w ON c.ref LIKE 'ELF-%' AND w.store = 'elfia' AND w.order_number = substr(c.ref, 5)" : ""}`;
 
 interface RawRow {
   id: number; entry_date: string; type: "in" | "out"; category: string; bank_id: number | null; amount_cents: number;
@@ -298,20 +304,33 @@ interface Mark { item_key: string; bank_id: number | null; bank_note: string | n
 /** A first-pass read of everything the view is computed from. Sources that a
     database does not have yet contribute nothing (the tab still opens). */
 async function loadAll(env: Env) {
-  let v2 = true;
-  try { await env.DB.prepare(`SELECT effective_date FROM cashflow_entries LIMIT 1`).first(); }
-  catch (e) { if (noColumn(e)) v2 = false; else throw e; }
-  const rows = (await env.DB.prepare(RAW_ROW_SQL(v2)).all<RawRow>()).results ?? [];
+  const probe = async (sql: string) => { try { await env.DB.prepare(sql).first(); return true; } catch { return false; } };
+  const h: Has = {
+    v2: (await probe(`SELECT effective_date, source_key, reversal_of, reverse_reason, transfer_id FROM cashflow_entries LIMIT 1`))
+      && (await probe(`SELECT opening_balance_cents, opening_on FROM bank_accounts LIMIT 1`))
+      && (await probe(`SELECT item_key, bank_id, reviewed_at FROM cashbook_marks LIMIT 1`)),
+    claims: await probe(`SELECT id, paid_at, amount_cents, claim_type, payment_proof_key FROM claims LIMIT 1`),
+    expenses: await probe(`SELECT id, paid_at, amount_cents FROM expenses LIMIT 1`),
+    payroll: await probe(`SELECT month, paid_at FROM payroll_payments LIMIT 1`),
+    web: await probe(`SELECT id, store, order_number, refund_flagged_at FROM web_orders LIMIT 1`),
+    customers: await probe(`SELECT id, company FROM customers LIMIT 1`),
+    parts: await probe(`SELECT id, invoice_id, amount_cents, received_on, method, reference, voided_at FROM invoice_payments LIMIT 1`),
+    confirm: await probe(`SELECT invoice_id, revoked_at FROM invoice_paid_confirmations LIMIT 1`),
+  };
+  const v2 = h.v2;
+  /* text columns are NOT NULL in the schema; a row written some other way
+     must not take the whole tab down, so they are made strings here */
+  const rows = ((await env.DB.prepare(RAW_ROW_SQL(h)).all<RawRow>()).results ?? [])
+    .map((r) => ({ ...r, ref: r.ref ?? "", description: r.description ?? "", category: r.category ?? "", entry_date: String(r.entry_date ?? "").slice(0, 10) }));
   const banks = v2
     ? ((await env.DB.prepare(`SELECT id, name, bank, number_masked, active, opening_balance_cents, opening_on FROM bank_accounts ORDER BY active DESC, name`).all<Bank>()).results ?? [])
     : ((await env.DB.prepare(`SELECT id, name, bank, number_masked, active, NULL AS opening_balance_cents, NULL AS opening_on FROM bank_accounts ORDER BY active DESC, name`).all<Bank>()).results ?? []);
   let marks: Mark[] = [];
   if (v2) marks = (await env.DB.prepare(`SELECT item_key, bank_id, bank_note, reviewed_note, reviewed_at FROM cashbook_marks`).all<Mark>()).results ?? [];
-
-  let hasParts = true;
-  try { await env.DB.prepare(`SELECT 1 FROM invoice_payments LIMIT 1`).first(); } catch { hasParts = false; }
-  let hasConfirm = true;
-  try { await env.DB.prepare(`SELECT 1 FROM invoice_paid_confirmations LIMIT 1`).first(); } catch { hasConfirm = false; }
+  const hasParts = h.parts;
+  const hasConfirm = h.confirm;
+  const CUST = h.customers ? "cu.company" : "NULL AS company";
+  const CUST_JOIN = h.customers ? "LEFT JOIN customers cu ON cu.id = d.customer_id" : "";
   const CONFIRMED = (alias: string) => hasConfirm
     ? `EXISTS (SELECT 1 FROM invoice_paid_confirmations k WHERE k.invoice_id = ${alias}.id AND k.revoked_at IS NULL)` : "0";
   const PARTS = (alias: string) => hasParts
@@ -320,19 +339,19 @@ async function loadAll(env: Env) {
      received in parts, on date(COALESCE(paid_at, created_at), +8 hours) */
   const invoices = (await env.DB.prepare(
     `SELECT d.id, d.doc_number, d.total_cents, ${PARTS("d")} AS parts_cents, d.payment_ref, d.payment_method,
-            date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS paid_day, cu.company,
+            COALESCE(date(d.paid_at, '+8 hours'), date(d.created_at, '+8 hours'), substr(COALESCE(d.paid_at, d.created_at), 1, 10)) AS paid_day, ${CUST},
             ${CONFIRMED("d")} AS confirmed
-       FROM sales_documents d LEFT JOIN customers cu ON cu.id = d.customer_id
+       FROM sales_documents d ${CUST_JOIN}
       WHERE d.doc_type = 'INV' AND d.payment_status = 'paid'`,
   ).all<{ id: number; doc_number: string; total_cents: number; parts_cents: number; payment_ref: string | null; payment_method: string | null; paid_day: string; company: string | null; confirmed: number }>()).results ?? [];
   const parts = hasParts ? ((await env.DB.prepare(
-    `SELECT p.id, p.invoice_id, p.amount_cents, p.received_on, p.method, p.reference, d.doc_number, d.payment_status, cu.company,
+    `SELECT p.id, p.invoice_id, p.amount_cents, p.received_on, p.method, p.reference, d.doc_number, d.payment_status, ${CUST},
             ${CONFIRMED("d")} AS confirmed
        FROM invoice_payments p JOIN sales_documents d ON d.id = p.invoice_id AND d.doc_type = 'INV'
-       LEFT JOIN customers cu ON cu.id = d.customer_id
+       ${CUST_JOIN}
       WHERE p.voided_at IS NULL`,
   ).all<{ id: number; invoice_id: number; amount_cents: number; received_on: string; method: string | null; reference: string | null; doc_number: string; payment_status: string | null; company: string | null; confirmed: number }>()).results ?? []) : [];
-  return { v2, rows, banks, marks, invoices, parts, hasConfirm };
+  return { v2, rows, banks, marks, invoices, parts, hasConfirm, has: h };
 }
 
 /** The day a row's money moved: the row's own date when it carries one;
@@ -340,9 +359,11 @@ async function loadAll(env: Env) {
     row was booked (a later paid day belongs to a later payment); otherwise
     the day it was booked. */
 function dayOf(r: RawRow): string {
-  if (r.effective_date) return r.effective_date;
-  const src = r.ref.startsWith("CLM-") ? r.clm_paid : r.ref.startsWith("EXP-") ? r.exp_paid : r.ref.startsWith("PAYROLL-") ? r.pay_paid : null;
-  return src && src <= r.entry_date ? src : r.entry_date;
+  const booked = String(r.entry_date ?? "").slice(0, 10);
+  if (r.effective_date && ISO_DAY.test(r.effective_date)) return r.effective_date;
+  const ref = r.ref ?? "";
+  const src = ref.startsWith("CLM-") ? r.clm_paid : ref.startsWith("EXP-") ? r.exp_paid : ref.startsWith("PAYROLL-") ? r.pay_paid : null;
+  return src && ISO_DAY.test(src) && src <= booked ? src : booked;
 }
 
 function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
@@ -389,8 +410,8 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
   }
 
   for (const inv of data.invoices) {
-    const amount = inv.total_cents - inv.parts_cents;
-    if (amount <= 0) continue;
+    const amount = (inv.total_cents ?? 0) - (inv.parts_cents ?? 0);
+    if (amount <= 0 || !ISO_DAY.test(inv.paid_day ?? "")) continue;
     const key = `INV:${inv.id}`;
     items.push({
       key, row_id: null, date: inv.paid_day, booked_on: null, type: "in", amount_cents: amount, category: "sales", group: "sales",
@@ -401,6 +422,8 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
     });
   }
   for (const p of data.parts) {
+    if (!ISO_DAY.test(String(p.received_on ?? "").slice(0, 10))) continue;
+    p.received_on = String(p.received_on).slice(0, 10);
     const key = `PART:${p.id}`;
     items.push({
       key, row_id: null, date: p.received_on, booked_on: null, type: "in", amount_cents: p.amount_cents, category: "sales", group: "sales",
@@ -457,15 +480,15 @@ async function exceptionsOf(env: Env, data: Awaited<ReturnType<typeof loadAll>>,
     if (!live(r)) continue;
     const d = dayOf(r);
     const base = { item_key: `CF:${r.id}`, date: d, amount_cents: r.amount_cents, type: r.type, row_id: r.id, link: null } as const;
-    if (r.ref.startsWith("EXP-")) {
+    if (r.ref.startsWith("EXP-") && data.has.expenses) {
       if (!r.exp_id) add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: "The expense was deleted; its payment is still in the cash book.", actions: ["reverse", "review"] });
       else if (!r.exp_paid) add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: "The expense is no longer marked paid; its payment is still in the cash book.", actions: ["reverse", "review"] });
       else if (r.exp_amount != null && r.exp_amount !== r.amount_cents) add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: `The expense now says ${(r.exp_amount / 100).toFixed(2)}; the cash book paid ${(r.amount_cents / 100).toFixed(2)}.`, actions: ["reverse", "review"] });
     } else if (r.ref.startsWith("INV-")) {
       if (!r.inv_id || r.inv_status !== "paid") add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.inv_number ?? r.description ?? r.ref, detail: r.inv_id ? "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it." : "The invoice was deleted. Finance does not count it; the cash book and the journal still hold it.", actions: ["reverse", "review"] });
-    } else if (r.ref.startsWith("CLM-") && !r.clm_id) {
+    } else if (r.ref.startsWith("CLM-") && data.has.claims && !r.clm_id) {
       add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: "The claim this paid no longer exists.", actions: ["reverse", "review"] });
-    } else if (r.ref.startsWith("ELF-") && r.web_refund) {
+    } else if (r.ref.startsWith("ELF-") && data.has.web && r.web_refund) {
       add({ ...base, kind: "elfia_cancelled", key: `CF:${r.id}`, title: r.description || r.ref, detail: "The ELFIA order was cancelled after it was paid. Decide the refund; reverse this when the money goes back.", actions: ["reverse", "review"] });
     }
   }
@@ -537,10 +560,13 @@ export async function handleCashbook(
     const to = ISO_DAY.test(toQ) ? toQ : today;
     const from = ISO_DAY.test(fromQ) ? fromQ : monthStart(to);
     if (from > to) return err("validation", "The period starts after it ends", 400);
+    const empty = { period: { from, to, today }, totals: { in_cents: 0, out_cents: 0, net_cents: 0, count: 0 }, groups: { in: [], out: [] }, trend: [], items: [], banks: [], exceptions: [], can_correct: canFix, can_enter: canRead, confirmations: false };
+    try {
     let data;
     try { data = await loadAll(env); }
     catch (e) {
-      if (/no such table/i.test(String(e))) return json({ pending_migration: true, items: [], banks: [], exceptions: [] });
+      /* no cash book table at all: an honest empty tab that says why */
+      if (/no such table: cashflow_entries|no such table: bank_accounts/i.test(String(e))) return json({ ...empty, pending_migration: true });
       throw e;
     }
     const all = buildItems(data);
@@ -580,6 +606,13 @@ export async function handleCashbook(
       pending_migration: !data.v2,
       confirmations: data.hasConfirm,
     });
+    } catch (e) {
+      /* v1.220.1 - a failure says what it was (to the CEO/COO/admin who can
+         read Finance) and lands in the error log, instead of a bare 500 */
+      const msg = e instanceof Error ? e.message : String(e);
+      await logError(env, "cashbook", `GET /erp/cashbook: ${msg}`);
+      return err("cashbook_failed", `Finance could not be read: ${msg.slice(0, 240)}`, 500);
+    }
   }
 
   /* ---- reverse one row (and its transfer twin) ---- */
