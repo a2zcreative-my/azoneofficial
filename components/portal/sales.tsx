@@ -1385,10 +1385,32 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         L(`${cust.company} updated`, `${cust.company} dikemas kini`)
       );
     } else {
-      await api(`/staff/customers`, {
+      /* v1.225.0 - the server warns when the company name or phone is
+         already on file; adding anyway is a deliberate second step */
+      let res = await api<{ error?: { code?: string; message?: string } }>(`/staff/customers`, {
         method: "POST",
         body: JSON.stringify(cust),
       });
+      if (!res.ok && res.data?.error?.code === "possible_duplicate") {
+        const go = await askConfirm({
+          title: L("This customer may already exist", "Pelanggan ini mungkin sudah wujud"),
+          message: res.data.error.message ?? "",
+          confirmLabel: L("Add anyway", "Tambah juga"),
+        });
+        if (!go) return;
+        res = await api<{ error?: { code?: string; message?: string } }>(`/staff/customers`, {
+          method: "POST",
+          body: JSON.stringify({ ...cust, confirm_duplicate: true }),
+        });
+        if (!res.ok) {
+          showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Could not add the customer", "Tidak dapat menambah pelanggan"), "notice");
+          return;
+        }
+      }
+      if (!res.ok) {
+        showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Could not add the customer", "Tidak dapat menambah pelanggan"), "notice");
+        return;
+      }
       showToast(
         L("Saved", "Disimpan"),
         L(`${cust.company} added`, `${cust.company} ditambah`)
@@ -1533,6 +1555,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       doc_type: "QT",
       reference: pf.reference ?? d.reference,
       customer_id: existing ? existing.id : d.customer_id,
+      /* v1.225.0 - the enquiry's consultant, if they are on the salesperson list */
+      salesperson_id: pf.salesperson_id && staffList.some((u) => u.id === pf.salesperson_id) ? pf.salesperson_id : d.salesperson_id,
     }));
     if (!existing)
       setCust((c) => ({
@@ -3686,7 +3710,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               (the owner, 28-10-2026: "Show on Sales, notify"); the server
               decides who may see them (enquiry_manage) */}
           <SalesEnquiries scope={scope} userId={user.id} onQuote={(e: Enquiry) => {
-            applyPrefill({ source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name, phone: e.phone ?? "", reference: `Enquiry #${e.id}` });
+            /* v1.225.0 (the owner, 29-10-2026: "Enquiry owner -> closer") - the
+               consultant the enquiry is assigned to is the quotation's closer
+               from the start (still changeable on the form) */
+            applyPrefill({ source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name, phone: e.phone ?? "", reference: `Enquiry #${e.id}`, salesperson_id: e.assigned_to ?? undefined });
             if (customers.some((c) => c.company.trim().toLowerCase() === ((e.company ?? "").trim() || e.name).toLowerCase())) setWsView("documents");
           }} />
           <FollowUps all rows={sFollowups} today={mytToday()} onOpen={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />

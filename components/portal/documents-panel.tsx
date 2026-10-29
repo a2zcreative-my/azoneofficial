@@ -11,7 +11,7 @@ import { makeApi } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { card, btnSm, chipSuccess, chipWarn, th, td, thR2, tdR2 } from "@/lib/ui-styles";
-import { dmy, fmtRM } from "@/lib/format";
+import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { printBusinessDoc } from "@/lib/receipt-print";
 import { getLang } from "@/lib/i18n";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
@@ -25,7 +25,7 @@ interface Invoice { id: number; doc_number: string; doc_type: string; total_cent
    OFFICIAL, 'a2z' = A2Z CREATIVE MARKETING — printBusinessDoc() needs it so a
    re-print carries the letterhead of the entity that actually issued it. */
 interface Receipt { id: number; receipt_number: string; invoice_number: string; amount_cents: number; payment_method?: string | null; payment_ref?: string | null; paid_at?: string | null; company?: string | null; created_at: string; issuer_code?: string | null }
-interface CreditNote { id: number; cn_number: string; invoice_number: string; amount_cents: number; reason?: string | null; company?: string | null; created_at: string; issuer_code?: string | null }
+interface CreditNote { id: number; cn_number: string; invoice_number: string; amount_cents: number; reason?: string | null; company?: string | null; created_at: string; issuer_code?: string | null; refunded_on?: string | null /* v1.225.0 - the refund's day in the cash book */ }
 interface Outstanding { id: number; doc_number: string; total_cents: number; due_date?: string | null; created_at: string; company?: string | null; phone?: string | null }
 
 /* v1.123.0 - `bare` drops the frame and the heading when this panel is a tab
@@ -42,6 +42,9 @@ export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstan
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
+  /* v1.225.0 (the owner, 29-10-2026) - only the CEO, COO and admins issue a
+     credit note or record its refund; the server says who may */
+  const [canIssue, setCanIssue] = useState(false);
   const [outstanding, setOutstanding] = useState<{ invoices: Outstanding[]; total_cents: number } | null>(null);
   const [ownTab, setTab] = useState<"outstanding" | "receipts" | "credit">("outstanding");
   const tab = view ?? ownTab;
@@ -49,7 +52,7 @@ export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstan
   const loadAll = useCallback(() => {
     void api<{ docs: Invoice[] }>(`/docs?type=INV`).then((r) => { if (r.ok && r.data?.docs) setInvoices(r.data.docs); });
     void api<{ receipts: Receipt[] }>(`/receipts`).then((r) => { if (r.ok && r.data?.receipts) setReceipts(r.data.receipts); });
-    void api<{ credit_notes: CreditNote[] }>(`/credit-notes`).then((r) => { if (r.ok && r.data?.credit_notes) setCreditNotes(r.data.credit_notes); });
+    void api<{ credit_notes: CreditNote[]; can_issue?: boolean }>(`/credit-notes`).then((r) => { if (r.ok && r.data?.credit_notes) { setCreditNotes(r.data.credit_notes); setCanIssue(r.data.can_issue === true); } });
     void api<{ invoices: Outstanding[]; total_cents: number }>(`/reports/outstanding`).then((r) => { if (r.ok && r.data) setOutstanding(r.data); });
   }, []);
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -67,9 +70,22 @@ export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstan
     const cents = Math.round(Number(amountRes.value) * 100);
     if (!cents || cents <= 0) { showToast(L("No change", "Tiada perubahan"), L("Enter a valid amount", "Masukkan amaun yang sah"), "notice"); return; }
     const reasonRes = await prompt({ title: L("Reason", "Sebab"), message: L("Why is this credit note being issued? (optional)", "Mengapa nota kredit ini dikeluarkan? (pilihan)"), label: L("Reason", "Sebab"), placeholder: L("e.g. returned goods", "cth. barang dipulangkan") });
-    const r = await api<{ cn_number?: string; error?: { message?: string } }>(`/docs/${inv.id}/credit-note`, { method: "POST", body: JSON.stringify({ amount_cents: cents, reason: reasonRes?.value ?? "" }) });
+    /* v1.225.0 - a refund actually paid back is money out: its day goes into
+       the cash book and the accounts. No day = a credit with no money moved. */
+    const refundRes = await prompt({ title: L("Money paid back?", "Wang dibayar balik?"), message: L("If the money has already been paid back to the customer, enter the day it left the bank. Leave it empty if no money moved (you can record the refund later).", "Jika wang sudah dibayar balik kepada pelanggan, masukkan hari ia keluar dari bank. Biarkan kosong jika tiada wang bergerak (boleh direkod kemudian)."), text: false, date: { label: L("Day the refund was paid", "Hari bayaran balik"), max: mytToday(), required: false }, confirmLabel: L("Issue credit note", "Keluarkan nota kredit") });
+    if (!refundRes) return;
+    const r = await api<{ cn_number?: string; error?: { message?: string } }>(`/docs/${inv.id}/credit-note`, { method: "POST", body: JSON.stringify({ amount_cents: cents, reason: reasonRes?.value ?? "", ...(refundRes.date ? { refund_on: refundRes.date } : {}) }) });
     if (!r.ok) { showToast(L("No change", "Tiada perubahan"), r.data?.error?.message ?? L("Could not issue credit note", "Tidak dapat mengeluarkan nota kredit"), "notice"); return; }
     showToast(L("Issued", "Dikeluarkan"), L(`Credit note ${r.data?.cn_number}`, `Nota kredit ${r.data?.cn_number}`));
+    loadAll();
+  };
+
+  const recordRefund = async (n: CreditNote) => {
+    const got = await prompt({ title: L(`Refund for ${n.cn_number}`, `Bayaran balik untuk ${n.cn_number}`), message: L(`${fmtRM(n.amount_cents)} paid back to ${n.company ?? "the customer"}. It goes into the cash book and the accounts as money out.`, `${fmtRM(n.amount_cents)} dibayar balik kepada ${n.company ?? "pelanggan"}. Ia masuk buku tunai dan akaun sebagai wang keluar.`), text: false, date: { label: L("Day the refund was paid", "Hari bayaran balik"), initial: mytToday(), max: mytToday(), required: true }, confirmLabel: L("Record refund", "Rekod bayaran balik") });
+    if (!got?.date) return;
+    const r = await api<{ error?: { message?: string } }>(`/credit-notes/${n.id}/refund`, { method: "POST", body: JSON.stringify({ refund_on: got.date }) });
+    if (!r.ok) { showToast(L("No change", "Tiada perubahan"), r.data?.error?.message ?? L("Could not record the refund", "Tidak dapat merekod bayaran balik"), "notice"); return; }
+    showToast(L("Refund recorded", "Bayaran balik direkod"), L(`${n.cn_number} - money out on ${got.date}`, `${n.cn_number} - wang keluar pada ${got.date}`));
     loadAll();
   };
 
@@ -165,7 +181,7 @@ export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstan
                 {invoices.slice(0, 12).map((inv) => (
                   <div key={inv.id} className="flex items-center justify-between gap-2 text-sm">
                     <span>{inv.doc_number}<span className="text-muted-foreground ml-1.5 text-xs">{inv.company ?? ""} · {fmtRM(inv.total_cents)} · <span className={(inv.payment_status ?? "").toLowerCase() === "paid" ? chipSuccess : chipWarn}>{inv.payment_status ?? L("unpaid", "belum dibayar")}</span></span></span>
-                    <button type="button" className={btnSm} onClick={() => void issueCreditNote(inv)}>{L("Credit note", "Nota kredit")}</button>
+                    {canIssue && <button type="button" className={btnSm} onClick={() => void issueCreditNote(inv)}>{L("Credit note", "Nota kredit")}</button>}
                   </div>
                 ))}
               </div>
@@ -177,7 +193,8 @@ export function DocumentsPanel({ bare, view }: { bare?: boolean; view?: "outstan
               <div className="mt-1.5 space-y-1">
                 {creditNotes.map((n) => (
                   <div key={n.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span>{n.cn_number}<span className="text-muted-foreground ml-1.5 text-xs">{n.company ?? ""} · {n.invoice_number} · {fmtRM(n.amount_cents)}{n.reason ? ` · ${n.reason}` : ""}</span></span>
+                    <span>{n.cn_number}<span className="text-muted-foreground ml-1.5 text-xs">{n.company ?? ""} · {n.invoice_number} · {fmtRM(n.amount_cents)}{n.reason ? ` · ${n.reason}` : ""} · {n.refunded_on ? <span className={chipSuccess}>{L(`Refunded ${n.refunded_on}`, `Dibayar balik ${n.refunded_on}`)}</span> : <span className={chipWarn}>{L("No refund recorded", "Tiada bayaran balik")}</span>}</span></span>
+                    {canIssue && !n.refunded_on && <button type="button" className={btnSm} onClick={() => void recordRefund(n)}>{L("Record refund", "Rekod bayaran balik")}</button>}
                     <button type="button" className={btnSm} onClick={() => printBusinessDoc({ kind: "CREDIT NOTE", number: n.cn_number, date: n.created_at, customer: n.company, invoiceNumber: n.invoice_number, amountCents: n.amount_cents, reason: n.reason, issuer_code: n.issuer_code })}><><AppIcon name="print" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Print", "Cetak")}</></button>
                   </div>
                 ))}

@@ -704,6 +704,15 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   }
   /* v1.216.1 - commission starts with the November 2026 payroll; the
      CONFIRMED server pretends it started in September so the rows show */
+  /* v1.225.0 - credit notes: one refunded, one with no refund recorded; the
+     CEO, COO and admins may issue and record refunds (invoice_payment) */
+  if (p === "/staff/credit-notes") data = {
+    can_issue: ["super_admin", "admin", "ceo", "coo"].includes(ROLE),
+    credit_notes: [
+      { id: 2, cn_number: "CN-AZO091126-2", invoice_number: "INV-AZO100926-2", amount_cents: 5000, reason: "Goodwill credit", company: "Zainab Kitchen", created_at: "2026-09-16 02:00:00", issuer_code: "a2z", refunded_on: null },
+      { id: 1, cn_number: "CN-AZO081126-1", invoice_number: "INV-AZO100926-2", amount_cents: 20000, reason: "Customer refunded", company: "Zainab Kitchen", created_at: "2026-09-15 02:00:00", issuer_code: "a2z", refunded_on: "2026-09-15" },
+    ],
+  };
   /* v1.224.0 - the commission engine (worker/src/commission.ts), worked by
      hand for the fixture only: policy v1 at 10% (active), v2 at 8% drafted;
      Nur Aisyah's INV-AZO100926-2 eligible (RM 2,800 -> RM 280.00), Fixture

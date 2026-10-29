@@ -122,10 +122,15 @@ export function bySeniority<T extends Rankable & { name?: string | null; full_na
  * re-joiner is back: `rejoined_on` has meant that since v1.4.101.
  */
 export function isCurrentStaff(
-  u: { left_on?: string | null; rejoined_on?: string | null },
+  u: { left_on?: string | null; rejoined_on?: string | null; employment_status?: string | null },
   today: string = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
 ): boolean {
-  if (!u.left_on) return true;
+  /* v1.225.0 - the same rule as the worker's currentStaffSql: Resigned or
+     Terminated on the Staff tab with no last day is not on staff today */
+  if (!u.left_on) {
+    if (["resigned", "terminated"].includes(u.employment_status ?? "")) return Boolean(u.rejoined_on && u.rejoined_on.slice(0, 10) <= today);
+    return true;
+  }
   if (u.left_on.slice(0, 10) >= today) return true;
   return Boolean(u.rejoined_on && u.rejoined_on.slice(0, 10) <= today);
 }

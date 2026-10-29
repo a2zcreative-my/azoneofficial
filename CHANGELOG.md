@@ -10,6 +10,48 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.225.0] - 2026-10-29 - Master flow stabilization: P0 and P1
+
+The owner's Master Flow brief and answers, 29-10-2026
+(claude/MASTER-FLOW-AUDIT.md): "Block edits on paid invoices", "Restrict and
+book refunds", "Close both", and the four P1 fixes. No migration; no
+existing record, formula or pay figure changes.
+
+- **Paid invoices are locked (P0-1).** A paid invoice's lines, discount,
+  SST, delivery and total can no longer be edited - its money is already in
+  the cash book and the accounts. Mark it unpaid first (which reverses its
+  cash row and journal), edit, mark it paid again. Wording, customer and
+  reference stay editable. Finance -> Reconciliation now lists any paid
+  invoice whose total differs from what the cash book received (edits made
+  before this release).
+- **Refunds are in the books (P0-2).** Only the CEO, COO and admins issue a
+  credit note or record its refund. A refund paid back books money out once
+  (`CN-<id>`), on the day it left the bank, with a balanced journal entry
+  against Sales (4000) or Sales - services (4100); a credit with no money
+  moving books nothing; credit notes on one invoice never exceed it. The
+  credit-note list shows "Refunded <day>" or "Record refund".
+- **Retired commission routes closed (P0-5).** `/commission/rules`,
+  `/erp/commission`, `/payroll/pull-commission` and `/leaderboard` answer
+  410 Retired; their data is kept. commission.ts is the only engine.
+- **One target authority (P1-5).** Monthly person and team targets are set
+  by the CEO, COO or super admin only, like the company and weekly targets.
+- **Enquiry owner -> closer (P1-1).** Make quotation from an enquiry puts
+  its assigned consultant in as the closer (still changeable). **A closer
+  must be on staff today (P1-3)**, checked before a number is taken.
+- **Resigned staff off the pickers (P1-4).** Resigned or Terminated with no
+  last day no longer counts as on staff (`currentStaffSql`,
+  `isCurrentStaff`); payroll's basic-salary list and rest-day work keep
+  their rule exactly (`payrollBaseStaffSql`).
+- **Refused attempts are logged (P1-6).** A 403 on a route that says money
+  arrived, confirms it, refunds it, sets commission or targets, runs payroll
+  or corrects a closer is written as `security.denied` with role, method and
+  route (reads only for payroll and commission).
+- **Customer duplicate warning (P1-7).** The same company name or phone
+  (+60 / 0 forms alike) is shown before a second customer is added; "Add
+  anyway" adds it. Never merged.
+- Guard **master-flow** (runtime, 45 checks, negative-tested). Lint
+  unchanged at 125.
+
 ## [1.224.0] - 2026-10-29 - Sales Commission: policy, ledger and payroll
 
 The owner's Commission brief and answers, 29-10-2026

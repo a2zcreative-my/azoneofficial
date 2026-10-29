@@ -252,6 +252,7 @@ export interface CashItem {
 
 const sourceOfRef = (ref: string): Source =>
   ref.startsWith("INV-") ? "sales"
+  : ref.startsWith("CN-") ? "sales" // v1.225.0 - a refund paid back on a credit note
   : ref.startsWith("ELF-") ? "elfia"
   : ref.startsWith("RECON-") ? "live"
   : ref.startsWith("CLM-") ? "claims"
@@ -293,7 +294,7 @@ const RAW_ROW_SQL = (h: Has) => `
          ${h.claims ? "cl.id AS clm_id, date(cl.paid_at, '+8 hours') AS clm_paid, cl.amount_cents AS clm_amount, cl.claim_type AS clm_type, cl.payment_proof_key AS clm_proof" : "NULL AS clm_id, NULL AS clm_paid, NULL AS clm_amount, NULL AS clm_type, NULL AS clm_proof"},
          ${h.expenses ? "ex.id AS exp_id, date(ex.paid_at, '+8 hours') AS exp_paid, ex.amount_cents AS exp_amount" : "NULL AS exp_id, NULL AS exp_paid, NULL AS exp_amount"},
          ${h.payroll ? "date(pp.paid_at, '+8 hours') AS pay_paid, pp.month AS pay_month" : "NULL AS pay_paid, NULL AS pay_month"},
-         d.id AS inv_id, d.payment_status AS inv_status, d.doc_number AS inv_number,
+         d.id AS inv_id, d.payment_status AS inv_status, d.doc_number AS inv_number, d.total_cents AS inv_total,
          ${h.web ? "w.id AS web_id, w.refund_flagged_at AS web_refund" : "NULL AS web_id, NULL AS web_refund"}
     FROM cashflow_entries c
     LEFT JOIN bank_accounts b ON b.id = c.bank_id
@@ -310,7 +311,7 @@ interface RawRow {
   clm_id: number | null; clm_paid: string | null; clm_amount: number | null; clm_type: string | null; clm_proof: string | null;
   exp_id: number | null; exp_paid: string | null; exp_amount: number | null;
   pay_paid: string | null; pay_month: string | null;
-  inv_id: number | null; inv_status: string | null; inv_number: string | null;
+  inv_id: number | null; inv_status: string | null; inv_number: string | null; inv_total: number | null;
   web_id: number | null; web_refund: string | null;
 }
 
@@ -513,6 +514,10 @@ async function exceptionsOf(env: Env, data: Awaited<ReturnType<typeof loadAll>>,
       else if (r.exp_amount != null && r.exp_amount !== r.amount_cents) add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: `The expense now says ${(r.exp_amount / 100).toFixed(2)}; the cash book paid ${(r.amount_cents / 100).toFixed(2)}.`, actions: ["reverse", "review"] });
     } else if (r.ref.startsWith("INV-")) {
       if (!r.inv_id || r.inv_status !== "paid") add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.inv_number ?? r.description ?? r.ref, detail: r.inv_id ? "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it." : "The invoice was deleted. Finance does not count it; the cash book and the journal still hold it.", actions: ["reverse", "review"] });
+      /* v1.225.0 (Master Flow audit P0-1): a paid invoice whose total was
+         edited after it was booked. Edits like that are refused from
+         1.225.0; this lists the ones made before. */
+      else if (r.inv_total != null && r.inv_total !== r.amount_cents) add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.inv_number ?? r.description ?? r.ref, detail: `The invoice now totals ${(r.inv_total / 100).toFixed(2)}; the cash book and the journal received ${(r.amount_cents / 100).toFixed(2)}. Unmark and re-mark it paid to book the right amount, or review it.`, actions: ["reverse", "review"] });
     } else if (r.ref.startsWith("CLM-") && data.has.claims && !r.clm_id) {
       add({ ...base, kind: "out_of_step", key: `CF:${r.id}`, title: r.description || r.ref, detail: "The claim this paid no longer exists.", actions: ["reverse", "review"] });
     } else if (r.ref.startsWith("ELF-") && data.has.web && r.web_refund) {

@@ -362,7 +362,20 @@ export function prorationDays(month: string, working: string[]): { basis: "calen
  * question - "were they employed in THIS month" - which `employedDays` and
  * `payrollMonthStaffSql` answer. The Staff tab asks none of this: it is the
  * record, and a record you cannot look up is not a record. */
+/* v1.225.0 (the owner, 29-10-2026: "Hide resigned in pickers"). Someone the
+   Staff tab marks Resigned or Terminated with NO last day is not on staff
+   today either - before, only left_on was read, so they stayed in every
+   picker. A last day still decides when one is set (notice periods), and a
+   re-joiner is back. Payroll does not use this rule (payrollMonthStaffSql,
+   and payrollBaseStaffSql below), so no pay changes. */
 export const currentStaffSql = (alias = "") =>
+  `((${alias}left_on IS NULL AND COALESCE(${alias}employment_status, '') NOT IN ('resigned', 'terminated'))
+     OR ${alias}left_on >= date('now', '+8 hours')
+     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
+/** v1.225.0 - the rule payroll's own lists have always used (left_on only),
+    kept for them exactly as it was: the basic-salary list and rest-day
+    work. Changing who works here today must never change who is paid. */
+export const payrollBaseStaffSql = (alias = "") =>
   `(${alias}left_on IS NULL
      OR ${alias}left_on >= date('now', '+8 hours')
      OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
@@ -2326,10 +2339,51 @@ async function activeCommissionRules(env: Env): Promise<CommissionRule[]> {
   } catch { return []; }
 }
 
+/* v1.225.0 (the owner's Master Flow answers, 29-10-2026; claude/MASTER-FLOW-AUDIT.md).
+   RETIRED COMMISSION ROUTES ANSWER "RETIRED". The old engine (v1.183.0
+   retired its tab) left its API callable: the CCO and admin could still
+   create, edit and delete commission_rules, HR admin could write
+   commission_entries, /payroll/pull-commission could still move old
+   entries into pay, and /leaderboard paid "base + bonus over target" to
+   anyone with revenue_view. The one engine is commission.ts. The tables and
+   their rows are kept; nothing reads or writes them. */
+export const RETIRED_COMMISSION_ROUTES: RegExp[] = [
+  /^\/commission\/rules(?:\/\d+)?$/, /^\/payroll\/pull-commission$/, /^\/leaderboard$/,
+  /^\/erp\/commission(?:\/rates|\/\d+)?$/,
+];
+/* v1.225.0 - REFUSED ATTEMPTS ARE WRITTEN DOWN (the owner: "Log refused
+   attempts"). A 403 from a route that moves money, says money arrived,
+   confirms it, sets commission, runs payroll or changes a closer is audited
+   as security.denied with the role, the method and the route. */
+export const AUDITED_DENIALS: RegExp[] = [
+  /^\/docs(?:\/\d+(?:\/(?:confirm-paid(?:\/revoke)?|closer|edit|credit-note|payments(?:\/\d+\/void)?))?)?$/,
+  /^\/credit-notes\/\d+\/refund$/, /^\/commission\//, /^\/payroll(?:\/[a-z-]+)?$/, /^\/erp\/cashbook/, /^\/claims\/\d+\/paid$/,
+  /^\/expenses\/\d+\/paid$/, /^\/targets$/, /^\/sales\/week\/targets$/, /^\/revenue\/target$/,
+];
 export async function handleStaff(
   request: Request,
   env: Env,
   path: string, // already stripped of /api/v1/staff prefix, starts with /
+  user: StaffUser,
+): Promise<Response | null> {
+  if (RETIRED_COMMISSION_ROUTES.some((r) => r.test(path))) {
+    return err("retired", "This commission route is retired. Commission lives on the Commission tab (one engine, commission.ts).", 410);
+  }
+  const res = await handleStaffRoutes(request, env, path, user);
+  /* writes always; a read only where the read itself is pay or money (payroll, commission) */
+  if (res && res.status === 403 && AUDITED_DENIALS.some((r) => r.test(path))
+    && (request.method !== "GET" || /^\/(?:payroll|commission)\b/.test(path))) {
+    let code = "forbidden";
+    try { code = ((await res.clone().json()) as { error?: { code?: string } })?.error?.code ?? code; } catch { /* not json */ }
+    await audit(env, user.id, "security.denied", "route", path, { method: request.method, role: user.role, code });
+  }
+  return res;
+}
+
+async function handleStaffRoutes(
+  request: Request,
+  env: Env,
+  path: string,
   user: StaffUser,
 ): Promise<Response | null> {
   const method = request.method;
@@ -8295,6 +8349,26 @@ export async function handleStaff(
       return json({ customers: results });
     }
     if (!body || !str(body.company, 200)) return err("invalid_input", "company is required", 400);
+    /* v1.225.0 (the owner, 29-10-2026: "Customer duplicate warning"). The
+       same company name, or the same phone number, already on file is
+       shown before a second record is made. It is a warning, never a merge:
+       sending confirm_duplicate creates the record anyway. */
+    if (body.confirm_duplicate !== true) {
+      const digits = String(body.phone ?? "").replace(/\D/g, "");
+      /* a Malaysian number written +60 12... or 012... is the same number */
+      const local = digits.startsWith("60") ? `0${digits.slice(2)}` : digits;
+      const intl = local.startsWith("0") ? `6${local}` : local;
+      const { results: dupes } = await env.DB.prepare(
+        `SELECT id, company, phone FROM customers
+          WHERE company != 'Walk-in Customer'
+            AND (LOWER(TRIM(company)) = LOWER(TRIM(?1))
+                 OR (LENGTH(?2) >= 7 AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') IN (?2, ?3)))
+          LIMIT 5`,
+      ).bind(String(body.company), local, intl).all<{ id: number; company: string; phone: string | null }>();
+      if ((dupes ?? []).length) {
+        return json({ error: { code: "possible_duplicate", message: `Already on file: ${(dupes ?? []).map((d) => d.company + (d.phone ? ` (${d.phone})` : "")).join(", ")}. Use the existing customer, or add this one anyway.` }, matches: dupes }, 409);
+      }
+    }
     /* v1.30.0 — website travels with the customer from the first save; the
        logo is uploaded afterwards (POST /customers/:id/logo) because it
        needs the row's id for its object key. Pre-0074 databases have no
@@ -8757,10 +8831,16 @@ export async function handleStaff(
       ? Math.round(body.delivery_cents) : 0;
     const total = Math.max(0, Math.round((subtotal - discount) * (1 + taxPct / 100))) + deliveryFee;
 
-    const number = await docNumber(env, docType);
     // v1.4.93: salesperson — any staff member; defaults to whoever created it.
     const salespersonId = typeof body.salesperson_id === "number" && body.salesperson_id > 0
       ? Math.round(body.salesperson_id) : user.id;
+    /* v1.225.0 (Master Flow audit P1-3) - the closer earns the commission, so
+       it must be a real person on staff today, checked BEFORE a document
+       number is taken */
+    if (salespersonId !== user.id && !(await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role != 'customer' AND ${currentStaffSql()}`).bind(salespersonId).first())) {
+      return err("invalid_input", "The salesperson must be someone on staff today. Pick them from the list.", 400);
+    }
+    const number = await docNumber(env, docType);
     // v1.4.94: backdating — payments received before this system existed can
     // be invoiced on their true date. Past dates only, never the future.
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -9201,12 +9281,39 @@ export async function handleStaff(
     const delE = docE.doc_type !== "DO" && docE.kind !== "service" && typeof body.delivery_cents === "number" && body.delivery_cents >= 0
       ? Math.round(body.delivery_cents) : 0;
     const totalE = Math.max(0, Math.round((subE - discE) * (1 + taxE / 100))) + delE;
+    /* v1.225.0 (the owner, 29-10-2026: "Block edits on paid invoices"). A
+       PAID invoice's money is in the cash book and the journal at the amount
+       it was paid at. Changing its lines, discount, SST, delivery or total
+       here would leave both behind (Finance audit P0-1). To change the money,
+       mark it unpaid first - that reverses its cash row and journal entry -
+       then edit and mark it paid again. Wording, the customer, the reference
+       and the date stay editable. */
+    if (docE.doc_type === "INV") {
+      const curM = await env.DB.prepare(`SELECT payment_status, items, discount_cents, tax_percent, delivery_cents, total_cents FROM sales_documents WHERE id = ?1`)
+        .bind(idE).first<{ payment_status: string | null; items: string | null; discount_cents: number | null; tax_percent: number | null; delivery_cents: number | null; total_cents: number | null }>();
+      if (curM?.payment_status === "paid") {
+        const money = (raw: unknown) => {
+          let arr: Record<string, unknown>[] = [];
+          try { arr = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>[]); } catch { arr = []; }
+          return JSON.stringify((Array.isArray(arr) ? arr : []).map((i) => [Number(i.qty ?? 0), Number(i.unit_price_cents ?? 0), Number(i.disc_cents ?? 0)]));
+        };
+        const same = totalE === Number(curM.total_cents ?? 0) && money(itemsE) === money(curM.items)
+          && discE === Number(curM.discount_cents ?? 0) && taxE === Number(curM.tax_percent ?? 0) && delE === Number(curM.delivery_cents ?? 0);
+        if (!same) {
+          return err("paid_locked", "This invoice is paid: its amounts are already in the cash book and the accounts. To change the amounts, mark it unpaid first (that reverses its money in), edit it, then mark it paid again. Wording, customer and reference can still be edited.", 409);
+        }
+      }
+    }
     let custE: number | null = typeof body.customer_id === "number" && body.customer_id > 0 ? body.customer_id : null;
     if (body.customer_id === 0) {
       const wi = await env.DB.prepare(`SELECT id FROM customers WHERE company = 'Walk-in Customer'`).first<{ id: number }>();
       custE = wi?.id ?? null;
     }
     const spE = typeof body.salesperson_id === "number" && body.salesperson_id > 0 ? Math.round(body.salesperson_id) : null;
+    /* v1.225.0 - a changed closer must be someone on staff today (P1-3) */
+    if (spE !== null && !(await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role != 'customer' AND (${currentStaffSql()} OR id = (SELECT salesperson_id FROM sales_documents WHERE id = ?2))`).bind(spE, idE).first())) {
+      return err("invalid_input", "The salesperson must be someone on staff today. Pick them from the list.", 400);
+    }
     const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     /* v1.181.11 - a REVISION is not a typo fix: it keeps the original date
        on the row (the revision carries its own), so doc_date is ignored. */
@@ -10822,7 +10929,7 @@ export async function handleStaff(
 
     const { results: peopleR } = await env.DB.prepare(
       `SELECT id, name, full_name, role, employment_status, position FROM users
-       WHERE ${staffRolesSql()} AND is_active = 1 AND ${currentStaffSql()}`,
+       WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollBaseStaffSql()}`,
     ).all<{ id: number; name: string; full_name: string | null; role: string; employment_status: string | null; position: string | null }>();
     const byId = new Map(peopleR.map((u) => [u.id, u]));
 
@@ -11900,7 +12007,7 @@ export async function handleStaff(
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id AS user_id, base_salary_cents FROM users
-       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1 AND ${currentStaffSql()}`,
+       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1 AND ${payrollBaseStaffSql()}`,
     ).all();
     return json({ base: results });
   }
@@ -15943,7 +16050,10 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
   }
   if (path === "/targets" && method === "POST") {
-    if (!TARGET_ADMIN_ROLES.includes(user.role)) return err("forbidden", "Management access required", 403);
+    /* v1.225.0 (the owner, 29-10-2026: "Close both") - a monthly person or
+       team target is set by the same three as the company and weekly
+       targets: CEO, COO, super admin. The CCO and admin still read them. */
+    if (!["super_admin", "ceo", "coo"].includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin sets a sales target", 403);
     const scope = String(body?.scope ?? "");
     const month = String(body?.month ?? "");
     const cents = Math.round(Number(body?.target_cents));
@@ -16286,9 +16396,36 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       }
     }
     // Issue a credit note against an invoice.
+    /* v1.225.0 (the owner, 29-10-2026: "Restrict and book refunds"). A
+       credit note says money is owed back, so it is the CEO, COO and admins
+       (invoice_payment), like saying money arrived. A refund actually paid
+       back books money out under CN-<id> - once (bookCash), on the day it
+       was paid, against Sales (4000) or Sales - services (4100), so the cash
+       book, the P&L and the trial balance see it. A credit with no money
+       moving books nothing. Any commission the invoice earned goes to the
+       CEO's review (commission.ts) - never taken from wages. */
+    const refundCN = async (cnId: number, invId: number, cents: number, day: string, cnNumber: string, invNumber: string) => {
+      let kind: string | null = null;
+      try { kind = (await env.DB.prepare(`SELECT kind FROM sales_documents WHERE id = ?1`).bind(invId).first<{ kind: string | null }>())?.kind ?? null; } catch { kind = null; }
+      return bookCash(env, user.id, `CN-${cnId}`, cents, kind === "service" ? "service" : "sales", `Refund ${cnNumber} for ${invNumber}`, "out", day);
+    };
+    const mCnRefund = path.match(/^\/credit-notes\/(\d+)\/refund$/);
+    if (mCnRefund && method === "POST") {
+      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin records a refund", 403);
+      const day = String(body?.refund_on ?? "");
+      const todayR = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > todayR) return err("invalid_input", "The day the money was paid back must be a real date, today or earlier.", 400);
+      const cn = await env.DB.prepare(`SELECT id, cn_number, invoice_id, invoice_number, amount_cents FROM credit_notes WHERE id = ?1`).bind(Number(mCnRefund[1]))
+        .first<{ id: number; cn_number: string; invoice_id: number; invoice_number: string | null; amount_cents: number }>().catch(() => null);
+      if (!cn) return err("not_found", "Credit note not found", 404);
+      const booked = await refundCN(cn.id, cn.invoice_id, cn.amount_cents, day, cn.cn_number, cn.invoice_number ?? "");
+      if (!booked) return err("conflict", `The refund for ${cn.cn_number} is already recorded.`, 409);
+      await audit(env, user.id, "credit_note.refund", "credit_notes", String(cn.id), { amount_cents: cn.amount_cents, refund_on: day });
+      return json({ ok: true });
+    }
     const mCn = path.match(/^\/docs\/(\d+)\/credit-note$/);
     if (mCn && method === "POST") {
-      if (!DOC_MANAGE) return err("forbidden", "Sales/finance access required", 403);
+      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin issues a credit note", 403);
       const invId = Number(mCn[1]);
       const cents = Math.round(Number(body?.amount_cents));
       const reason = String(body?.reason ?? "").trim();
@@ -16296,6 +16433,12 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const inv = await env.DB.prepare(`SELECT id, doc_number, customer_id, total_cents FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`).bind(invId).first<{ id: number; doc_number: string; customer_id: number; total_cents: number }>();
       if (!inv) return err("not_found", "Invoice not found", 404);
       if (cents > inv.total_cents) return err("invalid_input", "Credit note cannot exceed the invoice total", 400);
+      /* v1.225.0 - all the credit notes on one invoice never exceed it */
+      const already = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM credit_notes WHERE invoice_id = ?1`).bind(invId).first<{ c: number }>().catch(() => ({ c: 0 }));
+      if (Number(already?.c ?? 0) + cents > inv.total_cents) return err("invalid_input", `Credit notes on ${inv.doc_number} would exceed its total: RM ${(Number(already?.c ?? 0) / 100).toFixed(2)} is already credited.`, 400);
+      const refundOn = typeof body?.refund_on === "string" && body.refund_on ? String(body.refund_on) : null;
+      const todayC = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      if (refundOn && (!/^\d{4}-\d{2}-\d{2}$/.test(refundOn) || refundOn > todayC)) return err("invalid_input", "The day the money was paid back must be a real date, today or earlier.", 400);
       try {
         const number = await docNumber(env, "CN");
         const token = crypto.randomUUID().replace(/-/g, "");
@@ -16312,7 +16455,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           invIssuerC = ic?.issuer_code === "azoo" ? "azoo" : ic?.issuer_code === "a2z" ? "a2z" : null;
         } catch { /* pre-0073 */ }
         if (invIssuerC) await stampIssuer(env, "credit_notes", res?.id, invIssuerC);
-        await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents });
+        await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents, refund_on: refundOn });
+        if (refundOn && res?.id) await refundCN(res.id, invId, cents, refundOn, number, inv.doc_number);
         await ensureLedger(env, invId); // v1.224.0 - an earned commission on this invoice goes to review, never deducted by itself
         return json({ id: res?.id, cn_number: number }, 201);
       } catch (e) {
@@ -16339,8 +16483,17 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         const { results } = await env.DB.prepare(
           `SELECT n.id, n.cn_number, n.invoice_number, n.amount_cents, n.reason, n.share_token, n.created_at, c.company, n.issuer_code
            FROM credit_notes n LEFT JOIN customers c ON c.id = n.customer_id ORDER BY n.id DESC LIMIT 200`,
-        ).all();
-        return json({ credit_notes: results });
+        ).all<{ id: number }>();
+        /* v1.225.0 - whether each one's refund is in the cash book, and who may record one */
+        let refunded = new Map<number, string>();
+        try {
+          const { results: rf } = await env.DB.prepare(
+            `SELECT c.ref, COALESCE(c.effective_date, c.entry_date) AS day FROM cashflow_entries c
+              WHERE c.ref LIKE 'CN-%' AND NOT EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = c.id)`,
+          ).all<{ ref: string; day: string }>();
+          refunded = new Map((rf ?? []).map((x) => [Number(x.ref.slice(3)), x.day]));
+        } catch { refunded = new Map(); }
+        return json({ credit_notes: (results ?? []).map((n) => ({ ...n, refunded_on: refunded.get(n.id) ?? null })), can_issue: can(user.role, "invoice_payment") });
       } catch (e) {
         if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 first", 409);
         throw e;

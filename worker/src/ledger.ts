@@ -36,7 +36,7 @@ const addDays = (d: string, k: number) => new Date(Date.parse(`${d}T00:00:00Z`) 
 /* ---- where an entry came from: its ref names the event ---- */
 export type SourceKind = "sales" | "expenses" | "claims" | "payroll" | "finance" | "channel" | "elfia" | "reversal" | "manual";
 const PREFIX: [RegExp, SourceKind][] = [
-  [/^INV-\d+/, "sales"], [/^EXP-\d+/, "expenses"], [/^CLM-\d+/, "claims"], [/^PAYROLL-\d{4}-\d{2}/, "payroll"],
+  [/^INV-\d+/, "sales"], [/^CN-\d+/, "sales"], [/^EXP-\d+/, "expenses"], [/^CLM-\d+/, "claims"], [/^PAYROLL-\d{4}-\d{2}/, "payroll"],
   [/^CF-\d+/, "finance"], [/^RECON-/, "channel"], [/^ELF-/, "elfia"], [/^REVJ?-\d+/, "reversal"],
 ];
 export function sourceOf(ref: string): SourceKind {
@@ -397,7 +397,12 @@ export async function handleLedger(env: Env, path: string, method: string, user:
     let detail: Record<string, string | number | null> | null = null;
     try {
       const n = Number((/^[A-Z]+-(\d+)/.exec(e.ref) ?? [])[1] ?? 0);
-      if (kind === "sales" && n) {
+      if (kind === "sales" && n && e.ref.startsWith("CN-")) {
+        /* v1.225.0 - a refund paid back on a credit note */
+        const c = await env.DB.prepare(`SELECT cn_number, invoice_number, amount_cents, reason, date(created_at, '+8 hours') AS issued_on FROM credit_notes WHERE id = ?1`).bind(n)
+          .first<{ cn_number: string; invoice_number: string | null; amount_cents: number; reason: string | null; issued_on: string }>();
+        if (c) detail = { document: c.cn_number, invoice: c.invoice_number, total_cents: c.amount_cents, reason: c.reason, issued_on: c.issued_on };
+      } else if (kind === "sales" && n) {
         const d = await env.DB.prepare(`SELECT doc_number, issuer_code, kind, payment_status, date(paid_at, '+8 hours') AS paid_on, total_cents FROM sales_documents WHERE id = ?1`).bind(n)
           .first<{ doc_number: string; issuer_code: string | null; kind: string | null; payment_status: string | null; paid_on: string | null; total_cents: number }>();
         let confirmed: string | null = null;
