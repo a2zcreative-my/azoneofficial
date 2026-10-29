@@ -10,6 +10,55 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.224.0] - 2026-10-29 - Sales Commission: policy, ledger and payroll
+
+The owner's Commission brief and answers, 29-10-2026
+(claude/COMMISSION-AUDIT.md): basis "after discounts, excl. SST & delivery";
+LIVE packages "Same 10% as other packages"; renewals "Every paid month";
+"Bring back the Commission tab"; "Only CEO/COO/admins mark paid"; and
+"approve" for the recommended defaults (refunds to review with no wage
+deduction, leavers, the paid day picks the policy, month-end cutoff with
+carry-forward, CEO approval, shadow first). Migration **0150** (additive).
+
+- **One commission engine** (`worker/src/commission.ts`). A versioned
+  policy: drafted by the CEO, COO or super admin with a reason, approved
+  only by the CEO or super admin, never back-dated, never edited after; the
+  version in force for an invoice is chosen by the day its money landed.
+  Rates in basis points, half up, in sen. No policy is invented: until the
+  CEO approves one, nothing is estimated or earned.
+- **The entitlement ledger** (`commission_ledger`): one row per event
+  (UNIQUE source_key), written when the CEO/COO confirms Paid and by a
+  catch-up pass, so a retry or replay never writes two. The closer is
+  snapshotted; no closer -> review. A confirmation taken back before payroll
+  voids it; after payroll it goes to review. A credit note opens a reversal
+  for review. Commission already paid is never deducted from wages - it can
+  only be settled outside payroll or dismissed, with a reason.
+- **Payroll**: Save and Recompute never store the screen's commission. With
+  the owner's switch off (shadow - the default) the row keeps its figure;
+  switched on (CEO, with a reason, logged), each eligible entitlement is
+  given to one payroll month by a conditional write - never to a released
+  month, carried forward otherwise - and the row's commission is the
+  ledger's sum. The bank run (Payroll paid) marks it paid. OT, public
+  holidays, unpaid leave and advances are untouched.
+- **Commission tab is back** (Finance, after Accounting): Entries (earned
+  rows and estimates, with every fact and the audit history; the CEO decides
+  reviews), Flow (the seven stages with live counts, exceptions and the
+  controls) and Policy (in force, governance, the payroll switch, versions
+  with preview, approve and reject). Management sees everyone (the CCO
+  read-only); a sales consultant sees their own only. Desktop and phone.
+- **Sales -> Overview** gains a commission card (Estimated, Eligible, In
+  payroll, Paid) with View details, separate from the weekly target card.
+  Payroll's Sales Commission column says where it stands and the breakdown
+  shows what each invoice earned.
+- **Who says money arrived**: marking an invoice paid, unpaid or overdue,
+  creating it already paid, and recording or voiding a part payment are now
+  the CEO, COO, super admin and admin only (`invoice_payment`). The CCO, sales
+  consultants and HR admin keep reading them.
+- Guard **commission-ledger** (runtime, all migrations, 71 checks, the
+  brief's cases A-H, negative-tested). Guards updated to the approved
+  behaviour: payroll-commission, payroll-module, payroll-days,
+  sales-workspace, business-joins, tab-concept. Lint unchanged at 125.
+
 ## [1.223.1] - 2026-10-28 - Weekly Sales: the right people, and targets you can set
 
 The owner, 28-10-2026, on the live Weekly sales targets drawer: "I cant edit

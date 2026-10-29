@@ -1295,8 +1295,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     "ceo",
     "sales_marketing",
   ].includes(user.role);
-
-  /* v1.77.0 — skeleton until the first fetch lands (customers, then docs). */
+  /* v1.224.0 (the owner, 29-10-2026): saying an invoice's money arrived -
+     mark paid / unpaid / overdue, or create it already paid - is the CEO,
+     COO and admins only (worker permissions invoice_payment). Everyone who
+     can invoice still sees the payment status. */
+  const canPay = ["super_admin", "admin", "ceo", "coo"].includes(user.role);
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the
@@ -2874,7 +2877,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 </div>
               </div>
             </div>
-            {doc.doc_type === "INV" && (
+            {doc.doc_type === "INV" && canPay && (
               <label
                 className="mt-3 flex items-center gap-1.5 text-sm"
                 title={L(
@@ -3062,7 +3065,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     on a DO, the invoiced chip on a quotation - exactly the
                     controls the row had, in their own column */}
                 <span className={sc.cStatus} role="cell">
-                  {d.doc_type === "INV" && canInvoice && (
+                  {d.doc_type === "INV" && canPay && (
                     <select
                       className={selectClassSm}
                       value={d.payment_status ?? "unpaid"}
@@ -3149,7 +3152,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Open", "Terbuka")}
                     </span>
                   )}
-                  {d.doc_type === "INV" && !canInvoice && (
+                  {d.doc_type === "INV" && !canPay && (
                     <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : "erp-chip erp-chip-sm erp-chip-warning"}>
                       {payStatusL(d.payment_status ?? "unpaid")}
                     </span>

@@ -101,6 +101,12 @@ export const ALL_TABS = [
      v1.183.0 - Commission joined them (with the payroll commission line,
      by the owner's explicit choice); see the note after Sales above. */
   "Accounting",
+  /* v1.224.0 - COMMISSION IS BACK, by the owner's explicit choice
+     (29-10-2026, the Commission brief, answer: bring back the Commission tab),
+     as a new page over the new engine (worker/src/commission.ts): Entries,
+     Flow and Policy. The retired v1.183.0 panel and its dormant routes are
+     not revived - nothing reads commission_rules or commission_entries. */
+  "Commission",
   "Companies",
   /* v1.129.0 - the three officers' digital business cards, to share with a
      client. Placed HERE, next to Profile, for two reasons and neither is
@@ -350,6 +356,9 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
     "hr_admin", "sales_marketing", "marketing",
   ],
   Accounting: ["super_admin", "admin", "ceo"],
+  /* v1.224.0 - management sees everyone's (the CCO read-only, enforced in
+     commission.ts); a sales consultant sees their own entries only */
+  Commission: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
   Companies: ["super_admin", "ceo"],
   // v1.7.0: Content is open to the team that makes it.
   Content: [
@@ -380,6 +389,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Threads: { en: "posts + insights", ms: "hantaran + analisis" },
   Hotels: { en: "review outreach by state", ms: "capaian ulasan ikut negeri" },
   Accounting: { en: "GL — keep tight", ms: "GL — kawal ketat" },
+  Commission: { en: "earned, in payroll, paid", ms: "diperoleh, dalam gaji, dibayar" },
   /* v1.102.0 - Content and Stokis are PARKED, not gone. Their hints stay so
      that un-parking is one deletion from PARKED_TABS and nothing else. */
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
@@ -561,6 +571,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Payroll: { slug: "payroll" },
   Finance: { slug: "finance" },
   Accounting: { slug: "accounting" },
+  Commission: { slug: "commission" },
   Companies: { slug: "companies" },
   Cards: { slug: "cards" },
   Profile: { slug: "profile" },

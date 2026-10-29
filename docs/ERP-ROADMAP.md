@@ -278,3 +278,6 @@ stay cash basis; no balance sheet until opening balances are approved.
 1.223.0 (Weekly Sales) adds migration `0149_weekly_sales` - approved weekly
 targets (insert-only), finalised week results, recovery plans, and a
 nullable link (customer, enquiry, quotation, recovery plan) on tasks.
+1.224.0 (Sales Commission) adds migration `0150_commission_ledger` -
+versioned commission policies, the entitlement ledger (one row per event)
+and the log of the payroll switch.

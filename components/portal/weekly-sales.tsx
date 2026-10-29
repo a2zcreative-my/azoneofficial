@@ -111,7 +111,8 @@ function Figures({ r }: { r: WeekRow }) {
     [L("Collected", "Dikutip"), fmtRM(r.basis_cents), L(`${r.paid_invoices} invoice(s) paid in full`, `${r.paid_invoices} invois dibayar penuh`)],
     [L("Confirmed by CEO/COO", "Disahkan CEO/COO"), fmtRM(r.confirmed_cents), L(`${r.confirmed_invoices} confirmed`, `${r.confirmed_invoices} disahkan`)],
     [L("Deals won", "Jualan dimenangi"), String(r.won.n), fmtRM(r.won.cents)],
-    [L("Commission", "Komisen"), L("Waiting for the policy", "Menunggu polisi"), L("Counts confirmed invoices only", "Kira invois disahkan sahaja")],
+    /* v1.224.0 - commission is its own engine; a weekly target never changes it */
+    [L("Commission", "Komisen"), L("Separate from targets", "Berasingan daripada sasaran"), L("See the Commission card", "Lihat kad Komisen")],
   ];
   const activity: [string, string, string][] = [
     [L("Follow-ups done", "Susulan dibuat"), String(r.followups_done), L(`${r.followups_overdue} overdue`, `${r.followups_overdue} lewat`)],

@@ -704,7 +704,60 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   }
   /* v1.216.1 - commission starts with the November 2026 payroll; the
      CONFIRMED server pretends it started in September so the rows show */
-  if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: null, starts: process.env.CONFIRMED ? "2026-09" : "2026-11",
+  /* v1.224.0 - the commission engine (worker/src/commission.ts), worked by
+     hand for the fixture only: policy v1 at 10% (active), v2 at 8% drafted;
+     Nur Aisyah's INV-AZO100926-2 eligible (RM 2,800 -> RM 280.00), Fixture
+     Person's own entries in payroll and paid, one entry under review (no
+     closer), and two open invoices as estimates. The payroll switch is off
+     unless COMM_SYNC is set. Figures are invented for the fixture. */
+  const cmPolicy = { id: 1, version: 1, name: "A2Z Sales Commission", status: "active", effective_from: "2026-11-01", rate_kind: "percent", rate_bp: 1000, fixed_cents: null, basis: "net_of_tax_delivery",
+    reason: "The documented 10% base rate", created_at: "2026-10-29 03:00:00", approved_at: "2026-10-29 04:00:00", created_by_name: "Fixture COO", approved_by_name: "Fixture Person" };
+  const cmAll = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+  const cmMine = !(q.get("scope") === "all" && cmAll);
+  const cmEntry = (o) => ({ kind: "earn", rate_bp: 1000, fixed_cents: null, policy_version: 1, policy_name: "A2Z Sales Commission", note: null, paid_out_at: null, payroll_month: null,
+    confirmed_at: "2026-11-05 02:00:00", confirmed_by_name: "Fixture COO", decision_note: null, payment_status: "paid", ...o });
+  const cmEntries = [
+    cmEntry({ id: 4, invoice_id: 30, doc_number: "INV-AZO051126-4", company: "Kedai Runcit Lima", package: "Unknown closer package", closer_name: null, user_id: null, invoice_total: 30000, amount_cents: 3000, basis_cents: 30000, status: "review", eligible_at: "2026-11-07 02:00:00", note: "No closer on the invoice - choose one, then apply" }),
+    cmEntry({ id: 3, invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", package: "LIVE Host - Starter", closer_name: "Nur Aisyah", user_id: 9002, invoice_total: 280000, amount_cents: 28000, basis_cents: 280000, status: "eligible", eligible_at: "2026-11-06 02:00:00" }),
+    cmEntry({ id: 2, invoice_id: 28, doc_number: "INV-AZO021126-2", company: "Casa del Rio Sdn Bhd", package: "AZ Monthly Care", closer_name: "Fixture Person", user_id: 9001, invoice_total: 39900, amount_cents: 3990, basis_cents: 39900, status: "included", payroll_month: "2026-11", eligible_at: "2026-11-03 02:00:00" }),
+    cmEntry({ id: 1, invoice_id: 27, doc_number: "INV-AZO011126-1", company: "Kedai Satu", package: "AZ Starter", closer_name: "Fixture Person", user_id: 9001, invoice_total: 120000, amount_cents: 12000, basis_cents: 120000, status: "paid", payroll_month: "2026-10", paid_out_at: "2026-11-01 02:00:00", eligible_at: "2026-10-30 02:00:00" }),
+  ];
+  const cmEstimates = [
+    { invoice_id: 3, doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", closer_name: "Fixture Person", user_id: 9001, invoice_total: 990000, payment_status: "unpaid", received_cents: 400000, stage: "part_paid", package: "LIVE Host - Growth", created_at: "2026-09-05 02:00:00", estimate_cents: 99000, basis_cents: 990000, policy_version: 1 },
+    { invoice_id: 31, doc_number: "INV-AZO081126-6", company: "Kedai Dua", closer_name: "Nur Aisyah", user_id: 9002, invoice_total: 24900, payment_status: "unpaid", received_cents: 0, stage: "unpaid", package: "AZ Creative Express", created_at: "2026-11-08 02:00:00", estimate_cents: 2490, basis_cents: 24900, policy_version: 1 },
+  ];
+  const cmPick = (xs) => (cmMine ? xs.filter((x) => x.user_id === 9001) : xs);
+  const cmSum = (xs) => ({ cents: xs.reduce((a, x) => a + (x.amount_cents ?? x.estimate_cents ?? 0), 0), n: xs.length });
+  if (p === "/commission/summary") {
+    const es = cmPick(cmEntries);
+    data = { scope: cmMine ? "mine" : "all", month: "2026-11", start: "2026-11-01", sync: Boolean(process.env.COMM_SYNC), can_view_all: cmAll, policy: process.env.NOPOLICY ? null : cmPolicy,
+      estimated: cmSum(cmPick(cmEstimates)), eligible: cmSum(es.filter((e) => e.status === "eligible")), included: cmSum(es.filter((e) => e.status === "included")),
+      paid: cmSum(es.filter((e) => e.status === "paid" && e.payroll_month === "2026-11")), review: cmSum(es.filter((e) => e.status === "review")) };
+  }
+  if (p === "/commission/entries") data = { scope: cmMine ? "mine" : "all", entries: q.get("status") === "estimated" ? [] : cmPick(cmEntries).filter((e) => !q.get("status") || e.status === q.get("status")),
+    estimates: !q.get("status") || q.get("status") === "estimated" ? cmPick(cmEstimates) : [], can_decide: ["ceo", "super_admin"].includes(ROLE) };
+  const cmOne = p.match(/^\/commission\/entries\/(\d+)$/);
+  if (cmOne) {
+    const e = cmEntries.find((x) => x.id === Number(cmOne[1]));
+    data = !e ? { error: { code: "not_found", message: "Commission entry not found" } } : (!cmAll && e.user_id !== 9001) ? { error: { code: "forbidden", message: "You can see your own commission only" } } : {
+      entry: { ...e, tax_percent: 0, discount_cents: 0, delivery_cents: 0, policy_basis: "net_of_tax_delivery" },
+      related: [{ id: e.id, kind: "earn", status: e.status, amount_cents: e.amount_cents, payroll_month: e.payroll_month, note: e.note, created_at: e.eligible_at }],
+      confirmations: [{ id: 7, amount_cents: e.invoice_total, payment_ref: "MBB-77120", confirmed_at: e.confirmed_at, confirmed_by_name: "Fixture COO", revoked_at: null, revoke_reason: null, revoked_by_name: null }],
+      history: [{ action: "invoice.paid_confirm", detail: null, created_at: e.confirmed_at, who: "Fixture COO" }],
+      can_decide: ["ceo", "super_admin"].includes(ROLE) };
+  }
+  if (p === "/commission/flow") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    start: "2026-11-01", sync: Boolean(process.env.COMM_SYNC), policy: cmPolicy,
+    stages: [{ key: "closed", n: 5, cents: 1454800 }, { key: "issued", n: 1, cents: 24900 }, { key: "verified", n: 1, cents: 990000 }, { key: "confirmed", n: 4, cents: 469900 },
+      { key: "eligible", n: 1, cents: 28000 }, { key: "included", n: 1, cents: 3990 }, { key: "paid", n: 1, cents: 12000 }],
+    exceptions: { review: { n: 1, cents: 3000 }, no_policy: 0, no_closer: 0, awaiting_confirmation: 0, carried_forward: { n: 0, cents: 0 }, leavers: { n: 0, cents: 0 } } };
+  if (p === "/commission/policy") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    versions: [{ ...cmPolicy, id: 2, version: 2, name: "A2Z Sales Commission v2", status: "draft", effective_from: "2026-12-01", rate_bp: 800, reason: "Proposed new rate from December", approved_at: null, approved_by_name: null }, cmPolicy],
+    log: [], in_force: cmPolicy, sync: Boolean(process.env.COMM_SYNC), start: "2026-11-01", today: "2026-09-18",
+    can_draft: ["ceo", "coo", "super_admin"].includes(ROLE), can_approve: ["ceo", "super_admin"].includes(ROLE), can_switch: ["ceo", "super_admin"].includes(ROLE) };
+  const cmPrev = p.match(/^\/commission\/policy\/(\d+)\/preview$/);
+  if (cmPrev) data = { policy: { ...cmPolicy, version: 2, rate_bp: 800 }, rows: [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", closer_name: "Nur Aisyah", package: "LIVE Host - Starter", paid_day: "2026-09-12", basis_cents: 280000, amount_cents: 22400, current_version: 1, current_cents: 28000 }], total_cents: 22400 };
+  if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: process.env.COMM_POLICY ? cmPolicy : null, sync: Boolean(process.env.COMM_SYNC), sums: process.env.COMM_SYNC ? { 9002: 28000 } : null, starts: process.env.CONFIRMED ? "2026-09" : "2026-11",
     rows: process.env.CONFIRMED && (q.get("month") ?? "") === "2026-09" ? [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", amount_cents: 280000, payment_ref: null,
       paid_at: D + "12 10:00:00", confirmed_at: D + "13 02:00:00", confirmed_by_name: "Fixture COO", salesperson_id: 9002, closer_name: "Nur Aisyah" }] : [] };
   /* v1.181.11 - the quotation above, whole, and the version its revision replaced */

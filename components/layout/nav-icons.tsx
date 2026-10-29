@@ -22,7 +22,7 @@
  */
 
 import {
-  AtSign, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
+  AtSign, BadgePercent, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck,
@@ -82,6 +82,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   //      Ads Fund and Purchasing retired, their glyphs with them) ----
   Finance: Banknote,
   Accounting: ScrollText,
+  Commission: BadgePercent, // v1.224.0 - the commission tab, back over the new engine
   Companies: Building2,
   // ---- misc surfaces ----
   Events: CalendarClock,

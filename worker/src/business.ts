@@ -50,7 +50,9 @@ const skew = (e: unknown) => /no such (table|column)/.test(String(e));
 /** Read sales documents: the same test GET /docs uses. */
 const canReadDocs = (u: StaffUser) => can(u.role, "sales") || can(u.role, "exec_view");
 /** Touch money on an invoice: the same test marking an invoice paid uses. */
-const canInvoiceMoney = (u: StaffUser) => can(u.role, "finance");
+/* v1.224.0 (the owner, 29-10-2026): recording or voiding a part payment is
+   saying money arrived - the CEO, COO and admins only (invoice_payment) */
+const canInvoiceMoney = (u: StaffUser) => can(u.role, "invoice_payment");
 /** v1.181.17 - the joining checklist's keys, exactly as Staff Details
     (components/staff/staff-directory.tsx ONBOARDING_ITEMS) writes them */
 export const JOINING_KEYS = ["offer_letter", "contract", "bank", "twofa", "badge", "groups"];

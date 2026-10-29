@@ -65,7 +65,7 @@ export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Operations", tabs: ["Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "On Shift", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
-  { title: "Finance", tabs: ["Finance", "Accounting", "Companies"] },
+  { title: "Finance", tabs: ["Finance", "Accounting", "Commission", "Companies"] },
   { title: "Account", tabs: ["Cards", "Profile"] },
   { title: "System", tabs: ["Users"] },
 ];

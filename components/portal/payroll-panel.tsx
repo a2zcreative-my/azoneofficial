@@ -482,7 +482,11 @@ interface CommSource {
   invoice_id: number; doc_number: string; company: string | null; amount_cents: number; payment_ref: string | null;
   paid_at: string | null; confirmed_at: string; confirmed_by_name: string | null; salesperson_id: number | null; closer_name: string | null;
   self_confirmed?: number; // v1.216.2 - the closer (the CEO) confirmed it
+  /* v1.224.0 - what the invoice earned in the commission ledger, its state and the payroll month it went to */
+  commission_cents?: number | null; commission_status?: string | null; commission_month?: string | null;
 }
+/** v1.224.0 - the approved policy in force for the month (commission.ts) */
+interface CommPolicy { id: number; version: number; name: string; rate_kind: "percent" | "fixed"; rate_bp: number | null; fixed_cents: number | null; basis: string; effective_from: string }
 
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
@@ -742,6 +746,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
+  const baseRef = useRef<Record<number, number>>({}); // v1.224.0 - read by the commission fetch, which may land before or after the month's rows
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
   /* v1.198.0 - the five tabs, the row being explained in the drawer, and
      what was loaded: the pristine snapshot as state (render reads it to say
@@ -770,13 +775,38 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
      commission policy is set yet, so nothing is calculated from them: the
      Sales Commission column shows the row's saved commission (RM 0.00 for
      every month since commission left pay on 22-10-2026) and says why. */
-  const [commSrc, setCommSrc] = useState<{ month: string; policy: null | object; starts?: string; rows: CommSource[]; failed?: boolean } | null>(null);
+  /* v1.224.0 - the commission engine (worker/src/commission.ts): the policy
+     in force, whether the owner's payroll switch is on, and - when it is -
+     each person's sum from the ledger for this month. The server stores that
+     sum on Save and Recompute whatever the screen sends; the screen shows it
+     too, so the row's Net and its unsaved mark match what Save will write. */
+  type CommSrc = { month: string; policy: CommPolicy | null; starts?: string; rows: CommSource[]; failed?: boolean; sync?: boolean; sums?: Record<string, number> | null };
+  const [commSrc, setCommSrc] = useState<CommSrc | null>(null);
+  const commSumsRef = useRef<{ month: string; sums: Record<string, number> } | null>(null);
+  const applyCommSums = useCallback((m: Record<number, Entry>, b: Record<number, number>): Record<number, Entry> => {
+    const cs = commSumsRef.current;
+    if (!cs) return m;
+    let changed = false;
+    const next = { ...m };
+    for (const id of new Set([...Object.keys(m), ...Object.keys(cs.sums)].map(Number))) {
+      const want = cs.sums[String(id)] ?? 0;
+      const cur = next[id] ?? { user_id: id, basic_cents: b[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+      if (cur.commission_cents !== want) { next[id] = { ...cur, commission_cents: want }; changed = true; }
+    }
+    return changed ? next : m;
+  }, []);
   useEffect(() => {
     let alive = true;
-    void api<{ month: string; policy: null | object; rows: CommSource[] }>(`/payroll/commission-sources?month=${month}`)
-      .then((r) => { if (alive) setCommSrc(r.ok && r.data ? r.data : { month, policy: null, rows: [], failed: true }); });
+    void api<CommSrc>(`/payroll/commission-sources?month=${month}`)
+      .then((r) => {
+        if (!alive) return;
+        const d = r.ok && r.data ? r.data : { month, policy: null, rows: [], failed: true };
+        commSumsRef.current = d.sync && d.sums ? { month, sums: d.sums } : null;
+        setCommSrc(d);
+        if (commSumsRef.current) setEntries((m) => applyCommSums(m, baseRef.current));
+      });
     return () => { alive = false; };
-  }, [month]);
+  }, [month, applyCommSums]);
   const commOf = (uid: number) => (commSrc?.month === month ? commSrc.rows.filter((r) => r.salesperson_id === uid) : []);
   /* v1.216.1 - the owner, 28-10-2026: commission starts with the November
      2026 payroll (the server's COMMISSION_START_MONTH). Before it, the column
@@ -838,6 +868,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const bmap: Record<number, number> = {};
     for (const r of b.data?.base ?? []) bmap[r.user_id] = r.base_salary_cents;
     setBase(bmap);
+    baseRef.current = bmap;
     setBaseDraft(bmap);
     // v1.4.101: staff lifecycle — a resigned/terminated person is processed
     // up to and including the month of the effective date (final salary uses
@@ -905,7 +936,9 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
          salary, exactly as entry() would have. */
       map[id] = { ...(cur ?? { user_id: id, basic_cents: bmap[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 }), ot_hours: h };
     }
-    setEntries(map);
+    /* v1.224.0 - with the payroll switch on, the ledger's commission for
+       this month (if its fetch already landed; otherwise it applies itself) */
+    setEntries(commSumsRef.current?.month === month ? applyCommSums(map, bmap) : map);
     setWorkedDays(savedDays);
     setRelease(p.data?.release ?? null);
     // Snapshot the just-loaded state per row for no-change detection.
@@ -922,7 +955,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     setSavedIds((p.data?.entries ?? []).map((x) => x.user_id));
     setNoNetIds((p.data?.entries ?? []).filter((x) => typeof (x as Entry & { net_cents?: number | null }).net_cents !== "number").map((x) => x.user_id));
     setLoaded(true);
-  }, [month]);
+  }, [month, applyCommSums]);
   useEffect(() => {
     /* v1.77.0 — `.finally` is the safety net: should one of the four
        requests reject, the skeleton still clears instead of shimmering
@@ -1462,7 +1495,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
               ) : (
                 <th key={col} className={`${pp.th} ${pp.sortable}`}
                   aria-sort={prSort.col === col ? (prSort.asc ? "ascending" : "descending") : undefined}
-                  title={col === "comm" ? L("Sales commission - read-only. It counts only invoices the CEO/COO confirmed as paid in full; no commission policy is set yet, so nothing is calculated.\nSort by commission - click again to reverse", "Komisen jualan - baca sahaja. Hanya invois yang disahkan dibayar penuh oleh CEO/COO dikira; tiada polisi komisen lagi, jadi tiada apa dikira.\nIsih ikut komisen - klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
+                  title={col === "comm" ? L("Sales commission - read-only. It counts only invoices the CEO/COO confirmed as paid in full, at the approved policy, from the commission ledger once the CEO switches payroll on.\nSort by commission - click again to reverse", "Komisen jualan - baca sahaja. Hanya invois yang disahkan dibayar penuh oleh CEO/COO dikira, pada polisi diluluskan, daripada lejar komisen apabila CEO menghidupkan gaji.\nIsih ikut komisen - klik lagi untuk terbalik") : L(`Sort by ${label} — click again to reverse`, `Isih ikut ${label} — klik lagi untuk terbalik`)}
                   onClick={() => cyclePr(col)}>
                   {label}{prSort.col === col ? (prSort.asc ? " ▲" : " ▼") : ""}
                 </th>
@@ -1587,7 +1620,12 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                           ? L("No confirmed invoices", "Tiada invois disahkan")
                           : L(`${commOf(u.id).length} confirmed paid invoice${commOf(u.id).length === 1 ? "" : "s"}`, `${commOf(u.id).length} invois disahkan dibayar`)}
                       </span>
-                      {!beforeComm && <span className={pp.commChip}>{L("No policy yet", "Tiada polisi lagi")}</span>}
+                      {/* v1.224.0 - where the figure stands: no policy, recorded
+                          only (the payroll switch off), or from the ledger */}
+                      {!beforeComm && commSrc !== null && <span className={pp.commChip}>{!commSrc.policy
+                        ? L("No policy yet", "Tiada polisi lagi")
+                        : !commSrc.sync ? L("Recorded - payroll link off", "Direkod - pautan gaji mati")
+                        : L("From the commission ledger", "Daripada lejar komisen")}</span>}
                       <button type="button" className={pp.commLink} onClick={() => setDetailId(u.id)}
                         aria-label={`${L("Commission breakdown", "Pecahan komisen")} — ${displayName(u)}`}>
                         {L("View breakdown", "Lihat pecahan")}
@@ -2379,13 +2417,17 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   {commOf(detailUser.id).map((r) => (
                     <li key={r.invoice_id}>
                       <span className={pp.commInv}><strong>{r.doc_number}</strong><span>{r.company ?? "—"}</span></span>
-                      <span className={pp.commInvAmt}>{rm(r.amount_cents)}</span>
+                      <span className={pp.commInvAmt}>{rm(r.amount_cents)}{typeof r.commission_cents === "number" ? ` → ${rm(r.commission_cents)}` : ""}</span>
                       <span className={pp.commBy}>{L(`${r.self_confirmed ? "Self-confirmed" : "Confirmed"} by ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`, `Disahkan oleh ${r.confirmed_by_name ?? "—"} · ${dmyMYT(r.confirmed_at).slice(0, 10)}`)}</span>
                     </li>
                   ))}
                 </ul>
               )}
-              <p className={pp.commNote}>{L("No commission policy is set - nothing is calculated from these invoices yet. The commission on this row is the saved figure.", "Tiada polisi komisen ditetapkan - tiada apa dikira daripada invois ini lagi. Komisen pada baris ini ialah angka yang disimpan.")}</p>
+              <p className={pp.commNote}>{!commSrc?.policy
+                ? L("No commission policy is approved - nothing is calculated from these invoices yet. The commission on this row is the saved figure.", "Tiada polisi komisen diluluskan - tiada apa dikira daripada invois ini lagi. Komisen pada baris ini ialah angka yang disimpan.")
+                : !commSrc.sync
+                  ? L(`Policy v${commSrc.policy.version}: each invoice's commission is recorded (→ amount), but the payroll link is off, so this row keeps its saved figure. The CEO switches it on in Commission -> Policy.`, `Polisi v${commSrc.policy.version}: komisen setiap invois direkod, tetapi pautan gaji mati, jadi baris ini kekal dengan angka disimpan.`)
+                  : L(`Policy v${commSrc.policy.version}: this row's commission is the ledger's sum for the month - the server writes it on Save and Recompute; nothing is typed. An invoice confirmed after this month's payslips are released goes to the next month.`, `Polisi v${commSrc.policy.version}: komisen baris ini ialah jumlah lejar untuk bulan ini - pelayan menulisnya semasa Simpan dan Kira Semula.`)}</p>
               <p className={pp.drawerHead}>{L("Attendance this month", "Kehadiran bulan ini")}</p>
               <dl className={pp.config}>
                 {f.hourlyRow ? (

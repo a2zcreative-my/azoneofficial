@@ -72,6 +72,7 @@ export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").t
 export const SalesMap = lazy(() => import("@/components/portal/sales-map").then((m) => m.SalesMap)); // v1.113.0
 export const PayrollPanel = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.PayrollPanel));
 export const MyPayslip = lazy(() => import("@/components/portal/payroll-panel").then((m) => m.MyPayslip));
+export const CommissionPanel = lazy(() => import("@/components/portal/commission-panel").then((m) => m.CommissionPanel)); // v1.224.0 - the commission tab, back
 export const AccountingPanel = lazy(() => import("@/components/portal/accounting-panel").then((m) => m.AccountingPanel)); // v1.172.0 - was purchasing-panels.tsx; Purchasing retired
 export const AttendanceAdminPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.AttendanceAdminPanel));
 export const AttendancePanel = lazy(() => import("@/components/portal/attendance-panel").then((m) => m.AttendancePanel)); // v1.188.0 - the tabbed Attendance page

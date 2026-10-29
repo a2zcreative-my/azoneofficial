@@ -83,6 +83,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
      plus every Dashboard card and the Schedule & Roster read surfaces. */
   "Finance": { en: "Finance", ms: "Kewangan" },
   "Accounting": { en: "Accounting", ms: "Perakaunan" },
+  "Commission": { en: "Commission", ms: "Komisen" },
   "Companies": { en: "Companies", ms: "Syarikat" },
   // dashboard cards
   "Pending leave": { en: "Pending leave", ms: "Cuti menunggu" },

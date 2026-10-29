@@ -410,6 +410,22 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | v1.219.0 | 0147 - Finance 2.0: true dates, reversals, transfers, opening balances, reviewed marks. |
 | v1.222.0 | 0148 - Accounting 2.0: a journal reference is posted once (new entries). |
 | v1.223.0 | 0149 - Weekly Sales: weekly targets, week results, recovery plans, task links. |
+| v1.224.0 | 0150 - Sales Commission: policy versions, the entitlement ledger, the payroll switch log. |
+
+## v1.224.0 - migration 0150_commission_ledger.sql
+Additive - no row changed. `commission_policies` (version UNIQUE, status
+draft / active / rejected, effective_from, rate_kind percent or fixed,
+rate_bp in basis points, fixed_cents, basis net_of_tax_delivery or
+invoice_total, the approved rule names, reason, created/approved/rejected
+by and at; one active version per effective_from). `commission_ledger`
+(source_key UNIQUE - one row per event; kind earn or reverse; invoice,
+confirmation, credit note and parent references; the closer user_id;
+policy_id; basis, rate and amount in sen; paid_day; status eligible /
+review / included / paid / void; eligible_at, payroll_month (set once),
+included_at, paid_out_at; the decision and its note). Money columns are
+written once. `commission_settings_log` (every switch of the payroll link,
+with who, when and why; the switch itself is business_settings
+`commission_sync`).
 
 ## v1.223.0 - migration 0149_weekly_sales.sql
 Additive - no row changed. `sales_week_targets` (scope person / team /

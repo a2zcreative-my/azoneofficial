@@ -162,6 +162,7 @@ const GUARDS = [
   ["companies-v2", "Companies 2.0 - counted figures, read-only history, a previewed all-or-nothing bulk review, company access not active"],
   ["accounting-v2", "Accounting 2.0 - atomic, dated, once-only posting; soft month-end control; manual reversal; read-only ledger views"],
   ["weekly-sales", "Weekly Sales - approved targets only, the Collected rule, working days, fair statuses, final weeks, recovery plans to linked tasks once"],
+  ["commission-ledger", "Sales commission - one entitlement per event, the approved policy by the paid day, payroll by the owner's switch and never twice, refunds to review, CEO/COO/admins mark paid"],
   ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
   ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
   ["workforce-flow", "Threads stays retired; claims submit once; paid advances reach payroll; OT becomes pay or replacement leave"],

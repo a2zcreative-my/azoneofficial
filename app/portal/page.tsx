@@ -42,7 +42,7 @@ import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/compa
 import {
   CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, FinancePage,
-  HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel,
+  HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
   AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
   StaffDirectory,
@@ -119,6 +119,9 @@ export default function PortalPage() {
              v1.183.0 - Commission, Enquiries, Sales Performance, Hankei's and
              Web Orders likewise. */}
           {activeTab === "Accounting" && <AccountingPanel />}
+          {/* v1.224.0 - Commission is back (the owner, 29-10-2026): Entries,
+              Flow and Policy over commission.ts; a consultant sees their own */}
+          {activeTab === "Commission" && <CommissionPanel user={user} />}
           {activeTab === "Leave" && <Leave user={user} initialView={startOf("Leave")} focus={focusOf("Leave")} />}
           {activeTab === "Tasks" && (
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */

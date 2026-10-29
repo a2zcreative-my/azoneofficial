@@ -119,6 +119,7 @@ const BODY = {
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
   "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
+  "Commission": ["components/portal/commission-panel.tsx#CommissionPanel"], // v1.224.0 - back, over the new engine (the owner, 29-10-2026)
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
   "Profile": ["components/portal/profile.tsx"], // v1.220.0 - Profile 2.0: the page is its own tabbed panel

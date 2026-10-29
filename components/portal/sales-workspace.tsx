@@ -30,6 +30,7 @@ import { dmy, fmtRM, mytDateOf } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import { WeeklySales } from "@/components/portal/weekly-sales";
+import { CommissionCard } from "@/components/portal/commission-card";
 import css from "./sales-workspace.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -269,6 +270,8 @@ export function SalesOverviewCards(p: {
       {/* v1.223.0 - the weekly scorecard (approved weekly targets); the v1.216.0
           card stays as the fallback for a worker without /sales/week */}
       <WeeklySales scope={p.scope ?? "mine"} fallback={p.summary ? <WeekCard s={p.summary} /> : null} />
+      {/* v1.224.0 - commission, a separate thing from the weekly target */}
+      <CommissionCard scope={p.scope ?? "mine"} />
       <div className={css.grid2}>
         <CollectedTrend docs={p.docs} monthKey={p.monthKey} today={p.today} daily={p.summary?.month === p.monthKey ? p.summary.daily : undefined} />
         <QuoteFunnel docs={p.docs} partPaid={p.partPaid} monthKey={p.monthKey} today={p.today} onOpen={() => p.onOpenDocs("QT")} server={p.summary?.month === p.monthKey ? p.summary.funnel : undefined} />

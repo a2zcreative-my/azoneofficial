@@ -69,6 +69,14 @@ export const PERMS: Record<string, readonly Role[]> = {
      COO and super admin (the Finance audit, 28-10-2026). Nobody gains access
      they did not have. */
   cashbook_correct: ["super_admin", "ceo", "coo"],
+  /* v1.224.0 (the owner, 29-10-2026, Commission brief: "Only CEO/COO/admins
+     mark paid"). Saying an invoice's money arrived - mark paid, unpaid or
+     overdue, create it already paid, record or void a part payment - is
+     NARROWER than `finance`: the CCO, sales consultants and HR admin keep
+     reading invoices and their payments but no longer change them. The CEO
+     or COO's Confirm Paid (staff.ts CONFIRM_PAID_ROLES) stays a second,
+     separate step. */
+  invoice_payment: ["super_admin", "admin", "ceo", "coo"],
   reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   commission_decide: ["super_admin", "ceo"],

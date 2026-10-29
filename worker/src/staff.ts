@@ -9,7 +9,8 @@ import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remaining
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
-import { handleWeeklySales, taskLink } from "./weekly-sales"; // v1.223.0 - weekly sales targets, scorecard, recovery plans
+import { handleWeeklySales, taskLink } from "./weekly-sales";
+import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -2278,6 +2279,7 @@ async function revokePaidConfirmation(env: Env, invoiceId: number, userId: numbe
     ).bind(...(onlyIfAmountNot !== undefined ? [invoiceId, userId, reason, onlyIfAmountNot] : [invoiceId, userId, reason])).run();
     const n = r.meta.changes ?? 0;
     if (n) await audit(env, userId, "invoice.paid_confirm_revoke", "sales_documents", String(invoiceId), { reason, automatic: true });
+    if (n) await ensureLedger(env, invoiceId); // v1.224.0
     return n;
   } catch { return 0; }
 }
@@ -2412,6 +2414,14 @@ export async function handleStaff(
     || path === "/quotes/approval" || path === "/quotes/approval/limit" || /^\/docs\/\d+\/approve$/.test(path)) {
     const biz = await handleBusiness(env, path, method, body, user, new URL(request.url).searchParams);
     if (biz) return biz;
+  }
+
+  /* ---- v1.224.0 Sales Commission (commission.ts): the policy, the
+     entitlement ledger, the flow and the four figures. Paths it does not
+     own (the dormant /commission/rules, /erp/commission) fall through. ---- */
+  if (path.startsWith("/commission/")) {
+    const cm = await handleCommission(env, path, method, body, user, new URL(request.url).searchParams);
+    if (cm) return cm;
   }
 
   /* ---- v1.223.0 Weekly Sales (weekly-sales.ts): targets, the week's
@@ -7325,7 +7335,7 @@ export async function handleStaff(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
@@ -8638,6 +8648,11 @@ export async function handleStaff(
     if (docType === "INV" ? !can(user.role, "finance") : !can(user.role, "sales")) {
       return err("forbidden", "Insufficient rights for this document type", 403);
     }
+    /* v1.224.0 - an invoice created already paid says its money arrived:
+       the same narrower set as marking it paid (permissions invoice_payment) */
+    if (docType === "INV" && body.paid_received === true && !can(user.role, "invoice_payment")) {
+      return err("forbidden", "Only the CEO, COO or an admin creates an invoice already paid. Create it unpaid; they record the payment.", 403);
+    }
     /* v1.4.234 (CEO: two business lines — "details just filled by one
        details"): every document is for ONE line, product or service.
        Delivery Orders are product-only — a service delivers nothing
@@ -8886,7 +8901,8 @@ export async function handleStaff(
       .bind(id).first<{ doc_type: string; doc_number: string; total_cents: number }>();
     if (!doc) return err("not_found", "Document not found", 404);
     if (doc.doc_type === "INV") {
-      if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
+      /* v1.224.0 - only the CEO, COO or an admin says an invoice's money arrived */
+      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin records an invoice's payment. You can still see it.", 403);
       const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
       if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
       // v1.4.90: paid = payment received — record method (bank transfer),
@@ -9467,6 +9483,7 @@ export async function handleStaff(
     await audit(env, user.id, "invoice.paid_confirm", "sales_documents", String(invId), {
       invoice: inv.doc_number, amount_cents: amount, payment_ref: ref, paid_at: inv.paid_at, self_confirmed: selfConfirm,
     });
+    await ensureLedger(env, invId); // v1.224.0 - the entitlement, written once (UNIQUE source_key)
     return json({ ok: true, id: row.id }, 201);
   }
   const confirmRevoke = path.match(/^\/docs\/(\d+)\/confirm-paid\/revoke$/);
@@ -9483,6 +9500,7 @@ export async function handleStaff(
     } catch { n = 0; }
     if (!n) return err("not_found", "That invoice has no live confirmation.", 404);
     await audit(env, user.id, "invoice.paid_confirm_revoke", "sales_documents", confirmRevoke[1]!, { reason, automatic: false });
+    await ensureLedger(env, Number(confirmRevoke[1])); // v1.224.0 - void before payroll, review after
     return json({ ok: true });
   }
 
@@ -11712,6 +11730,7 @@ export async function handleStaff(
       await recordBankMovement(env, user.id, `PAYROLL-${mP}`, net?.n ?? 0, "salaries", `Payroll bank run ${mP}`);
     } catch { /* pre-0041 net_cents */ }
     await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
+    await markCommissionPaid(env, mP); // v1.224.0 - the commission this run carried is paid out
     return json({ ok: true });
   }
   /* v1.215.0 - THE INVOICES BEHIND A MONTH'S SALES COMMISSION (Payroll 2.0,
@@ -11742,7 +11761,40 @@ export async function handleStaff(
             AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') >= ?2
           ORDER BY c.confirmed_at`,
       ).bind(mS, `${COMMISSION_START_MONTH}-01`).all();
-      return json({ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: results });
+      /* v1.224.0 - the ledger behind the column: what each confirmed invoice
+         earned (whatever month it lands in), what this month carries, the
+         policy in force and whether the owner's payroll switch is on. With
+         the switch on, opening the month gives it its eligible rows (once). */
+      const commMapS = await commissionForPayroll(env, mS, payrollMonthStaffSql(mS, "u."));
+      let ledger: unknown[] = [];
+      let earned: { invoice_id: number; amount_cents: number; status: string; payroll_month: string | null }[] = [];
+      let policy: unknown = null;
+      try {
+        ledger = (await env.DB.prepare(
+          `SELECT l.id, l.kind, l.invoice_id, l.user_id, l.amount_cents, l.status, d.doc_number
+             FROM commission_ledger l JOIN sales_documents d ON d.id = l.invoice_id
+            WHERE l.payroll_month = ?1 AND l.status IN ('included', 'paid') ORDER BY l.id`,
+        ).bind(mS).all()).results ?? [];
+        const ids = (results ?? []).map((r) => Number((r as { invoice_id: number }).invoice_id));
+        if (ids.length) {
+          earned = ((await env.DB.prepare(
+            `SELECT invoice_id, amount_cents, status, payroll_month FROM commission_ledger WHERE kind = 'earn' AND status != 'void' AND invoice_id IN (${ids.map(() => "?").join(",")})`,
+          ).bind(...ids).all()).results ?? []) as typeof earned;
+        }
+        policy = await env.DB.prepare(
+          `SELECT id, version, name, rate_kind, rate_bp, fixed_cents, basis, effective_from FROM commission_policies
+            WHERE status = 'active' AND effective_from <= ?1 ORDER BY effective_from DESC, version DESC LIMIT 1`,
+        ).bind(`${mS}-31`).first();
+      } catch { /* pre-0150 */ }
+      const earnOf = new Map(earned.map((x) => [x.invoice_id, x]));
+      const rowsS = (results ?? []).map((r) => {
+        const x = earnOf.get(Number((r as { invoice_id: number }).invoice_id));
+        return { ...r, commission_cents: x?.amount_cents ?? null, commission_status: x?.status ?? null, commission_month: x?.payroll_month ?? null };
+      });
+      const sync = await env.DB.prepare(`SELECT value FROM business_settings WHERE key = 'commission_sync'`).first<{ value: string | null }>().catch(() => null);
+      return json({ month: mS, policy: policy ?? null, starts: COMMISSION_START_MONTH, rows: rowsS, ledger,
+        sync: sync?.value === "on", released: commMapS === null && sync?.value === "on",
+        sums: commMapS ? Object.fromEntries(commMapS) : null });
     } catch (e) {
       if (String(e).includes("no such table")) return json({ month: mS, policy: null, starts: COMMISSION_START_MONTH, rows: [], pending_migration: true });
       throw e;
@@ -12422,6 +12474,10 @@ export async function handleStaff(
       holDatesR.filter((h) =>
         (!joined || h >= joined.slice(0, 10)) && (!left || h <= left.slice(0, 10))).length;
     const advanceAtR = await salaryAdvanceResolver(env, monthR);
+    /* v1.224.0 - with the owner's switch on, each row's commission is the
+       ledger's sum for the month (written below with net); off, it stays */
+    const commR = await commissionForPayroll(env, monthR, payrollMonthStaffSql(monthR, "u."));
+    if (commR) for (const e of ents) e.commission_cents = commR.get(e.user_id) ?? 0;
     let fixed = 0;
     for (const e of ents) {
       /* v1.4.183: hourly (part-time live host) rows re-derive from the
@@ -12437,9 +12493,9 @@ export async function handleStaff(
           await env.DB.prepare(
             `UPDATE payroll_entries SET basic_cents = ?1, ot_hours = NULL, ot_cents = 0,
                worked_days = NULL, month_working_days = NULL, net_cents = ?2,
-               hourly_minutes = ?3, hourly_rate_cents = ?4, updated_at = datetime('now')
+               hourly_minutes = ?3, hourly_rate_cents = ?4, commission_cents = ?7, updated_at = datetime('now')
              WHERE user_id = ?5 AND month = ?6`,
-          ).bind(basicR, netHR, minsR, PART_TIME_LH_RATE_CENTS, e.user_id, monthR).run();
+          ).bind(basicR, netHR, minsR, PART_TIME_LH_RATE_CENTS, e.user_id, monthR, e.commission_cents).run();
           fixed++;
         } catch (errH) {
           await logError(env, "payroll_recompute", errH instanceof Error ? errH.message : String(errH));
@@ -12468,8 +12524,8 @@ export async function handleStaff(
       const net = Math.max(0, e.basic_cents + phW + e.commission_cents + e.allowance_cents + e.ot_cents - e.deduction_cents - ulDed - adj - advanceAtR(e.user_id));
       try {
         await env.DB.prepare(
-          `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
-        ).bind(workD, net, e.user_id, monthR).run();
+          `UPDATE payroll_entries SET month_working_days = ?1, net_cents = ?2, commission_cents = ?5, updated_at = datetime('now') WHERE user_id = ?3 AND month = ?4`,
+        ).bind(workD, net, e.user_id, monthR, e.commission_cents).run();
         fixed++;
       } catch (err2) {
         // net_cents arrives with migration 0041 — surface it instead of half-fixing
@@ -12507,7 +12563,17 @@ export async function handleStaff(
        used. Old clients name zero. Add the named amount back, then apply the
        database truth, so both save the same authoritative recovery. */
     const clientAdvance = cents(body.salary_advance_cents);
-    const storedNet = netCents === null ? null : Math.max(0, netCents + clientAdvance - advanceP);
+    /* v1.224.0 - COMMISSION IS THE SERVER'S. The screen's commission_cents is
+       never stored: with the owner's payroll switch on it is the ledger's sum
+       for this person and month (commission.ts); otherwise the figure the row
+       already holds stays (0 for a new row). Net moves by the difference, the
+       same way the salary advance is reconciled above. */
+    const commMap = await commissionForPayroll(env, month, payrollMonthStaffSql(month, "u."));
+    const commStored = await env.DB.prepare(`SELECT commission_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`)
+      .bind(body.user_id, month).first<{ commission_cents: number }>().catch(() => null);
+    const commP = commMap ? (commMap.get(body.user_id as number) ?? 0) : Number(commStored?.commission_cents ?? 0);
+    const commDelta = commP - cents(body.commission_cents);
+    const storedNet = netCents === null ? null : Math.max(0, netCents + clientAdvance - advanceP + commDelta);
     /* v1.4.183: hourly (part-time live host) entries are computed by the
        SERVER from attendance, whatever the client sent — basic = minutes ×
        RM15/60, OT forced 0, no worked-days proration, net = hourly +
@@ -12524,7 +12590,7 @@ export async function handleStaff(
       const phH = (await phWorkResolver(month))(body.user_id as number, {
         joined: whoH?.joined_on, left: whoH?.left_on, rejoined: whoH?.rejoined_on, orpBase: 0, hourly: true,
       }).cents;
-      const netH = Math.max(0, basicH + phH + cents(body.commission_cents) + cents(body.allowance_cents) - cents(body.deduction_cents) - advanceP);
+      const netH = Math.max(0, basicH + phH + commP + cents(body.allowance_cents) - cents(body.deduction_cents) - advanceP);
       try {
         await env.DB.prepare(
           `INSERT INTO payroll_entries (user_id, month, basic_cents, commission_cents, allowance_cents, ot_hours, ot_cents, deduction_cents, worked_days, month_working_days, net_cents, hourly_minutes, hourly_rate_cents, note, created_by)
@@ -12536,7 +12602,7 @@ export async function handleStaff(
              hourly_minutes = ?8, hourly_rate_cents = ?9,
              note = ?10, updated_at = datetime('now')`,
         ).bind(
-          body.user_id, month, basicH, cents(body.commission_cents), cents(body.allowance_cents),
+          body.user_id, month, basicH, commP, cents(body.allowance_cents),
           cents(body.deduction_cents), netH, minsH, PART_TIME_LH_RATE_CENTS,
           str(body.note, 300) ? body.note : null, user.id,
         ).run();
@@ -12557,14 +12623,14 @@ export async function handleStaff(
          note = ?11, updated_at = datetime('now')`,
     ).bind(
       body.user_id, month,
-      cents(body.basic_cents), cents(body.commission_cents),
+      cents(body.basic_cents), commP,
       cents(body.allowance_cents), otHours, cents(body.ot_cents),
       cents(body.deduction_cents),
       intOrNull(body.worked_days), intOrNull(body.month_working_days),
       str(body.note, 300) ? body.note : null, user.id, storedNet,
     ).run();
-    await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month });
-    return json({ ok: true });
+    await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month, ...(commMap ? { commission_cents: commP } : {}) });
+    return json({ ok: true, commission_cents: commP, net_cents: storedNet });
   }
 
   if (path === "/attendance/export" && method === "GET") {
@@ -16247,6 +16313,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         } catch { /* pre-0073 */ }
         if (invIssuerC) await stampIssuer(env, "credit_notes", res?.id, invIssuerC);
         await audit(env, user.id, "credit_note.issue", "credit_notes", String(res?.id), { invoice: inv.doc_number, amount: cents });
+        await ensureLedger(env, invId); // v1.224.0 - an earned commission on this invoice goes to review, never deducted by itself
         return json({ id: res?.id, cn_number: number }, 201);
       } catch (e) {
         if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 (credit notes) first", 409);

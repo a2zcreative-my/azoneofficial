@@ -101,8 +101,15 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   const src = between(staffCode, 'if (path === "/payroll/commission-sources" && method === "GET") {', 'if (path === "/payroll/pull-commission"');
   ok("commission-sources is the payroll processors' read of live confirmations",
      /if \(!PAYROLL_PROC\.includes\(user\.role\)\) return err\("forbidden"/.test(src) && /WHERE c\.revoked_at IS NULL AND strftime\('%Y-%m', c\.confirmed_at, '\+8 hours'\) = \?1/.test(src));
-  ok("...with no policy and no write (no automatic deduction, no amount into payroll)",
-     /policy: null/.test(src) && !/UPDATE|INSERT|DELETE|commission_cents|rate/i.test(src));
+  /* v1.224.0 (the owner's Commission answers, 29-10-2026): it now also names
+     the approved policy and what each invoice earned in the commission
+     ledger, and - with the owner's payroll switch on - lets the ledger give
+     the month its eligible rows (commission.ts commissionForPayroll). It
+     still writes nothing into payroll: the payroll row's commission is
+     written by Save and Recompute alone, from the server's sum. */
+  ok("...and never writes a payroll row (no automatic deduction, no amount typed)",
+     !/(UPDATE|INSERT INTO|DELETE FROM)\s+payroll_entries/i.test(src) && /commissionForPayroll\(env, mS, payrollMonthStaffSql\(mS, "u\."\)\)/.test(src)
+     && /FROM commission_policies\s+WHERE status = 'active'/.test(src));
 }
 
 /* ---- 4b. v1.216.1 - the owner: commission "will start to effectively on 1st Nov payroll" ---- */
@@ -129,8 +136,9 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
      && /ot_cents: otPay\(entry\(id\)\.basic_cents, entry\(id\)\.ot_hours\),/.test(payCode));
   ok("...said under Net, and its hours corrected in the row's details",
      /<span className=\{pp\.otLine\}/.test(payCode) && /setEntries\(\(m\) => \(\{ \.\.\.m, \[detailUser\.id\]: \{ \.\.\.e, ot_hours: h \} \}\)\);/.test(payCode));
-  ok("the breakdown lists the confirmed invoices and calculates nothing",
-     /commOf\(detailUser\.id\)\.map\(\(r\) => \(/.test(payCode) && /No commission policy is set - nothing is calculated/.test(pay));
+  ok("the breakdown lists the confirmed invoices and what the ledger says each earned - calculated nowhere here",
+     /commOf\(detailUser\.id\)\.map\(\(r\) => \(/.test(payCode) && /No commission policy is approved - nothing is calculated/.test(pay)
+     && /typeof r\.commission_cents === "number" \? ` → \$\{rm\(r\.commission_cents\)\}` : ""/.test(payCode));
 }
 
 /* ---- 6. the sales screen ---- */

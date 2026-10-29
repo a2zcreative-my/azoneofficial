@@ -43,7 +43,10 @@ const staff = read("worker/src/staff.ts");
 const NAME = [
   [/^(?:e\.basic_cents|basicR|basicH|hourly)$/, "BASIC"],
   [/^(?:phW|phH)$/, "PH"],
-  [/^(?:e\.commission_cents|cents\(body\.commission_cents\))$/, "COMMISSION"],
+  /* v1.224.0 - the hourly save adds the SERVER's commission (commP: the
+     ledger's sum with the owner's switch on, else the stored figure), never
+     the screen's - commission-ledger.mjs holds that rule */
+  [/^(?:e\.commission_cents|cents\(body\.commission_cents\)|commP)$/, "COMMISSION"],
   [/^(?:e\.allowance_cents|cents\(body\.allowance_cents\))$/, "ALLOWANCE"],
   [/^(?:ot|e\.ot_cents)$/, "OT"],
   [/^(?:e\.deduction_cents|cents\(body\.deduction_cents\))$/, "MANUAL"],

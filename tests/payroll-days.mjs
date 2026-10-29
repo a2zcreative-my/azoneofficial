@@ -292,7 +292,7 @@ const AUG = (() => {
      "the payslip, /payroll/attendance-days, /payroll/recompute and the hourly save — four surfaces, one resolver");
   ok("recompute adds it to a monthly net", /e\.basic_cents \+ phW \+ e\.commission_cents/.test(staff));
   ok("recompute adds it to an hourly net", /basicR \+ phH \+ e\.commission_cents/.test(staff));
-  ok("the hourly save adds it", /basicH \+ phH \+ cents\(body\.commission_cents\)/.test(staff));
+  ok("the hourly save adds it", /basicH \+ phH \+ commP/.test(staff)); // v1.224.0 - the server's commission, not the screen's
   ok("the payslip prints it as its own earnings line, naming the days",
      /PUBLIC HOLIDAY WORKED \(\$\{when\} — \$\{n\} × 2 DAYS ORP, EA s\.60D\(3\)\)/.test(panel),
      "a premium nobody can see is a premium nobody can check");

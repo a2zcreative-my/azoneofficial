@@ -70,7 +70,8 @@ const idx = read("worker/src/index.ts");
     && !/ALTER TABLE|DROP |UPDATE |DELETE /.test(read("worker/migrations/0140_part_payments.sql").replace(/^--.*$/gm, "")));
   ok("0140 is registered and probed", /"0140_part_payments",/.test(idx) && /\["0140 \(part payments on an invoice\)"/.test(idx));
   const post = biz.slice(biz.indexOf('const mPay = path.match'), biz.indexOf('const mVoid = path.match'));
-  ok("recording a part needs finance, like marking paid", /if \(!canInvoiceMoney\(user\)\) return err\("forbidden"/.test(post) && /const canInvoiceMoney = \(u: StaffUser\) => can\(u\.role, "finance"\);/.test(biz));
+  /* v1.224.0 (the owner, 29-10-2026): the CEO, COO and admins only - invoice_payment */
+  ok("recording a part needs invoice_payment, like marking paid", /if \(!canInvoiceMoney\(user\)\) return err\("forbidden"/.test(post) && /const canInvoiceMoney = \(u: StaffUser\) => can\(u\.role, "invoice_payment"\);/.test(biz));
   ok("a paid invoice takes no part payment", /if \(inv\.payment_status === "paid"\) \{\s*return err\("invalid_input"/.test(post));
   ok("an overpayment is refused", /if \(amount > left\) \{\s*return err\("invalid_input"/.test(post));
   ok("a future date is refused", /!validDay\(on\) \|\| on > mytToday\(\)/.test(post));
