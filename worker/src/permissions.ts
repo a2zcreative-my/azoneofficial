@@ -29,7 +29,6 @@ export const PERMS: Record<string, readonly Role[]> = {
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  task_view: ["super_admin", "admin", "coo", "cco"],
   payroll_export: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   exec_view: ["super_admin", "admin", "ceo", "coo", "cco"],
   /* v1.62.0 (CEO: "I as CEO can change or update their leave entitle to all
@@ -89,6 +88,12 @@ export const PERMS: Record<string, readonly Role[]> = {
   /* v1.234.0 - refunds and credit notes were behind invoice_payment; they
      keep exactly the roles they had (nobody gains or loses them here). */
   credit_refund: ["super_admin", "admin", "ceo", "coo"],
+  /* v1.235.0 - the owner, 30-10-2026 (claude/ELFIA-STORE-AUDIT.md: "CEO,
+     COO, Super Admin only"): what the LIVE ELFIA shop charges or shows -
+     publish/unpublish, web price, discount, bulk discount/price, flash sale
+     and "Update the shop now". Descriptions, collections and photos stay
+     with `inventory` ("Yes, they keep content"). */
+  elfia_publish: ["super_admin", "ceo", "coo"],
   reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   commission_decide: ["super_admin", "ceo"],
@@ -206,7 +211,104 @@ export const PERMS: Record<string, readonly Role[]> = {
   hankeis_verify: ["super_admin", "admin", "ceo", "coo"],
   hankeis_fulfil: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing"],
   hankeis_settings: ["super_admin", "ceo"],
+
+  /* === v1.236.0 - THE COMPANY OWNER (the owner, 30-10-2026, "CEO = FULL
+     AUTHORIZED COMPANY ADMINISTRATIVE ACCESS. SUPER ADMIN = TECHNICAL /
+     RECOVERY ADMINISTRATION."; claude/CEO-OWNER-ACCESS-AUDIT.md). These were
+     rank checks against the super admin (ROLE_RANK 4) that no permission could
+     name, so the policy matrix could not show them and the CEO, who shares
+     rank 3 with the Admin account, could never pass them. Each is now a
+     named capability. The ROLE lists stay super admin only: the verified
+     company owner holds the three in OWNER_GRANTS below, through allows(),
+     never through the ceo role - a second CEO-role account gains nothing. */
+  /** create, edit, reset the password of, offboard or sign out a COO, CCO or Admin account */
+  exec_accounts: ["super_admin"],
+  /** assign or revoke the COO, CCO and customer roles (was the ROLE_ANY literal) */
+  role_any: ["super_admin"],
+  /** grant or revoke the technical Admin role (company email required) */
+  tech_admin_grant: ["super_admin"],
+  /** download the database backup - it holds password hashes and 2FA secrets */
+  backup_download: ["super_admin"],
+  /** name, change or clear the company owner - the recovery procedure */
+  owner_designate: ["super_admin"],
+  /** read the full system audit log (was atLeast(user, "admin") - the same three roles) */
+  audit_read: ["super_admin", "admin", "ceo"],
 };
+
+/* v1.236.0 - what the VERIFIED COMPANY OWNER holds beyond the ceo role.
+   The owner is one account: role ceo, active, 2FA on, and named in
+   system_meta.company_owner by a super admin (index.ts getSessionUser sets
+   is_owner - nothing a person can type into a profile). The owner's answers:
+   "One designated owner"; "Admin role only" (super admin accounts and the
+   ceo role stay with the super admin); roles stay code-defined. */
+export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant"];
+
+/* v1.236.0 - every capability the super admin holds and the CEO does not
+   must be in OWNER_GRANTS or here, with the reason, or the build fails
+   (tests/owner-coverage.mjs). A new permission is classified once, on
+   purpose - the CEO can no longer lose a door by accident. */
+export const TECHNICAL_ONLY: Readonly<Record<string, string>> = {
+  content_manage: "The website editor and media library in /admin are the content team's console; the owner did not ask for it (30-10-2026).",
+  backup_download: "The backup holds password hashes and 2FA secrets - 'Do not automatically expose secret credentials'.",
+  owner_designate: "Naming the owner is the recovery procedure; nobody may name themselves.",
+};
+
+/** A signed-in actor, as getSessionUser builds it. */
+export interface Actor { id?: number; role: Role | string; is_owner?: boolean }
+
+/** THE one authorization decision for a person (not just a role): the role's
+    own capabilities, plus OWNER_GRANTS for the verified company owner. */
+export function allows(actor: Actor | null | undefined, perm: keyof typeof PERMS): boolean {
+  if (!actor) return false;
+  if (can(actor.role, perm)) return true;
+  return actor.is_owner === true && actor.role === "ceo" && OWNER_GRANTS.includes(perm);
+}
+
+export const WORKING_ROLES: readonly string[] = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
+
+/** Which door a role sits behind - to grant it OR to take it away. */
+export function roleDoor(r: string): keyof typeof PERMS | "super_only" {
+  if (r === "super_admin" || r === "ceo") return "super_only";
+  if (r === "admin") return "tech_admin_grant";
+  if (r === "coo" || r === "cco" || r === "customer") return "role_any";
+  return "role_assign";
+}
+
+/** May this actor give someone `role` (or take it from them)? */
+export function mayGrant(actor: Actor, role: string): boolean {
+  const d = roleDoor(role);
+  if (d === "super_only") return actor.role === "super_admin";
+  if (d === "role_assign") return actor.role === "super_admin" || allows(actor, "role_assign");
+  return allows(actor, d);
+}
+
+/** May this actor manage (edit, reset, offboard, sign out) an account holding `role`? */
+export function canManageAccount(actor: Actor, role: string): boolean {
+  if (role === "super_admin" || role === "ceo") return actor.role === "super_admin";
+  if (role === "admin" || role === "coo" || role === "cco") return allows(actor, "exec_accounts");
+  return true;
+}
+
+export type RoleChange =
+  | { ok: true; privileged: boolean }
+  | { ok: false; status: 400 | 403; code: string; message: string };
+
+/** v1.236.0 - THE role-change rule, for BOTH doors (/api/v1/users/:id and
+    /staff/users/:id/role) - they used to keep a rule each. Privileged =
+    an executive, admin or customer role is given or taken. */
+export function roleChangeRule(actor: Actor & { id: number }, target: { id: number; role: string }, to: string): RoleChange {
+  if (actor.id === target.id) return { ok: false, status: 400, code: "self_change", message: "You can't change your own role - ask another authorised account." };
+  for (const r of [target.role, to]) {
+    if (mayGrant(actor, r)) continue;
+    const d = roleDoor(r);
+    return { ok: false, status: 403, code: "forbidden", message:
+      d === "super_only" ? (r === "ceo" ? "The CEO role is given or taken only by the super admin (the company owner recovery procedure)" : "Super admin accounts are managed by the super admin only")
+      : d === "tech_admin_grant" ? "Only the company owner or the super admin grants or revokes technical admin access"
+      : d === "role_any" ? "Executive and customer accounts can only be re-assigned by the company owner or the system super admin"
+      : "Only the CEO, the COO or the system super admin can change a staff role - this keeps sign-ups from ever escalating themselves" };
+  }
+  return { ok: true, privileged: roleDoor(target.role) !== "role_assign" || roleDoor(to) !== "role_assign" };
+}
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {
   if (!role) return false;
@@ -238,17 +340,22 @@ export const MANDATORY_2FA_ROLES: Role[] = [
 export type PolicyList =
   | "CONFIRM_PAID" | "PAYROLL_PROCESS" | "PAYROLL_RELEASE" | "BANK_RUN"
   | "COMMISSION_VIEW_ALL" | "COMMISSION_DRAFT" | "COMMISSION_APPROVE" | "COMMISSION_DECIDE"
-  | "GEOFENCE" | "ROLE_ANY" | "TAB_ACCESS_EDIT";
+  | "GEOFENCE" | "TAB_ACCESS_EDIT";
 export interface PolicyAction {
   module: string; key: string; en: string; ms: string;
   cap?: keyof typeof PERMS; list?: PolicyList;
   note_en?: string; note_ms?: string;
+  /** v1.236.0 - roles allowed only under a stated rule (shown "Conditional"),
+      or seeing their own share only. */
+  cond?: Partial<Record<Role, readonly [string, string]>>;
+  /** v1.236.0 - roles the action does not apply to by design ("Not applicable"). */
+  na?: readonly Role[];
 }
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
-  { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", list: "CONFIRM_PAID", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri" },
+  { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", list: "CONFIRM_PAID", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },
@@ -258,7 +365,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", list: "PAYROLL_PROCESS" },
   { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", list: "PAYROLL_RELEASE" },
   { module: "Payroll", key: "payroll_export", en: "Export payroll", ms: "Eksport gaji", cap: "payroll_export" },
-  { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", list: "COMMISSION_VIEW_ALL", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri" },
+  { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", list: "COMMISSION_VIEW_ALL", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri", cond: { cco: ["Reviews only - no decisions", "Semak sahaja - tiada keputusan"], sales_marketing: ["Their own entries only", "Entri sendiri sahaja"] } },
   { module: "Commission", key: "commission_draft", en: "Draft a commission policy", ms: "Draf polisi komisen", list: "COMMISSION_DRAFT" },
   { module: "Commission", key: "commission_approve", en: "Approve a commission policy", ms: "Luluskan polisi komisen", list: "COMMISSION_APPROVE" },
   { module: "Commission", key: "commission_decide", en: "Decide reviews, settle leavers, payroll switch", ms: "Putuskan semakan, selesaikan bekas staf, suis gaji", list: "COMMISSION_DECIDE" },
@@ -271,15 +378,22 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
   { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete" },
   { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
-  { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign" },
+  { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign", na: ["super_admin", "admin"] },
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },
   { module: "Staff Details", key: "responsibilities", en: "Write roles and responsibilities", ms: "Tulis peranan dan tanggungjawab", cap: "responsibilities_edit" },
   { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
   { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },
   { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },
-  { module: "Users", key: "role_any", en: "Assign any role (executives, customers)", ms: "Tetapkan sebarang peranan (eksekutif, pelanggan)", list: "ROLE_ANY", note_en: "Admin-tier accounts only in /admin", note_ms: "Akaun pentadbir hanya di /admin" },
+  { module: "ELFIA Store", key: "elfia_publish", en: "Publish, price, discount, bulk changes, Update the shop now", ms: "Terbit, harga, diskaun, perubahan pukal, Kemas kini kedai", cap: "elfia_publish" },
+  { module: "ELFIA Store", key: "elfia_content", en: "Descriptions, collections and photos", ms: "Penerangan, koleksi dan foto", cap: "inventory" },
+  { module: "Users", key: "role_any", en: "Assign and revoke COO, CCO and customer roles", ms: "Tetapkan dan tarik balik peranan COO, CCO dan pelanggan", cap: "role_any", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
+  { module: "Users", key: "exec_accounts", en: "Create, edit, reset, offboard or sign out COO, CCO and Admin accounts", ms: "Cipta, sunting, set semula, tamatkan atau log keluar akaun COO, CCO dan Admin", cap: "exec_accounts", note_en: "Authenticator code for every change", note_ms: "Kod pengesah untuk setiap perubahan" },
+  { module: "Users", key: "tech_admin", en: "Grant or revoke technical Admin access", ms: "Beri atau tarik balik akses Admin teknikal", cap: "tech_admin_grant", note_en: "Company email; authenticator code and a reason", note_ms: "E-mel syarikat; kod pengesah dan sebab" },
   { module: "Users", key: "tab_access", en: "Edit tab visibility and exceptions", ms: "Sunting keterlihatan tab dan pengecualian", list: "TAB_ACCESS_EDIT" },
+  { module: "System", key: "audit_read", en: "Read the full system audit log", ms: "Baca log audit sistem penuh", cap: "audit_read" },
+  { module: "System", key: "owner_designate", en: "Name the company owner; give or take the CEO role; manage Super Admin accounts", ms: "Namakan pemilik syarikat; beri atau tarik peranan CEO; urus akaun Super Admin", cap: "owner_designate", note_en: "Recovery procedure", note_ms: "Prosedur pemulihan" },
+  { module: "System", key: "backup", en: "Download the database backup", ms: "Muat turun sandaran pangkalan data", cap: "backup_download", note_en: "Holds password hashes and 2FA secrets", note_ms: "Mengandungi cincang kata laluan dan rahsia 2FA" },
 ];
 /** The roles the policy view shows, in company order. Customers are never
     staff and hold none of these. */

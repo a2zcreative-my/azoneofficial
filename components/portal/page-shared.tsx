@@ -52,6 +52,8 @@ export interface User {
   role: string;
   photo_key?: string | null;
   requires_2fa?: boolean;
+  /** v1.236.0 - the verified company owner (the worker decides; display only) */
+  is_owner?: boolean;
 }
 
 /* v1.26 BM sweep — display-point translation helper. The EN argument is the
@@ -397,12 +399,15 @@ export function SectionTabs<T extends string>({ value, onChange, tabs, className
 export async function withStepUp<T>(
   send: (totp?: string) => Promise<{ ok: boolean; status: number; data: T | null }>,
   ask: (o: { title: string; label: string; placeholder?: string; required?: boolean }) => Promise<{ value: string } | null>,
+  /* v1.236.0 - the owner's privileged changes reuse this same retry with
+     their own wording */
+  text?: { title: string; label: string },
 ): Promise<{ ok: boolean; status: number; data: T | null }> {
   const first = await send();
   if (first.ok || first.status !== 401) return first;
   const code = await ask({
-    title: L("Sign this decision", "Tandatangani keputusan ini"),
-    label: L("Your 6-digit authenticator code — this decision carries your signature", "Kod pengesah 6 digit anda — keputusan ini membawa tandatangan anda"),
+    title: text?.title ?? L("Sign this decision", "Tandatangani keputusan ini"),
+    label: text?.label ?? L("Your 6-digit authenticator code — this decision carries your signature", "Kod pengesah 6 digit anda — keputusan ini membawa tandatangan anda"),
     placeholder: "000000",
     required: true,
   });

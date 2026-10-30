@@ -16,6 +16,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
  * these panels are conveniences, not the security boundary.
  */
 
+import { ELFIA_PUBLISH_ROLES } from "@/components/portal/elfia-products"; // v1.235.0
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -1176,6 +1177,14 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                       column, and shows the LIST price greyed as a placeholder
                       so "what will the shop charge" is answered either way. */}
                   <td className={td}>
+                    {/* v1.235.0 - the owner kept this editor, and narrowed who
+                        uses it: CEO, COO, super admin (= PERMS.elfia_publish).
+                        Everyone else sees what the shop is set to. */}
+                    {!ELFIA_PUBLISH_ROLES.includes(role) ? (
+                      <span className="text-xs">{(it.bridge_enabled ?? 0) === 1
+                        ? `${L("On ELFIA", "Di ELFIA")}${it.elfia_price_cents ? ` · RM ${rmBare(it.elfia_price_cents)}` : ""}`
+                        : <span className="text-muted-foreground">{L("Not on ELFIA", "Tiada di ELFIA")}</span>}</span>
+                    ) : (
                     <span className="flex items-center gap-1.5">
                       <input type="checkbox" checked={(it.bridge_enabled ?? 0) === 1}
                         title={L("Publish this item to the ELFIA web store", "Terbitkan barang ini ke kedai web ELFIA")}
@@ -1217,6 +1226,7 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                           }} />
                       )}
                     </span>
+                    )}
                   </td>
                   {/* v1.4.270: the stock figure becomes comparable at a
                       glance — bar vs the list's own largest stock, red ≤5

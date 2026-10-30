@@ -37,6 +37,10 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
 import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
 import { AccessPolicyCard, AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
+import { OwnerCard, useOwner } from "@/components/portal/owner-card";
+import { AuditPanel } from "@/components/admin/audit-panel";
+import { withStepUp } from "@/components/portal/page-shared";
+import { usePrompt } from "@/components/ui/prompt-dialog";
 import ap from "./access-policy.module.css";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -64,7 +68,7 @@ export { mytStamp2 };
 const EVENT_CHIP = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
 type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 
-export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => void }) {
+export function UsersPanel({ role, owner = false, go }: { role: string; owner?: boolean; go?: (tab: TabName) => void }) {
   const [view, setView] = useState<UsersView>("overview");
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
@@ -73,11 +77,19 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
   // v1.4.157 (CEO): role changes are SUPER_ADMIN ONLY - Google sign-ups
   // always land as customer, and keeping promotion out of every business
   // account (including the CEO's) means a breached sign-in can't escalate.
-  const canEdit = role === "super_admin";
-  const ROLE_OPTIONS = ["customer", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "ceo"];
+  /* v1.236.0 - and the verified company owner (the owner, 30-10-2026; the
+     worker's roleChangeRule decides every change - this only draws it):
+     executive, customer and technical Admin roles, never the CEO role or a
+     super admin account; each privileged change asks for a reason and the
+     owner's authenticator code. */
+  const superAdmin = role === "super_admin";
+  const canEdit = superAdmin || owner;
+  const ROLE_OPTIONS = ["customer", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", ...(superAdmin ? ["ceo"] : [])];
+  const PRIVILEGED = ["customer", "cco", "coo", "admin", "ceo"];
+  const { prompt, node: promptNode } = usePrompt();
   const EMP_OPTIONS = ["permanent", "contract", "part_time", "probation"];
   const [editId, setEditId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<{ role: string; employment_status: string }>({ role: "live_host", employment_status: "part_time" });
+  const [draft, setDraft] = useState<{ role: string; employment_status: string; reason?: string }>({ role: "live_host", employment_status: "part_time" });
   const [saving, setSaving] = useState(false);
   /* v1.137.0 - one find box over both lists. The customer list is Google
      sign-ups and only grows; finding a person was scrolling. From v1.189.0
@@ -91,7 +103,7 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
   const [eventsLoaded, setEventsLoaded] = useState(false);
   const load = useCallback(() => {
     void api<{ users?: Account[]; staff?: Account[] }>(`/staff/users`).then((r) => {
-      if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => !["super_admin", "admin"].includes(u.role)));
+      if (r.ok && r.data) setRows((r.data.users ?? r.data.staff ?? []).filter((u) => (owner ? u.role !== "super_admin" : !["super_admin", "admin"].includes(u.role))));
       else setMsg(L("Could not load user accounts — check access.", "Tidak dapat memuatkan akaun pengguna — semak akses."));
       setLoaded(true);
     });
@@ -99,16 +111,20 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
       if (r.ok && r.data) setEvents(r.data.events);
       setEventsLoaded(true);
     });
-  }, []);
+  }, [owner]);
   useEffect(() => { load(); }, [load]);
   useLiveRefresh(["users"], load);
 
-  const saveRole = async (u: { id: number; name: string; email: string }) => {
+  const stepUpNeeded = (u: { role: string }) => owner && !superAdmin && (PRIVILEGED.includes(u.role) || PRIVILEGED.includes(draft.role)) && u.role !== draft.role;
+  const saveRole = async (u: { id: number; name: string; email: string; role: string }) => {
     if (saving) return; // v1.137.0 - the button had no busy state and could be pressed twice
     setSaving(true);
-    const res = await api<{ role?: string; employment_status?: string; error?: { message?: string } }>(
-      `/staff/users/${u.id}/role`,
-      { method: "POST", body: JSON.stringify({ role: draft.role, employment_status: draft.employment_status }) },
+    const body = { role: draft.role, employment_status: draft.employment_status, ...(draft.reason?.trim() ? { reason: draft.reason.trim() } : {}) };
+    const res = await withStepUp<{ role?: string; employment_status?: string; error?: { message?: string } }>(
+      (totp) => api(`/staff/users/${u.id}/role`, { method: "POST", body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) }),
+      prompt,
+      { title: L(`Confirm: ${firstName(u.name)} → ${roleLabel(draft.role)}`, `Sahkan: ${firstName(u.name)} → ${roleLabel(draft.role)}`),
+        label: L("Your 6-digit authenticator code - an executive, admin or customer role is changing", "Kod pengesah 6 digit anda - peranan eksekutif, admin atau pelanggan sedang berubah") },
     );
     setSaving(false);
     if (res.ok) {
@@ -142,7 +158,13 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
             .map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
       </label>
-      <button type="button" className={`${btnClass} col-span-1 justify-center`} disabled={saving} onClick={() => void saveRole(u)}>
+      {stepUpNeeded(u) && (
+        <label className="block">
+          <span className={fieldLabel}>{L("Reason (kept in the audit history)", "Sebab (disimpan dalam sejarah audit)")}</span>
+          <input className={inputClassSm} maxLength={300} value={draft.reason ?? ""} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} />
+        </label>
+      )}
+      <button type="button" className={`${btnClass} col-span-1 justify-center`} disabled={saving || (stepUpNeeded(u) && (draft.reason ?? "").trim().length < 10)} onClick={() => void saveRole(u)}>
         {saving ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
       </button>
       <button type="button" className="inline-flex h-9 items-center text-xs underline" onClick={() => setEditId(null)}>{L("Cancel", "Batal")}</button>
@@ -207,6 +229,7 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
         {kind === "staff" && (
           <div className={css.cell}>
             <span className={chipSmNeutral}>{roleLabel(u.role)}</span>
+            {ownerState?.d?.owner?.verified && ownerState.d.owner.user_id === u.id && <span className={chipSmSuccess}>{L("Owner", "Pemilik")}</span>}
             {(u.employment_status ?? "permanent") !== "permanent" && (
               <span className={["resigned", "terminated"].includes(u.employment_status ?? "") ? chipSmDanger : chipSmNeutral}>
                 {statusLabel(u.employment_status ?? "")}
@@ -231,7 +254,7 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
           </div>
         )}
       </div>
-      {canEdit && (
+      {canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin")) && (
         <div className={css.act}>
           <button type="button" className={iconBtn}
             aria-label={kind === "staff"
@@ -313,6 +336,9 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
   const openView = (v: UsersView) => { setView(v); if (v === "roles") setSeenRoles(true); };
   const policy = usePolicy(seenRoles);
   const review = useReview(seenRoles && holds, reviewTick);
+  const [ownerTick, setOwnerTick] = useState(0);
+  const ownerState = useOwner(["ceo", "coo", "cco", "admin", "super_admin"].includes(role), ownerTick);
+  const auditRead = ["ceo", "admin", "super_admin"].includes(role); // = PERMS.audit_read
   /* the user log's filters (v1.234.0): the same 60 events, narrowed here */
   const [logWho, setLogWho] = useState("");
   const [logKind, setLogKind] = useState<"" | "signin" | "twofa" | "other">("");
@@ -323,7 +349,7 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
 
   return (
     <TabPage className={css.page}>
-      {toastNode}
+      {toastNode}{promptNode}
       {/* v1.189.0 - the reference's underline tabs (gold rule under the open
           one); the shared LineTabs from v1.190.0, which Desk draws too */}
       <LineTabs value={view} onChange={openView} tabs={tabs} label={L("Users", "Pengguna")} />
@@ -345,7 +371,10 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
                     <span className={css.sub}>{countOf(staffRows.length, allStaff.length)}</span>
                   </p>
                   <p className={css.sub}>
-                    {canEdit
+                    {owner && !superAdmin
+                      ? L("As the company owner you change any staff role here - executive, customer and Admin changes ask for a reason and your authenticator code. The CEO role and super admin accounts stay with the super admin.",
+                          "Sebagai pemilik syarikat anda menukar sebarang peranan kakitangan di sini - perubahan eksekutif, pelanggan dan Admin memerlukan sebab dan kod pengesah anda. Peranan CEO dan akaun super admin kekal dengan super admin.")
+                      : canEdit
                       ? L("Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin.",
                           "Tukar peranan menetapkan peranan dan status pekerjaan akaun — kakitangan separuh masa tidak layak OT. Kata laluan dan penyahaktifan kekal di /admin.")
                       : L("Read-only here — role changes are made by the system super admin only, so no signed-in business account (or breached Google sign-in) can ever escalate a role.",
@@ -491,8 +520,11 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
                 <div className={css.headText}>
                   <p className={css.title}>{L("User log — recent sign-ins & account events", "Log pengguna — log masuk & peristiwa akaun terkini")}</p>
                   <p className={css.sub}>
-                    {L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit lives in /admin.",
-                       "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA. Audit penuh berada di /admin.")}
+                    {auditRead
+                      ? L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes. The full audit log is below.",
+                          "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA. Log audit penuh di bawah.")
+                      : L("Last 60 authentication events from the audit trail — sign-ins (password, 2FA, Google) and 2FA changes.",
+                          "60 peristiwa pengesahan terakhir daripada jejak audit — log masuk (kata laluan, 2FA, Google) dan perubahan 2FA.")}
                   </p>
                 </div>
               </div>
@@ -555,9 +587,19 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
             </ul>
           </section>
         </TabZone>
+        {ownerState && (
+          <TabZone label={L("Company owner", "Pemilik syarikat")}>
+            <OwnerCard state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} />
+          </TabZone>
+        )}
         {geofence && (
           <TabZone label={L("Office location", "Lokasi pejabat")}>
             <GeofenceCard />
+          </TabZone>
+        )}
+        {auditRead && view === "security" && (
+          <TabZone label={L("Audit log", "Log audit")}>
+            <section className={card} aria-label={L("Full audit log", "Log audit penuh")}><AuditPanel /></section>
           </TabZone>
         )}
       </div>

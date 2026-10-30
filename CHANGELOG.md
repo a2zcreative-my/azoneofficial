@@ -10,6 +10,94 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.236.0] - 2026-10-30 - The company owner (CEO authority)
+
+The owner's brief, 30-10-2026: "CEO = HIGHEST COMPANY OPERATIONAL
+AUTHORITY. CEO = FULL AUTHORIZED COMPANY ADMINISTRATIVE ACCESS. SUPER ADMIN =
+TECHNICAL / RECOVERY ADMINISTRATION. ONE CENTRAL AUTHORIZATION SYSTEM."
+Answers: one designated owner; the owner manages the Admin role only (super
+admin accounts and the CEO role stay with the super admin); roles stay
+code-defined; build. No migration. Audit: claude/CEO-OWNER-ACCESS-AUDIT.md.
+
+- **Root cause**: the doors that create, edit, reset, offboard or sign out
+  executive and admin accounts, and give COO, CCO or customer roles, were
+  rank checks against the super admin (rank 4). The CEO shares rank 3 with
+  the Admin account they were written to stop, so no permission could ever
+  let the CEO through, and the matrix could not show them.
+- **The company owner**: one CEO account named by a super admin (reason,
+  authenticator code, audited `owner.designate`). It counts only while the
+  account holds the CEO role, is active and has 2FA on - decided once, in
+  the session (`is_owner`). A second CEO-role account gains nothing; nobody
+  names themselves. Clearing it (audited `owner.clear`) is the rollback.
+- **Named doors on the one permission source**: `exec_accounts`,
+  `role_any`, `tech_admin_grant`, `backup_download`, `owner_designate`,
+  `audit_read` in permissions.ts. The verified owner holds the first three
+  through `allows()` (`OWNER_GRANTS`). Super admin keeps naming the owner,
+  the CEO role, super admin accounts and the credential backup
+  (`TECHNICAL_ONLY`, each with its reason).
+- **Step-up**: every privileged change by the owner asks for the owner's
+  authenticator code (the same step-up the final leave and claim signatures
+  use) and, for a role change, a reason; audited `by_owner`. Giving or
+  taking technical Admin access tells every super admin, the CEO and COO.
+  The super admin's recovery path is unchanged.
+- **One role rule for both doors** (`roleChangeRule`): the portal route and
+  /admin's route used to keep a rule each. Nobody changes their own role.
+  The last active super admin with 2FA can never be removed.
+- **Never locked out**: an exception cannot hide a tab from the owner, a
+  role rule cannot drop the CEO from a tab while an owner is named, and the
+  owner's tab strip is pinned on the server.
+- **Roles & Permissions** matrix by module, to the owner's reference:
+  Allowed, Denied, Conditional (a stated rule, or the verified owner only),
+  Limited and Not applicable, worked out from the enforced rules; the CEO
+  column outlined with an Owner tag; search, module filter, expandable
+  modules; one role at a time on a phone. **Staff Accounts** lets the owner
+  change roles (Admin accounts listed; the CEO row locked). **Security &
+  Settings** gains the Company owner card and the full audit log.
+- COO, CCO and every other role unchanged: the CCO still cannot confirm
+  Paid, release payroll or decide commission.
+- Fixed on the way: the tab-visibility matrix widened the whole Roles page
+  on a phone (its screen-reader labels escaped the scroller), and the
+  phone list also drew under the desktop matrix.
+- Guards `tests/owner-access.mjs` (85 checks, 8 mutations - the brief's 16
+  cases by direct request) and `tests/owner-coverage.mjs` (every super-admin
+  door classified on purpose, no rank check left; 6 mutations). Guards that
+  pinned the old rule updated to the approved one.
+
+## [1.235.0] - 2026-10-30 - ELFIA Store 2.0
+
+The owner's brief, 30-10-2026: "A2Z OS - ELFIA STORE 2.0 OPTIMIZATION".
+Answers: shop settings in Overview, shopfront content in Publishing; keep
+both editors (Inventory and ELFIA Store); CEO, COO and Super Admin only for
+price, discount, publish, bulk changes and Update now; one explicit Save in
+the product drawer; content (photos, collections, descriptions) stays with
+the inventory roles. No migration. Audit: claude/ELFIA-STORE-AUDIT.md.
+
+- **Three tabs**: Overview, Products & Pricing (opens first), Publishing &
+  Sync. One product record (the Inventory item) and one stock count
+  (Inventory); no Orders, Customers or Discounts tabs.
+- **Products & Pricing**: one table (phone: cards) with collection, web
+  price, discount, what the customer pays (the feed's own rule - an ended
+  flash sale or a discount not below the price shows the full price), stock
+  from Inventory, status and sync state; status and stock filters.
+- **Product drawer** with one Save that sends only what changed: photo
+  (Replace, Cut out, Remove from shop - each confirmed), photo history with
+  Restore (no photo is ever deleted), web price and discount with a live
+  "Customer pays", publishing, collection and description. The server also
+  refuses a price at or below the current discount.
+- **Honest sync**: the store's feed reads are now recorded (time and
+  count). "Connected" and "Read by the store" rest on that record;
+  everything changed after the last read says "Waiting for the store". A
+  Save says it was saved here, not published. Update now shows the store's
+  own answer (new / updated / prices).
+- **Safe bulk changes**: bulk discount, bulk price, flash sale and Cut out
+  ALL show a preview with the count and before -> after per product and
+  send nothing until confirmed; the audit records the SKUs.
+- **Authority**: new capability `elfia_publish` (CEO, COO, Super Admin) on
+  price, discount, publish, bulk, flash sale and Update now, enforced on the
+  server; the Inventory tab's ELFIA editor is read-only for other roles.
+- Guard `tests/elfia-store.mjs` (47 checks, 7 mutations). Guards that
+  pinned the old layout updated to the approved one.
+
 ## [1.234.0] - 2026-10-30 - One access policy (Users)
 
 The owner's brief, 30-10-2026: "ONE AUTHORIZATION SOURCE. ONE ROLE

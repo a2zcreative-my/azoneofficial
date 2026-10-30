@@ -87,7 +87,7 @@ ok("More locks background scroll and restores it", /document\.body\.style\.overf
    its search, and the Organization Chart keeps both views. */
 ok("Staff opens on its overview, with a searchable directory and both chart views", /useState<StaffTab>\(initialView === "org" \? "org" : "overview"\)/.test(staff) /* v1.233.0 - the Dashboard's reporting-line card opens the Organisation tab */ && /const view: "org" \| "circle" = tab === "team" \? "circle" : "org";/.test(staff) && /placeholder=\{L\("Find staff", "Cari kakitangan"\)\}/.test(staff) && /L\("Organisation", "Organisasi"\)/.test(staff) && /L\("Team map", "Peta pasukan"\)/.test(staff));
 /* v1.189.0 - accounts and individual access are tabs of one panel */
-ok("accounts and individual access share one surface", /<UsersPanel role=\{user\.role\} go=\{setTab\} \/>/.test(page) && /<ExceptionsCard /.test(users) && /embedded = false/.test(review)); // v1.234.0 - individual access lives in Roles & Permissions (Per-user exceptions)
+ok("accounts and individual access share one surface", /<UsersPanel role=\{user\.role\} owner=\{user\.is_owner === true\} go=\{setTab\} \/>/.test(page) /* v1.236.0 */ && /<ExceptionsCard /.test(users) && /embedded = false/.test(review)); // v1.234.0 - individual access lives in Roles & Permissions (Per-user exceptions)
 ok("access preview uses the portal phone helper", /const phoneTabs = mobilePrimaryTabs/.test(review));
 
 console.log(`${failed ? "x" : "ok"} portal-experience: ${passed} passed, ${failed} failed`);

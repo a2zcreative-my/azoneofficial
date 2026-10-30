@@ -205,11 +205,14 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
 {
   const s = elfia.indexOf("export function ElfiaStorePanel(");
   const el = elfia.slice(s, elfia.indexOf("\n}\n", s));
-  const caps = ["The shop", "Products", "The shopfront", "Settings"].map((c) => el.indexOf(`<ZoneLabel>{L("${c}"`));
-  ok("ELFIA Store has its four zones, in order", caps.every((x) => x > 0) && caps.every((x, i) => i === 0 || x > caps[i - 1]), caps.join(" < "));
-  const order = ['L("ELFIA web store", "Kedai web ELFIA")', 'L("Products on the ELFIA store"', 'title={L("Homepage carousel"', 'title={L("Catalog PDF"', 'title={L("Catalog hover background"', 'title={L("Delivery charges"', 'title={L("Online payment (Bayarcash FPX)"'].map((m) => el.indexOf(m));
-  ok("pulse, products, carousel, catalog PDF, hover backdrop, delivery, payment - in that order", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
-  ok("the products come before every set-once card", order[1] < Math.min(...order.slice(2)), "the daily work was last");
+  /* v1.235.0 - ELFIA Store 2.0 (the owner, 30-10-2026): three tabs. Overview
+     holds the shop and its settings; Products & Pricing the catalogue;
+     Publishing & Sync the publishing and the shopfront the store reads. */
+  const caps = ["The shop", "Settings", "Products", "Publishing", "The shopfront"].map((c) => el.indexOf(`<ZoneLabel>{L("${c}"`));
+  ok("ELFIA Store's zones sit in their three tabs, in order", caps.every((x) => x > 0) && caps.every((x, i) => i === 0 || x > caps[i - 1]), caps.join(" < "));
+  const order = ['L("ELFIA web store", "Kedai web ELFIA")', 'title={L("Delivery charges"', 'title={L("Online payment (Bayarcash FPX)"', 'L("Products on the ELFIA store"', 'title={L("Homepage carousel"', 'title={L("Catalog PDF"', 'title={L("Catalog hover background"'].map((m) => el.indexOf(m));
+  ok("pulse and settings, products, carousel, catalog PDF, hover backdrop - in that order", order.every((x) => x > 0) && order.every((x, i) => i === 0 || x > order[i - 1]), order.join(" < "));
+  ok("the shop opens on Products & Pricing - the daily work", /useState<"overview" \| "products" \| "publishing">\("products"\)/.test(el));
   ok("the five set-once cards are quiet, each with its figure", el.split("<QuietCard ").length === 6 && el.split("summary={").length === 6);
   ok("the products card is not quiet", !/<QuietCard title=\{L\("Products on the ELFIA store/.test(el));
   ok("the find box cuts the same list the Show chips cut", /const needle = q\.trim\(\)\.toLowerCase\(\);/.test(el) && /\.filter\(\(x\) => !needle \|\| x\.sku\.toLowerCase\(\)\.includes\(needle\)/.test(el) && /L\("Find by SKU, name or collection"/.test(el));
@@ -273,7 +276,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      Security & Settings; every body stays mounted and hidden. */
   const users = page.slice(page.indexOf('{activeTab === "Users"'), page.indexOf('{activeTab === "Profile"'));
   const usersPanel = read("components/portal/users-panel.tsx");
-  ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} go=\{setTab\} \/>\}/.test(users));
+  ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} owner=\{user\.is_owner === true\} go=\{setTab\} \/>\}/.test(users)); // v1.236.0 - and whether the session is the verified company owner (the worker decides)
   ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
     /* v1.234.0 - Roles & Permissions: what roles do, what they see, the exceptions; Security & Settings: the log, then the geofence (the owner kept it here) */
     ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', 'L("Sign-in log"', '<GeofenceCard']));
@@ -285,7 +288,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("each Users card keeps the gate the page gave it",
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
     && /const geofence = \["super_admin", "ceo", "coo"\]\.includes\(role\)/.test(usersPanel)
-    && /const canEdit = role === "super_admin"/.test(usersPanel)
+    && /const superAdmin = role === "super_admin";\s*const canEdit = superAdmin \|\| owner;/.test(usersPanel) /* v1.236.0 - the verified company owner changes roles too (the owner, 30-10-2026) */
     && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel)
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }

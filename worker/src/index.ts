@@ -2,7 +2,7 @@ import { backupManifest } from "./backup-manifest";
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
-import { handleStaff, notify, type StaffUser } from "./staff";
+import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, type StaffUser } from "./staff";
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
@@ -80,7 +80,7 @@ export interface Env {
   VAPID_SUBJECT?: string;
 }
 
-import { Role, can, MANDATORY_2FA_ROLES } from "./permissions";
+import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, MANDATORY_2FA_ROLES } from "./permissions";
 // v1.23.5: the ONE version number — read from the repo root package.json at
 // bundle time, so worker and site stamps always come from the same place.
 import pkg from "../../package.json";
@@ -93,6 +93,8 @@ interface SessionUser {
   role: Role;
   photo_key?: string | null; // v1.4.141: portal header avatar (badge photo)
   requires_2fa?: boolean;
+  /** v1.236.0 - the verified company owner (see getSessionUser) */
+  is_owner?: boolean;
 }
 
 /* ---------------- crypto: PBKDF2-SHA256 (WebCrypto-native) ---------------- */
@@ -1438,16 +1440,26 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
      challenge. The two halves now agree on the same column. */
   const row = await env.DB.prepare(
     `SELECT u.id, u.email, u.name, u.role, u.photo_key,
-            CASE WHEN COALESCE(u.totp_enabled, 0) = 1 THEN 0 ELSE 1 END AS missing_2fa
+            CASE WHEN COALESCE(u.totp_enabled, 0) = 1 THEN 0 ELSE 1 END AS missing_2fa,
+            (SELECT value FROM system_meta WHERE key = 'company_owner') AS owner_meta
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ?1 AND s.expires_at > datetime('now') AND u.is_active = 1`,
   )
     .bind(token)
-    .first<SessionUser & { missing_2fa: 1 | 0 }>();
+    .first<SessionUser & { missing_2fa: 1 | 0; owner_meta: string | null }>();
   if (!row) return null;
 
   const requires_2fa = row.missing_2fa === 1 && MANDATORY_2FA_ROLES.includes(row.role);
-  return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa };
+  /* v1.236.0 - THE COMPANY OWNER, decided here and nowhere else (the owner,
+     30-10-2026; claude/CEO-OWNER-ACCESS-AUDIT.md). One account: named in
+     system_meta.company_owner by a super admin, AND role ceo, AND active
+     (the join above), AND 2FA on. A profile, a job title or a second
+     CEO-role account cannot produce it; losing any of the four ends it. */
+  let is_owner = false;
+  if (row.role === "ceo" && row.missing_2fa === 0 && row.owner_meta) {
+    try { is_owner = Number((JSON.parse(row.owner_meta) as { user_id?: unknown }).user_id) === row.id; } catch { is_owner = false; }
+  }
+  return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa, ...(is_owner ? { is_owner } : {}) };
 }
 
 /**
@@ -2609,6 +2621,20 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        domain ever enters a committed file. */
     const origin = new URL(request.url).origin;
     const items = serializeBridgeItems(rows, origin);
+    /* v1.235.0 (claude/ELFIA-STORE-AUDIT.md) - the store READ the feed: when,
+       and how many products it was handed. This is what "Connected" and
+       "Read by the store" rest on; the key check above has already passed.
+       Two upserts on system_meta, no migration; a failure never costs the
+       store its feed. */
+    try {
+      /* the database's own clock, the one every audit row is stamped with,
+         to the millisecond - so "changed after the last read" compares like
+         with like */
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('elfia_feed_last_read', strftime('%Y-%m-%d %H:%M:%f', 'now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
+        env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('elfia_feed_last_count', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(items.length)),
+      ]);
+    } catch { /* recording is best-effort; the feed is not */ }
     /* v1.46.0 — the hero carousel, authored in the portal's ELFIA tab. The
        store replaces its slide set to match this list (slides are wholly
        portal-owned); pre-0087 the table is absent and the key is simply
@@ -4636,7 +4662,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/system/backup/download" && method === "GET") {
-    if (!atLeast(user, "super_admin")) return errorResponse("forbidden", "Super admin required", 403);
+    if (!user || !allows(user, "backup_download")) return errorResponse("forbidden", "Super admin required", 403);
     const listed = await env.MEDIA.list({ prefix: "backups/" });
     const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
     if (!newest) return errorResponse("not_found", "No backup exists yet — press Back up now first", 404);
@@ -5012,11 +5038,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* v1.45.0 (audit A1, same family): offboarding clears 2FA and kills every
        session, so it is a disruption an admin should not be able to aim at an
        executive account either. Super admin handles those. */
-    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Executive and admin accounts are offboarded by the super admin", 403);
+    /* v1.236.0 - the company owner offboards COO, CCO and Admin accounts
+       (authenticator code); super admin and CEO accounts stay the super
+       admin's, and the last recovery super admin is never offboarded. */
+    if (!canManageAccount(user, target.role)) {
+      return errorResponse("forbidden", "Executive and admin accounts are offboarded by the company owner or the super admin", 403);
     }
-    let bodyOb: { left_on?: string; status?: string } = {};
+    let bodyOb: { left_on?: string; status?: string; totp?: string } = {};
     try { bodyOb = await request.json(); } catch { /* defaults below */ }
+    if (PROTECTED_ROLES.includes(target.role)) {
+      const su = await ownerStepUp(env, user, bodyOb as Record<string, unknown>, "offboard an executive or admin account", false);
+      if (su) return su;
+    }
+    if (await lastRecoveryAdmin(env, target.id)) {
+      return errorResponse("last_recovery_admin", "This is the last active super admin with 2FA - add another before offboarding it", 409);
+    }
     /* v1.77.0 — a date that was SENT and is not a date is now refused rather
        than quietly replaced with today. Omitting it still means today, which
        is what an older client does; but the CEO now picks the last day in the
@@ -5055,9 +5091,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   if (path === "/api/v1/audit" && method === "GET") {
+    /* v1.236.0 - the same three roles the rank check let in (rank >= admin:
+       admin, ceo, super_admin), now a named capability the matrix shows. */
     // Audit trail viewer — admin tier only. Reads the log every consequential
     // action already writes to (logins, approvals, role changes, resets).
-    if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin required", 403);
+    if (!user || !allows(user, "audit_read")) return errorResponse("forbidden", "Admin required", 403);
     const url = new URL(request.url);
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 300);
     const action = url.searchParams.get("action");
@@ -5281,7 +5319,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       if (!user || user.role === "customer") {
         return errorResponse("forbidden", "Staff access required", 403);
       }
-      if (key.startsWith("backups/") && !atLeast(user, "super_admin")) {
+      if (key.startsWith("backups/") && !allows(user, "backup_download")) {
         return errorResponse("forbidden", "Backups are super admin only — use the export button in /admin", 403);
       }
       // Staff documents (contracts, letters): the owner, HR, or management.
@@ -5513,8 +5551,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        accounting_manage — the money approvals an admin is deliberately
        denied — so creating one was a way to hand yourself the authority the
        matrix withholds. Executive roles now sit behind the same door. */
-    if (PROTECTED_ROLES.includes(roleWantedC) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", `Only a super admin can create a ${roleWantedC} account`, 403);
+    /* v1.236.0 - the company owner may create COO, CCO and Admin accounts
+       (authenticator code and a reason); super admin and CEO accounts are
+       the super admin's alone (permissions.ts mayGrant). */
+    if (PROTECTED_ROLES.includes(roleWantedC) && !mayGrant(user, roleWantedC)) {
+      return errorResponse("forbidden", `Only the super admin can create a ${roleWantedC} account`, 403);
+    }
+    if (PROTECTED_ROLES.includes(roleWantedC)) {
+      const su = await ownerStepUp(env, user, body, `create a ${roleWantedC} account`, true);
+      if (su) return su;
     }
     const email = (body.email as string).toLowerCase().trim();
     // v1.4.180: domain policy aligned with the portal (v1.4.156–157).
@@ -5580,14 +5625,26 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        accounting_manage, the approvals the matrix denies an admin. Both
        directions now consult PROTECTED_ROLES, which holds every role that
        carries authority its peers do not. */
-    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can modify an executive or admin-tier account", 403);
+    /* v1.236.0 - canManageAccount / roleChangeRule (permissions.ts) are the
+       one rule: the company owner manages COO, CCO and Admin accounts; super
+       admin and CEO accounts stay the super admin's. */
+    if (!canManageAccount(user, target.role)) {
+      return errorResponse("forbidden", "Only the company owner or the super admin can modify an executive or admin-tier account", 403);
     }
-    if (PROTECTED_ROLES.includes(String(body.role ?? "")) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can grant executive or admin-tier roles", 403);
+    if (PROTECTED_ROLES.includes(String(body.role ?? "")) && !mayGrant(user, String(body.role))) {
+      return errorResponse("forbidden", "Only the super admin can grant this role", 403);
     }
     if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
       return errorResponse("invalid_input", "You cannot change your own role", 400);
+    }
+    const wantsRole = typeof body.role === "string" && body.role !== "" && body.role !== target.role;
+    if (PROTECTED_ROLES.includes(target.role) || (wantsRole && PROTECTED_ROLES.includes(String(body.role)))) {
+      const su = await ownerStepUp(env, user, body, "change an executive or admin account", wantsRole);
+      if (su) return su;
+    }
+    const losesAccess = (wantsRole && String(body.role) !== "super_admin") || body.is_active === 0 || body.is_active === false;
+    if (target.role === "super_admin" && losesAccess && await lastRecoveryAdmin(env, Number(id))) {
+      return errorResponse("last_recovery_admin", "This is the last active super admin with 2FA - add another before removing it", 409);
     }
     const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
     const changed: string[] = [];
@@ -5614,9 +5671,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const isPartTimeAlias = body.role === "live_host_part_time";
       const roleWanted = isPartTimeAlias ? "live_host" : body.role;
       if (roles.includes(roleWanted)) {
-        if (!atLeast(user, "super_admin")) {
-          return errorResponse("forbidden", "Role changes are reserved for the super admin (CEO security directive)", 403);
-        }
+        const rule = roleChangeRule(user, { id: Number(id), role: target.role }, roleWanted);
+        if (!rule.ok && rule.code !== "self_change") return errorResponse(rule.code, rule.message, rule.status);
         if (["super_admin", "admin"].includes(roleWanted)) {
           const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
             .bind(id).first<{ email: string }>();
@@ -5654,7 +5710,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       changed.push("password");
     }
     if (changed.length === 0) return errorResponse("invalid_input", "Nothing to update", 400);
-    await audit(env, user.id, "user.update", "users", id, { changed });
+    await audit(env, user.id, "user.update", "users", id, {
+      changed,
+      ...(changed.includes("role") ? { from: target.role, to: String(body.role) === "live_host_part_time" ? "live_host" : String(body.role) } : {}),
+      ...(user.is_owner && user.role !== "super_admin" ? { by_owner: true } : {}),
+      ...(typeof body.reason === "string" && body.reason.trim() ? { reason: body.reason.trim().slice(0, 300) } : {}),
+    });
     return json({ ok: true });
   }
 
@@ -5668,8 +5729,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!target) return errorResponse("not_found", "User not found", 404);
     /* v1.45.0 (audit A1, same family): forcing an executive out of every
        session is a disruption reserved for the super admin. */
-    if (PROTECTED_ROLES.includes(target.role) && !atLeast(user, "super_admin")) {
-      return errorResponse("forbidden", "Only a super admin can force out an executive or admin account", 403);
+    if (!canManageAccount(user, target.role)) {
+      return errorResponse("forbidden", "Only the company owner or the super admin can force out an executive or admin account", 403);
+    }
+    if (PROTECTED_ROLES.includes(target.role)) {
+      const su = await ownerStepUp(env, user, (await request.json().catch(() => null)) as Record<string, unknown> | null, "sign an executive or admin account out", false);
+      if (su) return su;
     }
     const res = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
     await audit(env, user.id, "user.force_logout", "users", id, {

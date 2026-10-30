@@ -30,7 +30,7 @@ import { api } from "@/lib/api";
 import { dmy } from "@/lib/format";
 import { getLang, t } from "@/lib/i18n";
 import { GOVERNABLE_TABS } from "@/lib/portal-tabs";
-import { btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { roleLabel } from "@/components/portal/users-shared";
 import css from "./access-policy.module.css";
 
@@ -38,9 +38,16 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface Policy {
   roles: string[];
-  actions: { module: string; key: string; en: string; ms: string; note_en: string | null; note_ms: string | null; roles: string[] }[];
+  actions: {
+    module: string; key: string; en: string; ms: string; note_en: string | null; note_ms: string | null; roles: string[];
+    /* v1.236.0 - held by the verified company owner beyond the ceo role; roles allowed under a rule; roles it does not apply to */
+    owner_grant?: boolean; cond?: Record<string, [string, string]>; na?: string[];
+  }[];
   tabs: { tab: string; always: boolean; overridden: boolean; sees: string[]; reads: string[] | null }[];
   can_edit_tabs: boolean;
+  counts?: Record<string, number>;
+  owner?: { user_id: number; name: string; verified: boolean; set_at: string } | null;
+  me_owner?: boolean;
 }
 type Verdict = "shows_tab" | "hides_only" | "redundant" | "hollow" | "expired" | "no_account";
 interface Exception { user_id: number; name: string | null; role: string | null; active: boolean; tab: string; kind: "grant" | "refuse"; reason: string | null; by_name: string | null; at: string | null; expires_on: string | null; needs_review: boolean; verdict: Verdict }
@@ -86,63 +93,162 @@ export function useReview(enabled: boolean, tick: number) {
   return got;
 }
 
-/** What each role may DO, by module - read from the server's own rules. */
+/* v1.236.0 - THE MATRIX, BY MODULE (the owner's reference, 30-10-2026:
+   "Show actual effective permissions, not just stored permission flags";
+   claude/CEO-OWNER-ACCESS-AUDIT.md). Every cell is worked out here from
+   what /staff/access/policy publishes - the very constants the routes
+   check - never stored: Allowed, Denied, Conditional (allowed under a stated
+   rule, or the verified owner only), Limited (a module where some actions
+   are allowed) and Not applicable (by design). The CEO column is outlined;
+   it carries "Owner" when a super admin has named a verified owner. */
+type St = "allow" | "deny" | "cond" | "lim" | "na";
+const ST: Record<St, { en: string; ms: string; cls: string; icon: "success" | "error" | "info" | "pending" | null }> = {
+  allow: { en: "Allowed", ms: "Dibenarkan", cls: css.stAllow!, icon: "success" },
+  deny: { en: "Denied", ms: "Ditolak", cls: css.stDeny!, icon: "error" },
+  cond: { en: "Conditional", ms: "Bersyarat", cls: css.stCond!, icon: "info" },
+  lim: { en: "Limited (some actions)", ms: "Terhad (sebahagian tindakan)", cls: css.stLim!, icon: "pending" },
+  na: { en: "Not applicable", ms: "Tidak berkenaan", cls: css.stNa!, icon: null },
+};
+type Act = Policy["actions"][number];
+export function actionStatus(a: Act, r: string): { st: St; note: string } {
+  if (a.na?.includes(r)) return { st: "na", note: L("Not part of this role by design", "Bukan sebahagian peranan ini mengikut reka bentuk") };
+  if (r === "ceo" && a.owner_grant) return { st: "cond", note: L("The verified company owner only - named by a super admin, 2FA on", "Pemilik syarikat yang disahkan sahaja - dinamakan oleh super admin, 2FA hidup") };
+  const c = a.cond?.[r];
+  if (c) return { st: "cond", note: L(c[0], c[1]) };
+  return a.roles.includes(r) ? { st: "allow", note: "" } : { st: "deny", note: "" };
+}
+export function moduleStatus(acts: Act[], r: string): St {
+  const sts = acts.map((a) => actionStatus(a, r).st).filter((x) => x !== "na");
+  if (sts.length === 0) return "na";
+  if (sts.every((x) => x === "allow")) return "allow";
+  if (sts.every((x) => x === "deny")) return "deny";
+  if (!sts.includes("deny")) return "cond";
+  return "lim";
+}
+function Cell({ st, note }: { st: St; note?: string }) {
+  const s = ST[st];
+  const label = `${L(s.en, s.ms)}${note ? ` - ${note}` : ""}`;
+  return (
+    <span className={`${css.st} ${s.cls}`} title={label} role="img" aria-label={label}>
+      {s.icon ? <AppIcon name={s.icon} /> : "—"}
+    </span>
+  );
+}
+
 export function AccessPolicyCard({ policy }: { policy: { d: Policy | null; e: string } | null }) {
   const [q, setQ] = useState("");
+  const [mod, setMod] = useState("");
   const [role, setRole] = useState("ceo");
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const d = policy?.d ?? null;
   const needle = q.trim().toLowerCase();
-  const rows = (d?.actions ?? []).filter((a) => !needle || a.module.toLowerCase().includes(needle) || L(a.en, a.ms).toLowerCase().includes(needle));
+  const all = d?.actions ?? [];
+  const allModules = [...new Set(all.map((a) => a.module))];
+  const rows = all.filter((a) => (!mod || a.module === mod) && (!needle || a.module.toLowerCase().includes(needle) || t(a.module, getLang()).toLowerCase().includes(needle) || L(a.en, a.ms).toLowerCase().includes(needle)));
   const modules = [...new Set(rows.map((a) => a.module))];
-  const cell = (on: boolean) => on
-    ? <span className={chipSmSuccess}>{L("Allowed", "Dibenarkan")}</span>
-    : <span className={chipSmDanger}>{L("Denied", "Ditolak")}</span>;
+  const keyActions = (m: string) => rows.filter((a) => a.module === m).map((a) => L(a.en, a.ms)).join(" · ");
+  const isOpen = (m: string) => open[m] ?? (!!needle || !!mod);
+  const owner = d?.owner ?? null;
+  const roleHead = (r: string) => (
+    <th key={r} scope="col" className={`${css.c} ${r === "ceo" ? css.ceoHead : ""}`}>
+      {r === "ceo" && <AppIcon name="star" className={css.crown} />}
+      <span className={css.roleName}>{roleLabel(r)}</span>
+      <small className={css.count}>{d?.counts?.[r] !== undefined ? L(`${d.counts[r]} active`, `${d.counts[r]} aktif`) : L("0 active", "0 aktif")}</small>
+      {r === "ceo" && owner?.verified && <small className={css.ownerTag}>{L("Owner", "Pemilik")}</small>}
+    </th>
+  );
   return (
     <section className={card} aria-label={L("Access policy matrix", "Matriks polisi akses")}>
       <div className={css.head}>
         <div>
           <h3 className={css.title}>{L("Access policy matrix", "Matriks polisi akses")}</h3>
-          <p className={css.sub}>{L("What each role may do, read from the rules the server enforces on every request. Changing an action is a code change the CEO approves; hiding a tab never changes these.", "Apa yang setiap peranan boleh lakukan, dibaca daripada peraturan yang dikuatkuasa pelayan pada setiap permintaan. Menukar tindakan ialah perubahan kod yang diluluskan CEO; menyembunyikan tab tidak mengubahnya.")}</p>
+          <p className={css.sub}>{L("What each role may do, worked out from the rules the server enforces on every request. Open a module for its actions. Changing an action is a code change the CEO approves; hiding a tab never changes these.", "Apa yang setiap peranan boleh lakukan, dikira daripada peraturan yang dikuatkuasa pelayan pada setiap permintaan. Buka modul untuk tindakannya. Menukar tindakan ialah perubahan kod yang diluluskan CEO; menyembunyikan tab tidak mengubahnya.")}</p>
         </div>
       </div>
+      {d && (
+        <p className={owner?.verified ? css.ownerBox : css.warn}>
+          <AppIcon name={owner?.verified ? "verify" : "warning"} />
+          {owner?.verified
+            ? L(`Company owner: ${owner.name} - holds the CEO role's rights plus the owner rows marked Conditional, each with an authenticator code. Named by a super admin.`, `Pemilik syarikat: ${owner.name} - memegang hak peranan CEO serta baris pemilik bertanda Bersyarat, setiap satu dengan kod pengesah. Dinamakan oleh super admin.`)
+            : owner
+              ? L(`${owner.name} is named the company owner but is not verified (needs the CEO role, an active account and 2FA) - the owner rows are closed.`, `${owner.name} dinamakan pemilik syarikat tetapi belum disahkan (perlu peranan CEO, akaun aktif dan 2FA) - baris pemilik ditutup.`)
+              : L("No company owner is named yet - the CEO holds the CEO role's rights only. A super admin names the owner in Security & Settings.", "Belum ada pemilik syarikat dinamakan - CEO memegang hak peranan CEO sahaja. Super admin menamakan pemilik di Keselamatan & Tetapan.")}
+        </p>
+      )}
+      <ul className={css.legend} aria-label={L("What the marks mean", "Maksud tanda")}>
+        {(["allow", "deny", "cond", "lim", "na"] as St[]).map((k) => <li key={k}><Cell st={k} /><span>{L(ST[k].en, ST[k].ms)}</span></li>)}
+      </ul>
       <div className={css.filters}>
-        <input type="search" className={inputClassSm} aria-label={L("Search resource or action", "Cari sumber atau tindakan")} placeholder={L("Search resource or action", "Cari sumber atau tindakan")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input type="search" className={inputClassSm} aria-label={L("Search module or permission", "Cari modul atau kebenaran")} placeholder={L("Search module or permission", "Cari modul atau kebenaran")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className={selectClassSm} aria-label={L("Module", "Modul")} value={mod} onChange={(e) => setMod(e.target.value)}>
+          <option value="">{L("All modules", "Semua modul")}</option>
+          {allModules.map((m) => <option key={m} value={m}>{t(m, getLang())}</option>)}
+        </select>
         <label className={css.phoneOnly}>
           <select className={selectClassSm} aria-label={L("Role to show", "Peranan untuk dipaparkan")} value={role} onChange={(e) => setRole(e.target.value)}>
-            {(d?.roles ?? []).map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            {(d?.roles ?? []).map((r) => <option key={r} value={r}>{roleLabel(r)}{r === "ceo" && owner?.verified ? ` · ${L("Owner", "Pemilik")}` : ""}</option>)}
           </select></label>
       </div>
-      {policy?.e ? <p role="alert" className={css.error}>{policy.e}</p> : !d ? <SkelRows rows={6} /> : (
+      {policy?.e ? <p role="alert" className={css.error}>{policy.e}</p> : !d ? <SkelRows rows={6} /> : modules.length === 0 ? (
+        <p className={css.empty}>{L("Nothing matches that search.", "Tiada yang sepadan dengan carian itu.")}</p>
+      ) : (
         <>
           <div className={`${css.tableWrap} ${css.desk}`}>
-            <table className={css.table} aria-label={L("Actions by role", "Tindakan mengikut peranan")}>
-              <thead><tr><th>{L("Resource / action", "Sumber / tindakan")}</th>{d.roles.map((r) => <th key={r} className={css.c}>{roleLabel(r)}</th>)}</tr></thead>
+            <table className={css.table} aria-label={L("Permissions by module and role", "Kebenaran mengikut modul dan peranan")}>
+              <thead><tr><th scope="col">{L("Module / permission", "Modul / kebenaran")}</th><th scope="col">{L("Key actions", "Tindakan utama")}</th>{d.roles.map(roleHead)}</tr></thead>
               <tbody>
-                {modules.map((m) => (
-                  <PolicyGroup key={m} module={m} rows={rows.filter((a) => a.module === m)} roles={d.roles} cell={cell} />
-                ))}
+                {modules.map((m) => {
+                  const acts = rows.filter((a) => a.module === m);
+                  return (
+                    <ModuleRows key={m} module={m} acts={acts} roles={d.roles} open={isOpen(m)} summary={keyActions(m)}
+                      onToggle={() => setOpen((o) => ({ ...o, [m]: !isOpen(m) }))} />
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <ul className={`${css.phoneList} ${css.phone}`} aria-label={L(`What a ${roleLabel(role)} may do`, `Apa yang ${roleLabel(role)} boleh lakukan`)}>
-            {rows.map((a) => (
-              <li key={a.key}><span className={css.main}><strong>{t(a.module, getLang())} — {L(a.en, a.ms)}</strong>{a.note_en && <span>{L(a.note_en, a.note_ms ?? a.note_en)}</span>}</span>{cell(a.roles.includes(role))}</li>
-            ))}
+            {modules.map((m) => {
+              const acts = rows.filter((a) => a.module === m);
+              return (
+                <li key={m} className={css.phoneMod}>
+                  <button type="button" className={css.modBtn} aria-expanded={isOpen(m)} aria-label={`${t(m, getLang())}: ${L(ST[moduleStatus(acts, role)].en, ST[moduleStatus(acts, role)].ms)}`} onClick={() => setOpen((o) => ({ ...o, [m]: !isOpen(m) }))}>
+                    <span className={css.main}><strong>{t(m, getLang())}</strong><span>{keyActions(m)}</span></span>
+                    <Cell st={moduleStatus(acts, role)} />
+                  </button>
+                  {isOpen(m) && (
+                    <ul className={css.phoneActs}>
+                      {acts.map((a) => { const s = actionStatus(a, role); return (
+                        <li key={a.key}><span className={css.main}><strong>{L(a.en, a.ms)}</strong>{(s.note || a.note_en) && <span>{s.note || L(a.note_en ?? "", a.note_ms ?? a.note_en ?? "")}</span>}</span><Cell st={s.st} note={s.note} /></li>
+                      ); })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}
-      <p className={css.foot}>{L("Super admin is the system recovery account: strong sign-in and 2FA, every change audited; it cannot confirm Paid.", "Super admin ialah akaun pemulihan sistem: log masuk kukuh dan 2FA, setiap perubahan diaudit; ia tidak boleh mengesahkan Dibayar.")}</p>
+      <p className={css.foot}>{L("The CEO is the highest company authority. Super admin is the technical and recovery account: it names the company owner, keeps super admin accounts and the database backup, and cannot confirm Paid.", "CEO ialah kuasa syarikat tertinggi. Super admin ialah akaun teknikal dan pemulihan: ia menamakan pemilik syarikat, menyimpan akaun super admin dan sandaran pangkalan data, dan tidak boleh mengesahkan Dibayar.")}</p>
     </section>
   );
 }
-function PolicyGroup({ module, rows, roles, cell }: { module: string; rows: Policy["actions"]; roles: string[]; cell: (on: boolean) => React.ReactNode }) {
+function ModuleRows({ module, acts, roles, open, summary, onToggle }: { module: string; acts: Act[]; roles: string[]; open: boolean; summary: string; onToggle: () => void }) {
   return (
     <>
-      <tr className={css.group}><th colSpan={roles.length + 1} scope="colgroup">{t(module, getLang())}</th></tr>
-      {rows.map((a) => (
-        <tr key={a.key}>
-          <th scope="row" className={css.rowHead}><span>{L(a.en, a.ms)}</span>{a.note_en && <small>{L(a.note_en, a.note_ms ?? a.note_en)}</small>}</th>
-          {roles.map((r) => <td key={r} className={css.c}>{cell(a.roles.includes(r))}</td>)}
+      <tr className={css.modRow}>
+        <th scope="row">
+          <button type="button" className={css.modBtn} aria-expanded={open} onClick={onToggle}>
+            <AppIcon name="next" className={`${css.chev} ${open ? css.chevOpen : ""}`} />{t(module, getLang())}
+          </button>
+        </th>
+        <td className={css.keyActs}>{summary}</td>
+        {roles.map((r) => <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}><Cell st={moduleStatus(acts, r)} /></td>)}
+      </tr>
+      {open && acts.map((a) => (
+        <tr key={a.key} className={css.actRow}>
+          <th scope="row" colSpan={2} className={css.actHead}><span className={css.rowHead}><span>{L(a.en, a.ms)}</span>{a.note_en && <small>{L(a.note_en, a.note_ms ?? a.note_en)}</small>}</span></th>
+          {roles.map((r) => { const s = actionStatus(a, r); return <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}><Cell st={s.st} note={s.note} /></td>; })}
         </tr>
       ))}
     </>
@@ -240,6 +346,9 @@ const ACTION_WORD: Record<string, [string, string]> = {
   "staff.role_change": ["Role changed", "Peranan ditukar"], "tabs.access_change": ["Tab rule changed", "Peraturan tab ditukar"],
   "tabs.person_access": ["Exception changed", "Pengecualian ditukar"], "staff.reports_to": ["Reporting line set", "Garis pelaporan ditetapkan"],
   "attendance.geofence_set": ["Geofence set", "Geofence ditetapkan"], "attendance.geofence_clear": ["Geofence cleared", "Geofence dikosongkan"],
+  "owner.designate": ["Company owner named", "Pemilik syarikat dinamakan"], "owner.clear": ["Company owner cleared", "Pemilik syarikat dikosongkan"],
+  "user.update": ["Account changed", "Akaun ditukar"], "user.offboard": ["Account offboarded", "Akaun ditamatkan"],
+  "user.force_logout": ["Signed out everywhere", "Dilog keluar di semua tempat"], "user.create": ["Account created", "Akaun dicipta"],
 };
 const detailOf = (raw: string | null) => {
   try {

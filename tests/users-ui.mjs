@@ -142,7 +142,7 @@ ok("the phone editor is the house bottom sheet, dismissable",
    /\$\{sheetCard\}|className=\{sheetCard\}/.test(src) && /role="dialog" aria-modal="true"/.test(src)
    && /aria-label=\{L\("Close", "Tutup"\)\}/.test(src));
 ok("Save cannot be pressed twice",
-   /if \(saving\) return;/.test(src) && /disabled=\{saving\}/.test(src) && /Saving…/.test(src),
+   /if \(saving\) return;/.test(src) && /disabled=\{saving( \|\| \(stepUpNeeded\(u\) && [^\n]*< 10\))?\}/.test(src) && /Saving…/.test(src), // v1.236.0 - also waits for the reason on a privileged change
    "the old button was btnClass minus its disabled state, and had no busy flag at all");
 
 /* ---- 6. the honest small things -------------------------------------- */

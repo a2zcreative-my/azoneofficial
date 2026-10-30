@@ -57,19 +57,28 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
   const client = list(tree, /export const ROLE_ASSIGN_ROLES: readonly string\[\] = \[([^\]]*)\]/);
   ok("PERMS.role_assign is exactly ceo and coo", JSON.stringify(server) === JSON.stringify(["ceo", "coo"]), server.join(","));
   ok("the client's ROLE_ASSIGN_ROLES is the same list", JSON.stringify(client) === JSON.stringify(server), client.join(","));
-  ok("the route reads that permission", /can\(user\.role, "role_assign"\)/.test(route));
+  /* v1.236.0 (the owner, 30-10-2026; claude/CEO-OWNER-ACCESS-AUDIT.md): the
+     rule moved into permissions.ts roleChangeRule, shared by BOTH role doors,
+     and the verified company owner joined the super admin on the executive,
+     customer and Admin roles (with a code and a reason). The CEO and COO as
+     ROLES still assign the five working roles only. */
+  ok("the route reads that permission", /const rule = roleChangeRule\(user, target, newRole\);/.test(route)
+    && /if \(d === "role_assign"\) return actor\.role === "super_admin" \|\| allows\(actor, "role_assign"\);/.test(perms));
 }
 
 /* ---- 2. working roles only ---- */
 {
-  const working = list(route, /const WORKING_ROLES = \[([^\]]*)\]/);
+  const working = list(perms, /export const WORKING_ROLES: readonly string\[\] = \[([^\]]*)\]/);
   const clientWorking = list(tree, /export const WORKING_ROLES: readonly string\[\] = \[([^\]]*)\]/);
-  ok("the route's working roles are the five", JSON.stringify(working) === JSON.stringify(["editor", "hr_admin", "live_host", "marketing", "sales_marketing"]), working.join(","));
+  ok("the working roles are the five", JSON.stringify(working) === JSON.stringify(["editor", "hr_admin", "live_host", "marketing", "sales_marketing"]), working.join(","));
   ok("the client offers the same five", JSON.stringify(clientWorking) === JSON.stringify(working), clientWorking.join(","));
-  ok("an executive may assign only those", /const ASSIGNABLE = executive\s*\?\s*WORKING_ROLES/.test(route));
-  ok("the super_admin still has the executive and customer roles", /\[\.\.\.WORKING_ROLES, "ceo", "coo", "cco", "customer"\]/.test(route));
-  ok("an executive may not touch an executive, customer or admin account", /if \(executive && !WORKING_ROLES\.includes\(target\.role\)\)/.test(route) && /\["super_admin", "admin"\]\.includes\(target\.role\)/.test(route));
-  ok("nobody else gets in", /if \(user\.role !== "super_admin" && !executive\)/.test(route));
+  ok("every other role sits behind its own door", /if \(r === "super_admin" \|\| r === "ceo"\) return "super_only";/.test(perms)
+    && /if \(r === "admin"\) return "tech_admin_grant";/.test(perms) && /if \(r === "coo" \|\| r === "cco" \|\| r === "customer"\) return "role_any";/.test(perms));
+  ok("an executive ROLE may assign only the working roles - the other doors are the super admin's (and the verified owner's by grant)",
+    /role_any: \["super_admin"\],/.test(perms) && /tech_admin_grant: \["super_admin"\],/.test(perms) && /if \(d === "super_only"\) return actor\.role === "super_admin";/.test(perms));
+  ok("an executive may not touch an executive, customer or admin account - both the old and the new role are checked", /for \(const r of \[target\.role, to\]\) \{\s*if \(mayGrant\(actor, r\)\) continue;/.test(perms));
+  ok("a super admin account is never touched on this route", /if \(target\.role === "super_admin"\) \{\s*return err\("forbidden", "Super admin accounts are managed by the super admin in \/admin only"/.test(route));
+  ok("nobody else gets in", /if \(!rule\.ok\) return err\(rule\.code, rule\.message, rule\.status\);/.test(route));
 }
 
 /* ---- 3 + 4. never yourself, and audited ---- */

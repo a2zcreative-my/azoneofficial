@@ -1,0 +1,454 @@
+/* v1.235.0 - ELFIA Store 2.0 (elfia-store-panel.tsx, elfia-products.tsx).
+   Tokens only, both themes; desktop table, phone cards. */
+
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.pageTitle {
+  margin: 0;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+}
+.sub,
+.hint {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.headActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.error {
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  color: var(--danger);
+}
+
+/* the connection strip */
+.strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+}
+@media (min-width: 900px) {
+  .strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+  }
+  .strip > * + * {
+    border-left: 1px solid var(--border);
+    padding-left: 1.125rem;
+  }
+  .strip > * {
+    padding-right: 1.125rem;
+  }
+}
+.stripCell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.well {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: var(--secondary);
+  color: var(--gold-solid);
+}
+.well svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.cellText {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.cellText strong {
+  font-size: var(--type-body-size, 1rem);
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.cellText span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* warnings and activity lists */
+.list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.list li:last-child {
+  border-bottom: 0;
+}
+.main {
+  display: grid;
+  gap: 0.125rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-size: var(--type-body-sm-size);
+}
+.main span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.linkBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* product table */
+.desk {
+  display: none;
+}
+.phone {
+  display: grid;
+}
+@media (min-width: 900px) {
+  .desk {
+    display: block;
+  }
+  .phone {
+    display: none;
+  }
+}
+.tableWrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-body-sm-size);
+}
+.table th,
+.table td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+.table thead th {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.off td {
+  opacity: 0.72;
+}
+.tick {
+  width: 2rem;
+}
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pays {
+  min-width: 9rem;
+  font-variant-numeric: tabular-nums;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.prod {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 13rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.prod:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--gold-solid);
+  outline-offset: 2px;
+}
+.thumb,
+.thumbLg {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.thumb {
+  width: 2.5rem;
+  height: 3rem;
+}
+.thumbLg {
+  width: 3.5rem;
+  height: 4.25rem;
+}
+.thumb img,
+.thumbLg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.prodText {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.prodText strong {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.prodText > span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+
+/* phone cards */
+.cards {
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cards li {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  background: var(--card);
+}
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.75rem 0.75rem 0.75rem 2.5rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cardTick {
+  position: absolute;
+  top: 1rem;
+  left: 0.875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* drawer */
+.drawer {
+  display: grid;
+  gap: 1rem;
+}
+.block {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  min-width: 0;
+}
+.block label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+  gap: 0.375rem 0.75rem;
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+}
+.dl dt {
+  color: var(--muted-foreground);
+}
+.dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.photoRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.photo {
+  display: grid;
+  place-items: center;
+  width: 8rem;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.actions {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+.history {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.history img {
+  width: 2.5rem;
+  height: 3rem;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+.formRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  align-items: flex-end;
+}
+.formRow > label {
+  flex: 1 1 8rem;
+}
+.pays output,
+output.pays {
+  display: block;
+  padding: 0.5rem 0;
+  font-size: var(--type-body-size, 1rem);
+  font-weight: 700;
+  color: var(--foreground);
+}
+.check {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 0.5rem !important;
+  font-size: var(--type-body-sm-size) !important;
+}
+.saveRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.chipsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.payOk {
+  font-weight: 700;
+  color: var(--success);
+}
+.payPlain {
+  font-weight: 700;
+}
+.was {
+  margin-left: 0.25rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.flash {
+  margin-left: 0.25rem;
+  font-weight: 400;
+  color: var(--gold-solid);
+}
+.muted {
+  color: var(--muted-foreground);
+}
+.warn {
+  font-weight: 600;
+  color: var(--warning);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.skel {
+  width: 100%;
+  height: 3rem;
+}

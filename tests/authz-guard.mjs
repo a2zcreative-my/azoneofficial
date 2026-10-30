@@ -53,11 +53,22 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
   /* The four places that must consult it. Each was a real hole. */
   const sites = [
     [/PROTECTED_ROLES\.includes\(roleWantedC\)/, "POST /users (create) does not check PROTECTED_ROLES"],
-    [/PROTECTED_ROLES\.includes\(target\.role\)[\s\S]{0,200}Only a super admin can modify/, "PATCH /users/:id does not protect executive targets"],
+    /* v1.236.0 (the owner, 30-10-2026; claude/CEO-OWNER-ACCESS-AUDIT.md): the
+       target check is canManageAccount() in permissions.ts - super admin and
+       CEO accounts stay the super admin's; COO, CCO and Admin accounts are
+       the super admin's and the VERIFIED company owner's (exec_accounts),
+       never the Admin account's. Checked below as well. */
+    [/if \(!canManageAccount\(user, target\.role\)\)[\s\S]{0,200}Only the company owner or the super admin can modify/, "PATCH /users/:id does not protect executive targets"],
     [/PROTECTED_ROLES\.includes\(String\(body\.role \?\? ""\)\)/, "PATCH /users/:id does not protect executive role GRANTS"],
-    [/PROTECTED_ROLES\.includes\(target\.role\)[\s\S]{0,200}offboarded by the super admin/, "the offboard route does not protect executive targets"],
+    [/if \(!canManageAccount\(user, target\.role\)\)[\s\S]{0,200}offboarded by the company owner or the super admin/, "the offboard route does not protect executive targets"],
   ];
   for (const [re, msg] of sites) if (!re.test(index)) fail(`${msg} (AUDIT A1)`);
+  /* v1.236.0 - the account rule itself: the Admin account (rank 3, like the
+     CEO) still can never manage an executive or admin account. */
+  ok2("canManageAccount keeps super admin and CEO accounts with the super admin",
+    /if \(role === "super_admin" \|\| role === "ceo"\) return actor\.role === "super_admin";/.test(perms));
+  ok2("canManageAccount gives COO, CCO and Admin accounts only to exec_accounts holders (super admin, verified owner)",
+    /if \(role === "admin" \|\| role === "coo" \|\| role === "cco"\) return allows\(actor, "exec_accounts"\);/.test(perms) && /exec_accounts: \["super_admin"\],/.test(perms));
   if (sites.every(([re]) => re.test(index))) ok("create / update / role-grant / offboard all consult PROTECTED_ROLES");
 
   /* The specific old shape must not come back. */

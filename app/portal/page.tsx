@@ -230,7 +230,7 @@ export default function PortalPage() {
             <InventoryPanel role={user.role} focus={focusOf("Inventory")} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
-            <ElfiaStorePanel />
+            <ElfiaStorePanel role={user.role} />
           )}
           {activeTab === "ELFIA Traffic" && (
             <ElfiaTrafficPanel />
@@ -255,7 +255,7 @@ export default function PortalPage() {
               page applied (Who sees what - CEO / super admin; the geofence -
               super admin / CEO / COO; role changes - super admin) moved with
               their cards into users-panel.tsx. */}
-          {activeTab === "Users" && <UsersPanel role={user.role} go={setTab} />}
+          {activeTab === "Users" && <UsersPanel role={user.role} owner={user.is_owner === true} go={setTab} />}
           {activeTab === "Profile" && (
             /* v1.220.0 - Profile 2.0 (the owner's answers, 28-10-2026): one
                page, three tabs - My Profile, Security & Account, My Payslips.

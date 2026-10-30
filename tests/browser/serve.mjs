@@ -55,6 +55,14 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: expired ? { code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches." } : { code: "forbidden", message: "Inventory access required" } }));
         return;
       }
+      /* v1.236.0 - OWNER=1: the owner's privileged changes and naming the
+         owner answer 401 totp_required until an authenticator code is sent
+         (the worker's ownerStepUp / requireFreshTotp) */
+      if (process.env.OWNER && req.method === "POST" && (/^\/staff\/users\/\d+\/role$/.test(p) || p === "/staff/owner")) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        const priv = p === "/staff/owner" || ["customer", "coo", "cco", "admin", "ceo"].includes(b.role);
+        if (priv && !b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+      }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
       /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a
          refusal, sent with the worker's 403, so a role-gated read can be walked */

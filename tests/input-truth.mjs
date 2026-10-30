@@ -123,11 +123,14 @@ ok("no box is keyed on something that never changes",
    `constant keys: ${constKeyed.join(", ")} — remounts never, so the box still lies`);
 
 /* The two that started it, named so a future edit cannot quietly drop them. */
-const elfia = readFileSync(join(root, "components/portal/elfia-store-panel.tsx"), "utf8");
-ok("the ELFIA web price box is keyed on the stored web price",
-   /key=\{`webprice:\$\{it\.elfia_price_cents \?\? ""\}`\}/.test(elfia));
-ok("the ELFIA discount box is keyed on the stored discount",
-   /key=\{`discount:\$\{it\.elfia_discount_cents \?\? ""\}`\}/.test(elfia),
+/* v1.235.0 - the per-row boxes became the product drawer
+   (elfia-products.tsx): ONE form, remounted whenever a stored value it
+   shows changes - the same cure as the keyed boxes, applied to the form. */
+const elfia = readFileSync(join(root, "components/portal/elfia-products.tsx"), "utf8");
+ok("the ELFIA drawer form is keyed on the stored web price",
+   /key=\{`\$\{item\.id\}:\$\{item\.bridge_enabled \?\? 0\}:\$\{item\.elfia_price_cents \?\? ""\}/.test(elfia));
+ok("...and on the stored discount",
+   /:\$\{item\.elfia_discount_cents \?\? ""\}:/.test(elfia),
    "this is the box that showed 11.00 over a stored 10.00");
 const inv = readFileSync(join(root, "components/portal/role-panels.tsx"), "utf8");
 ok("the Inventory list price and web price boxes are keyed too",

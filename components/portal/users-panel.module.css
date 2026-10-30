@@ -274,6 +274,10 @@
 
 /* ---- the permission matrix ---- */
 .matrixWrap {
+  /* v1.236.0 - the containing block for the cells' screen-reader labels
+     (erp-sr-only is position: absolute). Without it they escaped this
+     scroller and widened the whole page on a phone to ~770px. */
+  position: relative;
   margin-top: 0.75rem;
   overflow-x: auto;
   border: 1px solid var(--border);

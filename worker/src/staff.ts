@@ -54,7 +54,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is simply that rule with a name. */
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can, PERMS, ACTION_CATALOGUE, POLICY_ROLES, type PolicyList } from "./permissions";
+import { Role, can, allows, roleChangeRule, roleDoor, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, type PolicyList } from "./permissions";
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
 function pushKeys(env: Env): PushKeys | null {
@@ -98,6 +98,8 @@ export interface StaffUser {
   email: string;
   name: string;
   role: Role;
+  /** v1.236.0 - the verified company owner (index.ts getSessionUser) */
+  is_owner?: boolean;
 }
 
 const POSTAGE_STATUSES = ["preparing", "shipped", "in_transit", "delivered", "returned"];
@@ -1784,11 +1786,12 @@ export async function notify(
 
    Returns null when the step-up passed (or does not apply), or a Response to
    return to the caller when it did not. */
-async function requireFreshTotp(
+export async function requireFreshTotp(
   env: Env,
   user: { id: number; role: string },
   code: unknown,
   err: (c: string, m: string, s: number) => Response,
+  what = "sign this decision",
 ): Promise<Response | null> {
   let row: { totp_secret: string | null; totp_enabled: number } | null = null;
   try {
@@ -1801,11 +1804,50 @@ async function requireFreshTotp(
      there to perform; the portal already forces enrolment at sign-in. */
   if (!row?.totp_secret || !row.totp_enabled) return null;
   if (typeof code !== "string" || !/^\d{6}$/.test(code.trim())) {
-    return err("totp_required", "Enter your 6-digit authenticator code to sign this decision", 401);
+    return err("totp_required", `Enter your 6-digit authenticator code to ${what}`, 401);
   }
   const okCode = await totpVerifyOnce(env, user.id, row.totp_secret, code.trim());
   if (!okCode) return err("totp_invalid", "That code is not valid (or has already been used) - open your authenticator and try the current one", 401);
   return null;
+}
+
+/* v1.236.0 - STEP-UP FOR THE COMPANY OWNER'S PRIVILEGED CHANGES (the owner,
+   30-10-2026: "All privileged changes must require appropriate
+   authentication, audit logging and confirmation"). When the company owner -
+   not the super admin, whose recovery path stays exactly as it was - gives
+   or takes an executive, admin or customer role, or creates, edits,
+   offboards or signs out an executive or admin account: a live
+   authenticator code (the owner always has 2FA - it is part of being the
+   owner) and, for role changes, a reason of 10+ characters. The SAME
+   requireFreshTotp the final leave and claim signatures use. */
+export async function ownerStepUp(
+  env: Env, user: { id: number; role: string; is_owner?: boolean }, body: Record<string, unknown> | null,
+  what: string, needReason: boolean,
+): Promise<Response | null> {
+  if (user.role === "super_admin" || !user.is_owner) return null;
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  if (needReason && reason.length < 10) return err("reason_required", `Give the reason to ${what} (at least 10 characters) - it is kept in the audit history.`, 400);
+  return requireFreshTotp(env, user, body?.totp, err, what);
+}
+
+/* v1.236.0 - THE LAST RECOVERY ADMINISTRATOR. True when `targetId` is an
+   active super admin and no OTHER active super admin with 2FA would remain -
+   then removing, demoting, deactivating or offboarding it is refused, for
+   every actor, the super admin included. */
+export async function lastRecoveryAdmin(env: Env, targetId: number): Promise<boolean> {
+  const t = await env.DB.prepare(`SELECT role, is_active FROM users WHERE id = ?1`).bind(targetId).first<{ role: string; is_active: number }>();
+  if (!t || t.role !== "super_admin" || !t.is_active) return false;
+  const others = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin' AND is_active = 1 AND COALESCE(totp_enabled, 0) = 1 AND id != ?1`,
+  ).bind(targetId).first<{ n: number }>();
+  return Number(others?.n ?? 0) === 0;
+}
+
+/* v1.236.0 - the designated company owner record (system_meta), or null. */
+export async function readOwner(env: Env): Promise<{ user_id: number; set_by: number; set_by_name: string | null; set_at: string; reason: string } | null> {
+  const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'company_owner'`).first<{ value: string }>().catch(() => null);
+  if (!row?.value) return null;
+  try { const o = JSON.parse(row.value) as { user_id?: unknown }; return Number(o.user_id) > 0 ? (o as { user_id: number; set_by: number; set_by_name: string | null; set_at: string; reason: string }) : null; } catch { return null; }
 }
 
 async function audit(
@@ -2740,23 +2782,24 @@ async function handleStaffRoutes(
      assigned nor touched by anyone but the super_admin, so a compromised
      executive sign-in still cannot promote itself, demote another executive,
      or turn a stranger's Google sign-up into staff. An optional reason goes
-     into the audit line. */
+     into the audit line.
+
+     v1.236.0 - THE COMPANY OWNER (the owner, 30-10-2026; claude/CEO-OWNER-
+     ACCESS-AUDIT.md). One rule for both role doors - permissions.ts
+     roleChangeRule: the working roles stay the CEO's and COO's
+     (role_assign); COO, CCO and customer (role_any) and the technical Admin
+     role (tech_admin_grant, company email) are the super admin's AND the
+     verified company owner's - with an authenticator code and a reason; the
+     CEO role and super admin accounts stay the super admin's alone. */
   const roleMatch = path.match(/^\/users\/(\d+)\/role$/);
   if (roleMatch && method === "POST") {
-    const WORKING_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
-    const executive = user.role !== "super_admin" && can(user.role, "role_assign");
-    if (user.role !== "super_admin" && !executive) {
-      return err("forbidden", "Only the CEO, the COO or the system super admin can change a staff role — this keeps sign-ups from ever escalating themselves", 403);
-    }
-    const ASSIGNABLE = executive
-      ? WORKING_ROLES
-      : [...WORKING_ROLES, "ceo", "coo", "cco", "customer"];
+    const OFFERED = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "customer", "admin", "ceo"];
     const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
     const newRole = typeof body?.role === "string" ? body.role : "";
     const newStatus = typeof body?.employment_status === "string" && body.employment_status !== "" ? body.employment_status : null;
     const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
-    if (!ASSIGNABLE.includes(newRole)) {
-      return err("invalid_input", `role must be one of: ${ASSIGNABLE.join(", ")}`, 400);
+    if (!OFFERED.includes(newRole)) {
+      return err("invalid_input", `role must be one of: ${OFFERED.join(", ")}`, 400);
     }
     if (newStatus && !EMP_STATUSES.includes(newStatus)) {
       return err("invalid_input", `employment_status must be one of: ${EMP_STATUSES.join(", ")}`, 400);
@@ -2766,14 +2809,21 @@ async function handleStaffRoutes(
     const target = await env.DB.prepare(`SELECT id, email, role, employment_status FROM users WHERE id = ?1`)
       .bind(id).first<{ id: number; email: string; role: string; employment_status: string | null }>();
     if (!target) return err("not_found", "User not found", 404);
-    if (["super_admin", "admin"].includes(target.role)) {
-      return err("forbidden", "Admin-tier accounts are managed in /admin only", 403);
+    if (target.role === "super_admin") {
+      return err("forbidden", "Super admin accounts are managed by the super admin in /admin only", 403);
     }
-    if (executive && !WORKING_ROLES.includes(target.role)) {
-      return err("forbidden", "Executive and customer accounts can only be re-assigned by the system super admin", 403);
-    }
+    const rule = roleChangeRule(user, target, newRole);
+    if (!rule.ok) return err(rule.code, rule.message, rule.status);
     if (target.role === newRole && (!newStatus || newStatus === target.employment_status)) {
       return json({ ok: true, role: newRole, employment_status: target.employment_status, unchanged: true });
+    }
+    if (newRole === "admin" && !target.email.toLowerCase().endsWith(`@${String(env.COMPANY_DOMAIN ?? "").toLowerCase()}`)) {
+      return err("domain_policy", `The Admin role requires an @${env.COMPANY_DOMAIN} email`, 400);
+    }
+    const byOwner = user.role !== "super_admin" && user.is_owner === true && rule.privileged;
+    if (rule.privileged) {
+      const su = await ownerStepUp(env, user, body, "change an executive, admin or customer role", true);
+      if (su) return su;
     }
     /* v1.157.0 - a personal email no longer forces part time (CEO, 13-09-2026:
        "it is supposed to Live Host instead of Live Host Part Time!" - the
@@ -2788,8 +2838,19 @@ async function handleStaffRoutes(
       from: target.role, to: newRole,
       employment_status: status ?? target.employment_status ?? "unchanged",
       by_role: user.role,
+      ...(byOwner ? { by_owner: true } : {}),
+      ...(rule.privileged ? { privileged: true } : {}),
       ...(reason ? { reason } : {}),
     });
+    /* v1.236.0 - technical Admin access given or taken: the other officers
+       hear of it (every super admin, the CEO and the COO, never the actor). */
+    if (roleDoor(target.role) === "tech_admin_grant" || roleDoor(newRole) === "tech_admin_grant") {
+      try {
+        const who = (await env.DB.prepare(`SELECT id FROM users WHERE is_active = 1 AND role IN ('super_admin', 'ceo', 'coo') AND id != ?1`).bind(user.id).all<{ id: number }>()).results;
+        const msg = newRole === "admin" ? `Technical Admin access given to ${target.email} by ${user.name}` : `Technical Admin access removed from ${target.email} by ${user.name}`;
+        for (const w of who) await notify(env, w.id, "security", msg, `admin_access:${id}:${Date.now()}`);
+      } catch { /* a notice never undoes the change */ }
+    }
     return json({ ok: true, role: newRole, employment_status: status ?? target.employment_status });
   }
 
@@ -7568,6 +7629,10 @@ async function handleStaffRoutes(
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
     const people = await readPeople();
+    // v1.236.0 - the verified owner is pinned to every tab the CEO role sees
+    if (user.is_owner) {
+      return json({ overrides, mine: { allow: TAB_ACCESS_TABS.filter((t) => canSeeTab("ceo", t, {}, null)), deny: [] }, owner_pinned: true });
+    }
     return json({ overrides, mine: effective(people[String(user.id)]) });
   }
 
@@ -7588,6 +7653,9 @@ async function handleStaffRoutes(
     const target = await env.DB.prepare(`SELECT id, role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`).bind(targetId).first<{ id: number; role: string; name: string }>();
     if (!target || target.role === "customer") return err("not_found", "No such staff member", 404);
     if (target.role === "super_admin") return err("invalid_input", "super_admin bypasses tab access and cannot be governed", 400);
+    if (mode === "deny" && target.role === "ceo" && (await readOwner(env))?.user_id === targetId) {
+      return err("owner_pinned", "The company owner keeps every tab the CEO role sees - an exception cannot hide one.", 409);
+    }
     /* v1.234.0 - an exception is a decision: its reason, who, when and an
        optional end date are kept with it. And it can only hide a tab, or
        show one the person's ROLE can already read on the server - never
@@ -7631,6 +7699,9 @@ async function handleStaffRoutes(
     } else {
       if (!Array.isArray(body.roles)) return err("invalid_input", "roles must be an array", 400);
       const roles = (body.roles as unknown[]).map(String).filter((r) => TAB_ACCESS_ROLES.includes(r));
+      if (!roles.includes("ceo") && canSeeTab("ceo", tabName, {}, null) && await readOwner(env)) {
+        return err("owner_pinned", "The CEO stays on every tab the role sees by default while a company owner is named - leave the CEO ticked.", 409);
+      }
       overrides[tabName] = roles; // empty array = admin tier only (super_admin bypass)
     }
     await env.DB.prepare(
@@ -11371,12 +11442,69 @@ async function handleStaffRoutes(
      tab override, every per-user exception with its reason, end date and a
      verdict (redundant, hollow, hides only, needs review), and every current
      person's effective tab strip. */
+  /* ---- v1.236.0 - THE COMPANY OWNER RECORD (the owner, 30-10-2026; claude/
+     CEO-OWNER-ACCESS-AUDIT.md: "Use a documented, authorized privileged
+     administration or recovery procedure for the initial CEO permission
+     correction"). Management reads who it is; only a super admin names,
+     changes or clears it - authenticator code and a reason, audited, the
+     named person told. The owner must be an active CEO-role account with
+     2FA on; nobody can name themselves (the super admin is never a CEO). */
+  if (path === "/owner" && method === "GET") {
+    if (!can(user.role, "exec_view")) return err("forbidden", "Management access required", 403);
+    const rec = await readOwner(env);
+    const row = rec ? await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, COALESCE(totp_enabled, 0) AS totp FROM users WHERE id = ?1`,
+    ).bind(rec.user_id).first<{ id: number; name: string; role: string; is_active: number; totp: number }>() : null;
+    const designate = can(user.role, "owner_designate");
+    const candidates = designate ? (await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, COALESCE(totp_enabled, 0) AS totp FROM users WHERE role = 'ceo' AND is_active = 1 ORDER BY id`,
+    ).all<{ id: number; name: string; totp: number }>()).results.map((c) => ({ id: c.id, name: c.name, totp: c.totp === 1 })) : [];
+    return json({
+      owner: rec && row ? { user_id: row.id, name: row.name, verified: row.role === "ceo" && row.is_active === 1 && row.totp === 1,
+        why_not: row.role !== "ceo" ? "not_ceo" : row.is_active !== 1 ? "inactive" : row.totp !== 1 ? "no_2fa" : null,
+        set_at: rec.set_at, set_by_name: rec.set_by_name, reason: rec.reason } : null,
+      can_designate: designate, candidates, me_owner: user.is_owner === true,
+    });
+  }
+  if (path === "/owner" && method === "POST") {
+    if (!can(user.role, "owner_designate")) return err("forbidden", "Only the super admin names the company owner (recovery procedure)", 403);
+    const reasonO = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reasonO.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    const clear = body?.clear === true;
+    const targetO = clear ? 0 : Number(body?.user_id);
+    let cand: { id: number; name: string; role: string; is_active: number; totp: number } | null = null;
+    if (!clear) {
+      if (!Number.isInteger(targetO) || targetO <= 0) return err("invalid_input", "user_id is required", 400);
+      cand = await env.DB.prepare(
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, COALESCE(totp_enabled, 0) AS totp FROM users WHERE id = ?1`,
+      ).bind(targetO).first<{ id: number; name: string; role: string; is_active: number; totp: number }>();
+      if (!cand || cand.role !== "ceo") return err("invalid_input", "The company owner must be an account with the CEO role", 400);
+      if (cand.is_active !== 1) return err("invalid_input", "That CEO account is not active", 400);
+      if (cand.totp !== 1) return err("no_2fa", "That CEO account has not switched on two-factor sign-in yet - the owner must have it", 400);
+    }
+    const su = await requireFreshTotp(env, user, body?.totp, err, clear ? "clear the company owner" : "name the company owner");
+    if (su) return su;
+    const prev = await readOwner(env);
+    if (clear) {
+      await env.DB.prepare(`DELETE FROM system_meta WHERE key = 'company_owner'`).run();
+      await audit(env, user.id, "owner.clear", "system_meta", "company_owner", { from: prev?.user_id ?? null, reason: reasonO });
+      return json({ ok: true, owner: null });
+    }
+    const rec = { user_id: cand!.id, set_by: user.id, set_by_name: user.name, set_at: new Date().toISOString().slice(0, 19).replace("T", " "), reason: reasonO };
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('company_owner', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(rec)).run();
+    await audit(env, user.id, "owner.designate", "users", String(cand!.id), { from: prev?.user_id ?? null, to: cand!.id, to_name: cand!.name, reason: reasonO });
+    try { await notify(env, cand!.id, "security", `${user.name} named you the company owner on A2Z OS. Every privileged change you make asks for your authenticator code.`, `owner:${cand!.id}:${rec.set_at}`); } catch { /* a notice never undoes it */ }
+    return json({ ok: true, owner: { user_id: cand!.id, name: cand!.name, verified: true, set_at: rec.set_at } });
+  }
+
   if (path === "/access/policy" && method === "GET") {
     if (!can(user.role, "exec_view")) return err("forbidden", "Management access required", 403);
     const LISTS: Record<PolicyList, readonly string[]> = {
       CONFIRM_PAID: CONFIRM_PAID_ROLES, PAYROLL_PROCESS: PAYROLL_PROC, PAYROLL_RELEASE: PAYROLL_RELEASE_ROLES, BANK_RUN: BANK_RUN_ROLES,
       COMMISSION_VIEW_ALL: COMMISSION_VIEW_ALL, COMMISSION_DRAFT: COMMISSION_DRAFT_ROLES, COMMISSION_APPROVE: COMMISSION_APPROVE_ROLES, COMMISSION_DECIDE: COMMISSION_DECIDE_ROLES,
-      GEOFENCE: GEOFENCE_ADMIN_ROLES, ROLE_ANY: ["super_admin"], TAB_ACCESS_EDIT: TAB_ACCESS_EDITORS,
+      GEOFENCE: GEOFENCE_ADMIN_ROLES, TAB_ACCESS_EDIT: TAB_ACCESS_EDITORS,
     };
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
     let overrides: Record<string, string[]> = {};
@@ -11384,14 +11512,33 @@ async function handleStaffRoutes(
     const roles = [...POLICY_ROLES];
     const actions = ACTION_CATALOGUE.map((a) => {
       const who: readonly string[] = (a.cap ? PERMS[a.cap] : LISTS[a.list!]) ?? [];
-      return { module: a.module, key: a.key, en: a.en, ms: a.ms, note_en: a.note_en ?? null, note_ms: a.note_ms ?? null, roles: roles.filter((r) => who.includes(r)) };
+      /* v1.236.0 - the verified owner's column: the ceo role's own answer,
+         plus OWNER_GRANTS (a ceo-role account WITHOUT the designation does
+         not get those - shown "Conditional: verified company owner only"). */
+      const ownerGrant = !!a.cap && OWNER_GRANTS.includes(a.cap) && !who.includes("ceo");
+      return {
+        module: a.module, key: a.key, en: a.en, ms: a.ms, note_en: a.note_en ?? null, note_ms: a.note_ms ?? null,
+        roles: roles.filter((r) => who.includes(r)), owner_grant: ownerGrant,
+        cond: a.cond ?? {}, na: a.na ?? [],
+      };
     });
+    const ownerRec = await readOwner(env);
+    const ownerRow = ownerRec ? await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, COALESCE(totp_enabled, 0) AS totp FROM users WHERE id = ?1`,
+    ).bind(ownerRec.user_id).first<{ id: number; name: string; role: string; is_active: number; totp: number }>() : null;
     const tabs = PORTAL_TABS.filter((t) => !PARKED_TABS.includes(t)).map((t) => ({
       tab: t, always: ALWAYS_VISIBLE.includes(t), overridden: overrides[t] !== undefined,
       sees: roles.filter((r) => canSeeTab(r, t, overrides, null)),
       reads: TAB_READ[t] ? roles.filter((r) => TAB_READ[t]!(r)) : null,
     }));
-    return json({ roles, actions, tabs, can_edit_tabs: TAB_ACCESS_EDITORS.includes(user.role) });
+    const counts = Object.fromEntries((await env.DB.prepare(
+      `SELECT role, COUNT(*) AS n FROM users WHERE is_active = 1 AND role IN ('ceo', 'coo', 'cco', 'hr_admin', 'sales_marketing', 'marketing', 'editor', 'live_host', 'admin', 'super_admin') GROUP BY role`,
+    ).all<{ role: string; n: number }>()).results.map((r) => [r.role, Number(r.n)]));
+    return json({
+      roles, actions, tabs, can_edit_tabs: TAB_ACCESS_EDITORS.includes(user.role), counts,
+      owner: ownerRow ? { user_id: ownerRow.id, name: ownerRow.name, verified: ownerRow.role === "ceo" && ownerRow.is_active === 1 && ownerRow.totp === 1, set_at: ownerRec!.set_at } : null,
+      me_owner: user.is_owner === true,
+    });
   }
   if (path === "/access/review" && method === "GET") {
     if (!TAB_ACCESS_EDITORS.includes(user.role)) return err("forbidden", "Only the CEO reviews access", 403);
@@ -11428,7 +11575,7 @@ async function handleStaffRoutes(
     const history = ((await env.DB.prepare(
       `SELECT a.id, a.action, a.entity_id, a.detail, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-        WHERE a.action IN ('staff.role_change', 'tabs.access_change', 'tabs.person_access', 'staff.reports_to', 'attendance.geofence_set', 'attendance.geofence_clear')
+        WHERE a.action IN ('staff.role_change', 'tabs.access_change', 'tabs.person_access', 'staff.reports_to', 'attendance.geofence_set', 'attendance.geofence_clear', 'owner.designate', 'owner.clear', 'user.update', 'user.offboard', 'user.force_logout', 'user.create')
         ORDER BY a.id DESC LIMIT 80`,
     ).all<{ id: number; action: string; entity_id: string | null; detail: string | null; created_at: string; who: string | null }>().catch(() => ({ results: [] }))).results ?? []);
     return json({ generated_at: new Date().toISOString(), today: todayTA, overrides, exceptions, people: strips, history });
@@ -13807,7 +13954,9 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         is how an item is withdrawn from the shop. */
   const invBridge = path.match(/^\/inventory\/(\d+)\/bridge$/);
   if (invBridge && method === "PATCH") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    /* v1.235.0 - publishing and the web price are what the live shop shows
+       and charges: the CEO, COO or super admin (the owner, 30-10-2026) */
+    if (!can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin publishes or prices ELFIA products", 403);
     const hasEnabled = typeof body?.bridge_enabled === "boolean";
     const priceGiven = body?.elfia_price !== undefined; // "" or null clears the web price
     if (!hasEnabled && !priceGiven) {
@@ -13820,6 +13969,19 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         return err("invalid_input", "elfia_price must be a positive amount in RM — or empty to clear it", 400);
       }
       priceC = Math.round(v * 100);
+    }
+    /* v1.235.0 (audit: price lowered under a standing discount) - the feed
+       IGNORES a discount that is not below the price, so the shop silently
+       charges full price while this row still shows a discount. Refuse the
+       price instead, and say which number to change first. */
+    if (priceGiven) {
+      const cur = await env.DB.prepare(`SELECT unit_price_cents, elfia_discount_cents FROM inventory_items WHERE id = ?1`)
+        .bind(invBridge[1]).first<{ unit_price_cents: number | null; elfia_discount_cents: number | null }>().catch(() => null);
+      const nextBase = priceC ?? cur?.unit_price_cents ?? 0;
+      const d = Number(cur?.elfia_discount_cents ?? 0);
+      if (d > 0 && nextBase > 0 && d >= nextBase) {
+        return err("invalid_input", `The discount (RM ${(d / 100).toFixed(2)}) would not be below this price, so the shop would ignore it. Lower or clear the discount first.`, 400);
+      }
     }
     try {
       if (hasEnabled && priceGiven) {
@@ -13863,6 +14025,8 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const hasDescription = body?.description !== undefined;
     const hasDiscount = body?.discount !== undefined; // v1.46.0 — RM, "" clears
     const removePhoto = body?.remove_photo === true;
+    /* v1.235.0 - the discount changes what the live shop charges */
+    if (hasDiscount && !can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin changes an ELFIA discount", 403);
     if (!hasCategory && !hasDescription && !hasDiscount && !removePhoto) {
       return err("invalid_input", "Provide category, description, discount and/or remove_photo", 400);
     }
@@ -13989,6 +14153,94 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     return json({ image_key: key, url: `/api/v1/media/file/${key}` }, 201);
   }
 
+  /* ---- v1.235.0 - a product photo's history, and putting one back ----
+     (the owner's brief: "Preserve original photos before background
+     removal ... Avoid irreversible image deletion.") Every upload - a
+     replacement or a cut-out - writes a NEW file and records its key in
+     inventory.elfia_photo; old files are never deleted. The history is read
+     from that trail, and Restore may only point the product back at a key
+     the trail holds for THIS product - nothing typed, nothing foreign. */
+  const invPhotoHist = path.match(/^\/inventory\/(\d+)\/elfia\/photos$/);
+  if (invPhotoHist && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) return err("forbidden", "Inventory access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT a.action, a.detail, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
+         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.entity = 'inventory_items' AND a.entity_id = ?1 AND a.action IN ('inventory.elfia_photo', 'inventory.elfia_photo_restore')
+        ORDER BY a.id DESC LIMIT 30`,
+    ).bind(invPhotoHist[1]).all<{ action: string; detail: string | null; created_at: string; who: string | null }>();
+    const cur = await env.DB.prepare(`SELECT elfia_image_key FROM inventory_items WHERE id = ?1`).bind(invPhotoHist[1]).first<{ elfia_image_key: string | null }>().catch(() => null);
+    const seen = new Set<string>();
+    const photos: { key: string; at: string; who: string | null; current: boolean }[] = [];
+    for (const r of results ?? []) {
+      let key = "";
+      try { key = String((JSON.parse(r.detail ?? "{}") as { key?: unknown }).key ?? ""); } catch { key = ""; }
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      photos.push({ key, at: r.created_at, who: r.who, current: key === cur?.elfia_image_key });
+    }
+    return json({ photos });
+  }
+  const invPhotoRestore = path.match(/^\/inventory\/(\d+)\/elfia\/photo\/restore$/);
+  if (invPhotoRestore && method === "POST") {
+    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    const id = invPhotoRestore[1]!;
+    const key = typeof body?.key === "string" ? body.key : "";
+    if (!new RegExp(`^uploads/elfia/${id}-\\d+\\.(jpg|png|webp)$`).test(key)) return err("invalid_input", "That photo does not belong to this product", 400);
+    const known = await env.DB.prepare(
+      `SELECT 1 AS ok FROM audit_log WHERE entity = 'inventory_items' AND entity_id = ?1 AND action IN ('inventory.elfia_photo', 'inventory.elfia_photo_restore') AND detail LIKE ?2 LIMIT 1`,
+    ).bind(id, `%"key":"${key}"%`).first().catch(() => null);
+    if (!known) return err("invalid_input", "That photo is not in this product's history", 400);
+    const obj = await env.MEDIA.head(key).catch(() => null);
+    if (!obj) return err("not_found", "That photo file is no longer in storage", 404);
+    const before = await env.DB.prepare(`SELECT elfia_image_key FROM inventory_items WHERE id = ?1`).bind(id).first<{ elfia_image_key: string | null }>();
+    if (!before) return err("not_found", "Inventory item not found", 404);
+    /* a NEW change marker, so the store downloads it again on its next read */
+    await env.DB.prepare(
+      `UPDATE inventory_items SET elfia_image_key = ?1, elfia_image_updated_at = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
+    ).bind(key, new Date().toISOString(), user.id, id).run();
+    await audit(env, user.id, "inventory.elfia_photo_restore", "inventory_items", id, { key, from: before.elfia_image_key });
+    return json({ ok: true, image_key: key });
+  }
+
+  /* ---- v1.235.0 - what changed for the ELFIA shop, and whether the store
+     has read it since. Read-only: the trail every ELFIA write already
+     leaves, plus the moment the store last read feed A. A product is
+     "waiting" when its last ELFIA change is newer than that read. ---- */
+  if (path === "/elfia/activity" && method === "GET") {
+    if (!can(user.role, "inventory") && !can(user.role, "exec_view")) return err("forbidden", "Inventory access required", 403);
+    const ACTS = ["inventory.bridge", "inventory.elfia", "inventory.elfia_photo", "inventory.elfia_photo_restore", "elfia.bulk_discount", "elfia.bulk_price", "elfia.flash_sale", "elfia.sync_now",
+      "elfia.slide_create", "elfia.slide_photo", "elfia.slide_update", "elfia.slide_remove", "elfia.slide_cutout", "elfia.catalog_pdf", "elfia.catalog_map", "elfia.catalog_cover", "elfia.catalog_remove",
+      "elfia.backdrop", "elfia.backdrop_remove", "elfia.delivery"];
+    const { results } = await env.DB.prepare(
+      `SELECT a.id, a.action, a.entity_id, a.detail, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who, i.sku, i.name AS item
+         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+         LEFT JOIN inventory_items i ON a.entity = 'inventory_items' AND i.id = CAST(a.entity_id AS INTEGER)
+        WHERE a.action IN (${ACTS.map((_, i) => `?${i + 1}`).join(", ")})
+        ORDER BY a.id DESC LIMIT 200`,
+    ).bind(...ACTS).all<{ id: number; action: string; entity_id: string | null; detail: string | null; created_at: string; who: string | null; sku: string | null; item: string | null }>();
+    const fr = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_feed_last_read'`).first<{ value: string }>().catch(() => null);
+    const lastRead = fr?.value ?? null;
+    /* the newest product-level change per SKU (single edits by id, bulk by their recorded skus) */
+    const skuById = new Map(((await env.DB.prepare(`SELECT id, sku FROM inventory_items`).all<{ id: number; sku: string }>()).results ?? []).map((r) => [String(r.id), r.sku]));
+    const changed = new Map<string, string>();
+    for (const r of results ?? []) {
+      if (r.action === "elfia.sync_now" || !r.action.startsWith("inventory.") && !["elfia.bulk_discount", "elfia.bulk_price", "elfia.flash_sale"].includes(r.action)) continue;
+      const skus: string[] = [];
+      if (r.action.startsWith("inventory.") && r.entity_id && skuById.has(r.entity_id)) skus.push(skuById.get(r.entity_id)!);
+      else { try { const d = JSON.parse(r.detail ?? "{}") as { skus?: unknown }; if (Array.isArray(d.skus)) skus.push(...d.skus.map(String)); } catch { /* none */ } }
+      for (const k of skus) if (!changed.has(k) || changed.get(k)! < r.created_at) changed.set(k, r.created_at);
+    }
+    /* compared by the second (audit rows carry seconds): a change in the
+       same second as the read is still waiting - never claimed as read */
+    const waiting = [...changed].filter(([, at]) => !lastRead || at >= lastRead.slice(0, 19)).map(([sku, at]) => ({ sku, changed_at: at }));
+    return json({
+      feed_last_read_at: lastRead, waiting,
+      changed: Object.fromEntries(changed),
+      events: (results ?? []).slice(0, 80).map((r) => ({ id: r.id, action: r.action, at: r.created_at, who: r.who, sku: r.sku, item: r.item, detail: r.detail })),
+    });
+  }
+
   /* ==== v1.46.0 — the ELFIA storefront carousel, authored here ====
      The portal is the slides' ONLY owner: the store replaces its set to
      match feed A on every pull, so Remove here really removes on the shop.
@@ -14002,7 +14254,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      immediately, with the shared bridge key — the same key the feed already
      uses, no admin key, no new secret. */
   if (path === "/elfia/sync-now" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin pushes the shop to update", 403); // v1.235.0
     const base = (env.ELFIA_STORE_URL ?? env.ELFIA_ORDERS_URL?.replace(/\/api\/v1\/bridge\/orders.*$/, "") ?? "").replace(/\/+$/, "");
     if (!base || !env.ELFIA_BRIDGE_KEY) {
       return err("not_configured", "The store's address or bridge key is not set on this worker yet — the shop still updates by itself every minute.", 501);
@@ -14044,7 +14296,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      bulk action that silently does nothing to some rows is worse than one
      that refuses, because nobody checks thirty rows afterwards. */
   if (path === "/elfia/bulk-discount" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin changes ELFIA prices", 403); // v1.235.0
     const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
     const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
     if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
@@ -14097,7 +14349,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
 
     await audit(env, user.id, "elfia.bulk_discount", "inventory_items", null,
-                { mode, value, applied: applied.length, skipped: skipped.length });
+                { mode, value, applied: applied.length, skipped: skipped.length, skus: applied.slice(0, 500) });
     return json({ ok: true, mode, applied, skipped });
   }
 
@@ -14128,7 +14380,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      ends, the price is right, and the shop is told which items lost their
      discount. A price the customer cannot be charged is not an option. */
   if (path === "/elfia/bulk-price" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin changes ELFIA prices", 403); // v1.235.0
     const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
     const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
     if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
@@ -14200,7 +14452,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
 
     await audit(env, user.id, "elfia.bulk_price", "inventory_items", undefined,
                 { mode, value, direction, applied: applied.length, skipped: skipped.length,
-                  discount_cleared: discountCleared.length });
+                  discount_cleared: discountCleared.length, skus: applied.map((a) => a.sku).slice(0, 500) });
     return json({ ok: true, mode, applied, skipped, discount_cleared: discountCleared });
   }
 
@@ -14224,7 +14476,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
      with no discount is refused rather than silently marked — a flash sale
      with nothing off it is a lie on the shopfront. */
   if (path === "/elfia/flash-sale" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!can(user.role, "elfia_publish")) return err("forbidden", "Only the CEO, COO or super admin changes ELFIA prices", 403); // v1.235.0
     const ids = Array.isArray(body?.ids) ? body!.ids as unknown[] : [];
     const clean = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
     if (clean.length === 0) return err("invalid_input", "Select at least one product", 400);
@@ -14315,7 +14567,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
 
     await audit(env, user.id, "elfia.flash_sale", "inventory_items", undefined,
-                { until, applied: applied.length, skipped: skipped.length,
+                { until, applied: applied.length, skipped: skipped.length, skus: applied.slice(0, 500),
                   ...(setsDiscount ? { discount_mode: dMode, discount_value: dValue } : {}) });
     return json({ ok: true, until, applied, skipped });
   }
@@ -14835,6 +15087,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
        reports what the table can honestly answer: applied and unknown. */
     const out: Record<string, unknown> = { key_configured: false, last_event_at: null, applied_24h: 0, unknown_24h: 0, unknown: [] };
     out.key_configured = !!(env as unknown as { ELFIA_BRIDGE_KEY?: string }).ELFIA_BRIDGE_KEY;
+    out.store_url = (env.ELFIA_STORE_URL ?? "").replace(/\/+$/, "") || null; // v1.235.0 - "View shop"
     try {
       out.last_event_at = (await env.DB.prepare(`SELECT MAX(received_at) AS t FROM bridge_events`)
         .first<{ t: string | null }>())?.t ?? null;
@@ -14856,6 +15109,25 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       out.last_poll_at = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'elfia_last_poll'`)
         .first<{ value: string }>())?.value ?? null;
     } catch { out.last_poll_at = null; }
+    /* v1.235.0 (audit: "Connected" was only "the key is set") - when the
+       store last READ feed A, and how many products it was handed. Written
+       by the feed itself, after the key check. And the last "Update the
+       shop now" the store answered, with what it said it applied. */
+    try {
+      const { results: fr } = await env.DB.prepare(
+        `SELECT key, value FROM system_meta WHERE key IN ('elfia_feed_last_read', 'elfia_feed_last_count')`,
+      ).all<{ key: string; value: string }>();
+      const m = Object.fromEntries(fr.map((r) => [r.key, r.value]));
+      out.feed_last_read_at = m.elfia_feed_last_read ?? null;
+      out.feed_last_count = m.elfia_feed_last_count !== undefined ? Number(m.elfia_feed_last_count) : null;
+    } catch { out.feed_last_read_at = null; out.feed_last_count = null; }
+    try {
+      const sn = await env.DB.prepare(
+        `SELECT a.created_at, a.detail, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
+           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE a.action = 'elfia.sync_now' ORDER BY a.id DESC LIMIT 1`,
+      ).first<{ created_at: string; detail: string | null; who: string | null }>();
+      out.last_sync_now = sn ? { at: sn.created_at, who: sn.who, result: (() => { try { return JSON.parse(sn.detail ?? "{}"); } catch { return {}; } })() } : null;
+    } catch { out.last_sync_now = null; }
     /* v1.39.0 (AUDIT M5/M8): the counters that make silent paths visible —
        orders the poller had to reject, paid-then-cancelled orders awaiting a
        refund decision, items whose match key is missing, and normalised-key

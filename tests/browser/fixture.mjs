@@ -21,6 +21,9 @@
  */
 
 const ROLE = process.env.ROLE ?? "ceo";
+/* v1.236.0 - OWNER=1: a super admin has named the fixture CEO the verified
+   company owner (worker: system_meta.company_owner, getSessionUser) */
+const OWNER = !!process.env.OWNER;
 
 const items = [
   { id: 1, sku: "ELFIA001", name: "ELFIA Premium product", stock: 4, status: "low", unit_cost_cents: 2400, unit_price_cents: 4500, category: "elfia" },
@@ -30,7 +33,7 @@ const queue = [{ id: "task:1", bucket: "tasks", title: "Check inventory delivery
 function baseFixture(p) {
   let data = { records: [], tasks: [], leave: [], leaves: [], announcements: [], events: [], sessions: [], items: [], rows: [], findings: [], open: [], watchers: [], notifications: [], users: [], versions: {}, materials: [], returns: [], outs: [], birthdays: [], holidays: [], lines: [], buckets: [], staff: [], customers: [], docs: [], clients: [], hosts: [], cities: [], orders: [], rules: [], assets: [], hotels: [], states: [], by_state: {}, reports: [], claims: [], can_decide: true, expenses: [], accounts: [], rates: [], balances: {}, days: [], base: [], entries: [], banks: [], people: {}, overrides: {}, mine: { allow: [], deny: [] }, punches: [], requests: [], memberships: [], setup: [], summary: {}, counts: {}, total: 0, missing: [], targets: [], daily: [], products: [], skus: [], videos: [], lives: [], series: [], points: [], months: [] };
   const fallback = data;
-  if (p === "/auth/me") data = { user: { id: 9001, name: "Fixture Person", role: ROLE, email: "fixture@example.test", status: "active" } };
+  if (p === "/auth/me") data = { user: { id: 9001, name: "Fixture Person", role: ROLE, email: "fixture@example.test", status: "active", ...(OWNER && ROLE === "ceo" ? { is_owner: true } : {}) } };
   /* v1.203.0 - the overview's Sales Performance: the month by channel, and
      every revenue line by month (overall) - the bars include stokis and
      ELFIA web orders, so September's bar is higher than the month figure */
@@ -56,8 +59,24 @@ function baseFixture(p) {
         A("Payroll", "payroll_release", "Release payslips", only("super_admin", "ceo", "coo")),
         A("Commission", "commission_decide", "Decide reviews, settle leavers, payroll switch", only("super_admin", "ceo")),
         A("Attendance", "geofence", "Set the office geofence", only("super_admin", "ceo", "coo")),
-      ],
+        /* v1.236.0 - the worker's owner rows, conditions and not-applicables */
+        A("Users", "role_any", "Assign and revoke COO, CCO and customer roles", only("super_admin"), "Authenticator code and a reason; never your own"),
+        A("Users", "exec_accounts", "Create, edit, reset, offboard or sign out COO, CCO and Admin accounts", only("super_admin"), "Authenticator code for every change"),
+        A("Users", "tech_admin", "Grant or revoke technical Admin access", only("super_admin"), "Company email; authenticator code and a reason"),
+        A("Users", "tab_access", "Edit tab visibility and exceptions", only("ceo", "super_admin")),
+        A("System", "audit_read", "Read the full system audit log", only("ceo", "admin", "super_admin")),
+        A("System", "owner_designate", "Name the company owner; give or take the CEO role; manage Super Admin accounts", only("super_admin"), "Recovery procedure"),
+        A("System", "backup", "Download the database backup", only("super_admin"), "Holds password hashes and 2FA secrets"),
+      ].map((a) => ({ ...a, owner_grant: ["role_any", "exec_accounts", "tech_admin"].includes(a.key), cond: a.key === "confirm_paid" ? { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] } : {}, na: a.key === "confirm_paid" ? ["super_admin", "admin"] : [] })),
+      counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
+      owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
+      me_owner: OWNER && ROLE === "ceo",
       tabs: [] };
+  }
+  if (p === "/staff/owner") {
+    data = !["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE) ? { error: { code: "forbidden", message: "Management access required" } } : {
+      owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, why_not: null, set_at: "2026-10-30 02:00:00", set_by_name: "System Root", reason: "Founder and owner of A2Z Creative Marketing" } : null,
+      can_designate: ROLE === "super_admin", candidates: ROLE === "super_admin" ? [{ id: 9001, name: "Fixture Person", totp: true }] : [], me_owner: OWNER && ROLE === "ceo" };
   }
   if (p === "/staff/access/review") data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Only the CEO reviews access" } } : {
     generated_at: "2026-09-18T02:00:00.000Z", today: "2026-09-18", overrides: { Hotels: ["ceo", "coo", "hr_admin"] },
@@ -73,7 +92,23 @@ function baseFixture(p) {
     /* v1.200.0 - the company-wide task card, from the same rows as the board */
     task_summary: [{ status: "open", n: 3 }, { status: "in_progress", n: 2 }, { status: "completed", n: 2 }], task_overdue: 2, task_unacked: 2,
     task_by_staff: [{ name: "Fixture Person", role: "ceo", open_tasks: 2, done_tasks: 1 }, { name: "Nur Aisyah", role: "sales_marketing", open_tasks: 1, done_tasks: 1 }, { name: "Farid Zul", role: "live_host", open_tasks: 1, done_tasks: 0 }, { name: "Mei Ling", role: "hr_admin", open_tasks: 1, done_tasks: 0 }] };
-  if (p === "/staff/inventory") data = { items };
+  /* v1.235.0 - ELFIA=1: the ELFIA Store's own fixture rows (invented SKUs,
+     names and prices; photos are placeholders) */
+  const elfiaRows = [
+    { id: 11, sku: "ELF001", name: "ELFIAWEAR BLACK", stock: 13, status: "in_stock", unit_price_cents: 1600, bridge_enabled: 1, elfia_price_cents: 1400, elfia_discount_cents: 350, elfia_category: "Shawl", elfia_description: "Soft chiffon shawl.", elfia_image_key: "uploads/elfia/11-1.png", elfia_image_updated_at: "2026-09-10T02:00:00Z", elfia_flash_until: null },
+    { id: 12, sku: "ELF002", name: "ELFIAWEAR MAROON", stock: 8, status: "in_stock", unit_price_cents: 1600, bridge_enabled: 1, elfia_price_cents: 1400, elfia_discount_cents: 350, elfia_category: "Shawl", elfia_description: null, elfia_image_key: null, elfia_image_updated_at: null, elfia_flash_until: null },
+    { id: 13, sku: "ELF003", name: "ELFIAWEAR SILVER", stock: 0, status: "discontinued", unit_price_cents: 1600, bridge_enabled: 1, elfia_price_cents: 1400, elfia_discount_cents: null, elfia_category: "Bawal", elfia_description: null, elfia_image_key: "uploads/elfia/13-1.png", elfia_image_updated_at: "2026-09-10T02:00:00Z", elfia_flash_until: null },
+    { id: 14, sku: "ELF004", name: "ELFIAWEAR MOCHA", stock: 16, status: "in_stock", unit_price_cents: 1600, bridge_enabled: 1, elfia_price_cents: 1400, elfia_discount_cents: 350, elfia_category: "Bawal", elfia_description: null, elfia_image_key: "uploads/elfia/14-1.png", elfia_image_updated_at: "2026-09-10T02:00:00Z", elfia_flash_until: "2026-09-01 00:00:00" },
+    { id: 15, sku: "ELF005", name: "ELFIAWEAR DARK PURPLE", stock: 10, status: "in_stock", unit_price_cents: 1600, bridge_enabled: 0, elfia_price_cents: null, elfia_discount_cents: null, elfia_category: "Shawl", elfia_description: null, elfia_image_key: "uploads/elfia/15-1.png", elfia_image_updated_at: "2026-09-10T02:00:00Z", elfia_flash_until: null },
+  ];
+  if (p === "/staff/inventory") data = { items: process.env.ELFIA ? elfiaRows : items };
+  if (p === "/staff/elfia/activity") data = { feed_last_read_at: "2026-09-18 01:55:00.000", waiting: [{ sku: "ELF002", changed_at: "2026-09-18 01:58:00" }],
+    changed: { ELF001: "2026-09-18 01:40:00", ELF002: "2026-09-18 01:58:00" },
+    events: [{ id: 3, action: "inventory.bridge", at: "2026-09-18 01:58:00", who: "Fixture Person", sku: "ELF002", item: "ELFIAWEAR MAROON", detail: null },
+      { id: 2, action: "elfia.sync_now", at: "2026-09-18 01:45:00", who: "Fixture Person", sku: null, item: null, detail: "{}" },
+      { id: 1, action: "inventory.elfia", at: "2026-09-18 01:40:00", who: "Nur Aisyah", sku: "ELF001", item: "ELFIAWEAR BLACK", detail: null }] };
+  const elfiaPh = p.match(/^\/staff\/inventory\/(\d+)\/elfia\/photos$/);
+  if (elfiaPh) data = { photos: elfiaPh[1] === "11" ? [{ key: "uploads/elfia/11-2.png", at: "2026-09-12 02:00:00", who: "Nur Aisyah", current: false }, { key: "uploads/elfia/11-1.png", at: "2026-09-10 02:00:00", who: "Fixture Person", current: true }] : [] };
   /* v1.193.0 - the Inventory Overview and Reports read these two */
   if (p === "/staff/inventory/manual-outs") data = { outs: [
     { id: 41, item_id: 2, sku: "ELFIA002", item_name: "ELFIA Daily care", qty: 12, unit_sale_cents: null, remark: "Restock from supplier — 12 cartons", created_at: D + "16 02:10:00", created_by_name: "Nur Aisyah", out_date: D + "16", reverted: 0, direction: "in", item_cost_cents: 1200 },
@@ -82,7 +117,10 @@ function baseFixture(p) {
   if (p === "/staff/inventory/tiktok-out") data = { items: [
     { id: 2, sku: "ELFIA002", name: "ELFIA Daily care", stock: 30, today_qty: 3, month_qty: 41, total_qty: 180, last_at: D + "18 01:40:00", unit_price_cents: 2400, avg_sale_cents: 2150, month_value_cents: 88150 },
     { id: 1, sku: "ELFIA001", name: "ELFIA Premium product", stock: 4, today_qty: 0, month_qty: 9, total_qty: 66, last_at: D + "16 12:00:00", unit_price_cents: 4500, avg_sale_cents: 4290, month_value_cents: 38610 }] };
-  if (p === "/staff/inventory/bridge-health") data = { key_configured: true, applied_24h: 0, unknown_24h: 0, unknown: [] };
+  if (p === "/staff/inventory/bridge-health") data = { key_configured: true, applied_24h: 0, unknown_24h: 0, unknown: [],
+    /* v1.235.0 - the store's recorded read and the last Update now */
+    feed_last_read_at: "2026-09-18 01:55:00.000", feed_last_count: 4, store_url: "https://store.example.test", last_event_at: "2026-09-17 06:50:00", last_poll_at: "2026-09-18 01:55:00",
+    last_sync_now: { at: "2026-09-18 01:45:00", who: "Fixture Person", result: { created: 0, updated: 2, prices: 1 } } };
   if (p === "/staff/fulfilment/summary") data = { month: "2026-09", by_status: { preparing: 1, shipped: 1, in_transit: 1, delivered: 2, returned: 1 }, oldest_preparing: { order_ref: "TT-586117208715331063", days: 5 }, orders: [] };
   if (p === "/staff/roster") data = { week_start: "2026-09-14", days: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"], manager: true, sessions: [], on_leave: [], conflicts: [], requests: [], available_today: [], task_blocks: [], unscheduled: [], events: [] };
   if (p === "/staff/attendance/monitor") data = { date: "2026-09-16", staff: [] };
@@ -448,6 +486,7 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       { id: 9101, name: "Narida", full_name: "Narida Binti Aziz", role: "customer", email: "narida@example.test", is_active: 1 },
       { id: 9102, name: "Kamal", full_name: null, role: "customer", email: "kamal.hashim@example.test", is_active: 1 },
       { id: 9103, name: "Siti", full_name: "Siti Nurhaliza", role: "customer", email: "siti@example.test", is_active: 0 },
+      ...(OWNER ? [{ id: 9104, name: "Tech", full_name: "Tech Support A2Z", role: "admin", email: "tech@azoneofficial.com", is_active: 1, totp_enabled: 1 }] : []),
     ];
     data = { users: us, staff: us };
   }

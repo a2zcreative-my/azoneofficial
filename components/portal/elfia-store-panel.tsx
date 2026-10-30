@@ -35,12 +35,17 @@ import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
 import { compressImage } from "@/lib/compress-image";
-import { btnSm, card, chipNeutral, chipSuccess, chipWarn, inputClass, insetCard, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { btnSm, card, chipNeutral, chipSuccess, chipWarn, inputClass, insetCard, selectClassSm } from "@/lib/ui-styles";
 import { rm as rmBare } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { QuietCard, ZoneLabel } from "@/components/portal/page-shared"; // v1.122.0
 import { extractCatalogMap, type ExtractedMap, type PageRuns } from "@/lib/catalog-extract";
 import { AppIcon } from "@/components/ui/app-icon";
+import { LineTabs } from "@/components/ui/line-tabs";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ELFIA_PUBLISH_ROLES, ProductDrawer, ProductTable, SyncChip, photoUrl, priceState, syncOf, type ElfiaItem } from "@/components/portal/elfia-products";
+import es from "./elfia-store.module.css";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -51,32 +56,32 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
    the browser was set to and printed no label, so a laptop on another clock
    showed a different "flash sale ended" time from the office - about a
    deadline that decides what the shop charges. */
-const flashWhen = (ms: number): string => {
-  const d = new Date(ms + 8 * 3600 * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getUTCDate())}-${p(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} MYT`;
+/* v1.235.0 - flashWhen, ElfiaItem and photoUrl live in elfia-products.tsx (one copy) */
+/** A bulk preview as the confirmation's message: every line up to 14, then a count. */
+const previewText = (lines: string[]): string =>
+  `${lines.slice(0, 14).join("\n")}${lines.length > 14 ? `\n+${lines.length - 14} ${L("more", "lagi")}` : ""}\n\n${L("Each product is checked again on the server; anything it cannot apply is named afterwards.", "Setiap produk disemak semula di pelayan; apa-apa yang tidak boleh digunakan akan dinamakan selepas itu.")}`;
+const ago = (t: string | null | undefined): string => {
+  if (!t) return "";
+  const ms = Date.now() - Date.parse(t.includes("T") ? t : `${t.replace(" ", "T")}Z`);
+  if (!Number.isFinite(ms)) return "";
+  const m = Math.round(ms / 60000);
+  return m < 1 ? L("just now", "baru sahaja") : m < 60 ? L(`${m} min ago`, `${m} min lalu`) : m < 1440 ? L(`${Math.round(m / 60)} h ago`, `${Math.round(m / 60)} j lalu`) : L(`${Math.round(m / 1440)} d ago`, `${Math.round(m / 1440)} h lalu`);
+};
+/** Minutes since a SQLite UTC stamp, or null. */
+const minutesSince = (t: string | null): number | null => (t ? (Date.now() - Date.parse(`${t.replace(" ", "T")}Z`)) / 60000 : null);
+/* the store is "reading" when it read the feed within this long */
+const READ_FRESH_MIN = 15;
+const ACT_WORD: Record<string, [string, string]> = {
+  "inventory.bridge": ["Publish / web price", "Terbit / harga web"], "inventory.elfia": ["Collection, description or discount", "Koleksi, penerangan atau diskaun"],
+  "inventory.elfia_photo": ["Photo uploaded", "Foto dimuat naik"], "inventory.elfia_photo_restore": ["Photo restored", "Foto dipulihkan"],
+  "elfia.bulk_discount": ["Bulk discount", "Diskaun pukal"], "elfia.bulk_price": ["Bulk web price", "Harga web pukal"], "elfia.flash_sale": ["Flash sale", "Jualan kilat"],
+  "elfia.sync_now": ["Update the shop now", "Kemas kini kedai"], "elfia.delivery": ["Delivery charges", "Caj penghantaran"],
+  "elfia.slide_create": ["Carousel slide added", "Slaid ditambah"], "elfia.slide_photo": ["Carousel photo", "Foto karusel"], "elfia.slide_update": ["Carousel slide edited", "Slaid disunting"],
+  "elfia.slide_remove": ["Carousel slide removed", "Slaid dibuang"], "elfia.slide_cutout": ["Carousel cut-out", "Potongan karusel"], "elfia.catalog_pdf": ["Catalog PDF", "PDF katalog"],
+  "elfia.catalog_map": ["Catalog labels", "Label katalog"], "elfia.catalog_cover": ["Catalog cover", "Kulit katalog"], "elfia.catalog_remove": ["Catalog removed", "Katalog dibuang"],
+  "elfia.backdrop": ["Hover backdrop", "Latar hover"], "elfia.backdrop_remove": ["Hover backdrop removed", "Latar hover dibuang"],
 };
 
-interface ElfiaItem {
-  id: number;
-  sku: string;
-  name: string;
-  stock: number;
-  status: string;
-  unit_price_cents?: number | null;
-  bridge_enabled?: number | null;
-  elfia_price_cents?: number | null;
-  /* v1.45.0 (0086) */
-  elfia_category?: string | null;
-  elfia_description?: string | null;
-  elfia_image_key?: string | null;
-  elfia_image_updated_at?: string | null;
-  elfia_discount_cents?: number | null;
-  /* The flash deadline. Declared since v1.46.0 and returned by /inventory all
-     along (SELECT i.*) - the panel simply never READ it, which is how an ended
-     sale went on being drawn as a live one until v1.132.0. */
-  elfia_flash_until?: string | null;
-}
 
 interface Slide { // v1.46.0 — one hero-carousel slide
   id: number;
@@ -104,6 +109,14 @@ interface BridgeHealth {
   key_configured: boolean;
   last_event_at?: string | null;
   last_poll_at?: string | null;
+  /* v1.235.0 - what the store actually did */
+  feed_last_read_at?: string | null;
+  feed_last_count?: number | null;
+  last_sync_now?: { at: string; who: string | null; result: { created?: number; updated?: number; prices?: number } } | null;
+  store_url?: string | null;
+  rejected_orders?: number;
+  refunds_pending?: number;
+  sku_key_collisions?: { sku_key: string; n: number }[];
   applied_24h: number;
   unknown_24h: number;
   unknown: { sku: string; n: number; last_at: string }[];
@@ -129,7 +142,6 @@ interface PayStatus {
 
 /** The photo as the media route serves it. Key lives under uploads/elfia/ —
     the public prefix — so this same URL is what the feed hands the store. */
-const photoUrl = (key: string) => `/api/v1/media/file/${key}`;
 
 /* ==== v1.55.0 — the shop catalog, uploaded here, priced by the shop ==== */
 
@@ -197,7 +209,16 @@ const zoomOf = (sl: Slide): number => {
   return fitOf(sl) === "contain" ? 100 : 160;
 };
 
-export function ElfiaStorePanel() {
+export function ElfiaStorePanel({ role = "" }: { role?: string }) {
+  /* v1.235.0 - the owner: price, discount, publish, bulk and Update now are
+     the CEO, COO and super admin's (= PERMS.elfia_publish, enforced there) */
+  const canPrice = ELFIA_PUBLISH_ROLES.includes(role);
+  const [tab, setTab] = useState<"overview" | "products" | "publishing">("products");
+  const [editId, setEditId] = useState<number | null>(null);
+  const [statusF, setStatusF] = useState<"" | "published" | "hidden">("");
+  const [stockF, setStockF] = useState<"" | "in" | "out">("");
+  const [activity, setActivity] = useState<{ feed_last_read_at: string | null; waiting: { sku: string; changed_at: string }[]; changed: Record<string, string>; events: { id: number; action: string; at: string; who: string | null; sku: string | null; item: string | null; detail: string | null }[] } | null>(null);
+  const { confirm, node: confirmNode } = useConfirm();
   const [items, setItems] = useState<ElfiaItem[]>([]);
   const [slides, setSlides] = useState<Slide[] | null>(null); // null = 0087 pending or loading
   const [busySlide, setBusySlide] = useState(false);
@@ -205,7 +226,6 @@ export function ElfiaStorePanel() {
   const [health, setHealth] = useState<BridgeHealth | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busyPhoto, setBusyPhoto] = useState<number | null>(null);
-  const [openDesc, setOpenDesc] = useState<Record<number, boolean>>({});
   /* v1.52.0 — what delivery costs. Held as the RINGGIT TEXT being typed, not
      as a number: an input that reformats on every keystroke fights whoever
      is using it. It converts to sen on save, and sen is the only unit the
@@ -259,9 +279,9 @@ export function ElfiaStorePanel() {
   const [busyCut, setBusyCut] = useState<number | null>(null);
   const [cutNote, setCutNote] = useState("");
   const { show: toast, node: toastNode } = useSaveToast();
-  const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const load = useCallback(async () => {
+    void api<NonNullable<typeof activity>>(`/elfia/activity`).then((r) => setActivity(r.ok && r.data ? r.data : null)); // v1.235.0
     const [i, bh, sl, dv, ct, bd] = await Promise.all([
       api<{ items: ElfiaItem[] }>(`/inventory`),
       api<BridgeHealth>(`/inventory/bridge-health`),
@@ -318,7 +338,10 @@ export function ElfiaStorePanel() {
   const needle = q.trim().toLowerCase();
   const inView = (view === "all" ? items
     : items.filter((x) => (x.elfia_category ?? "").trim() === view))
-    .filter((x) => !needle || x.sku.toLowerCase().includes(needle) || x.name.toLowerCase().includes(needle) || (x.elfia_category ?? "").toLowerCase().includes(needle));
+    .filter((x) => !needle || x.sku.toLowerCase().includes(needle) || x.name.toLowerCase().includes(needle) || (x.elfia_category ?? "").toLowerCase().includes(needle))
+    /* v1.235.0 - status and stock, beside the collection chips */
+    .filter((x) => !statusF || (statusF === "published") === ((x.bridge_enabled ?? 0) === 1))
+    .filter((x) => !stockF || (stockF === "in") === (x.stock > 0));
   const sorted = [...inView].sort((a, b) =>
     ((b.bridge_enabled ?? 0) - (a.bridge_enabled ?? 0)) ||
     a.sku.localeCompare(b.sku, undefined, { numeric: true }));
@@ -327,23 +350,7 @@ export function ElfiaStorePanel() {
   const missingPhoto = published.filter((x) => !x.elfia_image_key);
   const migrationPending = loaded && items.length > 0 && items.every((x) => x.elfia_image_key === undefined);
 
-  const setBridge = async (it: ElfiaItem, patch: Record<string, unknown>, saved: string) => {
-    const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/bridge`, {
-      method: "PATCH", body: JSON.stringify(patch),
-    });
-    if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
-    toast(L("Saved", "Disimpan"), saved);
-    void load();
-  };
 
-  const setElfia = async (it: ElfiaItem, patch: Record<string, unknown>, saved: string) => {
-    const res = await api<{ error?: { message?: string } }>(`/inventory/${it.id}/elfia`, {
-      method: "PATCH", body: JSON.stringify(patch),
-    });
-    if (!res.ok) { toast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Update failed", "Kemas kini gagal"), "notice"); return; }
-    toast(L("Saved", "Disimpan"), saved);
-    void load();
-  };
 
   const uploadPhoto = async (it: ElfiaItem, file: File) => {
     setBusyPhoto(it.id);
@@ -431,6 +438,11 @@ export function ElfiaStorePanel() {
 
   const cutAll = async () => {
     const targets = items.filter((x) => x.elfia_image_key);
+    /* v1.235.0 - never reprocess every live photo on one press without saying so */
+    if (!(await confirm({ title: L(`Cut out the background on up to ${targets.length} photo(s)?`, `Buang latar sehingga ${targets.length} foto?`),
+      message: L(`Every product with a photo is processed in this browser; photos already cut out are skipped. Each new photo is a NEW file - the old ones stay in each product's photo history and can be restored. The shop shows the new photos once the store reads the feed.\n\n${targets.slice(0, 12).map((x) => x.sku).join(", ")}${targets.length > 12 ? ` +${targets.length - 12}` : ""}`,
+        `Setiap produk berfoto diproses dalam pelayar ini; foto yang sudah dipotong dilangkau. Setiap foto baharu ialah fail BAHARU - yang lama kekal dalam sejarah foto setiap produk dan boleh dipulihkan.\n\n${targets.slice(0, 12).map((x) => x.sku).join(", ")}${targets.length > 12 ? ` +${targets.length - 12}` : ""}`),
+      confirmLabel: L("Cut out backgrounds", "Buang latar") }))) return;
     setBusyCut(-1);
     let done = 0, skipped = 0, failed = 0;
     try {
@@ -481,6 +493,15 @@ export function ElfiaStorePanel() {
           : L("Enter a positive RM amount", "Masukkan amaun RM positif"), "notice");
       return;
     }
+    /* v1.235.0 - a preview and a confirmation before any live price moves */
+    const pv = items.filter((x) => picked.has(x.id)).map((x) => {
+      const base = priceState(x).base;
+      const c = mode === "clear" ? 0 : mode === "percent" ? Math.round(base * value / 100) : Math.round(value * 100);
+      return mode === "clear" ? `${x.sku}: ${L("discount removed", "diskaun dibuang")}`
+        : base <= 0 || c <= 0 || c >= base ? `${x.sku}: ${L("skipped", "dilangkau")}`
+        : `${x.sku}: RM ${rmBare(base)} → RM ${rmBare(base - c)}`;
+    });
+    if (!(await confirm({ title: L(`Change the discount on ${ids.length} live product(s)?`, `Tukar diskaun ${ids.length} produk?`), message: previewText(pv), confirmLabel: L("Apply discount", "Guna diskaun") }))) return;
     setBusyBulk(true);
     try {
       const res = await api<{ applied?: string[]; skipped?: { sku: string; why: string }[]; error?: { message?: string } }>(
@@ -523,6 +544,13 @@ export function ElfiaStorePanel() {
           : L("Enter a positive RM amount", "Masukkan amaun RM positif"), "notice");
       return;
     }
+    const pv = items.filter((x) => picked.has(x.id)).map((x) => {
+      const base = priceState(x).base;
+      const next = priceMode === "set" ? Math.round(value * 100) : priceMode === "percent" ? Math.round(base * (1 + priceDir * value / 100)) : base + priceDir * Math.round(value * 100);
+      const d = x.elfia_discount_cents ?? 0;
+      return next <= 0 || base <= 0 && priceMode !== "set" ? `${x.sku}: ${L("skipped", "dilangkau")}` : `${x.sku}: RM ${base > 0 ? rmBare(base) : "—"} → RM ${rmBare(next)}${d > 0 && d >= next ? ` · ${L("discount cleared", "diskaun dibuang")}` : ""}`;
+    });
+    if (!(await confirm({ title: L(`Change the web price of ${ids.length} live product(s)?`, `Tukar harga web ${ids.length} produk?`), message: previewText(pv), confirmLabel: L("Apply price", "Guna harga") }))) return;
     setBusyPrice(true);
     try {
       const res = await api<{ applied?: { sku: string }[]; skipped?: { sku: string; why: string }[];
@@ -571,6 +599,9 @@ export function ElfiaStorePanel() {
       toast(L("Not applied", "Tidak digunakan"), L("That date and time is not valid", "Tarikh dan masa itu tidak sah"), "notice");
       return;
     }
+    if (!(await confirm({ title: end ? L(`End the flash sale on ${ids.length} product(s)?`, `Tamatkan jualan kilat ${ids.length} produk?`) : L(`Start a flash sale on ${ids.length} product(s)?`, `Mula jualan kilat ${ids.length} produk?`),
+      message: previewText(items.filter((x) => picked.has(x.id)).map((x) => `${x.sku}${end ? "" : ` · ${L("until", "hingga")} ${new Date(flashUntil).toLocaleString()}`}${!end && flashValue.trim() ? ` · ${flashValue}${flashMode === "percent" ? "%" : " RM"} ${L("off", "potongan")}` : ""}`)),
+      confirmLabel: end ? L("End flash sale", "Tamatkan jualan kilat") : L("Start flash sale", "Mula jualan kilat") }))) return;
     setBusyFlash(true);
     try {
       /* The price rides with the deadline. Blank means "keep whatever
@@ -667,6 +698,7 @@ export function ElfiaStorePanel() {
                                       "Kedai tidak dapat dihubungi. Ia mengemas kini sendiri setiap minit."), "notice");
       return;
     }
+    void load(); // v1.235.0 - the health card shows the store's own answer
     const n = (res.data?.prices ?? 0) + (res.data?.updated ?? 0) + (res.data?.created ?? 0);
     toast(L("Shop updated", "Kedai dikemas kini"),
       n > 0 ? L(`${n} change${n === 1 ? "" : "s"} are live now`, `${n} perubahan kini disiarkan`)
@@ -1057,109 +1089,258 @@ export function ElfiaStorePanel() {
     } finally { setBusyBackdrop(false); }
   };
 
-  return (
-    /* v1.173.0 (tab concept): the four zones (THE SHOP, PRODUCTS, THE
-       SHOPFRONT, SETTINGS) are v1.122.0's; the stack and the zones wear the
-       shared classes every other tab uses. */
-    <div className="erp-stack erp-tab-page">
-      {toastNode}
+  /* ---- v1.235.0 - THREE TABS (the owner's ELFIA Store 2.0 brief and answers,
+     30-10-2026; claude/ELFIA-STORE-AUDIT.md). Overview: what the store
+     actually did, the figures the database proves, the warnings, and the
+     shop settings. Products & Pricing: the table and the drawer. Publishing
+     & Sync: the store's reads, Update now, what is waiting, the activity -
+     and the shopfront content the store reads from the same feed. Every
+     card that existed is kept; nothing here is a second catalogue. ---- */
+  const editing = editId !== null ? items.find((x) => x.id === editId) ?? null : null;
+  const lastRead = health?.feed_last_read_at ?? activity?.feed_last_read_at ?? null;
+  const readAgeMin = minutesSince(lastRead);
+  const conn: "loading" | "unavailable" | "nokey" | "never" | "reading" | "stale" = !health ? "loading" : health.unavailable ? "unavailable"
+    : !health.key_configured ? "nokey" : !lastRead ? "never" : (readAgeMin ?? 1e9) <= READ_FRESH_MIN ? "reading" : "stale";
+  const syncAt = health?.last_sync_now?.at ?? null;
+  const lastVerified = [lastRead, syncAt].filter(Boolean).sort().pop() ?? null;
+  const changed = activity?.changed ?? null;
+  const publishedSkus = new Set(published.map((x) => x.sku));
+  const waiting = (activity?.waiting ?? []).filter((w) => items.some((i) => i.sku === w.sku));
+  const leftOut = published.filter((x) => x.status === "discontinued");
+  const noPrice = published.filter((x) => priceState(x).base <= 0);
+  const ignored = published.filter((x) => { const p = priceState(x); return p.disc > 0 && (p.tooBig || p.ended); });
+  const warnings: { key: string; title: string; detail: string; skus: ElfiaItem[] }[] = [
+    ...(migrationPending ? [{ key: "mig", title: L("Migration 0086 not applied", "Migrasi 0086 belum digunakan"), detail: L("Photo, collection and description cannot save until it runs.", "Foto, koleksi dan penerangan tidak boleh disimpan sehingga ia dijalankan."), skus: [] }] : []),
+    ...(conn === "stale" || conn === "never" ? [{ key: "read", title: conn === "never" ? L("The store has not read the feed since this check was added", "Kedai belum membaca suapan sejak semakan ini ditambah") : L(`The store has not read the feed for ${Math.round(readAgeMin ?? 0)} min`, `Kedai tidak membaca suapan selama ${Math.round(readAgeMin ?? 0)} min`), detail: L("Changes saved here are not reaching the shop. Try Update the shop now, or check the store.", "Perubahan yang disimpan tidak sampai ke kedai. Cuba Kemas kini kedai, atau semak kedai."), skus: [] }] : []),
+    ...(leftOut.length ? [{ key: "out", title: L("Published but left out of the shop", "Diterbitkan tetapi dikecualikan dari kedai"), detail: L("Discontinued in Inventory - the feed leaves them out.", "Dihentikan dalam Inventori - suapan tidak menghantarnya."), skus: leftOut }] : []),
+    ...(noPrice.length ? [{ key: "price", title: L("Published without a price", "Diterbitkan tanpa harga"), detail: L("No web price and no list price.", "Tiada harga web dan tiada harga senarai."), skus: noPrice }] : []),
+    ...(ignored.length ? [{ key: "disc", title: L("A discount the shop ignores", "Diskaun yang diabaikan kedai"), detail: L("Not below the price, or its flash sale has ended - the shop charges the full price.", "Tidak di bawah harga, atau jualan kilatnya tamat - kedai mengenakan harga penuh."), skus: ignored }] : []),
+    ...(missingPhoto.length && !migrationPending ? [{ key: "photo", title: L("Published without a photo", "Diterbitkan tanpa foto"), detail: L("The shop shows a plain placeholder.", "Kedai memaparkan pemegang tempat kosong."), skus: missingPhoto }] : []),
+    ...(health && health.unknown_24h > 0 ? [{ key: "unk", title: L(`${health.unknown_24h} web sale(s) for SKUs the portal does not know (24 h)`, `${health.unknown_24h} jualan web untuk SKU yang tidak dikenali (24 j)`), detail: health.unknown.slice(0, 6).map((u) => u.sku).join(", "), skus: [] }] : []),
+    ...(health?.sku_key_collisions?.length ? [{ key: "coll", title: L("SKUs that answer to the same store code", "SKU yang menjawab kod kedai yang sama"), detail: health.sku_key_collisions.map((c) => c.sku_key).join(", "), skus: [] }] : []),
+  ];
+  const connChip = conn === "reading" ? <span className={chipSuccess}>{L("Connected", "Bersambung")}</span>
+    : conn === "loading" ? <Skel className="h-5 w-24 rounded-full" />
+    : conn === "nokey" ? <span className={chipWarn}>{L("Key not set", "Kunci belum ditetapkan")}</span>
+    : conn === "unavailable" ? <span className={chipNeutral}>{L("Status unavailable", "Status tidak tersedia")}</span>
+    : <span className={chipWarn}>{conn === "never" ? L("Not read yet", "Belum dibaca") : L("Not reading", "Tidak membaca")}</span>;
+  const connText = conn === "reading" ? L(`The store read the feed ${ago(lastRead)}${health?.feed_last_count != null ? ` · ${health.feed_last_count} products` : ""}`, `Kedai membaca suapan ${ago(lastRead)}${health?.feed_last_count != null ? ` · ${health.feed_last_count} produk` : ""}`)
+    : conn === "nokey" ? L("The store cannot connect (ELFIA_BRIDGE_KEY)", "Kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")
+    : conn === "unavailable" ? L("Deploy azoneofficial-api, then reload.", "Deploy azoneofficial-api, kemudian muat semula.")
+    : conn === "never" ? L("No read recorded yet - it appears after the next read.", "Belum ada bacaan direkod - ia muncul selepas bacaan seterusnya.")
+    : conn === "stale" ? L(`Last read ${ago(lastRead)}`, `Bacaan terakhir ${ago(lastRead)}`) : "";
+  const updateBtn = canPrice ? (
+    <button type="button" className={btnSm} disabled={syncing} onClick={() => void syncShopNow()}>
+      <AppIcon name="refresh" />{syncing ? L("Updating the shop…", "Mengemas kini kedai…") : L("Update the shop now", "Kemas kini kedai sekarang")}
+    </button>
+  ) : null;
 
+  return (
+    <div className="erp-stack erp-tab-page">
+      {toastNode}{confirmNode}
       {/* v1.49.0 — every collection name already in use, offered to every
-          Collection box below. Built from the items themselves, so it needs
-          no list to maintain and cannot go stale. */}
+          Collection box. Built from the items themselves. */}
       <datalist id="elfia-collections">
         {[...new Set(items.map((x) => (x.elfia_category ?? "").trim()).filter(Boolean))]
           .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
           .map((c) => <option key={c} value={c} />)}
       </datalist>
 
-      {/* v1.122.0 — FOUR ZONES (CEO, 06-09-2026: "Check UI/UX for ELFIA Store").
-          THE SHOP: the pulse. PRODUCTS: the catalogue, moved up from the
-          bottom - it is the daily work - with a find box. THE SHOPFRONT: the
-          carousel, the catalog PDF and the hover backdrop, quiet until opened.
-          SETTINGS: delivery and the payment check, quiet. Nothing inside any
-          card changed. */}
+      <div className={es.pageHead}>
+        <p className={es.sub}>{L("Your products, prices, photos and the ELFIA web store's publishing - one product record, stock from Inventory.", "Produk, harga, foto dan penerbitan kedai web ELFIA - satu rekod produk, stok dari Inventori.")}</p>
+        <div className={es.headActions}>
+          {health?.store_url && <a className={btnSm} href={health.store_url} target="_blank" rel="noopener noreferrer"><AppIcon name="external" />{L("View shop", "Lihat kedai")}</a>}
+          {updateBtn}
+        </div>
+      </div>
+      <LineTabs value={tab} onChange={(k) => setTab(k)} label={L("ELFIA Store", "Kedai ELFIA")} tabs={[
+        ["overview", L("Overview", "Gambaran")],
+        ["products", L("Products & Pricing", "Produk & Harga")],
+        ["publishing", L("Publishing & Sync", "Penerbitan & Segerak")],
+      ] as const} />
+
+      {/* ================= OVERVIEW ================= */}
+      <div hidden={tab !== "overview"} className="erp-stack">
       <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("The shop", "Kedai")}</ZoneLabel>
-      {/* ---- the bridge's pulse + what this tab is ---- */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <span className="font-semibold">{L("ELFIA web store", "Kedai web ELFIA")}</span>
-          {/* v1.48.0 — "still the discount is not live update!!!!". The shop
-              refreshes itself every minute; this is for the moment you have
-              just typed a price and want to look at the shop NOW. */}
-          <button type="button" className={btnSm} disabled={syncing}
-            onClick={() => void syncShopNow()}>
-            {syncing ? L("Updating the shop…", "Mengemas kini kedai…") : L("Update the shop now", "Kemas kini kedai sekarang")}
-          </button>
-          {/* v1.77.0 — skeleton until the first fetch lands: the status chip
-              and its two figures, so the header never reads blank. */}
-          {health === null && (
-            <>
-              <Skel className="h-5 w-24 rounded-full" />
-              <Skel className="h-4 w-28" />
-              <Skel className="h-4 w-44" />
-            </>
-          )}
-          {health?.unavailable && (
-            <span className="text-muted-foreground">
-              {L("Bridge status unavailable — deploy azoneofficial-api, then reload.",
-                 "Status jambatan tidak tersedia — deploy azoneofficial-api, kemudian muat semula.")}
-            </span>
-          )}
-          {health && !health.unavailable && !health.key_configured && (
-            <span className="font-medium text-warning">
-              {L("Key not set — the store cannot connect (ELFIA_BRIDGE_KEY)",
-                 "Kunci belum ditetapkan — kedai tidak boleh sambung (ELFIA_BRIDGE_KEY)")}
-            </span>
-          )}
-          {health && !health.unavailable && health.key_configured && (
-            <>
-              <span className={chipSuccess}>{L("Connected", "Bersambung")}</span>
-              <span className="text-muted-foreground">
-                {L("Published:", "Diterbitkan:")} {published.length}/{items.length}
-              </span>
-              <span className="text-muted-foreground">
-                {L("Last sale reported:", "Jualan terakhir dilaporkan:")}{" "}
-                {health.last_event_at ? health.last_event_at.slice(0, 16) : L("never", "belum ada")}
-              </span>
-            </>
+        <div className={card} aria-label={L("ELFIA web store", "Kedai web ELFIA")}>
+          <div className={es.strip}>
+            <div className={es.stripCell}>
+              <span className={es.well}><AppIcon name="store" /></span>
+              <span className={es.cellText}><strong>{L("ELFIA web store", "Kedai web ELFIA")} {connChip}</strong><span>{connText}</span></span>
+            </div>
+            <div className={es.stripCell}>
+              <span className={es.well}><AppIcon name="refresh" /></span>
+              <span className={es.cellText}><strong>{L("Last verified sync", "Segerak terakhir disahkan")}</strong>
+                <span>{lastVerified ? `${lastVerified.slice(0, 16)} UTC · ${ago(lastVerified)}` : L("None recorded yet", "Belum direkod")}</span></span>
+            </div>
+            <div className={es.stripCell}>
+              <span className={es.well}><AppIcon name="receipt" /></span>
+              <span className={es.cellText}><strong>{L("Last sale reported", "Jualan terakhir dilaporkan")}</strong>
+                <span>{health?.last_event_at ? `${health.last_event_at.slice(0, 16)} UTC · ${ago(health.last_event_at)}` : L("never", "belum ada")}</span>
+                <span>{L("Sales and orders are in Ecommerce", "Jualan dan pesanan di Ecommerce")}</span></span>
+            </div>
+          </div>
+        </div>
+        <KpiRow label={L("ELFIA at a glance", "ELFIA sepintas lalu")}>
+          <KpiTile icon="package" tone="navy" busy={!loaded} label={L("Catalogue items", "Barang katalog")} value={String(items.length)} sub={L("Inventory items", "Barang inventori")} />
+          <KpiTile icon="store" tone="green" busy={!loaded} label={L("Published", "Diterbitkan")} value={`${published.length}/${items.length}`} sub={leftOut.length ? L(`${leftOut.length} left out (discontinued)`, `${leftOut.length} dikecualikan`) : L("in the shop's feed", "dalam suapan kedai")} />
+          <KpiTile icon="pending" tone="blue" busy={!activity && loaded} label={L("Waiting for the store", "Menunggu kedai")} value={String(waiting.length)} sub={L("changed since its last read", "berubah sejak bacaan terakhir")} />
+          <KpiTile icon="warning" tone="gold" busy={!loaded} label={L("Warnings", "Amaran")} value={String(warnings.length)} sub={warnings.length ? L("see below", "lihat di bawah") : L("nothing to fix", "tiada untuk dibaiki")} />
+        </KpiRow>
+        <div className={card} aria-label={L("Warnings", "Amaran")}>
+          <p className="text-sm font-semibold">{L("Needs attention", "Perlu perhatian")}</p>
+          {!loaded ? <Skel className="mt-2 h-16 w-full" /> : warnings.length === 0 ? (
+            <p className={es.sub}>{L("Nothing to fix - every published product has a price, a photo and a discount the shop applies.", "Tiada untuk dibaiki - setiap produk diterbitkan ada harga, foto dan diskaun yang digunakan kedai.")}</p>
+          ) : (
+            <ul className={es.list}>{warnings.map((w) => (
+              <li key={w.key}>
+                <span className={es.main}><strong>{w.title}{w.skus.length ? ` (${w.skus.length})` : ""}</strong><span>{w.detail}</span></span>
+                {w.skus.length > 0 && <span className={es.chipsRow}>{w.skus.slice(0, 6).map((x) => (
+                  <button key={x.id} type="button" className={es.linkBtn} onClick={() => { setTab("products"); setEditId(x.id); }}>{x.sku}</button>
+                ))}{w.skus.length > 6 ? <span className={es.sub}>+{w.skus.length - 6}</span> : null}</span>}
+              </li>
+            ))}</ul>
           )}
         </div>
-        <p className="text-muted-foreground mt-2 text-xs">
-          {/* v1.47.0 — this used to promise a second approval step in the
-              store's own admin. That step is gone (store v1.8.0): ticking
-              Publish HERE is the decision, and the old wording had people
-              waiting for a screen that never needed visiting. */}
-          {L("Everything on this tab reaches the store within about a minute: counts, prices, discounts, collection, description and photo. Ticking Publish is what puts a product in the shop — a SKU the store has never had is created there and goes live. Un-tick it and it leaves the shop. In a hurry? Press \u201cUpdate the shop now\u201d.",
-             "Semua pada tab ini sampai ke kedai dalam kira-kira seminit: kiraan, harga, diskaun, koleksi, penerangan dan foto. Menanda Publish di sinilah yang meletakkan produk dalam kedai — SKU yang belum ada di kedai akan dicipta dan terus dipaparkan. Buang tanda itu dan ia hilang dari kedai. Tergesa-gesa? Tekan \u201cKemas kini kedai sekarang\u201d.")}
+      </section>
+      <section className="erp-stack-tight erp-tab-zone">
+        <ZoneLabel>{L("Settings", "Tetapan")}</ZoneLabel>
+      <div className="grid grid-cols-1 items-start gap-3 md:gap-4 lg:grid-cols-2">
+      {/* ---- what delivery costs (v1.52.0) ----
+          The CEO, 26-08-2026: "I want to have the authority to update the
+          shipping fees which is above RM45.00, I will provide a free
+          delivery fees." Both numbers used to be in the store's config file,
+          so changing them meant a code edit and a deploy. They are hers now.
+          The sentence below the boxes is the exact sentence the shop shows a
+          customer, built from what is currently typed — the point being that
+          nobody should have to imagine what these two numbers add up to. */}
+      <QuietCard title={L("Delivery charges", "Caj penghantaran")} summary={deliverySaved ? `RM ${deliverySaved.ship || "0"} · ${L("free over RM", "percuma melebihi RM")} ${deliverySaved.free || "—"}` : undefined}>
+        
+        <p className="text-muted-foreground mt-0.5 text-xs">
+          {L("What the shop charges for delivery, and the basket size that makes it free. Yours to change — the shop picks it up within a minute.",
+             "Kadar penghantaran yang dikenakan kedai, dan jumlah belian yang menjadikannya percuma. Anda boleh ubah — kedai mengambilnya dalam seminit.")}
         </p>
-        {migrationPending && (
-          <p className="mt-2 rounded-lg border border-warning/30 bg-warning-soft p-2 text-xs font-medium text-warning">
-            {L("Migration 0086 has not reached the database yet — photo, collection and description cannot save. Run: npx wrangler d1 migrations apply azoneofficial --remote",
-               "Migrasi 0086 belum sampai ke pangkalan data — foto, koleksi dan penerangan tidak boleh disimpan. Jalankan: npx wrangler d1 migrations apply azoneofficial --remote")}
+
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Delivery charge", "Caj penghantaran")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={ship} onChange={(e) => setShip(e.target.value)}
+                inputMode="decimal" placeholder="4.50" aria-label={L("Delivery charge in ringgit", "Caj penghantaran dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-muted-foreground block text-xs">{L("Free delivery from", "Penghantaran percuma dari")}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="text-muted-foreground text-sm">RM</span>
+              <input value={freeAbove} onChange={(e) => setFreeAbove(e.target.value)}
+                inputMode="decimal" placeholder="45.00" aria-label={L("Free delivery threshold in ringgit", "Ambang penghantaran percuma dalam ringgit")}
+                className={`${inputClass} w-24`} />
+            </span>
+          </label>
+          <button type="button" className={btnSm} disabled={busyDelivery || !deliveryDirty}
+            onClick={() => void saveDelivery()}>
+            {busyDelivery ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
+          </button>
+        </div>
+
+        {/* The customer's sentence, live. */}
+        {rmToSen(ship) !== null && rmToSen(freeAbove) !== null && (
+          <p className="mt-3 text-xs">
+            {L("The shop will say:", "Kedai akan memaparkan:")}{" "}
+            <span className="font-medium">
+              {L(`Free delivery above RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} otherwise`,
+                 `Penghantaran percuma melebihi RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} jika tidak`)}
+            </span>
           </p>
         )}
-        {missingPhoto.length > 0 && !migrationPending && (
+
+        {deliverySaved !== null && deliverySaved.ship === "" && (
           <p className="mt-2 text-xs font-medium text-warning">
-            {L("No photo yet:", "Belum ada foto:")}{" "}
-            {missingPhoto.slice(0, 6).map((x) => x.sku).join(", ")}
-            {missingPhoto.length > 6 ? ` +${missingPhoto.length - 6}` : ""} —{" "}
-            {L("published items without a photo show a plain placeholder in the shop.",
-               "barang diterbitkan tanpa foto memaparkan pemegang tempat kosong di kedai.")}
+            {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
+               "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
           </p>
         )}
+      </QuietCard>
+
+      {/* ---- can customers pay online? (v1.53.0) ----
+          The CEO, 26-08, on the live shop: "This appear on the gateway
+          payment!" — the customer-facing "Payment gateway unavailable", with
+          nowhere to find out why. The store writes the gateway's own reply down
+          now; this is the window onto it. */}
+      <QuietCard title={L("Online payment (Bayarcash FPX)", "Pembayaran dalam talian (Bayarcash FPX)")} summary={pay ? (pay.ok ? `${L("keys working", "kunci berfungsi")}${pay.sandbox ? " · sandbox" : ""}` : L("not working", "tidak berfungsi")) : L("not checked yet", "belum disemak")}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {L("Checks the shop's payment token against Bayarcash. Read-only — it creates no payment and moves no money.",
+                 "Menyemak token pembayaran kedai dengan Bayarcash. Baca sahaja — tiada pembayaran dicipta dan tiada wang berpindah.")}
+            </p>
+          </div>
+          <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
+            {busyPay ? L("Checking…", "Menyemak…") : L("Check now", "Semak sekarang")}
+          </button>
+        </div>
+
+        {pay && (
+          <div className="mt-3 space-y-2 text-xs">
+            {pay.unavailable ? (
+              <p className="text-muted-foreground">{pay.message}</p>
+            ) : (
+              <>
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className={pay.ok ? chipSuccess : chipWarn}>
+                    {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
+                  </span>
+                  {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
+                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
+                </p>
+                <p className="text-muted-foreground">{pay.message}</p>
+                {pay.warning && <p className="font-medium text-warning">{pay.warning}</p>}
+
+                {/* The credential check passing is a weaker claim than "the
+                    last customer could pay". This is the stronger one. */}
+                {pay.last_gateway_error && (
+                  <div className="rounded-lg border border-warning/30 bg-warning-soft p-2.5">
+                    <p className="font-semibold text-warning">
+                      {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] break-words text-warning">
+                      {pay.last_gateway_error}
+                    </p>
+                    {pay.last_gateway_hint && (
+                      <p className="mt-1.5 text-warning">{pay.last_gateway_hint}</p>
+                    )}
+                  </div>
+                )}
+                {pay.ok && !pay.last_gateway_error && (
+                  <p className="text-muted-foreground">
+                    {L("No failed payment has been recorded on the shop.", "Tiada pembayaran gagal direkodkan di kedai.")}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </QuietCard>
+
+      </div>
+      </section>
       </div>
 
-      </section>
+      {/* ================= PRODUCTS & PRICING ================= */}
+      <div hidden={tab !== "products"} className="erp-stack">
       <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("Products", "Produk")}</ZoneLabel>
       {/* ---- the catalogue ---- */}
       <div className={card}>
         <p className="text-sm font-semibold">{L("Products on the ELFIA store", "Produk di kedai ELFIA")}</p>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("Tick to publish. Photo, collection and description are what the customer sees on the product page. Prices save on blur; the TikTok live rebate never applies online.",
-             "Tanda untuk terbitkan. Foto, koleksi dan penerangan ialah apa yang pelanggan lihat di halaman produk. Harga disimpan selepas blur; rebat live TikTok tidak sekali-kali terpakai dalam talian.")}
+          {L("Every product is an Inventory item - stock comes from Inventory. Press a product (or Edit) to change its photo, price, collection, description or publishing, then Save. The TikTok live rebate never applies online.",
+             "Setiap produk ialah barang Inventori - stok datang dari Inventori. Tekan produk (atau Sunting) untuk menukar foto, harga, koleksi, penerangan atau penerbitan, kemudian Simpan. Rebat live TikTok tidak sekali-kali terpakai dalam talian.")}
         </p>
 
         {/* v1.77.0 — skeleton until the first fetch lands: the Show/Select
@@ -1239,6 +1420,12 @@ export function ElfiaStorePanel() {
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
               <input className={`${inputClass} h-8 min-w-0 flex-1 text-xs sm:max-w-60`} value={q} placeholder={L("Find by SKU, name or collection", "Cari ikut SKU, nama atau koleksi")}
                 aria-label={L("Find a product", "Cari produk")} onChange={(e) => { setQ(e.target.value); setPicked(new Set()); }} />
+              <select className={selectClassSm} value={statusF} onChange={(e) => { setStatusF(e.target.value as typeof statusF); setPicked(new Set()); }} aria-label={L("Status", "Status")}>
+                <option value="">{L("All status", "Semua status")}</option><option value="published">{L("Published", "Diterbitkan")}</option><option value="hidden">{L("Not on the store", "Tiada di kedai")}</option>
+              </select>
+              <select className={selectClassSm} value={stockF} onChange={(e) => { setStockF(e.target.value as typeof stockF); setPicked(new Set()); }} aria-label={L("Stock", "Stok")}>
+                <option value="">{L("All stock", "Semua stok")}</option><option value="in">{L("In stock", "Ada stok")}</option><option value="out">{L("Out of stock", "Habis stok")}</option>
+              </select>
               <span className="text-muted-foreground mr-1">{L("Show:", "Papar:")}</span>
               {([["all", L("All", "Semua"), items.length] as const,
                  ...collections.map((c) => [c, c, items.filter((x) => (x.elfia_category ?? "").trim() === c).length] as const)])
@@ -1253,8 +1440,9 @@ export function ElfiaStorePanel() {
                 ))}
             </div>
 
-            {/* SELECT — an action, on what is showing. */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+            {/* SELECT — an action, on what is showing. v1.235.0: only for those
+                who may change prices (the bulk bar below is theirs) */}
+            {canPrice && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
               <span className="text-muted-foreground">{L("Select:", "Pilih:")}</span>
               <button type="button" className="underline underline-offset-2"
                 onClick={() => setPicked(new Set(sorted.map((x) => x.id)))}>
@@ -1272,11 +1460,11 @@ export function ElfiaStorePanel() {
                   {L("clear selection", "kosongkan pilihan")}
                 </button>
               )}
-            </div>
+            </div>}
           </>
         )}
 
-        {picked.size > 0 && (
+        {canPrice && picked.size > 0 && (
           <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-warning/30 bg-warning-soft p-2.5">
             <span className="text-xs font-semibold text-warning">
               {picked.size} {L("selected", "dipilih")}
@@ -1405,293 +1593,65 @@ export function ElfiaStorePanel() {
           </div>
         )}
 
-        <div className="mt-3 space-y-2">
-          {/* A filter that hides everything is a dead end unless it says so.
-              A collection can be renamed on one product while the chip is
-              still selected, and an empty list with no explanation costs
-              somebody an afternoon. */}
-          {items.length > 0 && sorted.length === 0 && (
-            <p className="text-muted-foreground text-sm">
-              {L(`Nothing in “${view}” right now.`, `Tiada apa-apa dalam “${view}” sekarang.`)}{" "}
-              <button type="button" className="underline underline-offset-2"
-                onClick={() => { setView("all"); setPicked(new Set()); }}>
-                {L("Show all products", "Papar semua produk")}
-              </button>
-            </p>
-          )}
-          {sorted.map((it) => {
-            const on = (it.bridge_enabled ?? 0) === 1;
-            return (
-              <div key={it.id}
-                className={`rounded-xl border p-3 transition-colors ${on ? "border-border bg-card" : "border-border/60 bg-secondary/30 opacity-80"}`}>
-                <div className="flex flex-wrap items-start gap-3">
-                  {/* v1.54.0 — the bulk-discount tick. Its own control,
-                      nowhere near the Publish tick below: those two mean very
-                      different things and confusing them takes a product off
-                      the shop. */}
-                  <label className="flex shrink-0 items-center pt-7"
-                    title={L("Select for a bulk discount", "Pilih untuk diskaun pukal")}>
-                    <input type="checkbox" checked={picked.has(it.id)}
-                      aria-label={`${L("Select", "Pilih")} ${it.sku}`}
-                      onChange={(e) => setPicked((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(it.id); else next.delete(it.id);
-                        return next;
-                      })} />
-                  </label>
-                  {/* photo — the tap target IS the upload */}
-                  <button type="button"
-                    className="border-border bg-secondary relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border"
-                    title={L("Upload / replace the product photo (JPEG, PNG or WEBP, max 5 MB)",
-                             "Muat naik / ganti foto produk (JPEG, PNG atau WEBP, maks 5 MB)")}
-                    onClick={() => fileRefs.current[it.id]?.click()}>
-                    {it.elfia_image_key ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photoUrl(it.elfia_image_key)} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-muted-foreground flex h-full items-center justify-center px-1 text-center text-[10px] leading-tight">
-                        {L("+ photo", "+ foto")}
-                      </span>
-                    )}
-                    {busyPhoto === it.id && (
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[10px] font-medium text-white">
-                        {L("Uploading…", "Memuat naik…")}
-                      </span>
-                    )}
-                  </button>
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                    ref={(el) => { fileRefs.current[it.id] = el; }}
-                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadPhoto(it, f); }} />
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs">{it.sku}</span>
-                      <span className="text-sm font-medium">{it.name}</span>
-                      {on
-                        ? <span className={chipSuccess}>{L("Published", "Diterbitkan")}</span>
-                        : <span className={chipNeutral}>{L("Not on the store", "Tiada di kedai")}</span>}
-                      {on && !it.elfia_image_key && <span className={chipWarn}>{L("no photo", "tiada foto")}</span>}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-                      <label className="flex items-center gap-1.5">
-                        <input type="checkbox" checked={on}
-                          onChange={(e) => void setBridge(it, { bridge_enabled: e.target.checked },
-                            e.target.checked
-                              ? `${it.sku} ${L("now published to the ELFIA store", "kini diterbitkan ke kedai ELFIA")}`
-                              : `${it.sku} ${L("withdrawn from the ELFIA store", "ditarik daripada kedai ELFIA")}`)} />
-                        {L("Publish", "Terbitkan")}
-                      </label>
-
-                      {/* v1.132.0 — THE BOX MUST SHOW WHAT IS STORED.
-                          CEO, 07-09-2026, screenshot: Web price 39.00,
-                          Discount 11.00, and beside them "Customer pays
-                          RM 29.00". 39 − 11 is 28. The line was right and the
-                          BOX was lying: the stored discount was RM 10.00 from
-                          a bulk "RM 10 off", and 11.00 was text he had typed
-                          into the box earlier that never became data.
-
-                          Why: these inputs are uncontrolled — `defaultValue`
-                          is read ONCE, when React first mounts the node.
-                          Every save calls load(), which replaces `items`, but
-                          the row is keyed by `it.id`, so React REUSES the same
-                          <input> element and never touches its value again.
-                          Type into it and don't blur, or change the number
-                          from the bulk bar, and the box keeps showing a figure
-                          the database has never heard of — for the rest of the
-                          session.
-
-                          The fix is the key: fold the STORED value into it, so
-                          the node is remounted (and `defaultValue` re-read)
-                          exactly when the stored value changes, and left alone
-                          — mid-typing undisturbed — when it does not. */}
-                      <label className="flex items-center gap-1.5">
-                        {L("Web price RM", "Harga web RM")}
-                        <input type="number" min={0} step="0.01"
-                          key={`webprice:${it.elfia_price_cents ?? ""}`}
-                          className={`${inputClassSm} w-20 text-right`}
-                          placeholder={it.unit_price_cents ? rmBare(it.unit_price_cents) : "0.00"}
-                          defaultValue={it.elfia_price_cents ? rmBare(it.elfia_price_cents) : ""}
-                          title={L("Empty = the list price. What the ELFIA customer pays.", "Kosong = harga senarai. Yang dibayar pelanggan ELFIA.")}
-                          onBlur={(e) => {
-                            const raw = e.target.value.trim();
-                            const next = raw === "" ? null : Math.round(Number(raw) * 100);
-                            if (raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
-                              toast(L("Not saved", "Tidak disimpan"), L("Web price must be a positive RM amount — or empty to use the list price", "Harga web mesti amaun RM positif — atau kosong untuk guna harga senarai"), "notice");
-                              return;
-                            }
-                            if (next === (it.elfia_price_cents ?? null)) return;
-                            void setBridge(it, { elfia_price: raw === "" ? "" : Number(raw) },
-                              next === null
-                                ? `${it.sku} — ${L("web price cleared", "harga web dikosongkan")}`
-                                : `${it.sku} — ${L("web price", "harga web")} RM ${rmBare(next)}`);
-                          }} />
-                      </label>
-
-                      <label className="flex items-center gap-1.5">
-                        {L("Discount RM", "Diskaun RM")}
-                        <input type="number" min={0} step="0.01"
-                          className={`${inputClassSm} w-16 text-right`}
-                          placeholder="0"
-                          key={`discount:${it.elfia_discount_cents ?? ""}`}
-                          defaultValue={it.elfia_discount_cents ? rmBare(it.elfia_discount_cents) : ""}
-                          title={L("Web discount — the shop shows the old price struck through and charges price minus this. Empty = no discount.",
-                                    "Diskaun web — kedai memaparkan harga lama dipotong dan mencaj harga tolak jumlah ini. Kosong = tiada diskaun.")}
-                          onBlur={(e) => {
-                            const raw = e.target.value.trim();
-                            const next = raw === "" ? null : Math.round(Number(raw) * 100);
-                            if (raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
-                              toast(L("Not saved", "Tidak disimpan"), L("Discount must be a positive RM amount — or empty to clear it", "Diskaun mesti amaun RM positif — atau kosong untuk membuangnya"), "notice");
-                              return;
-                            }
-                            if (next === (it.elfia_discount_cents ?? null)) return;
-                            void setElfia(it, { discount: raw === "" ? "" : Number(raw) },
-                              next === null
-                                ? `${it.sku} — ${L("discount cleared", "diskaun dibuang")}`
-                                : `${it.sku} — ${L("discount", "diskaun")} RM ${rmBare(next)}`);
-                          }} />
-                      </label>
-
-                      {/* v1.132.0 — AND IT MUST AGREE WITH THE SHOP.
-                          This line used to be `base - disc`, full stop. The
-                          feed has never worked that way: since v1.63.0 a
-                          discount may carry a FLASH DEADLINE, and once that
-                          deadline passes the feed stops applying the discount
-                          — that is the whole point of the word "flash", the
-                          price reverting by itself with nobody having to
-                          remember to clear it.
-
-                          So an expired flash sale left this panel promising
-                          "Customer pays RM 29.00" for ever while the shop
-                          charged RM 39.00, and the row gave no hint why: the
-                          deadline appeared nowhere on screen, so the two
-                          systems looked like they had simply failed to sync.
-
-                          The rule below is the one bridge-feed.ts runs
-                          (flashExpired / flashActiveUntil). That file OWNS it;
-                          this is a second copy, because a client panel cannot
-                          import worker code — so tests/input-truth.mjs holds
-                          the two spellings together, which is what pays for
-                          the duplication. */}
-                      {(() => {
-                        const base = it.elfia_price_cents ?? it.unit_price_cents ?? 0;
-                        const disc = it.elfia_discount_cents ?? 0;
-                        if (!(disc > 0 && disc < base)) return null;
-                        const raw = it.elfia_flash_until;
-                        /* SQLite writes "2026-09-09 18:00:00" — no T, no zone.
-                           Read as UTC, exactly as the feed reads it. */
-                        const at = typeof raw === "string" && raw.trim() !== ""
-                          ? Date.parse(raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`)
-                          : NaN;
-                        const ended = Number.isFinite(at) && at <= Date.now();
-                        const running = Number.isFinite(at) && at > Date.now();
-                        if (ended) {
-                          /* The honest sentence, and the way out of it. */
-                          return (
-                            <span className="text-warning font-medium"
-                              title={L("The feed stops applying a discount once its flash deadline has passed — the shop charges the full price.",
-                                       "Suapan berhenti mengenakan diskaun apabila tarikh tamat jualan kilat berlalu — kedai mengenakan harga penuh.")}>
-                              {L(`Flash sale ended ${flashWhen(at)} — the shop charges RM ${rmBare(base)}, not RM ${rmBare(base - disc)}. Tick the row, then press End flash sale to keep the discount without a deadline.`,
-                                 `Jualan kilat tamat ${flashWhen(at)} — kedai mengenakan RM ${rmBare(base)}, bukan RM ${rmBare(base - disc)}. Tandakan baris itu, kemudian tekan Tamatkan jualan kilat untuk kekalkan diskaun tanpa tarikh tamat.`)}
-                            </span>
-                          );
-                        }
-                        return (
-                          <span className="font-medium text-success"
-                            title={L("What the shop shows: old price struck through, this charged", "Apa yang kedai papar: harga lama dipotong, ini dicaj")}>
-                            {L("Customer pays", "Pelanggan bayar")} RM {rmBare(base - disc)}
-                            <s className="text-muted-foreground ml-1 font-normal">RM {rmBare(base)}</s>
-                            {running && (
-                              <span className="text-gold-deep ml-1 font-normal">
-                                {L(`· flash until ${flashWhen(at)}`, `· kilat hingga ${flashWhen(at)}`)}
-                              </span>
-                            )}
-                          </span>
-                        );
-                      })()}
-
-                      {/* v1.49.0 — the CEO: "how I want to add the Collection
-                          category!". It was a dropdown of two words, so there
-                          was no way to add one. It is a free text box now,
-                          with every collection already in use offered as a
-                          suggestion so staff reuse a name instead of coining
-                          "Shawl", "shawls" and "Shawl " as three shelves.
-                          Type a new one and the shop grows a shelf; clear it
-                          and the item falls back to Bawal. Saves on blur,
-                          same as the description. */}
-                      {/* v1.174.1 - the label wraps onto its own line when
-                          the row is narrow (14rem basis, erp-row-lead) and the
-                          box fills it; a fixed 9rem box ran past the card on a
-                          360px phone */}
-                      <label className="flex items-center gap-1.5 erp-row-lead">
-                        {L("Collection", "Koleksi")}
-                        <input className={`${inputClassSm} erp-grow`}
-                          list="elfia-collections"
-                          key={`collection:${it.elfia_category ?? ""}`}
-                          defaultValue={it.elfia_category ?? ""}
-                          maxLength={40}
-                          placeholder={L("Bawal", "Bawal")}
-                          title={L("Type any collection name — the shop makes a shelf for it. Empty = Bawal.",
-                                   "Taip apa-apa nama koleksi — kedai akan buat rak untuknya. Kosong = Bawal.")}
-                          onBlur={(e) => {
-                            const v = e.target.value.trim().replace(/\s+/g, " ");
-                            if (v === (it.elfia_category ?? "")) return;
-                            void setElfia(it, { category: v },
-                              v === "" ? `${it.sku} — ${L("collection cleared (store defaults to Bawal)", "koleksi dikosongkan (kedai guna Bawal)")}`
-                                       : `${it.sku} — ${v}`);
-                          }} />
-                      </label>
-
-                      <span className="text-muted-foreground">
-                        {L("Stock", "Stok")} {it.stock}
-                      </span>
-
-                      <button type="button" className={btnSm}
-                        onClick={() => setOpenDesc((d) => ({ ...d, [it.id]: !d[it.id] }))}>
-                        {openDesc[it.id]
-                          ? L("Hide description", "Sembunyi penerangan")
-                          : it.elfia_description
-                            ? L("Edit description", "Sunting penerangan")
-                            : L("Add description", "Tambah penerangan")}
-                      </button>
-                      {it.elfia_image_key && (
-                        <button type="button" className={btnSm} disabled={busyCut !== null}
-                          title={L("Remove the studio background — model only, like the catalog", "Buang latar studio — model sahaja, seperti katalog")}
-                          onClick={() => void cutBackground(it)}>
-                          {busyCut === it.id ? L("Cutting…", "Memotong…") : L("Cut out background", "Buang latar")}
-                        </button>
-                      )}
-                      {it.elfia_image_key && (
-                        <button type="button" className="text-muted-foreground underline"
-                          onClick={() => void setElfia(it, { remove_photo: true },
-                            `${it.sku} — ${L("photo removed (the store keeps showing its current one until you upload a new photo)", "foto dibuang (kedai terus memaparkan yang sedia ada sehingga foto baharu dimuat naik)")}`)}>
-                          {L("remove photo", "buang foto")}
-                        </button>
-                      )}
-                    </div>
-
-                    {openDesc[it.id] && (
-                      <div className="mt-2">
-                        <textarea className={`${inputClass} h-20 text-xs`} maxLength={2000}
-                          key={`desc:${it.elfia_description ?? ""}`}
-                          defaultValue={it.elfia_description ?? ""}
-                          placeholder={L("What the ELFIA product page says about this item — material, feel, sizing. Saves when you click away; empty keeps the store's own text.",
-                                          "Apa yang halaman produk ELFIA katakan tentang barang ini — bahan, rasa, saiz. Disimpan apabila klik di luar; kosong mengekalkan teks kedai sendiri.")}
-                          onBlur={(e) => {
-                            const next = e.target.value.trim();
-                            if (next === (it.elfia_description ?? "").trim()) return;
-                            void setElfia(it, { description: next },
-                              `${it.sku} — ${next ? L("description saved", "penerangan disimpan") : L("description cleared", "penerangan dikosongkan")}`);
-                          }} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {items.length > 0 && sorted.length === 0 && (
+          <p className="text-muted-foreground mt-3 text-sm">
+            {L("Nothing matches these filters.", "Tiada yang sepadan dengan penapis ini.")}{" "}
+            <button type="button" className="underline underline-offset-2"
+              onClick={() => { setView("all"); setQ(""); setStatusF(""); setStockF(""); setPicked(new Set()); }}>
+              {L("Show all products", "Papar semua produk")}
+            </button>
+          </p>
+        )}
+        {loaded && sorted.length > 0 && (
+          <ProductTable rows={sorted} picked={picked} setPicked={setPicked} onEdit={setEditId} changed={changed} lastRead={lastRead} selectable={canPrice} />
+        )}
+        {loaded && <p className={`${es.sub} mt-2`}>{L(`Showing ${sorted.length} of ${items.length} products`, `Memaparkan ${sorted.length} daripada ${items.length} produk`)}</p>}
       </div>
+      </section>
+      </div>
+
+      {/* ================= PUBLISHING & SYNC ================= */}
+      <div hidden={tab !== "publishing"} className="erp-stack">
+      <section className="erp-stack-tight erp-tab-zone">
+        <ZoneLabel>{L("Publishing", "Penerbitan")}</ZoneLabel>
+        <div className={card} aria-label={L("Publishing health", "Kesihatan penerbitan")}>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">{L("How a change reaches the shop", "Bagaimana perubahan sampai ke kedai")}</p>
+              <p className={es.sub}>{L("Saved here → the store reads the feed (Read by the store) → the shop shows it. Only the store's own answer to Update now is shown as applied.", "Disimpan di sini → kedai membaca suapan (Dibaca kedai) → kedai memaparkannya. Hanya jawapan kedai kepada Kemas kini ditunjukkan sebagai digunakan.")}</p>
+            </div>
+            {updateBtn}
+          </div>
+          <ul className={`${es.list} mt-2`}>
+            <li><span className={es.main}><strong>{L("Store connection", "Sambungan kedai")}</strong><span>{connText}</span></span>{connChip}</li>
+            <li><span className={es.main}><strong>{L("Last Update the shop now", "Kemas kini kedai terakhir")}</strong><span>{health?.last_sync_now ? `${health.last_sync_now.at.slice(0, 16)} UTC · ${health.last_sync_now.who ?? "—"} · ${L("applied", "digunakan")}: ${(health.last_sync_now.result.created ?? 0)} ${L("new", "baharu")}, ${(health.last_sync_now.result.updated ?? 0)} ${L("updated", "dikemas kini")}, ${(health.last_sync_now.result.prices ?? 0)} ${L("prices", "harga")}` : L("Not pressed yet", "Belum ditekan")}</span></span>{health?.last_sync_now ? <span className={chipSuccess}>{L("Applied", "Digunakan")}</span> : null}</li>
+            <li><span className={es.main}><strong>{L("Web sales reported (24 h)", "Jualan web dilaporkan (24 j)")}</strong><span>{health ? L(`${health.applied_24h} applied to stock · ${health.unknown_24h} unknown SKU`, `${health.applied_24h} dikenakan pada stok · ${health.unknown_24h} SKU tidak dikenali`) : "…"}</span></span></li>
+            <li><span className={es.main}><strong>{L("Orders last pulled", "Pesanan terakhir ditarik")}</strong><span>{health?.last_poll_at ? `${health.last_poll_at.slice(0, 16)} UTC · ${ago(health.last_poll_at)}` : L("never", "belum ada")}{health?.rejected_orders ? ` · ${health.rejected_orders} ${L("rejected", "ditolak")}` : ""}{health?.refunds_pending ? ` · ${health.refunds_pending} ${L("refunds to decide (Ecommerce)", "bayaran balik (Ecommerce)")}` : ""}</span></span></li>
+          </ul>
+        </div>
+        <div className={card} aria-label={L("Waiting for the store", "Menunggu kedai")}>
+          <p className="text-sm font-semibold">{L("Waiting for the store", "Menunggu kedai")} <span className={es.sub}>({waiting.length})</span></p>
+          {!activity ? <Skel className="mt-2 h-10 w-full" /> : waiting.length === 0 ? (
+            <p className={es.sub}>{L("Nothing waiting - the store has read every saved change.", "Tiada yang menunggu - kedai telah membaca setiap perubahan.")}</p>
+          ) : (
+            <ul className={es.list}>{waiting.map((w) => {
+              const it = items.find((i) => i.sku === w.sku);
+              return (
+                <li key={w.sku}><span className={es.main}><strong>{w.sku}{it ? ` · ${it.name}` : ""}</strong><span>{L("changed", "berubah")} {w.changed_at.slice(0, 16)} UTC · {publishedSkus.has(w.sku) ? L("published", "diterbitkan") : L("not published", "tidak diterbitkan")}</span></span>
+                  <SyncChip state="waiting" /></li>
+              );
+            })}</ul>
+          )}
+        </div>
+        <div className={card} aria-label={L("Activity", "Aktiviti")}>
+          <p className="text-sm font-semibold">{L("Activity", "Aktiviti")}</p>
+          <p className={es.sub}>{L("Every change to what the shop shows or charges, newest first - who, what and when.", "Setiap perubahan pada apa yang kedai papar atau caj, terbaru dahulu - siapa, apa dan bila.")}</p>
+          {!activity ? <Skel className="mt-2 h-16 w-full" /> : activity.events.length === 0 ? <p className={es.sub}>{L("Nothing recorded yet.", "Belum ada rekod.")}</p> : (
+            <ul className={es.list}>{activity.events.slice(0, 40).map((e) => (
+              <li key={e.id}><span className={es.main}><strong>{ACT_WORD[e.action] ? L(ACT_WORD[e.action]![0], ACT_WORD[e.action]![1]) : e.action}{e.sku ? ` · ${e.sku}` : ""}</strong><span>{e.at.slice(0, 16)} UTC · {e.who ?? "—"}{e.sku && changed?.[e.sku] ? ` · ${syncOf(e.sku, changed, lastRead) === "read" ? L("read by the store", "dibaca kedai") : L("waiting for the store", "menunggu kedai")}` : ""}</span></span></li>
+            ))}</ul>
+          )}
+        </div>
       </section>
       <section className="erp-stack-tight erp-tab-zone">
         <ZoneLabel>{L("The shopfront", "Muka kedai")}</ZoneLabel>
@@ -2098,131 +2058,10 @@ export function ElfiaStorePanel() {
       </QuietCard>
 
       </section>
-      <section className="erp-stack-tight erp-tab-zone">
-        <ZoneLabel>{L("Settings", "Tetapan")}</ZoneLabel>
-      <div className="grid grid-cols-1 items-start gap-3 md:gap-4 lg:grid-cols-2">
-      {/* ---- what delivery costs (v1.52.0) ----
-          The CEO, 26-08-2026: "I want to have the authority to update the
-          shipping fees which is above RM45.00, I will provide a free
-          delivery fees." Both numbers used to be in the store's config file,
-          so changing them meant a code edit and a deploy. They are hers now.
-          The sentence below the boxes is the exact sentence the shop shows a
-          customer, built from what is currently typed — the point being that
-          nobody should have to imagine what these two numbers add up to. */}
-      <QuietCard title={L("Delivery charges", "Caj penghantaran")} summary={deliverySaved ? `RM ${deliverySaved.ship || "0"} · ${L("free over RM", "percuma melebihi RM")} ${deliverySaved.free || "—"}` : undefined}>
-        
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L("What the shop charges for delivery, and the basket size that makes it free. Yours to change — the shop picks it up within a minute.",
-             "Kadar penghantaran yang dikenakan kedai, dan jumlah belian yang menjadikannya percuma. Anda boleh ubah — kedai mengambilnya dalam seminit.")}
-        </p>
-
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="block">
-            <span className="text-muted-foreground block text-xs">{L("Delivery charge", "Caj penghantaran")}</span>
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className="text-muted-foreground text-sm">RM</span>
-              <input value={ship} onChange={(e) => setShip(e.target.value)}
-                inputMode="decimal" placeholder="4.50" aria-label={L("Delivery charge in ringgit", "Caj penghantaran dalam ringgit")}
-                className={`${inputClass} w-24`} />
-            </span>
-          </label>
-          <label className="block">
-            <span className="text-muted-foreground block text-xs">{L("Free delivery from", "Penghantaran percuma dari")}</span>
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className="text-muted-foreground text-sm">RM</span>
-              <input value={freeAbove} onChange={(e) => setFreeAbove(e.target.value)}
-                inputMode="decimal" placeholder="45.00" aria-label={L("Free delivery threshold in ringgit", "Ambang penghantaran percuma dalam ringgit")}
-                className={`${inputClass} w-24`} />
-            </span>
-          </label>
-          <button type="button" className={btnSm} disabled={busyDelivery || !deliveryDirty}
-            onClick={() => void saveDelivery()}>
-            {busyDelivery ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
-          </button>
-        </div>
-
-        {/* The customer's sentence, live. */}
-        {rmToSen(ship) !== null && rmToSen(freeAbove) !== null && (
-          <p className="mt-3 text-xs">
-            {L("The shop will say:", "Kedai akan memaparkan:")}{" "}
-            <span className="font-medium">
-              {L(`Free delivery above RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} otherwise`,
-                 `Penghantaran percuma melebihi RM ${(rmToSen(freeAbove)! / 100).toFixed(2)} · RM ${(rmToSen(ship)! / 100).toFixed(2)} jika tidak`)}
-            </span>
-          </p>
-        )}
-
-        {deliverySaved !== null && deliverySaved.ship === "" && (
-          <p className="mt-2 text-xs font-medium text-warning">
-            {L("Not set here yet — the shop is using its own built-in amounts. Save once and this tab takes over.",
-               "Belum ditetapkan di sini — kedai menggunakan jumlah terbina dalamnya sendiri. Simpan sekali dan tab ini akan mengambil alih.")}
-          </p>
-        )}
-      </QuietCard>
-
-      {/* ---- can customers pay online? (v1.53.0) ----
-          The CEO, 26-08, on the live shop: "This appear on the gateway
-          payment!" — the customer-facing "Payment gateway unavailable", with
-          nowhere to find out why. The store writes the gateway's own reply down
-          now; this is the window onto it. */}
-      <QuietCard title={L("Online payment (Bayarcash FPX)", "Pembayaran dalam talian (Bayarcash FPX)")} summary={pay ? (pay.ok ? `${L("keys working", "kunci berfungsi")}${pay.sandbox ? " · sandbox" : ""}` : L("not working", "tidak berfungsi")) : L("not checked yet", "belum disemak")}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {L("Checks the shop's payment token against Bayarcash. Read-only — it creates no payment and moves no money.",
-                 "Menyemak token pembayaran kedai dengan Bayarcash. Baca sahaja — tiada pembayaran dicipta dan tiada wang berpindah.")}
-            </p>
-          </div>
-          <button type="button" className={btnSm} disabled={busyPay} onClick={() => void checkPayment()}>
-            {busyPay ? L("Checking…", "Menyemak…") : L("Check now", "Semak sekarang")}
-          </button>
-        </div>
-
-        {pay && (
-          <div className="mt-3 space-y-2 text-xs">
-            {pay.unavailable ? (
-              <p className="text-muted-foreground">{pay.message}</p>
-            ) : (
-              <>
-                <p className="flex flex-wrap items-center gap-2">
-                  <span className={pay.ok ? chipSuccess : chipWarn}>
-                    {pay.ok ? L("Keys working", "Kunci berfungsi") : L("Not working", "Tidak berfungsi")}
-                  </span>
-                  {pay.sandbox && <span className={chipWarn}>{L("SANDBOX", "SANDBOX")}</span>}
-                  {pay.signature_key_set === false && <span className={chipNeutral}>{L("No API Secret Key", "Tiada API Secret Key")}</span>}
-                </p>
-                <p className="text-muted-foreground">{pay.message}</p>
-                {pay.warning && <p className="font-medium text-warning">{pay.warning}</p>}
-
-                {/* The credential check passing is a weaker claim than "the
-                    last customer could pay". This is the stronger one. */}
-                {pay.last_gateway_error && (
-                  <div className="rounded-lg border border-warning/30 bg-warning-soft p-2.5">
-                    <p className="font-semibold text-warning">
-                      {L("Last time a customer could not pay", "Kali terakhir pelanggan tidak dapat membayar")}
-                    </p>
-                    <p className="mt-1 font-mono text-[11px] break-words text-warning">
-                      {pay.last_gateway_error}
-                    </p>
-                    {pay.last_gateway_hint && (
-                      <p className="mt-1.5 text-warning">{pay.last_gateway_hint}</p>
-                    )}
-                  </div>
-                )}
-                {pay.ok && !pay.last_gateway_error && (
-                  <p className="text-muted-foreground">
-                    {L("No failed payment has been recorded on the shop.", "Tiada pembayaran gagal direkodkan di kedai.")}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </QuietCard>
-
       </div>
-      </section>
+
+      <ProductDrawer item={editing} onClose={() => setEditId(null)} canPrice={canPrice} onSaved={() => void load()}
+        onUpload={uploadPhoto} onCut={cutBackground} busyPhoto={busyPhoto} busyCut={busyCut} />
     </div>
   );
 }
