@@ -213,6 +213,7 @@ export default function PortalPage() {
                    account's tab strip already shows that tab */
                 go={setTab}
                 canOpen={canOpen}
+                initialView={startOf("Staff Details")}
                 recordFocus={focusOf("Staff Details")}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:

@@ -10,6 +10,36 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.233.0] - 2026-10-30 - CEO top of the hierarchy; the reporting line on the Dashboard
+
+The owner's brief, 30-10-2026: "CEO = TOP OF INTERNAL OPERATIONAL
+HIERARCHY. NO ASSIGNED SUPERVISOR. NO ASSIGNED HOD." Answers: the HOD comes
+from the reporting lines; the Organisation decides; the card for every
+staff account; "Build it". No migration. Audit:
+claude/REPORTING-LINE-AUDIT.md.
+
+- **The CEO reports to nobody**: setting a reporting line on the CEO is
+  refused for everyone (CEO, COO, CCO), by direct request too; clearing one
+  stays allowed. Any line already stored on the CEO is ignored everywhere -
+  the Organisation chart already roots at the CEO. The CEO is the
+  organisation role, never the Super Admin account.
+- **Dashboard card**, above the tiles: the CEO sees *Executive Leadership*
+  (Chief Executive Officer, Top-level Executive, scope, Direct Supervisor
+  and HOD Not applicable) with View Organisation Chart, Direct Reports and
+  Departments (from the records, with each department's HOD). Everyone else
+  sees *My Reporting Line*: department, direct supervisor, Head of
+  Department - one box marked when they are the same person, "You are the
+  HOD" when it is you, "Not assigned yet" when no line is set. COO and CCO
+  see their real supervisor and lead a division (no HOD). System accounts
+  see no card. Desktop and phone, light and dark.
+- **HOD from the reporting lines**: the person just below the first
+  executive (CEO, COO, CCO) up your line; if you report straight to an
+  executive and lead nobody, that executive. One rule shared with the
+  Organisation chart (`lib/org-tree.ts`), so the two never disagree.
+- The CEO's staff profile reads "Top of the organisation - reports to
+  nobody". Leave, Claims, Tasks and Payroll approval chains are untouched.
+- Guard `tests/reporting-line.mjs` (38 checks, 6 mutations).
+
 ## [1.232.0] - 2026-10-30 - Commission 2.1: business logic, approval and payroll flow
 
 The owner's brief, 30-10-2026: one engine, exactly-once payroll, actual

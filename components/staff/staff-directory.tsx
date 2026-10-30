@@ -680,7 +680,9 @@ const DEPT_COLORS = [
   "color-mix(in oklab, var(--gold-solid) 45%, var(--primary))", "var(--danger)",
 ];
 
-export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen, recordFocus }: {
+export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen, recordFocus, initialView }: {
+  /** v1.233.0 - the Dashboard's reporting-line card opens the Organisation tab directly */
+  initialView?: string;
   /** v1.205.0 - a search hit or a link opened this person (lib/record-focus.ts) */
   recordFocus?: RecordFocus | null;
   /** v1.204.0 - open another tab (the profile's links to Leave, Attendance, Payroll, Users) */
@@ -701,7 +703,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   /* v1.201.0 - FIVE TABS (the owner's mockup, 23-10-2026). `tab` is the
      page; `view` is now only the Organization Chart's own switch,
      Organisation or Team map - the directory is a tab of its own. */
-  const [tab, setTab] = useState<StaffTab>("overview");
+  const [tab, setTab] = useState<StaffTab>(initialView === "org" ? "org" : "overview");
   /* v1.204.0 - Organisation and Team Map are tabs of their own now; the
      Team Map's circle is drawn only while its tab is open */
   const view: "org" | "circle" = tab === "team" ? "circle" : "org";
@@ -1023,7 +1025,10 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     setQuery(""); setDeptF(""); setStateF(""); setSelectMode(false);
     setTab("directory"); setPeek(f.id); setPeekTab("profile");
   });
-  const managerOf = (u: Staff) => (u.reports_to ? staff.find((x) => x.id === u.reports_to) ?? null : null);
+  /* v1.233.0 - the CEO reports to nobody: whatever is stored on the CEO's
+     record is never shown as a manager (the Organisation chart already roots
+     at the CEO and ignores it) */
+  const managerOf = (u: Staff) => (u.role !== "ceo" && u.reports_to ? staff.find((x) => x.id === u.reports_to) ?? null : null);
   const reportsOf = (u: Staff) => staff.filter((x) => x.reports_to === u.id && !isGone(x));
   const managers = staff.filter((m) => !isGone(m) && reportsOf(m).length > 0);
   const cap1 = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -1138,7 +1143,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                   <button type="button" className={sp.pill} onClick={() => setPeek(manager.id)}>
                     <Avatar name={displayName(manager)} photoKey={manager.photo_key} size="sm" />{displayName(manager)}
                   </button>
-                ) : <span className={sp.muted}>{L("Not on the chart", "Tiada pada carta")}</span>)}
+                ) : u.role === "ceo" ? <span className={sp.muted}>{L("Top of the organisation — reports to nobody", "Puncak organisasi — tidak melapor kepada sesiapa")}</span>
+                  : <span className={sp.muted}>{L("Not on the chart", "Tiada pada carta")}</span>)}
                 {fact(L("Direct reports", "Melapor terus"), directs.length === 0 ? <span className={sp.muted}>{L("None", "Tiada")}</span> : (
                   <span className={sp.reports}>
                     {directs.map((r) => (

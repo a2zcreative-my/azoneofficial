@@ -392,6 +392,25 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
   /* v1.189.0 - the Users tabs: two with 2FA, one leaver still active, a few
      Google sign-ups as customers, and a sign-in log with a 2FA change in it */
+  /* v1.233.0 - the reporting-line card (worker: lib/org-tree.ts
+     reportingLine), one canned answer per fixture role. Names and lines are
+     invented for the fixture; the CEO's is Executive Leadership. */
+  if (p === "/staff/reporting-line") {
+    const P = (id, name, position, role, department, photo_key = null) => ({ id, name, position, role, department, photo_key });
+    const me = P(9001, "Fixture Person", ROLE === "ceo" ? "CEO" : null, ROLE, ROLE === "ceo" ? null : ROLE === "coo" ? "Operations" : ROLE === "hr_admin" ? "HR" : ROLE === "live_host" ? "Live" : "Sales");
+    const aisyah = P(9002, "Nur Aisyah binti Rahman", "Head of Sales", "sales_marketing", "Sales", "staff/9002-aisyah.jpg");
+    const farid = P(9003, "Farid Zulkifli", "Live Team Lead", "live_host", "Live");
+    const ceo = P(9010, "Fixture Chief", "Chief Executive Officer", "ceo", null);
+    const coo = P(9011, "Fixture COO", "Chief Operating Officer", "coo", "Operations");
+    data = ROLE === "super_admin" || ROLE === "admin" ? { kind: "system" }
+      : ROLE === "ceo" ? { kind: "ceo", me, placed: true, executive: true, supervisor: null, hod: null, hod_is_supervisor: false, you_are_hod: false,
+          direct_reports: [coo, aisyah], below: 4,
+          departments: [{ name: "Sales", people: 2, heads: [aisyah] }, { name: "Operations", people: 1, heads: [] }, { name: "Live", people: 1, heads: [] }] }
+      : ROLE === "coo" || ROLE === "cco" ? { kind: "staff", me, placed: true, executive: true, supervisor: ceo, hod: null, hod_is_supervisor: false, you_are_hod: false, direct_reports: [aisyah], below: 3, departments: [] }
+      : ROLE === "hr_admin" ? { kind: "staff", me, placed: true, executive: false, supervisor: coo, hod: null, hod_is_supervisor: false, you_are_hod: true, direct_reports: [farid], below: 1, departments: [] }
+      : ROLE === "live_host" ? { kind: "staff", me, placed: true, executive: false, supervisor: farid, hod: aisyah, hod_is_supervisor: false, you_are_hod: false, direct_reports: [], below: 0, departments: [] }
+      : { kind: "staff", me, placed: true, executive: false, supervisor: aisyah, hod: aisyah, hod_is_supervisor: true, you_are_hod: false, direct_reports: [], below: 0, departments: [] };
+  }
   if (p === "/staff/users") {
     const us = [
       ...staff.map((x, i) => ({ ...x, totp_enabled: i < 2 ? 1 : 0, ...(x.id === 9003 ? { left_on: "2026-10-01", employment_status: "part_time" } : {}) })),

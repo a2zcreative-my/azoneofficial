@@ -57,6 +57,7 @@ import { api } from "@/lib/api";
 import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
 import { LeaveMonthCard } from "@/components/portal/leave-month-card";
+import { ReportingLineCard } from "@/components/portal/reporting-line-card";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
@@ -592,6 +593,10 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 
   return (
     <div className={ov.page}>
+      {/* v1.233.0 - A2. the reporting line (the owner's CEO hierarchy brief,
+          30-10-2026): Executive Leadership for the CEO, My Reporting Line
+          for everyone else, from the Organisation chart's own tree */}
+      <ReportingLineCard canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
       {/* B. the five tiles */}
       <div className={ov.kpis}>
         <KpiRow label={L("At a glance", "Sepintas lalu")}>

@@ -142,3 +142,106 @@ export function descendantsOf(id: number, list: OrgPerson[]): Set<number> {
   }
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/**
+ * ONE PERSON'S REPORTING LINE — v1.233.0.
+ *
+ * The owner, 30-10-2026 (claude/REPORTING-LINE-AUDIT.md): "CEO = TOP OF
+ * INTERNAL OPERATIONAL HIERARCHY. NO ASSIGNED SUPERVISOR. NO ASSIGNED HOD."
+ * Answers: the HOD comes from the reporting lines ("use reported"); the
+ * Organisation decides ("I want to use the Organisation instead").
+ *
+ * So this reads the SAME tree the Organisation chart draws (buildOrg) and
+ * nothing else: a supervisor is your parent on that chart. Whatever is
+ * stored on the CEO's own record is never read - the chart roots at the CEO
+ * and skips them when it builds, so the CEO has no parent here either. A
+ * line that points at a leaver, a missing record or round a loop is "not
+ * assigned yet", exactly as the chart's tray says.
+ *
+ * The HOD, from the reporting lines alone: walk up from you to the first
+ * executive (CEO, COO or CCO). The person just below that executive heads
+ * the department you sit in. If that is you and people report to you, you
+ * are the HOD. If you report straight to an executive and lead nobody, the
+ * executive is your HOD as well as your supervisor. An executive has no HOD
+ * (they lead a division); the CEO has neither.
+ *
+ * Executive = the organisation role (users.role ceo/coo/cco), never an
+ * account privilege: a super admin is not on this chart.
+ */
+export type LineKind = "ceo" | "staff" | "system" | "gone";
+export interface DeptSummary { name: string; people: number; heads: OrgPerson[] }
+export interface ReportingLine {
+  kind: LineKind;
+  me: OrgPerson;
+  /** on the chart (false = not assigned yet; never false for the CEO) */
+  placed: boolean;
+  executive: boolean;
+  supervisor: OrgPerson | null;
+  hod: OrgPerson | null;
+  hodIsSupervisor: boolean;
+  youAreHod: boolean;
+  directReports: OrgPerson[];
+  /** everyone below, at any depth */
+  below: number;
+  /** CEO only: the departments under them, by the records */
+  departments: DeptSummary[];
+}
+const SYSTEM_ROLES = ["admin", "super_admin", "customer"];
+const isExec = (u: OrgPerson) => (DIVISION_ROLES as readonly string[]).includes(u.role);
+
+export function reportingLine(list: OrgPerson[], meId: number): ReportingLine | null {
+  const meRec = list.find((u) => u.id === meId);
+  if (!meRec) return null;
+  const empty = { placed: false, executive: false, supervisor: null, hod: null, hodIsSupervisor: false, youAreHod: false, directReports: [], below: 0, departments: [] };
+  if (SYSTEM_ROLES.includes(meRec.role)) return { kind: "system", me: meRec, ...empty };
+  if (!isHere(meRec)) return { kind: "gone", me: meRec, ...empty };
+  const { root } = buildOrg(list);
+  const parent = new Map<number, OrgPerson>();
+  const nodeOf = new Map<number, OrgNode>();
+  const walk = (n: OrgNode) => { nodeOf.set(n.u.id, n); for (const c of n.children) { parent.set(c.u.id, n.u); walk(c); } };
+  if (root) walk(root);
+  const count = (n: OrgNode): number => n.children.reduce((a, c) => a + 1 + count(c), 0);
+  const node = nodeOf.get(meId) ?? null;
+  const directReports = node ? node.children.map((c) => c.u) : [];
+  const below = node ? count(node) : 0;
+
+  /* the HOD of a placed person, by the walk described above */
+  const hodOf = (id: number): OrgPerson | null => {
+    const path: OrgPerson[] = [];
+    let cur: OrgPerson | undefined = nodeOf.get(id)?.u;
+    for (let hop = 0; cur && hop < 64; hop++) { path.push(cur); cur = parent.get(cur.id); }
+    if (!path.length || isExec(path[0]!)) return null;
+    const k = path.findIndex(isExec);
+    if (k < 0) return null; // a chart with no executive above: nobody to name
+    const head = path[k - 1]!;
+    if (head.id === id && (nodeOf.get(id)?.children.length ?? 0) === 0) return path[k]!; // reports straight to an executive, leads nobody
+    return head;
+  };
+
+  if (meRec.role === "ceo" && root?.u.id === meId) {
+    /* the departments under the CEO, by the verified records: every placed
+       person below the CEO, grouped by their department as written */
+    const groups = new Map<string, OrgPerson[]>();
+    for (const n of nodeOf.values()) {
+      if (n.u.id === meId) continue;
+      const k = (n.u.department ?? "").trim();
+      groups.set(k, [...(groups.get(k) ?? []), n.u]);
+    }
+    const departments = [...groups].map(([name, ppl]) => ({
+      name, people: ppl.length,
+      heads: ppl.filter((p) => !isExec(p) && hodOf(p.id)?.id === p.id),
+    })).sort((a, b) => (a.name === "" ? 1 : b.name === "" ? -1 : b.people - a.people || a.name.localeCompare(b.name)));
+    return { kind: "ceo", me: meRec, placed: true, executive: true, supervisor: null, hod: null, hodIsSupervisor: false, youAreHod: false, directReports, below, departments };
+  }
+  const supervisor = parent.get(meId) ?? null;
+  const executive = isExec(meRec);
+  const hod = node && !executive ? hodOf(meId) : null;
+  return {
+    kind: "staff", me: meRec, placed: Boolean(node && supervisor), executive, supervisor,
+    hod: hod && hod.id === meId ? null : hod,
+    hodIsSupervisor: Boolean(hod && supervisor && hod.id === supervisor.id),
+    youAreHod: Boolean(hod && hod.id === meId),
+    directReports, below, departments: [],
+  };
+}

@@ -5,6 +5,7 @@
 
 import type { Env } from "./index";
 import { buildEventIcs } from "../../lib/event-ics";
+import { reportingLine, type OrgPerson } from "../../lib/org-tree"; // v1.233.0 - one reporting line, the chart's own tree
 import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
@@ -3310,10 +3311,10 @@ async function handleStaffRoutes(
     if (managerId !== null && (!Number.isInteger(managerId) || managerId <= 0)) {
       return err("invalid_input", "reports_to must be a staff id, or null to clear it", 400);
     }
-    let person: { id: number; name: string; reports_to: number | null } | null;
+    let person: { id: number; name: string; reports_to: number | null; role: string } | null;
     try {
       person = await env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, reports_to FROM users WHERE id = ?1`,
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, reports_to, role FROM users WHERE id = ?1`,
       ).bind(id).first();
     } catch (e) {
       if (e instanceof Error && e.message.includes("no such column")) {
@@ -3322,6 +3323,14 @@ async function handleStaffRoutes(
       throw e;
     }
     if (!person) return err("not_found", "Staff not found", 404);
+    /* v1.233.0 - THE CEO REPORTS TO NOBODY (the owner, 30-10-2026: "CEO =
+       TOP OF INTERNAL OPERATIONAL HIERARCHY. NO ASSIGNED SUPERVISOR. NO
+       ASSIGNED HOD."). The CEO is the organisation role users.role = 'ceo',
+       never an account privilege. Nobody - the CEO, COO or CCO - may give
+       the CEO a parent; clearing one stays allowed. */
+    if (managerId !== null && person.role === "ceo") {
+      return err("ceo_top", "The CEO is the top of the organisation and reports to nobody.", 409);
+    }
     if (managerId === id) {
       return err("invalid_input", "Nobody reports to themselves", 400);
     }
@@ -3364,6 +3373,37 @@ async function handleStaffRoutes(
       to_id: managerId, to_name: manager?.name ?? null,
     });
     return json({ ok: true, reports_to: managerId, manager_name: manager?.name ?? null });
+  }
+
+  /* ---- v1.233.0 - MY REPORTING LINE (claude/REPORTING-LINE-AUDIT.md) ----
+     The Dashboard card. Every staff account reads its own line; the answer
+     is the Organisation chart's own tree (lib/org-tree.ts reportingLine ->
+     buildOrg), so the card and the chart can never disagree. Only display
+     fields leave: name, position, role, department, photo - never the IC,
+     bank or statutory numbers GET /users holds. Read-only. */
+  if (path === "/reporting-line" && method === "GET") {
+    if (user.role === "customer") return err("forbidden", "Staff only", 403);
+    let rows: OrgPerson[];
+    try {
+      rows = ((await env.DB.prepare(
+        `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to
+           FROM users WHERE role NOT IN ('customer', 'super_admin')`,
+      ).all<OrgPerson>()).results ?? []);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("no such column")) return err("pending_migration", "Run the deploy so migration 0113 applies", 409);
+      throw e;
+    }
+    if (user.role === "super_admin") return json({ kind: "system" });
+    const line = reportingLine(rows, user.id);
+    if (!line) return json({ kind: "system" });
+    const pub = (u: OrgPerson | null) => u ? { id: u.id, name: (u.full_name ?? "").trim() || u.name, position: u.position ?? null, role: u.role, department: (u.department ?? "").trim() || null, photo_key: u.photo_key ?? null } : null;
+    if (line.kind === "system" || line.kind === "gone") return json({ kind: line.kind });
+    return json({
+      kind: line.kind, me: pub(line.me), placed: line.placed, executive: line.executive,
+      supervisor: pub(line.supervisor), hod: pub(line.hod), hod_is_supervisor: line.hodIsSupervisor, you_are_hod: line.youAreHod,
+      direct_reports: line.directReports.map(pub), below: line.below,
+      departments: line.departments.map((d) => ({ name: d.name || null, people: d.people, heads: d.heads.map(pub) })),
+    });
   }
 
   /* ---- attendance ---- */

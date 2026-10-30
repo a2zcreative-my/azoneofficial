@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 28 October 2026, version **1.232.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 28 October 2026, version **1.233.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.232.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.233.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -122,6 +122,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | Commission (1.224.0) | Commission tab: Entries, Flow, Policy; Sales: commission card; Payroll: commission from the ledger | `/commission/summary`, `/commission/entries`, `/commission/entries/:id`, `/commission/flow`, `/commission/policy`, `/commission/policy/:id/approve`, `/reject`, `/preview`, `/commission/settings`, `/commission/ledger/:id/decide` (in `worker/src/commission.ts`); `invoice_payment` gates marking paid | `commission_policies`, `commission_ledger`, `commission_settings_log` (0150), `commission_policy_packages` (0152); 1.227.0 adds `/commission/packages`, `/commission/audit` and five views (Overview, Transactions, Policy Settings, Payroll Sync, Audit History) |
 | Shift reminders (1.226.0) | Profile: Shift reminders card (Clock-in / Clock-out switches, this device's push); reminders 15 min before a shift starts and ends | `/notification-prefs` (GET/PUT, own switches only), `/push/device`, `/push/subscribe` (push services only); runner `worker/src/shift-reminders-cron.ts` on the 5-minute cron; logout unbinds the device | `notification_prefs` (0151) |
 | Sales packages (1.231.0) | Sales → Documents: Packages pill (library, editor for CEO/COO/CCO/super admin); Create quotation: Package (optional) fills the lines, flagged customized | `/packages`, `/packages/:id`, `/packages/:id/status` (in `worker/src/packages.ts`); `POST /docs` and `/docs/:id/edit` take `package_id` + `package_version`; convert copies them | `sales_packages`, `sales_package_versions`; `sales_documents` gains `package_id`, `package_version`, `package_customized` (0153) |
+| Reporting line (1.233.0) | Dashboard: Executive Leadership (CEO) / My Reporting Line (everyone else) card above the tiles; Staff → Organisation opens from it | `GET /staff/reporting-line` (`lib/org-tree.ts reportingLine` on the chart's own `buildOrg` tree; display fields only); `PATCH /users/:id/reports-to` refuses a parent for the CEO (409 `ceo_top`) | none (reuses `users.reports_to`, 0113) |
 | Commission 2.1 (1.232.0) | Commission tab: Overview in two rows (invoices by one current stage, entitlements by status) with next steps; Transactions show issuer and next step; Policy Settings: approval matrix, product rule, library-package rules; leaver settle | `commissionForPayroll(month, staffSql, { include, released })` joins rows only for the payroll rows written, never a released or future month; `markCommissionPaid` pays only what a saved payslip carries; `/commission/invoice/:id`; `/commission/ledger/:id/decide` `settle`; `PATCH /docs/:id` refuses re-dating a confirmed invoice | `commission_policies.product_rule` (0154); rules by library package `match_key = pkg:<id>` |
 
 The Desk (`worker/src/desk.ts`, a pure read) lists follow-ups, monthly invoices, people steps and
