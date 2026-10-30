@@ -55,7 +55,7 @@ ok("the weekly KPI never touches commission", !/from "\.\/commission"|commission
 const staffSrc = read("worker/src/staff.ts");
 ok("payroll Save never stores the screen's commission", !/cents\(body\.commission_cents\),/.test(staffSrc) && /commissionForPayroll\(env, month, payrollMonthStaffSql\(month, "u\."\), \{ include: \[Number\(body\.user_id\)\], released: await payslipsOut\(month\) \}\)/.test(staffSrc)); // v1.232.0 - only the person saved joins
 ok("the dormant old engine is not called by the new one", !/commission_rules|commission_entries|commission_rates/.test(cm));
-ok("the sales screen offers Mark paid only to the payment roles", /const canPay = \["super_admin", "admin", "ceo", "coo"\]\.includes\(user\.role\)/.test(read("components/portal/sales.tsx")));
+ok("the sales screen offers Mark paid only to the payment roles", /const canPay = \["super_admin", "ceo", "coo"\]\.includes\(user\.role\)/.test(read("components/portal/sales.tsx"))); // v1.234.0 - the owner: CEO, COO, super admin only
 
 /* ---- runtime ---- */
 const dir = mkdtempSync(join(tmpdir(), "commission-"));
@@ -129,7 +129,9 @@ try {
   ok("the CCO cannot record a part payment", (await call("/docs/21/payments", 3, "POST", { amount_cents: 100, received_on: "2026-11-09" })).status === 403);
   ok("the CCO cannot create an invoice already paid", (await call("/docs", 3, "POST", { doc_type: "INV", customer_id: 1, kind: "service", items: [{ name: "x", qty: 1, unit_price_cents: 100 }], paid_received: true })).status === 403);
   ok("the CCO still reads an invoice's payments", (await call("/docs/22/payments", 3)).status === 200 && (await call("/docs/22/payments", 3)).j.can_record === false);
-  ok("an admin may record a part payment", (await call("/docs/21/payments", 6, "POST", { amount_cents: 100, received_on: "2026-11-09" })).status < 300);
+  /* v1.234.0 - the owner, 30-10-2026: CEO, COO, super admin only - the Admin account is refused */
+  ok("the Admin account no longer records a part payment", (await call("/docs/21/payments", 6, "POST", { amount_cents: 100, received_on: "2026-11-09" })).status === 403);
+  ok("the COO records a part payment", (await call("/docs/21/payments", 2, "POST", { amount_cents: 100, received_on: "2026-11-09" })).status < 300);
 
   /* 4. A: paid and confirmed -> eligible, once */
   ok("A: the COO confirms RM 1,200", (await confirm(20, 2, 120000)).status === 201);

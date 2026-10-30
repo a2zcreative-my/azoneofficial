@@ -275,17 +275,18 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   const usersPanel = read("components/portal/users-panel.tsx");
   ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} go=\{setTab\} \/>\}/.test(users));
   ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
-    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<TabAccessCard', 'L("Sign-in log"', '<AccessReviewCard', '<GeofenceCard']));
+    /* v1.234.0 - Roles & Permissions: what roles do, what they see, the exceptions; Security & Settings: the log, then the geofence (the owner kept it here) */
+    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', 'L("Sign-in log"', '<GeofenceCard']));
   /* the owner's reference draws these five as underline tabs (a gold rule
      under the open one) - this page's own, everything else keeps the pill */
   ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",
-    /<LineTabs value=\{view\} onChange=\{setView\} tabs=\{tabs\}/.test(usersPanel)
+    /<LineTabs value=\{view\} onChange=\{openView\} tabs=\{tabs\}/.test(usersPanel)
     && ['"overview"', '"staff"', '"customers"', '"roles"', '"security"'].every((v) => usersPanel.includes(`hidden={view !== ${v}}`)));
   ok("each Users card keeps the gate the page gave it",
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
     && /const geofence = \["super_admin", "ceo", "coo"\]\.includes\(role\)/.test(usersPanel)
     && /const canEdit = role === "super_admin"/.test(usersPanel)
-    && /\{holds && <AccessReviewCard \/>\}/.test(usersPanel) && /\{geofence && <GeofenceCard \/>\}/.test(usersPanel)
+    && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel)
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }
 

@@ -55,7 +55,7 @@ const lazy = <P extends object>(load: () => Promise<React.ComponentType<P>>) =>
   dynamic(load, { ssr: false, loading: PanelSkeleton });
 
 /* ---- one line per panel, alphabetical by module ---- */
-export const AccessReviewCard = lazy(() => import("@/components/portal/access-review-card").then((m) => m.AccessReviewCard));
+/* v1.234.0 - AccessReviewCard ("Who sees what") retired from the screen: its job is Roles & Permissions -> Per-user exceptions (access-policy.tsx). The file stays, unused, until the migrated exceptions are reviewed - rendering it again is the rollback. */
 export const CompaniesPanel = lazy(() => import("@/components/portal/companies-panel").then((m) => m.CompaniesPanel));
 /* v1.192.0 - HrAdminPanel left: the HR page imports its two cards from hr-page.tsx (itself lazy); the admin page imports it directly. */
 export const AssetsPanel = lazy(() => import("@/components/portal/assets-panel").then((m) => m.AssetsPanel));

@@ -1310,7 +1310,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      mark paid / unpaid / overdue, or create it already paid - is the CEO,
      COO and admins only (worker permissions invoice_payment). Everyone who
      can invoice still sees the payment status. */
-  const canPay = ["super_admin", "admin", "ceo", "coo"].includes(user.role);
+  const canPay = ["super_admin", "ceo", "coo"].includes(user.role); // v1.234.0 - = PERMS.invoice_payment (the owner: CEO, COO, super admin only)
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the

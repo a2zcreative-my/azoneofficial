@@ -15,6 +15,14 @@
  *   Roles & Permissions   the permission matrix (tab-access-card.tsx)
  *   Security & Settings   the sign-in log, Who sees what, the office geofence
  *
+ * v1.234.0 - ONE ACCESS PLACE (the owner, 30-10-2026; claude/USERS-ACCESS-
+ * AUDIT.md). Roles & Permissions holds everything about access: what each
+ * role may DO (the server's own rules, read-only), what each role SEES (the
+ * tab matrix), and the per-user exceptions that replaced "Who sees what"
+ * (with reason, approver and end date), plus the access review export.
+ * Security & Settings is sign-in only: methods, 2FA, sessions, the user log
+ * with filters - and the office geofence, which the owner kept here.
+ *
  * The same requests (/staff/users, /staff/users/activity), the same role
  * editor and the same gates: ONE fetch here feeds every tab, and every body
  * stays mounted and hidden, never unmounted, so a search typed or a role
@@ -27,7 +35,9 @@
 import { L } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
-import { AccessReviewCard, GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
+import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
+import { AccessPolicyCard, AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
+import ap from "./access-policy.module.css";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -296,7 +306,18 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
     ["roles", L("Roles & Permissions", "Peranan & kebenaran")],
     ["security", L("Security & Settings", "Keselamatan & tetapan")],
   ];
-  const holds = ["ceo", "super_admin"].includes(role); // Who sees what, and the matrix's editor
+  const holds = ["ceo", "super_admin"].includes(role); // the exceptions and the matrix's editor (= TAB_ACCESS_EDITORS)
+  const [reviewTick, setReviewTick] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [seenRoles, setSeenRoles] = useState(false);
+  const openView = (v: UsersView) => { setView(v); if (v === "roles") setSeenRoles(true); };
+  const policy = usePolicy(seenRoles);
+  const review = useReview(seenRoles && holds, reviewTick);
+  /* the user log's filters (v1.234.0): the same 60 events, narrowed here */
+  const [logWho, setLogWho] = useState("");
+  const [logKind, setLogKind] = useState<"" | "signin" | "twofa" | "other">("");
+  const shownEvents = events.filter((e) => (!logWho || e.email === logWho)
+    && (!logKind || (logKind === "signin" ? /^auth\.login/.test(e.action) : logKind === "twofa" ? /2fa/.test(e.action) && !/^auth\.login/.test(e.action) : !/^auth\.login|2fa/.test(e.action))));
   const geofence = ["super_admin", "ceo", "coo"].includes(role);
   const adminDoor = ["super_admin", "admin"].includes(role);
 
@@ -305,11 +326,11 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
       {toastNode}
       {/* v1.189.0 - the reference's underline tabs (gold rule under the open
           one); the shared LineTabs from v1.190.0, which Desk draws too */}
-      <LineTabs value={view} onChange={setView} tabs={tabs} label={L("Users", "Pengguna")} />
+      <LineTabs value={view} onChange={openView} tabs={tabs} label={L("Users", "Pengguna")} />
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
       <div hidden={view !== "overview"} className={css.body}>
-        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={setView} role={role} go={go} />
+        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={openView} role={role} go={go} />
       </div>
 
       <div hidden={view !== "staff"} className={css.body}>
@@ -333,7 +354,7 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
                 </div>
               </div>
               <div className={css.quick}>
-                <button type="button" className={btnSm} onClick={() => setView("roles")}><AppIcon name="lock" />{L("Roles & permissions", "Peranan & kebenaran")}</button>
+                <button type="button" className={btnSm} onClick={() => openView("roles")}><AppIcon name="lock" />{L("Roles & permissions", "Peranan & kebenaran")}</button>
                 {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" />{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</Link>}
               </div>
             </div>
@@ -416,13 +437,53 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
       </div>
 
       <div hidden={view !== "roles"} className={css.body}>
-        <TabZone label={L("Permission matrix", "Matriks kebenaran")}>
+        <div className={ap.pageHead}>
+          <div>
+            <h2 className={ap.title}>{L("Roles & Permissions", "Peranan & Kebenaran")}</h2>
+            <p className={ap.sub}>{L("The single place to see what each role may do and see. Every action is enforced by the server on each request; hiding a tab is never a permission.", "Satu-satunya tempat untuk melihat apa yang setiap peranan boleh lakukan dan lihat. Setiap tindakan dikuatkuasa pelayan pada setiap permintaan; menyembunyikan tab bukan kebenaran.")}</p>
+          </div>
+          {holds && <button type="button" className={btnSm} onClick={() => { setReviewTick((n) => n + 1); setReviewOpen(true); }}><AppIcon name="verify" />{L("Access review", "Semakan akses")}</button>}
+        </div>
+        <div className={ap.summary}>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Access policy", "Polisi akses")}</p><p className={ap.sumTitle}>{L("One policy, enforced by the server", "Satu polisi, dikuatkuasa pelayan")}</p><p className={ap.sub}>{L("Role → module → action, checked on every request", "Peranan → modul → tindakan, disemak setiap permintaan")}</p></section>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Role assignments", "Penetapan peranan")}</p><p className={ap.sumTitle}>{L(`${allStaff.filter((u) => u.is_active).length} active staff accounts`, `${allStaff.filter((u) => u.is_active).length} akaun kakitangan aktif`)}</p><p className={ap.sub}>{Object.entries(headcount).map(([r, n]) => `${roleLabel(r)} ${n}`).join(" · ") || "—"}</p></section>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("User exceptions", "Pengecualian pengguna")}</p><p className={ap.sumTitle}>{holds ? (review?.d ? L(`${review.d.exceptions.length} exception(s)`, `${review.d.exceptions.length} pengecualian`) : "…") : L("Kept by the CEO", "Disimpan oleh CEO")}</p><p className={ap.sub}>{holds && review?.d ? L(`${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} to review`, `${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} untuk disemak`) : L("Each with its reason and approver", "Setiap satu dengan sebab dan pelulusnya")}</p></section>
+        </div>
+        <TabZone label={L("What each role may do", "Apa yang setiap peranan boleh lakukan")}>
+          <AccessPolicyCard policy={policy} />
+        </TabZone>
+        <TabZone label={L("What each role sees", "Apa yang setiap peranan lihat")}>
           <TabAccessCard canEdit={holds} headcount={headcount} />
         </TabZone>
+        <TabZone label={L("Exceptions and accounts", "Pengecualian dan akaun")} cols={2}>
+          {holds ? (
+            <ExceptionsCard review={review} canEdit={holds} onChanged={() => setReviewTick((n) => n + 1)}
+              people={allStaff.filter((u) => u.is_active && !["super_admin"].includes(u.role)).map((u) => ({ id: u.id, name: properName(u.full_name || u.name), role: u.role }))} />
+          ) : (
+            <section className={card}><p className={ap.title}>{L("Per-user exceptions", "Pengecualian setiap pengguna")}</p><p className={ap.sub}>{L("Kept by the CEO here, each with a reason and an approver. They hide a tab or show one the role can already read - never more.", "Disimpan oleh CEO di sini, setiap satu dengan sebab dan pelulus. Ia menyembunyikan tab atau memaparkan tab yang peranan sudah boleh baca - tidak lebih.")}</p></section>
+          )}
+          <section className={card}>
+            <p className={ap.title}>{L("Manage user access", "Urus akses pengguna")}</p>
+            <p className={ap.sub}>{L("Staff Accounts assigns each account its role. This tab shows what each role may do and see. A person's job title and reporting line live in Staff → Organisation, and never grant access.", "Akaun Kakitangan menetapkan peranan setiap akaun. Tab ini menunjukkan apa yang setiap peranan boleh lakukan dan lihat. Jawatan dan garis pelaporan seseorang berada di Kakitangan → Organisasi, dan tidak memberi akses.")}</p>
+            <div className={ap.formRow}><button type="button" className={btnSm} onClick={() => setView("staff")}><AppIcon name="person" />{L("Open Staff Accounts", "Buka Akaun Kakitangan")}</button></div>
+          </section>
+        </TabZone>
+        {holds && <AccessReviewDrawer open={reviewOpen} onClose={() => setReviewOpen(false)} review={review} />}
       </div>
 
       <div hidden={view !== "security"} className={css.body}>
-        <TabZone label={L("Sign-in log", "Log log masuk")}>
+        <div className={ap.pageHead}>
+          <div>
+            <h2 className={ap.title}>{L("Security & Settings", "Keselamatan & Tetapan")}</h2>
+            <p className={ap.sub}>{L("Sign-in protection, session oversight and the authentication audit - module access lives in Roles & Permissions.", "Perlindungan log masuk, pengawasan sesi dan audit pengesahan - akses modul berada di Peranan & Kebenaran.")}</p>
+          </div>
+        </div>
+        <div className={ap.summary}>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Authentication", "Pengesahan")}</p><p className={ap.sumTitle}>{L("Password · Google · 2FA", "Kata laluan · Google · 2FA")}</p><p className={ap.sub}>{L("2FA is required for every staff role before anything opens", "2FA diwajibkan untuk setiap peranan kakitangan sebelum apa-apa dibuka")}</p></section>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Session security", "Keselamatan sesi")}</p><p className={ap.sumTitle}>{L("Sign out everywhere", "Log keluar di semua tempat")}</p><p className={ap.sub}>{L("Each person in Profile → Security; an admin revokes a leaver's sessions in /admin", "Setiap orang di Profil → Keselamatan; admin membatalkan sesi bekas staf di /admin")}</p></section>
+          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Security audit", "Audit keselamatan")}</p><p className={ap.sumTitle}>{L("One log source", "Satu sumber log")}</p><p className={ap.sub}>{L("The audit trail every module writes - read-only", "Jejak audit yang ditulis setiap modul - baca sahaja")}</p></section>
+        </div>
+        <TabZone label={L("Sign-in log", "Log log masuk")} cols={2}>
           <section className={card}>
             <div className={css.head}>
               <div className={css.headLead}>
@@ -436,17 +497,29 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
                 </div>
               </div>
             </div>
+            <div className={ap.filters}>
+              <select className={selectClassSm} aria-label={L("Filter by account", "Tapis mengikut akaun")} value={logWho} onChange={(e) => setLogWho(e.target.value)}>
+                <option value="">{L("Every account", "Semua akaun")}</option>
+                {[...new Set(events.map((e) => e.email ?? ""))].filter(Boolean).map((em) => <option key={em} value={em}>{em}</option>)}
+              </select>
+              <select className={selectClassSm} aria-label={L("Event type", "Jenis peristiwa")} value={logKind} onChange={(e) => setLogKind(e.target.value as typeof logKind)}>
+                <option value="">{L("Event type: all", "Jenis peristiwa: semua")}</option>
+                <option value="signin">{L("Sign-ins", "Log masuk")}</option>
+                <option value="twofa">{L("2FA changes and checks", "Perubahan dan semakan 2FA")}</option>
+                <option value="other">{L("Other account events", "Peristiwa akaun lain")}</option>
+              </select>
+            </div>
             <div className={`${listBox} ${css.logBox} mt-3`}>
               {/* v1.137.0 - the skeleton is the shape of what arrives: these are
                   divided rows, not a table, and SkelTable drew three columns that
                   never appeared. */}
               {!eventsLoaded && <SkelRows rows={5} />}
-              {eventsLoaded && events.length === 0 && (
+              {eventsLoaded && shownEvents.length === 0 && (
                 <p className={css.empty}>{L("No events recorded yet.", "Tiada peristiwa direkodkan lagi.")}</p>
               )}
-              {eventsLoaded && events.length > 0 && (
+              {eventsLoaded && shownEvents.length > 0 && (
                 <ul className={css.list}>
-                  {events.map((e, i) => (
+                  {shownEvents.map((e, i) => (
                     /* v1.137.0 - on a phone the identity took what was left of the
                        line after a chip and a timestamp, which was "Nurul Ai...". It
                        gets the line to itself below sm:, and shares one from sm: up. */
@@ -465,11 +538,26 @@ export function UsersPanel({ role, go }: { role: string; go?: (tab: TabName) => 
               )}
             </div>
           </section>
+          <section className={card} aria-label={L("Authentication controls", "Kawalan pengesahan")}>
+            <p className={ap.title}>{L("Authentication controls", "Kawalan pengesahan")}</p>
+            <ul className={ap.controls}>
+              <li><span className={ap.main}><strong>{L("Two-factor authentication", "Pengesahan dua faktor")}</strong><span>{L("Required for every staff role; enrolment is the only thing open until it is on", "Diwajibkan untuk setiap peranan kakitangan; hanya pendaftaran dibuka sehingga ia dihidupkan")}</span></span>
+                {(() => { const n = allStaff.filter((u) => u.is_active && !u.totp_enabled).length; return <span className={n ? chipSmWarn : chipSmSuccess}>{n ? L(`${n} without 2FA`, `${n} tanpa 2FA`) : L("All on", "Semua aktif")}</span>; })()}</li>
+              <li><span className={ap.main}><strong>{L("Active sessions", "Sesi aktif")}</strong><span>{L("Sign out everywhere (Profile → Security); revoke a leaver's sessions in /admin. No per-device list is kept.", "Log keluar di semua tempat (Profil → Keselamatan); batalkan sesi bekas staf di /admin. Tiada senarai setiap peranti disimpan.")}</span></span>
+                {adminDoor ? <Link className={btnSm} href="/admin">{L("Open /admin", "Buka /admin")}</Link> : <span className={chipSmNeutral}>{L("Per person", "Setiap orang")}</span>}</li>
+              <li><span className={ap.main}><strong>{L("Security alerts", "Amaran keselamatan")}</strong><span>{L("2FA changes and backup-code use in the last 60 events", "Perubahan 2FA dan penggunaan kod sandaran dalam 60 peristiwa terakhir")}</span></span>
+                {(() => { const n = events.filter((e) => eventTone(e.action) === "warn").length; return <span className={n ? chipSmWarn : chipSmNeutral}>{n ? L(`${n} to review`, `${n} untuk disemak`) : L("None", "Tiada")}</span>; })()}</li>
+            </ul>
+            <ul className={ap.ownership} aria-label={L("Who owns what", "Siapa memiliki apa")}>
+              <li><strong>{L("Module access", "Akses modul")}</strong> → {L("Roles & Permissions", "Peranan & Kebenaran")}</li>
+              <li><strong>{L("Office geofence", "Geofence pejabat")}</strong> → {L("Security & Settings (below)", "Keselamatan & Tetapan (di bawah)")}</li>
+              <li><strong>{L("Sign-in & 2FA logs", "Log log masuk & 2FA")}</strong> → {L("Security & Settings", "Keselamatan & Tetapan")}</li>
+            </ul>
+          </section>
         </TabZone>
-        {(holds || geofence) && (
-          <TabZone label={L("Access and locations", "Akses dan lokasi")} cols={2}>
-            {holds && <AccessReviewCard />}
-            {geofence && <GeofenceCard />}
+        {geofence && (
+          <TabZone label={L("Office location", "Lokasi pejabat")}>
+            <GeofenceCard />
           </TabZone>
         )}
       </div>

@@ -1,5 +1,12 @@
 "use client";
 
+/* v1.234.0 - RETIRED FROM THE SCREEN (the owner, 30-10-2026: "Remove the
+   duplicate Who sees what editor ... only after safe migration"). Per-user
+   exceptions are now kept in Roles & Permissions (access-policy.tsx
+   ExceptionsCard), each with a reason, approver and end date. Nothing
+   imports this file; it stays until the live exceptions are reviewed, and
+   rendering it again is the rollback. The data it edited is untouched. */
+
 /**
  * Who sees what — v1.90.0.
  *

@@ -81,7 +81,14 @@ export const PERMS: Record<string, readonly Role[]> = {
      reading invoices and their payments but no longer change them. The CEO
      or COO's Confirm Paid (staff.ts CONFIRM_PAID_ROLES) stays a second,
      separate step. */
-  invoice_payment: ["super_admin", "admin", "ceo", "coo"],
+  /* v1.234.0 - the owner, 30-10-2026 (claude/USERS-ACCESS-AUDIT.md, "CEO,
+     COO, Super Admin only"): the system Admin account no longer says money
+     arrived. Narrower, never wider. Refunds and credit notes keep their
+     own door below (credit_refund), unchanged. */
+  invoice_payment: ["super_admin", "ceo", "coo"],
+  /* v1.234.0 - refunds and credit notes were behind invoice_payment; they
+     keep exactly the roles they had (nobody gains or loses them here). */
+  credit_refund: ["super_admin", "admin", "ceo", "coo"],
   reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   commission_decide: ["super_admin", "ceo"],
@@ -217,3 +224,63 @@ export const MANDATORY_2FA_ROLES: Role[] = [
   "ceo", "super_admin", "admin", "coo", "cco", "hr_admin",
   "editor", "marketing", "sales_marketing", "live_host",
 ];
+
+/* ------------------------------------------------------------------ */
+/* v1.234.0 - THE ACCESS POLICY, PUBLISHED (the owner, 30-10-2026:
+   "ONE AUTHORIZATION SOURCE. ONE ROLE PERMISSION MANAGEMENT INTERFACE";
+   claude/USERS-ACCESS-AUDIT.md). This is NOT a second definition: each row
+   names a capability above (`cap`) or one of the named role lists the
+   handlers themselves use (`list`, resolved in staff.ts from the very
+   constants they check - CONFIRM_PAID_ROLES, PAYROLL_RELEASE_ROLES, ...).
+   GET /staff/access/policy reads it; nothing here grants anything, and an
+   action is changed only by changing the code that enforces it.
+   tests/access-policy.mjs holds every row to a real constant. */
+export type PolicyList =
+  | "CONFIRM_PAID" | "PAYROLL_PROCESS" | "PAYROLL_RELEASE" | "BANK_RUN"
+  | "COMMISSION_VIEW_ALL" | "COMMISSION_DRAFT" | "COMMISSION_APPROVE" | "COMMISSION_DECIDE"
+  | "GEOFENCE" | "ROLE_ANY" | "TAB_ACCESS_EDIT";
+export interface PolicyAction {
+  module: string; key: string; en: string; ms: string;
+  cap?: keyof typeof PERMS; list?: PolicyList;
+  note_en?: string; note_ms?: string;
+}
+export const ACTION_CATALOGUE: readonly PolicyAction[] = [
+  { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
+  { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
+  { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
+  { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", list: "CONFIRM_PAID", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri" },
+  { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
+  { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
+  { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },
+  { module: "Finance", key: "cashbook_correct", en: "Correct the cash book", ms: "Betulkan buku tunai", cap: "cashbook_correct" },
+  { module: "Finance", key: "bank_run", en: "Record the payroll bank run", ms: "Rekod pembayaran gaji bank", list: "BANK_RUN" },
+  { module: "Accounting", key: "accounting", en: "View and post the ledger", ms: "Lihat dan catat lejar", cap: "accounting_manage" },
+  { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", list: "PAYROLL_PROCESS" },
+  { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", list: "PAYROLL_RELEASE" },
+  { module: "Payroll", key: "payroll_export", en: "Export payroll", ms: "Eksport gaji", cap: "payroll_export" },
+  { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", list: "COMMISSION_VIEW_ALL", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri" },
+  { module: "Commission", key: "commission_draft", en: "Draft a commission policy", ms: "Draf polisi komisen", list: "COMMISSION_DRAFT" },
+  { module: "Commission", key: "commission_approve", en: "Approve a commission policy", ms: "Luluskan polisi komisen", list: "COMMISSION_APPROVE" },
+  { module: "Commission", key: "commission_decide", en: "Decide reviews, settle leavers, payroll switch", ms: "Putuskan semakan, selesaikan bekas staf, suis gaji", list: "COMMISSION_DECIDE" },
+  { module: "Claims", key: "claims_submit", en: "Submit claims", ms: "Hantar tuntutan", cap: "claims_submit" },
+  { module: "Claims", key: "claims_decide", en: "Approve claims", ms: "Luluskan tuntutan", cap: "claims_decide" },
+  { module: "Leave", key: "leave_entitlement", en: "Set leave entitlement", ms: "Tetapkan kelayakan cuti", cap: "leave_entitlement" },
+  { module: "Leave", key: "unpaid_leave", en: "Record unpaid days", ms: "Rekod hari tanpa gaji", cap: "unpaid_leave" },
+  { module: "Attendance", key: "attendance_correct", en: "Correct attendance records", ms: "Betulkan rekod kehadiran", cap: "attendance_correct" },
+  { module: "Attendance", key: "geofence", en: "Set the office geofence", ms: "Tetapkan geofence pejabat", list: "GEOFENCE" },
+  { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
+  { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete" },
+  { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
+  { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign" },
+  { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },
+  { module: "Staff Details", key: "responsibilities", en: "Write roles and responsibilities", ms: "Tulis peranan dan tanggungjawab", cap: "responsibilities_edit" },
+  { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
+  { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
+  { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },
+  { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },
+  { module: "Users", key: "role_any", en: "Assign any role (executives, customers)", ms: "Tetapkan sebarang peranan (eksekutif, pelanggan)", list: "ROLE_ANY", note_en: "Admin-tier accounts only in /admin", note_ms: "Akaun pentadbir hanya di /admin" },
+  { module: "Users", key: "tab_access", en: "Edit tab visibility and exceptions", ms: "Sunting keterlihatan tab dan pengecualian", list: "TAB_ACCESS_EDIT" },
+];
+/** The roles the policy view shows, in company order. Customers are never
+    staff and hold none of these. */
+export const POLICY_ROLES: readonly Role[] = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];

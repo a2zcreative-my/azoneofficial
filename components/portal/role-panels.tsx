@@ -5347,7 +5347,7 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
   // v1.4.88: recurring expenses from earlier months not yet recorded in the
   // viewed month, plus the payroll due line.
   const [upcoming, setUpcoming] = useState<ExpenseRec[]>([]);
-  const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean } | null>(null);
+  const [payrollDue, setPayrollDue] = useState<{ month: string; by: string; released: boolean; canRecord: boolean } | null>(null);
   // v1.4.91: the previous month's payroll total (net, same formula as the
   // payslips) — paid during this month, so it belongs in this month's total.
   const [staffPayroll, setStaffPayroll] = useState<{ month: string; cents: number; paid_at?: string | null; entries?: { name: string; cents: number; saved_net: boolean }[] } | null>(null);
@@ -5379,9 +5379,9 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
     // Payroll is the biggest recurring commitment — show its due date the
     // same way (previous month's payroll, payable by the release moment).
     const prev = (() => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y || 0, (m || 0) - 2, 1)); return d.toISOString().slice(0, 7); })();
-    const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null } }>(`/payroll?month=${prev}`);
+    const pr = await api<{ release?: { available_from: string; released: { released_at: string } | null; can_record_paid?: boolean } }>(`/payroll?month=${prev}`);
     if (pr.ok && pr.data?.release) {
-      setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released) });
+      setPayrollDue({ month: prev, by: pr.data.release.available_from, released: Boolean(pr.data.release.released), canRecord: pr.data.release.can_record_paid !== false });
     }
   }, [month]);
   useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]); // v1.77.0 — a failed request clears the skeleton too
@@ -5552,14 +5552,15 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                         {payrollDue.released
                           ? <span className={`${chipSuccess} font-semibold`}>{L("RELEASED","DILEPASKAN")}</span>
                           : <span className={`${chipWarn} font-semibold`}>{L("DUE","PERLU DIBAYAR")}</span>}
-                        <button type="button" className={rowBtnPrimary}
+                        {/* v1.234.0 - the CEO, COO or super admin records it (the server says so) */}
+                        {payrollDue.canRecord && <button type="button" className={rowBtnPrimary}
                           title={L("Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed", "Rekodkan bahawa bayaran gaji bank telah dibuat — pil PERLU DIBAYAR hilang dan bayaran berpindah ke Bayaran selesai")}
                           onClick={async () => {
                             const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
                             if (res.ok) { showToast(L("Saved", "Disimpan"), L("Payroll payment recorded", "Bayaran gaji direkodkan")); void load(); }
                           /* v1.176.1 - say WHAT is being marked paid: this card
                              carries more than one thing that can be. */
-                          }}>{L("Mark salary paid", "Tanda gaji dibayar")}</button>
+                          }}>{L("Mark salary paid", "Tanda gaji dibayar")}</button>}
                       </>
                     )}
                 </span>

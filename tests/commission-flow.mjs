@@ -109,7 +109,7 @@ async function runtime(staffBundle) {
 
     /* C - once; a confirmed payment day is locked */
     ok((await confirm(13, 10000)).status === 409 && led("invoice_id = 13").length === 1, "C: a second confirmation is refused - one entitlement");
-    const re = await call(`/docs/13`, 6, "PATCH", { payment_status: "paid", paid_on: "2026-10-30" });
+    const re = await call(`/docs/13`, 2, "PATCH", { payment_status: "paid", paid_on: "2026-10-30" }); // v1.234.0 - the COO (the Admin account no longer marks paid)
     ok(re.status === 409 && re.j?.error?.code === "confirmed_locked" && db.prepare(`SELECT paid_at FROM sales_documents WHERE id = 13`).get().paid_at.startsWith("2026-11-01"), "C: re-dating a confirmed invoice is refused (F5)", `${re.status} ${JSON.stringify(re.j)}`);
 
     /* D - the CCO reviews only, by direct request */

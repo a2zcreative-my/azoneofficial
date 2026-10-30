@@ -47,10 +47,10 @@ import type { StaffUser } from "./staff";
 import { audit, err, json, str } from "./shared";
 
 export const COMMISSION_START_DAY = "2026-11-01"; // = staff.ts COMMISSION_START_MONTH (the owner, 28-10-2026)
-const VIEW_ALL = ["super_admin", "admin", "ceo", "coo", "cco"]; // the CCO reviews only
-const DRAFT_ROLES = ["super_admin", "ceo", "coo"];
-const APPROVE_ROLES = ["super_admin", "ceo"];
-const DECIDE_ROLES = ["super_admin", "ceo"];
+export const VIEW_ALL = ["super_admin", "admin", "ceo", "coo", "cco"]; // the CCO reviews only
+export const DRAFT_ROLES = ["super_admin", "ceo", "coo"];
+export const APPROVE_ROLES = ["super_admin", "ceo"];
+export const DECIDE_ROLES = ["super_admin", "ceo"];
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH = /^\d{4}-\d{2}$/;
 const mytToday = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);

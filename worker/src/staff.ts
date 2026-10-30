@@ -5,14 +5,16 @@
 
 import type { Env } from "./index";
 import { buildEventIcs } from "../../lib/event-ics";
-import { reportingLine, type OrgPerson } from "../../lib/org-tree"; // v1.233.0 - one reporting line, the chart's own tree
+import { reportingLine, type OrgPerson } from "../../lib/org-tree";
+import { ALL_TABS as PORTAL_TABS, ALWAYS_VISIBLE, PARKED_TABS, canSeeTab } from "../../lib/portal-tabs"; // v1.234.0 - the one visibility rule, read by the access policy
+import { isCurrentStaff } from "../../lib/staff-order"; // v1.233.0 - one reporting line, the chart's own tree
 import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
-import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
+import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser, VIEW_ALL as COMMISSION_VIEW_ALL, DRAFT_ROLES as COMMISSION_DRAFT_ROLES, APPROVE_ROLES as COMMISSION_APPROVE_ROLES, DECIDE_ROLES as COMMISSION_DECIDE_ROLES } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -52,7 +54,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is simply that rule with a name. */
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can } from "./permissions";
+import { Role, can, PERMS, ACTION_CATALOGUE, POLICY_ROLES, type PolicyList } from "./permissions";
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
 function pushKeys(env: Env): PushKeys | null {
@@ -1616,7 +1618,7 @@ async function leaveCoverageFor(env: Env, userId: number, start: string, end: st
    forensic proof of presence. The IP + user-agent already stored on every
    punch remain the cross-check. */
 const GEOFENCE_KEY = "attendance_geofence";
-const GEOFENCE_ADMIN_ROLES = ["super_admin", "ceo", "coo"];
+export const GEOFENCE_ADMIN_ROLES = ["super_admin", "ceo", "coo"];
 
 interface Geofence { lat: number; lng: number; radius_m: number; label: string }
 
@@ -2320,7 +2322,15 @@ const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
     CEO or COO may confirm an invoice as Paid"; answer "Only CEO/COO confirm
     Paid"): the super admin no longer confirms. Confirmations it already
     made stay as they are. */
-const CONFIRM_PAID_ROLES = ["ceo", "coo"];
+export const CONFIRM_PAID_ROLES = ["ceo", "coo"];
+/* v1.234.0 - the owner, 30-10-2026 (claude/USERS-ACCESS-AUDIT.md: "CEO, COO,
+   Super Admin only"): releasing payslips and recording the payroll bank run
+   are no longer the system Admin account's. Processing payroll (PAYROLL_PROC)
+   is unchanged. Published, read-only, by GET /staff/access/policy. */
+export const PAYROLL_RELEASE_ROLES = ["super_admin", "ceo", "coo"];
+export const BANK_RUN_ROLES = ["super_admin", "ceo", "coo"];
+/** Who edits tab visibility and per-user exceptions (the CEO and the super admin). */
+export const TAB_ACCESS_EDITORS = ["ceo", "super_admin"];
 /** v1.216.2 - the owner, 28-10-2026 ("I also can make the sales"; answer
     "CEO can self-confirm"): the CEO may confirm the CEO's own sale. It is
     shown as "Self-confirmed" everywhere and audited as such. The COO still
@@ -7501,23 +7511,56 @@ async function handleStaffRoutes(
      harmless — the client only reads keys for tabs it knows. */
   const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
+  /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
+     decides it (the same checks the routes make). A tab absent here has no
+     single read rule (everyone's own records, or several routes), so it is
+     never called hollow. Used to refuse an exception that would draw an
+     empty tab, and by the access review to flag old ones. */
+  const TAB_READ: Record<string, (r: string) => boolean> = {
+    Payroll: (r) => ["super_admin", "admin", "ceo", "coo"].includes(r), // = PAYROLL_PROC, GET /payroll
+    Finance: (r) => can(r, "expenses"),
+    Accounting: (r) => can(r, "accounting_manage"),
+    Assets: (r) => can(r, "hr_manage") || can(r, "exec_view"),
+    "Staff Details": (r) => can(r, "hr_manage") || can(r, "exec_view"),
+    Users: (r) => can(r, "hr_manage") || can(r, "exec_view"),
+    Hotels: (r) => can(r, "hotels_view"),
+    Inventory: (r) => can(r, "inventory"),
+    "ELFIA Store": (r) => can(r, "inventory"),
+    "ELFIA Traffic": (r) => can(r, "revenue_view"),
+    Sales: (r) => can(r, "sales"),
+    Companies: (r) => can(r, "company_review"),
+    Claims: (r) => can(r, "claims_submit"),
+  };
 
   /* v1.90.0 — per-person grants and refusals (lib/portal-tabs.ts accessOf).
      One JSON map in system_meta: { "<user id>": { allow: [...], deny: [...] } }.
      Every staff member receives ONLY their own entry with the role map;
      the whole map is a CEO read. */
-  type PersonAccess = { allow: string[]; deny: string[] };
+  /* v1.234.0 - an exception carries WHY (the owner, 30-10-2026: "Require
+     approval, reason, scope, expiration where appropriate and audit
+     history"): meta[tab] = { reason, by, by_name, at, expires_on }. Entries
+     saved before 1.234.0 have none and read as "needs review" - they are
+     never deleted or rewritten by reading. An expired one stays stored and
+     stops applying (`effective`). */
+  type ExMeta = { reason: string; by: number | null; by_name: string | null; at: string; expires_on: string | null };
+  type PersonAccess = { allow: string[]; deny: string[]; meta?: Record<string, ExMeta> };
   const readPeople = async (): Promise<Record<string, PersonAccess>> => {
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access_people'`).first<{ value: string }>();
     try {
       const raw = row?.value ? (JSON.parse(row.value) as Record<string, Partial<PersonAccess>>) : {};
       const out: Record<string, PersonAccess> = {};
       for (const [k, v] of Object.entries(raw)) {
-        out[k] = { allow: Array.isArray(v?.allow) ? v.allow.map(String) : [], deny: Array.isArray(v?.deny) ? v.deny.map(String) : [] };
+        out[k] = { allow: Array.isArray(v?.allow) ? v.allow.map(String) : [], deny: Array.isArray(v?.deny) ? v.deny.map(String) : [],
+          ...(v?.meta && typeof v.meta === "object" ? { meta: v.meta as Record<string, ExMeta> } : {}) };
       }
       return out;
     } catch { return {}; }
   };
+  const todayTA = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const liveEx = (p: PersonAccess, tab: string) => { const e = p.meta?.[tab]?.expires_on; return !e || e >= todayTA; };
+  /** What actually applies today: expired exceptions removed, nothing else. */
+  const effective = (p: PersonAccess | undefined | null): { allow: string[]; deny: string[] } | null =>
+    p ? { allow: p.allow.filter((t) => liveEx(p, t)), deny: p.deny.filter((t) => liveEx(p, t)) } : null;
 
   if (path === "/tabs/access" && method === "GET") {
     // Every staff member needs this to compute their own tab strip.
@@ -7525,16 +7568,17 @@ async function handleStaffRoutes(
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
     const people = await readPeople();
-    return json({ overrides, mine: people[String(user.id)] ?? null });
+    return json({ overrides, mine: effective(people[String(user.id)]) });
   }
 
   if (path === "/tabs/access/people" && method === "GET") {
-    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO reviews tab access", 403);
-    return json({ people: await readPeople() });
+    if (!TAB_ACCESS_EDITORS.includes(user.role)) return err("forbidden", "Only the CEO reviews tab access", 403);
+    const all = await readPeople();
+    return json({ people: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { ...effective(v)!, meta: v.meta ?? {} }])) });
   }
 
   if (path === "/tabs/access/person" && method === "POST") {
-    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO manages tab access", 403);
+    if (!TAB_ACCESS_EDITORS.includes(user.role)) return err("forbidden", "Only the CEO manages tab access", 403);
     const targetId = Number(body?.user_id);
     if (!Number.isInteger(targetId) || targetId <= 0) return err("invalid_input", "user_id is required", 400);
     const mode = typeof body?.mode === "string" ? body.mode : "";
@@ -7544,25 +7588,39 @@ async function handleStaffRoutes(
     const target = await env.DB.prepare(`SELECT id, role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`).bind(targetId).first<{ id: number; role: string; name: string }>();
     if (!target || target.role === "customer") return err("not_found", "No such staff member", 404);
     if (target.role === "super_admin") return err("invalid_input", "super_admin bypasses tab access and cannot be governed", 400);
+    /* v1.234.0 - an exception is a decision: its reason, who, when and an
+       optional end date are kept with it. And it can only hide a tab, or
+       show one the person's ROLE can already read on the server - never
+       draw a tab the server would then refuse ("hollow"). */
+    const reasonX = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    const expiresX = typeof body?.expires_on === "string" && body.expires_on !== "" ? body.expires_on : null;
+    if ((mode === "allow" || mode === "deny") && reasonX.length < 10) return err("invalid_input", "Give the reason for this exception (at least 10 characters).", 400);
+    if (expiresX !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(expiresX) || expiresX < todayTA)) return err("invalid_input", "The end date is today or later (YYYY-MM-DD).", 400);
+    if (mode === "allow" && TAB_READ[tabName] && !TAB_READ[tabName]!(target.role)) {
+      return err("server_refuses", `The server does not let a ${target.role.replace("_", " ")} read ${tabName} - showing the tab would show an empty page. Change the role instead.`, 409);
+    }
     const people = await readPeople();
     const cur = people[String(targetId)] ?? { allow: [], deny: [] };
     const without = (xs: string[]) => xs.filter((t) => t !== tabName);
+    const metaWithout = () => Object.fromEntries(Object.entries(cur.meta ?? {}).filter(([k]) => k !== tabName));
+    const stamp: ExMeta = { reason: reasonX, by: user.id, by_name: user.name ?? null, at: new Date().toISOString().slice(0, 19).replace("T", " "), expires_on: expiresX };
     let next: PersonAccess;
     if (mode === "reset") next = { allow: [], deny: [] };
-    else if (mode === "allow") next = { allow: [...without(cur.allow), tabName], deny: without(cur.deny) };
-    else if (mode === "deny") next = { allow: without(cur.allow), deny: [...without(cur.deny), tabName] };
-    else next = { allow: without(cur.allow), deny: without(cur.deny) };
+    else if (mode === "allow") next = { allow: [...without(cur.allow), tabName], deny: without(cur.deny), meta: { ...metaWithout(), [tabName]: stamp } };
+    else if (mode === "deny") next = { allow: without(cur.allow), deny: [...without(cur.deny), tabName], meta: { ...metaWithout(), [tabName]: stamp } };
+    else next = { allow: without(cur.allow), deny: without(cur.deny), meta: metaWithout() };
+    if (next.meta && Object.keys(next.meta).length === 0) delete next.meta;
     if (next.allow.length === 0 && next.deny.length === 0) delete people[String(targetId)];
     else people[String(targetId)] = next;
     await env.DB.prepare(
       `INSERT INTO system_meta (key, value) VALUES ('tab_access_people', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`,
     ).bind(JSON.stringify(people)).run();
-    await audit(env, user.id, "tabs.person_access", "users", String(targetId), { name: target.name, role: target.role, tab: tabName || null, mode, allow: next.allow, deny: next.deny });
+    await audit(env, user.id, "tabs.person_access", "users", String(targetId), { name: target.name, role: target.role, tab: tabName || null, mode, allow: next.allow, deny: next.deny, ...(reasonX ? { reason: reasonX } : {}), ...(expiresX ? { expires_on: expiresX } : {}) });
     return json({ ok: true, person: people[String(targetId)] ?? null });
   }
 
   if (path === "/tabs/access" && method === "POST") {
-    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO manages tab access", 403);
+    if (!TAB_ACCESS_EDITORS.includes(user.role)) return err("forbidden", "Only the CEO manages tab access", 403);
     const tabName = typeof body?.tab === "string" ? body.tab : "";
     if (!TAB_ACCESS_TABS.includes(tabName)) return err("invalid_input", `tab must be one of: ${TAB_ACCESS_TABS.join(", ")}`, 400);
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>();
@@ -9108,7 +9166,7 @@ async function handleStaffRoutes(
     if (!doc) return err("not_found", "Document not found", 404);
     if (doc.doc_type === "INV") {
       /* v1.224.0 - only the CEO, COO or an admin says an invoice's money arrived */
-      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin records an invoice's payment. You can still see it.", 403);
+      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO or COO records an invoice's payment. You can still see it.", 403);
       const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
       if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
       // v1.4.90: paid = payment received — record method (bank transfer),
@@ -11303,6 +11361,79 @@ async function handleStaffRoutes(
 
   const PAYROLL_PROC = ["super_admin", "admin", "ceo", "coo"];
 
+  /* ---- v1.234.0 - THE ACCESS POLICY AND THE ACCESS REVIEW (the owner,
+     30-10-2026; claude/USERS-ACCESS-AUDIT.md). Read-only, both. ----
+     /access/policy publishes what each role may DO (ACTION_CATALOGUE, every
+     row resolved from the constant its handler checks) and what each role
+     SEES (lib/portal-tabs canSeeTab over the saved overrides). It edits
+     nothing: an action changes only when the code that enforces it does.
+     /access/review is the before-and-after export the owner asked for: every
+     tab override, every per-user exception with its reason, end date and a
+     verdict (redundant, hollow, hides only, needs review), and every current
+     person's effective tab strip. */
+  if (path === "/access/policy" && method === "GET") {
+    if (!can(user.role, "exec_view")) return err("forbidden", "Management access required", 403);
+    const LISTS: Record<PolicyList, readonly string[]> = {
+      CONFIRM_PAID: CONFIRM_PAID_ROLES, PAYROLL_PROCESS: PAYROLL_PROC, PAYROLL_RELEASE: PAYROLL_RELEASE_ROLES, BANK_RUN: BANK_RUN_ROLES,
+      COMMISSION_VIEW_ALL: COMMISSION_VIEW_ALL, COMMISSION_DRAFT: COMMISSION_DRAFT_ROLES, COMMISSION_APPROVE: COMMISSION_APPROVE_ROLES, COMMISSION_DECIDE: COMMISSION_DECIDE_ROLES,
+      GEOFENCE: GEOFENCE_ADMIN_ROLES, ROLE_ANY: ["super_admin"], TAB_ACCESS_EDIT: TAB_ACCESS_EDITORS,
+    };
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
+    let overrides: Record<string, string[]> = {};
+    try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
+    const roles = [...POLICY_ROLES];
+    const actions = ACTION_CATALOGUE.map((a) => {
+      const who: readonly string[] = (a.cap ? PERMS[a.cap] : LISTS[a.list!]) ?? [];
+      return { module: a.module, key: a.key, en: a.en, ms: a.ms, note_en: a.note_en ?? null, note_ms: a.note_ms ?? null, roles: roles.filter((r) => who.includes(r)) };
+    });
+    const tabs = PORTAL_TABS.filter((t) => !PARKED_TABS.includes(t)).map((t) => ({
+      tab: t, always: ALWAYS_VISIBLE.includes(t), overridden: overrides[t] !== undefined,
+      sees: roles.filter((r) => canSeeTab(r, t, overrides, null)),
+      reads: TAB_READ[t] ? roles.filter((r) => TAB_READ[t]!(r)) : null,
+    }));
+    return json({ roles, actions, tabs, can_edit_tabs: TAB_ACCESS_EDITORS.includes(user.role) });
+  }
+  if (path === "/access/review" && method === "GET") {
+    if (!TAB_ACCESS_EDITORS.includes(user.role)) return err("forbidden", "Only the CEO reviews access", 403);
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
+    let overrides: Record<string, string[]> = {};
+    try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
+    const people = await readPeople();
+    const staffRows = ((await env.DB.prepare(
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, left_on, rejoined_on, employment_status FROM users WHERE role NOT IN ('customer', 'super_admin') ORDER BY id`,
+    ).all<{ id: number; name: string; role: string; is_active: number; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
+    const byId = new Map(staffRows.map((u) => [u.id, u]));
+    const exceptions: unknown[] = [];
+    for (const [k, p] of Object.entries(people)) {
+      const u = byId.get(Number(k));
+      for (const [tab, kind] of [...p.allow.map((t) => [t, "grant"] as const), ...p.deny.map((t) => [t, "refuse"] as const)]) {
+        const m = p.meta?.[tab] ?? null;
+        const expired = Boolean(m?.expires_on && m.expires_on < todayTA);
+        const role = u?.role ?? "";
+        const byRole = role ? canSeeTab(role, tab, overrides, null) : false;
+        const verdict = !u ? "no_account" : expired ? "expired"
+          : kind === "grant" ? (TAB_READ[tab] && !TAB_READ[tab]!(role) ? "hollow" : byRole ? "redundant" : "shows_tab")
+          : (byRole ? "hides_only" : "redundant");
+        exceptions.push({ user_id: Number(k), name: u?.name ?? null, role: role || null, active: u ? Boolean(u.is_active) && isCurrentStaff(u) : false,
+          tab, kind, reason: m?.reason ?? null, by_name: m?.by_name ?? null, at: m?.at ?? null, expires_on: m?.expires_on ?? null,
+          needs_review: !m, verdict });
+      }
+    }
+    const strips = staffRows.filter((u) => u.is_active && isCurrentStaff(u)).map((u) => ({
+      id: u.id, name: u.name, role: u.role,
+      tabs: PORTAL_TABS.filter((t) => canSeeTab(u.role, t, overrides, effective(people[String(u.id)]))),
+    }));
+    /* the access decisions themselves, newest first: role changes, tab rules,
+       exceptions, reporting lines and the geofence - who, when, what */
+    const history = ((await env.DB.prepare(
+      `SELECT a.id, a.action, a.entity_id, a.detail, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
+         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.action IN ('staff.role_change', 'tabs.access_change', 'tabs.person_access', 'staff.reports_to', 'attendance.geofence_set', 'attendance.geofence_clear')
+        ORDER BY a.id DESC LIMIT 80`,
+    ).all<{ id: number; action: string; entity_id: string | null; detail: string | null; created_at: string; who: string | null }>().catch(() => ({ results: [] }))).results ?? []);
+    return json({ generated_at: new Date().toISOString(), today: todayTA, overrides, exceptions, people: strips, history });
+  }
+
   /* ================= v1.75.0 — the payable-days model =================
 
      CEO, 30-08-2026: "I want to count for the Public Holiday that set to the
@@ -12013,6 +12144,9 @@ async function handleStaffRoutes(
            month too, as the employer it would be released under. */
         employer: issuerName(releasedRow?.issuer_code ?? (releasedRow ? null : OPERATING_ISSUER_CODE)),
         employer_is_legacy: releasedRow !== null && !releasedRow.issuer_code,
+        /* v1.234.0 - so the panel offers only what the server allows */
+        can_release: PAYROLL_RELEASE_ROLES.includes(user.role),
+        can_record_paid: BANK_RUN_ROLES.includes(user.role),
       },
     });
   }
@@ -12020,6 +12154,8 @@ async function handleStaffRoutes(
     // v1.4.101: the Expenses "Payments due" card records that the payroll
     // bank run for a month has been DONE.
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
+    /* v1.234.0 - and only the CEO, COO or super admin say it was paid */
+    if (!BANK_RUN_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);
     const mP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mP) return err("invalid_input", "month (YYYY-MM) is required", 400);
     await env.DB.prepare(
@@ -12155,6 +12291,8 @@ async function handleStaffRoutes(
     // resumes. After the automatic moment, undo is a no-op for staff
     // visibility — the gate is open regardless of the override row.
     if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    /* v1.234.0 - release (and its undo) is the CEO, COO or super admin's */
+    if (!PAYROLL_RELEASE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);
     const mR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mR) return err("invalid_input", "month (YYYY-MM) is required", 400);
     if (body?.undo === true) {
@@ -16658,7 +16796,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     };
     const mCnRefund = path.match(/^\/credit-notes\/(\d+)\/refund$/);
     if (mCnRefund && method === "POST") {
-      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin records a refund", 403);
+      if (!can(user.role, "credit_refund")) return err("forbidden", "Only the CEO, COO or an admin records a refund", 403);
       const day = String(body?.refund_on ?? "");
       const todayR = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > todayR) return err("invalid_input", "The day the money was paid back must be a real date, today or earlier.", 400);
@@ -16672,7 +16810,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
     const mCn = path.match(/^\/docs\/(\d+)\/credit-note$/);
     if (mCn && method === "POST") {
-      if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO, COO or an admin issues a credit note", 403);
+      if (!can(user.role, "credit_refund")) return err("forbidden", "Only the CEO, COO or an admin issues a credit note", 403);
       const invId = Number(mCn[1]);
       const cents = Math.round(Number(body?.amount_cents));
       const reason = String(body?.reason ?? "").trim();
@@ -16740,7 +16878,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
           ).all<{ ref: string; day: string }>();
           refunded = new Map((rf ?? []).map((x) => [Number(x.ref.slice(3)), x.day]));
         } catch { refunded = new Map(); }
-        return json({ credit_notes: (results ?? []).map((n) => ({ ...n, refunded_on: refunded.get(n.id) ?? null })), can_issue: can(user.role, "invoice_payment") });
+        return json({ credit_notes: (results ?? []).map((n) => ({ ...n, refunded_on: refunded.get(n.id) ?? null })), can_issue: can(user.role, "credit_refund") });
       } catch (e) {
         if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0069 first", 409);
         throw e;

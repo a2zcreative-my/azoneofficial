@@ -10,6 +10,39 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.234.0] - 2026-10-30 - One access policy (Users)
+
+The owner's brief, 30-10-2026: "ONE AUTHORIZATION SOURCE. ONE ROLE
+PERMISSION MANAGEMENT INTERFACE. NO CONFLICTING USER OVERRIDES." Answers:
+keep per-user exceptions inside Roles & Permissions; CEO, COO and Super
+Admin only for Mark paid, Release payslips and the payroll bank run; keep
+the office geofence in Users; build, with the export in the review. No
+migration. Audit: claude/USERS-ACCESS-AUDIT.md.
+
+- **Roles & Permissions** shows what each role may DO, module by module
+  (Allowed / Denied), read from the rules the server enforces on every
+  request - nothing is a second definition, and actions stay code-defined.
+  The tab-visibility matrix stays as it was. Summary cards for the policy,
+  role assignments and exceptions.
+- **Per-user exceptions** replace "Who sees what": each carries a reason,
+  who approved it, when, and an optional end date; it can hide a tab or show
+  one the role can already read - a grant the server would refuse is
+  refused. Exceptions saved before today are listed as "Needs review" (and
+  flagged when the server refuses that role); none is deleted or rewritten.
+- **Access review** (CEO, Super Admin): overrides, exceptions with verdicts,
+  every person's tab strip and the access history - download as CSV or JSON
+  to compare before and after any change.
+- **Security & Settings** is sign-in only: authentication, sessions, the
+  user log with account and event filters, 2FA and alert counts, and the
+  office geofence (kept here).
+- **Money authority**: Mark paid and part payments, Release payslips and
+  Record the payroll bank run are the CEO, COO and Super Admin's - the Admin
+  account no longer holds them (credit notes and refunds unchanged). The
+  screens offer only what the server allows.
+- Guard `tests/access-policy.mjs` (93 checks, 7 mutations): every money
+  action is allowed by direct request exactly when the published policy
+  says so. Guards that pinned the old behaviour updated to the approved one.
+
 ## [1.233.0] - 2026-10-30 - CEO top of the hierarchy; the reporting line on the Dashboard
 
 The owner's brief, 30-10-2026: "CEO = TOP OF INTERNAL OPERATIONAL

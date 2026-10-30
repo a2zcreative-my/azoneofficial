@@ -743,7 +743,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.4.80: staff payslip release state for this month.
   // v1.28.0: released also carries issuer_code — the employer stamped at
   // release time, which every payslip printed for this month must show.
-  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } | null>(null);
+  const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean; can_release?: boolean; can_record_paid?: boolean } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const baseRef = useRef<Record<number, number>>({}); // v1.224.0 - read by the commission fetch, which may land before or after the month's rows
@@ -1881,14 +1881,14 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   {early && (
                     <>
                       {""}<span className="font-semibold text-warning">{L(`Released EARLY — the automatic date was ${dmy(release.available_from)} (after this month closes). The salary run you pay this week is LAST month's.`, `DIKELUARKAN AWAL — tarikh automatik ialah ${dmy(release.available_from)} (selepas bulan ini ditutup). Larian gaji yang anda bayar minggu ini ialah bulan LEPAS.`)}</span>
-                      {" "}<button type="button" className="font-medium underline"
+                      {release.can_release !== false && <>{" "}<button type="button" className="font-medium underline"
                         title={L("Take this month's payslips back from staff view — the automatic release date resumes", "Tarik balik slip gaji bulan ini daripada paparan kakitangan — tarikh keluaran automatik disambung semula")}
                         onClick={async () => {
                           const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month, undo: true }) });
                           setMsg(res.ok ? L("Early release undone — automatic date resumes.", "Keluaran awal dibatalkan — tarikh automatik disambung semula.") : L("Undo failed", "Batal gagal"));
                           window.setTimeout(() => setMsg(""), 3000);
                           void load();
-                        }}>{L("Undo release", "Batal keluaran")}</button>
+                        }}>{L("Undo release", "Batal keluaran")}</button></>}
                     </>
                   )}
                 </span>
@@ -1911,7 +1911,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     : null;
                 })()}
               </span>{" "}
-              <button
+              {/* v1.234.0 - release is the CEO, COO or super admin's (the server says so) */}
+              {release.can_release !== false && <button
                 type="button"
                 className="font-medium underline"
                 title={L("Release this month's payslips to staff now, before the automatic date", "Keluarkan slip gaji bulan ini kepada kakitangan sekarang, sebelum tarikh automatik")}
@@ -1952,7 +1953,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 }}
               >
                 {L("Release now", "Keluarkan sekarang")}
-              </button>
+              </button>}
             </>
           )}
         </p>

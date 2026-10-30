@@ -113,10 +113,10 @@ const ok = (label, cond, extra = "") => {
 {
   const staff = read("worker/src/staff.ts");
   const i = staff.indexOf('path === "/tabs/access/person"');
-  const route = i < 0 ? "" : staff.slice(i, i + 3500);
+  const route = i < 0 ? "" : staff.slice(i, i + 6000); // v1.234.0 - longer: reasons, end dates, the hollow check
   ok("the person route exists", route.length > 1000);
   ok("only the CEO (or super_admin) may change a person's tabs",
-     /if \(user\.role !== "ceo" && user\.role !== "super_admin"\) return err\("forbidden"/.test(route.slice(0, 400)));
+     /if \(!TAB_ACCESS_EDITORS\.includes\(user\.role\)\) return err\("forbidden"/.test(route.slice(0, 400)) && /export const TAB_ACCESS_EDITORS = \["ceo", "super_admin"\];/.test(staff)); // v1.234.0 - one named list
   ok("the tab is validated against the governable list", /TAB_ACCESS_TABS\.includes\(tabName\)/.test(route));
   ok("the mode is validated", /\["allow", "deny", "clear", "reset"\]\.includes\(mode\)/.test(route));
   ok("a customer account cannot be targeted", /target\.role === "customer"\) return err\("not_found"/.test(route));
@@ -128,10 +128,10 @@ const ok = (label, cond, extra = "") => {
 
   const j = staff.indexOf('path === "/tabs/access" && method === "GET"');
   const getRoute = j < 0 ? "" : staff.slice(j, j + 900);
-  ok("a staff member receives only their own entry", /mine: people\[String\(user\.id\)\] \?\? null/.test(getRoute) && !/people\s*\}\)/.test(getRoute),
+  ok("a staff member receives only their own entry", /mine: effective\(people\[String\(user\.id\)\]\)/.test(getRoute) /* v1.234.0 - ended exceptions removed */ && !/people\s*\}\)/.test(getRoute),
      "the whole map is a CEO read; handing it to everyone tells each person what the others were refused");
   const k = staff.indexOf('path === "/tabs/access/people"');
-  ok("the whole map is gated", /if \(user\.role !== "ceo" && user\.role !== "super_admin"\) return err\("forbidden"/.test(staff.slice(k, k + 400)));
+  ok("the whole map is gated", /if \(!TAB_ACCESS_EDITORS\.includes\(user\.role\)\) return err\("forbidden"/.test(staff.slice(k, k + 400)));
 }
 
 /* ---- C. the portal draws from the same rule ---- */

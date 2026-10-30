@@ -37,6 +37,37 @@ function baseFixture(p) {
   if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 },
     overall: { total_cents: 2_480_000, months: [["2025-12", 98000], ["2026-01", 121000], ["2026-02", 143000], ["2026-03", 187000], ["2026-04", 214000], ["2026-05", 196000], ["2026-06", 262000], ["2026-07", 301000], ["2026-08", 288000], ["2026-09", 352000]].map(([month, cents]) => ({ month, cents })) } };
   if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {} };
+  /* v1.234.0 - the access policy and the access review (worker: staff.ts
+     /access/policy, /access/review). The role lists are the worker's own as
+     of 1.234.0; the people, exceptions and history are invented. */
+  if (p === "/staff/access/policy") {
+    const R = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];
+    const only = (...xs) => R.filter((r) => xs.includes(r));
+    const A = (module, key, en, roles, note_en = null) => ({ module, key, en, ms: en, note_en, note_ms: note_en, roles });
+    data = !["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE) ? { error: { code: "forbidden", message: "Management access required" } } : {
+      roles: R, can_edit_tabs: ["ceo", "super_admin"].includes(ROLE),
+      actions: [
+        A("Sales", "sales_view", "View quotations, invoices and orders", only("super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing")),
+        A("Sales", "mark_paid", "Mark paid / record part payments", only("super_admin", "ceo", "coo")),
+        A("Sales", "confirm_paid", "Confirm Paid", only("ceo", "coo"), "Never on their own sale"),
+        A("Sales", "credit_refund", "Credit notes and refunds", only("super_admin", "admin", "ceo", "coo")),
+        A("Finance", "bank_run", "Record the payroll bank run", only("super_admin", "ceo", "coo")),
+        A("Payroll", "payroll_process", "View and process payroll", only("super_admin", "admin", "ceo", "coo")),
+        A("Payroll", "payroll_release", "Release payslips", only("super_admin", "ceo", "coo")),
+        A("Commission", "commission_decide", "Decide reviews, settle leavers, payroll switch", only("super_admin", "ceo")),
+        A("Attendance", "geofence", "Set the office geofence", only("super_admin", "ceo", "coo")),
+      ],
+      tabs: [] };
+  }
+  if (p === "/staff/access/review") data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Only the CEO reviews access" } } : {
+    generated_at: "2026-09-18T02:00:00.000Z", today: "2026-09-18", overrides: { Hotels: ["ceo", "coo", "hr_admin"] },
+    exceptions: [
+      { user_id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing", active: true, tab: "Hotels", kind: "grant", reason: "Covers hotel outreach this quarter", by_name: "Fixture Person", at: "2026-09-10 02:00:00", expires_on: "2026-12-31", needs_review: false, verdict: "shows_tab" },
+      { user_id: 9003, name: "Farid Zulkifli", role: "live_host", active: true, tab: "Payroll", kind: "grant", reason: null, by_name: null, at: null, expires_on: null, needs_review: true, verdict: "hollow" },
+    ],
+    people: [{ id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing", tabs: ["Dashboard", "Desk", "Sales", "Hotels", "Leave", "Claims", "Profile"] }, { id: 9003, name: "Farid Zulkifli", role: "live_host", tabs: ["Dashboard", "Desk", "On Shift", "Leave", "Claims", "Profile"] }],
+    history: [{ id: 3, action: "tabs.person_access", entity_id: "9002", detail: JSON.stringify({ name: "Nur Aisyah binti Rahman", tab: "Hotels", mode: "allow", reason: "Covers hotel outreach this quarter" }), created_at: "2026-09-10 02:00:00", who: "Fixture Person" }],
+  };
   if (p === "/staff/desk") data = { items: queue, counts: { tasks: 1 }, total: 1, missing: [] };
   if (p === "/staff/overview") data = { inventory_status: [{ status: "in_stock", n: 1 }, { status: "low", n: 1 }],
     /* v1.200.0 - the company-wide task card, from the same rows as the board */
@@ -56,7 +87,7 @@ function baseFixture(p) {
   if (p === "/staff/roster") data = { week_start: "2026-09-14", days: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"], manager: true, sessions: [], on_leave: [], conflicts: [], requests: [], available_today: [], task_blocks: [], unscheduled: [], events: [] };
   if (p === "/staff/attendance/monitor") data = { date: "2026-09-16", staff: [] };
   if (p === "/staff/reports/outstanding") data = { invoices: [], total_cents: 0 };
-  if (p === "/staff/payroll") data = { entries: [], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing" } };
+  if (p === "/staff/payroll") data = { entries: [], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing", can_release: ["super_admin", "ceo", "coo"].includes(ROLE), can_record_paid: ["super_admin", "ceo", "coo"].includes(ROLE) } };
   if (p === "/staff/hankeis") data = { can: { order_create: true, payment_verify: true, pack: true, settings: true }, counts: { awaiting_payment: 1, verified: 2 }, money: { verified_cents: 12000 }, open_exceptions: 0, outbox_pending: 0, recent: [{ id: 1, order_no: "HK-0001", total_cents: 6000, order_state: "open", payment_state: "awaiting_payment", fulfilment_state: "pending", created_at: "2026-09-20 10:00:00", customer_name: "Aina" }], setup: { qr_configured: true, recipient_configured: true, account_configured: true, ocr_available: false } };
   if (p === "/staff/hankeis/catalogue") data = { products: [], packages: [] };
   if (p === "/staff/hankeis/customers") data = { customers: [] };
@@ -223,14 +254,14 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     data = { entries: [
       { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, ot_hours: null, note: null, net_cents: 400000 },
       { user_id: 9002, basic_cents: 210000, commission_cents: 0, allowance_cents: 15000, deduction_cents: 0, ot_hours: null, note: null, net_cents: 221500 },
-    ], release: { available_from: "2026-09-05 10:00:00", released: { released_at: "2026-09-05 02:00:00", issuer_code: "a2z" }, employer: "A2Z Creative Marketing" } };
+    ], release: { available_from: "2026-09-05 10:00:00", released: { released_at: "2026-09-05 02:00:00", issuer_code: "a2z" }, employer: "A2Z Creative Marketing", can_release: ["super_admin", "ceo", "coo"].includes(ROLE), can_record_paid: ["super_admin", "ceo", "coo"].includes(ROLE) } };
   }
   if (p === "/staff/payroll" && (q.get("month") ?? "") === "2026-09") {
     data = { entries: [
       { user_id: 9001, basic_cents: 400000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, worked_days: 20, month_working_days: 22, ot_hours: null, note: null, net_cents: 400000 },
       { user_id: 9002, basic_cents: 210000, commission_cents: 0, allowance_cents: 15000, deduction_cents: 0, worked_days: 19, month_working_days: 22, ot_hours: 2, note: null },
       { user_id: 9003, basic_cents: 0, commission_cents: 0, allowance_cents: 5000, deduction_cents: 0, ot_hours: null, hourly_minutes: 3600, hourly_rate_cents: 1500, hourly_minutes_live: 3600, hourly_rate_live: 1500, net_cents: 95000, hourly_pay_live: 90000, hourly_clocked_live: 3900, hourly_break_live: 300, hourly_days_live: 5 },
-    ], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing" } };
+    ], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing", can_release: ["super_admin", "ceo", "coo"].includes(ROLE), can_record_paid: ["super_admin", "ceo", "coo"].includes(ROLE) } };
   }
   if (p === "/staff/payroll/attendance-days" && (q.get("month") ?? "") === "2026-09") {
     data = {
