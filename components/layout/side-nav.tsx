@@ -76,6 +76,8 @@ export const SECTIONS: { title: string; tabs: string[] }[] = [
 export const SECTION_LABEL_MS: Record<string, string> = {
   Overview: "Ringkasan", Sales: "Jualan", Operations: "Operasi", ELFIA: "ELFIA", People: "Kakitangan",
   Finance: "Kewangan", Account: "Akaun", System: "Sistem", Other: "Lain-lain",
+  /* v1.228.0 - the /admin and /account rails (console-shell.tsx) */
+  Content: "Kandungan", Leads: "Prospek", Client: "Klien",
 };
 export const sectionTitle = (title: string, lang: string): string =>
   lang === "ms" ? SECTION_LABEL_MS[title] ?? title : title;
@@ -85,7 +87,7 @@ export const sectionTitle = (title: string, lang: string): string =>
 export const NAV_COLLAPSED_KEY = "azone-nav-collapsed";
 
 export function SideNav({
-  items, active, onSelect, onSignOut, collapsed, onToggleCollapsed, userName, userRole,
+  items, active, onSelect, onSignOut, collapsed, onToggleCollapsed, userName, userRole, sections = SECTIONS,
 }: {
   items: NavItem[];
   active: string;
@@ -95,6 +97,10 @@ export function SideNav({
   onToggleCollapsed: () => void;
   userName: string;
   userRole: string;
+  /** v1.228.0 - the grouping for a console that is not the portal (/admin,
+      /account: components/layout/console-shell.tsx). The portal passes
+      nothing and keeps SECTIONS. */
+  sections?: { title: string; tabs: string[] }[];
 }) {
   const lang = getLang();
   const ms = lang === "ms";
@@ -127,12 +133,12 @@ export function SideNav({
     e.preventDefault();
     nodes[next]?.focus();
   };
-  const grouped = SECTIONS
+  const grouped = sections
     .map((s) => ({ title: s.title, items: s.tabs.map((t) => byName.get(t)).filter((x): x is NavItem => !!x) }))
     .filter((s) => s.items.length > 0);
 
   // Anything the SECTIONS map doesn't know about still gets a home.
-  const placed = new Set(SECTIONS.flatMap((s) => s.tabs));
+  const placed = new Set(sections.flatMap((s) => s.tabs));
   const orphans = items.filter((i) => !placed.has(i.name));
   if (orphans.length) grouped.push({ title: "Other", items: orphans });
 

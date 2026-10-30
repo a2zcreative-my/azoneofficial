@@ -2,18 +2,17 @@
 
 /** Customer area (/account) — a customer's own details and enquiry history. */
 
-import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 import Link from "next/link"; // v1.77.0 — an in-app route is a <Link>, not an <a> (build rule no-html-link-for-pages)
-import { Skel, SkelText, SkelCard } from "@/components/ui/skeleton"; // v1.77.0: + Skel, SkelCard for the auth-check shell
+import { Skel, SkelText } from "@/components/ui/skeleton"; // v1.77.0
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, inputClass, btnClass, btnGhost, btnHdr, chipSuccess, chipWarn, chipNeutral, mobileAppBottomClearance, mobileBottomNav } from "@/lib/ui-styles";
-import { AppShell } from "@/components/layout/app-shell";
-import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { card, inputClass, btnClass, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
+import { PortalSkeleton } from "@/components/portal/portal-skeleton"; // v1.228.0
+import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - the portal chrome
 import { dmy, fmtRM } from "@/lib/format";
-import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
+import { getLang, type Lang } from "@/lib/i18n";
 import { PanelTitle } from "@/components/ui/app-icon";
 
 
@@ -59,58 +58,9 @@ const LIVE_STATUS_MS: Record<string, string> = { scheduled: "dijadualkan", compl
    tab's two-column card grid, bottom nav on phones), so nothing jumps when
    the real page takes over. No hooks, no fetch. */
 function AccountPageSkeleton() {
-  return (
-    <AppShell
-      rail={
-        <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
-          <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
-          {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="h-10 w-10 shrink-0 rounded-xl bg-white/10" />
-          ))}
-        </div>
-      }
-    >
-    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`} aria-busy="true">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
-        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-        <div className="space-y-1.5">
-          <Skel className="hidden h-3 w-64 md:block" />
-          <Skel className="h-6 w-40" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skel className="h-9 w-10 rounded-lg" />
-          <Skel className="h-9 w-9 rounded-lg" />
-        </div>
-      </header>
-
-      {/* bottom navigation (phones) — three real-sized slots */}
-      <nav className={mobileBottomNav} aria-hidden>
-        {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
-            <Skel className="h-9 w-9 rounded-xl" />
-            <Skel className="h-2 w-12" />
-          </div>
-        ))}
-      </nav>
-
-      {/* the Account tab (the one everyone lands on): details card, then the
-          full-width password card */}
-      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <SkelCard lines={2} sub={false} />
-        <div className={`${card} sm:col-span-2`}>
-          <Skel className="h-4 w-36" />
-          <Skel className="mt-2 h-3 w-72 max-w-full" />
-          <div className="mt-3 space-y-2">
-            <Skel className="h-9 w-full sm:max-w-72" />
-            <Skel className="h-9 w-full sm:max-w-72" />
-            <Skel className="h-9 w-32" />
-          </div>
-        </div>
-      </div>
-      <Skel className="mx-auto mt-6 mb-2 h-3 w-40" />
-    </div>
-    </AppShell>
-  );
+  /* v1.228.0 - the portal's own first paint: the same rail, header and bar
+     the console shell draws, so nothing jumps when the page takes over */
+  return <PortalSkeleton />;
 }
 
 export default function AccountPage() {
@@ -180,101 +130,32 @@ export default function AccountPage() {
      v1.23.0 (CEO: "Where is the sidebar?"): the navy icon rail too — the
      same SidebarNav, fed the three customer sections. The desktop pill row
      is retired; phones keep the bottom navigation. */
+  /* v1.228.0 (the owner, 30-10-2026: "/admin and /account should follow the
+     interface of /portal"): the client area wears the portal's chrome - the
+     light grouped rail, the .erp-topbar header, the tinted phone bar and the
+     More sheet - through components/layout/console-shell.tsx. The three
+     sections and everything in them are unchanged. */
+  const ACCOUNT_TABS = ["Account", "Orders", "Enquiries"] as const;
+  const tabName = (t: (typeof ACCOUNT_TABS)[number]) => t === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : t === "Orders" ? L("My Orders", "Pesanan Saya") : L("My Account", "Akaun Saya");
   return (
-    <AppShell
-      rail={
-        <SidebarNav
-          items={(["Account", "Orders", "Enquiries"] as const).map((t) => ({ name: t, label: t === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : t === "Orders" ? L("Orders", "Pesanan") : L("Account", "Akaun") }))}
-          active={tab}
-          onSelect={(t) => setTab(t as "Account" | "Orders" | "Enquiries")}
-          onSignOut={() =>
-            void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
-              () => window.location.replace("/"),
-            )
-          }
-        />
+    <ConsoleShell
+      eyebrow={L("A2Z Client Portal", "Portal Klien A2Z")}
+      items={ACCOUNT_TABS.map((t) => ({ name: t, label: tabName(t) }))}
+      sections={[{ title: "Client", tabs: [...ACCOUNT_TABS] }]}
+      active={tab}
+      onSelect={(t) => setTab(t as (typeof ACCOUNT_TABS)[number])}
+      title={tab === "Account" ? `${L("Welcome", "Selamat datang")}, ${user.name.split(" ")[0]}` : tabName(tab)}
+      user={user}
+      lang={lang}
+      onLang={setLangState}
+      primaryCount={3}
+      onSignOut={() =>
+        void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
+          () => window.location.replace("/"),
+        )
       }
     >
-    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
       {toastNode}
-      {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
-          the sticky header overhung the viewport by 4px each side. */}
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
-        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-        <div>
-          {/* v1.27.0: the customer area never named the company anywhere.
-              It is A2Z CREATIVE MARKETING's client portal — say so. */}
-          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            {L("A2Z CREATIVE MARKETING / Client Portal", "A2Z CREATIVE MARKETING / Portal Klien")}
-          </p>
-          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            {L("Welcome", "Selamat datang")}, {user.name.split(" ")[0]}
-          </h1>
-          {/* v1.11.0: app screen title weight/size, matching /portal. */}
-          <h1 className="text-xl font-bold tracking-tight md:hidden">
-            {tab === "Enquiries" ? L("My Enquiries", "Pertanyaan Saya") : tab === "Orders" ? L("My Orders", "Pesanan Saya") : L("My Account", "Akaun Saya")}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* EN/BM toggle — same control as the portal header (btnHdr, not
-              btnHdrDesktop: customers have no mobile Preferences sheet, so
-              the switch must stay visible on phones). */}
-          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
-            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
-            {lang === "ms" ? "BM" : "EN"}
-          </button>
-          {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
-          <button
-            type="button"
-            className={`${btnGhost} px-2.5`}
-            title={L("Sign out", "Log keluar")}
-            aria-label={L("Sign out", "Log keluar")}
-            onClick={() =>
-              void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
-                () => window.location.replace("/"),
-              )
-            }
-          >
-            <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-          </button>
-        </div>
-      </header>
-
-      {/* v1.23.0: the desktop pill row is retired — the icon rail (left,
-          same as /portal) is the desktop navigation now. */}
-
-      {/* App-style bottom navigation (v1.4.55) — phones only.
-          v1.11.0: same shell as /portal and /admin — icon per tab, the active
-          one in a filled navy rounded square with the label beneath. */}
-      <nav
-        className={mobileBottomNav}
-        aria-label={L("Account sections (mobile)", "Bahagian akaun (mudah alih)")}
-      >
-        {/* v1.16.0: emoji tuples -> the shared SVG icon map. */}
-        {(["Account", "Orders", "Enquiries"] as const).map((t) => {
-          const active = tab === t;
-          return (
-            <button
-              key={t}
-              type="button"
-              onClick={() => { setTab(t); window.scrollTo({ top: 0 }); }}
-              aria-current={active ? "page" : undefined}
-              className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
-            >
-              <span
-                aria-hidden
-                className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
-                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
-                }`}
-              >
-                <TabIcon name={t} />
-              </span>
-              <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{t === "Enquiries" ? L("Enquiries", "Pertanyaan") : t === "Orders" ? L("Orders", "Pesanan") : L("Account", "Akaun")}</span>
-            </button>
-          );
-        })}
-      </nav>
-
       {tab === "Account" && (
       <div key="acct" className="screen-enter mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className={card}>
@@ -559,7 +440,6 @@ export default function AccountPage() {
       <p className="text-muted-foreground mt-6 pb-2 text-center text-xs">
         <Link className="underline" href="/privacy">{L("Privacy Notice (PDPA)", "Notis Privasi (PDPA)")}</Link>
       </p>
-    </div>
-    </AppShell>
+    </ConsoleShell>
   );
 }

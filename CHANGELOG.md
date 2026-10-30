@@ -10,6 +10,65 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.229.0] - 2026-10-30 - On Shift owns the clock; the Dashboard summarises
+
+The owner's brief, 30-10-2026: "ONE FUNCTION. ONE OWNER. MULTIPLE READ-ONLY
+SUMMARY VIEWS." Answers: "Yes, summary only", "Open On Shift", "My Shift card
+like Image 1", "Phone header subtitle", "Tiles open My attendance". No API,
+table, attendance rule or payroll change.
+
+- **Today's Shift (Dashboard).** My Day's clock card (analog clock, Check In
+  and Check Out, OT buttons - v1.184.0) is replaced by a compact, read-only
+  card: a status chip (Not started, On shift, Between shifts, Completed, On
+  leave, Public holiday, No shift today, Needs review, Not confirmed), clock
+  in / clock out / worked (or "On shift for", running from the server's
+  clock-in), the scheduled shift before the day starts, and one button that
+  opens On Shift. It is built from the state On Shift reads (the punches,
+  today-shift, the month statuses, the offline outbox, the shared pairing
+  rule) - no request of its own, nothing invented on a rest day.
+- **One owner.** The Overview's My Shift card is the same element; the header
+  chip and the Check in/out quick action open On Shift. Every punch is
+  pressed on On Shift, through the one `punch()`.
+- **On Shift, Image 1.** The card subtitle "Your work summary for today", the
+  gold underline under the timer, "All shifts clocked" when nothing is left,
+  the four tiles with icon wells and chevrons in a 2 x 2 grid (each opens My
+  attendance for those who may), gold-edged punch rows, Apply leave (outline)
+  beside the navy My attendance.
+- **Phone header.** A small line under the title: the date on Today, "A2Z
+  Creative Marketing" on On Shift.
+- **Guards.** New `tests/today-shift-summary.mjs` (32 checks, 7 mutations
+  caught: a punch button on My Day, a request in the card, the open state read
+  as done, the link sent back to My Day, a held punch shown as done, tiles
+  opening Attendance for everybody, the subtitle on every tab).
+  `clock-sessions`, `on-shift-module`, `tab-zones`, `interface-system`,
+  `interface-v3` and `dashboard-overview` updated to the approved behaviour
+  (they held v1.184.0's "both punch").
+
+## [1.228.0] - 2026-10-30 - /admin and /account in the /portal interface
+
+The owner, 30-10-2026: "/admin and /account should follow the interface of
+/portal. do sync it now". No API, data or permission change.
+
+- **One chrome for all three consoles.** /admin, /admin/permissions and
+  /account now draw the portal's own pieces through
+  `components/layout/console-shell.tsx`: the light grouped rail (SideNav,
+  collapsible, remembered), the `.erp-topbar` header (avatar, eyebrow,
+  section title, colour preset, EN/BM, dark mode, sign out), and on phones
+  the tinted bottom bar with a More sheet (the other sections, grouped,
+  plus preferences and sign out). The v1.23.0 navy icon rail and the old
+  headers are gone from these pages.
+- **Grouping.** Admin: Overview (Dashboard), Content (Website, Portfolio,
+  Testimonials, Posts, Media, Advanced), Leads (Enquiries), People (Staff,
+  Users), System (Audit), Account. Client area: Client (My Account, My
+  Orders, My Enquiries). Tabs, their order, the role gates and every panel
+  are unchanged.
+- **Shared preferences.** The same keys as the portal (azone-theme,
+  azone-theme-preset, azone-lang, azone-nav-collapsed); dark mode is now
+  applied before the first paint on /admin and /account too.
+- **First paint** uses the portal's skeleton.
+- `SideNav` takes an optional `sections`; the portal passes none.
+  Guards `shell-scroll`, `pwa-calendar` follow the console shell.
+
 ## [1.227.0] - 2026-10-30 - Commission configuration: packages, closers, one page
 
 The owner's Commission Configuration brief and answers, 30-10-2026

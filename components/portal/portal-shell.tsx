@@ -34,7 +34,7 @@ import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { FAVOURITES_MAX, favouritesFull, toggleFavourite } from "@/lib/favourites";
 import { clearApiCache } from "@/lib/cached-api";
-import { revealAnchor } from "@/components/portal/page-shared";
+import { revealAnchor, mytTodayLine } from "@/components/portal/page-shared";
 import { REVENUE_ROLES } from "@/components/portal/dashboard";
 import { PORTAL_WIDTH, btnGhost, btnHdr, btnHdrDesktop, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { L } from "@/components/portal/page-shared";
@@ -235,6 +235,14 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   ? tr("Today", lang)
                   : tr(activeTab, lang)}
               </h1>
+              {/* v1.229.0 - the owner's references (30-10-2026, answer
+                  "Phone header subtitle"): one small line under the title
+                  on phones - the date on Today, the company on On Shift */}
+              {(activeTab === "Dashboard" || activeTab === "On Shift") && (
+                <p className={`erp-phone-only ${css.phoneSub}`}>
+                  {activeTab === "Dashboard" ? mytTodayLine(lang) : "A2Z Creative Marketing"}
+                </p>
+              )}
             </div>
           </div>
           <div className={css.tools}>

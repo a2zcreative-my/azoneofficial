@@ -517,3 +517,227 @@
 @media (min-width: 1024px) {
   .oToday, .oRecent, .oWeek { order: 0; }
 }
+
+/* ---- v1.229.0 - Today's Shift, the Dashboard's summary (Image 2) ---- */
+.ts {
+  display: grid;
+  gap: 0.875rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--gold-solid) 30%, var(--border));
+  border-radius: var(--erp-radius-card, 16px);
+  background: var(--tint-gold);
+  min-width: 0;
+}
+.tsHead {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+.tsIcon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gold-solid) 22%, transparent);
+  color: var(--brand-accent-deep);
+}
+.tsIcon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.tsTitle {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--type-card-size, 1rem);
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 0;
+}
+.tsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+.tsCell {
+  display: grid;
+  gap: 0.125rem;
+  padding-inline: 0.75rem;
+  border-inline-start: 1px solid color-mix(in srgb, var(--gold-solid) 30%, var(--border));
+  min-width: 0;
+}
+.tsCell:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+.tsWide {
+  grid-column: 1 / -1;
+}
+.tsCell dt {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.tsCell dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+.tsNote {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.tsBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tsBtn svg {
+  width: 1rem;
+  height: 1rem;
+}
+.tsBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---- v1.229.0 - On Shift, the My Shift card as Image 1 ---- */
+.cardSub {
+  margin: 0.125rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.titleBlock {
+  display: grid;
+  min-width: 0;
+}
+.underline {
+  display: block;
+  width: 7.5rem;
+  height: 3px;
+  margin-top: 0.25rem;
+  border-radius: 999px;
+  background: var(--gold-solid);
+}
+.tileBtn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-panel, 12px);
+  background: var(--card);
+  text-align: start;
+  color: inherit;
+  min-width: 0;
+}
+button.tileBtn {
+  cursor: pointer;
+}
+button.tileBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.tileWell {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+}
+.tileWell svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.wellIn { background: var(--info-soft); color: var(--info); }
+.wellOut { background: var(--tint-navy); color: var(--primary); }
+.wellHours { background: var(--success-soft); color: var(--success); }
+.wellShifts { background: var(--tint-gold); color: var(--brand-accent-deep); }
+.tileText {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+/* v1.229.0 - Image 1 is a 2 x 2 grid on every width: with a well and a
+   chevron, four in a row left the figure ~60px and broke "08:52" and
+   "Running" mid-word. Labels wrap only between words; a figure never wraps. */
+.tiles:has(> .tileBtn) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.tileBtn .tileLabel {
+  overflow-wrap: normal;
+  letter-spacing: 0.04em;
+}
+.tileBtn .tileValue {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+@media (max-width: 639.98px) {
+  .tileBtn {
+    gap: 0.5rem;
+    padding: 0.625rem 0.5rem 0.625rem 0.625rem;
+  }
+  .tileWell {
+    width: 2.125rem;
+    height: 2.125rem;
+    border-radius: 0.625rem;
+  }
+  .tileWell svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .tileBtn .tileValue {
+    font-size: 1rem;
+  }
+}
+.tileChevron {
+  color: var(--muted-foreground);
+}
+.tileChevron svg {
+  width: 1rem;
+  height: 1rem;
+}
+.allDone {
+  justify-self: center;
+}
+.sessionGold {
+  border-inline-start: 3px solid var(--gold-solid);
+  background: var(--tint-gold);
+}
+.actionBtn {
+  min-height: 52px;
+  gap: 0.5rem;
+}
+.actionBtn svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+/* v1.229.0 - two buttons in half a phone each: no overflow past the card,
+   and the trailing arrow gives way below 640px (the label carries it) */
+@media (max-width: 639.98px) {
+  .actionBtn {
+    min-width: 0;
+    padding-inline: 0.625rem;
+    font-size: 0.875rem;
+  }
+  .actionBtn svg:last-child:not(:first-child) {
+    display: none;
+  }
+}

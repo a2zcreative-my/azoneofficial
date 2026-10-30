@@ -94,6 +94,7 @@ export function ShiftTimer({ state, openSince, workedMinutes, firstIn, lastOut }
         <p className={`${css.timerValue} ${css.timerLive}`} role="timer" aria-label={L(`On shift for ${hh} hours ${Math.floor((s % 3600) / 60)} minutes`, `Sedang syif selama ${hh} jam ${Math.floor((s % 3600) / 60)} minit`)}>
           {pad(hh)}:{pad(Math.floor((s % 3600) / 60))}<span className={css.timerSec}>:{pad(s % 60)}</span>
         </p>
+        <span className={css.underline} aria-hidden />
         <p className={css.timerCaption}>
           {L(`On shift since ${mytHm(openSince)} MYT`, `Sedang syif sejak ${mytHm(openSince)} MYT`)}
           {mytDay(openSince) !== mytToday() && <> · {L("began yesterday", "bermula semalam")}</>}
@@ -111,6 +112,7 @@ export function ShiftTimer({ state, openSince, workedMinutes, firstIn, lastOut }
     return (
       <div className={css.timer}>
         <p className={css.timerValue}>{hoursLabel(workedMinutes)}</p>
+        <span className={css.underline} aria-hidden />
         <p className={css.timerCaption}>
           {L("Worked today", "Bekerja hari ini")}{firstIn ? ` · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}` : ""}
         </p>
@@ -153,7 +155,7 @@ export function SessionRows({ sessions, known }: { sessions: Session[]; known: b
   return (
     <ol className={css.sessions} aria-label={L("Today's punches", "Punch hari ini")}>
       {sessions.map((s, i) => (
-        <li key={s.in} className={css.session}>
+        <li key={s.in} className={`${css.session} ${css.sessionGold}`}>
           <span className={css.sessionNo}>{L(`Shift ${i + 1}`, `Syif ${i + 1}`)}</span>
           <span className={css.sessionTimes}>
             <span className={css.inTime}>{mytHm(s.in)}</span>
@@ -436,3 +438,93 @@ export function WaitingPunches({ list }: { list: WaitingPunch[] }) {
 }
 
 export const chipForState = (s: ShiftState): string => (s === "open" ? chipSuccess : s === "done" ? chipNeutral : s === "idle" ? chipWarn : chipInfo);
+
+/* ------------------------------------------------------------------ */
+/* v1.229.0 - TODAY'S SHIFT, the Dashboard's read-only summary          */
+/* ------------------------------------------------------------------ */
+
+/* The owner's brief, 30-10-2026 ("ONE FUNCTION. ONE OWNER. MULTIPLE
+   READ-ONLY SUMMARY VIEWS") and his answer "Yes, summary only": the
+   Dashboard no longer draws a clock or a punch button. It shows where the
+   day stands - from the SAME state On Shift reads (the Dashboard component's
+   one load(): today's punches, today-shift, the month's day statuses, the
+   outbox) - and one button to On Shift, where the punch is. Nothing here
+   computes a figure of its own: hours are the shared pairing rule
+   (sessionMinutes), the state is the server's, a day status is the
+   server's word for the day. Nothing is invented for a day with no shift. */
+export type TodayShiftKind = "loading" | "error" | "waiting" | "review" | "open" | "between" | "done" | "leave" | "holiday" | "rest" | "idle";
+
+export function todayShiftKind(p: {
+  known: boolean; error: boolean; waiting: number; state: ShiftState; canClockIn: boolean;
+  dayStatus: MonthDay["status"] | null; leaveReview: boolean; hasSlots: boolean;
+}): TodayShiftKind {
+  if (!p.known) return p.error ? "error" : "loading";
+  if (p.waiting > 0) return "waiting";
+  if (p.leaveReview || p.dayStatus === "awaiting_approval") return "review";
+  if (p.state === "open") return "open";
+  if (p.state === "done") return p.canClockIn ? "between" : "done";
+  if (p.dayStatus === "leave") return "leave";
+  if (p.dayStatus === "holiday") return "holiday";
+  if (!p.hasSlots || p.dayStatus === "rest_day") return "rest";
+  return "idle";
+}
+
+export function TodayShiftCard({ kind, firstIn, lastOut, openSince, workedMinutes, scheduled, onOpen }: {
+  kind: TodayShiftKind;
+  firstIn: string | null;
+  lastOut: string | null;
+  /** the server's open clock-in (UTC, as stored), while on shift */
+  openSince: string | null;
+  /** today's closed sessions, minutes (the shared pairing rule) */
+  workedMinutes: number;
+  /** today's scheduled shifts as the server labels them ("09:00-17:00") */
+  scheduled: string | null;
+  onOpen: () => void;
+}) {
+  const now = useTick(kind === "open" && !!openSince, 30000);
+  const running = kind === "open" && openSince ? Math.max(0, Math.floor((now - utcMs(openSince)) / 60000)) : 0;
+  const CHIP: Record<TodayShiftKind, [string, string, string]> = {
+    loading: ["", "", chipNeutral], error: ["Not loaded", "Tidak dimuatkan", chipWarn],
+    waiting: ["Not confirmed", "Belum disahkan", chipWarn], review: ["Needs review", "Perlu semakan", chipWarn],
+    open: ["On shift", "Sedang syif", chipSuccess], between: ["Between shifts", "Antara syif", chipInfo],
+    done: ["Completed", "Selesai", chipSuccess], leave: ["On leave", "Bercuti", chipInfo],
+    holiday: ["Public holiday", "Cuti umum", chipInfo], rest: ["No shift today", "Tiada syif hari ini", chipNeutral],
+    idle: ["Not started", "Belum bermula", chipWarn],
+  };
+  const NOTE: Partial<Record<TodayShiftKind, [string, string]>> = {
+    error: ["Your day could not be loaded. Open On Shift to retry.", "Hari anda tidak dapat dimuatkan. Buka Syif Saya untuk cuba lagi."],
+    waiting: ["A punch is waiting on this phone for a signal - it counts once the server confirms it.", "Satu punch menunggu isyarat pada telefon ini - ia dikira selepas pelayan mengesahkannya."],
+    review: ["Today's attendance is waiting for management review.", "Kehadiran hari ini menunggu semakan pengurusan."],
+    leave: ["Approved leave - nothing to clock today.", "Cuti diluluskan - tiada apa perlu didaftar hari ini."],
+    holiday: ["Public holiday on your working pattern.", "Cuti umum pada corak kerja anda."],
+    rest: ["Nothing is scheduled for you today.", "Tiada apa dijadualkan untuk anda hari ini."],
+  };
+  const showTimes = ["open", "between", "done", "review", "waiting"].includes(kind) && !!firstIn;
+  return (
+    <section className={css.ts} aria-label={L("Today's shift", "Syif hari ini")}>
+      <div className={css.tsHead}>
+        <span className={css.tsIcon} aria-hidden><AppIcon name="time" /></span>
+        <h3 className={css.tsTitle}>{L("Today's Shift", "Syif Hari Ini")}</h3>
+        {kind !== "loading" && <span className={CHIP[kind][2]} role="status">{L(CHIP[kind][0], CHIP[kind][1])}</span>}
+      </div>
+      {kind === "loading" ? <SkelRows rows={2} /> : showTimes ? (
+        <dl className={css.tsGrid}>
+          <div className={css.tsCell}><dt>{L("Clock in", "Masuk")}</dt><dd>{firstIn}</dd></div>
+          <div className={css.tsCell}><dt>{L("Clock out", "Keluar")}</dt><dd>{kind === "open" ? "—" : lastOut ?? "—"}</dd></div>
+          <div className={css.tsCell}><dt>{kind === "open" ? L("On shift for", "Sedang syif") : L("Worked", "Bekerja")}</dt>
+            <dd>{hoursLabel(kind === "open" ? workedMinutes + running : workedMinutes)}</dd></div>
+        </dl>
+      ) : kind === "idle" ? (
+        <dl className={css.tsGrid}>
+          <div className={`${css.tsCell} ${css.tsWide}`}><dt>{L("Scheduled", "Dijadualkan")}</dt><dd>{scheduled ?? "—"}</dd></div>
+        </dl>
+      ) : null}
+      {NOTE[kind] && <p className={css.tsNote}>{L(NOTE[kind]![0], NOTE[kind]![1])}</p>}
+      <button type="button" className={css.tsBtn} onClick={onOpen}>
+        {kind === "idle" || kind === "between" ? L("Open On Shift to clock in", "Buka Syif Saya untuk daftar masuk")
+          : kind === "open" ? L("Open On Shift", "Buka Syif Saya") : L("View On Shift", "Lihat Syif Saya")}
+        <AppIcon name="next" />
+      </button>
+    </section>
+  );
+}

@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { AppShell } from "@/components/layout/app-shell";
-import { mobileAppBottomClearance } from "@/lib/ui-styles";
+import { useEffect, useState } from "react";
+import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - the portal chrome
+import { api } from "@/lib/api";
+import { getLang, type Lang } from "@/lib/i18n";
+import { signOutRequest } from "@/lib/push-client";
 import { can, type Role } from "@/worker/src/permissions";
 
 /* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same goes
@@ -12,6 +15,16 @@ import { can, type Role } from "@/worker/src/permissions";
    looked like leaving the product. It sits in the same shell now, full
    width, with a way back. The matrix itself is untouched. */
 export default function PermissionsPage() {
+  /* v1.228.0 - the portal chrome (console-shell.tsx), like /admin: the
+     signed-in name for the header and the rail, the shared language */
+  const [me, setMe] = useState<{ name: string; role: string } | null>(null);
+  const [lang, setLang] = useState<Lang>("en");
+  /* skeleton: none — the matrix is static data and renders in full from the first frame; the /auth/me answer only fills the name on the header avatar */
+  useEffect(() => {
+    const load = () => setLang(getLang());
+    load();
+    void api<{ user: { name: string; role: string } }>("/auth/me").then((r) => { if (r.ok && r.data?.user) setMe(r.data.user); });
+  }, []);
   const ROLES: Role[] = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
   
   const PERMISSIONS = [
@@ -30,15 +43,18 @@ export default function PermissionsPage() {
   ];
 
   return (
-    <AppShell
-      rail={
-        <div className="flex h-full flex-col items-center gap-1 py-3">
-          <Link href="/admin" className="mb-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/90 text-xs font-bold text-slate-900" title="Back to the admin console">A</Link>
-          <Link href="/admin" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white/80 hover:bg-white/20" title="Admin console" aria-label="Admin console">←</Link>
-        </div>
-      }
+    <ConsoleShell
+      eyebrow={lang === "ms" ? "Konsol Admin A2Z" : "A2Z Admin Console"}
+      items={[{ name: "Audit", label: lang === "ms" ? "Matriks Kebenaran" : "Permission Matrix" }]}
+      sections={[{ title: "System", tabs: ["Audit"] }]}
+      active="Audit"
+      onSelect={() => undefined}
+      user={me ?? { name: "A2Z", role: "" }}
+      lang={lang}
+      onLang={setLang}
+      onSignOut={() => void signOutRequest().then(() => window.location.replace("/login"))}
     >
-    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
+
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Permission Matrix</h1>
@@ -83,7 +99,6 @@ export default function PermissionsPage() {
           </tbody>
         </table>
       </div>
-    </div>
-    </AppShell>
+    </ConsoleShell>
   );
 }

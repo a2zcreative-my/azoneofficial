@@ -291,7 +291,9 @@ ok("the claim type switch is the V3 segmented control", /className="erp-segmente
 ok("the claim form's call to action is the tab row's action", /<TabAction icon="add" onClick=\{\(\) => openClaims\("submit"\)\}>/.test(claims) && /if \(id === "claims-pending"\) setView\("approvals"\);\s*else if \(id === "claim-form"\) setView\("submit"\);\s*else if \(id === "claims-list"\) setView\("mine"\);/.test(claims));
 ok("a submitted claim returns its author to the list", /id="claims-list"/.test(claims) && (claims.match(/revealAnchor\("claims-list"\);/g) ?? []).length >= 2, String((claims.match(/revealAnchor\("claims-list"\)/g) ?? []).length));
 const dash = stripComments(read("components/portal/dashboard.tsx"));
-ok("the shift hero says the state of the day as one chip", /erp-chip-success" : hasOut \? "erp-chip-neutral" : "erp-chip-warning"/.test(dash));
+/* v1.229.0 - the Dashboard's Today's Shift card says the day as one chip,
+   and On Shift's card as one chip by the server's state */
+ok("the shift summary says the state of the day as one chip", /\{kind !== "loading" && <span className=\{CHIP\[kind\]\[2\]\} role="status">/.test(stripComments(read("components/portal/on-shift.tsx"))) && /<span className=\{chipForState\(shiftState\)\} role="status">/.test(dash));
 ok("the hero's buttons keep the one 44px height on the On Shift tab too", !/min-h-14 text-base/.test(dash));
 
 /* ---- 4. the PWA shell keeps its safe areas ---------------------------- */

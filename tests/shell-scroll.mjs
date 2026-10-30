@@ -92,10 +92,15 @@ ok("the worker records which axis the report is about",
 {
   /* v1.182.0 (P1.1): the portal's AppShell moved into the persistent
      shell component; page.tsx is the module underneath it now. */
-  const APP_VIEWS = ["components/portal/portal-shell.tsx", "app/admin/page.tsx", "app/admin/permissions/page.tsx", "app/account/page.tsx"];
+  /* v1.228.0 - the owner, 30-10-2026: "/admin and /account should follow the
+     interface of /portal". The consoles render ConsoleShell
+     (components/layout/console-shell.tsx), which renders AppShell with the
+     portal's rail; so an app view is "in the shell" through either. */
+  const APP_VIEWS = ["components/portal/portal-shell.tsx", "components/layout/console-shell.tsx", "app/admin/page.tsx", "app/admin/permissions/page.tsx", "app/account/page.tsx"];
+  ok("the console shell is the portal's: AppShell with the grouped SideNav rail", /<AppShell\s+navigation=\{\s*<SideNav/.test(read("components/layout/console-shell.tsx")));
   for (const f of APP_VIEWS) {
     const src = read(f);
-    ok(`${f} renders the shell`, /<AppShell/.test(src),
+    ok(`${f} renders the shell`, /<AppShell/.test(src) || /<ConsoleShell\b/.test(src),
        "an app view outside the shell is a page that looks like leaving the product");
     ok(`${f} does not cap the canvas`, !/maxWidth="md:max-w-(?!none)/.test(src),
        "/portal fills the window - a narrower console beside it reads as a different product");
@@ -121,7 +126,7 @@ ok("the worker records which axis the report is about",
   ok("the V3 topbar is sticky at the top and owns its --hdr-pt",
      /\.erp-topbar \{[^}]*position: sticky;[^}]*top: 0;[^}]*--hdr-pt: 0\.5rem;/.test(v3)
      && /@media \(min-width: 768px\) \{\s*\.erp-topbar \{\s*--hdr-pt: 0\.75rem;/.test(v3));
-  for (const f of ["components/portal/portal-shell.tsx", "app/admin/page.tsx", "app/account/page.tsx"]) {
+  for (const f of ["components/portal/portal-shell.tsx", "components/layout/console-shell.tsx"]) {
     const src = read(f);
     const headers = [...src.matchAll(/<header className="(?:[^"]*sticky top-0[^"]*|erp-topbar[^"]*)"(?:\s*\n?\s*style=\{\{[^}]*\}\})?/g)].map((m) => m[0]);
     ok(`${f} has sticky mobile headers to check`, headers.length > 0);

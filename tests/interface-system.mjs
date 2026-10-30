@@ -44,9 +44,12 @@ ok("record-row commands use the same pill contract",
 ok("high-use operational actions no longer own compact button geometry",
   !/<(?:button|label|a)[^>]*className="[^"]*inline-flex h-(?:7|8|9|10|11)[^"]*rounded/.test(migratedActions)
   && !migratedActions.includes('className="rounded-lg bg-white/15 px-2.5 py-1'));
-ok("Dashboard has one focused shift hero",
-  /className=\{`erp-shift-hero/.test(dashboard)
-  && /btnHeroPrimary/.test(dashboard) && /btnHero/.test(dashboard));
+/* v1.229.0 - the hero clock left the Dashboard (the owner: "summary only");
+   My Day leads with the one Today's Shift card, and the punch is On Shift's. */
+ok("Dashboard leads with one focused shift summary, and On Shift keeps the punch",
+  !/erp-shift-hero/.test(dashboard)
+  && (dashboard.match(/<TodayShiftCard\b/g) ?? []).length === 1
+  && /btnHeroPrimary/.test(dashboard) && /erp-button erp-button-primary \$\{shiftCss\.punchBtn\}/.test(dashboard));
 /* v1.171.0 (the CEO: "clean off my dashboard and resort it based on it own
    function"): the four-tile strip is gone - its figures live in the month
    card - and the events are the work overview's fourth pill. */

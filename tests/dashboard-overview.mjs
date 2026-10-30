@@ -125,7 +125,7 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
   const dashCode = strip(dash);
   ok("Apply leave and Create quotation are the Overview's Quick Actions only, not under the clock",
      !/tr\("Apply leave", lang\)\}\s*<\/button>[\s\S]{0,900}?\{otButtons\}/.test(dashCode) && !/tr\("Create quotation", lang\)/.test(dashCode)
-     && /\{otButtons && <div className=\{shiftOnly \? css\.actionsShift : css\.actions\}>\{otButtons\}<\/div>\}/.test(dashCode)
+     && /\{otButtons && <div className=\{shiftCss\.quick\}>\{otButtons\}<\/div>\}/.test(dashCode)
      && /key: "leave", icon: "holiday", label: L\("Apply leave"/.test(code) && /key: "quote", icon: "document", label: L\("Create quotation"/.test(code));
   ok("the month's leave applications are one card, on the Overview under Upcoming & Pending",
      !/LeaveMonthCard/.test(dashCode) && (code.match(/<LeaveMonthCard /g) ?? []).length === 1

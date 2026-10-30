@@ -248,8 +248,11 @@ ok("the phone is told whether a clock-in is possible, and why not",
    unchanged; it is now expressed by what is OFFERED: on shift → Clock out;
    off shift with a shift left → Clock in; nothing left → neither, and the
    server's own `why_not` sentence says why. */
-ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn, disabled, and the sentence says why)",
-   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash)
+/* v1.229.0 - the punch lives on On Shift only (the owner, 30-10-2026:
+   "ONE FUNCTION. ONE OWNER"). On Shift offers ONE button by the state and
+   says in words why Clock In is not offered. */
+ok("...and On Shift does not OFFER Clock In on that answer",
+   /\) : canClockIn \? \(/.test(dash)
    && /const canClockIn = todayShift\?\.can_clock_in \?\? true;/.test(dash)
    /* v1.213.1 - why_not is a CODE (clock-day.ts: all_claimed | no_slots);
       the owner saw "all_claimed" printed, so the page says it in words */
@@ -263,39 +266,37 @@ ok("...and does not OFFER Check In on that answer (v1.184.0: the button is drawn
      Dashboard therefore uses the neutral title "Attendance" plus a status chip
      and navigation CTA; On Shift says "On Shift" in the title and keeps only
      the time in its chip. */
+  const zoneDay = dashCode.slice(dashCode.indexOf("const zoneDay = ("), dashCode.indexOf("const zoneDesk = ("));
+  const zoneShift = dashCode.slice(dashCode.indexOf("const zoneShift = ("), dashCode.indexOf("const ZONES: Record"));
   ok("the clock shows ONE status and ONE action - the fact is never printed twice",
-     /L\("Attendance", "Kehadiran"\)/.test(dashCode)
-     && /L\(`On shift · clocked in at \$\{openSince\}`/.test(dashCode)
-     && /L\(`Clocked in at \$\{openSince\}`/.test(dashCode)
+     /L\(`Clocked in at \$\{openSince\}`/.test(zoneShift)
+     && /L\(`Clocked out at \$\{lastOut \?\? ""\}`/.test(zoneShift)
      && !/Clocked in ✓/.test(dashCode)
      && !/tr\("Clocked out ✓", lang\)/.test(dashCode),
-     "Dashboard states attendance; On Shift states the punch page and carries the time");
-  ok("a finished shift's two times are on the chip, so nothing below repeats them",
-     /Clocked out · \$\{firstIn\}\$\{lastOut \? ` → \$\{lastOut\}` : ""\}/.test(dashCode));
-  ok("the day's punch record is drawn only when it says something the chip does not",
-     /today\.length \+ todayOt\.length === 0 \|\| today\.length > 2 \|\| todayOt\.length > 0/.test(dashCode)
-     && !/shiftOnly \|\| today\.length \+ todayOt\.length/.test(dashCode),
-     "one clean pair is already on the chip; more than one shift, or any OT, is not");
-  /* v1.176.2 made the Dashboard a handoff into On Shift; v1.184.0 (the
-     owner, 22-10-2026, with his reference card) reversed that: ONE clock card
-     drawn on both pages, and both punch through the SAME punch() - Check In
-     is clock_in, Check Out is clock_out with the forgotten-punch arming, and
-     nothing bounces back to the Dashboard after a punch. There is still no
-     second punch path: one punch(), one punchOt(). */
-  ok("the Dashboard and On Shift share ONE clock card and ONE punch path",
-     !/go\("On Shift"\)/.test(dashCode)
-     /* v1.208.0 - On Shift draws ONE button (Clock In or Clock Out by the
-        state) and the forgotten-punch link; the Dashboard keeps its two.
-        Every one calls the same punch() - still no second punch path. */
-     && (dashCode.match(/void punch\("clock_in"\)/g) ?? []).length === 1
-     && (dashCode.match(/void punch\("clock_out", forgotArmed\)/g) ?? []).length === 1
-     && (dashCode.match(/void press\(\(\) => punch\("clock_in"\)\)/g) ?? []).length === 1
-     && (dashCode.match(/void press\(\(\) => punch\("clock_out"\)\)/g) ?? []).length === 1
-     && (dashCode.match(/void press\(\(\) => punch\("clock_out", forgotArmed\)\)/g) ?? []).length === 1
-     && (dashCode.match(/const punch = async/g) ?? []).length === 1
+     "On Shift states the punch and carries the time; the Dashboard summary carries the state");
+  ok("a finished shift's two times are said once on each page",
+     /firstIn=\{today\.some\(\(r\) => r\.type === "clock_in"\) \? firstIn : null\} lastOut=\{hasOut \? lastOut : null\}/.test(zoneShift)
+     && /firstIn=\{today\.some\(\(r\) => r\.type === "clock_in"\) \? firstIn : null\}\s*lastOut=\{hasOut \? lastOut : null\}/.test(dashCode.slice(dashCode.indexOf("const todayShiftCard = ("))));
+  ok("the day's punch record is drawn per session, on On Shift",
+     (dashCode.match(/<SessionRows sessions=\{sessionsNow\} known=\{attKnown\} \/>/g) ?? []).length === 1
+     && /<SessionRows /.test(zoneShift),
+     "one row per shift; the summary carries only first in, last out and the hours");
+  /* v1.176.2 made the Dashboard a handoff into On Shift; v1.184.0 reversed
+     that (both punched); v1.229.0 (the owner, 30-10-2026: "ONE FUNCTION. ONE
+     OWNER. MULTIPLE READ-ONLY SUMMARY VIEWS", answer "Yes, summary only")
+     restores it: On Shift is the one place a punch is pressed, the Dashboard
+     draws Today's Shift - read-only - and opens On Shift. Still one punch(),
+     one punchOt(). */
+  ok("ONE punch path, pressed on On Shift only; the Dashboard summarises and opens On Shift",
+     (dashCode.match(/const punch = async/g) ?? []).length === 1
      && /const punch = async \(type: string, forgot = false\)/.test(dashCode)
+     && (dashCode.match(/punch\("clock_(in|out)"/g) ?? []).length === 3
+     && (zoneShift.match(/punch\("clock_(in|out)"/g) ?? []).length === 3
+     && !/punch\(|punchOt\(|otButtons|AnalogClock|erp-shift-hero/.test(zoneDay)
+     && /\{todayShiftCard\}/.test(zoneDay)
+     && /onOpen=\{\(\) => go\("On Shift"\)\}/.test(dashCode)
      && !/go\("Dashboard"\)/.test(dashCode),
-     "the same card, the same rules, wherever the person clocks");
+     "the same punch, the same rules - pressed in one place");
   /* v1.176.1 - the rule paragraph and the office-location strip are drawn on
      the page that OWNS the punch, not on both. The Dashboard keeps a summary
      line (the hours, and how many are left) and a link into On Shift. */
@@ -466,17 +467,19 @@ ok("the punches endpoint ships today's shifts, every block",
 ok("the dashboard uses server session state, with the latest punch as legacy fallback",
    /const latestPunch = today\[0\]\?\.type \?\? null;/.test(dash) && /const openNow = todayShift\?\.entry\?\.clocked_in \?\? \(latestPunch === "clock_in"\);/.test(dash),
    "'a clock-in happened today' was true from 11:00 to midnight and made the evening shift unrecordable");
-ok("Check In is offered only while nothing is open AND a shift is left; Check Out while a shift is open, or for the forgotten punch (v1.184.0)",
-   /disabled=\{!!busy \|\| openNow \|\| !canClockIn\}/.test(dash)
-   && /disabled=\{!!busy \|\| !\(openNow \|\| \(canClockIn && !hasOut\)\)\}/.test(dash)
-   && /Check In · next shift/.test(dash)
-   && /L\("Check Out", "Daftar Keluar"\)/.test(dash),
-   "the two buttons are always drawn; what applies is enabled, and the sentence under the tiles says why when nothing is");
-ok("the OT buttons are on the clock card, and disabled once the day's pair is done",
+ok("Clock In is offered only while nothing is open AND a shift is left; Clock Out while a shift is open, or for the forgotten punch",
+   /\{openNow \? \(\s*<button[^>]*>\s*[^]*?punch\("clock_out"\)/.test(dash)
+   && /\) : canClockIn \? \(\s*<button[^]*?punch\("clock_in"\)/.test(dash)
+   && /const forgotOffered = !openNow && canClockIn && !hasOut;/.test(dash)
+   && /Clock In · next shift/.test(dash)
+   && /L\("Clock Out", "Daftar Keluar"\)/.test(dash),
+   "On Shift draws ONE button by the state; the sentence says why when nothing is left");
+ok("the OT buttons are on On Shift's card, and disabled once the day's pair is done",
    /const showOt = otEligible/.test(dash)
    && /punchOt\("ot_in"\)/.test(dash) && /disabled=\{!!busy \|\| !hasOtIn \|\| hasOtOut\}/.test(dash));
-ok("the card names today's shifts - pattern, roster and live board - and says the rule",
-   /Today's shifts: \$\{todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Syif hari ini/.test(dash) && /sent to the CEO as overtime/.test(dash));
+ok("On Shift names today's shifts - pattern, roster and live board - and says the rule; the summary names them before the day starts",
+   /Scheduled hours: \$\{todayShift\.entry\?\.work_label \?\? todayShift\.slots_label \?\? todayShift\.label\}/.test(dash) && /Waktu berjadual/.test(dash) && /sent to the CEO as overtime/.test(dash)
+   && /scheduled=\{todayShift \? \(todayShift\.slots_label \?\? todayShift\.label \?\? null\) : null\}/.test(dash));
 ok("a clock-out that produced overtime says so, in hours",
    /overtime sent for approval/.test(dash) && /OT dihantar untuk kelulusan/.test(dash));
 /* v1.208.0 - the pairing moved into lib/clock-sessions.ts (the server's

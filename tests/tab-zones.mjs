@@ -245,7 +245,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      map), so what this guard holds is that the summary card is still there,
      still above the month and the company, and still not a second copy. */
   ok("the Dashboard's queue is a summary card, above the metrics and the company",
-    ordered(dash, ['<PanelTitle icon="time"', '<DeskSummary', 'L("My month"', '<TradingDesk', 'L("Around me"'])
+    ordered(dash, ['{todayShiftCard}', '<DeskSummary', 'L("My month"', '<TradingDesk', 'L("Around me"'])
     && !/<WatchersCard/.test(dash) && !/<DeskQueue/.test(dash));
   /* v1.188.0 - the Attendance tab is its own tabbed panel (the owner's brief):
      Overview (tiles, the monitor, the donut, quick actions, today's

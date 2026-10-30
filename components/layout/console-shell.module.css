@@ -1,0 +1,166 @@
+/* v1.228.0 - the console shell (/admin, /account): the portal chrome. The
+   same rules as app/portal/portal.module.css for the page, the header
+   identity and the More sheet - copied, not imported, because a CSS Module
+   belongs to the component beside it. Keep the two in step. */
+
+.page {
+  /* no padding-bottom on a phone: .erp-page-clearance owns it there */
+  width: 100%;
+  padding-top: 0.75rem;
+  padding-inline: 1rem;
+}
+@media (min-width: 768px) {
+  .page {
+    padding-top: 1rem;
+    padding-inline: 1.25rem;
+    padding-bottom: 1.5rem;
+  }
+}
+
+/* ---- topbar ---- */
+.identity {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 0.5rem;
+}
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px var(--brand-accent);
+}
+.avatarInitial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+.tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+.langButton {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+}
+
+/* ---- the More sheet ---- */
+.moreBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+@media (min-width: 768px) {
+  .moreBackdrop {
+    display: none;
+  }
+}
+.moreScrim {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.4);
+}
+.moreHead {
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.moreSpacer {
+  width: 2.25rem;
+}
+.moreGrip {
+  margin-inline: auto;
+  height: 0.375rem;
+  width: 3rem;
+  border-radius: 9999px;
+  background: var(--border);
+}
+.moreClose {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  color: var(--muted-foreground);
+}
+.moreSection {
+  margin-bottom: 1rem;
+}
+.moreSection:last-child {
+  margin-bottom: 0;
+}
+.moreLabel {
+  margin-bottom: 0.375rem;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.moreLabelPrefs {
+  margin-top: 1rem;
+}
+.moreGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+.moreTab {
+  display: flex;
+  min-height: 4rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+}
+.moreTabOn {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.morePref {
+  display: flex;
+  min-height: 3.5rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  font-size: 11px;
+  font-weight: 500;
+}
+@media (hover: hover) {
+  .moreTab:not(.moreTabOn):hover,
+  .morePref:hover {
+    background: var(--secondary);
+  }
+}
+.moreLang {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+}
+.moreFoot {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}

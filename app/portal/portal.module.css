@@ -447,3 +447,15 @@
 .privacyNote a {
   text-decoration-line: underline;
 }
+
+/* v1.229.0 - the small line under the phone title (Today: the date; On
+   Shift: the company) */
+.phoneSub {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

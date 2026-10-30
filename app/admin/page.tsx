@@ -6,7 +6,6 @@
  * (same origin via the azoneofficial.com/api/* route).
  */
 
-import { TabIcon, LogOut, Ellipsis, CloseX } from "@/components/layout/nav-icons";
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unbinds this device's push
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
@@ -22,15 +21,15 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
-import { btnClass, btnGhost, btnHdr, card, inputClass, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
-import { AppShell } from "@/components/layout/app-shell";
-import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
+import { PortalSkeleton } from "@/components/portal/portal-skeleton"; // v1.228.0
+import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - the portal chrome
 import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { getLang, setLang as persistLang, type Lang } from "@/lib/i18n";
-import { Skel, SkelCard, SkelText } from "@/components/ui/skeleton"; // v1.77.0
+import { getLang, type Lang } from "@/lib/i18n";
+import { Skel, SkelText } from "@/components/ui/skeleton"; // v1.77.0
 
 const API = "/api/v1";
 
@@ -998,6 +997,16 @@ const TAB_MS: Record<Tab, string> = {
   Advanced: "Lanjutan",
 };
 const tabLabel = (t: Tab) => L(t, TAB_MS[t]);
+/* v1.228.0 - how the rail and the More sheet group the admin tabs (the
+   portal's grouped-rail pattern, components/layout/side-nav.tsx) */
+const ADMIN_SECTIONS = [
+  { title: "Overview", tabs: ["Dashboard"] },
+  { title: "Content", tabs: ["Website", "Portfolio", "Testimonials", "Posts", "Media", "Advanced"] },
+  { title: "Leads", tabs: ["Enquiries"] },
+  { title: "People", tabs: ["Staff", "Users"] },
+  { title: "System", tabs: ["Audit"] },
+  { title: "Account", tabs: ["Account"] },
+];
 
 /* v1.11.0: the mobile bottom nav shows an icon per tab, exactly like /portal.
    v1.16.0: the local emoji map is gone — admin's tab names live in the shared
@@ -1044,84 +1053,22 @@ const TAB_HELP_MS: Record<Tab, string> = {
    the Dashboard's own layout, bottom nav on phones), so nothing jumps when the
    real console takes over. No hooks, no fetch. */
 function AdminPageSkeleton() {
-  return (
-    <AppShell
-      rail={
-        <div className="flex h-full flex-col items-center gap-1 py-3" aria-hidden>
-          <div className="mb-2 h-8 w-8 shrink-0 rounded-lg bg-white/90" />
-          {Array.from({ length: 10 }, (_, i) => (
-            <div key={i} className="h-10 w-10 shrink-0 rounded-xl bg-white/10" />
-          ))}
-        </div>
-      }
-    >
-    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`} aria-busy="true">
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
-        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-        <div className="space-y-1.5">
-          <Skel className="hidden h-3 w-64 md:block" />
-          <Skel className="h-6 w-36" />
-        </div>
-        <div className="flex items-center gap-3">
-          <Skel className="h-4 w-32" />
-          <Skel className="h-9 w-10 rounded-lg" />
-          <Skel className="h-9 w-9 rounded-lg" />
-        </div>
-      </header>
-
-      {/* bottom navigation (phones) — four tab slots + More, like the real one */}
-      <nav className={mobileBottomNav} aria-hidden>
-        {Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2">
-            <Skel className="h-9 w-9 rounded-xl" />
-            <Skel className="h-2 w-12" />
-          </div>
-        ))}
-      </nav>
-
-      <main className="mt-4 md:mt-8">
-        <Skel className="-mt-2 mb-4 h-3 w-72 max-w-full" />
-        {/* the Dashboard card — the tab everyone lands on: five stat tiles,
-            then the activity list */}
-        <div className={card}>
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {Array.from({ length: 5 }, (_, i) => (
-                <div key={i} className="rounded-xl border border-border p-5">
-                  <Skel className="h-9 w-16" />
-                  <Skel className="mt-2 h-3.5 w-28" />
-                </div>
-              ))}
-            </div>
-            <div>
-              <Skel className="h-4 w-32" />
-              <SkelText lines={4} className="mt-3" />
-            </div>
-          </div>
-        </div>
-        <SkelCard lines={2} className="mt-4 md:mt-6" />
-      </main>
-    </div>
-    </AppShell>
-  );
+  /* v1.228.0 - the portal's own first paint: the same rail, header and bar
+     the console shell draws, so nothing jumps when the page takes over */
+  return <PortalSkeleton />;
 }
 
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [tab, setTab] = useState<Tab>("Dashboard");
-  const [moreOpen, setMoreOpen] = useState(false);
   /* v1.25.7: EN/BM toggle — same storage as /portal. State lives here so
      flipping it re-renders the whole console (L() re-reads per render).
      Hydrated in an effect because localStorage is client-only. */
   const [lang, setLangState] = useState<Lang>("en");
   useEffect(() => { setLangState(getLang()); }, []);
 
-  // While the More sheet is open, the page behind must not scroll.
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [moreOpen]);
+  // v1.228.0 - the More sheet (and its scroll lock) lives in ConsoleShell now.
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -1198,176 +1145,25 @@ export default function AdminPage() {
      admin tabs. The desktop pill row is gone (the rail replaces it, exactly
      like /portal); phones keep the bottom navigation. */
   const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
+  /* v1.228.0 (the owner, 30-10-2026: "/admin and /account should follow the
+     interface of /portal"): the console now wears the portal's chrome -
+     the light grouped rail, the .erp-topbar header, the tinted phone bar and
+     the More sheet - through components/layout/console-shell.tsx. The tabs,
+     their order, the role gates and every panel below are unchanged. */
   return (
-    /* v1.88.2 (CEO: "on /admin the UI/UX should same width as /portal. same
-       goes to other. everything must follow like /portal UI/UX") — the canvas
-       was capped at max-w-6xl (1152px) while /portal has filled the window
-       since v1.74.0, so on the same monitor the two consoles were different
-       widths and read as two products. The cap is gone here and on the inner
-       column; nothing else about the layout changes. */
-    <AppShell
-      rail={
-        <SidebarNav
-          items={visibleTabs.map((t) => ({ name: t, label: tabLabel(t) }))}
-          active={tab}
-          onSelect={(t) => { setTab(t as Tab); setMoreOpen(false); }}
-          onSignOut={() => void logout()}
-        />
-      }
+    <ConsoleShell
+      eyebrow={L("A2Z Admin Console", "Konsol Admin A2Z")}
+      items={visibleTabs.map((t) => ({ name: t, label: tabLabel(t) }))}
+      sections={ADMIN_SECTIONS}
+      active={tab}
+      onSelect={(t) => setTab(t as Tab)}
+      title={tabLabel(tab)}
+      phoneTitle={tabLabel(tab)}
+      user={user}
+      lang={lang}
+      onLang={setLangState}
+      onSignOut={() => void logout()}
     >
-    <div className={`w-full px-4 py-4 md:px-6 md:py-6 md:pb-8 ${mobileAppBottomClearance}`}>
-      {/* v1.11.0: -mx-4/px-4 matches the wrapper's mobile padding — with -mx-5
-          the sticky header overhung the viewport by 4px each side. */}
-      <header className="border-border bg-background/95 sticky top-0 z-30 -mx-4 flex flex-wrap items-center justify-between gap-4 border-b px-4 pb-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none [--hdr-pt:0.75rem] md:[--hdr-pt:0px]"
-        style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
-        <div>
-          {/* v1.27.0: the console's main header. It was the only monolingual
-              string left in /admin, so it gets its BM twin here too. */}
-          <p className="text-gold-deep hidden text-xs font-medium tracking-[0.3em] uppercase md:block">
-            {L("A2Z CREATIVE MARKETING — Admin Portal", "A2Z CREATIVE MARKETING — Portal Admin")}
-          </p>
-          {/* v1.23.0: with the pill row retired for the rail, the desktop
-              heading names the ACTIVE SECTION (portal pattern). */}
-          <h1 className="hidden text-xl font-semibold tracking-tight md:block">
-            {tabLabel(tab)}
-          </h1>
-          {/* v1.11.0: on phones this reads as an app screen title, matching
-              /portal's mobile h1 weight and size. */}
-          <h1 className="text-xl font-bold tracking-tight md:hidden">{tabLabel(tab)}</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-muted-foreground text-sm">
-            {user.name} · {user.role}
-          </span>
-          {/* v1.25.7: EN/BM — the portal's header toggle, verbatim (btnHdr on
-              all sizes: admin has no mobile Preferences sheet to fall back to). */}
-          <button type="button" className={`${btnHdr} text-xs font-semibold`} title={lang === "ms" ? "Bahasa: BM — tukar ke English" : "Language: EN — switch to Bahasa Melayu"}
-            aria-label="Toggle language" onClick={() => { const next = lang === "ms" ? "en" : "ms"; setLangState(next); persistLang(next); }}>
-            {lang === "ms" ? "BM" : "EN"}
-          </button>
-          {/* v1.16.0 (CEO): icon-only sign out — minimal width. */}
-          <button type="button" className={`${btnGhost} px-2.5`} title={L("Sign out", "Log keluar")} aria-label={L("Sign out", "Log keluar")} onClick={() => void logout()}>
-            <LogOut aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-          </button>
-        </div>
-      </header>
-
-      {/* v1.23.0: the desktop pill row is retired — the icon rail (left,
-          same as /portal) is the desktop navigation now. */}
-
-      {/* App-style bottom navigation (v1.4.55) — phones only. */}
-      {(() => {
-        const visible = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
-        const primary = visible.slice(0, 4);
-        const rest = visible.slice(4);
-        return (
-          <>
-            <nav
-              className={mobileBottomNav}
-              aria-label={L("Admin sections (mobile)", "Seksyen admin (mudah alih)")}
-            >
-              {/* v1.11.0 (reference design, ported from /portal): each tab
-                  shows its icon; the active one sits in a filled navy rounded
-                  square with the label in navy underneath. */}
-              {primary.map((t) => {
-                const active = tab === t && !moreOpen;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                    aria-current={active ? "page" : undefined}
-                    className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
-                  >
-                    <span
-                      aria-hidden
-                      className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
-                        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
-                      }`}
-                    >
-                      <TabIcon name={t} />
-                    </span>
-                    {/* truncate: longer names ("Testimonials") must not wrap
-                        and unbalance the row on narrow phones */}
-                    <span className={`w-full truncate px-0.5 text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{tabLabel(t)}</span>
-                  </button>
-                );
-              })}
-              {/* Unlike /portal, admin's More sheet holds only overflow tabs —
-                  there are no mobile Preferences here — so gating on
-                  rest.length stays correct. */}
-              {rest.length > 0 && (() => {
-                const active = moreOpen || rest.includes(tab);
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setMoreOpen((v) => !v)}
-                    className="flex min-h-16 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium"
-                  >
-                    <span
-                      aria-hidden
-                      className={`grid h-9 w-9 place-items-center rounded-xl text-base transition-colors ${
-                        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
-                      }`}
-                    >
-                      <Ellipsis aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.75} />
-                    </span>
-                    <span className={`w-full truncate text-center leading-[1.6] ${active ? "text-primary font-semibold" : "text-muted-foreground"}`}>{L("More", "Lagi")}</span>
-                  </button>
-                );
-              })()}
-            </nav>
-            {moreOpen && (
-              <div className="fixed inset-0 z-30 md:hidden">
-                <button
-                  type="button"
-                  aria-label={L("Close menu", "Tutup menu")}
-                  className="absolute inset-0 cursor-pointer bg-black/40"
-                  onClick={() => setMoreOpen(false)}
-                />
-                {/* v1.11.0: bottom padding clears the taller nav PLUS the
-                    phone's home-indicator inset — pb-16 left the last row of
-                    tabs half-covered and untappable on notched iPhones. */}
-                <div className={sheetCard}>
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="w-9" />
-                    <button
-                      type="button"
-                      aria-label={L("Close menu", "Tutup menu")}
-                      className="bg-border mx-auto h-1.5 w-12 rounded-full"
-                      onClick={() => setMoreOpen(false)}
-                    />
-                    <button
-                      type="button"
-                      aria-label={L("Close", "Tutup")}
-                      className="border-border text-muted-foreground flex h-9 w-9 items-center justify-center rounded-full border text-base"
-                      onClick={() => setMoreOpen(false)}
-                    >
-                      <CloseX aria-hidden className="h-4 w-4" strokeWidth={1.75} />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {rest.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => { setTab(t); setMoreOpen(false); window.scrollTo({ top: 0 }); }}
-                        className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-medium ${
-                          tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
-                        }`}
-                      >
-                        <span aria-hidden className="grid place-items-center"><TabIcon name={t} /></span>
-                        {tabLabel(t)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        );
-      })()}
-
       <main key={tab} className="screen-enter mt-4 md:mt-8">
         <p className="text-muted-foreground -mt-2 mb-4 text-xs">{L(TAB_HELP[tab], TAB_HELP_MS[tab])}</p>
         {/* v1.22.8: bare sections now render inside the house card, exactly
@@ -1447,7 +1243,6 @@ export default function AdminPage() {
           </div>
         )}
       </main>
-    </div>
-    </AppShell>
+    </ConsoleShell>
   );
 }

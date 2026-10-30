@@ -128,7 +128,10 @@ const bundle = async (src, name) => {
   const zone = dash.slice(dash.indexOf("const zoneShift = ("), dash.indexOf("const ZONES: Record"));
   ok("On Shift's button and link call it", /void press\(\(\) => punch\("clock_out"\)\)/.test(zone) && /void press\(\(\) => punch\("clock_in"\)\)/.test(zone) && /void press\(\(\) => punch\("clock_out", forgotArmed\)\)/.test(zone));
   ok("…and the day is read again before the button is offered again", /const press = async \(run: \(\) => Promise<void>\) => \{\s*if \(settling\) return;/.test(dash) && /window\.setTimeout\(\(\) => setSettling\(false\), 1500\)/.test(dash) && (dash.slice(dash.indexOf("const punch = async"), dash.indexOf("const punchOt = async")).match(/await load\(\);/g) ?? []).length === 5 && !/void load\(\);/.test(dash.slice(dash.indexOf("const punch = async"), dash.indexOf("const punchOt = async"))));
-  ok("…and On Shift's OT buttons, toast and reminder are the Dashboard's own elements", /\{otButtons && /.test(zone) && /\{punchFeedback\}/.test(zone) && /\{clockOutNote\}/.test(zone) && /\{otButtons\}/.test(dash.slice(dash.indexOf("const zoneDay = ("), dash.indexOf("const zoneDesk = ("))));
+  /* v1.229.0 - My Day no longer draws the clock (the owner: "summary only"):
+     the OT buttons, toast and reminder are drawn by On Shift alone */
+  ok("…and On Shift's OT buttons, toast and reminder are drawn there alone", /\{otButtons && /.test(zone) && /\{punchFeedback\}/.test(zone) && /\{clockOutNote\}/.test(zone)
+     && (dash.match(/\{otButtons\}/g) ?? []).length === 1 && (dash.match(/\{punchFeedback\}/g) ?? []).length === 1 && (dash.match(/\{clockOutNote\}/g) ?? []).length === 1);
 }
 
 /* ---- 4. nothing shown as done before the server says so ---- */
@@ -163,9 +166,9 @@ const bundle = async (src, name) => {
 {
   const d = read("components/portal/dashboard.tsx");
   ok("why Clock in is not offered is said in words, never the server's code",
-     /const whyNoClockIn = noClockInWhy\(todayShift\?\.why_not \?\? null\);/.test(d) && (d.match(/\{whyNoClockIn\}/g) ?? []).length === 2
+     /const whyNoClockIn = noClockInWhy\(todayShift\?\.why_not \?\? null\);/.test(d) && (d.match(/\{whyNoClockIn\}/g) ?? []).length === 1
      && /if \(code === "no_slots"\)/.test(d) && !/\{whyNoClockIn \?\?/.test(d) && !/why_not\s*\}/.test(d));
-  ok("both clocks punch under the owner's marks: PunchIcon in and out, on My Day and On Shift",
+  ok("On Shift punches under the owner's marks: PunchIcon in and out, on the button and its tile",
      (d.match(/<PunchIcon kind="in" \/>/g) ?? []).length === 2 && (d.match(/<PunchIcon kind="out" \/>/g) ?? []).length === 2
      && !/<AppIcon name="(place|offboard)" \/>\s*\{(shiftsToday|L\("Check Out"|busy === "clock_)/.test(d));
   const pi = read("components/ui/punch-icon.tsx"), pc = read("components/ui/punch-icon.module.css");

@@ -140,7 +140,7 @@ function auditLine(a: AuditRow): { title: string; sub: string; icon: AppIconName
   return { title, sub: [what, a.user_name ? L(`by ${a.user_name}`, `oleh ${a.user_name}`) : ""].filter(Boolean).join(" · "), icon: NOUN_ICON[nounRaw] ?? "info" };
 }
 
-export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, openAt, onOpenDay, myShift, monitor, sessions, anns, annsKnown, ownLeave }: {
+export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, openAt, onOpenDay, onOpenShift, todayShift, myShift, monitor, sessions, anns, annsKnown, ownLeave }: {
   user: User;
   go: (t: TabName) => void;
   canOpen?: (t: string) => boolean;
@@ -148,6 +148,10 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   onCreateQuotation?: () => void;
   openAt?: (t: TabName, view: string) => void;
   onOpenDay: () => void;
+  /** v1.229.0 - where a shift shortcut goes: On Shift, which owns the punch */
+  onOpenShift?: () => void;
+  /** v1.229.0 - the read-only Today's Shift card (on-shift.tsx), drawn in place of My Shift */
+  todayShift?: ReactNode;
   myShift: MyShift;
   /** today's monitor rows - the request the Dashboard already makes for the managing roles; null = not read */
   monitor: MonitorRow[] | null;
@@ -429,9 +433,13 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         </>
       )}
     </section>
+  ) : todayShift ? (
+    /* v1.229.0 (the owner, 30-10-2026: "DASHBOARD TODAY = COMPACT SUMMARY
+       ONLY"): the same read-only Today's Shift card My Day draws */
+    <div className={ov.card}>{todayShift}</div>
   ) : (
     <section className={`${card} ${ov.card}`} aria-label={L("My shift", "Syif saya")}>
-      {head(L("My Shift", "Syif Saya"), viewAll(onOpenDay, L("Open My Day", "Buka Hari Saya")))}
+      {head(L("My Shift", "Syif Saya"), viewAll(onOpenShift ?? onOpenDay, L("Open On Shift", "Buka Syif Saya")))}
       {!myShift.known ? <SkelRows rows={2} /> : (
         <div className={ov.myShift}>
           <span className={myShift.open ? chipSuccess : myShift.hasOut ? chipNeutral : chipWarn}>
@@ -439,7 +447,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
               : myShift.hasOut ? L(`Clocked out · ${myShift.since} → ${myShift.out}`, `Daftar keluar · ${myShift.since} → ${myShift.out}`)
               : L("Not clocked in yet", "Belum daftar masuk")}
           </span>
-          <p className={ov.sub}>{L("Check in and out on My Day — the same clock as On Shift.", "Daftar masuk dan keluar di Hari Saya — jam yang sama seperti Syif Saya.")}</p>
+          <p className={ov.sub}>{L("Check in and out on On Shift.", "Daftar masuk dan keluar di Syif Saya.")}</p>
         </div>
       )}
     </section>
@@ -496,7 +504,8 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     { key: "task", icon: "orders", label: L("Create task", "Cipta tugasan"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: can("Tasks") },
     { key: "leave", icon: "holiday", label: L("Apply leave", "Mohon cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: can("Leave") },
     { key: "claim", icon: "receipt", label: L("Submit claim", "Hantar tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: can("Claims") },
-    { key: "clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenDay, show: true },
+    /* v1.229.0 - the punch lives on On Shift; the shortcut goes there */
+    { key: "clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenShift ?? onOpenDay, show: true },
     { key: "desk", icon: "pending", label: L("Open the Desk", "Buka Meja"), on: () => go("Desk"), show: can("Desk") },
     { key: "hotels", icon: "store", label: L("Hotel outreach", "Jangkauan hotel"), on: () => go("Hotels"), show: can("Hotels") },
     { key: "staff", icon: "users", label: L("Staff directory", "Direktori kakitangan"), on: () => go("Staff Details"), show: can("Staff Details") },
@@ -630,7 +639,7 @@ export function WelcomeHeader({ user, lang, myShift, onOpenDay }: { user: User; 
         <p className={ov.welcomeDate}><AppIcon name="date" />{mytTodayLine(lang)}</p>
         {myShift.known && (
           <button type="button" className={`${ov.shiftChip} ${myShift.open ? ov.shiftOn : ""}`} onClick={onOpenDay}
-            title={L("Open My Day to check in or out", "Buka Hari Saya untuk daftar masuk atau keluar")}>
+            title={L("Open On Shift to check in or out", "Buka Syif Saya untuk daftar masuk atau keluar")}>
             <span className={ov.statusDot} aria-hidden />
             {myShift.open ? L(`On shift since ${myShift.since}`, `Sedang syif sejak ${myShift.since}`)
               : myShift.hasOut ? L(`Clocked out ${myShift.out}`, `Daftar keluar ${myShift.out}`)

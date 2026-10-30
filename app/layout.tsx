@@ -188,7 +188,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{
-  if(location.pathname.indexOf('/portal')!==0)return;
+  var p=location.pathname;if(p.indexOf('/portal')!==0&&p.indexOf('/admin')!==0&&p.indexOf('/account')!==0)return;
   if(localStorage.getItem('azone-theme')!=='dark')return;
   document.documentElement.classList.add('dark');
   var m=document.querySelector('meta[name="theme-color"]');

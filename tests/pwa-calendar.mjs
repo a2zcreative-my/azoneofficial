@@ -32,9 +32,14 @@ const styles = read("lib/ui-styles.ts");
 const pages = [
   "components/portal/portal-shell.tsx",
   "components/portal/portal-skeleton.tsx",
-  "app/account/page.tsx",
-  "app/admin/page.tsx",
+  /* v1.228.0 - /admin and /account draw their chrome through the console
+     shell (the portal's own pieces); the clearance is checked there, and the
+     pages are checked to use it */
+  "components/layout/console-shell.tsx",
 ].map((p) => [p, read(p)]);
+for (const f of ["app/account/page.tsx", "app/admin/page.tsx"]) {
+  ok(`${f} draws its chrome through the console shell`, /<ConsoleShell\b/.test(read(f)));
+}
 const eventIcs = read("lib/event-ics.ts");
 const staff = read("worker/src/staff.ts");
 const eventsPanel = read("components/portal/events.tsx");

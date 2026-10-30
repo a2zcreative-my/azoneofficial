@@ -5,7 +5,6 @@
    at the top are new and the declarations are exported. */
 import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
-import { AnalogClock } from "@/components/portal/analog-clock"; // v1.184.0
 import { LocationHelp } from "@/components/portal/location-help";
 import { DeskSummary } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
@@ -15,7 +14,7 @@ import { LineTabs } from "@/components/ui/line-tabs";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WATCHER_ROLES } from "@/components/portal/watchers-card";
-import { Skel, SkelRows, SkelText } from "@/components/ui/skeleton";
+import { SkelRows, SkelText } from "@/components/ui/skeleton";
 import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
@@ -49,14 +48,14 @@ export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = 
   shift: ["day", "desk", "month", "company", "around"],
 };
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnHero, btnHeroPrimary, card, chipSmNeutral, toastCard } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, card, chipSmNeutral, chipSuccess, toastCard } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { PunchIcon } from "@/components/ui/punch-icon";
 import css from "./dashboard.module.css";
 import shiftCss from "./on-shift.module.css";
 import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
-import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, WaitingPunches, WeekSchedule, chipForState, mytHm, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
+import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 
 /**
@@ -1229,7 +1228,7 @@ export function Dashboard({
   const clockOutNote = clockOutDue && (
           <p className="erp-note erp-note-warning erp-mt-2">
             <AppIcon name="time" className={css.noteIcon} />{tr("Don't forget to clock out", lang)}{" "}
-            — {L("tap Check Out before you leave.", "tekan Daftar Keluar sebelum pulang.")}
+            — {L("tap Clock Out before you leave.", "tekan Daftar Keluar sebelum pulang.")}
           </p>
   );
   /* v1.176.1 - the shift RULE, in full, is stated where the clock lives (On
@@ -1329,6 +1328,30 @@ export function Dashboard({
           </>
   );
 
+  const shiftState: ShiftState = !attKnown ? (attendanceError ? "error" : "unknown") : openNow ? "open" : hasOut ? "done" : "idle";
+  const openSinceRaw = openNow ? (todayShift?.entry?.open_since ?? today[0]?.created_at ?? null) : null;
+  const sessionsNow = todaySessions(today, openSinceRaw);
+  const workedToday = sessionMinutes(sessionsNow);
+  /* v1.229.0 - TODAY'S SHIFT, the Dashboard's read-only summary (the owner,
+     30-10-2026: "ONE FUNCTION. ONE OWNER. MULTIPLE READ-ONLY SUMMARY VIEWS",
+     answer "Yes, summary only"). Built from the state above - the same
+     punches, today-shift, month statuses and outbox On Shift reads - and it
+     opens On Shift, where the one punch() lives. My Day and the Overview
+     draw this same element. */
+  const todayStatus = monthDays?.find((d) => d.date === mytToday())?.status ?? null;
+  const todayShiftCard = (
+    <TodayShiftCard
+      kind={todayShiftKind({ known: attKnown, error: !!attendanceError, waiting: waitingPunches.length, state: shiftState, canClockIn,
+        dayStatus: todayStatus, leaveReview: !!todayShift?.entry?.leave_review, hasSlots: (todayShift?.slots?.length ?? todayShift?.windows.length ?? 0) > 0 })}
+      firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null}
+      lastOut={hasOut ? lastOut : null}
+      openSince={openSinceRaw}
+      workedMinutes={workedToday}
+      scheduled={todayShift ? (todayShift.slots_label ?? todayShift.label ?? null) : null}
+      onOpen={() => go("On Shift")}
+    />
+  );
+
   /* Daily actions and pending work precede metrics and company reporting. */
   const zoneDay = (
       <section className="erp-stack-tight" data-zone="day">
@@ -1340,176 +1363,10 @@ export function Dashboard({
           under the desk and the watchers. The card is unchanged, only
           moved - on every screen size, since the phone view is the same
           tree. */}
-      {/* v1.184.0 — THE CLOCK CARD (the owner's reference, 22-10-2026): a
-          white card, the analog clock, today's date, Check In and Check Out
-          side by side, and the two times under them. Both the Dashboard and
-          On Shift draw it, and BOTH PUNCH: the owner reversed v1.176.2's
-          handoff ("Open On Shift to clock out") by his own choice - the
-          buttons here call the same punch() with the same shift, geofence
-          and approval rules; nothing about a punch changed, only where the
-          button is. The ONE status chip (v1.176.0) still states the current
-          state and its time; a button that does not apply is disabled, and
-          the sentence under the tiles says why when nothing is left. */}
-      <div className={`erp-shift-hero ${shiftOnly ? css.heroNarrow : lead === "shift" ? "" : css.heroCompact}`}>
-        <div className={css.heroHead}>
-        <div className={css.heroTitleRow}>
-        <PanelTitle icon="time" className={css.heroTitle}>
-          {shiftOnly ? L("On Shift", "Syif Saya") : L("Attendance", "Kehadiran")}
-        </PanelTitle>
-        {attKnown && !attendanceError && (
-          <span className={`erp-chip ${openNow ? "erp-chip-success" : hasOut ? "erp-chip-neutral" : "erp-chip-warning"}`} role="status">
-            {openNow
-              ? shiftOnly
-                ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
-                : L(`On shift · clocked in at ${openSince}`, `Sedang syif · daftar masuk ${openSince}`)
-              : hasOut
-                ? L(`Clocked out · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`, `Daftar keluar · ${firstIn}${lastOut ? ` → ${lastOut}` : ""}`)
-                : L("Not clocked in yet", "Belum daftar masuk")}
-          </span>
-        )}
-        </div>
-        </div>
-        {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
-        {attendanceError && (
-          <div role="alert" className={css.heroAlert}>
-            <span>{L("Attendance could not be refreshed. Check your connection and retry.", "Kehadiran tidak dapat dimuat semula. Semak sambungan dan cuba lagi.")}</span>
-            <button type="button" className={btnHero} onClick={() => void load()}>
-              <AppIcon name="refresh" className="erp-icon" />{L("Retry", "Cuba lagi")}
-            </button>
-          </div>
-        )}
-        <div className={css.clockWrap}>
-          <AnalogClock label={L("The time now, Malaysia", "Waktu sekarang, Malaysia")} />
-          <p className={css.clockDate}>{mytTodayLine(lang)}</p>
-        </div>
-        {/* v1.25.1: until the punches are KNOWN, show skeleton buttons — never
-            a green "Check In" for someone who already clocked in. */}
-        {!attKnown ? !attendanceError && (
-          <div className={css.clockActions} aria-busy="true">
-            {[0, 1].map((i) => (
-              <Skel key={i} className={css.actionSkel} h={44} round="full" />
-            ))}
-          </div>
-        ) : (
-          <>
-            <div className={css.clockActions}>
-              {/* Check In: only while there is a shift left to clock in for
-                  and nothing open (v1.133.2). Check Out: while a shift is open,
-                  or the forgotten-punch path (never clocked in, nothing out yet)
-                  that sends a clock-out to the CEO to approve (v1.76.0). */}
-              <button
-                type="button"
-                className={`${btnHero} ${css.checkIn}`}
-                disabled={!!busy || openNow || !canClockIn}
-                onClick={() => void punch("clock_in")}
-              >
-                <PunchIcon kind="in" />
-                {shiftsToday > 0 && !openNow && canClockIn ? L("Check In · next shift", "Daftar Masuk · syif seterusnya") : L("Check In", "Daftar Masuk")}
-              </button>
-              <button
-                type="button"
-                className={`${btnHero} ${css.checkOut}`}
-                disabled={!!busy || !(openNow || (canClockIn && !hasOut))}
-                onClick={() => void punch("clock_out", forgotArmed)}
-              >
-                <PunchIcon kind="out" />
-                {L("Check Out", "Daftar Keluar")}
-              </button>
-            </div>
-            <div className={css.clockTiles}>
-              <div className={css.clockTile}>
-                <span className={css.clockTileLabel}>{L("Check in at", "Daftar masuk pada")}</span>
-                <span className={`${css.clockTileTime} ${today.some((r) => r.type === "clock_in") ? css.tileIn : css.tileEmptyIn}`}>
-                  {today.some((r) => r.type === "clock_in") ? firstIn : "--:--"}
-                </span>
-              </div>
-              <div className={css.clockTile}>
-                <span className={css.clockTileLabel}>{L("Check out at", "Daftar keluar pada")}</span>
-                <span className={`${css.clockTileTime} ${hasOut ? css.tileOut : css.tileEmptyOut}`}>
-                  {hasOut ? lastOut : "--:--"}
-                </span>
-              </div>
-            </div>
-            {/* nothing left to clock: say so in words rather than leaving two
-                disabled buttons to explain themselves */}
-            {!openNow && !canClockIn && (
-              <p className={css.shiftsNote} role="status">
-                {whyNoClockIn}
-              </p>
-            )}
-            {/* v1.213.0 - the owner, 27-10-2026: "Keep both, remove exact
-                repeats only". Apply leave and Create quotation were here AND in
-                the Overview's Quick Actions (the same go("Leave") and the same
-                onCreateQuotation()); they live in Quick Actions now. The card
-                keeps the punch, and overtime when it applies. */}
-            {otButtons && <div className={shiftOnly ? css.actionsShift : css.actions}>{otButtons}</div>}
-          </>
-        )}
-        {otNote}
-        {punchFeedback}
-        {/* v1.9.1: clock-out reminder — mirrors the 18:30/22:00 bell + push
-            from the cron, for the person who has the tab open right now. */}
-        {clockOutNote}
-        {/* v1.133.0 — the shifts this person is due to clock for today, from
-            their own pattern, every block of it. Said on the card because
-            the rule is new: one Clock in and one Clock out PER SHIFT, and
-            anything worked outside these hours goes to the CEO as overtime
-            without a second pair of buttons. */}
-        {attKnown && todayShift && !shiftOnly && (
-          <p className={css.shiftsNote}>
-            {/* v1.133.2 — the SHIFTS, including roster and live-board
-                assignments, not only the pattern. One clock-in per shift;
-                a day with none has nothing to clock in for. */}
-            {/* v1.176.1 - THE RULE IS STATED WHERE THE CLOCK LIVES. Both cards
-                printed a paragraph about the shift; the Dashboard's was the
-                LONGER one, which is backwards. On Shift owns the punch, so it
-                carries the rule in full; the Dashboard carries the SUMMARY -
-                the hours, and how many are left. No rule is changed. */}
-            {(todayShift.slots?.length ?? todayShift.windows.length) === 0
-                ? L("Rest day on your pattern.", "Hari rehat pada corak anda.")
-                : L(`Today's shifts: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}`,
-                    `Syif hari ini: ${todayShift.slots_label ?? todayShift.label}${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}`)}
-          </p>
-        )}
-        {/* v1.176.1 - THE LOCATION STRIP HAS ONE HOME. It is configuration, not
-            a live probe, and it was drawn in full on the Dashboard AND on On
-            Shift - the same shield, the same button, the same sentence, twice
-            a day. On Shift owns the punch, so it owns the readiness strip.
-            Nothing is lost from the Dashboard punch: the real check is
-            server-side AT the punch, and its failure still renders
-            LocationHelp below. */}
-        {/* v1.176.0 — THE DAY'S RECORD, ONLY WHEN IT ADDS SOMETHING. The status
-            chip above now carries the current state and its time (and both
-            times once a shift is finished), so for the ordinary day — one
-            clock-in, or one clean pair — this line was the third printing of
-            the same timestamp. It stays for the days it is the only answer:
-            more than one shift, any overtime, or a day with no punches at
-            all. v1.176.2 removes the On Shift override, so a normal single
-            punch or clean pair is not repeated under the chip. */}
-        {!attKnown ? (
-          <Skel className={css.punchesSkel} h={12} w={192} />
-        ) : (today.length + todayOt.length === 0 || today.length > 2 || todayOt.length > 0) && (
-          <p className={css.punches}>
-            {today.length === 0 && todayOt.length === 0
-              ? L(
-                  "No attendance recorded today.",
-                  "Tiada kehadiran direkodkan hari ini."
-                )
-              : `${L("Today", "Hari ini")}: ${[...today.slice().reverse(), ...todayOt.slice().reverse()]
-                  .map(
-                    (r) =>
-                      `${
-                        getLang() === "ms"
-                          ? ((
-                              { clock_in: "masuk", clock_out: "keluar", ot_in: "OT masuk", ot_out: "OT keluar" } as Record<string, string>
-                            )[r.type] ?? r.type)
-                          : r.type.startsWith("ot_") ? r.type.replace("ot_", "OT ") : r.type.replace("_", " ")
-                      } ${mytTime(r.created_at)}`
-                  )
-                  .join(" · ")}${shiftsToday > 1 ? ` · ${shiftsToday} ${L("shifts", "syif")}` : ""}`}
-          </p>
-        )}
-      </div>
+      {/* v1.229.0 - the clock card (v1.184.0: analog clock, Check In and
+          Check Out on the Dashboard too) is gone by the owner's choice of
+          30-10-2026: the Dashboard summarises, On Shift punches. */}
+      {todayShiftCard}
       {/* v1.213.0 - this month's leave applications moved to the Overview,
           beside Upcoming & Pending (the owner, 27-10-2026); My Day keeps your
           own pending leave in the Work overview. */}
@@ -1719,10 +1576,6 @@ export function Dashboard({
      punch() and punchOt() as the Dashboard's card; every rule stays on the
      server. One tree for the desktop and the installed app.
      ===================================================================== */
-  const shiftState: ShiftState = !attKnown ? (attendanceError ? "error" : "unknown") : openNow ? "open" : hasOut ? "done" : "idle";
-  const openSinceRaw = openNow ? (todayShift?.entry?.open_since ?? today[0]?.created_at ?? null) : null;
-  const sessionsNow = todaySessions(today, openSinceRaw);
-  const workedToday = sessionMinutes(sessionsNow);
   const canAtt = canOpen ? canOpen("Attendance") : false;
   const mytMinuteNow = (() => { const d = new Date(nowTick + 8 * 3600 * 1000); return d.getUTCHours() * 60 + d.getUTCMinutes(); })();
   /* the button waits while a punch is held on this phone: a second press
@@ -1734,7 +1587,11 @@ export function Dashboard({
       <div className={shiftCss.main}>
         <section className={`erp-card ${shiftCss.card} ${shiftCss.shift}`} aria-label={L("My shift", "Syif saya")}>
           <div className={shiftCss.cardHead}>
-            <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
+            {/* v1.229.0 - Image 1: the title with its line under it */}
+            <div className={shiftCss.titleBlock}>
+              <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
+              <p className={shiftCss.cardSub}>{L("Your work summary for today", "Ringkasan kerja anda hari ini")}</p>
+            </div>
             {attKnown && (
               <span className={chipForState(shiftState)} role="status">
                 {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
@@ -1755,6 +1612,10 @@ export function Dashboard({
           <div className={shiftCss.shiftBody}>
             <ShiftTimer state={shiftState} openSince={openSinceRaw} workedMinutes={workedToday}
               firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null} lastOut={hasOut ? lastOut : null} />
+            {/* v1.229.0 - Image 1: said once nothing is left to clock today */}
+            {attKnown && shiftState === "done" && !canClockIn && waitingPunches.length === 0 && (
+              <span className={`${chipSuccess} ${shiftCss.allDone}`} role="status"><AppIcon name="success" />{L("All shifts clocked", "Semua syif didaftar")}</span>
+            )}
             {attKnown && (
               <div className={shiftCss.punchRow}>
                 {openNow ? (
@@ -1787,11 +1648,29 @@ export function Dashboard({
           <WaitingPunches list={waitingPunches} />
           {punchFeedback}
           {clockOutNote}
+          {/* v1.229.0 - Image 1: the four figures with their icons; each opens
+              My attendance for those who may (the owner's answer "Tiles open
+              My attendance"), otherwise they are plain figures */}
           <div className={shiftCss.tiles}>
-            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Clocked in", "Daftar masuk")}</span><span className={shiftCss.tileValue}>{attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"}</span></div>
-            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Last out", "Keluar terakhir")}</span><span className={shiftCss.tileValue}>{attKnown && hasOut ? lastOut : "--:--"}</span></div>
-            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Today's hours", "Jam hari ini")}</span><span className={shiftCss.tileValue}>{!attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`}</span></div>
-            <div className={shiftCss.tile}><span className={shiftCss.tileLabel}>{L("Shifts", "Syif")}</span><span className={shiftCss.tileValue}>{attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"}</span></div>
+            {([
+              ["in", shiftCss.wellIn, L("Clocked in", "Daftar masuk"), attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"],
+              ["out", shiftCss.wellOut, L("Last out", "Keluar terakhir"), attKnown && hasOut ? lastOut : "--:--"],
+              ["hours", shiftCss.wellHours, L("Today's hours", "Jam hari ini"), !attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`],
+              ["shifts", shiftCss.wellShifts, L("Shifts", "Syif"), attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"],
+            ] as const).map(([k, well, label, value]) => {
+              const inner = (
+                <>
+                  <span className={`${shiftCss.tileWell} ${well}`} aria-hidden>
+                    {k === "in" ? <PunchIcon kind="in" /> : k === "out" ? <PunchIcon kind="out" /> : <AppIcon name={k === "hours" ? "date" : "orders"} />}
+                  </span>
+                  <span className={shiftCss.tileText}><span className={shiftCss.tileLabel}>{label}</span><span className={shiftCss.tileValue}>{value}</span></span>
+                  {canAtt ? <span className={shiftCss.tileChevron} aria-hidden><AppIcon name="next" /></span> : <span />}
+                </>
+              );
+              return canAtt
+                ? <button key={k} type="button" className={shiftCss.tileBtn} onClick={() => go("Attendance")} aria-label={`${label}: ${value} - ${L("open My attendance", "buka kehadiran saya")}`}>{inner}</button>
+                : <div key={k} className={shiftCss.tileBtn}>{inner}</div>;
+            })}
           </div>
           <h3 className={shiftCss.subHead}>{L("Today's punches", "Punch hari ini")}</h3>
           <SessionRows sessions={sessionsNow} known={attKnown} />
@@ -1802,9 +1681,10 @@ export function Dashboard({
           )}
           {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
           {otNote}
+          {/* v1.229.0 - Image 1: Apply leave beside the navy My attendance */}
           <div className={shiftCss.quick}>
-            <button type="button" className={btnHero} onClick={() => go("Leave")}>{tr("Apply leave", lang)}</button>
-            {canAtt && <button type="button" className={btnHero} onClick={() => go("Attendance")}>{L("My attendance", "Kehadiran saya")}</button>}
+            <button type="button" className={`erp-button erp-button-secondary ${shiftCss.actionBtn}`} onClick={() => go("Leave")}><AppIcon name="date" />{tr("Apply leave", lang)}</button>
+            {canAtt && <button type="button" className={`erp-button erp-button-primary ${shiftCss.actionBtn}`} onClick={() => go("Attendance")}><AppIcon name="document" />{L("My attendance", "Kehadiran saya")}<AppIcon name="next" /></button>}
           </div>
         </section>
         <div className={shiftCss.oRecent}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
@@ -1859,14 +1739,14 @@ export function Dashboard({
               without the company figures), and every one of them is still on
               My Day in full - the desk card, the month card, the work
               overview. */}
-          <WelcomeHeader user={user} lang={lang} myShift={myShift} onOpenDay={() => setDashView("day")} />
+          <WelcomeHeader user={user} lang={lang} myShift={myShift} onOpenDay={() => go("On Shift")} />
           <LineTabs value={view} onChange={(k) => setDashView(k)} label={L("Dashboard", "Papan pemuka")} tabs={[
             ["overview", L("Overview", "Gambaran")],
             ["day", L("My Day", "Hari Saya")],
           ] as const} />
           <div className={view !== "overview" ? css.viewOff : css.overview}>
             <DashboardOverview user={user} go={go} canOpen={canOpen} lang={lang} onCreateQuotation={onCreateQuotation} openAt={openAt}
-              onOpenDay={() => setDashView("day")} myShift={myShift} monitor={MANAGE_ROLES.includes(user.role) ? monitor : null}
+              onOpenDay={() => setDashView("day")} onOpenShift={() => go("On Shift")} todayShift={todayShiftCard} myShift={myShift} monitor={MANAGE_ROLES.includes(user.role) ? monitor : null}
               sessions={allSessions} anns={anns} annsKnown={annsKnown} ownLeave={leave} />
           </div>
         </>
