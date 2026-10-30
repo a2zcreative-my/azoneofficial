@@ -6,7 +6,7 @@ import { handleStaff, notify, type StaffUser } from "./staff";
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
-import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 - 30 minutes before a shift, 30 before its end, and at the end
+import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
 import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
@@ -284,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0150_commission_ledger";
+const LATEST_MIGRATION = "0151_notification_prefs";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -494,24 +494,40 @@ async function refreshTikTokToken(
   }
 }
 
+/** v1.225.1 - TikTok's `access_token_expire_in` is the moment the token
+    expires (a Unix time in seconds, e.g. 1722342011), NOT a number of seconds
+    from now. It used to be added to 'now', which put the expiry decades away,
+    so the 7-day token was never renewed and every sync after a week was
+    refused. A value above 10^9 is read as that moment; a small one is still
+    read as seconds from now (the old reading), so either answer is safe.
+    Returns the SQLite UTC text "YYYY-MM-DD HH:MM:SS". */
+export function tiktokExpiresAt(expireIn: number | undefined, nowMs = Date.now()): string {
+  const v = Number(expireIn);
+  const ms = Number.isFinite(v) && v > 1e9 ? v * 1000 : nowMs + (Number.isFinite(v) && v > 0 ? v : 604800) * 1000;
+  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+}
+
 /** Stored seller token. v1.7.1: auto-refreshes shortly BEFORE expiry so the
-    order sync never dies on "Expired credentials". */
-async function tiktokToken(env: Env): Promise<{ access_token: string; shop_cipher: string | null } | null> {
+    order sync never dies on "Expired credentials". v1.225.1: an expiry more
+    than 60 days away is one the old reading stored (see tiktokExpiresAt) -
+    it counts as unknown, so it is renewed now; `force` renews regardless
+    (the sync calls it once when TikTok refuses an expired token). */
+async function tiktokToken(env: Env, force = false): Promise<{ access_token: string; shop_cipher: string | null; refreshed?: boolean } | null> {
   const row = await env.DB.prepare(
     `SELECT access_token, refresh_token, shop_cipher,
-            (expires_at IS NOT NULL AND expires_at <= datetime('now', '+1 day')) AS expiring
+            (expires_at IS NOT NULL AND (expires_at <= datetime('now', '+1 day') OR expires_at > datetime('now', '+60 days'))) AS expiring
      FROM integration_tokens WHERE provider = 'tiktok'`,
   ).first<{ access_token: string; refresh_token: string | null; shop_cipher: string | null; expiring: number }>();
   if (!row) return null;
-  if (row.expiring && row.refresh_token) {
+  if ((force || row.expiring) && row.refresh_token) {
     const fresh = await refreshTikTokToken(env, row.refresh_token);
     if (fresh) {
       await env.DB.prepare(
         `UPDATE integration_tokens SET access_token = ?1, refresh_token = ?2,
-           expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')
+           expires_at = ?3, updated_at = datetime('now')
          WHERE provider = 'tiktok'`,
-      ).bind(fresh.access_token, fresh.refresh_token, String(fresh.expire_in)).run();
-      return { access_token: fresh.access_token, shop_cipher: row.shop_cipher };
+      ).bind(fresh.access_token, fresh.refresh_token, tiktokExpiresAt(fresh.expire_in)).run();
+      return { access_token: fresh.access_token, shop_cipher: row.shop_cipher, refreshed: true };
     }
     // Refresh failed — surface it once (deduped) so the cause is visible.
     await logError(env, "tiktok_token_refresh", "Access token expired and refresh failed — re-authorize the TikTok app, or check that TIKTOK_APP_SECRET matches Partner Center.");
@@ -1812,6 +1828,7 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
      follows next_page_token (up to 6 pages / 300 orders per pass). */
   const orders: TtSearchOrder[] = [];
   let pageToken = "";
+  let renewed = false; // v1.225.1: one renewal per sync, never a loop
   for (let pg = 0; pg < 6; pg++) {
     const data = (await tiktokSignedFetch(
       env, "/order/202309/orders/search",
@@ -1828,6 +1845,12 @@ async function runTikTokSync(env: Env, actorId: number | null): Promise<
       const authExpired =
         data?.code === 105000 || data?.code === 105002 ||
         /expired|access[_\s-]?token|x-tts-access-token|unauthor|credential|invalid.*token|token.*invalid/.test(msg);
+      if (authExpired && !renewed) {
+        /* v1.225.1: the stored renewal key is tried once, then page 1 again */
+        renewed = true;
+        const again = await tiktokToken(env, true);
+        if (again?.refreshed) { pg = -1; continue; }
+      }
       if (authExpired) {
         return { ok: false, code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches.", status: 401 };
       }
@@ -2041,8 +2064,13 @@ export default {
          the 30-minute chain below would land it anywhere up to 29 minutes
          off. Last on the tick and never fatal: orders and traffic are money
          and are already done by here. */
+      /* v1.226.0 - 15 minutes (the owner's Shift Reminders brief). Pushes
+         that did not arrive are logged as counts and status codes only. */
       try {
-        await runShiftReminders(env);
+        const rr = await runShiftReminders(env);
+        if (rr.push.failed > 0) {
+          await logError(env, "shift_reminders_push", `${rr.push.failed} reminder push(es) not delivered (status ${[...new Set(rr.push.statuses)].join(", ")}); ${rr.push.sent} delivered, ${rr.push.pruned} expired device(s) removed.`);
+        }
       } catch (e) {
         if (!String(e).includes("no such")) await logError(env, "shift_reminders", e instanceof Error ? e.message : String(e));
       }
@@ -2151,6 +2179,7 @@ export default {
        clock-out gets a bell + web push. Runs BEFORE the TikTok sync so a
        sync crash can never swallow a reminder pass. Two stages, each once
        per day (the notification ref row is the dedupe):
+         [v1.226.0: stage 1 removed - see below]
          stage 1 ≥18:30 — gentle nudge; SKIPS staff currently inside an OT
                           window (ot_in without ot_out in ot_records —
                           they're working late on purpose, don't nag them
@@ -2162,16 +2191,13 @@ export default {
       const mytR = new Date(Date.now() + 8 * 3600 * 1000);
       const minsR = mytR.getUTCHours() * 60 + mytR.getUTCMinutes();
       const todayR = mytR.toISOString().slice(0, 10);
-      if (minsR >= 18 * 60 + 30) {
-        const stage = minsR >= 22 * 60 ? 2 : 1;
-        const refR = `clockout${stage}:${todayR}`;
-        /* Review fix: OT punches live in ot_records, NOT attendance_records
-           (its CHECK constraint doesn't even allow ot_* types) — counting
-           them in the wrong table made the skip a no-op. */
-        const otSkip = stage === 1
-          ? `AND (SELECT COUNT(*) FROM ot_records oi WHERE oi.user_id = u.id AND oi.type = 'ot_in'  AND date(oi.created_at, '+8 hours') = ?1)
-             <= (SELECT COUNT(*) FROM ot_records oo WHERE oo.user_id = u.id AND oo.type = 'ot_out' AND date(oo.created_at, '+8 hours') = ?1)`
-          : "";
+      /* v1.226.0 - the owner's answer, 30-10-2026 ("Keep 'ended' + 22:00
+         only"): the fixed 18:30 nudge is gone. Each person now hears 15
+         minutes before their own shift ends and when it ends (the
+         five-minute reminders); the 22:00 check stays for a forgotten
+         clock-out (its ref is still `clockout2:<day>`). */
+      if (minsR >= 22 * 60) {
+        const refR = `clockout2:${todayR}`;
         const { results: openShifts } = await env.DB.prepare(
           `SELECT u.id FROM users u
            WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
@@ -2184,16 +2210,13 @@ export default {
                    WHERE ax.user_id = u.id AND date(ax.created_at, '+8 hours') = ?1
                    ORDER BY ax.created_at DESC LIMIT 1) = 'clock_in' 
              AND NOT EXISTS (SELECT 1 FROM notifications nr WHERE nr.user_id = u.id AND nr.ref = ?2)
-             ${otSkip}
            LIMIT 200`,
         ).bind(todayR, refR).all<{ id: number }>();
         for (const s of openShifts) {
           await notify(
             env, s.id, "attendance",
-            stage === 1
-              ? "⏰ Still clocked in — remember to tap Clock out before you leave the office."
-              : "🌙 It's past 10 pm and you're still clocked in. At the office? Tap Clock out now. Already home? Ask HR/admin for a manual clock-out so today's attendance stays accurate.",
-            refR,
+            "🌙 It's past 10 pm and you're still clocked in. At the office? Tap Clock out now. Already home? Ask HR/admin for a manual clock-out so today's attendance stays accurate.",
+            refR, { once: true },
           );
         }
       }
@@ -3355,11 +3378,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!tok?.access_token) return errorResponse("auth_failed", "TikTok did not return an access token", 400);
     await env.DB.prepare(
       `INSERT INTO integration_tokens (provider, access_token, refresh_token, expires_at, updated_at)
-       VALUES ('tiktok', ?1, ?2, datetime('now', '+' || ?3 || ' seconds'), datetime('now'))
+       VALUES ('tiktok', ?1, ?2, ?3, datetime('now'))
        ON CONFLICT (provider) DO UPDATE SET
          access_token = ?1, refresh_token = ?2,
-         expires_at = datetime('now', '+' || ?3 || ' seconds'), updated_at = datetime('now')`,
-    ).bind(tok.access_token, tok.refresh_token ?? null, String(tok.access_token_expire_in ?? 604800)).run();
+         expires_at = ?3, updated_at = datetime('now')`,
+    ).bind(tok.access_token, tok.refresh_token ?? null, tiktokExpiresAt(tok.access_token_expire_in)).run();
     // Order APIs need the shop_cipher — resolve and store it immediately.
     const cipherRes = await refreshTikTokShopCipher(env);
     await audit(env, me.id, "tiktok.authorized", undefined, undefined, { shop_cipher: cipherRes.detail });
@@ -3821,16 +3844,32 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const tokenHash = await sha256Hex(raw);
       // v1.5.0: { all: true } signs out every device — a user who suspects a
       // stolen session can self-revoke without waiting for an admin.
-      const bodyLo = (await request.json().catch(() => null)) as { all?: boolean } | null;
+      const bodyLo = (await request.json().catch(() => null)) as { all?: boolean; push_endpoint?: unknown } | null;
+      const owner = await env.DB.prepare(`SELECT user_id FROM sessions WHERE id = ?1`)
+        .bind(tokenHash).first<{ user_id: number }>();
       if (bodyLo?.all) {
-        const owner = await env.DB.prepare(`SELECT user_id FROM sessions WHERE id = ?1`)
-          .bind(tokenHash).first<{ user_id: number }>();
         if (owner) {
           await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(owner.user_id).run();
           await audit(env, owner.user_id, "auth.logout_all");
         }
       } else {
         await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`).bind(tokenHash).run();
+      }
+      /* v1.226.0 - SIGNING OUT UNBINDS THIS DEVICE'S PUSH (the owner's
+         answer to the Shift Reminders brief, 30-10-2026). A shared phone or
+         tablet kept receiving the previous person's shift reminders after
+         they signed out. The browser sends its push address with the
+         logout; only a row of THIS session's owner is removed. "Sign out
+         everywhere" removes every device of that person. Never fatal. */
+      if (owner) {
+        try {
+          if (bodyLo?.all) {
+            await env.DB.prepare(`DELETE FROM push_subscriptions WHERE user_id = ?1`).bind(owner.user_id).run();
+          } else if (typeof bodyLo?.push_endpoint === "string" && bodyLo.push_endpoint.length <= 1024) {
+            await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?1 AND user_id = ?2`)
+              .bind(bodyLo.push_endpoint, owner.user_id).run();
+          }
+        } catch { /* pre-0068: no devices to unbind */ }
       }
     }
     // v1.5.0: the csrf_token cookie dies with the session — it used to
@@ -4769,6 +4808,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0147 (finance 2.0: true dates, reversals, transfers, opening balances)", `SELECT c.effective_date, c.source_key, c.reversal_of, c.transfer_id, b.opening_balance_cents, m.item_key FROM cashflow_entries c LEFT JOIN bank_accounts b ON 1 = 0 LEFT JOIN cashbook_marks m ON 1 = 0 LIMIT 1`],
       ["0149 (weekly sales targets, week results, recovery plans, task links)", `SELECT t.week_from, r.basis_cents, p.status, k.link_kind FROM sales_week_targets t LEFT JOIN sales_week_results r ON 1 = 0 LEFT JOIN sales_recovery_plans p ON 1 = 0 LEFT JOIN tasks k ON 1 = 0 LIMIT 1`],
       ["0150 (commission policies, commission ledger, payroll switch log)", `SELECT p.version, l.source_key, s.setting FROM commission_policies p LEFT JOIN commission_ledger l ON 1 = 0 LEFT JOIN commission_settings_log s ON 1 = 0 LIMIT 1`],
+      ["0151 (notification switches per person: shift reminders)", `SELECT user_id, pref_key, enabled FROM notification_prefs LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -4940,6 +4980,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0148_journal_integrity",
       "0149_weekly_sales",
       "0150_commission_ledger",
+      "0151_notification_prefs",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

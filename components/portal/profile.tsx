@@ -30,6 +30,7 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { roleLabel } from "@/components/portal/users-shared";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { ResponsibilitiesView } from "@/components/staff/responsibilities"; // v1.174.0
+import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; // v1.226.0
 import { AppIcon } from "@/components/ui/app-icon";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -38,6 +39,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { Skel } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { signOutRequest } from "@/lib/push-client";
 import { btnClass, btnSm, card, fieldLabel, inputClass } from "@/lib/ui-styles";
 import css from "./profile-page.module.css";
 
@@ -115,7 +117,7 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
       variant: "danger",
     });
     if (!ok) return;
-    await api(`/auth/logout`, { method: "POST", body: JSON.stringify({ all: true }) });
+    await signOutRequest({ all: true });
     window.location.replace("/login");
   };
 
@@ -194,6 +196,8 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
             <button type="button" className={btnSm} onClick={() => void requestUpdate()}>{L("Request update", "Minta kemas kini")}</button>
           </aside>
         </section>
+        {/* v1.226.0 - the person's own shift reminder switches */}
+        <ShiftReminderPrefs />
       </div>
 
       {/* ================= SECURITY & ACCOUNT ================= */}

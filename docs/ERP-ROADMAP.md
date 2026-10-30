@@ -281,3 +281,5 @@ nullable link (customer, enquiry, quotation, recovery plan) on tasks.
 1.224.0 (Sales Commission) adds migration `0150_commission_ledger` -
 versioned commission policies, the entitlement ledger (one row per event)
 and the log of the payroll switch.
+1.226.0 (Shift reminders) adds migration `0151_notification_prefs` - each
+person's own Clock-in / Clock-out reminder switches (no row = on).

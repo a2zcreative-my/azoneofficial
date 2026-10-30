@@ -36,7 +36,7 @@ import { logError as sharedLogError, readVersions, putGuarded } from "./shared";
 import { bookCash, reverseLive, handleCashbook } from "./cashbook"; // v1.219.0 - Finance 2.0
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce, checkRateLimit } from "./index"; // v1.127.0 - step-up before a signature is attached; v1.177.2 - budget the overflow reporter
-import { sendPush, type PushKeys } from "./webpush";
+import { isPushEndpoint, sendPush, type PushKeys, type PushOptions } from "./webpush";
 import { shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder } from "./shift-sales";
 import { pollElfiaOrders } from "./bridge"; // v1.37.0 — the "Pull now" button
 import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, computed in JS and bound as a value (AUDIT M8)
@@ -59,21 +59,34 @@ function pushKeys(env: Env): PushKeys | null {
 }
 
 /** v1.6.0: fire a web-push to every device a user has registered. Best-effort;
-    dead subscriptions (404/410) are pruned. Never throws. */
-export async function pushToUser(env: Env, userId: number, title: string, body: string, ref?: string, url = "/portal"): Promise<void> {
+    dead subscriptions (404/410) are pruned. Never throws.
+    v1.226.0: returns what happened (sent / failed / pruned devices) so the
+    shift-reminder runner can say when pushes stop arriving; `opts` carries
+    the title and the push lifetime. */
+export interface PushTally { sent: number; failed: number; pruned: number; statuses: number[] }
+export async function pushToUser(
+  env: Env, userId: number, title: string, body: string, ref?: string, url = "/portal", opts: PushOptions = {},
+): Promise<PushTally> {
+  const tally: PushTally = { sent: 0, failed: 0, pruned: 0, statuses: [] };
   const keys = pushKeys(env);
-  if (!keys) return;
+  if (!keys) return tally;
   try {
     const { results } = await env.DB.prepare(
       `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?1`,
     ).bind(userId).all<{ id: number; endpoint: string; p256dh: string; auth: string }>();
     for (const s of results) {
-      const status = await sendPush(keys, s, { title, body, ref: ref ?? null, url });
+      /* an address that is not a push service (stored before v1.226.0) is
+         never posted to - and left in place, not deleted */
+      if (!isPushEndpoint(s.endpoint)) { tally.failed += 1; tally.statuses.push(0); continue; }
+      const status = await sendPush(keys, s, { title, body, ref: ref ?? null, url }, opts);
       if (status === 404 || status === 410) {
         await env.DB.prepare(`DELETE FROM push_subscriptions WHERE id = ?1`).bind(s.id).run();
-      }
+        tally.pruned += 1;
+      } else if (status >= 200 && status < 300) tally.sent += 1;
+      else { tally.failed += 1; tally.statuses.push(status); }
     }
   } catch { /* push is best-effort; the in-app record is already saved */ }
+  return tally;
 }
 
 export interface StaffUser {
@@ -1677,19 +1690,38 @@ const PUSH_TAB: Record<string, string> = {
   profile_request: "Staff Details",
 };
 
+/** v1.226.0 - options for one notification. `once`: write it only if this
+    person has no notification with the same ref yet, in ONE statement, and
+    push only when this call wrote it - two runs at the same moment (a cron
+    fired twice, a retry) can no longer both send. `title` / `push` set the
+    lock-screen title and the push lifetime. */
+export interface NotifyOptions { once?: boolean; title?: string; push?: PushOptions; tally?: PushTally }
+
 export async function notify(
-  env: Env, userId: number, kind: string, message: string, ref?: string,
-): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, ?2, ?3, ?4)`,
-  ).bind(userId, kind, message, ref ?? null).run();
+  env: Env, userId: number, kind: string, message: string, ref?: string, opts: NotifyOptions = {},
+): Promise<boolean> {
+  if (opts.once && ref) {
+    const ins = await env.DB.prepare(
+      `INSERT INTO notifications (user_id, kind, message, ref)
+       SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND ref = ?4)`,
+    ).bind(userId, kind, message, ref).run();
+    if (!((ins as { meta?: { changes?: number } }).meta?.changes)) return false;
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(userId, kind, message, ref ?? null).run();
+  }
 
   // v1.6.0: web-push to the person's devices (best-effort, off when no VAPID).
   // v1.27.0: this one string is the title on every staff lock screen, for all
   // ~20 notification kinds — the portal is A2Z CREATIVE MARKETING's.
+  // v1.226.0: a shift reminder names itself ("Shift starting soon").
   const tab = kind === "attendance" && ref?.startsWith("shift_") ? "On Shift" : PUSH_TAB[kind];
-  await pushToUser(env, userId, "A2Z CREATIVE MARKETING", message, ref,
-    tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal");
+  const t = await pushToUser(env, userId, opts.title ?? "A2Z CREATIVE MARKETING", message, ref,
+    tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal", opts.push);
+  if (opts.tally) {
+    opts.tally.sent += t.sent; opts.tally.failed += t.failed; opts.tally.pruned += t.pruned; opts.tally.statuses.push(...t.statuses);
+  }
 
   // Off-platform delivery (email / WhatsApp relay). Only fires when a webhook
   // is configured; otherwise this is a no-op and notifications stay in-app.
@@ -1712,6 +1744,7 @@ export async function notify(
       /* delivery is best-effort; in-app record already saved */
     }
   }
+  return true;
 }
 
 /* v1.127.0 — STEP-UP BEFORE A SIGNATURE IS ATTACHED (CEO, 06-09-2026).
@@ -15950,6 +15983,12 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const p256dh = sub?.keys?.p256dh;
     const auth = sub?.keys?.auth;
     if (!endpoint || !p256dh || !auth) return err("invalid_input", "A full push subscription is required", 400);
+    /* v1.226.0 - only a real push service (Google, Apple, Mozilla,
+       Microsoft): the worker POSTs to this address, so it cannot be any URL */
+    if (!isPushEndpoint(endpoint)) return err("invalid_endpoint", "This is not a browser push address", 400);
+    if (typeof p256dh !== "string" || typeof auth !== "string" || p256dh.length > 200 || auth.length > 100 || !/^[A-Za-z0-9_-]+=*$/.test(p256dh) || !/^[A-Za-z0-9_-]+=*$/.test(auth)) {
+      return err("invalid_input", "The push keys are not valid", 400);
+    }
     try {
       await env.DB.prepare(
         `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?1, ?2, ?3, ?4)
@@ -15965,6 +16004,45 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const endpoint = typeof body?.endpoint === "string" ? body.endpoint : null;
     if (endpoint) await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?1 AND user_id = ?2`).bind(endpoint, user.id).run();
     return json({ ok: true });
+  }
+
+  /* v1.226.0 - THE PERSON'S OWN NOTIFICATION SWITCHES (the owner's answer to
+     the Shift Reminders brief: "add the switches"). Only the signed-in
+     person's own row, only the known keys; no row = on. Nobody can read or
+     set another person's switches. /push/device (POST, the address in the
+     body - never in a URL) says whether THIS browser is registered for the
+     person, so Profile can tell "on for this phone" from "permission given
+     but not registered here". */
+  if (path === "/push/device" && method === "POST") {
+    const ep = body?.endpoint;
+    if (typeof ep !== "string" || ep.length > 1024) return json({ device: false });
+    const row = await env.DB.prepare(`SELECT 1 AS x FROM push_subscriptions WHERE endpoint = ?1 AND user_id = ?2`).bind(ep, user.id).first<{ x: number }>();
+    return json({ device: Boolean(row) });
+  }
+  if (path === "/notification-prefs" && (method === "GET" || method === "PUT")) {
+    const KEYS = ["shift_clock_in", "shift_clock_out"] as const;
+    try {
+      if (method === "PUT") {
+        const k = body?.key, v = body?.enabled;
+        if (typeof k !== "string" || !(KEYS as readonly string[]).includes(k) || typeof v !== "boolean") {
+          return err("invalid_input", "Choose a known switch and on or off", 400);
+        }
+        await env.DB.prepare(
+          `INSERT INTO notification_prefs (user_id, pref_key, enabled, updated_at) VALUES (?1, ?2, ?3, datetime('now'))
+           ON CONFLICT (user_id, pref_key) DO UPDATE SET enabled = ?3, updated_at = datetime('now')`,
+        ).bind(user.id, k, v ? 1 : 0).run();
+      }
+      const { results } = await env.DB.prepare(
+        `SELECT pref_key, enabled FROM notification_prefs WHERE user_id = ?1`,
+      ).bind(user.id).all<{ pref_key: string; enabled: number }>();
+      const prefs: Record<string, boolean> = {};
+      for (const k of KEYS) prefs[k] = (results ?? []).find((r) => r.pref_key === k)?.enabled !== 0;
+      const devices = await env.DB.prepare(`SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?1`).bind(user.id).first<{ n: number }>();
+      return json({ prefs, devices: devices?.n ?? 0, push_configured: Boolean(env.VAPID_PUBLIC_KEY) });
+    } catch (e) {
+      if (String(e).includes("no such table")) return err("migration_missing", "Run migration 0151 first", 409);
+      throw e;
+    }
   }
 
   /* ===================== v1.6.0 — targets · commission · leaderboard ======= */

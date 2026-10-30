@@ -24,7 +24,7 @@
 import type { ReactNode } from "react";
 
 import { api } from "@/lib/api";
-import { enablePush, disablePush } from "@/lib/push-client";
+import { enablePush, disablePush, signOutRequest } from "@/lib/push-client";
 import { AppIcon } from "@/components/ui/app-icon";
 import { AppShell } from "@/components/layout/app-shell";
 import { SideNav, sectionTitle } from "@/components/layout/side-nav";
@@ -113,10 +113,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
           userRole={user.role}
           onSelect={(t) => setTab(t as TabName)}
           onSignOut={() =>
-            void api("/auth/logout", {
-              method: "POST",
-              body: JSON.stringify({}),
-            }).then(() => {
+            void signOutRequest().then(() => {
               clearApiCache();
               setUser(null);
             })
@@ -449,10 +446,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
               title={tr("Sign out", lang)}
               aria-label={tr("Sign out", lang)}
               onClick={() =>
-                void api("/auth/logout", {
-                  method: "POST",
-                  body: JSON.stringify({}),
-                }).then(() => {
+                void signOutRequest().then(() => {
                   clearApiCache();
                   setUser(null);
                 })
@@ -736,7 +730,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   {dark ? L("Light mode", "Mod cerah") : L("Dark mode", "Mod gelap")}
                 </button>
                 <button type="button" className="erp-button erp-button-danger" onClick={() =>
-                  void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(() => {
+                  void signOutRequest().then(() => {
                     clearApiCache(); setUser(null); setMoreOpen(false);
                   })}>
                   <LogOut aria-hidden className="erp-icon" />{tr("Sign out", lang)}

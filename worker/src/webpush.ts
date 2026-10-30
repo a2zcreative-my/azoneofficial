@@ -139,21 +139,52 @@ async function encryptPayload(sub: PushSubscription, plaintext: Uint8Array): Pro
   return concat(header, ciphertext);
 }
 
+/** v1.226.0 - THE PUSH SERVICES A DEVICE ADDRESS MAY BELONG TO. A browser's
+    subscription endpoint is always on its vendor's push service; the worker
+    POSTs to it. Before this, /push/subscribe stored any URL a signed-in
+    person sent, so the worker could be made to POST anywhere. Google (Chrome,
+    Edge on Android, Samsung Internet, Opera), Apple (Safari, iPhone home
+    screen apps), Mozilla (Firefox) and Microsoft (Edge on Windows). */
+export function isPushEndpoint(endpoint: unknown): boolean {
+  if (typeof endpoint !== "string" || endpoint.length > 1024) return false;
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== "https:" || u.username || u.password || (u.port && u.port !== "443")) return false;
+  const h = u.hostname.toLowerCase();
+  return h === "fcm.googleapis.com" || h === "android.googleapis.com"
+    || h === "push.apple.com" || h.endsWith(".push.apple.com")
+    || h === "push.services.mozilla.com" || h.endsWith(".push.services.mozilla.com")
+    || h.endsWith(".notify.windows.com");
+}
+
+export interface PushOptions {
+  /** seconds the push service may hold the message for an offline device */
+  ttl?: number;
+  urgency?: "very-low" | "low" | "normal" | "high";
+}
+
 /** Send one push. Returns the HTTP status (or 0 on a local failure). A 404/410
-    means the subscription is dead and the caller should delete it. */
+    means the subscription is dead and the caller should delete it.
+    v1.226.0: `opts.ttl` (default one day, as before) and `opts.urgency` - a
+    shift reminder lives only until the shift time, so a phone that was
+    offline drops it instead of showing a stale "starts in 15 minutes". */
 export async function sendPush(
   keys: PushKeys,
   sub: PushSubscription,
   payload: Record<string, unknown>,
+  opts: PushOptions = {},
 ): Promise<number> {
+  if (!isPushEndpoint(sub.endpoint)) return 0;
   try {
     const body = await encryptPayload(sub, utf8(JSON.stringify(payload)));
+    const ttl = Math.max(0, Math.min(86400, Math.round(opts.ttl ?? 86400)));
     const res = await fetch(sub.endpoint, {
       method: "POST",
       headers: {
         "Content-Encoding": "aes128gcm",
         "Content-Type": "application/octet-stream",
-        "TTL": "86400",
+        "TTL": String(ttl),
+        ...(opts.urgency ? { "Urgency": opts.urgency } : {}),
         "Authorization": await vapidAuthHeader(sub.endpoint, keys),
       },
       body: body as unknown as BodyInit,

@@ -281,6 +281,8 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       in_gps: i < 6 ? (i === 3 ? "1.5712,103.7601,25" : "1.5601,103.7201,12") : null })) };
   /* v1.185.0 - the Ecommerce page: the TikTok connection, the orders the
      sync stored, and the buyer cities behind the map and the top states */
+  /* v1.226.0 - Profile -> Shift reminders: the person's own switches */
+  if (p === "/staff/notification-prefs") data = { prefs: { shift_clock_in: true, shift_clock_out: false }, devices: 1, push_configured: true };
   if (p === "/integrations/tiktok/status") data = { configured: true, authorized: true, last_event_at: "2026-10-08 10:24:00", last_event_verified: true };
   if (p === "/staff/postage") data = { records: [
     { id: 501, order_ref: "TT-586296403794167044", status: "delivered", created_at: "2026-10-04 04:55:00", items_label: "1× ELFIA Premium product", courier: "jnt", tracking_no: "JT6401234567", buyer_city: "Johor Bahru", order_amount_cents: 3970 },

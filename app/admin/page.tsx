@@ -8,6 +8,7 @@
 
 import { TabIcon, LogOut, Ellipsis, CloseX } from "@/components/layout/nav-icons";
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
+import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unbinds this device's push
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
@@ -1167,7 +1168,7 @@ export default function AdminPage() {
                 /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
                    could never clear it, so this button bounced users straight
                    back here. A real server-side logout now. */
-                void api("/auth/logout", { method: "POST", body: JSON.stringify({}) })
+                void signOutRequest()
                   .then(() => { window.location.href = "/login"; });
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -1182,7 +1183,7 @@ export default function AdminPage() {
 
 
   const logout = async () => {
-    await api("/auth/logout", { method: "POST" });
+    await signOutRequest();
     setUser(null);
   };
 

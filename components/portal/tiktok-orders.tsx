@@ -132,7 +132,7 @@ export function useTikTokSync(role: string) {
     if (!canSync || busyRef.current) return; // pressed twice is one sync
     busyRef.current = true;
     setBusy(true);
-    const res = await tiktokApi<{ imported: number; skipped: number; retried?: number; total_from_tiktok?: number; problems?: string[]; error?: { message?: string } }>("/sync", { method: "POST", body: "{}" });
+    const res = await tiktokApi<{ imported: number; skipped: number; retried?: number; total_from_tiktok?: number; problems?: string[]; error?: { code?: string; message?: string } }>("/sync", { method: "POST", body: "{}" });
     busyRef.current = false;
     setBusy(false);
     if (res.ok && res.data) {
@@ -141,8 +141,15 @@ export function useTikTokSync(role: string) {
       window.dispatchEvent(new Event("azone:tiktok-synced"));
       void loadStatus();
     } else {
+      /* v1.225.1: `not_authorized` is TikTok refusing the SHOP's connection
+         (its 7-day sign-in), not the person's portal sign-in - it used to fall
+         into the 401 branch and blame the person. */
       const message = res.status === 0
         ? L("No connection - the sync did not run. Check the internet and try again.", "Tiada sambungan - segerak tidak berjalan. Semak internet dan cuba lagi.")
+        : res.data?.error?.code === "not_authorized"
+          ? (technical
+            ? L("TikTok refused the shop's sign-in and it could not be renewed - re-authorise the shop from Partner Center. Orders already here are safe.", "TikTok menolak log masuk kedai dan ia tidak dapat diperbaharui - benarkan semula kedai melalui Partner Center. Pesanan yang sudah ada selamat.")
+            : L("TikTok Shop needs to be re-authorised by a manager. Orders already here are safe.", "TikTok Shop perlu dibenarkan semula oleh pengurus. Pesanan yang sudah ada selamat."))
         : res.status === 401 || res.status === 403
           ? L("Your sign-in does not allow a sync.", "Log masuk anda tidak membenarkan segerak.")
           : technical && res.data?.error?.message

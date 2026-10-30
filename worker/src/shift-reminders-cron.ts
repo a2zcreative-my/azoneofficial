@@ -19,20 +19,37 @@
  *   admin / super_admin           - the system's operators, not its staff -
  *                                   the same exclusion as the clock-out nudge.
  *
+ * v1.226.0 - the owner's answers to the Shift Reminders brief:
+ *   switches         - Profile -> "Shift reminders": shift_clock_in turns
+ *                      the start reminder off, shift_clock_out the end ones
+ *                      (notification_prefs, 0151; no row = on).
+ *   one send         - notify(..., { once: true }) writes the bell row only
+ *                      if this person has no row with that ref, in one
+ *                      statement, and pushes only when it wrote it.
+ *   tally            - what the pushes did, so the cron can log failures
+ *                      (counts and status codes only - no address, no name).
+ *
  * YESTERDAY TOO. A live booked 23:00-01:00 ends after midnight, when "today"
  * has rolled over. The runner also evaluates yesterday's shifts with the
  * clock read as minutes past yesterday's midnight (now + 1440), so the end
  * reminders for an overnight shift still arrive.
  */
 import type { Env } from "./index";
-import { assignedResolver, notify, shiftsOn } from "./staff";
+import { assignedResolver, notify, shiftsOn, type PushTally } from "./staff";
 import { daySlots, pairSessions, type Session } from "./clock-day";
-import { dueReminders } from "./shift-reminders";
+import { dueReminders, type ReminderKind } from "./shift-reminders";
 import { remainingWindows, type LeaveCoverage } from "../../lib/leave-coverage";
 
 const NOT_REMINDED = new Set(["super_admin", "admin"]);
 
-export async function runShiftReminders(env: Env, now = new Date()): Promise<{ sent: number; checked: number }> {
+/** v1.226.0 - which switch governs which reminder */
+export const PREF_OF: Record<ReminderKind, "shift_clock_in" | "shift_clock_out"> = {
+  start_soon: "shift_clock_in", end_soon: "shift_clock_out", ended: "shift_clock_out",
+};
+
+export interface ReminderRun { sent: number; checked: number; skipped_off: number; push: PushTally }
+
+export async function runShiftReminders(env: Env, now = new Date()): Promise<ReminderRun> {
   const myt = new Date(now.getTime() + 8 * 3600 * 1000);
   const today = myt.toISOString().slice(0, 10);
   const yesterday = new Date(myt.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -44,7 +61,17 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
     `SELECT id, role FROM users WHERE is_active = 1 AND role NOT IN ('customer')`,
   ).all<{ id: number; role: string }>();
   const people = (staff ?? []).filter((u) => !NOT_REMINDED.has(u.role));
-  if (people.length === 0) return { sent: 0, checked: 0 };
+  const push: PushTally = { sent: 0, failed: 0, pruned: 0, statuses: [] };
+  if (people.length === 0) return { sent: 0, checked: 0, skipped_off: 0, push };
+
+  /* the switches people turned OFF (no row = on; before 0151 = all on) */
+  const off = new Set<string>();
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT user_id, pref_key FROM notification_prefs WHERE enabled = 0 AND pref_key IN ('shift_clock_in', 'shift_clock_out')`,
+    ).all<{ user_id: number; pref_key: string }>();
+    for (const r of results ?? []) off.add(`${r.user_id}|${r.pref_key}`);
+  } catch { /* pre-0151: everybody keeps the reminders */ }
 
   /* the day, read once */
   const [shiftsToday, shiftsYesterday, assigned] = await Promise.all([
@@ -102,7 +129,7 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
     for (const r of results ?? []) sentRefs.add(`${r.user_id}|${r.ref}`);
   }
 
-  let sent = 0, checked = 0;
+  let sent = 0, checked = 0, skippedOff = 0;
   for (const u of people) {
     const days: [string, number, boolean][] = [[today, nowMin, holToday], [yesterday, nowMin + 24 * 60, holYesterday]];
     for (const [iso, clock, holiday] of days) {
@@ -115,11 +142,14 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<{ s
       const due = dueReminders(clock, iso, slots, punches.get(`${u.id}|${iso}`) ?? []);
       for (const d of due) {
         if (sentRefs.has(`${u.id}|${d.ref}`)) continue;
-        await notify(env, u.id, "attendance", d.message, d.ref);
+        if (off.has(`${u.id}|${PREF_OF[d.kind]}`)) { skippedOff += 1; continue; }
+        const wrote = await notify(env, u.id, "attendance", d.message, d.ref, {
+          once: true, title: d.title, push: { ttl: d.ttl, urgency: "high" }, tally: push,
+        });
         sentRefs.add(`${u.id}|${d.ref}`);
-        sent += 1;
+        if (wrote) sent += 1;
       }
     }
   }
-  return { sent, checked };
+  return { sent, checked, skipped_off: skippedOff, push };
 }

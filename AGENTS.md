@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 28 October 2026, version **1.225.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 28 October 2026, version **1.226.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.225.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.226.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -120,6 +120,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | Finance 2.0 (1.219.0) | Finance: Overview, Transactions, Expenses, Reconciliation, Reports | `/erp/cashbook`, `/erp/cashbook/rows/:id/reverse`, `/erp/cashbook/transfer`, `/erp/cashbook/assign-bank`, `/erp/cashbook/review`, `/erp/cashbook/banks/:id` (in `worker/src/cashbook.ts`; bookings via `bookCash`) | `cashflow_entries`, `bank_accounts` gain columns; `cashbook_marks` (0147) |
 | Weekly Sales (1.223.0) | Sales: Overview weekly scorecard, Set targets, Recovery plan; Tasks: linked sales tasks | `/sales/week`, `/sales/week/targets`, `/sales/week/settings`, `/sales/week/plan`, `/sales/week/plan/:id/review` (in `worker/src/weekly-sales.ts`); `POST /tasks` takes `link_kind`/`link_id` | `sales_week_targets`, `sales_week_results`, `sales_recovery_plans`; `tasks` gains `link_kind`, `link_id` (0149) |
 | Commission (1.224.0) | Commission tab: Entries, Flow, Policy; Sales: commission card; Payroll: commission from the ledger | `/commission/summary`, `/commission/entries`, `/commission/entries/:id`, `/commission/flow`, `/commission/policy`, `/commission/policy/:id/approve`, `/reject`, `/preview`, `/commission/settings`, `/commission/ledger/:id/decide` (in `worker/src/commission.ts`); `invoice_payment` gates marking paid | `commission_policies`, `commission_ledger`, `commission_settings_log` (0150) |
+| Shift reminders (1.226.0) | Profile: Shift reminders card (Clock-in / Clock-out switches, this device's push); reminders 15 min before a shift starts and ends | `/notification-prefs` (GET/PUT, own switches only), `/push/device`, `/push/subscribe` (push services only); runner `worker/src/shift-reminders-cron.ts` on the 5-minute cron; logout unbinds the device | `notification_prefs` (0151) |
 
 The Desk (`worker/src/desk.ts`, a pure read) lists follow-ups, monthly invoices, people steps and
 quotations to approve beside leave, claims, overtime and the rest. The guard

@@ -10,6 +10,68 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.226.0] - 2026-10-30 - Shift reminders: 15 minutes, switches, one send
+
+The owner's Shift Reminders brief, 30-10-2026, and his answers
+(claude/SHIFT-REMINDERS-AUDIT.md): "15 minutes", "Keep 'ended' + 22:00
+only", "add the switches", "Approve sign-out unbind", "Approve push-service
+check". Shift reminders already existed (1.151.0, Web Push from the same
+shift list the clock accepts); this tunes them. Migration 0151 (additive).
+No clock-in/out, attendance, payroll or leave rule changes.
+
+- **15 minutes.** "Shift starting soon - Your shift starts in 15 minutes at
+  09:00. Get ready to clock in." (not if already clocked in) and "Shift
+  ending soon - Your shift ends in 15 minutes at 17:00. Remember to clock out
+  when your work is finished." (only while clocked in). "Shift ended" stays
+  for someone still clocked in at the end. A tap opens On Shift; nothing is
+  ever punched for anyone. The lock screen shows the time, never the client
+  or task name.
+- **The fixed 18:30 nudge is gone**; the 22:00 forgotten-clock-out check stays.
+- **Profile -> Shift reminders**: the person's own Clock-in and Clock-out
+  switches (on by default; new table `notification_prefs`, 0151) and
+  whether THIS device receives them, with "Turn on for this device" and the
+  iPhone Home Screen steps when the browser cannot.
+- **One send.** The bell row is claimed in one statement and the push goes
+  only when this run claimed it - a cron fired twice or a retry no longer
+  sends twice. The reminder's ref carries the shift's time, so a moved shift
+  gets a new reminder and a block added earlier no longer silences another.
+- **Lifetime.** A reminder push lives only until its moment (TTL = seconds
+  left, at least 60) with high urgency; a phone that was offline drops it
+  instead of showing a stale "15 minutes". Other alerts keep one day.
+- **Devices.** Signing out removes this device's push for the person
+  ("sign out everywhere" removes all of them), so a shared phone stops
+  receiving the previous person's reminders. A device address must be a real
+  push service (Google, Apple, Mozilla, Microsoft); an older stored address
+  that is not is never posted to. The push toggle now shows "on" only when
+  this device is registered for the person, not merely allowed.
+- **Failures are visible.** Undelivered reminder pushes go to the error log
+  as counts and status codes (no address, no name).
+- Guards: new `tests/shift-reminder-delivery.mjs` (40 checks, 7 mutations
+  caught); `shift-reminders.mjs` updated to the approved behaviour (49);
+  `profile-self` follows the sign-out helper.
+
+## [1.225.1] - 2026-10-29 - TikTok sync: the shop's sign-in renews itself
+
+The owner's screenshot, 29-10-2026: Ecommerce showed "Your sign-in does not
+allow a sync." for the CEO. Approved: "Build the fix". No migration.
+
+- **The cause.** TikTok gives the 7-day shop token's expiry as a moment in
+  time (a Unix time). The worker added that number to "now" as seconds, so
+  the stored expiry sat decades away and the token was never renewed. A
+  week after the last authorisation TikTok refused every sync (401), and the
+  page worded that as the person's own sign-in.
+- **Fixed.** The expiry is read as a moment (`tiktokExpiresAt`; a small
+  number still reads as seconds). A stored expiry more than 60 days away -
+  what the old reading left - counts as unknown and is renewed on the next
+  call with the stored renewal key. A sync TikTok refuses for an expired
+  token renews once and retries; a second refusal stops there.
+- **The message.** A refused shop token now reads "TikTok Shop needs to be
+  re-authorised by a manager" (managers: "re-authorise the shop from
+  Partner Center"). "Your sign-in does not allow a sync" is kept for a role
+  that may not sync.
+- Guard `tests/tiktok-token.mjs` (24 checks, 6 mutations caught); browser
+  fixture `TT_SYNC=expired|forbidden`.
+
 ## [1.225.0] - 2026-10-29 - Master flow stabilization: P0 and P1
 
 The owner's Master Flow brief and answers, 29-10-2026

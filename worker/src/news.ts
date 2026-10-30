@@ -126,7 +126,7 @@ async function readFields(env: Env, body: Record<string, unknown>, partial: bool
 
 export async function handleNews(
   env: Env, request: Request, path: string, method: string, body: Record<string, unknown> | null, user: Me,
-  notify: (env: Env, userId: number, kind: string, message: string, ref?: string) => Promise<void>,
+  notify: (env: Env, userId: number, kind: string, message: string, ref?: string) => Promise<unknown>, // v1.226.0: notify now answers whether it wrote
 ): Promise<Response | null> {
   if (!path.startsWith("/announcements")) return null;
 

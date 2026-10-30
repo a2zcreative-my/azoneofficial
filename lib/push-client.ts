@@ -62,3 +62,58 @@ export function pushPermission(): "default" | "granted" | "denied" | "unsupporte
   if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
   return Notification.permission;
 }
+
+/** v1.226.0 - this browser's push address, or null. Never waits for a
+    service worker that is not registered (navigator.serviceWorker.ready
+    would hang forever), and gives up after 1.5 s. */
+export async function currentPushEndpoint(): Promise<string | null> {
+  try {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
+    const look = (async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      return sub?.endpoint ?? null;
+    })();
+    return await Promise.race([look, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+  } catch {
+    return null;
+  }
+}
+
+/** v1.226.0 - SIGN OUT, AND THIS DEVICE STOPS RECEIVING THE PERSON'S PUSHES
+    (the owner's answer to the Shift Reminders brief). The push address goes
+    with the logout so the server removes it for the person signing out;
+    then the browser drops the subscription itself, so the next person who
+    signs in on this phone starts with push off and turns it on for
+    themselves. `all` signs out every device (and removes all of them). */
+export async function signOutRequest(opts: { all?: boolean } = {}) {
+  const endpoint = await currentPushEndpoint();
+  const res = await api("/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({ ...(opts.all ? { all: true } : {}), ...(endpoint ? { push_endpoint: endpoint } : {}) }),
+  });
+  if (endpoint) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      await sub?.unsubscribe();
+    } catch { /* best-effort */ }
+  }
+  return res;
+}
+
+export type DevicePush = "unsupported" | "denied" | "off" | "on";
+
+/** v1.226.0 - is push really on for THIS device and THIS person? Permission
+    alone is not enough: the browser may have permission while the server has
+    no address for this person (signed out, or turned off). */
+export async function devicePushStatus(): Promise<DevicePush> {
+  const perm = pushPermission();
+  if (perm === "unsupported" || !("serviceWorker" in navigator) || !("PushManager" in window)) return "unsupported";
+  if (perm === "denied") return "denied";
+  if (perm !== "granted") return "off";
+  const endpoint = await currentPushEndpoint();
+  if (!endpoint) return "off";
+  const r = await api<{ device: boolean }>("/staff/push/device", { method: "POST", body: JSON.stringify({ endpoint }) });
+  return r.ok && r.data?.device ? "on" : "off";
+}

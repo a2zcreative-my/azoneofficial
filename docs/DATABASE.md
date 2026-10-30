@@ -411,6 +411,14 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | v1.222.0 | 0148 - Accounting 2.0: a journal reference is posted once (new entries). |
 | v1.223.0 | 0149 - Weekly Sales: weekly targets, week results, recovery plans, task links. |
 | v1.224.0 | 0150 - Sales Commission: policy versions, the entitlement ledger, the payroll switch log. |
+| v1.226.0 | 0151 - Notification switches per person (shift reminders). |
+
+## v1.226.0 - migration 0151_notification_prefs.sql
+Additive - no row changed. `notification_prefs` (user_id + pref_key
+primary key, enabled 0/1, updated_at): a row only when a person changes a
+switch; no row = on. Keys: `shift_clock_in`, `shift_clock_out`. Read by the
+shift-reminder runner; written only by the person (`PUT
+/staff/notification-prefs`).
 
 ## v1.224.0 - migration 0150_commission_ledger.sql
 Additive - no row changed. `commission_policies` (version UNIQUE, status

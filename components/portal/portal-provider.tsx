@@ -43,7 +43,7 @@ import { installViewportSettle } from "@/lib/viewport-settle";
 
 import { api, sendOutboxEntry } from "@/lib/api";
 import { setOutboxScope, startOutbox } from "@/lib/outbox";
-import { pushPermission } from "@/lib/push-client";
+import { devicePushStatus, pushPermission, signOutRequest } from "@/lib/push-client";
 import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
 import {
   ALL_TABS,
@@ -430,6 +430,14 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSound(localStorage.getItem("azone-notif-sound") !== "off");
     setPushState(pushPermission());
+    /* v1.226.0 - permission alone is not "on": after a sign-out (which now
+       unbinds the device) or a switch-off, the browser still says
+       "granted". Ask whether THIS device is registered for THIS person. */
+    let alive = true;
+    void devicePushStatus().then((d) => {
+      if (alive) setPushState(d === "on" ? "granted" : d === "off" ? "default" : d);
+    });
+    return () => { alive = false; };
   }, []);
   const audioRef = useRef<AudioContext | null>(null);
   const unreadRef = useRef<number | null>(null); // null = first load (no chime)
@@ -829,10 +837,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
                 /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
                    could never clear it, so this button looped users back to
                    the same screen forever. A real server-side logout now. */
-                void api("/auth/logout", {
-                  method: "POST",
-                  body: JSON.stringify({}),
-                }).then(() => {
+                void signOutRequest().then(() => {
                   window.location.href = "/login";
                 });
               }}

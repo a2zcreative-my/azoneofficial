@@ -62,7 +62,10 @@ ok("disable and change-password still need the password", /\/api\/v1\/auth\/2fa\
 ok("nothing logs a password, code or secret", !/audit\([^)]*(password|totp_secret|backup)/i.test(reauth + setup));
 ok("My Payslips shows payslipData(), and sums nothing itself", /const D = shown\?\.entry \? payslipData\(shown\.entry, shown\.entry, shown\.month, shown\.extras, shown\.issuer\) : null;/.test(pay) && !/entry\.basic_cents \+ \(extras\?\.ph_worked_cents/.test(pay));
 ok("Profile edits only the phone", /JSON\.stringify\(\{ phone \}\)/.test(prof) && !/JSON\.stringify\(\{[^}]*\bname\b/.test(prof));
-ok("sign out of all devices uses the existing route", /api\(`\/auth\/logout`, \{ method: "POST", body: JSON\.stringify\(\{ all: true \}\) \}\)/.test(prof));
+/* v1.226.0 - the same route, through signOutRequest, which also sends this
+   device's push address so the server unbinds it (Shift Reminders brief) */
+ok("sign out of all devices uses the existing route", /await signOutRequest\(\{ all: true \}\);/.test(prof)
+   && /api\("\/auth\/logout", \{\s*method: "POST",\s*body: JSON\.stringify\(\{ \.\.\.\(opts\.all \? \{ all: true \} : \{\}\)/.test(read("lib/push-client.ts")));
 ok("three tabs", ['L("My Profile", "Profil Saya")', 'L("Security & Account", "Keselamatan & Akaun")', 'L("My Payslips", "Slip Gaji Saya")'].every((t) => read("components/portal/profile.tsx").includes(t)));
 
 /* ---- runtime ---- */

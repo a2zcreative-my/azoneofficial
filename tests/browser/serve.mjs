@@ -47,6 +47,14 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: { code: "already_punched", message: "You already clocked out at 18:31 MYT. Clock in again when your next shift starts." }, already: true, at: "18:31" }));
         return;
       }
+      /* v1.225.1 - TT_SYNC=expired: TikTok refused the shop's token (the
+         worker's 401 not_authorized); TT_SYNC=forbidden: the role may not sync */
+      if (process.env.TT_SYNC && req.method === "POST" && p === "/integrations/tiktok/sync") {
+        const expired = process.env.TT_SYNC === "expired";
+        res.writeHead(expired ? 401 : 403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: expired ? { code: "not_authorized", message: "TikTok sign-in has expired - re-authorize from the TikTok Partner Center and make sure TIKTOK_APP_SECRET matches." } : { code: "forbidden", message: "Inventory access required" } }));
+        return;
+      }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
       /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a
          refusal, sent with the worker's 403, so a role-gated read can be walked */

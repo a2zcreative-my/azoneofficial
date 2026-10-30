@@ -164,6 +164,8 @@ const GUARDS = [
   ["weekly-sales", "Weekly Sales - approved targets only, the Collected rule, working days, fair statuses, final weeks, recovery plans to linked tasks once"],
   ["commission-ledger", "Sales commission - one entitlement per event, the approved policy by the paid day, payroll by the owner's switch and never twice, refunds to review, CEO/COO/admins mark paid"],
   ["master-flow", "the business flow holds - paid invoices locked, refunds in the books, retired commission routes closed, one target authority, closers on staff, leavers off the pickers, refused money actions logged, customer duplicates warned"],
+  ["tiktok-token", "the TikTok Shop token is renewed before it expires (TikTok's expiry read as a moment, not seconds), a refused sync renews once and retries, and the page names the shop's sign-in, not the person's"],
+  ["shift-reminder-delivery", "shift reminders are sent once (one bell, one push per device) even when the run fires twice, live only until their moment, honour the person's own switches, follow a moved shift, never post to an address that is not a push service, and signing out unbinds the device"],
   ["pwa-calendar", "PWA clearance, calendar drafts, time zones and UTF-8 exports"],
   ["production-safety", "OTP vectors, payroll ZIP/XML and PDF sharing outcomes"],
   ["workforce-flow", "Threads stays retired; claims submit once; paid advances reach payroll; OT becomes pay or replacement leave"],
