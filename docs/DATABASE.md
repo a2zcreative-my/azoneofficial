@@ -412,6 +412,15 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | v1.223.0 | 0149 - Weekly Sales: weekly targets, week results, recovery plans, task links. |
 | v1.224.0 | 0150 - Sales Commission: policy versions, the entitlement ledger, the payroll switch log. |
 | v1.226.0 | 0151 - Notification switches per person (shift reminders). |
+| v1.227.0 | 0152 - Commission rates per package, per policy version. |
+
+## v1.227.0 - migration 0152_commission_packages.sql
+Additive - no row changed. `commission_policy_packages` (policy_id,
+package_name as typed, match_key = trimmed lower case, UNIQUE per version;
+rule percent / fixed / none; rate_bp in basis points or fixed_cents per unit
+sold): written with a policy draft in one batch and never edited. A line
+that matches no package earns the version's default; a version with no rows
+pays exactly as before.
 
 ## v1.226.0 - migration 0151_notification_prefs.sql
 Additive - no row changed. `notification_prefs` (user_id + pref_key

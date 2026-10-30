@@ -488,6 +488,8 @@ function CloserFix({ doc, staff, onClose, onDone }: { doc: WsDoc | null; staff: 
               placeholder={L("What the review found", "Apa yang didapati semakan")} />
           </label>
           <p className={css.meta}>{L("The invoice, its total and its payments do not change. The old and new closer, your name and the reason are recorded.", "Invois, jumlah dan bayarannya tidak berubah. Penutup lama dan baharu, nama anda dan sebab direkodkan.")}</p>
+          {/* v1.227.0 - commission already written follows the correction */}
+          <p className={css.meta}>{L("Commission already earned on this invoice follows the correction: not yet in payroll - it moves to the new closer; in a payroll not yet released - it goes to review; already paid - it stays, and nothing is deducted from anyone's wages.", "Komisen yang sudah diperoleh atas invois ini mengikut pembetulan: belum dalam gaji - dipindah kepada penutup baharu; dalam gaji belum dikeluarkan - ke semakan; sudah dibayar - kekal, dan tiada potongan gaji sesiapa.")}</p>
           {msg && <p className="erp-note erp-note-warning" role="alert">{msg}</p>}
         </div>
       )}

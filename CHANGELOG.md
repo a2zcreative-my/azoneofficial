@@ -10,6 +10,44 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.227.0] - 2026-10-30 - Commission configuration: packages, closers, one page
+
+The owner's Commission Configuration brief and answers, 30-10-2026
+(claude/COMMISSION-CONFIG-AUDIT.md): "Move it, by stage", "Require a
+closer", "Build now", "Commission page like reference", "Only CEO/COO
+confirm Paid", "Weekly: anyone who closed". Migration 0152 (additive). The
+audit found the engine working (the rate is a policy version, not
+hardcoded); nothing is earned until a version is approved, and only money
+landing from 01-11-2026 counts.
+
+- **Package rules per policy version.** A package can earn its own
+  percentage, a fixed amount per unit sold, or nothing; lines are matched to
+  packages by name (any case); every other line earns the default rate. The
+  rules are written with the draft and never edited (table
+  `commission_policy_packages`, 0152). A version with no package rules pays
+  exactly as before. Each entry shows its line-by-line working.
+- **Closer corrections follow the money (defect D1).** Correcting a closer
+  after commission was written: not yet in payroll - it moves to the new
+  closer; in a payroll not yet released - back to review and out of that
+  month, for the CEO to apply; already paid - unchanged and flagged, never
+  deducted.
+- **An invoice names its closer (defect D2).** No silent "whoever typed it":
+  a new invoice, a converted quotation and an edited invoice must name a
+  salesperson on staff (never an admin or super admin account).
+- **Only the CEO and COO confirm Paid.** The super admin no longer can;
+  confirmations already made stay.
+- **The Commission page** now has Overview (figures, flow, the five
+  conditions before commission is paid), Transactions, Policy Settings
+  (tiles, the version in force, package rules with examples at real invoice
+  prices, drafting and approval), Payroll Sync (the switch, the cutoff,
+  where commission stands) and Audit History. The Sales page is unchanged.
+- **Weekly scorecard:** anyone who closed a quotation or invoice in the last
+  90 days is listed, whatever their role. Commission never reads this list.
+- The approved renewal, refund, cutoff and leaver rules are shown read-only;
+  the server refuses any other value.
+- Guard `tests/commission-config.mjs` (49 checks, 8 mutations caught);
+  `payroll-commission` and `qt-once` updated to the approved behaviour.
+
 ## [1.226.0] - 2026-10-30 - Shift reminders: 15 minutes, switches, one send
 
 The owner's Shift Reminders brief, 30-10-2026, and his answers

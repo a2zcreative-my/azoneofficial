@@ -62,7 +62,8 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
 
 /* ---- 2. the confirmation ---- */
 {
-  ok("the CEO, COO and super admin confirm - nobody else", /const CONFIRM_PAID_ROLES = \["ceo", "coo", "super_admin"\];/.test(staffCode));
+  /* v1.227.0 - the owner, 30-10-2026: "Only CEO or COO may confirm an invoice as Paid" */
+  ok("the CEO and COO confirm - nobody else (not even the super admin)", /const CONFIRM_PAID_ROLES = \["ceo", "coo"\];/.test(staffCode));
   const c = between(staffCode, "const confirmPaid = path.match(", "const confirmRevoke = path.match(");
   ok("the route is gated on those roles", /if \(!CONFIRM_PAID_ROLES\.includes\(user\.role\)\) return err\("forbidden"/.test(c));
   /* v1.216.2 - the owner: "CEO can self-confirm"; the COO and super admin still cannot */

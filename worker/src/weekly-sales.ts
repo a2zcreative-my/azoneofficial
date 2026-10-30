@@ -184,7 +184,13 @@ async function staffList(env: Env, from: string, to: string): Promise<{ id: numb
                   ORDER BY t.week_from DESC, t.id DESC LIMIT 1) IS NOT NULL
              OR EXISTS (SELECT 1 FROM sales_documents d WHERE d.salesperson_id = u.id
                   AND ((d.doc_type = 'QT' AND date(d.created_at, '+8 hours') BETWEEN ?1 AND ?2)
-                    OR (d.doc_type = 'INV' AND d.payment_status = 'paid' AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') BETWEEN ?1 AND ?2))))
+                    OR (d.doc_type = 'INV' AND d.payment_status = 'paid' AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') BETWEEN ?1 AND ?2)))
+             /* v1.227.0 - the owner's answer "Weekly: anyone who closed": a
+                person who closed any quotation or invoice in the 90 days up to
+                this week stays on the scorecard, showing RM 0.00 in a quiet
+                week, whatever their role. Commission does not read this list. */
+             OR EXISTS (SELECT 1 FROM sales_documents d2 WHERE d2.salesperson_id = u.id AND d2.doc_type IN ('QT', 'INV')
+                  AND date(d2.created_at, '+8 hours') BETWEEN date(?1, '-90 days') AND ?2))
       ORDER BY name`,
   ).bind(from, to).all<{ id: number; name: string; role: string }>();
   return results ?? [];

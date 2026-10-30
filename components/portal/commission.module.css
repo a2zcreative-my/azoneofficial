@@ -395,3 +395,58 @@
   font-size: var(--type-body-size);
   font-variant-numeric: tabular-nums;
 }
+
+/* v1.227.0 - Overview: the conditions before commission is paid */
+.checks {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.checks li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--border);
+}
+.checks li:first-child {
+  border-top: 0;
+}
+.checkNo {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  background: var(--tint-gold);
+  color: var(--brand-accent-deep);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* v1.227.0 - Policy Settings: the package rules of a draft */
+.pkgBox {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.pkgRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+@media (max-width: 640px) {
+  .pkgRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pkgRow > label:first-child {
+    grid-column: 1 / -1;
+  }
+}

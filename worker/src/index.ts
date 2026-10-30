@@ -284,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0151_notification_prefs";
+const LATEST_MIGRATION = "0152_commission_packages";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4809,6 +4809,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0149 (weekly sales targets, week results, recovery plans, task links)", `SELECT t.week_from, r.basis_cents, p.status, k.link_kind FROM sales_week_targets t LEFT JOIN sales_week_results r ON 1 = 0 LEFT JOIN sales_recovery_plans p ON 1 = 0 LEFT JOIN tasks k ON 1 = 0 LIMIT 1`],
       ["0150 (commission policies, commission ledger, payroll switch log)", `SELECT p.version, l.source_key, s.setting FROM commission_policies p LEFT JOIN commission_ledger l ON 1 = 0 LEFT JOIN commission_settings_log s ON 1 = 0 LIMIT 1`],
       ["0151 (notification switches per person: shift reminders)", `SELECT user_id, pref_key, enabled FROM notification_prefs LIMIT 1`],
+      ["0152 (commission rates per package, per policy version)", `SELECT policy_id, match_key, rule, rate_bp, fixed_cents FROM commission_policy_packages LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -4981,6 +4982,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0149_weekly_sales",
       "0150_commission_ledger",
       "0151_notification_prefs",
+      "0152_commission_packages",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

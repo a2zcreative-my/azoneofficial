@@ -24,7 +24,23 @@
  *     given to one month by a conditional write, never to a released month,
  *     and only while the owner's switch is on (shadow mode until then).
  *   - The weekly sales KPI never touches any of this (weekly-sales.ts).
- * No commission is estimated, stored or shown before COMMISSION_START_DAY. */
+ * No commission is estimated, stored or shown before COMMISSION_START_DAY.
+ *
+ * v1.227.0 - the owner's Commission Configuration brief and answers,
+ * 30-10-2026 (claude/COMMISSION-CONFIG-AUDIT.md):
+ *   - PACKAGE RULES per version (commission_policy_packages, 0152): a
+ *     package can earn its own percentage, a fixed amount per unit sold, or
+ *     nothing. Lines are matched by name (trimmed, any case); a line that
+ *     matches nothing earns at the version's default. The invoice's basis
+ *     is shared across its lines by their value, so the total basis is the
+ *     same as before. A version with no package rules pays exactly as
+ *     before (commissionOf falls through to amountOf).
+ *   - CLOSER CORRECTION follows the money (reassignCloser): not yet in a
+ *     payroll -> the entitlement moves to the corrected closer; in a month
+ *     not yet released -> back to review; paid or released -> unchanged and
+ *     flagged. Nothing is ever deducted from wages.
+ *   - /commission/packages (names seen on recent invoices, to choose from)
+ *     and /commission/audit (every commission decision, in one list). */
 
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
@@ -62,6 +78,65 @@ export function basisOf(inv: Inv, basis: Policy["basis"]): number {
 export function amountOf(basisCents: number, p: Pick<Policy, "rate_kind" | "rate_bp" | "fixed_cents">): number {
   if (p.rate_kind === "fixed") return Math.max(0, Math.round(Number(p.fixed_cents ?? 0)));
   return Math.floor((Math.max(0, basisCents) * Number(p.rate_bp ?? 0) + 5000) / 10000);
+}
+
+/** v1.227.0 - one package rule of a policy version (0152). */
+export interface PkgRule { policy_id: number; package_name: string; match_key: string; rule: "percent" | "fixed" | "none"; rate_bp: number | null; fixed_cents: number | null }
+/** How a line's name is compared with a package name: trimmed, single spaces, any case. */
+export const matchKey = (s: unknown) => String(s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+export interface LineCalc { name: string; qty: number; basis_cents: number; package: string | null; rule: "percent" | "fixed" | "none" | "default"; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }
+
+/** The commission on an invoice under a version and its package rules, with
+    the line-by-line working when package rules exist. No package rules: the
+    invoice-level calculation, unchanged since v1.224.0. */
+export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "rate_bp" | "fixed_cents">, pkgs: PkgRule[] = []): { basis: number; amount: number; lines: LineCalc[] | null } {
+  const basis = basisOf(inv, p.basis);
+  if (!pkgs.length) return { basis, amount: amountOf(basis, p), lines: null };
+  let raw: { name?: unknown; qty?: number; unit_price_cents?: number; disc_cents?: number }[] = [];
+  try { const v = JSON.parse(inv.items ?? "[]"); if (Array.isArray(v)) raw = v; } catch { raw = []; }
+  if (!raw.length) return { basis, amount: amountOf(basis, p), lines: null };
+  const nets = raw.map((l) => Math.max(0, Number(l.qty ?? 0) * Number(l.unit_price_cents ?? 0) - Number(l.disc_cents ?? 0)));
+  const sumNet = nets.reduce((a, b) => a + b, 0);
+  const byKey = new Map(pkgs.map((r) => [r.match_key, r]));
+  let defaultFixedUsed = false;
+  let amount = 0;
+  const lines: LineCalc[] = raw.map((l, i) => {
+    const share = sumNet > 0 ? nets[i]! / sumNet : (i === 0 ? 1 : 0);
+    const lb = Math.round(basis * share);
+    const qty = Math.max(0, Number(l.qty ?? 0));
+    const r = byKey.get(matchKey(l.name));
+    let a = 0;
+    let out: LineCalc;
+    if (r) {
+      a = r.rule === "none" ? 0 : r.rule === "fixed" ? Math.max(0, Math.round(Number(r.fixed_cents ?? 0) * qty)) : Math.floor((lb * Number(r.rate_bp ?? 0) + 5000) / 10000);
+      out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: r.package_name, rule: r.rule, rate_bp: r.rule === "percent" ? r.rate_bp : null, fixed_cents: r.rule === "fixed" ? r.fixed_cents : null, amount_cents: a };
+    } else if (p.rate_kind === "fixed") {
+      /* the version's fixed amount is per invoice: once, on the first unmatched line */
+      a = defaultFixedUsed ? 0 : Math.max(0, Math.round(Number(p.fixed_cents ?? 0)));
+      defaultFixedUsed = true;
+      out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: null, rule: "default", rate_bp: null, fixed_cents: p.fixed_cents, amount_cents: a };
+    } else {
+      a = Math.floor((lb * Number(p.rate_bp ?? 0) + 5000) / 10000);
+      out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: null, rule: "default", rate_bp: p.rate_bp, fixed_cents: null, amount_cents: a };
+    }
+    amount += a;
+    return out;
+  });
+  return { basis, amount, lines };
+}
+
+/** The package rules of these versions (none before 0152). */
+export async function packagesOf(env: Env, ids: number[]): Promise<Map<number, PkgRule[]>> {
+  const out = new Map<number, PkgRule[]>();
+  const want = [...new Set(ids.filter((x) => Number.isInteger(x) && x > 0))];
+  if (!want.length) return out;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT policy_id, package_name, match_key, rule, rate_bp, fixed_cents FROM commission_policy_packages WHERE policy_id IN (${want.map(() => "?").join(", ")}) ORDER BY id`,
+    ).bind(...want).all<PkgRule>();
+    for (const r of results ?? []) out.set(r.policy_id, [...(out.get(r.policy_id) ?? []), r]);
+  } catch { /* pre-0152: no package rules */ }
+  return out;
 }
 
 async function activePolicies(env: Env): Promise<Policy[]> {
@@ -102,11 +177,11 @@ export async function ensureLedger(env: Env, invoiceId?: number): Promise<number
     conf = ((invoiceId ? await st.bind(COMMISSION_START_DAY, invoiceId).all() : await st.bind(COMMISSION_START_DAY).all()).results ?? []) as typeof conf;
   } catch { return 0; } // before 0145 / 0150: nothing to write to
   const policies = conf.length ? await activePolicies(env) : [];
+  const pk = conf.length ? await packagesOf(env, policies.map((x) => x.id)) : new Map<number, PkgRule[]>();
   for (const c of conf) {
     const p = inForce(policies, c.paid_day);
     if (!p) continue; // no approved policy for that day: shown as an exception, nothing invented
-    const basis = basisOf(c, p.basis);
-    const amount = amountOf(basis, p);
+    const { basis, amount } = commissionOf(c, p, pk.get(p.id));
     const noCloser = !c.salesperson_id;
     const r = await env.DB.prepare(
       `INSERT OR IGNORE INTO commission_ledger (source_key, kind, invoice_id, confirmation_id, user_id, policy_id, basis_cents, rate_bp, fixed_cents, amount_cents, paid_day, status, eligible_at, note)
@@ -235,19 +310,20 @@ async function openInvoices(env: Env, me: number | null): Promise<Open[]> {
     } catch { return []; }
   }
 }
-function estimateOf(o: Open, policies: Policy[], today: string) {
+function estimateOf(o: Open, policies: Policy[], today: string, pk: Map<number, PkgRule[]>) {
   const day = o.payment_status === "paid" ? o.paid_day : (today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY);
   const p = inForce(policies, day);
   if (!p) return { estimate_cents: null as number | null, basis_cents: null as number | null, policy_version: null as number | null };
-  const basis = basisOf(o, p.basis);
-  return { estimate_cents: amountOf(basis, p), basis_cents: basis, policy_version: p.version };
+  const c = commissionOf(o, p, pk.get(p.id));
+  return { estimate_cents: c.amount, basis_cents: c.basis, policy_version: p.version };
 }
 const stageOf = (o: Open) => o.payment_status === "paid" ? "awaiting_confirmation" : o.received > 0 ? "part_paid" : "unpaid";
 
 export async function handleCommission(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (!(path === "/commission/summary" || path === "/commission/entries" || path.startsWith("/commission/entries/")
     || path === "/commission/flow" || path === "/commission/policy" || path.startsWith("/commission/policy/")
-    || path === "/commission/settings" || path.startsWith("/commission/ledger/"))) return null;
+    || path === "/commission/settings" || path.startsWith("/commission/ledger/")
+    || path === "/commission/packages" || path === "/commission/audit")) return null;
   const all = VIEW_ALL.includes(user.role);
   const today = mytToday();
   const wantAll = params.get("scope") === "all" && all; // everyone else only ever reads their own
@@ -257,10 +333,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
   if (path === "/commission/summary" && method === "GET") {
     await ensureLedger(env);
     const policies = await activePolicies(env);
+    const pkS = await packagesOf(env, policies.map((x) => x.id));
     const month = MONTH.test(params.get("month") ?? "") ? params.get("month")! : today.slice(0, 7);
     const open = await openInvoices(env, me);
     let est = 0, estN = 0;
-    for (const o of open) { const e = estimateOf(o, policies, today); if (e.estimate_cents !== null && o.salesperson_id) { est += e.estimate_cents; estN++; } }
+    for (const o of open) { const e = estimateOf(o, policies, today, pkS); if (e.estimate_cents !== null && o.salesperson_id) { est += e.estimate_cents; estN++; } }
     const sum = async (where: string, ...b: unknown[]) => {
       try {
         return await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS c, COUNT(*) AS n FROM commission_ledger WHERE ${where}${me ? ` AND user_id = ${Number(me)}` : ""}`)
@@ -284,6 +361,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
   if (path === "/commission/entries" && method === "GET") {
     await ensureLedger(env);
     const policies = await activePolicies(env);
+    const pkE = await packagesOf(env, policies.map((x) => x.id));
     const status = params.get("status") ?? "";
     const q = (params.get("q") ?? "").trim().toLowerCase().slice(0, 60);
     let rows: Record<string, unknown>[] = [];
@@ -308,7 +386,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const estimates = ["", "estimated"].includes(status) ? (await openInvoices(env, me)).map((o) => ({
       invoice_id: o.id, doc_number: o.doc_number, company: o.company, closer_name: o.closer_name, user_id: o.salesperson_id,
       invoice_total: o.total_cents, payment_status: o.payment_status, received_cents: o.received, stage: stageOf(o),
-      package: lineSummary(o.items), created_at: o.created_at, ...estimateOf(o, policies, today),
+      package: lineSummary(o.items), created_at: o.created_at, ...estimateOf(o, policies, today, pkE),
     })) : [];
     const match = (r: Record<string, unknown>) => !q || [r.doc_number, r.company, r.closer_name, r.package].some((x) => String(x ?? "").toLowerCase().includes(q));
     return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: DECIDE_ROLES.includes(user.role) });
@@ -345,7 +423,15 @@ export async function handleCommission(env: Env, path: string, method: string, b
            OR (a.entity = 'commission_ledger' AND a.entity_id IN (SELECT CAST(id AS TEXT) FROM commission_ledger WHERE invoice_id = ?2))
         ORDER BY a.id`,
     ).bind(String(inv), inv).all()).results ?? [];
-    return json({ entry: { ...row, package: lineSummary(row.items as string | null) }, related, confirmations, history, can_decide: DECIDE_ROLES.includes(user.role) });
+    /* v1.227.0 - the line-by-line working under the entry's own version
+       (versions are never edited and a paid invoice's money is locked, so
+       this is the calculation that wrote the row) */
+    let breakdown: LineCalc[] | null = null;
+    if (row.kind === "earn" && row.policy_id) {
+      const pol = await env.DB.prepare(`SELECT * FROM commission_policies WHERE id = ?1`).bind(Number(row.policy_id)).first<Policy>().catch(() => null);
+      if (pol) breakdown = commissionOf(row as unknown as Inv, pol, (await packagesOf(env, [pol.id])).get(pol.id)).lines;
+    }
+    return json({ entry: { ...row, package: lineSummary(row.items as string | null) }, related, confirmations, history, breakdown, can_decide: DECIDE_ROLES.includes(user.role) });
   }
 
   /* ---- decide an entry under review (CEO, super admin) ---- */
@@ -368,10 +454,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
       return json({ ok: true, status: "void" });
     }
     if (row.kind === "earn") {
-      /* an earn with no closer: apply once the invoice names one */
+      /* an earn with no closer, or whose closer was corrected after it
+         reached payroll (v1.227.0): apply to the closer the invoice names now */
       const inv = await env.DB.prepare(`SELECT salesperson_id FROM sales_documents WHERE id = ?1`).bind(row.invoice_id).first<{ salesperson_id: number | null }>();
       if (!inv?.salesperson_id) return err("invalid_input", "The invoice still has no closer. Correct the closer on the invoice first.", 400);
-      const r = await env.DB.prepare(`UPDATE commission_ledger SET status = 'eligible', user_id = ?4, ${stamp} WHERE id = ?1 AND status = 'review' AND user_id IS NULL`)
+      const r = await env.DB.prepare(`UPDATE commission_ledger SET status = 'eligible', user_id = ?4, ${stamp} WHERE id = ?1 AND status = 'review' AND payroll_month IS NULL`)
         .bind(id, user.id, note, inv.salesperson_id).run();
       if (!r.meta?.changes) return err("conflict", "That entry changed while you were deciding. Reload.", 409);
       await audit(env, user.id, "commission.apply", "commission_ledger", String(id), { note, user_id: inv.salesperson_id });
@@ -485,8 +572,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
       throw e;
     }
     const policies = await activePolicies(env);
+    const pkV = await packagesOf(env, (versions as { id: number }[]).map((v) => v.id));
+    versions = (versions as { id: number }[]).map((v) => ({ ...v, packages: pkV.get(v.id) ?? [] }));
+    const inF = inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY);
     return json({
-      versions, log, in_force: inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY), sync: await syncSwitch(env),
+      versions, log, in_force: inF ? { ...inF, packages: pkV.get(inF.id) ?? [] } : null, sync: await syncSwitch(env),
       start: COMMISSION_START_DAY, today, can_draft: DRAFT_ROLES.includes(user.role), can_approve: APPROVE_ROLES.includes(user.role), can_switch: DECIDE_ROLES.includes(user.role),
     });
   }
@@ -506,14 +596,41 @@ export async function handleCommission(env: Env, path: string, method: string, b
     if (kind === "fixed" && !(Number.isFinite(fixed) && fixed > 0 && fixed <= 10000000)) return err("invalid_input", "A fixed amount is above RM 0.00.", 400);
     if (reason.length < 10) return err("invalid_input", "Give the reason for this policy (at least 10 characters).", 400);
     if (body?.renewal_rule !== undefined && body.renewal_rule !== "every_paid") return err("invalid_input", "Renewals: only 'every paid month' is approved (29-10-2026). Other renewal rules need the owner's approval first.", 400);
+    for (const [k, v] of [["payment_rule", "paid_in_full_confirmed"], ["refund_rule", "review"], ["cutoff_rule", "month_end_carry_forward"], ["leaver_rule", "final_payroll_or_settle"]] as const) {
+      if (body?.[k] !== undefined && body[k] !== v) return err("invalid_input", `${k.replace("_", " ")}: only the approved rule (${v.replace(/_/g, " ")}) can be chosen. Another rule needs the owner's approval first.`, 400);
+    }
+    /* v1.227.0 - package rules, written with this draft and never edited */
+    const rawPk = Array.isArray(body?.packages) ? (body!.packages as unknown[]) : [];
+    if (rawPk.length > 50) return err("invalid_input", "At most 50 package rules in one version.", 400);
+    const pkgs: { name: string; key: string; rule: "percent" | "fixed" | "none"; bp: number | null; fc: number | null }[] = [];
+    for (const x of rawPk) {
+      const o = (x ?? {}) as Record<string, unknown>;
+      const pname = String(o.name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+      const rule = o.rule === "fixed" ? "fixed" : o.rule === "none" ? "none" : o.rule === "percent" ? "percent" : null;
+      if (pname.length < 2 || !rule) return err("invalid_input", "Each package needs its name (as it is written on invoices) and a rule: percent, fixed or none.", 400);
+      const key = matchKey(pname);
+      if (pkgs.some((q) => q.key === key)) return err("invalid_input", `"${pname}" is listed twice.`, 400);
+      const rp = Number(o.rate_pct), fc = Math.round(Number(o.fixed_cents));
+      if (rule === "percent" && !(Number.isFinite(rp) && rp >= 0 && rp <= 50)) return err("invalid_input", `${pname}: the rate is a percentage from 0 to 50.`, 400);
+      if (rule === "fixed" && !(Number.isFinite(fc) && fc > 0 && fc <= 10000000)) return err("invalid_input", `${pname}: a fixed amount is above RM 0.00.`, 400);
+      pkgs.push({ name: pname, key, rule, bp: rule === "percent" ? Math.round(rp * 100) : null, fc: rule === "fixed" ? fc : null });
+    }
     try {
-      const r = await env.DB.prepare(
+      /* the version and its package rules in ONE batch (one transaction):
+         a draft is never stored without the rules it was drafted with */
+      const ins = env.DB.prepare(
         `INSERT INTO commission_policies (version, name, status, effective_from, rate_kind, rate_bp, fixed_cents, basis, reason, created_by)
-         SELECT COALESCE(MAX(version), 0) + 1, ?1, 'draft', ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM commission_policies RETURNING id, version`,
-      ).bind(name, from, kind, kind === "percent" ? Math.round(pct * 100) : null, kind === "fixed" ? fixed : null, basis, reason, user.id).first<{ id: number; version: number }>();
-      await audit(env, user.id, "commission.policy_draft", "commission_policies", String(r?.id), { version: r?.version, effective_from: from, rate_kind: kind, rate_pct: kind === "percent" ? pct : null, fixed_cents: kind === "fixed" ? fixed : null, basis, reason });
+         SELECT COALESCE(MAX(version), 0) + 1, ?1, 'draft', ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM commission_policies`,
+      ).bind(name, from, kind, kind === "percent" ? Math.round(pct * 100) : null, kind === "fixed" ? fixed : null, basis, reason, user.id);
+      await env.DB.batch([ins, ...pkgs.map((q) => env.DB.prepare(
+        `INSERT INTO commission_policy_packages (policy_id, package_name, match_key, rule, rate_bp, fixed_cents)
+         VALUES ((SELECT MAX(id) FROM commission_policies), ?1, ?2, ?3, ?4, ?5)`,
+      ).bind(q.name, q.key, q.rule, q.bp, q.fc))]);
+      const r = await env.DB.prepare(`SELECT id, version FROM commission_policies WHERE created_by = ?1 ORDER BY id DESC LIMIT 1`).bind(user.id).first<{ id: number; version: number }>();
+      await audit(env, user.id, "commission.policy_draft", "commission_policies", String(r?.id), { version: r?.version, effective_from: from, rate_kind: kind, rate_pct: kind === "percent" ? pct : null, fixed_cents: kind === "fixed" ? fixed : null, basis, reason, packages: pkgs.map((q) => ({ name: q.name, rule: q.rule, rate_bp: q.bp, fixed_cents: q.fc })) });
       return json({ ok: true, id: r?.id, version: r?.version }, 201);
     } catch (e) {
+      if (/no such table: commission_policy_packages/i.test(String(e))) return err("migration_missing", "Run migration 0152 first (PUSH.bat)", 503);
       if (/no such table/i.test(String(e))) return err("migration_missing", "Run migration 0150 first (PUSH.bat)", 503);
       throw e;
     }
@@ -528,6 +645,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       /* what this version would pay on the last 60 days of confirmed
          invoices - nothing is written */
       const policies = await activePolicies(env);
+      const pkP = await packagesOf(env, [...policies.map((x) => x.id), p.id]);
       let rows: { invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; items: string | null; discount_cents: number; total_cents: number; paid_day: string }[] = [];
       try {
         rows = ((await env.DB.prepare(
@@ -540,9 +658,9 @@ export async function handleCommission(env: Env, path: string, method: string, b
         ).bind(today).all()).results ?? []) as typeof rows;
       } catch { rows = []; }
       const out = rows.map((r) => {
-        const basis = basisOf(r, p.basis);
+        const mine = commissionOf(r, p, pkP.get(p.id));
         const cur = inForce(policies, r.paid_day);
-        return { ...r, items: undefined, package: lineSummary(r.items), basis_cents: basis, amount_cents: amountOf(basis, p), current_version: cur?.version ?? null, current_cents: cur ? amountOf(basisOf(r, cur.basis), cur) : null };
+        return { ...r, items: undefined, package: lineSummary(r.items), basis_cents: mine.basis, amount_cents: mine.amount, current_version: cur?.version ?? null, current_cents: cur ? commissionOf(r, cur, pkP.get(cur.id)).amount : null };
       });
       return json({ policy: p, rows: out, total_cents: out.reduce((a, r) => a + r.amount_cents, 0), note: "A preview only - nothing is written, and past entitlements keep their own version." });
     }
@@ -591,5 +709,96 @@ export async function handleCommission(env: Env, path: string, method: string, b
     await audit(env, user.id, "commission.sync", "business_settings", "commission_sync", { value, reason });
     return json({ ok: true, sync: value === "on" });
   }
+  /* v1.227.0 - package names as they are written on recent invoices (180
+     days), most used first, with the latest unit price - so a package rule
+     is typed exactly as the invoices spell it. Plus the public rate card's
+     names. Nothing here is invented. */
+  if (path === "/commission/packages" && method === "GET") {
+    if (!all) return err("forbidden", "Management access required", 403);
+    const seen = new Map<string, { name: string; n: number; last_price_cents: number | null; last_on: string }>();
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT items, date(created_at, '+8 hours') AS d FROM sales_documents WHERE doc_type = 'INV' AND date(created_at, '+8 hours') >= date(?1, '-180 days') ORDER BY created_at DESC LIMIT 2000`,
+      ).bind(today).all<{ items: string | null; d: string }>();
+      for (const r of results ?? []) {
+        let lines: { name?: unknown; unit_price_cents?: number }[] = [];
+        try { const v = JSON.parse(r.items ?? "[]"); if (Array.isArray(v)) lines = v; } catch { lines = []; }
+        for (const l of lines) {
+          const name = String(l.name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+          if (name.length < 2) continue;
+          const k = matchKey(name);
+          const cur = seen.get(k);
+          if (cur) cur.n += 1;
+          else seen.set(k, { name, n: 1, last_price_cents: Number.isFinite(Number(l.unit_price_cents)) ? Number(l.unit_price_cents) : null, last_on: r.d });
+        }
+      }
+    } catch { /* nothing to suggest */ }
+    let card: string[] = [];
+    try {
+      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
+      const v = row ? JSON.parse(row.value) : null;
+      card = Array.isArray(v) ? v.map((t: { name?: unknown }) => String(t?.name ?? "").trim()).filter(Boolean) : [];
+    } catch { card = []; }
+    return json({ from_invoices: [...seen.values()].sort((a, b) => b.n - a.n).slice(0, 60), rate_card: card });
+  }
+
+  /* v1.227.0 - THE AUDIT HISTORY: every commission decision and the steps
+     that feed it (policy drafts, approvals, rejections, the payroll switch,
+     reviews decided, closer corrections, payment confirmations), newest
+     first. Read-only, management (the CCO included). */
+  if (path === "/commission/audit" && method === "GET") {
+    if (!all) return err("forbidden", "Management access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, ${PERSON("u")} AS who
+         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.action LIKE 'commission.%' OR a.action LIKE 'doc.closer%' OR a.action LIKE 'invoice.paid_confirm%'
+        ORDER BY a.id DESC LIMIT 300`,
+    ).all<{ id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; who: string | null }>();
+    return json({ events: results ?? [] });
+  }
   return err("not_found", "Unknown commission route", 404);
+}
+
+/* v1.227.0 - D1 of the Commission Configuration audit: a closer corrected
+   AFTER the commission was written. The money follows the correction, by
+   where it stands - never by taking anything back from wages:
+     eligible / review, not in a payroll  -> moves to the corrected closer;
+     included in a month NOT released     -> back to review (out of that
+                                             payroll), for the CEO to apply;
+     included in a released month, or paid -> unchanged; flagged.
+   Reversals of a moved entitlement move with it. Every write is
+   conditional on the row still being where it was read. */
+export async function reassignCloser(env: Env, invoiceId: number, fromId: number | null, toId: number, note: string): Promise<{ moved: number; to_review: number; unchanged_paid: number }> {
+  const out = { moved: 0, to_review: 0, unchanged_paid: 0 };
+  let rows: { id: number; kind: string; status: string; payroll_month: string | null; user_id: number | null }[] = [];
+  try {
+    rows = ((await env.DB.prepare(
+      `SELECT id, kind, status, payroll_month, user_id FROM commission_ledger WHERE invoice_id = ?1 AND status != 'void' ORDER BY id`,
+    ).bind(invoiceId).all()).results ?? []) as typeof rows;
+  } catch { return out; } // pre-0150
+  const tag = `Closer corrected${fromId ? "" : " (none before)"}: ${note}`.slice(0, 400);
+  for (const r of rows) {
+    if (r.user_id === toId) continue;
+    if ((r.status === "eligible" || r.status === "review") && !r.payroll_month) {
+      const u = await env.DB.prepare(
+        `UPDATE commission_ledger SET user_id = ?2, note = COALESCE(note || ' · ', '') || ?3 WHERE id = ?1 AND status IN ('eligible', 'review') AND payroll_month IS NULL AND user_id IS ?4`,
+      ).bind(r.id, toId, tag, r.user_id).run();
+      out.moved += Number(u.meta?.changes ?? 0);
+      continue;
+    }
+    if (r.status === "included" && r.payroll_month) {
+      const rel = await env.DB.prepare(`SELECT month FROM payslip_releases WHERE month = ?1`).bind(r.payroll_month).first().catch(() => null);
+      if (!rel) {
+        const u = await env.DB.prepare(
+          `UPDATE commission_ledger SET status = 'review', payroll_month = NULL, included_at = NULL, note = COALESCE(note || ' · ', '') || ?2 WHERE id = ?1 AND status = 'included'`,
+        ).bind(r.id, `${tag} - taken out of ${r.payroll_month} payroll for review`).run();
+        out.to_review += Number(u.meta?.changes ?? 0);
+        continue;
+      }
+    }
+    await env.DB.prepare(`UPDATE commission_ledger SET note = COALESCE(note || ' · ', '') || ?2 WHERE id = ?1`)
+      .bind(r.id, `${tag} - already paid or released to the previous closer; nothing is deducted, settle through HR if needed`).run();
+    out.unchanged_paid += 1;
+  }
+  return out;
 }

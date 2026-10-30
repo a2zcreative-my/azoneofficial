@@ -52,7 +52,7 @@ const rp = read("components/portal/role-panels.tsx");
 
 /* ---- 1 + 2. one quotation, one invoice ---- */
 {
-  const conv = staff.slice(staff.indexOf("const docConv = path.match"), staff.indexOf("const docConv = path.match") + 2500);
+  const conv = staff.slice(staff.indexOf("const docConv = path.match"), staff.indexOf("const docConv = path.match") + 3400); // v1.227.0: the closer check sits before the number too
   ok("convert refuses a quotation that already has an invoice", /SELECT doc_number FROM sales_documents WHERE converted_from = \?1 AND doc_type = 'INV'/.test(conv) && /if \(already\) return err\("already_invoiced"/.test(conv));
   ok("and refuses BEFORE a number is minted or stock moves", conv.indexOf("if (already) return err") < conv.indexOf('await docNumber(env, "INV")') && conv.indexOf("if (already) return err") < conv.indexOf("deductForInvoice"));
   const docs = staff.slice(staff.indexOf('if (path === "/docs" && method === "GET")'), staff.indexOf('if (path === "/docs" && method === "GET")') + 1800);

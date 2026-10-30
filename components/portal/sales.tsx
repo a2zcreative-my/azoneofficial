@@ -1689,6 +1689,16 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       );
       return;
     }
+    /* v1.227.0 - an invoice names its closer; the server refuses one that
+       does not, so say it here before anything is sent */
+    if (doc.doc_type === "INV" && !doc.salesperson_id) {
+      showToast(
+        L("Choose the closer", "Pilih penutup"),
+        L("An invoice names the salesperson who closed the sale. Pick them under Sales person.", "Invois menamakan jurujual yang menutup jualan. Pilih di bawah Jurujual."),
+        "notice"
+      );
+      return;
+    }
     /* v1.99.2 — the page budget, checked once at save with the SAME
        measurement the template prints by. The editor already stops the Add
        button; this catches a description typed long after the line existed. */
@@ -2368,17 +2378,26 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   }
                   title={editCloserLocked
                     ? L("Locked: a payment is recorded on this invoice. The CEO corrects the closer in Closed Sales, with a reason.", "Dikunci: bayaran telah direkodkan pada invois ini. CEO membetulkan penutup dalam Jualan Ditutup, dengan sebab.")
+                    : doc.doc_type === "INV"
+                    ? L("Who closed this sale - the commission follows this person", "Siapa yang menutup jualan ini - komisen mengikut orang ini")
                     : L(
                     "Captured from your login automatically — change it only when creating on someone else's behalf",
                     "Diambil daripada log masuk anda secara automatik — tukar hanya apabila membuat bagi pihak orang lain"
                   )}
                 >
-                  {/* v1.41.1 (CEO): the FULL name, nothing else. */}
-                  <option value={0}>
-                    {L(`${user.name} — me (auto from login)`, `${user.name} — saya (auto dari log masuk)`)}
-                  </option>
+                  {/* v1.41.1 (CEO): the FULL name, nothing else.
+                      v1.227.0 - an INVOICE names its closer (the owner's
+                      answer "Require a closer"): no "me" default, the
+                      person is chosen from the staff list. */}
+                  {doc.doc_type === "INV" ? (
+                    <option value={0} disabled>{L("Choose the closer", "Pilih penutup")}</option>
+                  ) : (
+                    <option value={0}>
+                      {L(`${user.name} — me (auto from login)`, `${user.name} — saya (auto dari log masuk)`)}
+                    </option>
+                  )}
                   {staffList
-                    .filter((u) => u.name !== user.name)
+                    .filter((u) => doc.doc_type === "INV" || u.name !== user.name)
                     .map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name}

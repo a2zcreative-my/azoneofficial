@@ -10,7 +10,7 @@ import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
-import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
+import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -2301,12 +2301,16 @@ const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
 
 /** v1.215.0 - who may CONFIRM that an invoice's payment is real (the
     owner's Payroll 2.0 answers, 28-10-2026: CEO, COO and super admin). The
-    CCO reviews only; recording a payment stays with the finance roles. */
-const CONFIRM_PAID_ROLES = ["ceo", "coo", "super_admin"];
+    CCO reviews only; recording a payment stays with the finance roles.
+    v1.227.0 - the owner, 30-10-2026 (Commission Configuration brief: "Only
+    CEO or COO may confirm an invoice as Paid"; answer "Only CEO/COO confirm
+    Paid"): the super admin no longer confirms. Confirmations it already
+    made stay as they are. */
+const CONFIRM_PAID_ROLES = ["ceo", "coo"];
 /** v1.216.2 - the owner, 28-10-2026 ("I also can make the sales"; answer
     "CEO can self-confirm"): the CEO may confirm the CEO's own sale. It is
-    shown as "Self-confirmed" everywhere and audited as such. The COO and
-    super admin still cannot confirm their own sales. */
+    shown as "Self-confirmed" everywhere and audited as such. The COO still
+    cannot confirm the COO's own sales. */
 const SELF_CONFIRM_ROLES = ["ceo"];
 /** v1.216.1 - the owner, 28-10-2026: sales commission "will start to
     effectively on 1st Nov payroll". The first payroll month that can carry
@@ -2334,6 +2338,17 @@ async function revokePaidConfirmation(env: Env, invoiceId: number, userId: numbe
     payment: the invoice marked paid, or any part payment not voided. Also
     returns the SQL guard that keeps a racing write honest (without the
     part-payment clause on a database from before 0140). */
+/** v1.227.0 (Commission Configuration audit D2, the owner's answer "Require
+    a closer") - who can be the CLOSER of an invoice: a person on staff
+    today, not a customer and not one of the system accounts (admin, super
+    admin), whose commission could never reach a payroll. */
+async function closerEligible(env: Env, id: number | null | undefined): Promise<boolean> {
+  if (!id || !Number.isInteger(id) || id <= 0) return false;
+  return Boolean(await env.DB.prepare(
+    `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'admin', 'super_admin') AND ${currentStaffSql()}`,
+  ).bind(id).first());
+}
+
 async function invoiceCloserLock(env: Env, invoiceId: number): Promise<{ locked: boolean; guardSql: string }> {
   const paidRow = await env.DB.prepare(`SELECT COALESCE(payment_status, '') AS ps FROM sales_documents WHERE id = ?1`)
     .bind(invoiceId).first<{ ps: string }>();
@@ -8873,6 +8888,14 @@ async function handleStaffRoutes(
     if (salespersonId !== user.id && !(await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role != 'customer' AND ${currentStaffSql()}`).bind(salespersonId).first())) {
       return err("invalid_input", "The salesperson must be someone on staff today. Pick them from the list.", 400);
     }
+    /* v1.227.0 - an INVOICE names its closer: chosen, never taken from
+       whoever happens to type it (an admin's sale could never be paid) */
+    if (docType === "INV" && !(typeof body.salesperson_id === "number" && body.salesperson_id > 0)) {
+      return err("closer_required", "Choose the salesperson who closed this sale - an invoice names its closer.", 400);
+    }
+    if (docType === "INV" && !(await closerEligible(env, salespersonId))) {
+      return err("closer_required", "The closer must be a salesperson on staff today (not a system account). Pick them from the list.", 400);
+    }
     const number = await docNumber(env, docType);
     // v1.4.94: backdating — payments received before this system existed can
     // be invoiced on their true date. Past dates only, never the future.
@@ -9098,6 +9121,11 @@ async function handleStaffRoutes(
       `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 1`,
     ).bind(qt.id).first<{ doc_number: string }>();
     if (already) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Undo that invoice first if it was a mistake.`, 409);
+    /* v1.227.0 - the invoice keeps the quotation's closer, who must be a
+       salesperson on staff; it no longer falls back to whoever converts */
+    if (!(await closerEligible(env, qt.salesperson_id as number | null))) {
+      return err("closer_required", `${String(qt.doc_number)} has no salesperson on staff. Edit the quotation and choose who closed it, then invoice it.`, 400);
+    }
     const numberC = await docNumber(env, "INV");
     const resC = await env.DB.prepare(
       `INSERT INTO sales_documents
@@ -9107,7 +9135,7 @@ async function handleStaffRoutes(
     ).bind(
       numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
       (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
-      qt.notes ?? null, qt.salesperson_id ?? user.id, user.id, qt.id,
+      qt.notes ?? null, qt.salesperson_id, user.id, qt.id,
       (qt as { kind?: string | null }).kind ?? "product", // v1.4.234: the invoice inherits the quotation's line
     ).first<{ id: number }>();
     // v1.4.263: the invoice born from a quotation deducts stock too — the QT
@@ -9347,6 +9375,11 @@ async function handleStaffRoutes(
     if (spE !== null && !(await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role != 'customer' AND (${currentStaffSql()} OR id = (SELECT salesperson_id FROM sales_documents WHERE id = ?2))`).bind(spE, idE).first())) {
       return err("invalid_input", "The salesperson must be someone on staff today. Pick them from the list.", 400);
     }
+    /* v1.227.0 - an invoice's closer is never moved TO a system account */
+    if (spE !== null && docE.doc_type === "INV" && !(await closerEligible(env, spE))
+      && spE !== Number((await env.DB.prepare(`SELECT salesperson_id FROM sales_documents WHERE id = ?1`).bind(idE).first<{ salesperson_id: number | null }>())?.salesperson_id ?? 0)) {
+      return err("closer_required", "The closer must be a salesperson on staff today (not a system account). Pick them from the list.", 400);
+    }
     const todayE = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     /* v1.181.11 - a REVISION is not a typo fix: it keeps the original date
        on the row (the revision carries its own), so doc_date is ignored. */
@@ -9533,9 +9566,9 @@ async function handleStaffRoutes(
      invoices only, a reason of at least 10 characters, the person must be a
      current staff member, and the write is conditional on the closer still
      being the one the reviewer saw - two corrections cannot cross. Nothing
-     else on the invoice moves. Any commission calculated later reads the
-     closer as it stands; corrections never rewrite money already decided
-     (there is no commission ledger yet - the owner has not set a policy). */
+     else on the invoice moves. v1.227.0: commission already written follows
+     the correction by stage (commission.ts reassignCloser); money already
+     paid or released is never taken back. */
   const closerFix = path.match(/^\/docs\/(\d+)\/closer$/);
   if (closerFix && method === "POST") {
     if (!can(user.role, "commission_decide")) return err("forbidden", "Only the CEO can correct the closer of a sale", 403);
@@ -9558,15 +9591,21 @@ async function handleStaffRoutes(
       `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer') AND ${currentStaffSql()}`,
     ).bind(toId).first<{ id: number }>();
     if (!person) return err("invalid_input", "That person is not on the current staff list.", 400);
+    if (!(await closerEligible(env, toId))) return err("closer_required", "The closer must be a salesperson, not a system account.", 400);
     const lock = await invoiceCloserLock(env, docId);
     const ran = await env.DB.prepare(
       `UPDATE sales_documents SET salesperson_id = ?1 WHERE id = ?2 AND doc_type = 'INV' AND COALESCE(salesperson_id, 0) = ?3`,
     ).bind(toId, docId, cur ?? 0).run();
     if (!ran.meta.changes) return err("conflict", "The closer on this invoice changed while you were looking. Reload and check again.", 409);
+    /* v1.227.0 (Commission Configuration audit D1, the owner's answer "Move
+       it, by stage") - the commission already written follows the
+       correction: not yet in payroll -> moves; in an unreleased payroll ->
+       review; paid or released -> unchanged and flagged. Never deducted. */
+    const moved = await reassignCloser(env, docId, cur, toId, reason);
     await audit(env, user.id, "doc.closer_correct", "sales_documents", String(docId), {
-      invoice: inv.doc_number, from: cur, to: toId, reason, locked: lock.locked,
+      invoice: inv.doc_number, from: cur, to: toId, reason, locked: lock.locked, commission: moved,
     });
-    return json({ ok: true, from: cur, to: toId });
+    return json({ ok: true, from: cur, to: toId, commission: moved });
   }
 
   /* v1.215.0 - CONFIRM PAID (the owner's Payroll 2.0 brief and answers,
@@ -9596,7 +9635,7 @@ async function handleStaffRoutes(
     /* the owner: a payment counts "only if someone else recorded it" - so the
        closer never confirms their own sale; another of the three does */
     const selfConfirm = inv.salesperson_id === user.id;
-    if (selfConfirm && !SELF_CONFIRM_ROLES.includes(user.role)) return err("forbidden", `${inv.doc_number} is your own sale - the CEO or another of the COO and super admin confirms it.`, 403);
+    if (selfConfirm && !SELF_CONFIRM_ROLES.includes(user.role)) return err("forbidden", `${inv.doc_number} is your own sale - the CEO confirms it.`, 403);
     if (inv.doc_type !== "INV") return err("invalid_input", "Only an invoice is confirmed as paid.", 400);
     if (inv.payment_status !== "paid") {
       return err("invalid_input", `${inv.doc_number} is not marked paid in full. Record the payment first; commission counts only on an invoice paid in full.`, 400);

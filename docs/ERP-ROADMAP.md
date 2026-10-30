@@ -283,3 +283,6 @@ versioned commission policies, the entitlement ledger (one row per event)
 and the log of the payroll switch.
 1.226.0 (Shift reminders) adds migration `0151_notification_prefs` - each
 person's own Clock-in / Clock-out reminder switches (no row = on).
+1.227.0 (Commission configuration) adds migration `0152_commission_packages`
+- the package rules of a commission policy version (percent, fixed per
+unit, or none), written with the draft and never edited.
