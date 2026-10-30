@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.232.0] - 2026-10-30 - Commission 2.1: business logic, approval and payroll flow
+
+The owner's brief, 30-10-2026: one engine, exactly-once payroll, actual
+payout separate, the CCO review only, only authorized next actions, no
+redesign. Answers: services earn, products only if listed; part payments
+keep the whole-invoice rule; package rules by library package; "Build it".
+Migration 0154 (additive). Audit: claude/COMMISSION-2.1-AUDIT.md.
+
+- **Payroll hand-off (F1, F3, F4)**: opening payroll (commission sources)
+  attaches nothing; saving one person's payroll takes only that person's
+  eligible commission; Recompute takes the month's payroll rows only. A
+  future month, or a month whose payslips are out by time (the 5th rule) or
+  by a release row, takes nothing new - it carries forward.
+- **Bank run (F2)**: recording the bank run pays only what each person's
+  saved payslip carries; anything else stays "In payroll", is shown as "not
+  on the payslip" and is audited (`commission.paid_held`).
+- **Payment day lock (F5)**: a confirmed invoice's payment day cannot be
+  changed until the confirmation is taken back with a reason (409).
+- **Leavers (F6)**: the CEO records a leaver's eligible commission as paid
+  in the final settlement, with a reason - never voided, never deducted.
+- **Products (F9)**: a product line (inventory SKU or product document)
+  earns only if a package rule lists it; a confirmation that earns nothing
+  is kept as void with the reason. Services earn as before.
+- **Library packages (F12)**: a rule may name a Sales packages library
+  package; every line of an invoice made from it follows that rule.
+- **Commission tab**: Overview shows open invoices (by their one stage) and
+  entitlements (by status) as two rows, never added together, each with its
+  next step and who takes it; Transactions show the issuer and next step;
+  an estimate opens line by line; Policy Settings shows the version
+  lifecycle (Draft · awaiting CEO / Approved · starts / In force /
+  Superseded), the fixed rules, products and library-package rules; Payroll
+  Sync warns when commission is in payroll but not on a payslip.
+- Guard `tests/commission-flow.mjs` (tests A-J of the audit, 9 mutations);
+  three commission guards updated to the approved signatures.
+
 ## [1.231.0] - 2026-10-30 - Sales packages: select, auto-fill, customize
 
 The owner's brief, 30-10-2026: "ONE PACKAGES LIBRARY. ONE EXISTING QUOTATION

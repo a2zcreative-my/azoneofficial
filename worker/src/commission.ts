@@ -62,8 +62,15 @@ export interface Policy {
   basis: "net_of_tax_delivery" | "invoice_total"; payment_rule: string; renewal_rule: string;
   refund_rule: string; cutoff_rule: string; leaver_rule: string; reason: string;
   created_by: number; created_at: string; approved_by: number | null; approved_at: string | null;
+  /** v1.232.0 (0154) - lines with no rule: services earn the default, a
+      product earns only if a rule lists it ('listed_only', the owner's
+      decision of 30-10-2026 before the start day). */
+  product_rule?: string | null;
 }
-interface Inv { items: string | null; discount_cents: number | null; total_cents: number | null }
+/** The invoice a calculation reads. v1.232.0: its kind (a product document
+    earns only on listed lines) and the library package it was made from
+    (a rule may name the package, 1.231.0). */
+interface Inv { items: string | null; discount_cents: number | null; total_cents: number | null; doc_kind?: string | null; doc_package_id?: number | null }
 
 /** The commission basis of an invoice, in sen. */
 export function basisOf(inv: Inv, basis: Policy["basis"]): number {
@@ -84,32 +91,47 @@ export function amountOf(basisCents: number, p: Pick<Policy, "rate_kind" | "rate
 export interface PkgRule { policy_id: number; package_name: string; match_key: string; rule: "percent" | "fixed" | "none"; rate_bp: number | null; fixed_cents: number | null }
 /** How a line's name is compared with a package name: trimmed, single spaces, any case. */
 export const matchKey = (s: unknown) => String(s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-export interface LineCalc { name: string; qty: number; basis_cents: number; package: string | null; rule: "percent" | "fixed" | "none" | "default"; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }
+export interface LineCalc { name: string; qty: number; basis_cents: number; package: string | null; rule: "percent" | "fixed" | "none" | "default" | "not_listed"; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }
+/** v1.232.0 - a rule that names a LIBRARY package (sales_packages, 1.231.0)
+    is stored with this key; it covers every line of an invoice made from it. */
+export const pkgKey = (id: number) => `pkg:${id}`;
 
 /** The commission on an invoice under a version and its package rules, with
-    the line-by-line working when package rules exist. No package rules: the
-    invoice-level calculation, unchanged since v1.224.0. */
-export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "rate_bp" | "fixed_cents">, pkgs: PkgRule[] = []): { basis: number; amount: number; lines: LineCalc[] | null } {
+    the line-by-line working when rules apply. Which rule a line follows:
+      1. the rule naming the library package the invoice was made from (all
+         its lines, v1.232.0);
+      2. the rule naming the line itself (name, trimmed, any case - 1.227.0);
+      3. otherwise the version's default - except a PRODUCT line under
+         'listed_only' (v1.232.0, the owner 30-10-2026), which earns nothing
+         unless a rule lists it. A product line is one with an inventory SKU,
+         or any line of a product document.
+    A service invoice with no rules is the invoice-level calculation,
+    unchanged since v1.224.0. */
+export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "rate_bp" | "fixed_cents"> & { product_rule?: string | null }, pkgs: PkgRule[] = []): { basis: number; amount: number; lines: LineCalc[] | null } {
   const basis = basisOf(inv, p.basis);
-  if (!pkgs.length) return { basis, amount: amountOf(basis, p), lines: null };
-  let raw: { name?: unknown; qty?: number; unit_price_cents?: number; disc_cents?: number }[] = [];
+  let raw: { name?: unknown; qty?: number; unit_price_cents?: number; disc_cents?: number; sku?: unknown }[] = [];
   try { const v = JSON.parse(inv.items ?? "[]"); if (Array.isArray(v)) raw = v; } catch { raw = []; }
-  if (!raw.length) return { basis, amount: amountOf(basis, p), lines: null };
+  const listedOnly = (p.product_rule ?? "listed_only") === "listed_only";
+  const isProduct = (l: { sku?: unknown }) => Boolean(String(l.sku ?? "").trim()) || inv.doc_kind === "product";
+  if (!raw.length || (!pkgs.length && !(listedOnly && raw.some(isProduct)))) return { basis, amount: amountOf(basis, p), lines: null };
   const nets = raw.map((l) => Math.max(0, Number(l.qty ?? 0) * Number(l.unit_price_cents ?? 0) - Number(l.disc_cents ?? 0)));
   const sumNet = nets.reduce((a, b) => a + b, 0);
   const byKey = new Map(pkgs.map((r) => [r.match_key, r]));
+  const whole = inv.doc_package_id ? byKey.get(pkgKey(Number(inv.doc_package_id))) : undefined;
   let defaultFixedUsed = false;
   let amount = 0;
   const lines: LineCalc[] = raw.map((l, i) => {
     const share = sumNet > 0 ? nets[i]! / sumNet : (i === 0 ? 1 : 0);
     const lb = Math.round(basis * share);
     const qty = Math.max(0, Number(l.qty ?? 0));
-    const r = byKey.get(matchKey(l.name));
+    const r = whole ?? byKey.get(matchKey(l.name));
     let a = 0;
     let out: LineCalc;
     if (r) {
       a = r.rule === "none" ? 0 : r.rule === "fixed" ? Math.max(0, Math.round(Number(r.fixed_cents ?? 0) * qty)) : Math.floor((lb * Number(r.rate_bp ?? 0) + 5000) / 10000);
       out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: r.package_name, rule: r.rule, rate_bp: r.rule === "percent" ? r.rate_bp : null, fixed_cents: r.rule === "fixed" ? r.fixed_cents : null, amount_cents: a };
+    } else if (listedOnly && isProduct(l)) {
+      out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: null, rule: "not_listed", rate_bp: null, fixed_cents: null, amount_cents: 0 };
     } else if (p.rate_kind === "fixed") {
       /* the version's fixed amount is per invoice: once, on the first unmatched line */
       a = defaultFixedUsed ? 0 : Math.max(0, Math.round(Number(p.fixed_cents ?? 0)));
@@ -123,6 +145,15 @@ export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "
     return out;
   });
   return { basis, amount, lines };
+}
+
+/** v1.232.0 - the invoice's library-package column, or NULL before 0153
+    (a calculation must never fail on a database a step behind). Cached
+    only once it is known to exist. */
+let pkgColOk = false;
+async function docPkgCol(env: Env): Promise<string> {
+  if (pkgColOk) return "d.package_id";
+  try { await env.DB.prepare(`SELECT package_id FROM sales_documents LIMIT 1`).first(); pkgColOk = true; return "d.package_id"; } catch { return "NULL"; }
 }
 
 /** The package rules of these versions (none before 0152). */
@@ -165,10 +196,11 @@ export async function ensureLedger(env: Env, invoiceId?: number): Promise<number
   const one = invoiceId ? " AND c.invoice_id = ?2" : "";
   /* 1. an earn row for every live confirmation of money that landed on or
         after the start day */
-  let conf: { conf_id: number; invoice_id: number; confirmed_at: string; items: string | null; discount_cents: number | null; total_cents: number | null; salesperson_id: number | null; paid_day: string }[] = [];
+  let conf: { conf_id: number; invoice_id: number; confirmed_at: string; items: string | null; discount_cents: number | null; total_cents: number | null; salesperson_id: number | null; paid_day: string; doc_kind: string | null; doc_package_id: number | null }[] = [];
+  const pkgC = await docPkgCol(env);
   try {
     const st = env.DB.prepare(
-      `SELECT c.id AS conf_id, c.invoice_id, c.confirmed_at, d.items, d.discount_cents, d.total_cents, d.salesperson_id,
+      `SELECT c.id AS conf_id, c.invoice_id, c.confirmed_at, d.items, d.discount_cents, d.total_cents, d.salesperson_id, d.kind AS doc_kind, ${pkgC} AS doc_package_id,
               date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS paid_day
          FROM invoice_paid_confirmations c JOIN sales_documents d ON d.id = c.invoice_id
         WHERE c.revoked_at IS NULL AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') >= ?1${one}
@@ -183,12 +215,18 @@ export async function ensureLedger(env: Env, invoiceId?: number): Promise<number
     if (!p) continue; // no approved policy for that day: shown as an exception, nothing invented
     const { basis, amount } = commissionOf(c, p, pk.get(p.id));
     const noCloser = !c.salesperson_id;
+    /* v1.232.0 - a confirmation that earns nothing under its version (a
+       product line not listed, a rule of none, a zero basis) is recorded
+       once, as void with the reason, so it is final and never joins a
+       payroll as RM 0.00 */
+    const nothing = !noCloser && amount <= 0;
     const r = await env.DB.prepare(
       `INSERT OR IGNORE INTO commission_ledger (source_key, kind, invoice_id, confirmation_id, user_id, policy_id, basis_cents, rate_bp, fixed_cents, amount_cents, paid_day, status, eligible_at, note)
        VALUES (?1, 'earn', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
     ).bind(`earn:${c.conf_id}`, c.invoice_id, c.conf_id, c.salesperson_id ?? null, p.id, basis,
       p.rate_kind === "percent" ? p.rate_bp : null, p.rate_kind === "fixed" ? p.fixed_cents : null, amount, c.paid_day,
-      noCloser ? "review" : "eligible", c.confirmed_at, noCloser ? "No closer on the invoice - choose one, then apply" : null).run();
+      noCloser ? "review" : nothing ? "void" : "eligible", c.confirmed_at,
+      noCloser ? "No closer on the invoice - choose one, then apply" : nothing ? `Nothing to earn under v${p.version}: no line earns (a product not listed, or a rule of none)` : null).run();
     written += Number(r.meta?.changes ?? 0);
   }
   /* 2. a confirmation taken back: void before payroll, review after */
@@ -240,26 +278,41 @@ export async function ensureLedger(env: Env, invoiceId?: number): Promise<number
 
 /** PAYROLL: the commission each person carries in a month, from the ledger.
     null = leave the stored figure alone (the switch is off, the month is
-    before the start, or its payslips are released). Otherwise eligible rows
-    confirmed by the month's last day are given to this month - once, by a
-    conditional write - for people on that month's payroll (`staffSql`, the
-    caller's payrollMonthStaffSql with alias "u."); a later month carries the
-    rest forward. */
-export async function commissionForPayroll(env: Env, month: string, staffSql: string): Promise<Map<number, number> | null> {
+    before the start, or its payslips are released). Otherwise the month's
+    sums by person.
+
+    v1.232.0 (Commission 2.1 audit F1-F4, approved 30-10-2026): rows JOIN a
+    month only when payroll WRITES that person's row for it - `include` is
+    exactly the people being written (a Save: one; a Recompute: the month's
+    entries). Reading the month (the Commission Sources list) attaches
+    nothing. A month whose payslips are out (`released`: the release row OR
+    the 5th-of-next-month moment the payslips themselves use) takes nothing,
+    and nor does a month after the current one - so a row always lands in
+    the month it was confirmed in, or the next one actually paid. Each row
+    joins once (conditional write); it is never moved after. */
+export async function commissionForPayroll(
+  env: Env, month: string, staffSql: string,
+  opts: { include: number[] | null; released: boolean },
+): Promise<Map<number, number> | null> {
   if (!MONTH.test(month) || `${month}-01` < COMMISSION_START_DAY.slice(0, 7) + "-01") return null;
   if (!(await syncSwitch(env))) return null;
+  if (opts.released) return null;
   try {
     const rel = await env.DB.prepare(`SELECT month FROM payslip_releases WHERE month = ?1`).bind(month).first();
     if (rel) return null;
     await ensureLedger(env);
-    const [y, m] = month.split("-").map(Number) as [number, number];
-    const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-    await env.DB.prepare(
-      `UPDATE commission_ledger SET payroll_month = ?1, status = 'included', included_at = datetime('now')
-        WHERE status = 'eligible' AND payroll_month IS NULL AND user_id IS NOT NULL
-          AND date(eligible_at, '+8 hours') <= ?2
-          AND user_id IN (SELECT u.id FROM users u WHERE ${staffSql})`,
-    ).bind(month, last).run();
+    const ids = [...new Set((opts.include ?? []).filter((x) => Number.isInteger(x) && x > 0))];
+    if (ids.length && month <= mytToday().slice(0, 7)) {
+      const [y, m] = month.split("-").map(Number) as [number, number];
+      const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+      await env.DB.prepare(
+        `UPDATE commission_ledger SET payroll_month = ?1, status = 'included', included_at = datetime('now')
+          WHERE status = 'eligible' AND payroll_month IS NULL AND user_id IS NOT NULL
+            AND date(eligible_at, '+8 hours') <= ?2
+            AND user_id IN (${ids.map((_, i) => `?${i + 3}`).join(", ")})
+            AND user_id IN (SELECT u.id FROM users u WHERE ${staffSql})`,
+      ).bind(month, last, ...ids).run();
+    }
     const { results } = await env.DB.prepare(
       `SELECT user_id, COALESCE(SUM(amount_cents), 0) AS c FROM commission_ledger
         WHERE payroll_month = ?1 AND status IN ('included', 'paid') AND user_id IS NOT NULL GROUP BY user_id`,
@@ -268,13 +321,23 @@ export async function commissionForPayroll(env: Env, month: string, staffSql: st
   } catch { return null; } // pre-0150: payroll as before
 }
 
-/** The bank run for a month is done: what it carried is paid. */
-export async function markCommissionPaid(env: Env, month: string): Promise<void> {
+/** The bank run for a month is done: what it carried is paid.
+    v1.232.0 (F2): only what a SAVED payslip carries - a person's included
+    rows are paid when their payroll row for the month holds at least the
+    sum; otherwise they stay included and show "not on a payslip" until the
+    month is recomputed. Returns how many rows were paid and held. */
+export async function markCommissionPaid(env: Env, month: string): Promise<{ paid: number; held: number }> {
   try {
-    await env.DB.prepare(
-      `UPDATE commission_ledger SET status = 'paid', paid_out_at = datetime('now') WHERE payroll_month = ?1 AND status = 'included'`,
+    const r = await env.DB.prepare(
+      `UPDATE commission_ledger SET status = 'paid', paid_out_at = datetime('now')
+        WHERE payroll_month = ?1 AND status = 'included'
+          AND user_id IN (SELECT e.user_id FROM payroll_entries e WHERE e.month = ?1
+                AND COALESCE(e.commission_cents, 0) >= (SELECT COALESCE(SUM(l2.amount_cents), 0) FROM commission_ledger l2
+                      WHERE l2.payroll_month = ?1 AND l2.user_id = e.user_id AND l2.status IN ('included', 'paid')))`,
     ).bind(month).run();
-  } catch { /* pre-0150 */ }
+    const held = await env.DB.prepare(`SELECT COUNT(*) AS n FROM commission_ledger WHERE payroll_month = ?1 AND status = 'included'`).bind(month).first<{ n: number }>();
+    return { paid: Number(r.meta?.changes ?? 0), held: Number(held?.n ?? 0) };
+  } catch { return { paid: 0, held: 0 }; } // pre-0150
 }
 
 /* ------------------------------------------------------------------ */
@@ -287,11 +350,13 @@ const lineSummary = (items: string | null) => {
   } catch { return ""; }
 };
 
-interface Open { id: number; doc_number: string; items: string | null; discount_cents: number | null; total_cents: number | null; salesperson_id: number | null; payment_status: string | null; paid_day: string; created_at: string; company: string | null; closer_name: string | null; received: number }
+interface Open { id: number; doc_number: string; items: string | null; discount_cents: number | null; total_cents: number | null; salesperson_id: number | null; payment_status: string | null; paid_day: string; created_at: string; company: string | null; closer_name: string | null; received: number; doc_kind: string | null; doc_package_id: number | null; issuer_code: string | null }
 /** Invoices that may earn but have not yet: unpaid, part-paid, or paid and
     waiting for the CEO/COO. The estimate is never stored. */
-async function openInvoices(env: Env, me: number | null): Promise<Open[]> {
+async function openInvoices(env: Env, me: number | null, onlyId?: number): Promise<Open[]> {
+  const pkgC = await docPkgCol(env);
   const sql = (parts: boolean) => `SELECT d.id, d.doc_number, d.items, d.discount_cents, d.total_cents, d.salesperson_id, d.payment_status, d.created_at,
+            d.kind AS doc_kind, ${pkgC} AS doc_package_id, d.issuer_code,
             date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS paid_day, k.company, ${PERSON("u")} AS closer_name,
             ${parts ? "(SELECT COALESCE(SUM(p.amount_cents), 0) FROM invoice_payments p WHERE p.invoice_id = d.id AND p.voided_at IS NULL)" : "0"} AS received
        FROM sales_documents d LEFT JOIN customers k ON k.id = d.customer_id LEFT JOIN users u ON u.id = d.salesperson_id
@@ -299,6 +364,7 @@ async function openInvoices(env: Env, me: number | null): Promise<Open[]> {
         AND NOT EXISTS (SELECT 1 FROM invoice_paid_confirmations c WHERE c.invoice_id = d.id AND c.revoked_at IS NULL)
         AND (COALESCE(d.payment_status, '') != 'paid' OR date(COALESCE(d.paid_at, d.created_at), '+8 hours') >= ?1)
         ${me ? "AND d.salesperson_id = ?2" : ""}
+        ${onlyId ? `AND d.id = ${Number(onlyId)}` : ""}
       ORDER BY d.created_at DESC LIMIT 500`;
   try {
     const st = env.DB.prepare(sql(true));
@@ -318,12 +384,40 @@ function estimateOf(o: Open, policies: Policy[], today: string, pk: Map<number, 
   return { estimate_cents: c.amount, basis_cents: c.basis, policy_version: p.version };
 }
 const stageOf = (o: Open) => o.payment_status === "paid" ? "awaiting_confirmation" : o.received > 0 ? "part_paid" : "unpaid";
+/** v1.232.0 (audit C6/C7) - the one next step for an open invoice, and who
+    takes it. Keys; the panel words them. */
+const nextOfOpen = (o: Open, hasPolicy: boolean): string =>
+  !o.salesperson_id ? "choose_closer" : !hasPolicy ? "approve_policy"
+    : o.payment_status === "paid" ? "confirm_paid" : o.received > 0 ? "await_balance" : "await_payment";
+/** ... and for an entitlement, by its status and what payroll holds. */
+async function entryContext(env: Env): Promise<{ onSlip: Set<string>; leavers: Set<number> }> {
+  const onSlip = new Set<string>();
+  const leavers = new Set<number>();
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT l.user_id, l.payroll_month, SUM(l.amount_cents) AS c, COALESCE(e.commission_cents, -1) AS slip
+         FROM commission_ledger l LEFT JOIN payroll_entries e ON e.user_id = l.user_id AND e.month = l.payroll_month
+        WHERE l.status IN ('included', 'paid') AND l.payroll_month IS NOT NULL GROUP BY l.user_id, l.payroll_month`,
+    ).all<{ user_id: number; payroll_month: string; c: number; slip: number }>();
+    for (const r of results ?? []) if (r.slip >= 0 && Number(r.slip) >= Number(r.c)) onSlip.add(`${r.user_id}|${r.payroll_month}`);
+    const today = mytToday();
+    const lv = await env.DB.prepare(
+      `SELECT id FROM users WHERE left_on IS NOT NULL AND substr(left_on, 1, 10) < ?1 AND (rejoined_on IS NULL OR substr(rejoined_on, 1, 10) > ?1)`,
+    ).bind(today).all<{ id: number }>();
+    for (const r of lv.results ?? []) leavers.add(Number(r.id));
+  } catch { /* pre-0150 */ }
+  return { onSlip, leavers };
+}
+const nextOfEntry = (e: { status: string; user_id: number | null; payroll_month: string | null }, sync: boolean, ctx: { onSlip: Set<string>; leavers: Set<number> }): string =>
+  e.status === "review" ? "ceo_decides" : e.status === "void" ? "none" : e.status === "paid" ? "done"
+    : e.status === "included" ? (ctx.onSlip.has(`${e.user_id}|${e.payroll_month}`) ? "await_bank_run" : "recompute_payroll")
+    : e.user_id && ctx.leavers.has(e.user_id) ? "settle_leaver" : sync ? "next_payroll" : "payroll_off";
 
 export async function handleCommission(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (!(path === "/commission/summary" || path === "/commission/entries" || path.startsWith("/commission/entries/")
     || path === "/commission/flow" || path === "/commission/policy" || path.startsWith("/commission/policy/")
     || path === "/commission/settings" || path.startsWith("/commission/ledger/")
-    || path === "/commission/packages" || path === "/commission/audit")) return null;
+    || path === "/commission/packages" || path === "/commission/audit" || path.startsWith("/commission/invoice/"))) return null;
   const all = VIEW_ALL.includes(user.role);
   const today = mytToday();
   const wantAll = params.get("scope") === "all" && all; // everyone else only ever reads their own
@@ -371,7 +465,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       if (me) { b.push(me); where.push(`l.user_id = ?${b.length}`); }
       if (["eligible", "review", "included", "paid", "void"].includes(status)) { b.push(status); where.push(`l.status = ?${b.length}`); }
       const { results } = await env.DB.prepare(
-        `SELECT l.*, d.doc_number, d.total_cents AS invoice_total, d.payment_status, d.items, k.company,
+        `SELECT l.*, d.doc_number, d.total_cents AS invoice_total, d.payment_status, d.items, d.issuer_code, k.company,
                 ${PERSON("u")} AS closer_name, p.version AS policy_version, p.name AS policy_name,
                 c.confirmed_at, ${PERSON("cu")} AS confirmed_by_name
            FROM commission_ledger l JOIN sales_documents d ON d.id = l.invoice_id
@@ -381,13 +475,20 @@ export async function handleCommission(env: Env, path: string, method: string, b
            LEFT JOIN users cu ON cu.id = c.confirmed_by
           ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY l.id DESC LIMIT 500`,
       ).bind(...b).all<Record<string, unknown>>();
-      rows = (results ?? []).map((r) => ({ ...r, package: lineSummary(r.items as string | null), items: undefined }));
+      const sync = await syncSwitch(env);
+      const ctx = await entryContext(env);
+      rows = (results ?? []).map((r) => ({ ...r, package: lineSummary(r.items as string | null), items: undefined,
+        next: nextOfEntry(r as { status: string; user_id: number | null; payroll_month: string | null }, sync, ctx) }));
     } catch { rows = []; }
-    const estimates = ["", "estimated"].includes(status) ? (await openInvoices(env, me)).map((o) => ({
-      invoice_id: o.id, doc_number: o.doc_number, company: o.company, closer_name: o.closer_name, user_id: o.salesperson_id,
-      invoice_total: o.total_cents, payment_status: o.payment_status, received_cents: o.received, stage: stageOf(o),
-      package: lineSummary(o.items), created_at: o.created_at, ...estimateOf(o, policies, today, pkE),
-    })) : [];
+    const estimates = ["", "estimated"].includes(status) ? (await openInvoices(env, me)).map((o) => {
+      const e = estimateOf(o, policies, today, pkE);
+      return {
+        invoice_id: o.id, doc_number: o.doc_number, company: o.company, closer_name: o.closer_name, user_id: o.salesperson_id,
+        invoice_total: o.total_cents, payment_status: o.payment_status, received_cents: o.received, stage: stageOf(o),
+        package: lineSummary(o.items), created_at: o.created_at, issuer_code: o.issuer_code, ...e,
+        next: nextOfOpen(o, e.policy_version !== null),
+      };
+    }) : [];
     const match = (r: Record<string, unknown>) => !q || [r.doc_number, r.company, r.closer_name, r.package].some((x) => String(x ?? "").toLowerCase().includes(q));
     return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: DECIDE_ROLES.includes(user.role) });
   }
@@ -399,6 +500,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     try {
       row = await env.DB.prepare(
         `SELECT l.*, d.doc_number, d.total_cents AS invoice_total, d.payment_status, d.items, d.discount_cents, d.tax_percent, d.delivery_cents, d.salesperson_id,
+                d.kind AS doc_kind, ${await docPkgCol(env)} AS doc_package_id, d.issuer_code,
                 k.company, ${PERSON("u")} AS closer_name, p.version AS policy_version, p.name AS policy_name, p.basis AS policy_basis
            FROM commission_ledger l JOIN sales_documents d ON d.id = l.invoice_id LEFT JOIN customers k ON k.id = d.customer_id
            LEFT JOIN users u ON u.id = l.user_id LEFT JOIN commission_policies p ON p.id = l.policy_id WHERE l.id = ?1`,
@@ -431,7 +533,8 @@ export async function handleCommission(env: Env, path: string, method: string, b
       const pol = await env.DB.prepare(`SELECT * FROM commission_policies WHERE id = ?1`).bind(Number(row.policy_id)).first<Policy>().catch(() => null);
       if (pol) breakdown = commissionOf(row as unknown as Inv, pol, (await packagesOf(env, [pol.id])).get(pol.id)).lines;
     }
-    return json({ entry: { ...row, package: lineSummary(row.items as string | null) }, related, confirmations, history, breakdown, can_decide: DECIDE_ROLES.includes(user.role) });
+    const nextE = nextOfEntry(row as { status: string; user_id: number | null; payroll_month: string | null }, await syncSwitch(env), await entryContext(env));
+    return json({ entry: { ...row, package: lineSummary(row.items as string | null), next: nextE }, related, confirmations, history, breakdown, can_decide: DECIDE_ROLES.includes(user.role) });
   }
 
   /* ---- decide an entry under review (CEO, super admin) ---- */
@@ -441,8 +544,29 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const id = Number(dec[1]);
     const decision = String(body?.decision ?? "");
     const note = str(body?.note, 500) ? String(body!.note).trim() : "";
-    if (!["apply", "dismiss", "settled"].includes(decision)) return err("invalid_input", "decision is apply, dismiss or settled", 400);
+    if (!["apply", "dismiss", "settled", "settle"].includes(decision)) return err("invalid_input", "decision is apply, dismiss, settled or settle", 400);
     if (note.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
+    /* v1.232.0 (audit F6/C5) - THE LEAVER RULE'S "OR SETTLE": an eligible
+       entitlement of someone no longer on payroll can never join a payroll
+       month. The CEO records that it was paid in the final settlement (or
+       outside payroll), with the reason. It is marked paid - never voided,
+       never deducted - and stays in the history. */
+    if (decision === "settle") {
+      const lv = await env.DB.prepare(
+        `SELECT l.id FROM commission_ledger l JOIN users u ON u.id = l.user_id
+          WHERE l.id = ?1 AND l.kind = 'earn' AND l.status = 'eligible' AND l.payroll_month IS NULL
+            AND u.left_on IS NOT NULL AND substr(u.left_on, 1, 10) < ?2 AND (u.rejoined_on IS NULL OR substr(u.rejoined_on, 1, 10) > ?2)`,
+      ).bind(id, today).first().catch(() => null);
+      if (!lv) return err("conflict", "Only an eligible commission of someone who has left, not in any payroll, is settled here.", 409);
+      const r = await env.DB.prepare(
+        `UPDATE commission_ledger SET status = 'paid', paid_out_at = datetime('now'), decided_by = ?2, decided_at = datetime('now'), decision_note = ?3,
+                note = COALESCE(note || ' · ', '') || 'Settled outside payroll'
+          WHERE id = ?1 AND status = 'eligible' AND payroll_month IS NULL`,
+      ).bind(id, user.id, `settle: ${note}`).run();
+      if (!r.meta?.changes) return err("conflict", "That entry changed while you were deciding. Reload.", 409);
+      await audit(env, user.id, "commission.settle", "commission_ledger", String(id), { note });
+      return json({ ok: true, status: "paid" });
+    }
     const row = await env.DB.prepare(`SELECT * FROM commission_ledger WHERE id = ?1`).bind(id).first<{ id: number; kind: string; status: string; invoice_id: number; parent_id: number | null; user_id: number | null }>().catch(() => null);
     if (!row) return err("not_found", "Commission entry not found", 404);
     if (row.status !== "review") return err("conflict", "That entry is not under review.", 409);
@@ -531,17 +655,32 @@ export async function handleCommission(env: Env, path: string, method: string, b
       ).bind(today).first<{ n: number; c: number }>() ?? leavers;
     } catch { /* pre-0150 */ }
     const noCloser = open.filter((o) => !o.salesperson_id);
+    /* v1.232.0 (audit F7/C6) - TWO ROWS, NEVER ADDED TOGETHER. Invoices:
+       each open invoice in exactly ONE current stage, counted once, valued
+       at its invoice total. Entitlements: each ledger row in exactly one
+       status, valued at its commission. Each stage names the next step. */
+    const ctx = await entryContext(env);
+    let notOnSlip = { n: 0, cents: 0 };
+    try {
+      const { results } = await env.DB.prepare(`SELECT user_id, payroll_month, amount_cents FROM commission_ledger WHERE status = 'included'`).all<{ user_id: number; payroll_month: string; amount_cents: number }>();
+      for (const r of results ?? []) if (!ctx.onSlip.has(`${r.user_id}|${r.payroll_month}`)) { notOnSlip.n++; notOnSlip.cents += Number(r.amount_cents); }
+    } catch { notOnSlip = { n: 0, cents: 0 }; }
+    const sync = await syncSwitch(env);
     return json({
-      start: COMMISSION_START_DAY, sync: await syncSwitch(env), policy: inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY),
-      stages: [
-        { key: "closed", n: open.length - noCloser.length, cents: cents(open.filter((o) => o.salesperson_id)) },
-        { key: "issued", n: s("unpaid").length, cents: cents(s("unpaid")) },
-        { key: "verified", n: s("part_paid").length + s("awaiting_confirmation").length, cents: cents([...s("part_paid"), ...s("awaiting_confirmation")]) },
-        { key: "confirmed", n: Number(confirmedN.n), cents: Number(confirmedN.c) },
-        { key: "eligible", n: Number(eligible.n), cents: Number(eligible.c) },
-        { key: "included", n: Number(included.n), cents: Number(included.c) },
-        { key: "paid", n: Number(paid.n), cents: Number(paid.c) },
+      start: COMMISSION_START_DAY, sync, policy: inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY),
+      invoices: [
+        { key: "unpaid", n: s("unpaid").length, cents: cents(s("unpaid")), next: "await_payment" },
+        { key: "part_paid", n: s("part_paid").length, cents: cents(s("part_paid")), next: "await_balance" },
+        { key: "awaiting_confirmation", n: s("awaiting_confirmation").length, cents: cents(s("awaiting_confirmation")), next: "confirm_paid" },
+        { key: "policy_review", n: noPolicy, cents: 0, next: "approve_policy" },
       ],
+      entitlements: [
+        { key: "eligible", n: Number(eligible.n), cents: Number(eligible.c), next: sync ? "next_payroll" : "payroll_off" },
+        { key: "included", n: Number(included.n), cents: Number(included.c), next: "await_bank_run" },
+        { key: "paid", n: Number(paid.n), cents: Number(paid.c), next: "done" },
+        { key: "review", n: Number(review.n), cents: Number(review.c), next: "ceo_decides" },
+      ],
+      confirmed_total: { n: Number(confirmedN.n), cents: Number(confirmedN.c) },
       exceptions: {
         review: { n: Number(review.n), cents: Number(review.c) },
         no_policy: noPolicy,
@@ -549,7 +688,26 @@ export async function handleCommission(env: Env, path: string, method: string, b
         awaiting_confirmation: s("awaiting_confirmation").length,
         carried_forward: { n: Number(carried.n), cents: Number(carried.c) },
         leavers: { n: Number(leavers.n), cents: Number(leavers.c) },
+        not_on_payslip: notOnSlip,
       },
+    });
+  }
+
+  /* ---- v1.232.0 (audit C7) - one open invoice: the estimate, line by line,
+     under the version that would apply, with what it is waiting for ---- */
+  const invOne = path.match(/^\/commission\/invoice\/(\d+)$/);
+  if (invOne && method === "GET") {
+    const [o] = await openInvoices(env, all ? null : user.id, Number(invOne[1]));
+    if (!o) return err("not_found", "No open invoice with an estimate (it may already be confirmed - see its entry)", 404);
+    const policies = await activePolicies(env);
+    const day = o.payment_status === "paid" ? o.paid_day : (today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY);
+    const p = inForce(policies, day);
+    const calc = p ? commissionOf(o, p, (await packagesOf(env, [p.id])).get(p.id)) : null;
+    return json({
+      invoice: { id: o.id, doc_number: o.doc_number, company: o.company, closer_name: o.closer_name, total_cents: o.total_cents, payment_status: o.payment_status,
+        received_cents: o.received, issuer_code: o.issuer_code, doc_kind: o.doc_kind, package_id: o.doc_package_id, created_at: o.created_at },
+      stage: stageOf(o), next: nextOfOpen(o, !!p), policy: p ? { version: p.version, name: p.name, rate_bp: p.rate_bp, fixed_cents: p.fixed_cents, rate_kind: p.rate_kind, basis: p.basis, product_rule: p.product_rule ?? "listed_only" } : null,
+      basis_cents: calc?.basis ?? null, estimate_cents: calc?.amount ?? null, lines: calc?.lines ?? null,
     });
   }
 
@@ -596,7 +754,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     if (kind === "fixed" && !(Number.isFinite(fixed) && fixed > 0 && fixed <= 10000000)) return err("invalid_input", "A fixed amount is above RM 0.00.", 400);
     if (reason.length < 10) return err("invalid_input", "Give the reason for this policy (at least 10 characters).", 400);
     if (body?.renewal_rule !== undefined && body.renewal_rule !== "every_paid") return err("invalid_input", "Renewals: only 'every paid month' is approved (29-10-2026). Other renewal rules need the owner's approval first.", 400);
-    for (const [k, v] of [["payment_rule", "paid_in_full_confirmed"], ["refund_rule", "review"], ["cutoff_rule", "month_end_carry_forward"], ["leaver_rule", "final_payroll_or_settle"]] as const) {
+    for (const [k, v] of [["payment_rule", "paid_in_full_confirmed"], ["refund_rule", "review"], ["cutoff_rule", "month_end_carry_forward"], ["leaver_rule", "final_payroll_or_settle"], ["product_rule", "listed_only"]] as const) {
       if (body?.[k] !== undefined && body[k] !== v) return err("invalid_input", `${k.replace("_", " ")}: only the approved rule (${v.replace(/_/g, " ")}) can be chosen. Another rule needs the owner's approval first.`, 400);
     }
     /* v1.227.0 - package rules, written with this draft and never edited */
@@ -605,10 +763,19 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const pkgs: { name: string; key: string; rule: "percent" | "fixed" | "none"; bp: number | null; fc: number | null }[] = [];
     for (const x of rawPk) {
       const o = (x ?? {}) as Record<string, unknown>;
-      const pname = String(o.name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+      /* v1.232.0 - a rule may name a LIBRARY package (1.231.0) instead of a
+         line name: every line of an invoice made from it follows the rule */
+      let libName: string | null = null;
+      if (o.package_id !== undefined && o.package_id !== null) {
+        const pid = Number(o.package_id);
+        const lib = Number.isInteger(pid) && pid > 0 ? await env.DB.prepare(`SELECT name FROM sales_packages WHERE id = ?1`).bind(pid).first<{ name: string }>().catch(() => null) : null;
+        if (!lib) return err("invalid_input", "That library package does not exist.", 400);
+        libName = lib.name;
+      }
+      const pname = libName ?? String(o.name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
       const rule = o.rule === "fixed" ? "fixed" : o.rule === "none" ? "none" : o.rule === "percent" ? "percent" : null;
       if (pname.length < 2 || !rule) return err("invalid_input", "Each package needs its name (as it is written on invoices) and a rule: percent, fixed or none.", 400);
-      const key = matchKey(pname);
+      const key = libName ? pkgKey(Number(o.package_id)) : matchKey(pname);
       if (pkgs.some((q) => q.key === key)) return err("invalid_input", `"${pname}" is listed twice.`, 400);
       const rp = Number(o.rate_pct), fc = Math.round(Number(o.fixed_cents));
       if (rule === "percent" && !(Number.isFinite(rp) && rp >= 0 && rp <= 50)) return err("invalid_input", `${pname}: the rate is a percentage from 0 to 50.`, 400);
@@ -646,10 +813,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
          invoices - nothing is written */
       const policies = await activePolicies(env);
       const pkP = await packagesOf(env, [...policies.map((x) => x.id), p.id]);
-      let rows: { invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; items: string | null; discount_cents: number; total_cents: number; paid_day: string }[] = [];
+      let rows: { invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; items: string | null; discount_cents: number; total_cents: number; paid_day: string; doc_kind: string | null; doc_package_id: number | null }[] = [];
       try {
         rows = ((await env.DB.prepare(
           `SELECT d.id AS invoice_id, d.doc_number, k.company, ${PERSON("u")} AS closer_name, d.items, d.discount_cents, d.total_cents,
+                  d.kind AS doc_kind, ${await docPkgCol(env)} AS doc_package_id,
                   date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS paid_day
              FROM invoice_paid_confirmations c JOIN sales_documents d ON d.id = c.invoice_id
              LEFT JOIN customers k ON k.id = d.customer_id LEFT JOIN users u ON u.id = d.salesperson_id
@@ -739,7 +907,12 @@ export async function handleCommission(env: Env, path: string, method: string, b
       const v = row ? JSON.parse(row.value) : null;
       card = Array.isArray(v) ? v.map((t: { name?: unknown }) => String(t?.name ?? "").trim()).filter(Boolean) : [];
     } catch { card = []; }
-    return json({ from_invoices: [...seen.values()].sort((a, b) => b.n - a.n).slice(0, 60), rate_card: card });
+    /* v1.232.0 - the sales packages library (1.231.0), for rules that name a whole package */
+    let library: { id: number; name: string; status: string; current_version: number }[] = [];
+    try {
+      library = ((await env.DB.prepare(`SELECT id, name, status, current_version FROM sales_packages WHERE status != 'archived' ORDER BY name COLLATE NOCASE`).all<{ id: number; name: string; status: string; current_version: number }>()).results ?? []);
+    } catch { library = []; }
+    return json({ from_invoices: [...seen.values()].sort((a, b) => b.n - a.n).slice(0, 60), rate_card: card, library });
   }
 
   /* v1.227.0 - THE AUDIT HISTORY: every commission decision and the steps

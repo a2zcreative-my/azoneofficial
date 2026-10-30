@@ -50,7 +50,8 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 /* ---- source ---- */
 const comm = read("worker/src/commission.ts"), staffSrc = read("worker/src/staff.ts"), panel = read("components/portal/commission-panel.tsx");
 ok("package rules are never edited after the draft (no UPDATE or DELETE anywhere)", !/UPDATE commission_policy_packages|DELETE FROM commission_policy_packages/.test(comm + staffSrc));
-ok("a version with no package rules pays exactly as before", /if \(!pkgs\.length\) return \{ basis, amount: amountOf\(basis, p\), lines: null \};/.test(comm));
+/* v1.232.0 - with no package rules a SERVICE invoice still pays exactly as before; a product line follows the product rule (Commission 2.1) */
+ok("a version with no package rules pays a service invoice exactly as before", /if \(!raw\.length \|\| \(!pkgs\.length && !\(listedOnly && raw\.some\(isProduct\)\)\)\) return \{ basis, amount: amountOf\(basis, p\), lines: null \};/.test(comm));
 ok("the closer correction route hands the commission to reassignCloser", /const moved = await reassignCloser\(env, docId, cur, toId, reason\);/.test(staffSrc));
 ok("the Commission page has the five views", /\["overview", L\("Overview"[\s\S]*?\["transactions"[\s\S]*?\["policy", L\("Policy Settings"[\s\S]*?\["payroll", L\("Payroll Sync"[\s\S]*?\["audit", L\("Audit History"/.test(panel));
 ok("a consultant still sees only their own commission", /: \(\[\["transactions", L\("My commission", "Komisen saya"\)\]\] as const\)/.test(panel));

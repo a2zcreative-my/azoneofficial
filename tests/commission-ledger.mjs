@@ -53,7 +53,7 @@ const cm = read("worker/src/commission.ts");
 ok("the engine never writes a payroll row - payroll reads it", !/(UPDATE|INSERT INTO)\s+payroll_entries/.test(cm));
 ok("the weekly KPI never touches commission", !/from "\.\/commission"|commission_ledger|commission_policies|(INSERT INTO|UPDATE)\s+invoice_paid_confirmations/.test(read("worker/src/weekly-sales.ts")));
 const staffSrc = read("worker/src/staff.ts");
-ok("payroll Save never stores the screen's commission", !/cents\(body\.commission_cents\),/.test(staffSrc) && /commissionForPayroll\(env, month, payrollMonthStaffSql\(month, "u\."\)\)/.test(staffSrc));
+ok("payroll Save never stores the screen's commission", !/cents\(body\.commission_cents\),/.test(staffSrc) && /commissionForPayroll\(env, month, payrollMonthStaffSql\(month, "u\."\), \{ include: \[Number\(body\.user_id\)\], released: await payslipsOut\(month\) \}\)/.test(staffSrc)); // v1.232.0 - only the person saved joins
 ok("the dormant old engine is not called by the new one", !/commission_rules|commission_entries|commission_rates/.test(cm));
 ok("the sales screen offers Mark paid only to the payment roles", /const canPay = \["super_admin", "admin", "ceo", "coo"\]\.includes\(user\.role\)/.test(read("components/portal/sales.tsx")));
 

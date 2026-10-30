@@ -109,7 +109,7 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
      still writes nothing into payroll: the payroll row's commission is
      written by Save and Recompute alone, from the server's sum. */
   ok("...and never writes a payroll row (no automatic deduction, no amount typed)",
-     !/(UPDATE|INSERT INTO|DELETE FROM)\s+payroll_entries/i.test(src) && /commissionForPayroll\(env, mS, payrollMonthStaffSql\(mS, "u\."\)\)/.test(src)
+     !/(UPDATE|INSERT INTO|DELETE FROM)\s+payroll_entries/i.test(src) && /commissionForPayroll\(env, mS, payrollMonthStaffSql\(mS, "u\."\), \{ include: null, released: await payslipsOut\(mS\) \}\)/.test(src)
      && /FROM commission_policies\s+WHERE status = 'active'/.test(src));
 }
 

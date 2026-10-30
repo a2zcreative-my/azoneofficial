@@ -726,19 +726,24 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   const cmAll = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
   const cmPkgs = [{ package_name: "AZ Starter", match_key: "az starter", rule: "percent", rate_bp: 1000, fixed_cents: null },
     { package_name: "AZ Monthly Care", match_key: "az monthly care", rule: "fixed", rate_bp: null, fixed_cents: 3000 },
-    { package_name: "Domain renewal", match_key: "domain renewal", rule: "none", rate_bp: null, fixed_cents: null }];
+    { package_name: "Domain renewal", match_key: "domain renewal", rule: "none", rate_bp: null, fixed_cents: null },
+    /* v1.232.0 - a rule naming a library package (sales_packages id 3) */
+    { package_name: "LIVE Host Growth Bundle", match_key: "pkg:3", rule: "percent", rate_bp: 800, fixed_cents: null }];
   const cmMine = !(q.get("scope") === "all" && cmAll);
   const cmEntry = (o) => ({ kind: "earn", rate_bp: 1000, fixed_cents: null, policy_version: 1, policy_name: "A2Z Sales Commission", note: null, paid_out_at: null, payroll_month: null,
-    confirmed_at: "2026-11-05 02:00:00", confirmed_by_name: "Fixture COO", decision_note: null, payment_status: "paid", ...o });
+    confirmed_at: "2026-11-05 02:00:00", confirmed_by_name: "Fixture COO", decision_note: null, payment_status: "paid", issuer_code: "a2z",
+    /* v1.232.0 - the next-step key the worker derives (nextOfEntry) */
+    next: o.status === "review" ? "ceo_decides" : o.status === "paid" ? "done" : o.status === "included" ? "await_bank_run" : o.user_id === 9007 ? "settle_leaver" : process.env.COMM_SYNC ? "next_payroll" : "payroll_off", ...o });
   const cmEntries = [
     cmEntry({ id: 4, invoice_id: 30, doc_number: "INV-AZO051126-4", company: "Kedai Runcit Lima", package: "Unknown closer package", closer_name: null, user_id: null, invoice_total: 30000, amount_cents: 3000, basis_cents: 30000, status: "review", eligible_at: "2026-11-07 02:00:00", note: "No closer on the invoice - choose one, then apply" }),
     cmEntry({ id: 3, invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", package: "LIVE Host - Starter", closer_name: "Nur Aisyah", user_id: 9002, invoice_total: 280000, amount_cents: 28000, basis_cents: 280000, status: "eligible", eligible_at: "2026-11-06 02:00:00" }),
     cmEntry({ id: 2, invoice_id: 28, doc_number: "INV-AZO021126-2", company: "Casa del Rio Sdn Bhd", package: "AZ Monthly Care", closer_name: "Fixture Person", user_id: 9001, invoice_total: 39900, amount_cents: 3990, basis_cents: 39900, status: "included", payroll_month: "2026-11", eligible_at: "2026-11-03 02:00:00" }),
+    cmEntry({ id: 5, invoice_id: 32, doc_number: "INV-AZO091126-7", company: "Kedai Tiga", package: "AZ Starter", closer_name: "Hafiz (left)", user_id: 9007, invoice_total: 9900, amount_cents: 990, basis_cents: 9900, status: "eligible", eligible_at: "2026-11-09 02:00:00" }),
     cmEntry({ id: 1, invoice_id: 27, doc_number: "INV-AZO011126-1", company: "Kedai Satu", package: "AZ Starter", closer_name: "Fixture Person", user_id: 9001, invoice_total: 120000, amount_cents: 12000, basis_cents: 120000, status: "paid", payroll_month: "2026-10", paid_out_at: "2026-11-01 02:00:00", eligible_at: "2026-10-30 02:00:00" }),
   ];
   const cmEstimates = [
-    { invoice_id: 3, doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", closer_name: "Fixture Person", user_id: 9001, invoice_total: 990000, payment_status: "unpaid", received_cents: 400000, stage: "part_paid", package: "LIVE Host - Growth", created_at: "2026-09-05 02:00:00", estimate_cents: 99000, basis_cents: 990000, policy_version: 1 },
-    { invoice_id: 31, doc_number: "INV-AZO081126-6", company: "Kedai Dua", closer_name: "Nur Aisyah", user_id: 9002, invoice_total: 24900, payment_status: "unpaid", received_cents: 0, stage: "unpaid", package: "AZ Creative Express", created_at: "2026-11-08 02:00:00", estimate_cents: 2490, basis_cents: 24900, policy_version: 1 },
+    { invoice_id: 3, doc_number: "INV-AZO050926-3", company: "Casa del Rio Sdn Bhd", closer_name: "Fixture Person", user_id: 9001, invoice_total: 990000, payment_status: "unpaid", received_cents: 400000, stage: "part_paid", package: "LIVE Host - Growth", created_at: "2026-09-05 02:00:00", estimate_cents: 99000, basis_cents: 990000, policy_version: 1, issuer_code: "a2z", next: "await_balance" },
+    { invoice_id: 31, doc_number: "INV-AZO081126-6", company: "Kedai Dua", closer_name: "Nur Aisyah", user_id: 9002, invoice_total: 24900, payment_status: "unpaid", received_cents: 0, stage: "unpaid", package: "AZ Creative Express", created_at: "2026-11-08 02:00:00", estimate_cents: 2490, basis_cents: 24900, policy_version: 1, issuer_code: "a2z", next: "await_payment" },
   ];
   const cmPick = (xs) => (cmMine ? xs.filter((x) => x.user_id === 9001) : xs);
   const cmSum = (xs) => ({ cents: xs.reduce((a, x) => a + (x.amount_cents ?? x.estimate_cents ?? 0), 0), n: xs.length });
@@ -763,13 +768,28 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
   }
   if (p === "/commission/flow") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     start: "2026-11-01", sync: Boolean(process.env.COMM_SYNC), policy: cmPolicy,
-    stages: [{ key: "closed", n: 5, cents: 1454800 }, { key: "issued", n: 1, cents: 24900 }, { key: "verified", n: 1, cents: 990000 }, { key: "confirmed", n: 4, cents: 469900 },
-      { key: "eligible", n: 1, cents: 28000 }, { key: "included", n: 1, cents: 3990 }, { key: "paid", n: 1, cents: 12000 }],
-    exceptions: { review: { n: 1, cents: 3000 }, no_policy: 0, no_closer: 0, awaiting_confirmation: 0, carried_forward: { n: 0, cents: 0 }, leavers: { n: 0, cents: 0 } } };
+    /* v1.232.0 - two rows, never added together */
+    invoices: [{ key: "unpaid", n: 1, cents: 24900, next: "await_payment" }, { key: "part_paid", n: 1, cents: 990000, next: "await_balance" },
+      { key: "awaiting_confirmation", n: 0, cents: 0, next: "confirm_paid" }, { key: "policy_review", n: 0, cents: 0, next: "approve_policy" }],
+    entitlements: [{ key: "eligible", n: 2, cents: 28990, next: process.env.COMM_SYNC ? "next_payroll" : "payroll_off" }, { key: "included", n: 1, cents: 3990, next: "await_bank_run" },
+      { key: "paid", n: 1, cents: 12000, next: "done" }, { key: "review", n: 1, cents: 3000, next: "ceo_decides" }],
+    confirmed_total: { n: 5, cents: 479800 },
+    exceptions: { review: { n: 1, cents: 3000 }, no_policy: 0, no_closer: 0, awaiting_confirmation: 0, carried_forward: { n: 0, cents: 0 }, leavers: { n: 1, cents: 990 }, not_on_payslip: { n: 1, cents: 3990 } } };
+  /* v1.232.0 - one open invoice, line by line */
+  const cmInv = p.match(/^\/commission\/invoice\/(\d+)$/);
+  if (cmInv) {
+    const x = cmEstimates.find((e) => e.invoice_id === Number(cmInv[1]));
+    data = !x || (!cmAll && x.user_id !== 9001) ? { error: { code: "not_found", message: "No open invoice with an estimate" } } : {
+      invoice: { id: x.invoice_id, doc_number: x.doc_number, company: x.company, closer_name: x.closer_name, total_cents: x.invoice_total, payment_status: x.payment_status, received_cents: x.received_cents, issuer_code: "a2z", doc_kind: "service", package_id: x.invoice_id === 3 ? 3 : null, created_at: x.created_at },
+      stage: x.stage, next: x.next, policy: { ...cmPolicy, product_rule: "listed_only" }, basis_cents: x.basis_cents, estimate_cents: x.invoice_id === 3 ? 79200 : x.estimate_cents,
+      lines: x.invoice_id === 3 ? [{ name: "TikTok LIVE hosting - 12 sessions", qty: 1, basis_cents: 900000, package: "LIVE Host Growth Bundle", rule: "percent", rate_bp: 800, fixed_cents: null, amount_cents: 72000 },
+        { name: "Ring light set", qty: 1, basis_cents: 90000, package: "LIVE Host Growth Bundle", rule: "percent", rate_bp: 800, fixed_cents: null, amount_cents: 7200 }] : null };
+  }
   /* v1.227.0 - package rules of the version in force, the names seen on invoices, the audit history */
   if (p === "/commission/packages") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     from_invoices: [{ name: "AZ Starter", n: 6, last_price_cents: 9900, last_on: D + "16" }, { name: "AZ Monthly Care", n: 4, last_price_cents: 39900, last_on: D + "12" },
-      { name: "AZ Creative Express", n: 3, last_price_cents: 24900, last_on: D + "10" }, { name: "Domain renewal", n: 2, last_price_cents: 5000, last_on: D + "05" }], rate_card: ["AZ Starter", "AZ Creative Express", "AZ Monthly Care"] };
+      { name: "AZ Creative Express", n: 3, last_price_cents: 24900, last_on: D + "10" }, { name: "Domain renewal", n: 2, last_price_cents: 5000, last_on: D + "05" }], rate_card: ["AZ Starter", "AZ Creative Express", "AZ Monthly Care"],
+    library: [{ id: 3, name: "LIVE Host Growth Bundle", status: "active", current_version: 2 }, { id: 4, name: "Raya Content Pack", status: "active", current_version: 1 }] };
   if (p === "/commission/audit") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : { events: [
     { id: 9, action: "doc.closer_correct", entity: "sales_documents", entity_id: "28", detail: JSON.stringify({ invoice: "INV-AZO021126-2", from: 9002, to: 9001, reason: "Review found the real closer", commission: { moved: 1, to_review: 0, unchanged_paid: 0 } }), created_at: "2026-11-08 03:00:00", who: "Fixture Person" },
     { id: 8, action: "invoice.paid_confirm", entity: "sales_documents", entity_id: "2", detail: JSON.stringify({ invoice: "INV-AZO100926-2" }), created_at: "2026-11-06 02:00:00", who: "Fixture COO" },

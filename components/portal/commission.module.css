@@ -450,3 +450,15 @@
     grid-column: 1 / -1;
   }
 }
+
+/* v1.232.0 - the flow as two rows of four (invoices / entitlements) */
+@media (min-width: 1100px) {
+  .stages.stages4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.stageNext {
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  color: var(--foreground);
+}

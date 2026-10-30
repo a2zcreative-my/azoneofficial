@@ -284,7 +284,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0153_sales_packages";
+const LATEST_MIGRATION = "0154_commission_product_rule";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4811,6 +4811,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0151 (notification switches per person: shift reminders)", `SELECT user_id, pref_key, enabled FROM notification_prefs LIMIT 1`],
       ["0152 (commission rates per package, per policy version)", `SELECT policy_id, match_key, rule, rate_bp, fixed_cents FROM commission_policy_packages LIMIT 1`],
       ["0153 (sales packages for quotations, their versions, the quotation link)", `SELECT p.issuers, v.version, v.items, d.package_id, d.package_version, d.package_customized FROM sales_packages p LEFT JOIN sales_package_versions v ON v.package_id = p.id LEFT JOIN sales_documents d ON 1 = 0 LIMIT 1`],
+      ["0154 (commission product rule per policy version)", `SELECT product_rule FROM commission_policies LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -4985,6 +4986,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0151_notification_prefs",
       "0152_commission_packages",
       "0153_sales_packages",
+      "0154_commission_product_rule",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

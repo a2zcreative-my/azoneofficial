@@ -15,7 +15,14 @@
    true before commission is paid), Transactions (the entries), Policy
    Settings (the version in force, its package rules, drafting and
    approval), Payroll Sync (the switch and the cutoff) and Audit History
-   (every decision). Same engine, same data; the Sales page is untouched. */
+   (every decision). Same engine, same data; the Sales page is untouched.
+
+   v1.232.0 - Commission 2.1 (claude/COMMISSION-2.1-AUDIT.md): every open
+   invoice and entitlement names its next step and who takes it (NEXT); the
+   Overview shows invoices and entitlements as two rows never added
+   together; an estimate opens line by line; a leaver's commission can be
+   recorded as settled; versions show their lifecycle; rules may name a
+   library package; product lines earn only when listed. */
 
 import { useCallback, useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
@@ -46,11 +53,58 @@ interface Entry {
   invoice_total: number; payment_status: string | null; rate_bp: number | null; fixed_cents: number | null; policy_version: number | null;
   amount_cents: number; basis_cents: number; status: "eligible" | "review" | "included" | "paid" | "void"; eligible_at: string; payroll_month: string | null;
   paid_out_at: string | null; note: string | null; confirmed_at: string | null; confirmed_by_name: string | null; decision_note: string | null;
+  issuer_code?: string | null; next?: string;
 }
 interface Estimate {
   invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; user_id: number | null; invoice_total: number; payment_status: string | null;
   received_cents: number; stage: "unpaid" | "part_paid" | "awaiting_confirmation"; package: string; created_at: string;
   estimate_cents: number | null; basis_cents: number | null; policy_version: number | null;
+  issuer_code?: string | null; next?: string;
+}
+type LineRule = "percent" | "fixed" | "none" | "default" | "not_listed";
+interface LineCalc { name: string; qty: number; basis_cents: number; package: string | null; rule: LineRule; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }
+interface InvoiceResp {
+  invoice: { id: number; doc_number: string; company: string | null; closer_name: string | null; total_cents: number | null; payment_status: string | null; received_cents: number; issuer_code: string | null; doc_kind: string | null; package_id: number | null; created_at: string };
+  stage: Estimate["stage"]; next: string; policy: (Policy & { product_rule?: string }) | null; basis_cents: number | null; estimate_cents: number | null; lines: LineCalc[] | null;
+}
+
+/* v1.232.0 (Commission 2.1, audit C6/C7) - THE NEXT STEP, AND WHO TAKES IT.
+   The worker returns a key for every open invoice and every entitlement;
+   this is the only place it is worded. Only the step itself is named -
+   never a button the reader may not press. */
+const NEXT: Record<string, [string, string, string, string]> = {
+  choose_closer: ["Name the closer on the invoice", "Namakan penutup pada invois", "Sales · CEO", "Jualan · CEO"],
+  approve_policy: ["Approve a policy version", "Luluskan versi polisi", "CEO", "CEO"],
+  await_payment: ["Collect the payment", "Kutip bayaran", "Sales", "Jualan"],
+  await_balance: ["Collect the balance", "Kutip baki", "Sales", "Jualan"],
+  confirm_paid: ["Confirm Paid (Sales -> Closed Sales)", "Sahkan Dibayar (Jualan -> Jualan Ditutup)", "CEO or COO", "CEO atau COO"],
+  ceo_decides: ["Decide the review", "Putuskan semakan", "CEO", "CEO"],
+  payroll_off: ["Waits for the payroll switch", "Menunggu suis gaji", "CEO", "CEO"],
+  next_payroll: ["Goes into the next open payroll", "Masuk gaji terbuka seterusnya", "Payroll (automatic)", "Gaji (automatik)"],
+  recompute_payroll: ["Recompute the month - not on the payslip yet", "Kira semula bulan - belum dalam slip gaji", "Payroll (HR)", "Gaji (HR)"],
+  await_bank_run: ["Record the bank run as done", "Rekod pembayaran bank selesai", "Finance", "Kewangan"],
+  settle_leaver: ["Settle in the final settlement", "Selesaikan dalam penyelesaian akhir", "CEO", "CEO"],
+  done: ["Nothing - paid", "Tiada - dibayar", "", ""],
+  none: ["Nothing - closed", "Tiada - ditutup", "", ""],
+};
+const nextText = (k: string | undefined) => { const t = k ? NEXT[k] : undefined; return !t ? "—" : t[2] ? `${L(t[0], t[1])} · ${L(t[2], t[3])}` : L(t[0], t[1]); };
+const lineRuleText = (b: { rule: LineRule; rate_bp: number | null; fixed_cents: number | null }) => b.rule === "none" ? L("No commission", "Tiada komisen")
+  : b.rule === "not_listed" ? L("Product not listed - earns nothing", "Produk tidak disenaraikan - tiada komisen")
+  : b.rule === "fixed" ? L(`${fmtRM(b.fixed_cents ?? 0)} per unit`, `${fmtRM(b.fixed_cents ?? 0)} seunit`) : b.rule === "percent" ? `${((b.rate_bp ?? 0) / 100).toFixed(2)}%`
+  : L(`Default · ${b.rate_bp !== null ? `${(b.rate_bp / 100).toFixed(2)}%` : fmtRM(b.fixed_cents ?? 0)}`, `Asas · ${b.rate_bp !== null ? `${(b.rate_bp / 100).toFixed(2)}%` : fmtRM(b.fixed_cents ?? 0)}`);
+function LinesTable({ lines }: { lines: LineCalc[] }) {
+  return (
+    <div className={css.tableWrap}>
+      <table className={css.table} aria-label={L("Calculation by line", "Pengiraan mengikut baris")}>
+        <thead><tr><th>{L("Line", "Baris")}</th><th className={css.num}>{L("Basis", "Asas")}</th><th>{L("Rule", "Peraturan")}</th><th className={css.num}>{L("Commission", "Komisen")}</th></tr></thead>
+        <tbody>{lines.map((b, i) => (
+          <tr key={i}><td className={css.wrapCell}>{b.name}{b.qty !== 1 ? ` × ${b.qty}` : ""}</td><td className={css.num}>{fmtRM(b.basis_cents)}</td>
+            <td>{lineRuleText(b)}{b.package ? ` · ${b.package}` : ""}</td>
+            <td className={css.num}>{fmtRM(b.amount_cents)}</td></tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
 }
 
 export const rateText = (p: { rate_kind?: string; rate_bp: number | null; fixed_cents: number | null } | null) =>
@@ -76,7 +130,7 @@ type Filter = "" | "estimated" | Entry["status"];
 /* One entry: every fact, every step, the review                        */
 function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () => void; onSaved: () => void }) {
   const [tick, setTick] = useState(0);
-  const [got, setGot] = useState<{ id: number; d: { entry: Entry & { tax_percent: number; discount_cents: number; delivery_cents: number; policy_name: string | null; policy_basis: string | null }; related: { id: number; kind: string; status: string; amount_cents: number; payroll_month: string | null; note: string | null; created_at: string }[]; confirmations: { id: number; amount_cents: number; payment_ref: string | null; confirmed_at: string; confirmed_by_name: string | null; revoked_at: string | null; revoke_reason: string | null; revoked_by_name: string | null }[]; history: { action: string; detail: string | null; created_at: string; who: string | null }[]; breakdown?: { name: string; qty: number; basis_cents: number; package: string | null; rule: string; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }[] | null; can_decide: boolean } | null; e: string } | null>(null);
+  const [got, setGot] = useState<{ id: number; d: { entry: Entry & { tax_percent: number; discount_cents: number; delivery_cents: number; policy_name: string | null; policy_basis: string | null }; related: { id: number; kind: string; status: string; amount_cents: number; payroll_month: string | null; note: string | null; created_at: string }[]; confirmations: { id: number; amount_cents: number; payment_ref: string | null; confirmed_at: string; confirmed_by_name: string | null; revoked_at: string | null; revoke_reason: string | null; revoked_by_name: string | null }[]; history: { action: string; detail: string | null; created_at: string; who: string | null }[]; breakdown?: LineCalc[] | null; can_decide: boolean } | null; e: string } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -90,12 +144,12 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
   const mine = got?.id === id ? got : null;
   const d = mine?.d;
   const e = d?.entry;
-  const decide = async (decision: "apply" | "dismiss" | "settled") => {
+  const decide = async (decision: "apply" | "dismiss" | "settled" | "settle") => {
     if (!e) return;
     setBusy(true); setError("");
     const r = await api<{ status: string }>(`/ledger/${e.id}/decide`, { method: "POST", body: JSON.stringify({ decision, note }) });
     setBusy(false);
-    if (r.ok) { toast(L("Decision recorded", "Keputusan direkod"), decision === "apply" ? L("Applied", "Dilaksanakan") : L("Closed, with your reason", "Ditutup, dengan sebab anda")); setNote(""); setTick((t) => t + 1); onSaved(); }
+    if (r.ok) { toast(L("Decision recorded", "Keputusan direkod"), decision === "apply" ? L("Applied", "Dilaksanakan") : decision === "settle" ? L("Recorded as paid in the final settlement", "Direkod dibayar dalam penyelesaian akhir") : L("Closed, with your reason", "Ditutup, dengan sebab anda")); setNote(""); setTick((t) => t + 1); onSaved(); }
     else setError(message(r));
   };
   return (
@@ -114,21 +168,14 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
             <dt>{L("Eligible from", "Layak dari")}</dt><dd>{dmyMYT(e.eligible_at)}</dd>
             <dt>{L("Payroll", "Gaji")}</dt><dd>{e.payroll_month ? ym(e.payroll_month) : L("Not yet in a payroll month", "Belum dalam bulan gaji")}</dd>
             <dt>{L("Paid out", "Dibayar")}</dt><dd>{e.paid_out_at ? dmyMYT(e.paid_out_at) : L("Not yet", "Belum")}</dd>
+            <dt>{L("Issued by", "Dikeluarkan oleh")}</dt><dd>{e.issuer_code ?? "—"}</dd>
+            <dt>{L("Next step", "Langkah seterusnya")}</dt><dd>{nextText(e.next)}</dd>
           </dl>
           {/* v1.227.0 - the line-by-line working when the version has package rules */}
           {d.breakdown && d.breakdown.length > 0 && (
             <div>
               <p className={css.groupLabel}>{L("How it was calculated", "Cara ia dikira")}</p>
-              <div className={css.tableWrap}>
-                <table className={css.table} aria-label={L("Calculation by line", "Pengiraan mengikut baris")}>
-                  <thead><tr><th>{L("Line", "Baris")}</th><th className={css.num}>{L("Basis", "Asas")}</th><th>{L("Rule", "Peraturan")}</th><th className={css.num}>{L("Commission", "Komisen")}</th></tr></thead>
-                  <tbody>{d.breakdown.map((b, i) => (
-                    <tr key={i}><td className={css.wrapCell}>{b.name}{b.qty !== 1 ? ` × ${b.qty}` : ""}</td><td className={css.num}>{fmtRM(b.basis_cents)}</td>
-                      <td>{b.rule === "none" ? L("No commission", "Tiada komisen") : b.rule === "fixed" ? L(`${fmtRM(b.fixed_cents ?? 0)} per unit`, `${fmtRM(b.fixed_cents ?? 0)} seunit`) : b.rule === "percent" ? `${((b.rate_bp ?? 0) / 100).toFixed(2)}%` : L(`Default · ${b.rate_bp !== null ? `${(b.rate_bp / 100).toFixed(2)}%` : fmtRM(b.fixed_cents ?? 0)}`, `Asas · ${b.rate_bp !== null ? `${(b.rate_bp / 100).toFixed(2)}%` : fmtRM(b.fixed_cents ?? 0)}`)}{b.package ? ` · ${b.package}` : ""}</td>
-                      <td className={css.num}>{fmtRM(b.amount_cents)}</td></tr>
-                  ))}</tbody>
-                </table>
-              </div>
+              <LinesTable lines={d.breakdown} />
             </div>
           )}
           {e.note && <p className={`${css.note} ${e.status === "review" ? css.warnNote : ""}`}>{e.note}</p>}
@@ -143,6 +190,20 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
                 <button type="button" className={btnSm} disabled={note.trim().length < 10} onClick={() => void decide("dismiss")}>{L("Dismiss", "Tolak")}</button>
               </div>
               <p className={css.sub}>{L("Commission already paid out is never deducted from wages here. Any recovery is a separate, authorised HR step.", "Komisen yang sudah dibayar tidak sekali-kali dipotong daripada gaji di sini. Sebarang pemulihan ialah langkah HR berasingan yang dibenarkan.")}</p>
+              {error && <p role="alert" className={css.error}>{error}</p>}
+            </fieldset>
+          )}
+          {/* v1.232.0 (audit F6) - the leaver rule's "or settle": eligible
+              commission of someone no longer on payroll, recorded as paid in
+              the final settlement. Never voided, never deducted. */}
+          {d.can_decide && e.next === "settle_leaver" && (
+            <fieldset className={css.form} disabled={busy}>
+              <p className={css.groupLabel}>{L("Final settlement", "Penyelesaian akhir")}</p>
+              <p className={css.sub}>{L("This person has left, so no payroll month will take this commission. Record it once it is paid in the final settlement (or otherwise outside payroll).", "Individu ini telah berhenti, jadi tiada bulan gaji akan mengambil komisen ini. Rekodkannya apabila dibayar dalam penyelesaian akhir (atau di luar gaji).")}</p>
+              <label>{L("Reason and reference", "Sebab dan rujukan")}<textarea aria-label={L("Settlement reason", "Sebab penyelesaian")} className={inputClass} maxLength={500} value={note} onChange={(ev) => setNote(ev.target.value)} /></label>
+              <div className={css.formRow}>
+                <button type="button" className={btnClass} disabled={note.trim().length < 10} onClick={() => void decide("settle")}><AppIcon name="success" />{L("Record as settled", "Rekod sebagai diselesaikan")}</button>
+              </div>
               {error && <p role="alert" className={css.error}>{error}</p>}
             </fieldset>
           )}
@@ -170,6 +231,49 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
               ))}</ul>
             )}
           </div>
+        </div>
+      )}
+    </SideDrawer>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* One open invoice (v1.232.0, audit C7): the estimate line by line     */
+/* under the version that would apply, and what it is waiting for       */
+function EstimateDrawer({ est, onClose }: { est: Estimate | null; onClose: () => void }) {
+  const id = est?.invoice_id ?? null;
+  const [got, setGot] = useState<{ id: number; d: InvoiceResp | null; e: string } | null>(null);
+  useEffect(() => {
+    if (id === null) return;
+    const c = new AbortController();
+    void api<InvoiceResp>(`/invoice/${id}`, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ id, d: r.ok && r.data ? r.data : null, e: r.ok ? "" : message(r) }); });
+    return () => c.abort();
+  }, [id]);
+  const mine = got?.id === id ? got : null;
+  const d = mine?.d ?? null;
+  const stage = d?.stage ?? est?.stage;
+  return (
+    <SideDrawer open={est !== null} onClose={onClose} wide title={est ? `${est.doc_number} · ${L("Estimate", "Anggaran")}` : ""} subtitle={est ? `${est.company ?? "—"} · ${est.closer_name ?? L("No closer", "Tiada penutup")}` : undefined}>
+      {est && (
+        <div className={css.body}>
+          <dl className={css.dl}>
+            <dt>{L("Invoice", "Invois")}</dt><dd>{est.doc_number} · {fmtRM(est.invoice_total)}{est.issuer_code ? ` · ${est.issuer_code}` : ""}</dd>
+            <dt>{L("Package or service", "Pakej atau servis")}</dt><dd>{est.package || "—"}</dd>
+            <dt>{L("Payment", "Bayaran")}</dt><dd>{stage === "part_paid" ? L(`Part paid · ${fmtRM(d?.invoice.received_cents ?? est.received_cents)} received`, `Dibayar sebahagian · ${fmtRM(d?.invoice.received_cents ?? est.received_cents)} diterima`) : payWord(d?.invoice.payment_status ?? est.payment_status)}</dd>
+            <dt>{L("Policy that would apply", "Polisi yang akan terpakai")}</dt><dd>{d ? (d.policy ? `v${d.policy.version} · ${rateText(d.policy)} · ${basisText(d.policy.basis)}` : L("No approved policy", "Tiada polisi diluluskan")) : est.policy_version ? `v${est.policy_version}` : "—"}</dd>
+            <dt>{L("Basis", "Asas")}</dt><dd>{(d?.basis_cents ?? est.basis_cents) === null ? "—" : fmtRM((d?.basis_cents ?? est.basis_cents)!)}</dd>
+            <dt>{L("Estimated commission", "Anggaran komisen")}</dt><dd><strong>{(d?.estimate_cents ?? est.estimate_cents) === null ? L("No approved policy", "Tiada polisi diluluskan") : fmtRM((d?.estimate_cents ?? est.estimate_cents)!)}</strong> <span className={chipNeutral}>{L("Not earned", "Belum diperoleh")}</span></dd>
+            <dt>{L("Next step", "Langkah seterusnya")}</dt><dd>{nextText(d?.next ?? est.next)}</dd>
+          </dl>
+          {mine?.e ? <p role="alert" className={css.error}>{mine.e}</p> : !d ? <SkelRows rows={3} /> : d.lines && d.lines.length > 0 ? (
+            <div>
+              <p className={css.groupLabel}>{L("How it would be calculated", "Cara ia akan dikira")}</p>
+              <LinesTable lines={d.lines} />
+            </div>
+          ) : null}
+          <p className={css.note}>{stage === "awaiting_confirmation"
+            ? L("Paid in full. It becomes eligible when the CEO or COO confirms the payment on Sales -> Closed Sales.", "Dibayar penuh. Ia menjadi layak apabila CEO atau COO mengesahkan bayaran di Jualan -> Jualan Ditutup.")
+            : L("An estimate only - it earns nothing until the whole invoice is paid and the CEO or COO confirms it. A part payment never earns on its own.", "Anggaran sahaja - tiada apa diperoleh sehingga keseluruhan invois dibayar dan disahkan CEO atau COO. Bayaran sebahagian tidak memperoleh apa-apa.")}</p>
         </div>
       )}
     </SideDrawer>
@@ -226,26 +330,28 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                 <thead><tr>
                   <th>{L("Invoice", "Invois")}</th><th>{L("Customer", "Pelanggan")}</th><th>{L("Package", "Pakej")}</th><th>{L("Closer", "Penutup")}</th>
                   <th className={css.num}>{L("Sale", "Jualan")}</th><th>{L("Payment", "Bayaran")}</th><th>{L("Rate · policy", "Kadar · polisi")}</th>
-                  <th className={css.num}>{L("Commission", "Komisen")}</th><th>{L("Eligible", "Layak")}</th><th>{L("Status", "Status")}</th>
+                  <th className={css.num}>{L("Commission", "Komisen")}</th><th>{L("Eligible", "Layak")}</th><th>{L("Status", "Status")}</th><th>{L("Next step", "Langkah seterusnya")}</th>
                 </tr></thead>
                 <tbody>
                   {rows.map((e) => (
                     <tr key={`l${e.id}`} onClick={() => setOpen(e.id)}>
-                      <td><span className={css.strong}>{e.doc_number}</span>{e.kind === "reverse" ? ` · ${L("reversal", "pembalikan")}` : ""}</td>
+                      <td><span className={css.strong}>{e.doc_number}</span>{e.kind === "reverse" ? ` · ${L("reversal", "pembalikan")}` : ""}{e.issuer_code ? <span className={css.sub}> · {e.issuer_code}</span> : null}</td>
                       <td className={css.wrapCell}>{e.company ?? "—"}</td><td className={css.wrapCell}>{e.package || "—"}</td><td>{e.closer_name ?? "—"}</td>
                       <td className={css.num}>{fmtRM(e.invoice_total)}</td><td>{payWord(e.payment_status)}</td>
                       <td>{e.kind === "earn" ? `${rateText(e)} · v${e.policy_version ?? "—"}` : "—"}</td>
                       <td className={`${css.num} ${css.strong}`}>{fmtRM(e.amount_cents)}</td><td>{dmy(e.eligible_at.slice(0, 10))}</td><td>{statusChip(e)}</td>
+                      <td className={css.wrapCell}>{nextText(e.next)}</td>
                     </tr>
                   ))}
                   {ests.map((x) => (
                     <tr key={`e${x.invoice_id}`} className={css.estimate} onClick={() => setEst(x)}>
-                      <td><span className={css.strong}>{x.doc_number}</span></td>
+                      <td><span className={css.strong}>{x.doc_number}</span>{x.issuer_code ? <span className={css.sub}> · {x.issuer_code}</span> : null}</td>
                       <td className={css.wrapCell}>{x.company ?? "—"}</td><td className={css.wrapCell}>{x.package || "—"}</td><td>{x.closer_name ?? L("No closer", "Tiada penutup")}</td>
                       <td className={css.num}>{fmtRM(x.invoice_total)}</td><td>{x.stage === "part_paid" ? L(`Part paid · ${fmtRM(x.received_cents)}`, `Sebahagian · ${fmtRM(x.received_cents)}`) : payWord(x.payment_status)}</td>
                       <td>{x.policy_version ? `v${x.policy_version}` : L("No policy", "Tiada polisi")}</td>
                       <td className={css.num}>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</td><td>—</td>
                       <td><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></td>
+                      <td className={css.wrapCell}>{nextText(x.next)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -257,6 +363,7 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                   <span className={css.cardTop}><span className={css.strong}>{e.doc_number}</span><strong>{fmtRM(e.amount_cents)}</strong></span>
                   <span className={css.facts}><span>{e.company ?? "—"}</span><span>{e.closer_name ?? "—"}</span><span>{fmtRM(e.invoice_total)}</span></span>
                   <span>{statusChip(e)}</span>
+                  <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(e.next)}</span>
                 </button></li>
               ))}
               {ests.map((x) => (
@@ -264,6 +371,7 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                   <span className={css.cardTop}><span className={css.strong}>{x.doc_number}</span><strong>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</strong></span>
                   <span className={css.facts}><span>{x.company ?? "—"}</span><span>{x.closer_name ?? L("No closer", "Tiada penutup")}</span><span>{fmtRM(x.invoice_total)}</span></span>
                   <span><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></span>
+                  <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(x.next)}</span>
                 </button></li>
               ))}
             </ul>
@@ -271,42 +379,52 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
         )}
       </div>
       <EntryDrawer id={open} onClose={() => setOpen(null)} onSaved={onChanged} />
-      <SideDrawer open={est !== null} onClose={() => setEst(null)} title={est ? `${est.doc_number} · ${L("Estimate", "Anggaran")}` : ""} subtitle={est ? `${est.company ?? "—"} · ${est.closer_name ?? L("No closer", "Tiada penutup")}` : undefined}>
-        {est && (
-          <div className={css.body}>
-            <dl className={css.dl}>
-              <dt>{L("Invoice", "Invois")}</dt><dd>{est.doc_number} · {fmtRM(est.invoice_total)}</dd>
-              <dt>{L("Package or service", "Pakej atau servis")}</dt><dd>{est.package || "—"}</dd>
-              <dt>{L("Payment", "Bayaran")}</dt><dd>{est.stage === "part_paid" ? L(`Part paid · ${fmtRM(est.received_cents)} received`, `Dibayar sebahagian · ${fmtRM(est.received_cents)} diterima`) : payWord(est.payment_status)}</dd>
-              <dt>{L("Basis", "Asas")}</dt><dd>{est.basis_cents === null ? "—" : fmtRM(est.basis_cents)}</dd>
-              <dt>{L("Estimated commission", "Anggaran komisen")}</dt><dd><strong>{est.estimate_cents === null ? L("No approved policy", "Tiada polisi diluluskan") : fmtRM(est.estimate_cents)}</strong></dd>
-            </dl>
-            <p className={css.note}>{est.stage === "awaiting_confirmation"
-              ? L("Paid in full. It becomes eligible when the CEO or COO confirms the payment on Sales -> Closed Sales.", "Dibayar penuh. Ia menjadi layak apabila CEO atau COO mengesahkan bayaran di Jualan -> Jualan Ditutup.")
-              : L("An estimate only - it earns nothing until the invoice is paid in full and the CEO or COO confirms it. A part payment never earns on its own.", "Anggaran sahaja - tiada apa diperoleh sehingga invois dibayar penuh dan disahkan CEO atau COO. Bayaran sebahagian tidak memperoleh apa-apa.")}</p>
-          </div>
-        )}
-      </SideDrawer>
+      <EstimateDrawer est={est} onClose={() => setEst(null)} />
     </TabZone>
   );
 }
 
 /* ------------------------------------------------------------------ */
 /* Flow                                                                 */
+interface FlowRow { key: string; n: number; cents: number; next: string }
 interface FlowResp {
   start: string; sync: boolean; policy: Policy | null;
-  stages: { key: string; n: number; cents: number }[];
-  exceptions: { review: { n: number; cents: number }; no_policy: number; no_closer: number; awaiting_confirmation: number; carried_forward: { n: number; cents: number }; leavers: { n: number; cents: number } };
+  invoices: FlowRow[]; entitlements: FlowRow[]; confirmed_total: { n: number; cents: number };
+  exceptions: { review: { n: number; cents: number }; no_policy: number; no_closer: number; awaiting_confirmation: number; carried_forward: { n: number; cents: number }; leavers: { n: number; cents: number }; not_on_payslip?: { n: number; cents: number } };
 }
-const STAGES: Record<string, [string, string, string, string, boolean]> = {
-  closed: ["Deal closed", "Jualan ditutup", "Invoices with a verified closer", "Invois dengan penutup disahkan", false],
-  issued: ["Invoice issued", "Invois dikeluarkan", "Not paid yet - estimate only", "Belum dibayar - anggaran sahaja", false],
-  verified: ["Payment verified", "Bayaran disemak", "Part paid, or paid and waiting for the CEO/COO", "Dibayar sebahagian, atau dibayar dan menunggu CEO/COO", false],
-  confirmed: ["CEO / COO: Paid", "CEO / COO: Dibayar", "Confirmed by management - the CCO cannot", "Disahkan pengurusan - CCO tidak boleh", false],
-  eligible: ["Commission eligible", "Komisen layak", "The approved rate on the eligible sale value", "Kadar diluluskan atas nilai jualan layak", true],
-  included: ["Payroll included", "Dimasukkan dalam gaji", "The right person, the right month, once", "Orang yang betul, bulan yang betul, sekali", true],
-  paid: ["Commission paid", "Komisen dibayar", "After the bank run is done", "Selepas pembayaran bank selesai", true],
+/* v1.232.0 (audit F7/C6) - TWO ROWS, NEVER ADDED TOGETHER: open invoices
+   by their one current stage (valued at the invoice total), and
+   entitlements by their one status (valued at the commission). */
+const INV_STAGES: Record<string, [string, string, string, string]> = {
+  unpaid: ["Invoice issued", "Invois dikeluarkan", "Not paid yet - estimate only", "Belum dibayar - anggaran sahaja"],
+  part_paid: ["Part paid", "Dibayar sebahagian", "Some money in - still estimate only", "Sebahagian diterima - masih anggaran"],
+  awaiting_confirmation: ["Paid, awaiting CEO/COO", "Dibayar, menunggu CEO/COO", "Paid in full, not yet confirmed", "Dibayar penuh, belum disahkan"],
+  policy_review: ["Confirmed, no policy", "Disahkan, tiada polisi", "Nothing is calculated until a version covers its day", "Tiada apa dikira sehingga versi meliputi harinya"],
 };
+const ENT_STATUS: Record<string, [string, string, string, string]> = {
+  eligible: ["Eligible", "Layak", "Earned, not yet on a payslip", "Diperoleh, belum dalam slip gaji"],
+  included: ["In payroll", "Dalam gaji", "On a payroll month, bank run not done", "Dalam bulan gaji, pembayaran bank belum selesai"],
+  paid: ["Paid", "Dibayar", "The bank run is done", "Pembayaran bank selesai"],
+  review: ["Under review", "Dalam semakan", "Held for the CEO's decision", "Ditahan untuk keputusan CEO"],
+};
+function FlowCards({ rows, words, label, money }: { rows: FlowRow[]; words: Record<string, [string, string, string, string]>; label: string; money: boolean }) {
+  return (
+    <ol className={`${css.stages} ${css.stages4}`} aria-label={label}>
+      {rows.map((s, i) => {
+        const t = words[s.key] ?? [s.key, s.key, "", ""];
+        return (
+          <li key={s.key} className={`${css.stage} ${money ? css.stageMoney : ""}`}>
+            <span className={css.stageNo}>{i + 1}</span>
+            <h4>{L(t[0], t[1])}</h4>
+            <span className={css.stageFig}>{s.n}</span>
+            <span className={css.sub}>{s.key === "policy_review" ? L(t[2], t[3]) : `${fmtRM(s.cents)} · ${L(t[2], t[3])}`}</span>
+            {s.n > 0 && s.next !== "done" && <span className={css.stageNext}>{L("Next", "Seterusnya")}: {nextText(s.next)}</span>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 function Flow({ revision }: { revision: number }) {
   const [got, setGot] = useState<{ rev: number; d: FlowResp | null; e: string } | null>(null);
   useEffect(() => {
@@ -316,23 +434,17 @@ function Flow({ revision }: { revision: number }) {
   }, [revision]);
   const d = got?.rev === revision ? got.d : null;
   const x = d?.exceptions;
+  const nos = x?.not_on_payslip;
   return (
     <>
-      <TabZone label={L("Approval to payroll", "Kelulusan ke gaji")} hint={L("Where every invoice and every entitlement stands now. Counts and amounts are live records; stages 1-4 count invoices, 5-7 count commission.", "Kedudukan setiap invois dan hak sekarang. Bilangan dan jumlah ialah rekod langsung; peringkat 1-4 mengira invois, 5-7 mengira komisen.")}>
-        {got?.e ? <p role="alert" className={css.error}>{got.e}</p> : !d ? <div className={card}><SkelRows rows={4} /></div> : (
-          <ol className={css.stages} aria-label={L("Commission stages", "Peringkat komisen")}>
-            {d.stages.map((s, i) => {
-              const t = STAGES[s.key]!;
-              return (
-                <li key={s.key} className={`${css.stage} ${t[4] ? css.stageMoney : ""}`}>
-                  <span className={css.stageNo}>{String(i + 1).padStart(2, "0")}</span>
-                  <h4>{L(t[0], t[1])}</h4>
-                  <span className={css.stageFig}>{s.n}</span>
-                  <span className={css.sub}>{fmtRM(s.cents)} · {L(t[2], t[3])}</span>
-                </li>
-              );
-            })}
-          </ol>
+      <TabZone label={L("Invoices", "Invois")} hint={d ? L(`Every open invoice, in its one current stage, valued at the invoice total. Confirmed Paid since ${dmy(d.start)}: ${d.confirmed_total.n} invoice(s), ${fmtRM(d.confirmed_total.cents)}.`, `Setiap invois terbuka, pada satu peringkat semasanya, dinilai pada jumlah invois. Disahkan Dibayar sejak ${dmy(d.start)}: ${d.confirmed_total.n} invois, ${fmtRM(d.confirmed_total.cents)}.`) : undefined}>
+        {got?.e ? <p role="alert" className={css.error}>{got.e}</p> : !d ? <div className={card}><SkelRows rows={3} /></div> : (
+          <FlowCards rows={d.invoices} words={INV_STAGES} label={L("Invoices by stage", "Invois mengikut peringkat")} money={false} />
+        )}
+      </TabZone>
+      <TabZone label={L("Commission entitlements", "Hak komisen")} hint={L("Every entitlement, in its one status, valued at the commission. Not added to the invoice row - one is sales value, the other is commission.", "Setiap hak, pada satu statusnya, dinilai pada komisen. Tidak dicampur dengan baris invois - satu nilai jualan, satu lagi komisen.")}>
+        {!d ? (got?.e ? null : <div className={card}><SkelRows rows={3} /></div>) : (
+          <FlowCards rows={d.entitlements} words={ENT_STATUS} label={L("Entitlements by status", "Hak mengikut status")} money />
         )}
       </TabZone>
       <TabZone label={L("Needs attention", "Perlu perhatian")} cols={2}>
@@ -344,7 +456,8 @@ function Flow({ revision }: { revision: number }) {
               <li><span className={css.listMain}><strong>{L("Confirmed with no approved policy", "Disahkan tanpa polisi diluluskan")}</strong><span>{L("Nothing is calculated for these", "Tiada apa dikira untuk ini")}</span></span><span className={x.no_policy ? chipDanger : chipNeutral}>{x.no_policy}</span></li>
               <li><span className={css.listMain}><strong>{L("Invoices with no closer", "Invois tanpa penutup")}</strong><span>{L("Choose the closer on the invoice", "Pilih penutup pada invois")}</span></span><span className={x.no_closer ? chipWarn : chipNeutral}>{x.no_closer}</span></li>
               <li><span className={css.listMain}><strong>{L("Carried forward", "Dibawa ke hadapan")}</strong><span>{L("Eligible in an earlier month, waiting for the next open payroll", "Layak pada bulan lalu, menunggu gaji terbuka seterusnya")}</span></span><span className={chipNeutral}>{x.carried_forward.n} · {fmtRM(x.carried_forward.cents)}</span></li>
-              <li><span className={css.listMain}><strong>{L("Leavers to settle", "Bekas staf untuk diselesaikan")}</strong><span>{L("Eligible after their last payroll - the CEO decides", "Layak selepas gaji terakhir mereka - CEO memutuskan")}</span></span><span className={x.leavers.n ? chipWarn : chipNeutral}>{x.leavers.n} · {fmtRM(x.leavers.cents)}</span></li>
+              <li><span className={css.listMain}><strong>{L("Leavers to settle", "Bekas staf untuk diselesaikan")}</strong><span>{L("Eligible after their last payroll - the CEO records the final settlement (Transactions)", "Layak selepas gaji terakhir mereka - CEO merekod penyelesaian akhir (Transaksi)")}</span></span><span className={x.leavers.n ? chipWarn : chipNeutral}>{x.leavers.n} · {fmtRM(x.leavers.cents)}</span></li>
+              {nos && <li><span className={css.listMain}><strong>{L("In payroll, not on the payslip", "Dalam gaji, tiada dalam slip gaji")}</strong><span>{L("Payroll (HR) recomputes the month; the bank run holds these until the payslip carries them", "Gaji (HR) mengira semula bulan itu; pembayaran bank menahannya sehingga slip gaji membawanya")}</span></span><span className={nos.n ? chipDanger : chipNeutral}>{nos.n} · {fmtRM(nos.cents)}</span></li>}
             </ul>
           )}
         </div>
@@ -389,14 +502,26 @@ function Flow({ revision }: { revision: number }) {
 /* ------------------------------------------------------------------ */
 /* Policy                                                               */
 interface PkgRule { package_name: string; match_key: string; rule: "percent" | "fixed" | "none"; rate_bp: number | null; fixed_cents: number | null }
-type PolicyP = Policy & { packages?: PkgRule[] };
-interface Suggest { from_invoices: { name: string; n: number; last_price_cents: number | null; last_on: string }[]; rate_card: string[] }
+type PolicyP = Policy & { packages?: PkgRule[]; product_rule?: string | null };
+interface Suggest { from_invoices: { name: string; n: number; last_price_cents: number | null; last_on: string }[]; rate_card: string[]; library?: { id: number; name: string; status: string; current_version: number }[] }
+/* v1.232.0 - a rule naming a library package covers every line of an invoice made from it */
+const libId = (r: { match_key: string }) => r.match_key.startsWith("pkg:") ? Number(r.match_key.slice(4)) || null : null;
+const pkgLabel = (r: PkgRule) => libId(r) ? L(`${r.package_name} (library package)`, `${r.package_name} (pakej pustaka)`) : r.package_name;
 const keyOf = (x: string) => x.trim().replace(/\s+/g, " ").toLowerCase();
-const pkgRuleText = (r: PkgRule) => r.rule === "none" ? L("No commission", "Tiada komisen") : r.rule === "fixed" ? L(`${fmtRM(r.fixed_cents ?? 0)} per unit`, `${fmtRM(r.fixed_cents ?? 0)} seunit`) : `${((r.rate_bp ?? 0) / 100).toFixed(2)}%`;
+const pkgRuleText = (r: Pick<PkgRule, "rule" | "rate_bp" | "fixed_cents">) => r.rule === "none" ? L("No commission", "Tiada komisen") : r.rule === "fixed" ? L(`${fmtRM(r.fixed_cents ?? 0)} per unit`, `${fmtRM(r.fixed_cents ?? 0)} seunit`) : `${((r.rate_bp ?? 0) / 100).toFixed(2)}%`;
 const pkgOn = (r: PkgRule | null, p: Policy, price: number) => r ? (r.rule === "none" ? 0 : r.rule === "fixed" ? (r.fixed_cents ?? 0) : Math.floor((price * (r.rate_bp ?? 0) + 5000) / 10000))
   : p.rate_kind === "fixed" ? (p.fixed_cents ?? 0) : Math.floor((price * (p.rate_bp ?? 0) + 5000) / 10000);
 interface PolicyResp { versions: PolicyP[]; log: { setting: string; value: string; reason: string; changed_at: string; changed_by_name: string | null }[]; in_force: PolicyP | null; sync: boolean; start: string; today: string; can_draft: boolean; can_approve: boolean; can_switch: boolean; pending_migration?: boolean }
 interface PreviewResp { policy: Policy; rows: { invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; package: string; paid_day: string; basis_cents: number; amount_cents: number; current_version: number | null; current_cents: number | null }[]; total_cents: number }
+/* v1.232.0 (audit C8) - a version's place in its life: drafted, approved
+   for a later day, in force today, or superseded by a later version */
+const lifecycle = (v: Policy, inForce: Policy | null, today: string): [string, string] =>
+  v.status === "draft" ? [L("Draft · awaiting CEO", "Draf · menunggu CEO"), chipWarn]
+    : v.status === "rejected" ? [L("Rejected", "Ditolak"), chipNeutral]
+    : v.status !== "active" ? [v.status, chipNeutral]
+    : inForce?.id === v.id ? [L("In force", "Berkuat kuasa"), chipSuccess]
+    : v.effective_from > today ? [L(`Approved · starts ${dmy(v.effective_from)}`, `Diluluskan · bermula ${dmy(v.effective_from)}`), chipInfo]
+    : [L("Superseded", "Digantikan"), chipNeutral];
 function usePolicy(revision: number, tick: number) {
   const [got, setGot] = useState<{ k: string; d: PolicyResp | null; e: string } | null>(null);
   const key = `${revision}|${tick}`;
@@ -408,7 +533,7 @@ function usePolicy(revision: number, tick: number) {
   return { d: got?.k === key ? got.d : got?.d ?? null, e: got?.e ?? "" };
 }
 
-type PkgForm = { name: string; rule: "percent" | "fixed" | "none"; value: string };
+type PkgForm = { name: string; rule: "percent" | "fixed" | "none"; value: string; pkgId: number | null };
 function PolicyView({ revision, onChanged }: { revision: number; onChanged: () => void }) {
   const [tick, setTick] = useState(0);
   const { d, e: loadErr } = usePolicy(revision, tick);
@@ -429,13 +554,13 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
   const saveDraft = async () => {
     if (!form) return;
     setBusy(true); setError("");
-    const packages = form.packages.filter((x) => x.name.trim()).map((x) => ({ name: x.name.trim(), rule: x.rule, ...(x.rule === "percent" ? { rate_pct: Number(x.value) } : x.rule === "fixed" ? { fixed_cents: Math.round(Number(x.value) * 100) } : {}) }));
+    const packages = form.packages.filter((x) => x.pkgId || x.name.trim()).map((x) => ({ name: x.name.trim(), ...(x.pkgId ? { package_id: x.pkgId } : {}), rule: x.rule, ...(x.rule === "percent" ? { rate_pct: Number(x.value) } : x.rule === "fixed" ? { fixed_cents: Math.round(Number(x.value) * 100) } : {}) }));
     const r = await api<{ version: number }>(`/policy`, { method: "POST", body: JSON.stringify({ name: form.name, effective_from: form.from, rate_kind: form.kind, rate_pct: Number(form.rate), fixed_cents: Math.round(Number(form.fixed) * 100), basis: form.basis, reason: form.reason, packages }) });
     setBusy(false);
     if (r.ok) { setForm(null); done(L("Draft saved", "Draf disimpan"), r.data?.version ? L(`Version ${r.data.version} waits for the CEO's approval`, `Versi ${r.data.version} menunggu kelulusan CEO`) : L("It waits for the CEO's approval", "Ia menunggu kelulusan CEO")); } else setError(message(r));
   };
   const approve = async (p: PolicyP) => {
-    const pk = p.packages?.length ? `\n${L("Package rules", "Peraturan pakej")}: ${p.packages.map((x) => `${x.package_name} ${pkgRuleText(x)}`).join(" · ")}` : "";
+    const pk = p.packages?.length ? `\n${L("Package rules", "Peraturan pakej")}: ${p.packages.map((x) => `${pkgLabel(x)} ${pkgRuleText(x)}`).join(" · ")}` : "";
     if (!(await confirm({ title: L(`Approve version ${p.version}?`, `Luluskan versi ${p.version}?`), message: `${p.name}\n${rateText(p)} · ${basisText(p.basis)}${pk}\n${L("From", "Mulai")} ${dmy(p.effective_from)}`, confirmLabel: L("Approve policy", "Luluskan polisi") }))) return;
     const r = await api(`/policy/${p.id}/approve`, { method: "POST", body: JSON.stringify({ confirm: true }) });
     if (r.ok) done(L("Policy approved", "Polisi diluluskan"), L(`Version ${p.version} applies from ${dmy(p.effective_from)}`, `Versi ${p.version} terpakai mulai ${dmy(p.effective_from)}`)); else setError(message(r));
@@ -461,7 +586,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
     ? (p.packages?.length ? p.packages.map((r) => ({ name: r.package_name, rule: r, price: priceOf(r.package_name) }))
       : (sug?.from_invoices ?? []).filter((x) => x.last_price_cents !== null).slice(0, 5).map((x) => ({ name: x.name, rule: null, price: x.last_price_cents })))
     : [];
-  const pkgValid = (x: PkgForm) => !x.name.trim() || x.rule === "none" || (x.rule === "percent" ? Number(x.value) >= 0 && Number(x.value) <= 50 && x.value !== "" : Number(x.value) > 0);
+  const pkgValid = (x: PkgForm) => (!x.pkgId && !x.name.trim()) || x.rule === "none" || (x.rule === "percent" ? Number(x.value) >= 0 && Number(x.value) <= 50 && x.value !== "" : Number(x.value) > 0);
   return (
     <>
       {toastNode}{confirmNode}{askNode}
@@ -470,7 +595,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
         {!d ? <KpiRow label={L("Policy at a glance", "Polisi sepintas lalu")}><SkelStat /><SkelStat /><SkelStat /><SkelStat /></KpiRow> : (
           <KpiRow label={L("Policy at a glance", "Polisi sepintas lalu")}>
             <KpiTile icon="balance" tone="navy" label={L("Default rate", "Kadar asas")} value={p ? rateText(p) : "—"} sub={p ? (p.packages?.length ? L(`${p.packages.length} package rule(s)`, `${p.packages.length} peraturan pakej`) : L("Every line, one rate", "Setiap baris, satu kadar")) : L("No version approved", "Tiada versi diluluskan")} />
-            <KpiTile icon="verify" tone="gold" label={L("Policy status", "Status polisi")} value={p ? L(`Active · v${p.version}`, `Aktif · v${p.version}`) : draft ? L("Draft", "Draf") : L("None", "Tiada")} sub={p ? L(`From ${dmy(p.effective_from)}`, `Mulai ${dmy(p.effective_from)}`) : draft ? L("Waiting for the CEO's approval", "Menunggu kelulusan CEO") : L("Draft a version below", "Draf versi di bawah")} />
+            <KpiTile icon="verify" tone="gold" label={L("Policy status", "Status polisi")} value={p ? L(`In force · v${p.version}`, `Berkuat kuasa · v${p.version}`) : draft ? L("Draft", "Draf") : L("None", "Tiada")} sub={p ? L(`From ${dmy(p.effective_from)}`, `Mulai ${dmy(p.effective_from)}`) : draft ? L("Waiting for the CEO's approval", "Menunggu kelulusan CEO") : L("Draft a version below", "Draf versi di bawah")} />
             <KpiTile icon="paid" tone="blue" label={L("Invoice paid confirmed by", "Bayaran invois disahkan oleh")} value={L("CEO / COO", "CEO / COO")} sub={L("CCO reviews and monitors only", "CCO menyemak dan memantau sahaja")} />
             <KpiTile icon="target" tone="green" label={L("Weekly sales targets", "Sasaran jualan mingguan")} value={L("Separate", "Berasingan")} sub={L("No effect on commission", "Tiada kesan pada komisen")} />
           </KpiRow>
@@ -481,18 +606,20 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
           {!d ? <SkelRows rows={7} /> : !p ? (
             <>
               <p className={css.empty}>{L("No commission policy is approved yet. Nothing is calculated until one is.", "Tiada polisi komisen diluluskan lagi. Tiada apa dikira sehingga ada.")}</p>
-              <p className={css.sub}>{L(`The first payroll that can carry commission is ${ym(d.start.slice(0, 7))}; only money that lands from ${dmy(d.start)} counts.`, `Gaji pertama yang boleh membawa komisen ialah ${ym(d.start.slice(0, 7))}; hanya wang yang diterima dari ${dmy(d.start)} dikira.`)}</p>
+              <p className={css.sub}>{L(`The first payroll that can carry commission is ${ym(d.start.slice(0, 7))}; only invoices paid in full from ${dmy(d.start)} count.`, `Gaji pertama yang boleh membawa komisen ialah ${ym(d.start.slice(0, 7))}; hanya invois yang dibayar penuh mulai ${dmy(d.start)} dikira.`)}</p>
             </>
           ) : (
             <>
-              <div className={css.head}><h3>{p.name}</h3><span className={chipSuccess}>{L("Active", "Aktif")} · v{p.version}</span></div>
+              <div className={css.head}><h3>{p.name}</h3><span className={chipSuccess}>{L("In force", "Berkuat kuasa")} · v{p.version}</span></div>
               <dl className={css.terms}>
                 <div><dt>{L("Default rate", "Kadar asas")}</dt><dd>{rateText(p)}{p.rate_kind === "fixed" ? ` ${L("per invoice", "setiap invois")}` : ""}</dd></div>
                 <div><dt>{L("Calculation basis", "Asas pengiraan")}</dt><dd>{basisText(p.basis)}</dd></div>
                 <div><dt>{L("Package rules", "Peraturan pakej")}</dt><dd>{p.packages?.length ? L(`${p.packages.length} - see the table`, `${p.packages.length} - lihat jadual`) : L("None - every line earns the default rate", "Tiada - setiap baris memperoleh kadar asas")}</dd></div>
                 <div><dt>{L("Eligibility", "Kelayakan")}</dt><dd>{L("Invoice paid in full and confirmed by the CEO or COO", "Invois dibayar penuh dan disahkan CEO atau COO")}</dd></div>
                 <div><dt>{L("Closer", "Penutup")}</dt><dd>{L("The salesperson the invoice names, locked at the first payment; corrected only by the CEO, with a reason", "Jurujual yang dinamakan invois, dikunci pada bayaran pertama; dibetulkan oleh CEO sahaja, dengan sebab")}</dd></div>
-                <div><dt>{L("Partial payment", "Bayaran sebahagian")}</dt><dd>{L("Estimate only", "Anggaran sahaja")}</dd></div>
+                <div><dt>{L("Partial payment", "Bayaran sebahagian")}</dt><dd>{L("Estimate only - the whole invoice earns once it is paid in full", "Anggaran sahaja - keseluruhan invois memperoleh apabila dibayar penuh")}</dd></div>
+                <div><dt>{L("Products", "Produk")}</dt><dd>{L("Services earn the default rate; a product earns only if a package rule lists it", "Servis memperoleh kadar asas; produk memperoleh hanya jika peraturan pakej menyenaraikannya")}</dd></div>
+                <div><dt>{L("Leavers", "Bekas staf")}</dt><dd>{L("Their final payroll, or recorded by the CEO as paid in the final settlement", "Gaji terakhir mereka, atau direkod CEO sebagai dibayar dalam penyelesaian akhir")}</dd></div>
                 <div><dt>{L("Recurring services", "Servis berulang")}</dt><dd>{L("Every paid monthly invoice earns for its closer (approved 29-10-2026)", "Setiap invois bulanan dibayar memperoleh untuk penutupnya (diluluskan 29-10-2026)")}</dd></div>
                 <div><dt>{L("Refunds and cancellations", "Bayaran balik dan pembatalan")}</dt><dd>{L("A reversal for the CEO's review; never deducted from paid wages", "Pembalikan untuk semakan CEO; tidak dipotong daripada gaji yang dibayar")}</dd></div>
                 <div><dt>{L("Payroll cutoff", "Potongan gaji")}</dt><dd>{L("Confirmed by a month's last day -> that month, if not yet released; otherwise carried to the next open month", "Disahkan sebelum hari terakhir bulan -> bulan itu, jika belum dikeluarkan; jika tidak, dibawa ke bulan terbuka seterusnya")}</dd></div>
@@ -508,7 +635,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
             <div><dt>{L("Approval", "Kelulusan")}</dt><dd>{L("The CEO (or super admin) only", "CEO (atau super admin) sahaja")}</dd></div>
             <div><dt>{L("Effective date", "Tarikh berkuat kuasa")}</dt><dd>{L("Today or later - never back-dated", "Hari ini atau kemudian - tidak sekali-kali ke belakang")}</dd></div>
             <div><dt>{L("History", "Sejarah")}</dt><dd>{L("Every version is kept and never edited; an entitlement keeps the version it was earned under", "Setiap versi disimpan dan tidak diubah; hak kekal dengan versi semasa diperoleh")}</dd></div>
-            <div><dt>{L("Rules not yet approved", "Peraturan belum diluluskan")}</dt><dd>{L("Other renewal, refund, cutoff or leaver rules cannot be chosen until the owner approves them", "Peraturan pembaharuan, bayaran balik, potongan atau bekas staf lain tidak boleh dipilih sehingga pemilik meluluskannya")}</dd></div>
+            <div><dt>{L("Fixed rules", "Peraturan tetap")}</dt><dd>{L("Eligibility, renewals, refunds, the cutoff, leavers and products are the approved rules, carried by every version; a different rule needs the owner's approval first", "Kelayakan, pembaharuan, bayaran balik, potongan, bekas staf dan produk ialah peraturan diluluskan, dibawa oleh setiap versi; peraturan lain memerlukan kelulusan pemilik dahulu")}</dd></div>
             <div><dt>{L("CCO", "CCO")}</dt><dd>{L("Read-only monitoring", "Pemantauan baca sahaja")}</dd></div>
           </dl>
         </div>
@@ -516,14 +643,14 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
 
       {p && (
         <TabZone label={p.packages?.length ? L("Package rules and examples", "Peraturan pakej dan contoh") : L("Examples from recent invoices", "Contoh daripada invois terkini")}
-          hint={L("Each example uses the latest price the package was invoiced at - real invoices, not samples. Lines that match no package earn the default rate.", "Setiap contoh menggunakan harga terkini pakej itu diinvoiskan - invois sebenar, bukan sampel. Baris yang tidak sepadan dengan pakej memperoleh kadar asas.")}>
+          hint={L("Each example uses the latest price the package was invoiced at - real invoices, not samples. Service lines that match no rule earn the default rate; product lines earn nothing unless listed.", "Setiap contoh menggunakan harga terkini pakej itu diinvoiskan - invois sebenar, bukan sampel. Baris servis yang tidak sepadan memperoleh kadar asas; baris produk tiada komisen melainkan disenaraikan.")}>
           <div className={card}>
             {examples.length === 0 ? <p className={css.empty}>{L("No invoice lines in the last 180 days to show.", "Tiada baris invois dalam 180 hari lepas untuk dipaparkan.")}</p> : (
               <div className={css.tableWrap}>
                 <table className={css.table} aria-label={L("Package examples", "Contoh pakej")}>
                   <thead><tr><th>{L("Service or package", "Servis atau pakej")}</th><th className={css.num}>{L("Latest price", "Harga terkini")}</th><th>{L("Rule", "Peraturan")}</th><th className={css.num}>{L("Commission", "Komisen")}</th></tr></thead>
                   <tbody>{examples.map((x) => (
-                    <tr key={x.name}><td className={css.wrapCell}>{x.name}</td><td className={css.num}>{x.price === null ? "—" : fmtRM(x.price)}</td>
+                    <tr key={x.name}><td className={css.wrapCell}>{x.rule ? pkgLabel(x.rule) : x.name}</td><td className={css.num}>{x.price === null ? "—" : fmtRM(x.price)}</td>
                       <td>{x.rule ? pkgRuleText(x.rule) : L(`Default · ${rateText(p)}`, `Asas · ${rateText(p)}`)}</td>
                       <td className={`${css.num} ${css.strong}`}>{x.price === null ? "—" : fmtRM(pkgOn(x.rule, p, x.price))}</td></tr>
                   ))}</tbody>
@@ -539,7 +666,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
         <div className={card}>
           {!d ? <SkelRows rows={3} /> : (
             <div className={css.body}>
-              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })) })}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
+              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, pkgId: libId(x), rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })) })}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
               {form && (
                 <fieldset className={css.form} disabled={busy}>
                   <p className={css.groupLabel}>{L("New version (draft)", "Versi baharu (draf)")}</p>
@@ -557,11 +684,13 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                     <option value="net_of_tax_delivery">{basisText("net_of_tax_delivery")}</option><option value="invoice_total">{basisText("invoice_total")}</option></select></label>
                   <div className={css.pkgBox}>
                     <p className={css.groupLabel}>{L("Package rules (optional)", "Peraturan pakej (pilihan)")}</p>
-                    <p className={css.sub}>{L("Name the package exactly as it is written on invoices (choose from the list). Lines that match no package earn the default rate.", "Namakan pakej tepat seperti ditulis pada invois (pilih dari senarai). Baris yang tidak sepadan memperoleh kadar asas.")}</p>
+                    <p className={css.sub}>{L("Choose a library package (every line of an invoice made from it follows the rule), or name a line exactly as it is written on invoices. Service lines that match no rule earn the default rate; product lines earn nothing unless listed here.", "Pilih pakej pustaka (setiap baris invois yang dibuat daripadanya mengikut peraturan), atau namakan baris tepat seperti pada invois. Baris servis yang tidak sepadan memperoleh kadar asas; baris produk tiada komisen melainkan disenaraikan di sini.")}</p>
                     <datalist id="comm-pkg-names">{[...(sug?.from_invoices.map((x) => x.name) ?? []), ...(sug?.rate_card ?? [])].filter((v, i, a) => a.findIndex((y) => keyOf(y) === keyOf(v)) === i).map((n) => <option key={n} value={n} />)}</datalist>
                     {form.packages.map((x, i) => (
                       <div key={i} className={css.pkgRow}>
-                        <label>{L("Package", "Pakej")}<input list="comm-pkg-names" aria-label={L(`Package ${i + 1} name`, `Nama pakej ${i + 1}`)} className={inputClass} maxLength={120} value={x.name} onChange={(e) => setForm({ ...form, packages: form.packages.map((y, j) => j === i ? { ...y, name: e.target.value } : y) })} /></label>
+                        {!!sug?.library?.length && <label>{L("Library package", "Pakej pustaka")}<select aria-label={L(`Package ${i + 1} library package`, `Pakej pustaka ${i + 1}`)} className={inputClass} value={x.pkgId ?? ""} onChange={(e) => { const id = e.target.value ? Number(e.target.value) : null; setForm({ ...form, packages: form.packages.map((y, j) => j === i ? { ...y, pkgId: id, name: id ? (sug.library!.find((q) => q.id === id)?.name ?? "") : "" } : y) }); }}>
+                          <option value="">{L("— a line name instead —", "— nama baris sebaliknya —")}</option>{sug.library.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></label>}
+                        {!x.pkgId && <label>{L("Line name", "Nama baris")}<input list="comm-pkg-names" aria-label={L(`Package ${i + 1} name`, `Nama pakej ${i + 1}`)} className={inputClass} maxLength={120} value={x.name} onChange={(e) => setForm({ ...form, packages: form.packages.map((y, j) => j === i ? { ...y, name: e.target.value } : y) })} /></label>}
                         <label>{L("Rule", "Peraturan")}<select aria-label={L(`Package ${i + 1} rule`, `Peraturan pakej ${i + 1}`)} className={inputClass} value={x.rule} onChange={(e) => setForm({ ...form, packages: form.packages.map((y, j) => j === i ? { ...y, rule: e.target.value as PkgForm["rule"], value: "" } : y) })}>
                           <option value="percent">{L("Percentage", "Peratusan")}</option><option value="fixed">{L("Fixed per unit", "Tetap seunit")}</option><option value="none">{L("No commission", "Tiada komisen")}</option></select></label>
                         {x.rule !== "none"
@@ -570,10 +699,10 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                         <button type="button" className={btnSm} aria-label={L(`Remove package ${i + 1}`, `Buang pakej ${i + 1}`)} onClick={() => setForm({ ...form, packages: form.packages.filter((_, j) => j !== i) })}>{L("Remove", "Buang")}</button>
                       </div>
                     ))}
-                    {form.packages.length < 50 && <div className={css.formRow}><button type="button" className={btnSm} onClick={() => setForm({ ...form, packages: [...form.packages, { name: "", rule: "percent", value: "" }] })}><AppIcon name="add" />{L("Add a package rule", "Tambah peraturan pakej")}</button></div>}
+                    {form.packages.length < 50 && <div className={css.formRow}><button type="button" className={btnSm} onClick={() => setForm({ ...form, packages: [...form.packages, { name: "", rule: "percent", value: "", pkgId: null }] })}><AppIcon name="add" />{L("Add a package rule", "Tambah peraturan pakej")}</button></div>}
                   </div>
                   <label>{L("Reason for this version", "Sebab versi ini")}<textarea aria-label={L("Policy reason", "Sebab polisi")} className={inputClass} maxLength={500} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
-                  <p className={css.sub}>{L("Eligibility (paid in full and confirmed), every paid renewal, refunds to review and the payroll cutoff are the approved rules of 29-10-2026; changing them needs the owner's approval first.", "Kelayakan (dibayar penuh dan disahkan), setiap pembaharuan dibayar, bayaran balik untuk semakan dan potongan gaji ialah peraturan diluluskan 29-10-2026.")}</p>
+                  <p className={css.sub}>{L("Every version carries the approved fixed rules: the whole invoice paid and confirmed, every paid renewal, refunds to review, the payroll cutoff, leavers (final payroll or settlement) and products (listed only). Changing one needs the owner's approval first.", "Setiap versi membawa peraturan tetap yang diluluskan: keseluruhan invois dibayar dan disahkan, setiap pembaharuan dibayar, bayaran balik untuk semakan, potongan gaji, bekas staf (gaji terakhir atau penyelesaian) dan produk (disenaraikan sahaja). Mengubahnya memerlukan kelulusan pemilik dahulu.")}</p>
                   <div className={css.formRow}>
                     <button type="button" className={btnClass} disabled={form.name.trim().length < 3 || form.reason.trim().length < 10 || (form.kind === "percent" ? !(Number(form.rate) > 0) : !(Number(form.fixed) > 0)) || !form.packages.every(pkgValid)} onClick={() => void saveDraft()}><AppIcon name="save" />{L("Save draft", "Simpan draf")}</button>
                     <button type="button" className={btnSm} onClick={() => setForm(null)}>{L("Cancel", "Batal")}</button>
@@ -588,13 +717,13 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                       <span className={css.listMain}>
                         <strong>v{v.version} · {v.name} · {rateText(v)} · {L("from", "mulai")} {dmy(v.effective_from)}</strong>
                         <span>{basisText(v.basis)}</span>
-                        {!!v.packages?.length && <span>{L("Packages", "Pakej")}: {v.packages.map((x) => `${x.package_name} ${pkgRuleText(x)}`).join(" · ")}</span>}
+                        {!!v.packages?.length && <span>{L("Packages", "Pakej")}: {v.packages.map((x) => `${pkgLabel(x)} ${pkgRuleText(x)}`).join(" · ")}</span>}
                         <span>{L("Drafted by", "Draf oleh")} {v.created_by_name ?? "—"} · {dmyMYT(v.created_at)} · {v.reason}</span>
                         {v.status === "active" && <span>{L("Approved by", "Diluluskan oleh")} {v.approved_by_name ?? "—"} · {v.approved_at ? dmyMYT(v.approved_at) : ""}</span>}
                         {v.status === "rejected" && <span>{L("Rejected by", "Ditolak oleh")} {v.rejected_by_name ?? "—"} · {v.reject_reason}</span>}
                       </span>
                       <span className={css.formRow}>
-                        <span className={v.status === "active" ? chipSuccess : v.status === "draft" ? chipWarn : chipNeutral}>{v.status === "active" ? L("Active", "Aktif") : v.status === "draft" ? L("Proposed - not approved", "Dicadang - belum diluluskan") : L("Rejected", "Ditolak")}</span>
+                        {(() => { const [t, c] = lifecycle(v, p, d.today); return <span className={c}>{t}</span>; })()}
                         <button type="button" className={btnSm} onClick={() => openPreview(v)}><AppIcon name="preview" />{L("Preview", "Pratonton")}</button>
                         {v.status === "draft" && d.can_approve && <><button type="button" className={btnSmPrimary} onClick={() => void approve(v)}><AppIcon name="success" />{L("Approve", "Luluskan")}</button><button type="button" className={btnSm} onClick={() => void reject(v)}>{L("Reject", "Tolak")}</button></>}
                       </span>
@@ -633,6 +762,13 @@ function PayrollView({ revision, onChanged, summary }: { revision: number; onCha
   const { show: toast, node: toastNode } = useSaveToast();
   const { confirm, node: confirmNode } = useConfirm();
   const p = d?.in_force ?? null;
+  /* v1.232.0 (audit F2) - commission given to a month the payslip does not carry */
+  const [nos, setNos] = useState<{ rev: number; v: { n: number; cents: number } | null } | null>(null);
+  useEffect(() => {
+    const c = new AbortController();
+    void api<FlowResp>(`/flow`, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setNos({ rev: revision, v: r.ok && r.data ? r.data.exceptions.not_on_payslip ?? null : null }); });
+    return () => c.abort();
+  }, [revision]);
   const flip = async (on: boolean) => {
     if (!(await confirm({ title: on ? L("Switch commission into payroll?", "Hidupkan komisen ke dalam gaji?") : L("Switch commission out of payroll?", "Matikan komisen daripada gaji?"), message: on ? L("Eligible commission will be given to the next open payroll month, once. Released months are never changed.", "Komisen layak akan dimasukkan ke bulan gaji terbuka seterusnya, sekali. Bulan yang dikeluarkan tidak diubah.") : L("Payroll stops taking new commission. What a month already holds stays until you recompute it.", "Gaji berhenti mengambil komisen baharu."), confirmLabel: on ? L("Switch on", "Hidupkan") : L("Switch off", "Matikan") }))) return;
     setError("");
@@ -643,6 +779,7 @@ function PayrollView({ revision, onChanged, summary }: { revision: number; onCha
     <>
       {toastNode}{confirmNode}
       {loadErr ? <p role="alert" className={css.error}>{loadErr}</p> : null}
+      {nos?.v && nos.v.n > 0 && <p role="status" className={`${css.note} ${css.warnNote}`}>{L(`${nos.v.n} entitlement(s), ${fmtRM(nos.v.cents)}, are in a payroll month but not on the payslip. Payroll (HR) should recompute that month; the bank run holds them until the payslip carries them.`, `${nos.v.n} hak, ${fmtRM(nos.v.cents)}, berada dalam bulan gaji tetapi tiada dalam slip gaji. Gaji (HR) perlu mengira semula bulan itu; pembayaran bank menahannya sehingga slip gaji membawanya.`)}</p>}
       <TabZone label={L("Payroll link", "Pautan gaji")} hint={L("Until it is switched on, entitlements are recorded and shown, and payroll ignores them - so the figures can be checked first.", "Sehingga dihidupkan, hak direkod dan dipaparkan, dan gaji tidak mengambilnya - supaya angka boleh disemak dahulu.")} cols={2}>
         <div className={card}>
           {!d ? <SkelRows rows={3} /> : (
@@ -664,8 +801,8 @@ function PayrollView({ revision, onChanged, summary }: { revision: number; onCha
           <dl className={css.gov}>
             <div><dt>{L("Which month", "Bulan mana")}</dt><dd>{L("Confirmed by a month's last day -> that month's payroll, if its payslips are not yet released", "Disahkan sebelum hari terakhir bulan -> gaji bulan itu, jika slip gaji belum dikeluarkan")}</dd></div>
             <div><dt>{L("Carry-forward", "Bawa ke hadapan")}</dt><dd>{L("Anything later, or for a released month, goes to the next open month", "Selebihnya, atau untuk bulan yang dikeluarkan, ke bulan terbuka seterusnya")}</dd></div>
-            <div><dt>{L("Once", "Sekali")}</dt><dd>{L("Each entitlement is given to one month by one write; Save All and Recompute read it, they never add it again", "Setiap hak diberi kepada satu bulan dengan satu tulisan; Simpan Semua dan Kira Semula membacanya, tidak menambah lagi")}</dd></div>
-            <div><dt>{L("Paid", "Dibayar")}</dt><dd>{L("Only when the month's bank run is recorded as done - never because the customer paid", "Hanya apabila pembayaran bank bulan itu direkod selesai - bukan kerana pelanggan membayar")}</dd></div>
+            <div><dt>{L("Once", "Sekali")}</dt><dd>{L("Saving a person's payroll takes only that person's entitlements, once; opening payroll takes nothing; a future month, or a month whose payslips are out, takes nothing new", "Menyimpan gaji seseorang mengambil hak orang itu sahaja, sekali; membuka gaji tidak mengambil apa-apa; bulan akan datang, atau bulan yang slip gajinya telah keluar, tidak mengambil yang baharu")}</dd></div>
+            <div><dt>{L("Paid", "Dibayar")}</dt><dd>{L("Only when the month's bank run is recorded as done, and only what the person's payslip carries - anything else is held. Never because the customer paid", "Hanya apabila pembayaran bank bulan itu direkod selesai, dan hanya yang dibawa slip gaji - selebihnya ditahan. Bukan kerana pelanggan membayar")}</dd></div>
             <div><dt>{L("Release", "Keluaran")}</dt><dd>{L("The CEO, COO or admins; the CCO cannot", "CEO, COO atau pentadbir; CCO tidak boleh")}</dd></div>
           </dl>
         </div>
@@ -696,6 +833,8 @@ const ACTIONS: Record<string, [string, string]> = {
   "commission.apply": ["Review applied", "Semakan dilaksanakan"], "commission.dismiss": ["Review dismissed", "Semakan ditolak"],
   "commission.settled": ["Settled outside payroll", "Diselesaikan di luar gaji"], "doc.closer_correct": ["Closer corrected", "Penutup dibetulkan"],
   "doc.closer_change": ["Closer changed before payment", "Penutup ditukar sebelum bayaran"],
+  "commission.settle": ["Settled in the final settlement", "Diselesaikan dalam penyelesaian akhir"],
+  "commission.paid_held": ["Bank run: commission held (not on the payslip)", "Pembayaran bank: komisen ditahan (tiada dalam slip gaji)"],
   "invoice.paid_confirm": ["Payment confirmed", "Bayaran disahkan"], "invoice.paid_confirm_revoke": ["Confirmation taken back", "Pengesahan ditarik balik"],
 };
 function detailLine(raw: string | null): string {

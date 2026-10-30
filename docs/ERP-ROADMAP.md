@@ -289,3 +289,6 @@ unit, or none), written with the draft and never edited.
 1.231.0 (Sales packages) adds migration `0153_sales_packages` - a library of
 service packages (versions written once, never edited) and three nullable
 columns linking a quotation to the package and version it was made from.
+1.232.0 (Commission 2.1) adds migration `0154_commission_product_rule` - a
+policy version's rule for lines with no package rule (products earn only if
+listed).

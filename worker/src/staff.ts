@@ -9090,6 +9090,20 @@ async function handleStaffRoutes(
         const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
         const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(rawOn) && rawOn <= todayMyt ? rawOn : null;
         if (rawOn && !paidOn) return err("invalid_input", "Payment date must be a real date, today or earlier", 400);
+        /* v1.232.0 (Commission 2.1 audit F5) - the day the money landed
+           decides whether an invoice earns commission and under which
+           policy version. Once the CEO/COO has confirmed it, that day is
+           part of what they confirmed: it changes only after the
+           confirmation is taken back, with a reason. */
+        if (paidOn) {
+          const live = await env.DB.prepare(
+            `SELECT date(d.paid_at, '+8 hours') AS day FROM sales_documents d
+              WHERE d.id = ?1 AND EXISTS (SELECT 1 FROM invoice_paid_confirmations c WHERE c.invoice_id = d.id AND c.revoked_at IS NULL)`,
+          ).bind(id).first<{ day: string | null }>().catch(() => null);
+          if (live && live.day !== paidOn) {
+            return err("confirmed_locked", `${doc.doc_number} is confirmed as paid on ${live.day ?? "its recorded day"} by the CEO/COO. Take back the confirmation first (with a reason), then change the payment day.`, 409);
+          }
+        }
         if (paidOn) {
           await env.DB.prepare(
             `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2,
@@ -11605,6 +11619,16 @@ async function handleStaffRoutes(
     }
     return `${d.toISOString().slice(0, 10)} 10:00`;
   };
+  /* v1.232.0 (Commission 2.1 audit F4) - a month whose payslips are OUT:
+     released early (a release row) or past the moment staff see them,
+     exactly as the payslip screens decide. Commission never joins such a
+     month (commission.ts commissionForPayroll). */
+  const payslipsOut = async (month: string): Promise<boolean> => {
+    const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+    if (nowMyt >= await payslipAvailableFrom(month)) return true;
+    const r = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(month).first().catch(() => null);
+    return Boolean(r);
+  };
 
   const payslipExtras = async (uid: number, month: string) => {
     const notPendingX = await notPendingSql(env);
@@ -11969,8 +11993,11 @@ async function handleStaffRoutes(
       await recordBankMovement(env, user.id, `PAYROLL-${mP}`, net?.n ?? 0, "salaries", `Payroll bank run ${mP}`);
     } catch { /* pre-0041 net_cents */ }
     await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
-    await markCommissionPaid(env, mP); // v1.224.0 - the commission this run carried is paid out
-    return json({ ok: true });
+    /* v1.224.0 - the commission this run carried is paid out; v1.232.0 -
+       only what a saved payslip carries (the rest stays "in payroll") */
+    const commPaid = await markCommissionPaid(env, mP);
+    if (commPaid.held) await audit(env, user.id, "commission.paid_held", "payroll_payments", mP, commPaid);
+    return json({ ok: true, commission: commPaid });
   }
   /* v1.215.0 - THE INVOICES BEHIND A MONTH'S SALES COMMISSION (Payroll 2.0,
      phase A). Payroll processors read which invoices the CEO/COO confirmed
@@ -12004,7 +12031,8 @@ async function handleStaffRoutes(
          earned (whatever month it lands in), what this month carries, the
          policy in force and whether the owner's payroll switch is on. With
          the switch on, opening the month gives it its eligible rows (once). */
-      const commMapS = await commissionForPayroll(env, mS, payrollMonthStaffSql(mS, "u."));
+      /* v1.232.0 - reading the month attaches nothing (audit F1) */
+      const commMapS = await commissionForPayroll(env, mS, payrollMonthStaffSql(mS, "u."), { include: null, released: await payslipsOut(mS) });
       let ledger: unknown[] = [];
       let earned: { invoice_id: number; amount_cents: number; status: string; payroll_month: string | null }[] = [];
       let policy: unknown = null;
@@ -12715,7 +12743,8 @@ async function handleStaffRoutes(
     const advanceAtR = await salaryAdvanceResolver(env, monthR);
     /* v1.224.0 - with the owner's switch on, each row's commission is the
        ledger's sum for the month (written below with net); off, it stays */
-    const commR = await commissionForPayroll(env, monthR, payrollMonthStaffSql(monthR, "u."));
+    /* v1.232.0 - the people whose rows this recompute writes, and only them */
+    const commR = await commissionForPayroll(env, monthR, payrollMonthStaffSql(monthR, "u."), { include: ents.map((e) => e.user_id), released: await payslipsOut(monthR) });
     if (commR) for (const e of ents) e.commission_cents = commR.get(e.user_id) ?? 0;
     let fixed = 0;
     for (const e of ents) {
@@ -12807,7 +12836,8 @@ async function handleStaffRoutes(
        for this person and month (commission.ts); otherwise the figure the row
        already holds stays (0 for a new row). Net moves by the difference, the
        same way the salary advance is reconciled above. */
-    const commMap = await commissionForPayroll(env, month, payrollMonthStaffSql(month, "u."));
+    /* v1.232.0 - this Save writes one person's row: only their rows join */
+    const commMap = await commissionForPayroll(env, month, payrollMonthStaffSql(month, "u."), { include: [Number(body.user_id)], released: await payslipsOut(month) });
     const commStored = await env.DB.prepare(`SELECT commission_cents FROM payroll_entries WHERE user_id = ?1 AND month = ?2`)
       .bind(body.user_id, month).first<{ commission_cents: number }>().catch(() => null);
     const commP = commMap ? (commMap.get(body.user_id as number) ?? 0) : Number(commStored?.commission_cents ?? 0);

@@ -414,6 +414,16 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | v1.226.0 | 0151 - Notification switches per person (shift reminders). |
 | v1.227.0 | 0152 - Commission rates per package, per policy version. |
 | v1.231.0 | 0153 - Sales packages for quotations, their versions, and the quotation link. |
+| v1.232.0 | 0154 - Commission product rule per policy version (products earn only if listed). |
+
+## v1.232.0 - migration 0154_commission_product_rule.sql
+Additive - one column. `commission_policies.product_rule` (default
+`listed_only`): a line with no package rule earns the default rate when it is
+a service; a product line (an inventory SKU, or a product document) earns only
+when a rule of the version lists it. Applied to every version by the default,
+before the commission start day (01-11-2026), so nothing earned changes.
+Package rules may also name a library package (`match_key` = `pkg:<id>`, no
+schema change): every line of an invoice made from it follows that rule.
 
 ## v1.231.0 - migration 0153_sales_packages.sql
 Additive - no row changed. `sales_packages` (name, category, description,
