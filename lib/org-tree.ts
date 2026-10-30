@@ -5,13 +5,15 @@
  * loop-safety, with no React and no imports at all. It lives apart from
  * components/staff/org-chart.tsx for one reason - tests/org-chart.mjs RUNS
  * these functions, on real cyclic data, rather than reading regexes off a
- * .tsx file it cannot import. A renderer that must survive bad data is a
+ * .tsx file it cannot import. (v1.230.0: one import, the staff rule from
+ * lib/staff-order.ts - plain TypeScript too, so the guard still bundles it.) A renderer that must survive bad data is a
  * renderer whose survival can be tested.
  *
  * CEO, 05-09-2026: *"I want to add infographic for each staff reported to who
  * which is either CEO, COO or CCO. I will assigned by myself and organized it
  * based on who is their HOD to make it like organisation."*
  */
+import { isCurrentStaff } from "./staff-order";
 
 /** The subset of a staff record a chart needs. Structural, so the directory
     hands its own richer Staff straight in without a conversion step. */
@@ -24,13 +26,18 @@ export interface OrgPerson {
   department?: string | null;
   photo_key?: string | null;
   employment_status?: string | null;
+  left_on?: string | null;
+  rejoined_on?: string | null;
   reports_to?: number | null;
 }
 
 export interface OrgNode { u: OrgPerson; children: OrgNode[]; depth: number }
 
-const HAS_LEFT = ["resigned", "terminated"];
-export const isHere = (u: OrgPerson): boolean => !HAS_LEFT.includes(u.employment_status ?? "");
+/* v1.230.0 - "still here" is the one staff rule (lib/staff-order.ts
+   isCurrentStaff, the worker's currentStaffSql): someone serving notice is on
+   the chart until their last day, a re-joiner is back. It read the status
+   alone, so both were drawn as gone. */
+export const isHere = (u: OrgPerson): boolean => isCurrentStaff(u);
 
 /** The three the CEO named, in the order the company reads them. */
 export const DIVISION_ROLES = ["ceo", "coo", "cco"] as const;

@@ -10,6 +10,43 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.230.0] - 2026-10-30 - One staff status: Active is current headcount
+
+The owner's brief, 30-10-2026: "ONE AUTHORITATIVE STAFF STATUS DEFINITION.
+CONSISTENT DASHBOARD COUNTS. HISTORICAL RECORDS PRESERVED." Answers: future
+joiners "Not yet, show 'Starting'", "Yes, a note under Active" (leave),
+employment type "Current staff only", "Build it". No schema, status, date,
+account or payroll change; nothing is written.
+
+- **Root cause.** The Staff tab's Active tile counted the account switch
+  (`is_active`). Offboarding leaves it on so a leaver's final month is paid
+  (sign-in is blocked by the status), so two leavers made Active 9 beside a
+  Staff Status chart of 7 / 0 / 2, "Roles written 0 of 9" and "Roles not
+  written yet 9". The chart, in turn, read the status alone and ignored the
+  dates: someone serving notice was "Left", a re-joiner was "Left".
+- **One rule.** `staffState()` in `lib/staff-order.ts` (active, starting,
+  inactive, left, system) is the worker's rule: on staff today
+  (`currentStaffSql` / `isCurrentStaff`) and started (`joined_on` not after
+  today) - the new `headcountSql` in `worker/src/staff.ts`. Approved leave
+  never changes it.
+- **Staff Overview.** Active = current headcount ("78% of records", plus
+  "n on leave today" from Leave's calendar route - dates only); Staff Status
+  puts every record in one state (Starting and System account shown when
+  present); Roles written, Needs Attention and Departments & Roles use the
+  same people; Employment type counts current staff only - Resigned and
+  Terminated are departures, and a person serving notice or re-joined whose
+  type was overwritten shows as Not set. Chips: "Active · leaving dd-mm",
+  "Starting dd-mm". The Active tile opens the same people.
+- **Same rule elsewhere.** Organisation chart (`lib/org-tree.ts` isHere),
+  Team Map and birthdays, the search label (`worker/src/search.ts`), the
+  Dashboard's Active staff tile and its not-clocked-in list (`headcountSql`).
+  Pickers keep `currentStaffSql` (a starter can be rostered for day one);
+  payroll keeps `payrollMonthStaffSql`.
+- **Guards.** New `tests/staff-headcount.mjs` (73 checks, 9 mutations
+  caught) runs the browser rule, the worker SQL and the search label on the
+  brief's scenarios. `clickable-data` and `staff-responsibilities` updated to
+  the approved rule.
+
 ## [1.229.0] - 2026-10-30 - On Shift owns the clock; the Dashboard summarises
 
 The owner's brief, 30-10-2026: "ONE FUNCTION. ONE OWNER. MULTIPLE READ-ONLY

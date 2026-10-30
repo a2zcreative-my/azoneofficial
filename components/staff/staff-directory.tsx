@@ -26,7 +26,7 @@ import { openPrintPreview } from "@/components/ui/document-preview";
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
-import { bySeniority, isStaffRole } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with Payroll
+import { bySeniority, isStaffRole, staffState, DEPARTURE_STATUSES, type StaffState } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with Payroll; v1.230.0 - one staff status
 const api = makeApi("/staff");
 /* v1.77.0 — offboarding is NOT a staff-portal route. It is served at
    /api/v1/users/:id/offboard in the worker's own dispatcher, next to the
@@ -535,7 +535,7 @@ export function birthdayInfo(birthday: string | null | undefined, todayIso: stri
 interface Orbit { u: Staff; left: number; top: number; ring: number; r: number; angleDeg: number }
 function circleLayout(list: Staff[]): Orbit[] {
   if (list.length === 0) return [];
-  const gone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
+  const gone = (u: Staff) => staffState(u) === "left"; // v1.230.0 - the one status rule
   /* The centre: the CEO, or failing one the first in company order. */
   const centre = list.find((u) => u.role === "ceo" && !gone(u)) ?? list.find((u) => !gone(u)) ?? list[0]!;
   const rest = [...list.filter((u) => u.id !== centre.id && !gone(u)), ...list.filter((u) => u.id !== centre.id && gone(u))];
@@ -576,7 +576,7 @@ function StaffBubble({ u, open, selectMode, selected, delayMs, onPress, size = "
 }) {
   const lang = getLang();
   const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
-  const gone = ["resigned", "terminated"].includes(u.employment_status ?? "");
+  const gone = staffState(u) === "left"; // v1.230.0 - the one status rule
   const initials = displayName(u).split(" ").filter((w) => !/^(bin|binti|bt\.?|b\.|a\/l|a\/p)$/i.test(w)).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
   const photo = u.photo_key ? `/api/v1/media/file/${encodeURIComponent(u.photo_key)}` : "";
   /* v1.99.1 — every face wears a white-offset ring so it lifts off the
@@ -671,7 +671,7 @@ const subscribeWide = (cb: () => void) => {
 function useWide() {
   return useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => false);
 }
-type StaffState = "active" | "inactive" | "left";
+/* v1.230.0 - StaffState and staffState() live in lib/staff-order.ts */
 const NO_DEPT = "__none";
 /* one colour per department, mixed from the brand and the status tokens -
    theme tokens only, so both themes get them */
@@ -884,22 +884,38 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   };
 
   /* v1.173.0 (tab concept) - the summary tier from the records already
-     loaded: headcount, active, departments. No second request. */
-  const activeCount = staff.filter((u) => u.is_active).length;
+     loaded: headcount, active, departments. No second request.
+     v1.230.0 - ACTIVE IS HEADCOUNT (the owner, 30-10-2026: "ONE
+     AUTHORITATIVE STAFF STATUS DEFINITION"). It counted the account switch,
+     which offboarding leaves on so a leaver's final month is paid: 9 Active
+     beside a chart that said 7. Now every figure on this tab is
+     staffState() (lib/staff-order.ts), the worker's headcountSql. */
+  const stateOf = (u: Staff): StaffState => staffState(u, todayS);
+  const isHead = (u: Staff) => stateOf(u) === "active";
+  const headcount = staff.filter(isHead);
+  const activeCount = headcount.length;
+  /* v1.230.0 - who of them is on approved leave today (the owner: "Yes, a
+     note under Active"). Leave keeps a person in headcount; this only says
+     so. Read from Leave's own calendar route - dates and names, never the
+     type or the reason (its PDPA stance) - for today only. */
+  const leaveToday = useCachedApi<{ leave?: { user_id: number }[] }>(`/staff/leave/calendar?from=${todayS}&to=${todayS}`, true, ["leave"]);
+  const onLeaveIds = new Set((leaveToday.data?.leave ?? []).map((l) => l.user_id));
+  const onLeaveToday = headcount.filter((u) => onLeaveIds.has(u.id)).length;
   const departments = new Set(staff.map((u) => (u.department ?? "").trim()).filter(Boolean)).size;
   /* v1.174.0 - how many working staff have their roles and responsibilities
      written (a title or at least one line) - the CEO's own to-do figure. */
-  const writtenCount = staff.filter((u) => u.is_active && ((u.role_title ?? "").trim() || responsibilityLines(u.responsibilities).length > 0)).length;
+  const writtenCount = headcount.filter((u) => (u.role_title ?? "").trim() || responsibilityLines(u.responsibilities).length > 0).length;
 
   /* v1.201.0 - THE FIVE TABS, read from the same records. Nothing below
      fetches: every figure, group and chart is the /staff/users list already
      loaded above, so no tab can disagree with another. */
-  const isGone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
-  const stateOf = (u: Staff): StaffState => (isGone(u) ? "left" : u.is_active ? "active" : "inactive");
+  const isGone = (u: Staff) => stateOf(u) === "left";
   const STATE_LABEL: Record<StaffState, string> = {
     active: L("Active", "Aktif"),
+    starting: L("Starting", "Akan bermula"),
     inactive: L("Inactive", "Tidak aktif"),
     left: L("Left", "Telah keluar"),
+    system: L("System account", "Akaun sistem"),
   };
   const stateChip = (u: Staff) => {
     const s = stateOf(u);
@@ -923,6 +939,11 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
         </span>
       );
     }
+    /* v1.230.0 - serving notice: on staff (and paid) until the last day */
+    if (s === "active" && DEPARTURE_STATUSES.includes(u.employment_status ?? "") && u.left_on) {
+      return <span className={chipSuccess}>{L(`Active · leaving ${dmy(u.left_on)}`, `Aktif · keluar ${dmy(u.left_on)}`)}</span>;
+    }
+    if (s === "starting") return <span className={chipInfo}>{L(`Starting ${dmy(u.joined_on ?? "")}`, `Bermula ${dmy(u.joined_on ?? "")}`)}</span>;
     return <span className={s === "active" ? chipSuccess : chipNeutral}>{STATE_LABEL[s]}</span>;
   };
   const deptName = (u: Staff) => (u.department ?? "").trim();
@@ -935,11 +956,26 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   const pctOf = (n: number, of: number) => (of > 0 ? Math.round((n * 100) / of) : 0);
   const notOnChart = buildOrg(staff).unassigned.length;
   const noFullName = staff.filter((u) => !isGone(u) && !u.full_name?.trim()).length;
-  const notWritten = staff.filter((u) => u.is_active && !writtenOf(u)).length;
+  const notWritten = headcount.filter((u) => !writtenOf(u)).length;
   const filledOf = (u: Staff) => RECORD_FIELDS.filter(([k]) => String(u[k] ?? "").trim()).length;
-  const typeCounts = [...EMPLOYMENT_STATUSES, ""].map((k) => [k, staff.filter((u) => (u.employment_status ?? "") === k).length] as const).filter(([, n]) => n > 0);
+  /* v1.230.0 - employment TYPE among current staff (the owner: "Current
+     staff only"). Resigned/Terminated are how somebody left - they are
+     under Left, not a kind of contract. Any other stored value (probation,
+     the legacy "active") is shown under its own name, so the bars always
+     add up to Active. */
+  const TYPE_ORDER = ["permanent", "contract", "part_time", "probation"];
+  /* someone serving notice, or back after leaving, still carries the
+     departure where the type was (offboarding writes it there): their type
+     is not on record, so it is "Not set" - never a "Resigned" type */
+  const typeOf = (u: Staff) => (DEPARTURE_STATUSES.includes(u.employment_status ?? "") ? "" : (u.employment_status ?? ""));
+  const typeKeys = [...TYPE_ORDER, ...[...new Set(headcount.map(typeOf))].filter((k) => k && !TYPE_ORDER.includes(k)).sort(), ""];
+  const typeCounts = typeKeys.map((k) => [k, headcount.filter((u) => typeOf(u) === k).length] as const).filter(([, n]) => n > 0);
   const maxType = Math.max(1, ...typeCounts.map(([, n]) => n));
-  const stateCounts = (["active", "inactive", "left"] as const).map((k) => [k, staff.filter((u) => stateOf(u) === k).length] as const);
+  /* every record in exactly one state: the bars add up to Staff records.
+     Starting and System account are drawn only when somebody is in them. */
+  const stateCounts = (["active", "starting", "inactive", "left", "system"] as const)
+    .map((k) => [k, staff.filter((u) => stateOf(u) === k).length] as const)
+    .filter(([k, n]) => n > 0 || k === "active" || k === "inactive" || k === "left");
 
   /* the directory: search, department, status, then the chosen order */
   const needle = query.trim().toLowerCase();
@@ -1243,7 +1279,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             sub={L("Everyone on the staff list", "Semua dalam senarai kakitangan")}
             onClick={() => showDirectory("")} title={L("Open the directory", "Buka direktori")} />
           <KpiTile icon="success" tone="green" label={L("Active", "Aktif")} value={activeCount} busy={!loaded}
-            sub={L(`${pctOf(activeCount, staff.length)}% of records`, `${pctOf(activeCount, staff.length)}% daripada rekod`)}
+            sub={L(`${pctOf(activeCount, staff.length)}% of records${onLeaveToday ? ` · ${onLeaveToday} on leave today` : ""}`, `${pctOf(activeCount, staff.length)}% daripada rekod${onLeaveToday ? ` · ${onLeaveToday} bercuti hari ini` : ""}`)}
             onClick={() => showDirectory("", "active")} title={L("Show only active staff", "Tunjuk kakitangan aktif sahaja")} />
           <KpiTile icon="store" tone="blue" label={L("Departments", "Jabatan")} value={departments} busy={!loaded}
             sub={L("Named on the records", "Dinamakan pada rekod")}
@@ -1278,7 +1314,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           </section>
 
           <section className={card} aria-label={L("Staff status", "Status kakitangan")}>
-            {head("chart", sp.blueWell, L("Staff Status", "Status Kakitangan"), L("Account state and employment type, as the records say.", "Keadaan akaun dan jenis pekerjaan, seperti dalam rekod."))}
+            {head("chart", sp.blueWell, L("Staff Status", "Status Kakitangan"), L("Every record's status today, and the employment type of current staff.", "Status setiap rekod hari ini, dan jenis pekerjaan kakitangan semasa."))}
             {!loaded ? <SkelRows rows={4} /> : (
               <>
                 <ul className={sp.bars}>
@@ -1286,7 +1322,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     <li key={k}>
                       <button type="button" onClick={() => showDirectory("", k)}>
                         <span>{STATE_LABEL[k]}</span>
-                        <span className={sp.track}><span className={`${sp.fill} ${k === "active" ? sp.fillGreen : k === "left" ? sp.fillRed : sp.fillGrey}`} style={{ width: `${Math.max(n ? 3 : 0, pctOf(n, staff.length))}%` }} /></span>
+                        <span className={sp.track}><span className={`${sp.fill} ${k === "active" ? sp.fillGreen : k === "left" ? sp.fillRed : k === "starting" ? sp.fillBlue : sp.fillGrey}`} style={{ width: `${Math.max(n ? 3 : 0, pctOf(n, staff.length))}%` }} /></span>
                         <strong>{n}</strong>
                       </button>
                     </li>
@@ -1401,7 +1437,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             </select>
             <select className={selectClassSm} value={stateF} onChange={(e) => setStateF(e.target.value as "" | StaffState)} aria-label={L("Status", "Status")}>
               <option value="">{L("All statuses", "Semua status")}</option>
-              {(["active", "inactive", "left"] as const).map((k) => <option key={k} value={k}>{STATE_LABEL[k]}</option>)}
+              {stateCounts.map(([k]) => <option key={k} value={k}>{STATE_LABEL[k]}</option>)}
             </select>
             <select
               className={selectClassSm}
@@ -1614,11 +1650,11 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
         const ordered = ranked;
         const cakeFor = (u: Staff) => {
           const b = birthdayInfo(u.birthday, todayS);
-          return b && b.days <= 14 && !["resigned", "terminated"].includes(u.employment_status ?? "") ? b : null;
+          return b && b.days <= 14 && !isGone(u) ? b : null;
         };
         /* v1.201.0 - `press` is the page's own now: a face opens the
            profile drawer, or ticks it while selecting for printing. */
-        const gone = (u: Staff) => ["resigned", "terminated"].includes(u.employment_status ?? "");
+        const gone = isGone;
         /* v1.93.0 — whose day is next, in one line under the field. */
         const upcoming = staff.filter((u) => !gone(u)).map((u) => ({ u, b: birthdayInfo(u.birthday, todayS) }))
           .filter((x): x is { u: Staff; b: NonNullable<ReturnType<typeof birthdayInfo>> } => Boolean(x.b))
@@ -1798,9 +1834,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           <section className={card}><p className={sp.empty}><AppIcon name="success" />{L("Every working person has their role written.", "Peranan setiap orang yang bekerja telah ditulis.")}</p></section>
         )}
         {loaded && byDept.map(([k, list]) => {
-          const rows = onlyMissing ? list.filter((u) => u.is_active && !writtenOf(u)) : list;
+          const rows = onlyMissing ? list.filter((u) => isHead(u) && !writtenOf(u)) : list;
           if (rows.length === 0) return null;
-          const working = list.filter((u) => u.is_active);
+          const working = list.filter(isHead);
           const done = working.filter(writtenOf).length;
           return (
             <section key={k || NO_DEPT} className={card} aria-label={k || noDept}>
@@ -1830,7 +1866,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                           <td data-label={L("Responsibilities", "Tanggungjawab")}>
                             {lines > 0 ? <span className={chipSuccess}>{L(`${lines} written`, `${lines} ditulis`)}</span>
                               : writtenOf(u) ? <span className={chipInfo}>{L("Title only", "Gelaran sahaja")}</span>
-                              : u.is_active ? <span className={chipWarn}>{L("Not written", "Belum ditulis")}</span>
+                              : isHead(u) ? <span className={chipWarn}>{L("Not written", "Belum ditulis")}</span>
                               : <span className={chipNeutral}>{STATE_LABEL[stateOf(u)]}</span>}
                           </td>
                           <td data-label={L("Last written", "Terakhir ditulis")} className={sp.mono}>
@@ -1841,7 +1877,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                           <td className={sp.actCell}>
                             <span>
                               <button type="button" className={rowBtn} onClick={() => setPeek(u.id)}>{L("Read", "Baca")}</button>
-                              {canEditResponsibilities && Boolean(u.is_active) && (
+                              {canEditResponsibilities && Boolean(u.is_active) && !isGone(u) && (
                                 <button type="button" className={rowBtn} onClick={() => openRecord(u.id)}>{L("Write", "Tulis")}</button>
                               )}
                             </span>

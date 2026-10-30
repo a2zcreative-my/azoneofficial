@@ -144,7 +144,14 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
     stmts.push({
       kind: "staff",
       stmt: env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, department, employee_id, photo_key, employment_status FROM users
+        /* v1.230.0 - "left" is the one staff rule (staff.ts currentStaffSql,
+           copied here because importing staff.ts would pull the whole worker
+           into this module; tests/staff-headcount.mjs runs both on the same
+           rows): serving notice is still here, a re-joiner is back. */
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, position, department, employee_id, photo_key, employment_status,
+                CASE WHEN ((left_on IS NULL AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated'))
+     OR left_on >= date('now', '+8 hours')
+     OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours'))) THEN 1 ELSE 0 END AS here FROM users
           WHERE is_active = 1 AND role NOT IN ('customer')
             AND (name LIKE ?1 ESCAPE '\\' OR full_name LIKE ?1 ESCAPE '\\' OR position LIKE ?1 ESCAPE '\\' OR department LIKE ?1 ESCAPE '\\'
                  ${digits ? `OR ${DIGITS("phone")} LIKE ?2` : ""})
@@ -152,7 +159,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
       ).bind(...(digits ? [like, `%${digits}%`] : [like])),
       toHit: (r) => ({ kind: "staff", id: Number(r.id), title: String(r.name), sub: [r.position ?? String(r.role).replace(/_/g, " "), r.department, r.employee_id].filter(Boolean).join(" · "), tab: "Staff Details",
         /* the directory's own words: a leaver is "left", everyone else working */
-        status: ["resigned", "terminated"].includes(String(r.employment_status ?? "")) ? "left" : "active", photo: r.photo_key as string | null }),
+        status: Number(r.here) === 1 ? "active" : "left", photo: r.photo_key as string | null }),
     });
   }
   if (allowed.has("client")) {

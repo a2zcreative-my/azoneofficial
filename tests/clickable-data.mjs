@@ -158,7 +158,8 @@ const ok = (label, cond, extra = "") => {
     ["a ring is drawn with one number for width and height", "components/staff/staff-directory.tsx",
      /width: `\$\{r \* 2\}%`, height: `\$\{r \* 2\}%`/, "a ring drawn from two numbers is an ellipse waiting for a resize"],
     ["a face within a fortnight of a birthday carries the cake", "components/staff/staff-directory.tsx",
-     /return b && b\.days <= 14 && !\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null;/, "the separate Birthdays card was retired for this"],
+     /* v1.230.0 - a leaver is the one staff rule's "left" (staff-headcount.mjs) */
+     /return b && b\.days <= 14 && !isGone\(u\) \? b : null;/, "the separate Birthdays card was retired for this"],
     ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",
      /if \(!open\.has\(u\.id\)\) return null;/, "the cards were the clutter the faces replace"],
     ["the face says which mode it is in", "components/staff/staff-directory.tsx",

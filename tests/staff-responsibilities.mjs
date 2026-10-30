@@ -99,7 +99,7 @@ ok("the directory imports the block", /import \{ ResponsibilitiesBlock,(?: Respo
 ok("the block is drawn for working staff (a leaver's text stays readable)", /\{open\.has\(u\.id\) && \(u\.is_active \|\| u\.role_title \|\| u\.responsibilities\) && \(\s*<ResponsibilitiesBlock/.test(dir));
 ok("the button follows the permission AND the record being active", /canEdit=\{canEditResponsibilities && Boolean\(u\.is_active\)\}/.test(dir));
 ok("the saved record shows at once and the view refetches behind it", /setStaff\(merge\); setAllStaff\(merge\); void load\(\);/.test(dir));
-ok("the summary tier counts who is written, against the working headcount", /label=\{L\("Roles written", "Peranan ditulis"\)\} value=\{writtenCount\}/.test(dir) && /const writtenCount = staff\.filter\(\(u\) => u\.is_active && /.test(dir));
+ok("the summary tier counts who is written, against the working headcount", /label=\{L\("Roles written", "Peranan ditulis"\)\} value=\{writtenCount\}/.test(dir) && /const writtenCount = headcount\.filter\(/.test(dir)); // v1.230.0 - the working headcount is the one staff rule's Active (staff-headcount.mjs)
 ok("the block hides the button it may not press", /\{canEdit && !editing && \(\s*<button type="button" className=\{btnSm\} onClick=\{open\}/.test(block));
 ok("the editor is one title and one textarea, one responsibility per line", /<input className=\{inputClass\} value=\{title\} maxLength=\{RESPONSIBILITY_LIMITS\.title\}/.test(block)
    && /<textarea className=\{`\$\{textareaClass\} \$\{css\.textarea\}`\} value=\{text\}/.test(block) && /responsibilities: lines \}/.test(block));

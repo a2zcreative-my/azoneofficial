@@ -393,6 +393,18 @@ export const payrollBaseStaffSql = (alias = "") =>
      OR ${alias}left_on >= date('now', '+8 hours')
      OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
 
+/** HEADCOUNT — v1.230.0 (the owner, 30-10-2026: "ONE AUTHORITATIVE STAFF
+    STATUS DEFINITION", answer "Not yet, show 'Starting'"). Who COUNTS as
+    current staff: on staff today (currentStaffSql) AND already started -
+    `joined_on` empty or not after today. A future joiner is on the books but
+    not yet headcount. Only the counts use this (the Dashboard's Active staff
+    tile and its "not clocked in" list, the Staff tab's Active through
+    lib/staff-order.ts `staffState`); every picker keeps currentStaffSql so a
+    starter can be rostered for day one, and payroll keeps its own month
+    rule. Read only - nothing is written from it. */
+export const headcountSql = (alias = "") =>
+  `(${currentStaffSql(alias)} AND (${alias}joined_on IS NULL OR ${alias}joined_on = '' OR substr(${alias}joined_on, 1, 10) <= date('now', '+8 hours')))`;
+
 /** EMPLOYED IN A GIVEN PAYROLL MONTH — v1.87.0.
  *
  * The CEO's own exception: *"payroll after their payroll released"*. A leaver
@@ -2954,7 +2966,7 @@ async function handleStaffRoutes(
                   AND date('now', '+8 hours') BETWEEN l.start_date AND l.end_date
                 LIMIT 1) AS leave_type
          FROM users u
-        WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        WHERE u.is_active = 1 AND ${headcountSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
         ORDER BY ${STAFF_ORDER_SQL}`,
     ).all<{ id: number; name: string; position: string | null; leave_type: string | null }>();
     return json({
@@ -2990,7 +3002,8 @@ async function handleStaffRoutes(
          role and yield these two exactly, so gating them here would be a
          gesture rather than a control */
       lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
-      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
+      /* v1.230.0 - headcount (started, on staff today), the Staff tab's Active */
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${headcountSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
 
       pending_leave: await gated(people, `SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
       pending_claims: await gated(can(user.role, "claims_decide"), `SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),

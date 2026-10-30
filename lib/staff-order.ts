@@ -134,3 +134,50 @@ export function isCurrentStaff(
   if (u.left_on.slice(0, 10) >= today) return true;
   return Boolean(u.rejoined_on && u.rejoined_on.slice(0, 10) <= today);
 }
+
+/** ONE STAFF STATUS — v1.230.0.
+ *
+ * The owner, 30-10-2026: "ONE AUTHORITATIVE STAFF STATUS DEFINITION.
+ * CONSISTENT DASHBOARD COUNTS. HISTORICAL RECORDS PRESERVED." The Staff tab
+ * counted Active by the account switch (`is_active`) - which offboarding
+ * leaves ON on purpose, so a leaver is paid for the final month - and drew
+ * its chart by the status alone, ignoring the dates. Active said 9 beside a
+ * chart that said 7.
+ *
+ * Every figure, filter, chip and chart on the Staff tab reads this, and it
+ * is the worker's own rule (`headcountSql` = `currentStaffSql` + started):
+ *
+ *   left      not on staff today (isCurrentStaff): a past last day, or
+ *             Resigned/Terminated with no last day - unless re-joined
+ *   inactive  on staff, but the account is switched off (Users page)
+ *   system    an `admin` account - listed in the records, never headcount
+ *             (the Dashboard's Active staff tile has always left it out)
+ *   starting  on staff, but `joined_on` is after today (owner: "Not yet,
+ *             show 'Starting'")
+ *   active    everybody else: headcount. Approved leave does NOT change
+ *             it (the brief: leave never removes a person from headcount).
+ *
+ * Someone serving notice (Resigned, last day ahead) is active until that
+ * day, as the payroll and every picker already treat them. Nothing is
+ * written from this; the stored status, dates and switch are untouched.
+ * tests/staff-headcount.mjs runs it against the worker's SQL. */
+export type StaffState = "active" | "starting" | "inactive" | "left" | "system";
+
+export function staffState(
+  u: { is_active?: number | boolean | null; role?: string | null; joined_on?: string | null; left_on?: string | null; rejoined_on?: string | null; employment_status?: string | null },
+  today: string = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
+): StaffState {
+  if (!isCurrentStaff(u, today)) return "left";
+  if (!u.is_active) return "inactive";
+  if (u.role === "admin") return "system";
+  if (u.joined_on && u.joined_on.slice(0, 10) > today) return "starting";
+  return "active";
+}
+
+/** Headcount: the people the Active figure counts. */
+export const isHeadcount = (u: Parameters<typeof staffState>[0], today?: string): boolean => staffState(u, today) === "active";
+
+/** Resigned and Terminated are how somebody left, not a kind of contract:
+    the employment-type figures count current staff only (owner, 30-10-2026:
+    "Current staff only"). */
+export const DEPARTURE_STATUSES: readonly string[] = ["resigned", "terminated"];
