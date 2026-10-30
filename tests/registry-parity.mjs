@@ -259,9 +259,12 @@ if (pinM.length === 0) {
    customer's document said RM 20.00. String-level tripwires on both files —
    crude, but each fails if its side loses a term of the formula. */
 {
-  const previewStart = page.indexOf("const subtotal = doc.items.reduce");
+  /* v1.231.0 - the line arithmetic is ONE helper (lib/doc-totals.ts) that
+     the form, the paper and the package editor call; the term lives there */
+  const previewStart = page.indexOf("const subtotal = docSubtotal(doc.items);");
   const preview = previewStart >= 0 ? page.slice(previewStart, previewStart + 900) : "";
-  if (!preview.includes("i.disc_cents ?? 0")) {
+  const totals = readFileSync(new URL("../lib/doc-totals.ts", import.meta.url), "utf8");
+  if (!/i\.qty \* i\.unit_price_cents - Math\.min\(i\.disc_cents \?\? 0, i\.qty \* i\.unit_price_cents\)/.test(totals) || !preview) {
     fail("the doc-form preview subtotal no longer subtracts per-line discounts (page.tsx) — it will disagree with the Worker again");
   } else ok("preview subtotal subtracts line discounts");
   if (!preview.includes('doc.kind === "service"')) {

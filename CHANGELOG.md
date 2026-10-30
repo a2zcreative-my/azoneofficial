@@ -10,6 +10,47 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.231.0] - 2026-10-30 - Sales packages: select, auto-fill, customize
+
+The owner's brief, 30-10-2026: "ONE PACKAGES LIBRARY. ONE EXISTING QUOTATION
+ENGINE. SELECT PACKAGE → AUTO-FILL QUOTATION → CUSTOMIZE IF NEEDED → SAVE →
+PRINT." Answers: managers CEO, COO, CCO and super admin; service lines only;
+prices editable on the quotation and flagged customized; "Build it".
+Migration 0153 (additive).
+
+- **Packages pill** on Sales → Documents, after Outstanding: the library
+  (package, category, issuer, description, items, total, status, last
+  updated; search and issuer / status / category filters; cards on a phone).
+  The CEO, COO, CCO and super admin create, edit, activate, archive and delete
+  (an unused package only); everyone else with Sales reads active packages.
+  Not the public website rate card (that stays "Packages — public rate card").
+- **Package editor** (drawer): details (name, category, description, the
+  issuers it may be quoted under, status, internal notes) and service lines
+  (description, qty, UOM, unit price, line discount, up to 10 inclusions,
+  order), subtotal, package discount, total - the quotation's own line
+  arithmetic, now one helper (`lib/doc-totals.ts`) for the form, the paper and
+  the editor. Saving changed lines or prices writes the next version;
+  versions are never edited; a stale save is refused.
+- **Create form**: on a Quotation, **Package (optional)** lists the active
+  packages offered under the chosen issuer (AZ ONE sees AZ ONE packages).
+  Applying copies the lines into the existing editor (replace, or add after
+  lines already typed), makes it a service quotation and fills the document
+  discount; the preview, totals, save and print are unchanged. "No package —
+  custom quotation" is the default. Switching issuer drops a package not
+  offered there (the lines stay).
+- **The quotation keeps its own lines** (as always) plus `package_id`,
+  `package_version` and `package_customized` (the lines or discount differ
+  from that version). A later price change, archive or edit of the package
+  never changes a saved quotation or invoice. Edit and REV n keep the link;
+  convert copies it with the lines (once, unpaid, same closer and issuer).
+- **Untouched**: numbering, customers, issuers and their letterhead/bank,
+  the approval limit, convert, paid confirmation (CEO/COO), commission (no
+  ledger row from a package; its rules still match invoice line names),
+  payroll.
+- **Guards.** New `tests/sales-packages.mjs` (72 checks in SQLite through the
+  real worker, 6 mutations caught). `registry-parity` reads the line
+  arithmetic from `lib/doc-totals.ts`.
+
 ## [1.230.0] - 2026-10-30 - One staff status: Active is current headcount
 
 The owner's brief, 30-10-2026: "ONE AUTHORITATIVE STAFF STATUS DEFINITION.

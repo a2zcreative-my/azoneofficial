@@ -22,6 +22,9 @@ import { RowCell } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
 import { buildDocPdf } from "@/lib/doc-pdf";
+import { docSubtotal } from "@/lib/doc-totals"; // v1.231.0
+import { PackagePicker, PackagesPanel } from "@/components/portal/packages-panel"; // v1.231.0 - sales packages
+import type { PackageRef, PackageRow } from "@/lib/packages";
 import { DocFull, DocItem, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
 import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
@@ -87,6 +90,10 @@ export interface SalesDoc {
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
+  /* v1.231.0 - the package and version a quotation was made from (0153) */
+  package_id?: number | null;
+  package_version?: number | null;
+  package_customized?: number | null;
 }
 
 /* v1.28.0 — "MAYBANK · <HOLDER> · A/C <number>": the bank-transfer instruction
@@ -1081,7 +1088,7 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
 
   const c = customers.find((x) => x.id === doc.customer_id);
   const salesperson = doc.salesperson_id ? (staffList.find((u) => u.id === doc.salesperson_id)?.name ?? user.name) : user.name;
-  const subtotal = doc.items.reduce((s, i) => s + i.qty * i.unit_price_cents - Math.min(i.disc_cents ?? 0, i.qty * i.unit_price_cents), 0);
+  const subtotal = docSubtotal(doc.items); // v1.231.0 - one line arithmetic (lib/doc-totals.ts)
   const total = Math.max(0, Math.round((subtotal - doc.discount_cents) * (1 + doc.tax_percent / 100)))
     + (doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents);
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -1142,7 +1149,7 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
 export function Sales({ user, workExtra, customersExtra, reports, initialView = "documents", createRequest = 0, focus }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; reports?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null }) {
   /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
-  const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts">(initialView);
+  const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts" | "packages">(initialView);
   /* v1.214.0 - THE SALES WORKSPACE: one panel, five tabs over the same
      records (sales-workspace.tsx). The bodies stay mounted and are hidden,
      so a half-written quotation survives a look at another tab. "Mine" is
@@ -1283,6 +1290,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [invItems, setInvItems] = useState<
     { name: string; sku: string; unit_price_cents?: number }[]
   >([]);
+  /* v1.231.0 - the package this quotation's lines were filled from, if any.
+     The lines are the form's own (doc.items); this is only the reference the
+     quotation saves (package_id + package_version). */
+  const [pkgRef, setPkgRef] = useState<(PackageRef & { issuers?: string[] }) | null>(null);
   // v1.4.96: aligned with the worker's finance permission — sales_marketing
   // creates QT/DO; invoices are created by finance roles ON THEIR BEHALF via
   // the Sales person dropdown (that's the attribution mechanism).
@@ -1486,6 +1497,15 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     });
     setWorkTab("create");
     jump("sales-work");
+    /* v1.231.0 - the package it was made from, named from that version
+       (readable even if the package has since been archived) */
+    const fp = full as { package_id?: number | null; package_version?: number | null };
+    setPkgRef(null);
+    if (full.doc_type === "QT" && fp.package_id) {
+      const ref = { id: fp.package_id, version: Number(fp.package_version ?? 1) };
+      void api<{ package?: { name: string; issuers: string[] } }>(`/staff/packages/${ref.id}?version=${ref.version}`).then((r) =>
+        setPkgRef({ ...ref, name: r.data?.package?.name ?? L(`Package #${ref.id}`, `Pakej #${ref.id}`), issuers: r.data?.package?.issuers }));
+    }
   };
   const resetDocForm = () => {
     setDoc({
@@ -1505,6 +1525,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     setDocDate("");
     setPaidDate("");
     setEditingDoc(null);
+    setPkgRef(null);
   };
 
   /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
@@ -1623,6 +1644,25 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     return { on: d.toISOString().slice(0, 10), days: t.terms_days };
   })();
 
+  /* v1.231.0 - APPLY A PACKAGE: its version's lines become this quotation's
+     own lines (replacing them, or after them), as service lines; its
+     discount becomes the document discount. Everything after is the form as
+     it always was - edit, add, remove, preview, save. */
+  const applyPackage = (p: PackageRow, mode: "replace" | "add") => {
+    const lines: DocItem[] = p.items.map((i) => ({ ...i, sub: i.sub ? [...i.sub] : undefined }));
+    setDoc((d) => {
+      const kept = d.items.filter((it) => (it.name.trim() || it.unit_price_cents > 0) && !it.sku);
+      return {
+        ...d,
+        kind: "service",
+        delivery_cents: 0,
+        items: mode === "add" && kept.length ? [...kept, ...lines] : lines,
+        discount_cents: mode === "add" ? d.discount_cents + p.discount_cents : p.discount_cents,
+      };
+    });
+    setPkgRef({ id: p.id, version: p.current_version, name: p.name, issuers: p.issuers });
+    showToast(L("Package applied", "Pakej digunakan"), L(`${p.name}: ${p.item_count} line(s) copied into this quotation. Edit them as needed.`, `${p.name}: ${p.item_count} baris disalin ke sebut harga ini. Sunting mengikut keperluan.`));
+  };
   const createDoc = async () => {
     // v1.4.94: silent returns were why "nothing saved" — every stop now says why.
     if (doc.customer_id === -1) {
@@ -1726,6 +1766,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       /* v1.181.16 - a NEW invoice for a client with credit terms carries its
          due date; no terms, no due date, exactly as before */
       due_date: !editingDoc && termsDue ? termsDue.on : undefined,
+      /* v1.231.0 - a quotation names the package it was filled from (or
+         none); other documents leave the link as it is */
+      ...(doc.doc_type === "QT" ? { package_id: pkgRef?.id ?? null, package_version: pkgRef?.version ?? null } : {}),
     };
     if (editingDoc) {
       const res = await api<{
@@ -1953,13 +1996,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      per-line discount capped at the line's own value, then the document
      discount, then tax, then delivery — which the server zeroes on a DO
      AND on a service document (v1.4.238), not just on a DO. */
-  const subtotal = doc.items.reduce(
-    (s, i) =>
-      s +
-      i.qty * i.unit_price_cents -
-      Math.min(i.disc_cents ?? 0, i.qty * i.unit_price_cents),
-    0
-  );
+  const subtotal = docSubtotal(doc.items); // v1.231.0 - one line arithmetic (lib/doc-totals.ts)
   // v1.4.160: delivery / postage fee — added after discount + tax (pass-through
   // charge, not taxable goods value); never on a Delivery Order or a service.
   const total =
@@ -2172,8 +2209,12 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 <button key={v} type="button" role="tab" aria-selected={workTab === "receipts" && money === v} className={workTab === "receipts" && money === v ? tabPillOn : tabPill}
                   onClick={() => { setWorkTab("receipts"); setMoney(v); }}>{label}</button>
               ))}
+              {/* v1.231.0 - the packages library, beside the documents it fills */}
+              <button type="button" role="tab" aria-selected={workTab === "packages"} className={workTab === "packages" ? tabPillOn : tabPill}
+                onClick={() => setWorkTab("packages")}>{L("Packages", "Pakej")}</button>
             </div>
           </div>
+          {workTab === "packages" && <div className="mt-3"><PackagesPanel role={user.role} /></div>}
           <div className={workTab === "create" ? "mt-3" : "hidden"}>
           <p className="text-sm font-semibold">
             {editingDoc ? (
@@ -2260,6 +2301,12 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                               }
                             : { ...d, issuer: v }
                         );
+                        /* v1.231.0 - a package not offered under the new
+                           issuer is let go; its lines stay as typed */
+                        if (pkgRef && pkgRef.issuers && !pkgRef.issuers.includes(v)) {
+                          setPkgRef(null);
+                          showToast(L("Package cleared", "Pakej dikosongkan"), L(`${pkgRef.name} is not offered under this issuer. The lines stay as they are.`, `${pkgRef.name} tidak ditawarkan di bawah pengeluar ini. Baris kekal seperti sedia ada.`), "notice");
+                        }
                       }}
                     >
                       <option value="a2z">
@@ -2290,9 +2337,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   className={`${inputClass} mt-1`}
                   aria-label={L("Document type", "Jenis dokumen")}
                   value={doc.doc_type}
-                  onChange={(e) =>
-                    setDoc((d) => ({ ...d, doc_type: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setDoc((d) => ({ ...d, doc_type: e.target.value }));
+                    if (e.target.value !== "QT") setPkgRef(null); // v1.231.0 - a package fills quotations only
+                  }}
                 >
                   <option value="QT">{L("Quotation", "Sebut harga")}</option>
                   {/* v1.4.234: a Delivery Order is product-only — nothing
@@ -2337,7 +2385,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-border hover:bg-secondary")
                       }
-                      onClick={() =>
+                      onClick={() => {
+                        if (k === "product") setPkgRef(null); // v1.231.0 - packages are service lines
                         setDoc((d) => ({
                           ...d,
                           kind: k,
@@ -2346,8 +2395,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                               ? "QT"
                               : d.doc_type,
                           delivery_cents: k === "service" ? 0 : d.delivery_cents,
-                        }))
-                      }
+                        }));
+                      }}
                     >
                       {L(
                         label,
@@ -2531,6 +2580,18 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               </div>
             </div>
 
+            {/* v1.231.0 - PACKAGE (OPTIONAL), quotations only: the active
+                packages offered under this issuer. Choosing one fills the
+                lines below - the same lines, the same totals, the same paper;
+                "No package" is the default and a custom quotation needs none. */}
+            {doc.doc_type === "QT" && (
+              <div className="mb-3">
+                <PackagePicker issuer={doc.issuer} applied={pkgRef}
+                  hasLines={doc.items.filter((it) => it.name.trim() || it.unit_price_cents > 0).length}
+                  canAdd={doc.kind === "service" || !doc.items.some((it) => it.sku)}
+                  onApply={applyPackage} onClear={() => setPkgRef(null)} />
+              </div>
+            )}
             {/* ---- the lines, under the paper's own column headers ---- */}
             <p className="text-muted-foreground border-primary border-b pb-1 text-[9px] font-bold tracking-[0.14em] uppercase">
               {doc.kind === "service" ? L("Description of services", "Keterangan perkhidmatan") : L("Items", "Barang")}
@@ -3440,6 +3501,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       label: L("Date", "Tarikh"),
                       value: dmy(d.created_at.slice(0, 10)),
                     },
+                    /* v1.231.0 - the package it was made from: history only */
+                    ...(d.package_id
+                      ? [{
+                          label: L("Package", "Pakej"),
+                          value: L(`#${d.package_id} · v${d.package_version ?? 1}${d.package_customized ? " · customized" : " · as packaged"}`, `#${d.package_id} · v${d.package_version ?? 1}${d.package_customized ? " · diubah suai" : " · seperti pakej"}`),
+                        }]
+                      : []),
                     /* v1.181.13 - part payments on an invoice: recorded and
                        shown, never marking it paid */
                     ...(d.doc_type === "INV"

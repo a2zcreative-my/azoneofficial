@@ -286,3 +286,6 @@ person's own Clock-in / Clock-out reminder switches (no row = on).
 1.227.0 (Commission configuration) adds migration `0152_commission_packages`
 - the package rules of a commission policy version (percent, fixed per
 unit, or none), written with the draft and never edited.
+1.231.0 (Sales packages) adds migration `0153_sales_packages` - a library of
+service packages (versions written once, never edited) and three nullable
+columns linking a quotation to the package and version it was made from.

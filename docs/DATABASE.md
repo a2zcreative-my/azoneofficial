@@ -413,6 +413,17 @@ and that a Reconciliation item was reviewed, with who, when and a note.
 | v1.224.0 | 0150 - Sales Commission: policy versions, the entitlement ledger, the payroll switch log. |
 | v1.226.0 | 0151 - Notification switches per person (shift reminders). |
 | v1.227.0 | 0152 - Commission rates per package, per policy version. |
+| v1.231.0 | 0153 - Sales packages for quotations, their versions, and the quotation link. |
+
+## v1.231.0 - migration 0153_sales_packages.sql
+Additive - no row changed. `sales_packages` (name, category, description,
+notes, kind service only, issuers `a2z` / `azoo` / both, status draft /
+active / archived, current_version) and `sales_package_versions` (the lines
+as the quotation stores them - `DocItem[]` JSON - with discount, subtotal and
+total; UNIQUE per package and version; written once, never edited). Three
+nullable columns on `sales_documents`: `package_id`, `package_version`,
+`package_customized` (the lines differ from that version). The document keeps
+its own lines, so a package change never alters a saved quotation or invoice.
 
 ## v1.227.0 - migration 0152_commission_packages.sql
 Additive - no row changed. `commission_policy_packages` (policy_id,

@@ -10,6 +10,7 @@ import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
+import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
@@ -2536,6 +2537,14 @@ async function handleStaffRoutes(
   if (path.startsWith("/commission/")) {
     const cm = await handleCommission(env, path, method, body, user, new URL(request.url).searchParams);
     if (cm) return cm;
+  }
+
+  /* ---- v1.231.0 Sales packages (packages.ts): the library of service
+     packages a quotation can be filled from. Read: sales; write: CEO, COO,
+     CCO, super admin (packages_manage). ---- */
+  if (path === "/packages" || path.startsWith("/packages/")) {
+    const pk = await handlePackages(env, path, method, body, user, new URL(request.url).searchParams);
+    if (pk) return pk;
   }
 
   /* ---- v1.223.0 Weekly Sales (weekly-sales.ts): targets, the week's
@@ -8909,6 +8918,12 @@ async function handleStaffRoutes(
     if (docType === "INV" && !(await closerEligible(env, salespersonId))) {
       return err("closer_required", "The closer must be a salesperson on staff today (not a system account). Pick them from the list.", 400);
     }
+    /* v1.231.0 - the package a quotation was made from (optional): it must
+       exist, be active and be offered under this issuer, checked BEFORE a
+       number is taken. The lines saved are the request's own - the package
+       is a reference and a "customized" flag, never a source of lines. */
+    const pkgD = await packageForDoc(env, body, { docType, kind: kindD, issuer: body.issuer === "azoo" ? "azoo" : "a2z", items, discount_cents: discount });
+    if (pkgD instanceof Response) return pkgD;
     const number = await docNumber(env, docType);
     // v1.4.94: backdating — payments received before this system existed can
     // be invoiced on their true date. Past dates only, never the future.
@@ -8961,6 +8976,7 @@ async function handleStaffRoutes(
        stale client or a typo can never mint a third entity. */
     const issuerD: "a2z" | "azoo" = body.issuer === "azoo" ? "azoo" : "a2z";
     await stampIssuer(env, "sales_documents", res?.id, issuerD);
+    if (pkgD) await stampPackage(env, res?.id, pkgD); // v1.231.0
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
     if (docType === "INV" && body.paid_received === true && res?.id) {
@@ -8979,7 +8995,8 @@ async function handleStaffRoutes(
     if (docType === "INV" && kindD !== "service" && res?.id) {
       stockMove = await deductForInvoice(env, res.id, number, JSON.stringify(items), docDate, user.id);
     }
-    await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id));
+    await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id),
+      pkgD ? { package_id: pkgD.id, package_version: pkgD.version, customized: pkgD.customized } : undefined);
     return json({ id: res?.id, doc_number: number, total_cents: total, stock: stockMove }, 201);
   }
   const docGet = path.match(/^\/docs\/(\d+)$/);
@@ -9164,6 +9181,10 @@ async function handleStaffRoutes(
        v1.28.0 "A2Z invoices" decision, unchanged. */
     const qtIssuer = (qt as { issuer_code?: string | null }).issuer_code;
     await stampIssuer(env, "sales_documents", resC?.id, qtIssuer === "azoo" ? "azoo" : "a2z");
+    /* v1.231.0 - the invoice names the package and version the quotation
+       was made from (history only; its lines are the quotation's, copied above) */
+    const qtPkg = qt as { package_id?: number | null; package_version?: number | null; package_customized?: number | null };
+    if (qtPkg.package_id) await stampPackage(env, resC?.id, { id: qtPkg.package_id, version: Number(qtPkg.package_version ?? 1), customized: Boolean(qtPkg.package_customized) });
     await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
     return json({ id: resC?.id, doc_number: numberC, stock: stockMoveC }, 201);
   }
@@ -9434,6 +9455,31 @@ async function handleStaffRoutes(
        from -> to. From the first payment (marked paid, or any part payment
        not voided) Edit refuses to move it; only POST /docs/:id/closer
        (commission_decide, with a reason) can. */
+    /* v1.231.0 - THE PACKAGE LINK on a quotation: kept when the request does
+       not mention it (an older client, or an invoice), cleared by null, moved
+       by a package id (active, offered under the document's issuer - or the
+       one it already had, even archived). Whether the quotation is still the
+       package is worked out again from the lines being saved. Checked before
+       a revision is written, so a refusal leaves nothing behind. */
+    let pkgE: { id: number; version: number; customized: boolean } | null | undefined; // undefined: not touched
+    if (docE.doc_type === "QT") {
+      let curP: { package_id: number | null; package_version: number | null; issuer_code: string | null } | null = null;
+      try {
+        curP = await env.DB.prepare(`SELECT package_id, package_version, issuer_code FROM sales_documents WHERE id = ?1`).bind(idE)
+          .first<{ package_id: number | null; package_version: number | null; issuer_code: string | null }>();
+      } catch { curP = null; /* pre-0153 */ }
+      if (curP) {
+        if (body.package_id === null) pkgE = null;
+        else {
+          const want = body.package_id !== undefined ? body : curP.package_id ? { package_id: curP.package_id, package_version: curP.package_version } : null;
+          if (want) {
+            const r = await packageForDoc(env, want, { docType: "QT", kind: docE.kind ?? "product", issuer: curP.issuer_code === "azoo" ? "azoo" : "a2z", items: itemsE, discount_cents: discE, keepId: curP.package_id });
+            if (r instanceof Response) return r;
+            pkgE = r;
+          }
+        }
+      }
+    }
     let closerFrom: number | null | undefined; // undefined: the closer is not being changed
     let lockGuard = "";
     if (spE !== null) {
@@ -9535,6 +9581,7 @@ async function handleStaffRoutes(
         }
       } else throw e;
     }
+    if (pkgE !== undefined) await stampPackage(env, Number(idE), pkgE); // v1.231.0
     /* v1.4.265 (the gap flagged in v1.4.263): editing a product invoice's
        items now RE-BALANCES stock — the old deduction is restored in full,
        then the new items deduct, so the shelf always reflects the invoice as

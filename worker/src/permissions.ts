@@ -21,6 +21,11 @@ export const PERMS: Record<string, readonly Role[]> = {
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   expenses: ["super_admin", "admin", "ceo", "coo"],
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
+  /* v1.231.0 - the owner, 30-10-2026: master sales packages (create, edit,
+     re-price, archive) are CEO, COO, CCO and super admin. Everybody with
+     "sales" reads the active ones and applies them to a quotation. Must stay
+     equal to PACKAGE_MANAGE_ROLES in lib/packages.ts (tests/sales-packages.mjs). */
+  packages_manage: ["super_admin", "ceo", "coo", "cco"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
