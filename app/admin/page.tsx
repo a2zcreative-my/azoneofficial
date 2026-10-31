@@ -1070,11 +1070,15 @@ export default function AdminPage() {
 
   // v1.228.0 - the More sheet (and its scroll lock) lives in ConsoleShell now.
 
-  useEffect(() => {
-    void api<{ user: User }>("/auth/me").then((r) => {
+  /* v1.241.0 (go-live audit A3) - also re-read after the 2FA gate's
+     enrolment, so the gate clears without a sign-out. */
+  const loadMe = () =>
+    api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data) setUser(r.data.user);
       setChecked(true);
     });
+  useEffect(() => {
+    void loadMe();
   }, []);
 
   /* v1.77.0 — skeleton until the first fetch lands. The auth check used to
@@ -1108,7 +1112,7 @@ export default function AdminPage() {
             {L("Your role requires two-factor authentication to be enabled before you can access the A2Z CREATIVE MARKETING Admin Portal. Please set it up now.",
               "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Admin A2Z CREATIVE MARKETING. Sila tetapkannya sekarang.")}
           </p>
-          <TwoFactorPanel />
+          <TwoFactorPanel onEnabled={() => void loadMe()} />
           <div className="mt-8 flex justify-end border-t border-border pt-6">
             <button
               onClick={() => {

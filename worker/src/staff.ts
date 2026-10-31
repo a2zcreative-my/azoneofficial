@@ -2091,14 +2091,18 @@ async function docNumber(env: Env, docType: "QT" | "DO" | "INV" | "RC" | "CN"): 
   const dd = day.slice(6, 8);
   const mm = day.slice(4, 6);
   const yy = day.slice(2, 4);
-  await env.DB.prepare(
-    `INSERT INTO doc_counters_daily (doc_type, day, counter) VALUES (?1, ?2, 1)
-     ON CONFLICT(doc_type, day) DO UPDATE SET counter = counter + 1`,
-  ).bind(docType, day).run();
+  /* v1.241.0 (go-live audit B9) - ONE statement takes the next number. The
+     upsert and the read used to be two round trips, so two documents raised
+     in the same second could both read the same counter and the second
+     INSERT failed on the UNIQUE doc_number with a 500. RETURNING hands each
+     caller the value its own upsert produced. */
   const row = await env.DB.prepare(
-    `SELECT counter FROM doc_counters_daily WHERE doc_type = ?1 AND day = ?2`,
+    `INSERT INTO doc_counters_daily (doc_type, day, counter) VALUES (?1, ?2, 1)
+     ON CONFLICT(doc_type, day) DO UPDATE SET counter = counter + 1
+     RETURNING counter`,
   ).bind(docType, day).first<{ counter: number }>();
-  return `${docType}-AZOO${dd}${mm}${yy}-${row?.counter ?? 1}`;
+  if (!row) throw new Error("docNumber: the counter row was not returned");
+  return `${docType}-AZOO${dd}${mm}${yy}-${row.counter}`;
 }
 
 /* ---------------- router ---------------- */
@@ -8333,7 +8337,7 @@ async function handleStaffRoutes(
         `SELECT i.id, i.title, i.done, i.done_at, u.name AS done_by_name
          FROM task_items i LEFT JOIN users u ON u.id = i.done_by
          WHERE i.task_id = ?1 ORDER BY i.sort, i.id`,
-      ).all();
+      ).bind(Number(taskItems[1])).all(); // v1.241.0 (go-live audit F1) - the id was never bound: every checklist read empty
       return json({ items: results });
     } catch { return json({ items: [], pending_migration: true }); }
   }

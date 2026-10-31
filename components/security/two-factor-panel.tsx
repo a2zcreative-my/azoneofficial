@@ -21,8 +21,15 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const input =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm";
 
-export function TwoFactorPanel() {
+/* v1.241.0 (go-live audit A3) - the 2FA gates in the portal and the admin
+   console render this panel; before, a successful enrolment left them on the
+   gate until a sign-out, because nothing re-read /auth/me. `onEnabled` fires
+   once the person has pressed "I have saved them" after enabling HERE, never
+   before: the backup codes are shown only once and the gate must not unmount
+   this panel while they are still on screen. */
+export function TwoFactorPanel({ onEnabled }: { onEnabled?: () => void } = {}) {
   const { show: showToast, node: toastNode } = useSaveToast();
+  const [enabledHere, setEnabledHere] = useState(false);
   const [status, setStatus] = useState<{ enabled: boolean; eligible: boolean; backup_codes_left: number; reauth?: "password" | "recent_sign_in" } | null>(null);
   const [secret, setSecret] = useState("");
   const [otpauth, setOtpauth] = useState("");
@@ -92,6 +99,7 @@ export function TwoFactorPanel() {
     });
     if (res.ok && res.data?.backup_codes) {
       setBackupCodes(res.data.backup_codes);
+      setEnabledHere(true); // v1.241.0 (A3)
       setSecret("");
       setCode("");
       setMsg(L("Two-factor authentication is on.", "Pengesahan dua faktor telah diaktifkan."));
@@ -151,8 +159,15 @@ export function TwoFactorPanel() {
           <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-4">
             {backupCodes.map((c) => <span key={c}>{c}</span>)}
           </div>
-          <button type="button" className={`${btnGhost} mt-3`} onClick={() => setBackupCodes([])}>
-            {L("I have saved them", "Saya sudah menyimpannya")}
+          <button
+            type="button"
+            className={`${btnGhost} mt-3`}
+            onClick={() => {
+              setBackupCodes([]);
+              if (enabledHere) onEnabled?.(); // v1.241.0 (A3) - the gate re-reads /auth/me now
+            }}
+          >
+            {onEnabled && enabledHere ? L("I have saved them — continue", "Saya sudah menyimpannya — teruskan") : L("I have saved them", "Saya sudah menyimpannya")}
           </button>
         </div>
       )}

@@ -10,6 +10,51 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.241.0] - 2026-10-31 - Release A of the go-live plan
+
+The owner's "Approved" on claude/FINAL-RELEASE-GATE-PLAN-V2.md (31-10-2026):
+Release A - the six fixes every role meets on day one, no data path and no
+schema changed. Evidence: claude/GATE-1.241.0.md. Built and delivered to
+the PC; NOT deployed (PUSH.bat is the owner's; its deploy applies the pending
+migrations 0155 and 0156, nothing new here).
+
+- **A1 Sign-in takes a backup code** (`app/login/page.tsx`): the 2FA box kept
+  digits only, so the backup code it offered could never be sent and a person
+  without their phone was locked out. It now keeps letters, digits and the
+  dash (eleven at most, upper-cased as the server compares them; a code typed
+  without its dash gets it back); a six-digit authenticator code still signs
+  in by itself on the sixth digit; a backup code waits for Verify.
+- **A3 The 2FA gate clears without a sign-out** (`two-factor-panel.tsx`,
+  `portal-provider.tsx`, `app/admin/page.tsx`): after enrolling on the gate,
+  the backup codes stay on screen until "I have saved them - continue", which
+  re-reads `/auth/me`; the portal (or the console) opens in place.
+- **F1 Task checklists read their items** (`worker/src/staff.ts`
+  `GET /tasks/:id/items`): the task id was never bound, so every checklist
+  read empty and ticking - the progress report - was impossible.
+- **B9 Two documents in one second get two numbers** (`docNumber`): the day
+  counter is taken in ONE statement (upsert ... RETURNING); before, a second
+  read could hand two callers the same number and the second INSERT failed
+  on the UNIQUE doc_number with a 500. Format unchanged.
+- **F4 A throw in the TikTok sync no longer stops the 30-minute chain**
+  (`worker/src/index.ts` scheduled): caught and logged under `tiktok_cron`
+  like the other steps; the task sweeps, low-stock sweep and housekeeping
+  behind it still run.
+- **F6 A deploy under an open portal** (`lib/chunk-recovery.ts`,
+  `lazy-panels.tsx`, `app/portal/error.tsx`, `portal-provider.tsx`): a dead
+  chunk (an unvisited tab after PUSH.bat) reloads the page once per ten
+  minutes per tab; a second failure shows "A new version of the portal was
+  published" with Reload instead of a "Try again" that repeated it. The
+  portal reads the public `/health` version 5 s after opening, then every
+  10 minutes and when the tab comes back to the front; a NEWER worker shows
+  an "Update available" bar with Reload / Later (nothing reloads by itself).
+- **Guards**: `go-live-a` (whole worker against SQLite: F1, B9 with a
+  yielding shim that reproduces the race, F4 with an injected D1 throw; three
+  reverting mutations caught; `WORKER_BUNDLE=` runs it against a given bundle
+  - the pre-fix bundle fails 9 of 11); `login-ux` updated to the approved
+  behaviour (45 checks). Browser: `tests/browser/release-a.py` 30/30 (A1, A3,
+  F6 reload-once / no-loop / update bar) on serve.mjs fixtures `TWOFA`,
+  `LOGIN_FIRST`, `HEALTH_VERSION`, `/__break`.
+
 ## [1.240.0] - 2026-10-31 - The compact mobile Dashboard
 
 The owner, 31-10-2026: "A2Z OS - FIX ACTUAL MOBILE DASHBOARD & INTEGRATE

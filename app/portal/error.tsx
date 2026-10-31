@@ -15,10 +15,37 @@
 
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { isChunkLoadError } from "@/lib/chunk-recovery";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export default function PortalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  /* v1.241.0 (go-live audit F6) - a dead chunk after a deploy is not a crash:
+     the page is simply old. Say so, and offer the reload that fixes it (the
+     automatic one in lazy-panels.tsx already ran, or storage refused it). */
+  if (isChunkLoadError(error)) {
+    return (
+      <div className="bg-background flex min-h-dvh items-center justify-center p-6">
+        <div className={`${card} w-full max-w-md text-center shadow-sm`}>
+          <p className="text-gold-deep text-[10px] font-semibold tracking-[0.25em] uppercase">A2Z CREATIVE MARKETING</p>
+          <h1 className="mt-2 text-lg font-semibold">
+            {L("A new version of the portal was published", "Versi baharu portal telah diterbitkan")}
+          </h1>
+          <p className="text-muted-foreground mt-2 text-sm">
+            {L(
+              "This screen is still on the previous version, so the tab you opened could not load. Reload to pick up the new version — nothing you saved is affected.",
+              "Skrin ini masih pada versi sebelumnya, jadi tab yang anda buka tidak dapat dimuatkan. Muat semula untuk mendapatkan versi baharu — tiada apa yang anda simpan terjejas.",
+            )}
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <button type="button" onClick={() => window.location.reload()} className={btnClass} data-testid="chunk-reload">
+              {L("Reload the portal", "Muat semula portal")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const backToDashboard = () => {
     try {
       for (let i = window.localStorage.length - 1; i >= 0; i--) {

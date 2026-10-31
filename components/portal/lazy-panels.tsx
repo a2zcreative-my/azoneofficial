@@ -36,6 +36,7 @@
 
 import dynamic from "next/dynamic";
 import { SkelCard, SkelRows } from "@/components/ui/skeleton";
+import { claimChunkReload, isChunkLoadError } from "@/lib/chunk-recovery";
 
 /** What a tab looks like for the few hundred milliseconds its chunk takes to
     arrive: a card head and a few rows, the shape every panel below settles
@@ -52,7 +53,26 @@ function PanelSkeleton() {
 }
 
 const lazy = <P extends object>(load: () => Promise<React.ComponentType<P>>) =>
-  dynamic(load, { ssr: false, loading: PanelSkeleton });
+  dynamic(() => load().catch(recoverChunk), { ssr: false, loading: PanelSkeleton });
+
+/* v1.241.0 (go-live audit F6) - A DEPLOY WHILE THE PORTAL IS OPEN.
+   Every PUSH.bat publishes a site whose chunk names are new hashes, and the
+   old ones are gone. A portal already open keeps the old page: the tabs it
+   had visited still work, but the first unvisited tab asks for a chunk that
+   no longer exists - a 404, a ChunkLoadError, and the recovery screen's
+   "Try again" asked for the same dead chunk again. The fix is the one the
+   person would make: reload, which fetches the new page and its chunks.
+   Once per ten minutes per tab (sessionStorage), so a chunk that is dead
+   for another reason - a proxy, a captive portal - cannot loop the page;
+   the second failure reaches the recovery screen, which names the cause
+   and offers the reload itself (app/portal/error.tsx). */
+function recoverChunk(e: unknown): Promise<never> {
+  if (isChunkLoadError(e) && typeof window !== "undefined" && claimChunkReload()) {
+    window.location.reload();
+    return new Promise<never>(() => { /* the skeleton stays until the new page arrives */ });
+  }
+  throw e;
+}
 
 /* ---- one line per panel, alphabetical by module ---- */
 /* v1.234.0 - AccessReviewCard ("Who sees what") retired from the screen: its job is Roles & Permissions -> Per-user exceptions (access-policy.tsx). The file stays, unused, until the migrated exceptions are reviewed - rendering it again is the rollback. */

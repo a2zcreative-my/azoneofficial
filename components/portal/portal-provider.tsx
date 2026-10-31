@@ -66,6 +66,21 @@ import { L, type Notification, type User } from "@/components/portal/page-shared
 import { syncThemeColor } from "@/lib/theme-color";
 import css from "@/app/portal/portal.module.css";
 
+/* v1.241.0 (go-live audit F6) - the update poll's timing, and the semver
+   test that decides what counts as an update (exported for the guard). */
+export const UPDATE_POLL_MS = 10 * 60 * 1000;
+export const UPDATE_FIRST_MS = 5 * 1000;
+export function newerVersion(candidate: string, current: string): boolean {
+  const a = candidate.split(".").map((n) => Number.parseInt(n, 10));
+  const b = current.split(".").map((n) => Number.parseInt(n, 10));
+  if (a.length !== 3 || b.length !== 3 || [...a, ...b].some((n) => !Number.isFinite(n))) return false;
+  for (let i = 0; i < 3; i++) {
+    const x = a[i] ?? 0, y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
 // No staff role's home is /admin any more (only super_admin/admin live there,
 // and they deep-link into portal modules via the admin Staff bridge). Kept as
 // an empty guard so the redirect logic below stays explicit.
@@ -388,20 +403,53 @@ export function PortalProvider({ children }: { children: ReactNode }) {
        "dark" opts in. The same test the pre-paint script in app/layout.tsx
        makes - the two must agree or the theme flips after hydration. */
     setDark(localStorage.getItem("azone-theme") === "dark");
-    void api<{ user: User }>("/auth/me").then((r) => {
-      if (r.ok && r.data) {
-        setCaps(r.data.user.caps); // v1.237.0 - before anything draws from them
-        setUser(r.data.user);
-        // v1.25.0: remembered data is per-account — switching users wipes it.
-        setCacheScope(r.data.user.id);
-        /* v1.105.0 - the outbox is per-account too, and it drains only once
-           we know who is signed in: a queued clock-in sent under the wrong
-           session would be refused, and rightly. */
-        setOutboxScope(r.data.user.id);
-      } else { setCacheScope(null); setOutboxScope(null); }
-      setChecked(true);
-    });
+    void loadMe();
   }, []);
+  /* v1.241.0 (go-live audit A3) - one function for the first read and for
+     the re-read the 2FA gate asks for after an enrolment, so the gate clears
+     without a sign-out. Same handling as before: caps first, then the user,
+     then the per-account scopes. */
+  async function loadMe() {
+    const r = await api<{ user: User }>("/auth/me");
+    if (r.ok && r.data) {
+      setCaps(r.data.user.caps); // v1.237.0 - before anything draws from them
+      setUser(r.data.user);
+      // v1.25.0: remembered data is per-account — switching users wipes it.
+      setCacheScope(r.data.user.id);
+      /* v1.105.0 - the outbox is per-account too, and it drains only once
+         we know who is signed in: a queued clock-in sent under the wrong
+         session would be refused, and rightly. */
+      setOutboxScope(r.data.user.id);
+    } else { setCacheScope(null); setOutboxScope(null); }
+    setChecked(true);
+  }
+  /* v1.241.0 (go-live audit F6) - "Update available". The public health
+     probe carries the worker's version; after a PUSH.bat it is newer than the
+     page this tab loaded. Asked every ten minutes and when the tab comes back
+     to the front (at most once per ten minutes), one unauthenticated GET
+     that leaks nothing. A banner then offers the reload - nothing reloads
+     by itself here, because a person may be mid-form. Only a NEWER worker
+     counts: an older one (a worker deploy that failed after the site went
+     out) is a deploy problem, not an update. */
+  const [updateTo, setUpdateTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let last = 0;
+    let stop = false;
+    const check = async () => {
+      if (stop) return;
+      last = Date.now();
+      const r = await api<{ version?: string }>("/health");
+      if (stop || !r.ok || typeof r.data?.version !== "string") return;
+      if (newerVersion(r.data.version, APP_VERSION)) setUpdateTo(r.data.version);
+    };
+    const onVisible = () => { if (document.visibilityState === "visible" && Date.now() - last >= UPDATE_POLL_MS) void check(); };
+    const t = window.setInterval(() => void check(), UPDATE_POLL_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    const first = window.setTimeout(() => void check(), UPDATE_FIRST_MS);
+    return () => { stop = true; window.clearInterval(t); window.clearTimeout(first); document.removeEventListener("visibilitychange", onVisible); };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* v1.105.0 (roadmap phase 03) - start draining whatever waited on this
      phone: on `online`, when the app comes to the front, every 45 s while
      something is queued, and once now. Stopped when the page unmounts. */
@@ -832,7 +880,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
               "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Kakitangan A2Z CREATIVE MARKETING. Sila sediakannya sekarang."
             )}
           </p>
-          <TwoFactorPanel />
+          <TwoFactorPanel onEnabled={() => void loadMe()} />
           <div className={css.stepUpFoot}>
             <button
               onClick={() => {
@@ -885,6 +933,17 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   favourites, navItems, mobileStops, mobileMore, mobileGroups,
       }}
     >
+      {updateTo && (
+        <div className={css.updateBar} role="status" data-testid="update-available">
+          <span>{L(`Update available — the portal is now v${updateTo}; this screen is on v${APP_VERSION}.`, `Kemas kini tersedia — portal kini v${updateTo}; skrin ini pada v${APP_VERSION}.`)}</span>
+          <button type="button" className={css.updateBtn} onClick={() => window.location.reload()}>
+            {L("Reload", "Muat semula")}
+          </button>
+          <button type="button" className={css.updateLater} aria-label={L("Later", "Kemudian")} onClick={() => setUpdateTo(null)}>
+            ×
+          </button>
+        </div>
+      )}
       {children}
     </PortalCtx.Provider>
   );

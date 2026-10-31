@@ -141,9 +141,13 @@ const i18n = read("lib/i18n.ts");
 
 /* ---- 8. the code screen belongs to the phone ---- */
 {
-  ok("the code field autofills from the authenticator / SMS", /autoComplete="one-time-code"/.test(src) && /inputMode="numeric"/.test(src));
-  ok("a pasted code is stripped to six digits", /const next = raw\.replace\(\/\\D\/g, ""\)\.slice\(0, 6\);/.test(src));
-  ok("the sixth digit signs in by itself", /if \(next\.length === 6 && !busy\) void verifyCode\(next\);/.test(src));
+  ok("the code field autofills from the authenticator / SMS (numeric keyboard while digits are typed)", /autoComplete="one-time-code"/.test(src) && /inputMode=\{\/\[A-Z-\]\/\.test\(code\) \? "text" : "numeric"\}/.test(src));
+  /* v1.241.0 (go-live audit A1): a backup code is ABCDE-FGHIJ - letters, digits
+     and a dash, eleven characters; the box used to strip everything but
+     digits, so the page offered a backup code it could never send */
+  ok("a pasted code keeps letters, digits and the dash, eleven at most, upper-cased", /let next = raw\.toUpperCase\(\)\.replace\(\/\[\^A-Z0-9-\]\/g, ""\)\.slice\(0, 11\);/.test(src));
+  ok("a backup code typed without its dash gets it back (the server compares the issued form)", /if \(\/\[A-Z\]\/\.test\(next\) && !next\.includes\("-"\) && next\.length > 5\) next = `\$\{next\.slice\(0, 5\)\}-\$\{next\.slice\(5, 10\)\}`;/.test(src));
+  ok("the sixth DIGIT signs in by itself; a backup code waits for Verify", /if \(\/\^\\d\{6\}\$\/\.test\(next\) && !busy\) void verifyCode\(next\);/.test(src) && /const codeReady = \/\^\\d\{6\}\$\/\.test\(code\) \|\| code\.replace\(\/-\/g, ""\)\.length >= 6;/.test(src) && /disabled=\{busy \|\| !codeReady\}/.test(src) && /maxLength=\{11\}/.test(src) && !/pattern="\[0-9\]\*"/.test(src));
   ok("and it cannot fire twice", /if \(verifying\.current\) return;/.test(src));
   ok("the code is verified with the value just typed, not with stale state", /const verifyCode = async \(value: string\)/.test(src) && /body: JSON\.stringify\(\{ challenge, code: value \}\)/.test(src));
 }

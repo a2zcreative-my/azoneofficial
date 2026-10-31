@@ -2262,9 +2262,16 @@ export default {
     } catch (e) {
       if (!String(e).includes("no such")) console.error("clockout_cron", e);
     }
-    const res = await runTikTokSync(env, null);
-    if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
-      await logError(env, "tiktok_cron", res.message);
+    /* v1.241.0 (go-live audit F4) - the one step of this chain that was not
+       caught: a D1 error inside the sync took the task sweeps, the low-stock
+       sweep and the housekeeping below down with it. Caught like threadsTick. */
+    try {
+      const res = await runTikTokSync(env, null);
+      if (!res.ok && res.code !== "not_configured" && res.code !== "not_authorized") {
+        await logError(env, "tiktok_cron", res.message);
+      }
+    } catch (e) {
+      await logError(env, "tiktok_cron", `threw: ${e instanceof Error ? e.message : String(e)}`).catch(() => {});
     }
     /* v1.89.0 — one tick of Threads work; since v1.99.0 that is two things:
        tokens due for refresh, and the week's-edge purge (found posts older

@@ -191,13 +191,23 @@ export default function LoginPage() {
     }
   };
 
-  /** Typed, pasted or autofilled: keep the digits, six at most, and sign in
-      by itself once the sixth lands. */
+  /** Typed, pasted or autofilled. v1.241.0 (go-live audit A1): a BACKUP
+      CODE is ten letters and digits with a dash (ABCDE-FGHIJ, worker
+      index.ts ~414), and this box used to keep digits only - so the sentence
+      above it offering a backup code was a door that did not open, and a
+      person without their phone was locked out. Letters, digits and the dash
+      are kept now (eleven at most, upper-cased as the server compares them);
+      a six-DIGIT authenticator code still signs in by itself on the sixth. */
   const onCode = (raw: string) => {
-    const next = raw.replace(/\D/g, "").slice(0, 6);
+    let next = raw.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 11);
+    /* a backup code typed without its dash (ABCDEFGHIJ) gets it back, since
+       the server compares the code exactly as it was issued */
+    if (/[A-Z]/.test(next) && !next.includes("-") && next.length > 5) next = `${next.slice(0, 5)}-${next.slice(5, 10)}`;
     setCode(next);
-    if (next.length === 6 && !busy) void verifyCode(next);
+    if (/^\d{6}$/.test(next) && !busy) void verifyCode(next);
   };
+  /** six digits, or a backup code of at least six characters */
+  const codeReady = /^\d{6}$/.test(code) || code.replace(/-/g, "").length >= 6;
 
   useEffect(() => {
     /* v1.23.1: Google sign-in with 2FA enabled no longer mints a session —
@@ -296,18 +306,19 @@ export default function LoginPage() {
             </p>
             <form
               className={css.form}
-              onSubmit={(e) => { e.preventDefault(); if (!busy && code.length >= 6) void verifyCode(code); }}
+              onSubmit={(e) => { e.preventDefault(); if (!busy && codeReady) void verifyCode(code); }}
             >
               <div className={css.divider} aria-hidden />
-              <Field id="code" label={L("Authenticator code", "Kod pengesah")}
-                hint={L("It signs you in by itself once the sixth digit is in.", "Ia log masuk dengan sendirinya sebaik digit keenam dimasukkan.")}>
+              <Field id="code" label={L("Authenticator or backup code", "Kod pengesah atau kod sandaran")}
+                hint={L("A 6-digit code signs you in by itself. A backup code looks like ABCDE-FGHIJ - type it and press Verify.", "Kod 6 digit log masuk dengan sendirinya. Kod sandaran berbentuk ABCDE-FGHIJ - taip dan tekan Sahkan.")}>
                 <input
                   id="code"
                   className={`${inputClassLg} ${css.codeInput}`}
-                  inputMode="numeric"
+                  inputMode={/[A-Z-]/.test(code) ? "text" : "numeric"}
                   autoComplete="one-time-code"
-                  pattern="[0-9]*"
-                  maxLength={6}
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={11}
                   autoFocus
                   aria-invalid={error ? true : undefined}
                   aria-describedby={error ? "code-error" : undefined}
@@ -317,7 +328,7 @@ export default function LoginPage() {
                 />
               </Field>
               {error && <ErrorNote id="code-error" message={error} />}
-              <button type="submit" disabled={busy || code.length < 6} className={btnClassBlock}>
+              <button type="submit" disabled={busy || !codeReady} className={btnClassBlock}>
                 {busy ? L("Verifying…", "Mengesahkan…") : L("Verify and sign in", "Sahkan dan log masuk")}
               </button>
             </form>

@@ -22,11 +22,34 @@ const [dir, portS] = process.argv.slice(2);
 const port = Number(portS ?? 4177);
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".txt": "text/plain", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".ttf": "font/ttf", ".webp": "image/webp", ".jpg": "image/jpeg" };
 const missing = new Set();
+/* v1.241.0 (go-live audit, Release A) - three fixtures the release-a probe
+   drives:
+   TWOFA=1        the signed-in person still owes 2FA (requires_2fa on
+                  /auth/me) until POST /auth/2fa/enable with code 123456 (A3);
+                  /auth/login answers twofa_required and /auth/2fa/verify takes
+                  123456 or the backup code AAAA2-1111B (A1); with LOGIN_FIRST=1
+                  /auth/me is 401 until that verify succeeds
+   HEALTH_VERSION what /health reports as the worker's version (F6)
+   /__break?on=1  from then on, a chunk this server has NOT yet served answers
+                  404 - a deploy that replaced the chunks under an open page;
+                  &once=1 ends it at the next /portal page load (the reload
+                  "fetched the new site"). /__fixture-status counts the page
+                  loads and the 404s. */
+const pkgVersion = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "package.json"), "utf8")).version;
+let twofaOn = false;
+let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
+const servedChunks = new Set();
+let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   if (url.pathname === "/__fixture-status") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing] })); return;
+    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn })); return;
+  }
+  if (url.pathname === "/__break") {
+    chunksBroken = url.searchParams.get("on") === "1";
+    breakOnce = url.searchParams.get("once") === "1";
+    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ chunks_broken: chunksBroken, once: breakOnce })); return;
   }
   if (url.pathname.startsWith("/api/v1/")) {
     const p = url.pathname.replace("/api/v1", "");
@@ -39,9 +62,39 @@ const server = http.createServer((req, res) => {
       res.end(readFileSync(join(dir, "icon-192.png")));
       return;
     }
+    if (req.method === "GET" && p === "/auth/me" && !signedIn) {
+      res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return;
+    }
+    if (req.method === "GET" && p === "/health") {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ ok: true, db: true, version: process.env.HEALTH_VERSION ?? pkgVersion, elfia_bridge: { configured: false } })); return;
+    }
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
+      if (process.env.TWOFA && req.method === "POST" && p === "/auth/login") {
+        /* the password is accepted; a code is owed (the worker's twofa_required + challenge) */
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ twofa_required: true, challenge: "ch-fixture" })); return;
+      }
+      if (process.env.TWOFA && p.startsWith("/auth/2fa/") && req.method === "POST") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        if (p === "/auth/2fa/verify") {
+          /* an authenticator code, or one of the backup codes exactly as issued (ABCDE-FGHIJ) */
+          const good = b.challenge === "ch-fixture" && (b.code === "123456" || b.code === "AAAA2-1111B");
+          if (good) signedIn = true;
+          res.writeHead(good ? 200 : 401, { "content-type": "application/json" });
+          res.end(JSON.stringify(good ? { user: { id: 9001, name: "Fixture Person", role: process.env.ROLE ?? "ceo", email: "fixture@example.test" } } : { error: { code: "invalid_code", message: "That code is not correct" } })); return;
+        }
+        if (p === "/auth/2fa/setup") {
+          if (!b.password) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "password_required", message: "Your current password is required" } })); return; }
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ secret: "JBSWY3DPEHPK3PXP", otpauth: "otpauth://totp/A2Z%20CREATIVE%20MARKETING:fixture%40example.test?secret=JBSWY3DPEHPK3PXP&issuer=A2Z%20CREATIVE%20MARKETING" })); return;
+        }
+        if (p === "/auth/2fa/enable") {
+          if (b.code !== "123456") { res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_code", message: "That code is not correct." } })); return; }
+          twofaOn = true;
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, backup_codes: ["AAAA-1111", "BBBB-2222", "CCCC-3333", "DDDD-4444", "EEEE-5555", "FFFF-6666", "GGGG-7777", "HHHH-8888"] })); return;
+        }
+      }
       if (process.env.ALREADY_PUNCHED && req.method === "POST" && p === "/staff/attendance") {
         res.writeHead(409, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { code: "already_punched", message: "You already clocked out at 18:31 MYT. Clock in again when your next shift starts." }, already: true, at: "18:31" }));
@@ -91,6 +144,10 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(good ? { ok: true, email: "aisyah@a2zcreative.test" } : { error: { code: "link_invalid", message: "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one." } })); return;
       }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
+      if (process.env.TWOFA && req.method === "GET") {
+        if (p === "/auth/me" && data?.user) data.user.requires_2fa = !twofaOn;
+        if (p === "/auth/2fa/status") Object.assign(data, { enabled: twofaOn, backup_codes_left: twofaOn ? 8 : 0 });
+      }
       /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a
          refusal, sent with the worker's 403, so a role-gated read can be walked */
       res.writeHead(data?.error?.code === "forbidden" ? 403 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(data));
@@ -111,6 +168,14 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
     return;
+  }
+  if (url.pathname.startsWith("/_next/static/chunks/")) {
+    if (chunksBroken && !servedChunks.has(url.pathname)) { chunk404s++; res.writeHead(404, { "content-type": "text/plain" }); res.end("not found"); return; }
+    servedChunks.add(url.pathname);
+  }
+  if (url.pathname === "/portal" || url.pathname === "/portal/") {
+    portalLoads++;
+    if (chunksBroken && breakOnce && portalLoads > 1) chunksBroken = false;
   }
   let file = join(dir, decodeURIComponent(url.pathname.replace(/\/+$/, "") || "/"));
   if (existsSync(file) && statSync(file).isDirectory()) file = existsSync(join(file, "index.html")) ? join(file, "index.html") : file + ".html";
