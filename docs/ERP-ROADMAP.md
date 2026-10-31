@@ -296,3 +296,6 @@ listed).
 account id and the email-verified time on users, the device and last-seen
 time on sessions, and two new tables: login email changes waiting for proof
 and single-use set-password links (hashes only). No business table changes.
+1.239.0 (Weekly target on the Dashboard) adds migration `0156_week_goals` - a
+metric and a count on weekly targets (every existing row stays revenue), and
+who introduced an enquiry and when and by whom it was qualified.

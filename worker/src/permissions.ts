@@ -26,6 +26,9 @@ export const PERMS: Record<string, readonly Role[]> = {
      "sales" reads the active ones and applies them to a quotation. Must stay
      equal to PACKAGE_MANAGE_ROLES in lib/packages.ts (tests/sales-packages.mjs). */
   packages_manage: ["super_admin", "ceo", "coo", "cco"],
+  /* v1.239.0 - set weekly sales targets and goals, review recovery plans (was
+     the inline WEEK_TARGET_ROLES list in weekly-sales.ts; now a matrix cell) */
+  sales_week_target: ["super_admin", "ceo", "coo"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -415,6 +418,7 @@ export interface PolicyAction {
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
+  { module: "Sales", key: "week_target", en: "Set weekly sales targets and goals; review recovery plans", ms: "Tetapkan sasaran dan matlamat jualan mingguan; semak pelan pemulihan", cap: "sales_week_target", note_en: "A reason for every change; history kept", note_ms: "Sebab bagi setiap perubahan; sejarah disimpan" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
   { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", cap: "confirm_paid", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },

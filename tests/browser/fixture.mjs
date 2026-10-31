@@ -793,6 +793,49 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       ],
     } : { week, scope: "mine", can_set: wkSetter, can_view_all: wkAll, commission: { policy: false }, me: wkMe };
   }
+  /* v1.239.0 - the Dashboard's week (worker: weekly-sales.ts weekDashboard).
+     ROLE decides the parts, as the worker does: everyone gets the company;
+     a working account gets "me"; HOD=1 gives a team; management gets
+     everyone. WEEK=none: nothing set yet. Invented people and amounts. */
+  if (p === "/staff/sales/week/dashboard") {
+    const none = process.env.WEEK === "none";
+    const sys = ["super_admin", "admin"].includes(ROLE);
+    const sellerRole = ["sales_marketing", "ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(ROLE);
+    const slimRow = (o) => ({ department: "Sales", target_cents: null, basis_cents: 0, pct: null, gap_cents: null, status: "no_target", ...o });
+    data = {
+      week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 },
+      company: none ? { target_cents: null, target_from: null, basis_cents: 400000, pct: null, gap_cents: null } : { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, pct: 27, gap_cents: 1100000 },
+      other_channels_cents: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(ROLE) ? 86500 : null,
+      me: sys ? null : (none || ROLE === "live_host") ? { name: "Fixture Person", has_target: false, target_cents: null, basis_cents: 0, paid_invoices: 0, pct: null, gap_cents: null, expected_cents: null, status: "no_target", working_days: 5, goals: [],
+        open_quotations: wkSum(0, 0), followups_overdue: 0, tasks: { open: 0, done: 0, overdue: 0 }, top_tasks: [], enquiries_waiting: null, introductions: { pending: 0, verified_week: 0 }, plan: null }
+        : ROLE === "editor" ? { name: "Fixture Person", has_target: true, target_cents: null, basis_cents: 0, paid_invoices: 0, pct: null, gap_cents: null, expected_cents: null, status: "no_target", working_days: 5,
+          goals: [{ metric: "introductions", target: 2, actual: 1, pct: 50 }], open_quotations: wkSum(0, 0), followups_overdue: 0, tasks: { open: 0, done: 0, overdue: 0 }, top_tasks: [], enquiries_waiting: null, introductions: { pending: 1, verified_week: 1 }, plan: null }
+        : { name: "Fixture Person", has_target: true, target_cents: 500000, basis_cents: 120000, paid_invoices: 1, pct: 24, gap_cents: 380000, expected_cents: 400000, status: "at_risk", working_days: 5,
+          goals: [{ metric: "quotations", target: 5, actual: 3, pct: 60 }], open_quotations: wkSum(1, 450000), followups_overdue: 1, tasks: { open: 2, done: 1, overdue: 0 },
+          top_tasks: [{ id: 71, title: "Revisit QT-0042 with Aina Boutique (Melaka)", deadline: "2026-09-19", link_kind: "quotation" }, { id: 72, title: "Call Kedai Runcit Pak Ali about the renewal", deadline: null, link_kind: "customer" }],
+          enquiries_waiting: 2, introductions: { pending: 0, verified_week: 0 }, plan: null },
+      team: process.env.HOD ? { target_cents: 800000, basis_cents: 400000, pct: 50, gap_cents: 400000, rows: [
+        slimRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, pct: 0, gap_cents: 300000, status: "action" }),
+        slimRow({ user_id: 9001, name: "Fixture Person", target_cents: 500000, basis_cents: 120000, pct: 24, gap_cents: 380000, status: "at_risk" }),
+        slimRow({ user_id: 9002, name: "Nur Aisyah binti Rahman", basis_cents: 280000 }),
+      ] } : null,
+      all: wkAll ? {
+        rows: [
+          { ...slimRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, pct: 0, gap_cents: 300000, status: "action" }), goals: [] },
+          { ...slimRow({ user_id: 9001, name: "Fixture Person", target_cents: 500000, basis_cents: 120000, pct: 24, gap_cents: 380000, status: "at_risk" }), goals: [] },
+          { ...slimRow({ user_id: 9002, name: "Nur Aisyah binti Rahman", target_cents: 300000, basis_cents: 280000, pct: 93, gap_cents: 20000, status: "on_track" }), goals: [] },
+          { ...slimRow({ user_id: 9006, name: "Siti Nur Aisyah binti Abdullah", department: "Live" }), goals: [{ metric: "introductions", target: 2, actual: 1 }] },
+        ],
+        counts: { action: 1, at_risk: 1, on_track: 1, no_target: 1 },
+        attention: none ? [] : [
+          slimRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, pct: 0, gap_cents: 300000, status: "action" }),
+          slimRow({ user_id: 9001, name: "Fixture Person", target_cents: 500000, basis_cents: 120000, pct: 24, gap_cents: 380000, status: "at_risk" }),
+        ],
+        departments: [{ name: "Sales", target_cents: 1100000, basis_cents: 400000, people: 3, pct: 36 }, { name: "Live", target_cents: null, basis_cents: 0, people: 1, pct: null }],
+      } : null,
+      can_set: wkSetter, can_view_all: wkAll, can_assign: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(ROLE), can_sales: sellerRole, commission: { policy: false },
+    };
+  }
   if (p === "/staff/sales/week/targets") data = !wkAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     week: { from: "2026-09-14", to: "2026-09-20", start_dow: 1 }, can_set: wkSetter,
     people: [

@@ -77,6 +77,45 @@ export async function handleEnquiries(
   env: Env, path: string, method: string, body: Record<string, unknown> | null,
   user: { id: number; role: string; name: string } | null, params: URLSearchParams,
 ): Promise<Response | null> {
+  /* ---- v1.239.0 - INTRODUCE A LEAD (the owner, 31-10-2026, claude/WEEKLY-
+     TARGET-DASHBOARD-AUDIT.md: "Revenue + goals"). Any staff member can hand
+     the Sales team a real contact they met: it is an ordinary enquiry (one
+     enquiry list, no second lead system) that names who introduced it. It
+     counts toward an "introductions" goal only once somebody else marks it
+     qualified - an unverified or invented contact earns nothing. ---- */
+  if (path === "/enquiries/introduce" && method === "POST") {
+    if (!user || ["customer"].includes(user.role)) return err("forbidden", "Staff only", 403);
+    const t = (k: string, max: number) => (typeof body?.[k] === "string" ? (body[k] as string).trim().slice(0, max) : "");
+    const name = t("name", 120), company = t("company", 160), phone = t("phone", 40), email = t("email", 160).toLowerCase(), note = t("note", 1000);
+    if (name.length < 2) return err("invalid_input", "Give the contact's name", 400);
+    if (!phone && !email) return err("invalid_input", "Give a phone number or an email so Sales can reach them", 400);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err("invalid_input", "That email does not look right", 400);
+    if (phone && !/^[+\d][\d\s-]{6,}$/.test(phone)) return err("invalid_input", "That phone number does not look right", 400);
+    if (note.length < 10) return err("invalid_input", "Say what they need (at least 10 characters)", 400);
+    const digits = phone.replace(/\D/g, "");
+    const dup = await env.DB.prepare(
+      `SELECT id FROM enquiries WHERE status != 'closed' AND created_at >= datetime('now', '-30 days')
+         AND ((?1 != '' AND lower(email) = ?1) OR (?2 != '' AND replace(replace(replace(phone, ' ', ''), '-', ''), '+', '') LIKE '%' || ?2))
+       LIMIT 1`,
+    ).bind(email, digits.slice(-9)).first<{ id: number }>();
+    if (dup) return err("duplicate", "Sales already has an open enquiry for this contact - nothing new was added", 409);
+    const today = await env.DB.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE user_id = ?1 AND action = 'enquiry.introduce' AND created_at >= datetime('now', '-1 day')`).bind(user.id).first<{ n: number }>();
+    if (Number(today?.n ?? 0) >= 10) return err("rate_limited", "Ten introductions a day - send the rest tomorrow", 429);
+    let id: number | null = null;
+    try {
+      const r = await env.DB.prepare(
+        `INSERT INTO enquiries (name, company, phone, email, message, category, referred_by) VALUES (?1, ?2, ?3, ?4, ?5, 'introduction', ?6) RETURNING id`,
+      ).bind(name, company || null, phone || null, email || null, `${note}\n\n- Introduced by ${user.name}`, user.id).first<{ id: number }>();
+      id = r?.id ?? null;
+    } catch (e) {
+      if (/no column named|has no column|no such column/i.test(String(e))) return err("migration_missing", "Run migration 0156 first (PUSH.bat)", 503);
+      throw e;
+    }
+    await audit(env, user.id, "enquiry.introduce", "enquiries", String(id), { has_phone: !!phone, has_email: !!email });
+    await announceEnquiry(env, id, name, "introduction", "site");
+    return json({ ok: true, id }, 201);
+  }
+
   if (!user || !can(user.role, "enquiry_manage")) return err("forbidden", "Business team access required", 403);
 
   /* ---- the list: newest first, with who took it and who answered ---- */
@@ -170,6 +209,11 @@ export async function handleEnquiries(
       if (hasAssign) { binds.push(assignedTo); sets.push(`assigned_to = ?${binds.length}`); }
       binds.push(id);
       await env.DB.prepare(`UPDATE enquiries SET ${sets.join(", ")} WHERE id = ?${binds.length}`).bind(...binds).run();
+    }
+    /* v1.239.0 - the moment an enquiry is first marked qualified, and by
+       whom: what a "qualified enquiries" goal and an introduction count on */
+    if (hasStatus && body.status === "qualified") {
+      try { await env.DB.prepare(`UPDATE enquiries SET qualified_at = COALESCE(qualified_at, datetime('now')), qualified_by = COALESCE(qualified_by, ?2) WHERE id = ?1`).bind(id, user.id).run(); } catch { /* pre-0156 */ }
     }
     await audit(env, user.id, "enquiry.update_status", "enquiries", String(id), {
       ...(hasStatus ? { status: body.status } : {}), ...(hasReply ? { replied: true } : {}), ...(hasAssign ? { assigned_to: assignedTo } : {}),

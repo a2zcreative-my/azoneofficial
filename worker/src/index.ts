@@ -291,7 +291,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0155_account_identity";
+const LATEST_MIGRATION = "0156_week_goals";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -4392,8 +4392,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* v1.112.0 - the enquiry routes live in enquiries.ts: the list with who
      took it and who answered, and reply / status / take on one enquiry. */
-  if (path === "/api/v1/enquiries" && method === "GET" || /^\/api\/v1\/enquiries\/\d+$/.test(path) && method === "PATCH") {
-    const body = method === "PATCH" ? ((await request.json().catch(() => null)) as Record<string, unknown> | null) : null;
+  /* v1.239.0 - and POST /enquiries/introduce: any staff member hands Sales a lead */
+  if (path === "/api/v1/enquiries" && method === "GET" || /^\/api\/v1\/enquiries\/\d+$/.test(path) && method === "PATCH" || path === "/api/v1/enquiries/introduce" && method === "POST") {
+    const body = method !== "GET" ? ((await request.json().catch(() => null)) as Record<string, unknown> | null) : null;
     const r = await handleEnquiries(env, path.slice("/api/v1".length), method, body, user ? { id: user.id, role: user.role, name: user.name } : null, new URL(request.url).searchParams);
     if (r) return r;
   }
@@ -4979,6 +4980,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0153 (sales packages for quotations, their versions, the quotation link)", `SELECT p.issuers, v.version, v.items, d.package_id, d.package_version, d.package_customized FROM sales_packages p LEFT JOIN sales_package_versions v ON v.package_id = p.id LEFT JOIN sales_documents d ON 1 = 0 LIMIT 1`],
       ["0154 (commission product rule per policy version)", `SELECT product_rule FROM commission_policies LIMIT 1`],
       ["0155 (account identity: Google sub, email changes, set-password links, session devices)", `SELECT u.google_sub, u.email_verified_at, s.user_agent, s.last_seen_at, c.route, t.kind FROM users u LEFT JOIN sessions s ON 1 = 0 LEFT JOIN email_changes c ON 1 = 0 LEFT JOIN account_tokens t ON 1 = 0 LIMIT 1`],
+      ["0156 (weekly goals: target metric, lead introductions, qualified date)", `SELECT t.metric, t.target_count, e.referred_by, e.qualified_at, e.qualified_by FROM sales_week_targets t LEFT JOIN enquiries e ON 1 = 0 LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5155,6 +5157,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0153_sales_packages",
       "0154_commission_product_rule",
       "0155_account_identity",
+      "0156_week_goals",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

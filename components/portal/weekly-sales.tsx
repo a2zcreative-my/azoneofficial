@@ -19,6 +19,7 @@ import { makeApi, type ApiResult } from "@/lib/api";
 import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
+import { WEEK_STATUS, GOAL_LABEL } from "@/lib/week-status";
 import css from "./weekly-sales.module.css";
 
 const api = makeApi("/staff");
@@ -28,7 +29,7 @@ const message = (r: ApiResult<unknown>) => (r.data as { error?: { message?: stri
 const weekStart = (d: string, startDow: number) => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return addDays(d, -((w - startDow + 7) % 7)); };
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
-type Status = "no_target" | "not_working" | "planning" | "achieved" | "on_track" | "at_risk" | "action" | "missed";
+type Status = import("@/lib/week-status").WeekStatus;
 interface Sum { n: number; cents: number }
 export interface WeekRow {
   user_id: number; name: string; target_cents: number | null; target_from: string | null; target_set_by: string | null; target_reason: string | null;
@@ -42,16 +43,9 @@ export interface WeekRow {
 interface Week { from: string; to: string; today: string; checkpoint: "planning" | "early_warning" | "review" | "final"; start_dow: number }
 interface WeekResp { week: Week; scope: "mine" | "all"; can_set: boolean; can_view_all: boolean; me?: WeekRow; rows?: WeekRow[]; company?: { target_cents: number | null; target_from: string | null; basis_cents: number; confirmed_cents: number; pct: number | null; gap_cents: number | null } }
 
-const STATUS: Record<Status, [string, string, string]> = {
-  no_target: ["Target not set", "Sasaran belum ditetapkan", chipNeutral],
-  not_working: ["Not working this week", "Tidak bekerja minggu ini", chipNeutral],
-  planning: ["Planning", "Perancangan", chipInfo],
-  achieved: ["Target reached", "Sasaran dicapai", chipSuccess],
-  on_track: ["On track", "Mengikut landasan", chipSuccess],
-  at_risk: ["At risk", "Berisiko", chipWarn],
-  action: ["Action required", "Tindakan diperlukan", chipDanger],
-  missed: ["Below target", "Bawah sasaran", chipWarn],
-};
+/* v1.239.0 - the words live in lib/week-status.ts, shared with the Dashboard */
+const TONE_CHIP = { neutral: chipNeutral, info: chipInfo, success: chipSuccess, warn: chipWarn, danger: chipDanger } as const;
+const STATUS = Object.fromEntries(Object.entries(WEEK_STATUS).map(([k, v]) => [k, [v.en, v.ms, TONE_CHIP[v.tone]]])) as Record<Status, [string, string, string]>;
 const statusChip = (s: Status) => <span className={STATUS[s][2]}>{L(STATUS[s][0], STATUS[s][1])}</span>;
 const CHECKPOINT: Record<Week["checkpoint"], [string, string]> = {
   planning: ["Planning - Monday's plan, no judgement yet", "Perancangan - pelan Isnin, belum dinilai"],
@@ -263,12 +257,17 @@ function PlanDrawer({ userId, week, onClose, onSaved }: { userId: number | null;
 }
 
 /* ---- set targets (CEO, COO, super admin) ---- */
-interface TargetsResp { week: { from: string; to: string; start_dow: number }; can_set: boolean; people: { id: number; name: string; role: string; target_cents: number | null; from: string | null; set_by: string | null }[]; candidates?: { id: number; name: string; role: string }[]; company: { target_cents: number | null; from: string | null }; history: { id: number; scope: string; person: string | null; week_from: string; target_cents: number | null; reason: string; set_by_name: string | null; created_at: string }[] }
-function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; initialWho?: number; onClose: () => void; onSaved: () => void }) {
+interface TargetsResp { week: { from: string; to: string; start_dow: number }; can_set: boolean; people: { id: number; name: string; role: string; target_cents: number | null; from: string | null; set_by: string | null; goals?: Record<string, number | null> }[]; candidates?: { id: number; name: string; role: string }[]; company: { target_cents: number | null; from: string | null }; history: { id: number; scope: string; person: string | null; week_from: string; target_cents: number | null; metric?: string | null; target_count?: number | null; reason: string; set_by_name: string | null; created_at: string }[] }
+/* v1.239.0 - a target is revenue (RM) or a contribution goal (a count) */
+const METRICS = ["revenue", "quotations", "followups", "qualified_enquiries", "introductions"] as const;
+const metricWord = (m: string) => m === "revenue" ? L("Revenue (RM, collected)", "Hasil (RM, dikutip)") : GOAL_LABEL[m] ? L(GOAL_LABEL[m]![0], GOAL_LABEL[m]![1]) : m;
+export function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; initialWho?: number; onClose: () => void; onSaved: () => void }) {
   const [got, setGot] = useState<{ d: TargetsResp | null; e: string } | null>(null);
   const [tick, setTick] = useState(0);
   const [who, setWho] = useState<string>(initialWho ? String(initialWho) : "company");
   const [amount, setAmount] = useState("");
+  const [metric, setMetric] = useState<string>("revenue");
+  const isGoal = metric !== "revenue";
   const [none, setNone] = useState(false);
   const [from, setFrom] = useState(week);
   const [reason, setReason] = useState("");
@@ -283,7 +282,9 @@ function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; i
   const d = got?.d;
   const save = async () => {
     setBusy(true); setError("");
-    const body = { scope: who === "company" ? "company" : "person", user_id: who === "company" ? undefined : Number(who), week_from: from, target_cents: none ? null : Math.round(Number(amount) * 100), reason };
+    const body = isGoal
+      ? { scope: "person", user_id: Number(who), week_from: from, metric, target_count: none ? null : Math.round(Number(amount)), reason }
+      : { scope: who === "company" ? "company" : "person", user_id: who === "company" ? undefined : Number(who), week_from: from, target_cents: none ? null : Math.round(Number(amount) * 100), reason };
     const r = await api(`/sales/week/targets`, { method: "POST", body: JSON.stringify(body) });
     setBusy(false);
     if (r.ok) { toast(L("Target saved", "Sasaran disimpan"), L("From that week on; the previous one stays in the history", "Mulai minggu itu; yang lama kekal dalam sejarah")); setReason(""); setAmount(""); setTick((t) => t + 1); onSaved(); }
@@ -297,19 +298,26 @@ function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; i
           <div>
             <p className={css.groupLabel}>{L(`In force for the week of ${dmy(d.week.from)}`, `Berkuat kuasa untuk minggu ${dmy(d.week.from)}`)}</p>
             <div className={css.targetRow}><strong>{L("Company", "Syarikat")}</strong><span>{d.company.target_cents === null ? L("Target not set", "Belum ditetapkan") : fmtRM(d.company.target_cents)}</span><span className={css.sub}>{d.company.from ? dmy(d.company.from) : ""}</span></div>
-            {d.people.map((p) => <div key={p.id} className={css.targetRow}><span>{p.name}</span><span>{p.target_cents === null ? L("Target not set", "Belum ditetapkan") : fmtRM(p.target_cents)}</span><span className={css.sub}>{p.from ? dmy(p.from) : ""}</span></div>)}
+            {d.people.map((p) => {
+              const goals = Object.entries(p.goals ?? {}).filter(([, n]) => n !== null && Number(n) > 0);
+              return <div key={p.id} className={css.targetRow}><span>{p.name}{goals.length > 0 && <span className={css.sub}> · {goals.map(([m, n]) => `${metricWord(m)} ${n}`).join(" · ")}</span>}</span><span>{p.target_cents === null ? L("Target not set", "Belum ditetapkan") : fmtRM(p.target_cents)}</span><span className={css.sub}>{p.from ? dmy(p.from) : ""}</span></div>;
+            })}
           </div>
           {d.can_set ? (
             <fieldset className={css.form} disabled={busy}>
               <p className={css.groupLabel}>{L("Set or change a target", "Tetapkan atau ubah sasaran")}</p>
               <div className={css.row}>
-                <label>{L("For", "Untuk")}<select aria-label={L("Target for", "Sasaran untuk")} className={inputClass} value={who} onChange={(e) => setWho(e.target.value)}><option value="company">{L("The company", "Syarikat")}</option>{(d.candidates?.length ? d.candidates : d.people).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}</select></label>
+                <label>{L("For", "Untuk")}<select aria-label={L("Target for", "Sasaran untuk")} className={inputClass} value={who} onChange={(e) => { setWho(e.target.value); if (e.target.value === "company") setMetric("revenue"); }}><option value="company">{L("The company", "Syarikat")}</option>{(d.candidates?.length ? d.candidates : d.people).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}</select></label>
                 <label>{L("From the week of", "Mulai minggu")}<input type="date" aria-label={L("Target from", "Sasaran mulai")} className={inputClass} value={from} onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setFrom(weekStart(e.target.value, d.week.start_dow)); }} />
                   <span className={css.sub}>{L(`Week ${dmy(from)} – ${dmy(addDays(from, 6))}`, `Minggu ${dmy(from)} – ${dmy(addDays(from, 6))}`)}</span></label>
               </div>
+              <label>{L("What is measured", "Apa yang diukur")}<select aria-label={L("Target measure", "Ukuran sasaran")} className={inputClass} value={metric} onChange={(e) => setMetric(e.target.value)}>
+                {METRICS.filter((m) => m === "revenue" || who !== "company").map((m) => <option key={m} value={m}>{metricWord(m)}</option>)}
+              </select>
+                <span className={css.sub}>{isGoal ? L("A contribution goal counts records the system already holds. An introduced lead counts only after Sales marks it qualified. It never affects commission.", "Matlamat sumbangan mengira rekod sedia ada. Petunjuk yang diperkenalkan dikira hanya selepas Jualan menandanya layak. Ia tidak menjejaskan komisen.") : L("Collected: invoices paid in full, by the verified closer.", "Dikutip: invois dibayar penuh, oleh penutup yang disahkan.")}</span></label>
               <div className={css.row}>
-                <label>{L("Amount (RM)", "Jumlah (RM)")}<input type="number" aria-label={L("Target amount", "Jumlah sasaran")} min="0" step="0.01" className={inputClass} disabled={none} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-                <label className={css.check}><input type="checkbox" checked={none} onChange={(e) => setNone(e.target.checked)} />{L("No target from this week (e.g. long leave)", "Tiada sasaran mulai minggu ini (cth. cuti panjang)")}</label>
+                <label>{isGoal ? L("Goal (count this week)", "Matlamat (bilangan minggu ini)") : L("Amount (RM)", "Jumlah (RM)")}<input type="number" aria-label={isGoal ? L("Goal count", "Bilangan matlamat") : L("Target amount", "Jumlah sasaran")} min="0" step={isGoal ? "1" : "0.01"} className={inputClass} disabled={none} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+                <label className={css.check}><input type="checkbox" checked={none} onChange={(e) => setNone(e.target.checked)} />{isGoal ? L("No goal from this week", "Tiada matlamat mulai minggu ini") : L("No target from this week (e.g. long leave)", "Tiada sasaran mulai minggu ini (cth. cuti panjang)")}</label>
               </div>
               <label>{L("Reason", "Sebab")}<textarea aria-label={L("Target reason", "Sebab sasaran")} className={inputClass} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
               <p className={css.sub}>{L("Leave and short weeks are already allowed for: the expectation counts working days, less public holidays and approved leave.", "Cuti dan minggu pendek sudah diambil kira: jangkaan mengira hari bekerja, tolak cuti umum dan cuti diluluskan.")}</p>
@@ -321,7 +329,7 @@ function TargetsDrawer({ week, initialWho, onClose, onSaved }: { week: string; i
           <div>
             <p className={css.groupLabel}>{L("History", "Sejarah")}</p>
             {d.history.length === 0 ? <p className={css.empty}>{L("No weekly target has been set yet.", "Belum ada sasaran mingguan.")}</p> : (
-              <ul className={css.list}>{d.history.map((h) => <li key={h.id}><span className={css.listMain}><strong>{h.scope === "company" ? L("Company", "Syarikat") : h.person ?? "-"} · {h.target_cents === null ? L("not set", "tiada") : fmtRM(h.target_cents)} {L("from", "mulai")} {dmy(h.week_from)}</strong><span>{h.set_by_name ?? "-"} · {dmy(h.created_at.slice(0, 10))} · {h.reason}</span></span></li>)}</ul>
+              <ul className={css.list}>{d.history.map((h) => <li key={h.id}><span className={css.listMain}><strong>{h.scope === "company" ? L("Company", "Syarikat") : h.person ?? "-"} · {h.metric && h.metric !== "revenue" ? `${metricWord(h.metric)} ${h.target_count ?? L("none", "tiada")}` : h.target_cents === null ? L("not set", "tiada") : fmtRM(h.target_cents)} {L("from", "mulai")} {dmy(h.week_from)}</strong><span>{h.set_by_name ?? "-"} · {dmy(h.created_at.slice(0, 10))} · {h.reason}</span></span></li>)}</ul>
             )}
           </div>
         </div>

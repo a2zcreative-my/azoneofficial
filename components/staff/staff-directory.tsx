@@ -92,6 +92,7 @@ import type { TabName } from "@/lib/portal-tabs";
 import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import { leaveTypeL } from "@/components/portal/page-shared";
 import { OffboardSheet, type OffboardPerson } from "@/components/staff/offboard-sheet";
+import { ReportingLineCard } from "@/components/portal/reporting-line-card";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -1614,6 +1615,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
 
       {/* ============================== ORGANISATION ============================== */}
       <TabZone label={L("Organisation chart", "Carta organisasi")} className={tab !== "org" ? sp.off : ""}>
+        {/* v1.239.0 - the full reporting-line card moved here from the
+            Dashboard (which keeps one line); the chart is right below it */}
+        <ReportingLineCard canOpenOrg={false} openOrg={() => setTab("org")} />
         <section className={card} aria-label={L("Organisation", "Organisasi")}>
           {head("chart", sp.blueWell, L("Organisation", "Organisasi"),
             L("Who answers to whom. Each box is a person — press one to open their profile; the stripe is the division (CEO, COO or CCO) and the number is how many sit below.", "Siapa melapor kepada siapa. Setiap kotak ialah seorang — tekan untuk buka profilnya; jalur ialah bahagian (CEO, COO atau CCO) dan nombor ialah bilangan di bawahnya."))}

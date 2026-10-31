@@ -10,6 +10,48 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.239.0] - 2026-10-31 - The Weekly Sales Target on the Dashboard
+
+The owner, 31-10-2026: "A2Z OS - COMPANY-WIDE WEEKLY SALES TARGET & STAFF
+ACCOUNTABILITY". Answers: invoices collected; revenue + contribution goals
+(migration 0156); every staff member sees the company target, RM and %; an
+HOD sees team progress. Audit: claude/WEEKLY-TARGET-DASHBOARD-AUDIT.md. Not
+deployed.
+
+- **Weekly Sales Target card** on the Dashboard, under the five tiles (none
+  removed). Everyone sees the company's week: target, collected (invoices
+  paid in full, by the verified closer), %, remaining and the dates - or
+  "Target not set", never 0%. Below it: my target and contribution goals,
+  my status and the actions that already exist (prepare a quotation, revisit
+  open quotations, contact pending customers, follow up enquiries, recovery
+  plan, my sales tasks, introduce a lead). An HOD on the Organisation chart
+  sees their team (name, target, collected, %, status). The CEO, COO and CCO
+  see who needs attention and each department; setters get "Manage weekly
+  targets" (the Sales drawer). Phone: one compact card, one action and More.
+- **One engine**: GET /staff/sales/week/dashboard reads the same targets,
+  Collected rule, working days and status as Sales -> Overview; nothing is
+  stored or computed twice. TikTok, online orders and manual sales are shown
+  beside the company figure for revenue readers, never added to it.
+- **Contribution goals** (migration 0156, additive): a target row can be a
+  count of quotations sent, customer follow-ups done, enquiries qualified or
+  verified lead introductions, set per person with a reason and the same
+  insert-only history. Every existing target stays revenue.
+- **Introduce a lead** (Dashboard card and Desk): any staff member hands Sales
+  a real contact as an ordinary enquiry naming them. It counts only once
+  somebody else marks it qualified; the same contact twice is refused.
+- **Status words, one place** (lib/week-status.ts, Sales and Dashboard): On
+  track, Attention needed, At risk, Target achieved, No target assigned,
+  Planning, Below target. The rule is unchanged (working days left, progress,
+  open pipeline, activity).
+- **Who sets targets** is now the matrix capability `sales_week_target`
+  (default CEO, COO, super admin) instead of an inline list.
+- **Reporting line**: the Dashboard keeps one line (none for the CEO); the
+  full card moved to Staff -> Organisation, above the chart.
+- No new alert, no commission figure, no new task engine. Commission never
+  reads a target.
+- Guard `tests/weekly-dashboard.mjs` (whole worker on SQLite, 62 checks, 10
+  mutations).
+
 ## [1.238.0] - 2026-10-31 - Staff sign-in, login email and recovery
 
 The owner, 31-10-2026: "A2Z OS - CEO ACCOUNT MANAGEMENT, LOGIN RECOVERY &

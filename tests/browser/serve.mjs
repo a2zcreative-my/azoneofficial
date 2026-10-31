@@ -77,6 +77,7 @@ const server = http.createServer((req, res) => {
           : p.endsWith("/email") ? { ok: true, applied: b.route === "in_person", change_id: 4, needs_second: false, sent: false } : { ok: true };
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out)); return;
       }
+      if (req.method === "POST" && p === "/enquiries/introduce") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 501 })); return; }
       if (req.method === "POST" && p === "/staff/support/report") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, task_id: 77, assigned_to: "Fixture Person" })); return; }
       if (req.method === "POST" && /^\/users\/\d+\/offboard$/.test(p)) {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }

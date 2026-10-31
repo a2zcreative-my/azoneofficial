@@ -57,6 +57,7 @@ import shiftCss from "./on-shift.module.css";
 import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
 import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
+import { WeekTargetCard } from "@/components/portal/week-target-card"; // v1.239.0
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -1744,6 +1745,11 @@ export function Dashboard({
             ["overview", L("Overview", "Gambaran")],
             ["day", L("My Day", "Hari Saya")],
           ] as const} />
+          {/* v1.239.0 - a person whose Dashboard opens on My Day (the
+              shift-led roles) meets the Weekly Sales Target there too: the
+              owner's "every staff member understands the company sales goal".
+              The same card and the same request as the Overview's. */}
+          {view === "day" && lead === "shift" && <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />}
           <div className={view !== "overview" ? css.viewOff : css.overview}>
             <DashboardOverview user={user} go={go} canOpen={canOpen} lang={lang} onCreateQuotation={onCreateQuotation} openAt={openAt}
               onOpenDay={() => setDashView("day")} onOpenShift={() => go("On Shift")} todayShift={todayShiftCard} myShift={myShift} monitor={MANAGE_ROLES.includes(user.role) ? monitor : null}

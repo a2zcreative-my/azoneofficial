@@ -53,6 +53,7 @@ import { btnSm, btnSmPrimary, card, chipSmNeutral, chipSmWarn } from "@/lib/ui-s
 import { getLang } from "@/lib/i18n";
 import css from "./desk-page.module.css";
 import { ReportProblem } from "@/components/portal/support-card";
+import { IntroduceLeadAction } from "@/components/portal/week-target-card";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -219,6 +220,8 @@ export function DeskPage({ user, go }: {
               {exec && quick("preview", "navy", L("View all watchers", "Lihat semua pemerhati"), L("What the rules find true now", "Apa yang peraturan dapati sekarang"), () => setView("alerts"))}
               {exec && quick("access", "gold", L("Watcher settings", "Tetapan pemerhati"), L("Rules, thresholds and who is told", "Peraturan, ambang dan siapa diberitahu"), () => setView("settings"))}
               {/* v1.238.0 - a problem becomes a task for whoever looks after the portal */}
+              {/* v1.239.0 - any staff member hands Sales a real lead (an ordinary enquiry) */}
+              <IntroduceLeadAction trigger={(open) => quick("add", "gold", L("Introduce a lead", "Perkenalkan petunjuk"), L("Someone who may buy from A2Z", "Seseorang yang mungkin membeli daripada A2Z"), open)} />
               <ReportProblem tab="Desk" trigger={(open) => quick("fix", "green", L("Report a problem", "Laporkan masalah"), L("Login, access, wrong data, clock-in", "Log masuk, akses, data salah, daftar masuk"), open)} />
             </div>
           </section>

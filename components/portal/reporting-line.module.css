@@ -202,3 +202,35 @@
 .chain .label {
   margin-top: 0.5rem;
 }
+
+/* v1.239.0 - the Dashboard's one-line reporting strip */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.625rem;
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  color: var(--muted-foreground);
+  min-width: 0;
+}
+.strip svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+.strip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.stripLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

@@ -57,7 +57,8 @@ import { api } from "@/lib/api";
 import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
 import { LeaveMonthCard } from "@/components/portal/leave-month-card";
-import { ReportingLineCard } from "@/components/portal/reporting-line-card";
+import { ReportingLineStrip } from "@/components/portal/reporting-line-card";
+import { WeekTargetCard } from "@/components/portal/week-target-card";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
@@ -593,16 +594,21 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 
   return (
     <div className={ov.page}>
-      {/* v1.233.0 - A2. the reporting line (the owner's CEO hierarchy brief,
-          30-10-2026): Executive Leadership for the CEO, My Reporting Line
-          for everyone else, from the Organisation chart's own tree */}
-      <ReportingLineCard canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
+      {/* v1.233.0 - A2. the reporting line. v1.239.0 (the owner's weekly
+          target brief, 31-10-2026: "Do not restore the oversized Executive
+          Leadership card"): one line for staff, none for the CEO; the full
+          card is on Staff -> Organisation */}
+      <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
       {/* B. the five tiles */}
       <div className={ov.kpis}>
         <KpiRow label={L("At a glance", "Sepintas lalu")}>
           {tiles.slice(0, 5).map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
         </KpiRow>
       </div>
+      {/* B2. v1.239.0 - the Weekly Sales Target (claude/WEEKLY-TARGET-
+          DASHBOARD-AUDIT.md): the company's week, mine, my team's, and
+          for management who needs attention - all from Sales' own engine */}
+      <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />
       {/* C. the main information grid */}
       <div className={ov.grid}>
         {activityCard}
