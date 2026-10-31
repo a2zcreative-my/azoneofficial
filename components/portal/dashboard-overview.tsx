@@ -59,6 +59,7 @@ import { getLang, type Lang } from "@/lib/i18n";
 import { LeaveMonthCard } from "@/components/portal/leave-month-card";
 import { ReportingLineStrip } from "@/components/portal/reporting-line-card";
 import { WeekTargetCard } from "@/components/portal/week-target-card";
+import type { TodayShiftKind } from "@/components/portal/on-shift";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
@@ -226,7 +227,10 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   if (can("Sales") && sum && typeof sum.open_quotations === "number") {
     tiles.push({ key: "quotes", node: (
       <KpiTile icon="document" tone="purple" label={L("Open quotations", "Sebut harga terbuka")} value={sum.open_quotations}
-        sub={typeof sum.outstanding_invoices === "number" ? L(`${sum.outstanding_invoices} unpaid invoice(s)`, `${sum.outstanding_invoices} invois belum dibayar`) : L("Not yet invoiced", "Belum diinvois")}
+        /* v1.240.0 (the owner: "make the relationship clear without merging
+           distinct metrics") - the figure is quotations not yet invoiced;
+           unpaid invoices are a different count, said as one */
+        sub={typeof sum.outstanding_invoices === "number" ? L(`Not invoiced · unpaid invoices: ${sum.outstanding_invoices}`, `Belum diinvois · invois belum dibayar: ${sum.outstanding_invoices}`) : L("Not yet invoiced", "Belum diinvois")}
         onClick={() => go("Sales")} title={L("Quotations not yet invoiced — open Sales", "Sebut harga belum diinvois — buka Jualan")} />
     ) });
   }
@@ -594,21 +598,20 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 
   return (
     <div className={ov.page}>
-      {/* v1.233.0 - A2. the reporting line. v1.239.0 (the owner's weekly
-          target brief, 31-10-2026: "Do not restore the oversized Executive
-          Leadership card"): one line for staff, none for the CEO; the full
-          card is on Staff -> Organisation */}
-      <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
-      {/* B. the five tiles */}
+      {/* v1.240.0 - A. THE WEEKLY SALES TARGET FIRST (the owner's mobile
+          brief, 31-10-2026: "a compact Weekly Sales Target card immediately
+          after the Overview/My Day tabs"): the company's week, mine, and the
+          sales actions, from Sales' own engine (week-target-card.tsx) */}
+      <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />
+      {/* B. the five tiles - two compact columns on a phone */}
       <div className={ov.kpis}>
         <KpiRow label={L("At a glance", "Sepintas lalu")}>
           {tiles.slice(0, 5).map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
         </KpiRow>
       </div>
-      {/* B2. v1.239.0 - the Weekly Sales Target (claude/WEEKLY-TARGET-
-          DASHBOARD-AUDIT.md): the company's week, mine, my team's, and
-          for management who needs attention - all from Sales' own engine */}
-      <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />
+      {/* v1.233.0 / v1.239.0 - the reporting line, one line (none for the
+          CEO); the full card is on Staff -> Organisation */}
+      <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
       {/* C. the main information grid */}
       <div className={ov.grid}>
         {activityCard}
@@ -638,8 +641,27 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 }
 
 /** The welcome header: the person's name, the Malaysia date, and where their own shift stands. */
-export function WelcomeHeader({ user, lang, myShift, onOpenDay }: { user: User; lang: Lang; myShift: MyShift; onOpenDay: () => void }) {
+/** v1.240.0 - what the header chip says about today, from On Shift's own
+    reading (on-shift.tsx todayShiftKind - the worker's schedule, leave,
+    holidays and punches); nothing is worked out here. "Not clocked in" only
+    when a shift is due now or has passed - an off day says so, and a shift
+    later today says when. */
+export type HeaderShift = { kind: TodayShiftKind; next: string | null };
+
+export function WelcomeHeader({ user, lang, myShift, shift, onOpenDay }: { user: User; lang: Lang; myShift: MyShift; shift?: HeaderShift; onOpenDay: () => void }) {
   const first = (user.name ?? "").trim().split(/\s+/)[0] ?? "";
+  const k = shift?.kind;
+  const word = myShift.open ? L(`On shift since ${myShift.since}`, `Sedang syif sejak ${myShift.since}`)
+    : k === "between" ? L(`Clocked out ${myShift.out} · another shift today`, `Daftar keluar ${myShift.out} · ada syif lagi hari ini`)
+    : myShift.hasOut ? L(`Clocked out ${myShift.out}`, `Daftar keluar ${myShift.out}`)
+    : k === "rest" ? L("Off day", "Hari rehat")
+    : k === "leave" ? L("On leave today", "Bercuti hari ini")
+    : k === "holiday" ? L("Public holiday", "Cuti umum")
+    : k === "review" ? L("Leave under review today", "Cuti dalam semakan hari ini")
+    : k === "waiting" ? L("Clock-in waiting to send", "Daftar masuk menunggu dihantar")
+    : shift?.next ? L(`Shift at ${shift.next}`, `Syif pada ${shift.next}`)
+    : L("Not clocked in", "Belum daftar masuk");
+  const calm = myShift.open || myShift.hasOut || ["rest", "leave", "holiday"].includes(k ?? "") || Boolean(shift?.next);
   return (
     <header className={ov.welcome}>
       <div className={ov.welcomeText}>
@@ -647,14 +669,13 @@ export function WelcomeHeader({ user, lang, myShift, onOpenDay }: { user: User; 
         <p className={ov.welcomeSub}>{L("Here's what's happening across A2Z Creative Marketing.", "Inilah yang berlaku di A2Z Creative Marketing.")}</p>
       </div>
       <div className={ov.welcomeSide}>
-        <p className={ov.welcomeDate}><AppIcon name="date" />{mytTodayLine(lang)}</p>
+        {/* the phone's header already says the date (portal-shell.tsx): once */}
+        <p className={`${ov.welcomeDate} erp-desktop-only`}><AppIcon name="date" />{mytTodayLine(lang)}</p>
         {myShift.known && (
-          <button type="button" className={`${ov.shiftChip} ${myShift.open ? ov.shiftOn : ""}`} onClick={onOpenDay}
+          <button type="button" className={`${ov.shiftChip} ${myShift.open ? ov.shiftOn : ""} ${!calm ? ov.shiftDue : ""}`} onClick={onOpenDay}
             title={L("Open On Shift to check in or out", "Buka Syif Saya untuk daftar masuk atau keluar")}>
             <span className={ov.statusDot} aria-hidden />
-            {myShift.open ? L(`On shift since ${myShift.since}`, `Sedang syif sejak ${myShift.since}`)
-              : myShift.hasOut ? L(`Clocked out ${myShift.out}`, `Daftar keluar ${myShift.out}`)
-              : L("Not clocked in", "Belum daftar masuk")}
+            {word}
           </button>
         )}
       </div>

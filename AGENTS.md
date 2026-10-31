@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 31 October 2026, version **1.239.0** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 31 October 2026, version **1.240.0** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 
@@ -94,7 +94,7 @@ owner asks for that change.**
 ## The gate (all must pass before handing work over)
 
 ```bash
-npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.239.0)
+npm run -s typecheck && npm run -s lint          # 0 errors; warnings must not rise (125 at 1.240.0)
 cd worker && npx tsc --noEmit -p . && cd ..      # worker types
 node scripts/run-guards.mjs                      # 109 guards, including business-joins (102 checks)
 pnpm build                                       # static export
@@ -122,6 +122,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | Commission (1.224.0) | Commission tab: Entries, Flow, Policy; Sales: commission card; Payroll: commission from the ledger | `/commission/summary`, `/commission/entries`, `/commission/entries/:id`, `/commission/flow`, `/commission/policy`, `/commission/policy/:id/approve`, `/reject`, `/preview`, `/commission/settings`, `/commission/ledger/:id/decide` (in `worker/src/commission.ts`); `invoice_payment` gates marking paid | `commission_policies`, `commission_ledger`, `commission_settings_log` (0150), `commission_policy_packages` (0152); 1.227.0 adds `/commission/packages`, `/commission/audit` and five views (Overview, Transactions, Policy Settings, Payroll Sync, Audit History) |
 | Shift reminders (1.226.0) | Profile: Shift reminders card (Clock-in / Clock-out switches, this device's push); reminders 15 min before a shift starts and ends | `/notification-prefs` (GET/PUT, own switches only), `/push/device`, `/push/subscribe` (push services only); runner `worker/src/shift-reminders-cron.ts` on the 5-minute cron; logout unbinds the device | `notification_prefs` (0151) |
 | Sales packages (1.231.0) | Sales → Documents: Packages pill (library, editor for CEO/COO/CCO/super admin); Create quotation: Package (optional) fills the lines, flagged customized | `/packages`, `/packages/:id`, `/packages/:id/status` (in `worker/src/packages.ts`); `POST /docs` and `/docs/:id/edit` take `package_id` + `package_version`; convert copies them | `sales_packages`, `sales_package_versions`; `sales_documents` gains `package_id`, `package_version`, `package_customized` (0153) |
+| Compact mobile Dashboard (1.240.0) | Dashboard Overview: Weekly Sales Target card first, compact KPI tiles on phones, date once, truthful attendance chip; My Day: one weekly line | no new route; `WeekTargetCard` / `WeekTargetStrip` (week-target-card.tsx), `WelcomeHeader` `shift` prop from `todayShiftKind` | none |
 | Weekly target on the Dashboard (1.239.0) | Dashboard: Weekly Sales Target card under the tiles (company for all staff, my target and goals, HOD team, management attention and departments, actions); Desk: Introduce a lead; Sales targets drawer: contribution goals; Staff → Organisation: the full reporting-line card | `GET /staff/sales/week/dashboard` (weekly-sales.ts `weekDashboard`, `companyWeek`, `goalsFor`, `hodTeam`); `POST /staff/sales/week/targets` with `metric` / `target_count`; `POST /enquiries/introduce`; PATCH `/enquiries/:id` stamps `qualified_at/by`; capability `sales_week_target`; lib/week-status.ts | `sales_week_targets.metric/target_count`, `enquiries.referred_by/qualified_at/qualified_by` (0156) |
 | Account identity (1.238.0) | Users → Staff Accounts: Sign-in & recovery sheet (owner + super admin): change login email (email link / Google / in person + the person's code; second approver for Admin and payroll accounts), set-password link, reset 2FA, unlink Google, devices, suspend; Security & Settings: problem reports assignee, System health; Desk: Report a problem; Staff: Offboard sheet with handover | `/staff/accounts/:id` (+ `/email`, `/reset-2fa`, `/password-link`, `/google/unlink`, `/sessions/revoke`, `/suspend`), `/staff/accounts/email-changes/:id/approve\|cancel`, public `/auth/email-verify` and `/auth/set-password`; `applyEmailChange` (accounts.ts), `sendMail` (mail.ts); Google callback by `google_sub`; `/staff/support/*`, `/staff/users/:id/handover`, offboard `handover_to`; outbox `ONCE_ONLY` | `users.google_sub`, `users.email_verified_at`, `sessions.user_agent/last_seen_at`, `email_changes`, `account_tokens` (0155) |
 | Editable matrix (1.237.0) | Users → Roles & Permissions: Edit matrix (owner + super admin), review gains/losses, reason + code, Back to default / Reset all | `POST /staff/access/policy` (`changes[{cap, roles\|reset}]` or `reset_all`, reason, totp); `rolesFor`/`setPermissionOverrides`/`cleanOverrides` in permissions.ts (applied inside `can()`); getSessionUser loads `role_permissions`; `/auth/me` adds `caps`; client `lib/caps.ts holds()` | none (system_meta `role_permissions`) |

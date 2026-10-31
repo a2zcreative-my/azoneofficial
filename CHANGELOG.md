@@ -10,6 +10,36 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.240.0] - 2026-10-31 - The compact mobile Dashboard
+
+The owner, 31-10-2026: "A2Z OS - FIX ACTUAL MOBILE DASHBOARD & INTEGRATE
+WEEKLY SALES TARGETS" (his phone screenshot and the proposed design).
+Answers: My Day gets a one-line strip; the management lists sit behind a
+toggle on phones. Audit: claude/MOBILE-DASHBOARD-AUDIT.md. Not deployed.
+
+- **Weekly Sales Target first**: the card now sits immediately under the
+  Overview / My Day tabs, compact: a head row (dates, View details, Manage
+  for setters), the company target and my target side by side (target, bar,
+  "collected (pct)", "left"), one line on what counts, and the sales actions
+  (New enquiry, Create quotation, Follow up customers, Sales pipeline, My
+  sales tasks; Recovery plan when behind) - each opens the module that owns
+  it. Empty states: "Target Not Set", "No Individual Target Assigned".
+- **Management lists** (needs attention, by department, an HOD's team) fold
+  behind "Team & departments" / "My team" on phones; open on a desk.
+- **My Day**: one line - the company % and mine - that opens the Overview.
+- **Compact KPI tiles** on phones: the same five figures in two columns, a
+  small icon beside the label, about half the height; the fifth tile takes
+  the full row. Open quotations now says "Not invoiced yet · separately, N
+  unpaid invoice(s)".
+- **The date once**: on a phone the header says it; the welcome block no
+  longer repeats it (desktop unchanged).
+- **The attendance chip tells the truth**: it reads On Shift's own verdict
+  (todayShiftKind) - Off day, On leave today, Public holiday, Shift at 15:00
+  (a later shift), Clocked out, On shift since; "Not clocked in" only when a
+  shift is due or has passed, and only that one is amber.
+- No API, figure or calculation changed: the card reads
+  /staff/sales/week/dashboard as in 1.239.0.
+
 ## [1.239.0] - 2026-10-31 - The Weekly Sales Target on the Dashboard
 
 The owner, 31-10-2026: "A2Z OS - COMPANY-WIDE WEEKLY SALES TARGET & STAFF

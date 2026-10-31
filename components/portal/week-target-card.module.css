@@ -1,98 +1,159 @@
-/* v1.239.0 - the Weekly Sales Target card on the Dashboard
-   (week-target-card.tsx). Navy and gold on the white card, tokens only, both
-   themes; the bars are the brand's gold on a quiet track. */
+/* v1.239.0 / v1.240.0 - the Weekly Sales Target card (week-target-card.tsx),
+   compact (the owner's mobile reference, 31-10-2026): a head row, the
+   company and my target side by side, one line on what counts, the sales
+   actions, and the management lists behind a toggle on phones. Navy and gold
+   on the white card, tokens only, both themes. */
 .card {
-  gap: 1rem;
-}
-.headActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-}
-.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: 0.75rem;
   min-width: 0;
 }
-.block {
-  display: grid;
-  align-content: start;
-  gap: 0.375rem;
-  padding: 0.875rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.875rem;
-  min-width: 0;
-}
-.labelRow {
+.head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.375rem;
+  gap: 0.5rem 0.625rem;
+  min-width: 0;
 }
-.label {
+.headIcon,
+.colIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.headIcon {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+.colIcon {
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 8px;
+}
+.headIcon svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.colIcon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.headText {
+  display: grid;
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+.title {
   margin: 0;
-  font-size: var(--type-caption-size);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-.block .label + .label,
-.people + .label {
-  margin-top: 0.5rem;
-}
-.figure {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem;
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-.figure strong {
-  font-size: 1.375rem;
-  font-weight: 800;
+  font-size: var(--type-section-size);
+  font-weight: var(--type-section-weight);
+  line-height: 1.2;
   color: var(--brand-primary);
 }
-:global(.dark) .figure strong {
+:global(.dark) .title {
   color: var(--foreground);
 }
-.figure span {
-  font-size: var(--type-body-sm-size);
+.dates {
+  margin: 0;
+  font-size: var(--type-caption-size);
   color: var(--muted-foreground);
 }
-.pct {
-  margin-left: auto;
-  font-size: var(--type-body-sm-size);
-  font-weight: 700;
+.headBtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
   color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.headBtn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.headBtn:hover {
+  border-color: var(--gold-solid);
+}
+.cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+  min-width: 0;
+}
+.cols > * + * {
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+}
+.col,
+.colGroup {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.colHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.colTitle {
+  flex: 1 1 auto;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.target {
+  margin: 0;
+  font-size: clamp(1.125rem, 1rem + 1vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+:global(.dark) .target {
+  color: var(--foreground);
+}
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.125rem 0.5rem;
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
 }
 .notSet {
   margin: 0;
   font-weight: 700;
+  line-height: 1.25;
   color: var(--foreground);
 }
 .muted,
-.note {
-  display: block;
+.basis {
   margin: 0;
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-lh);
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
-.note {
-  padding-top: 0.25rem;
-  border-top: 1px dashed var(--border);
-}
-.muted svg {
-  display: inline-block;
-  width: 0.875rem;
-  height: 0.875rem;
-  margin-right: 0.25rem;
-  vertical-align: -0.125rem;
+.strongNum {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
 }
 .bar {
   position: relative;
@@ -110,8 +171,7 @@
 }
 .goals,
 .people,
-.depts,
-.tasks {
+.depts {
   display: grid;
   gap: 0.375rem;
   margin: 0.25rem 0 0;
@@ -119,17 +179,92 @@
   list-style: none;
 }
 .goals li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.25rem 0.5rem;
-  font-size: var(--type-body-sm-size);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: var(--type-caption-size);
 }
 .goals li strong {
   font-variant-numeric: tabular-nums;
 }
-.goals li .bar {
-  grid-column: 1 / -1;
-  height: 0.375rem;
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.act svg {
+  width: 1rem;
+  height: 1rem;
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.act:hover {
+  border-color: var(--gold-solid);
+}
+.act:focus-visible,
+.headBtn:focus-visible,
+.listsToggle:focus-visible,
+.strip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.listsToggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.75rem;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.listsToggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+.lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  min-width: 0;
+}
+.block {
+  display: grid;
+  align-content: start;
+  gap: 0.375rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 .people li,
 .depts li {
@@ -157,48 +292,80 @@
   color: var(--muted-foreground);
   white-space: nowrap;
 }
-.tasks li {
+/* My Day's one line */
+.strip {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) minmax(3rem, 6rem) auto;
   align-items: center;
-  gap: 0.375rem;
-  font-size: var(--type-caption-size);
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  text-align: left;
+  cursor: pointer;
 }
-.tasks li svg {
-  width: 0.875rem;
-  height: 0.875rem;
+.strip:hover {
+  border-color: var(--gold-solid);
+}
+.strip > svg {
+  width: 1rem;
+  height: 1rem;
   color: var(--muted-foreground);
 }
-.tasks li span {
+.stripText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tasks li em {
-  font-style: normal;
-  color: var(--muted-foreground);
-}
-.acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.moreBtn {
-  display: none !important;
-}
-/* a phone shows the first action and "More"; a desk shows them all */
-@media (max-width: 639px) {
-  .acts .extra {
-    display: none !important;
+/* a phone: the lists fold behind their toggle; the two figures stay side by
+   side down to 360px and stack below that */
+@media (max-width: 767px) {
+  /* the actions are one swipeable line on a phone, not four rows */
+  .acts {
+    flex-wrap: nowrap;
+    margin: 0 -0.25rem;
+    padding: 0 0.25rem 0.25rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
   }
-  .actsOpen .extra {
-    display: inline-flex !important;
+  .acts::-webkit-scrollbar {
+    display: none;
   }
-  .moreBtn {
-    display: inline-flex !important;
+  .act {
+    flex: none;
+    white-space: nowrap;
   }
-  .grid {
+  .listsToggle {
+    display: flex;
+  }
+  .lists {
+    display: none;
+  }
+  .listsOpen {
+    display: grid;
+  }
+  .act {
+    min-height: 2.25rem;
+    padding: 0 0.625rem;
+  }
+}
+@media (max-width: 359px) {
+  .cols {
     grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .cols > * + * {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
   }
 }
 /* the Introduce-a-lead form */

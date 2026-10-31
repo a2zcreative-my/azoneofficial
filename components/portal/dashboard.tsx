@@ -57,7 +57,7 @@ import shiftCss from "./on-shift.module.css";
 import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
 import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
-import { WeekTargetCard } from "@/components/portal/week-target-card"; // v1.239.0
+import { WeekTargetStrip } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -1340,10 +1340,16 @@ export function Dashboard({
      opens On Shift, where the one punch() lives. My Day and the Overview
      draw this same element. */
   const todayStatus = monthDays?.find((d) => d.date === mytToday())?.status ?? null;
+  const todayKind = todayShiftKind({ known: attKnown, error: !!attendanceError, waiting: waitingPunches.length, state: shiftState, canClockIn,
+    dayStatus: todayStatus, leaveReview: !!todayShift?.entry?.leave_review, hasSlots: (todayShift?.slots?.length ?? todayShift?.windows.length ?? 0) > 0 });
+  /* v1.240.0 - the header chip reads the same verdict, and the next
+     unclaimed shift that has not started yet ("Shift at 15:00") */
+  const nowHm = new Date(nowTick + 8 * 3600 * 1000).toISOString().slice(11, 16);
+  const nextSlot = (todayShift?.slots ?? []).filter((x) => !x.claimed && x.start > nowHm).map((x) => x.start).sort()[0] ?? null;
+  const headerShift = { kind: todayKind, next: todayKind === "idle" ? nextSlot : null };
   const todayShiftCard = (
     <TodayShiftCard
-      kind={todayShiftKind({ known: attKnown, error: !!attendanceError, waiting: waitingPunches.length, state: shiftState, canClockIn,
-        dayStatus: todayStatus, leaveReview: !!todayShift?.entry?.leave_review, hasSlots: (todayShift?.slots?.length ?? todayShift?.windows.length ?? 0) > 0 })}
+      kind={todayKind}
       firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null}
       lastOut={hasOut ? lastOut : null}
       openSince={openSinceRaw}
@@ -1740,7 +1746,7 @@ export function Dashboard({
               without the company figures), and every one of them is still on
               My Day in full - the desk card, the month card, the work
               overview. */}
-          <WelcomeHeader user={user} lang={lang} myShift={myShift} onOpenDay={() => go("On Shift")} />
+          <WelcomeHeader user={user} lang={lang} myShift={myShift} shift={headerShift} onOpenDay={() => go("On Shift")} />
           <LineTabs value={view} onChange={(k) => setDashView(k)} label={L("Dashboard", "Papan pemuka")} tabs={[
             ["overview", L("Overview", "Gambaran")],
             ["day", L("My Day", "Hari Saya")],
@@ -1749,7 +1755,10 @@ export function Dashboard({
               shift-led roles) meets the Weekly Sales Target there too: the
               owner's "every staff member understands the company sales goal".
               The same card and the same request as the Overview's. */}
-          {view === "day" && lead === "shift" && <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />}
+          {/* v1.240.0 (the owner's answer "One-line strip"): My Day keeps to
+              the day; one line carries the week and opens the Overview, where
+              the full Weekly Sales Target card is */}
+          {view === "day" && <WeekTargetStrip onOpen={() => setDashView("overview")} />}
           <div className={view !== "overview" ? css.viewOff : css.overview}>
             <DashboardOverview user={user} go={go} canOpen={canOpen} lang={lang} onCreateQuotation={onCreateQuotation} openAt={openAt}
               onOpenDay={() => setDashView("day")} onOpenShift={() => go("On Shift")} todayShift={todayShiftCard} myShift={myShift} monitor={MANAGE_ROLES.includes(user.role) ? monitor : null}

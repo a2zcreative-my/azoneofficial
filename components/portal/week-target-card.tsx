@@ -27,7 +27,6 @@ import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, textareaClass } from "@/lib/ui-styles";
 import { GOAL_LABEL, WEEK_STATUS, type WeekStatus, type WeekTone } from "@/lib/week-status";
-import ov from "./dashboard-overview.module.css";
 import css from "./week-target-card.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -57,24 +56,36 @@ function Bar({ pct, label }: { pct: number | null; label: string }) {
   return <span className={css.bar} role="img" aria-label={label}><span style={{ width: `${w}%` }} /></span>;
 }
 
-/** One figure against its target, or "Target not set". */
-function Against({ title, basis, target, pct, gap, sub, notSet }: { title: string; basis: number; target: number | null; pct: number | null; gap: number | null; sub?: ReactNode; notSet: string }) {
+/** v1.240.0 - one figure against its target, compact (the owner's mobile
+    reference, 31-10-2026): label, the target, a bar, then "collected (pct)"
+    and "left". With no target: the empty state, never a 0%. */
+function Against({ title, icon, basis, target, pct, gap, empty, emptyNote, right }: {
+  title: string; icon: AppIconName; basis: number; target: number | null; pct: number | null; gap: number | null;
+  empty: string; emptyNote: string; right?: ReactNode;
+}) {
   return (
-    <div className={css.block}>
-      <p className={css.label}>{title}</p>
+    <div className={css.col}>
+      <div className={css.colHead}>
+        <span className={css.colIcon} aria-hidden><AppIcon name={icon} /></span>
+        <span className={css.colTitle}>{title}</span>
+        {right}
+      </div>
       {target === null ? (
         <>
-          <p className={css.notSet}>{L("Target not set", "Sasaran belum ditetapkan")}</p>
-          <p className={css.muted}>{notSet} <strong>{fmtRM(basis)}</strong> {L("collected so far.", "dikutip setakat ini.")}</p>
+          <p className={css.notSet}>{empty}</p>
+          <p className={css.muted}>{emptyNote}</p>
+          <p className={css.muted}><strong className={css.strongNum}>{fmtRM(basis)}</strong> {L("collected this week", "dikutip minggu ini")}</p>
         </>
       ) : (
         <>
-          <p className={css.figure}><strong>{fmtRM(basis)}</strong><span> / {fmtRM(target)}</span><b className={css.pct}>{pct ?? 0}%</b></p>
+          <p className={css.target}>{fmtRM(target)}</p>
           <Bar pct={pct} label={L(`${pct ?? 0}% of ${fmtRM(target)}`, `${pct ?? 0}% daripada ${fmtRM(target)}`)} />
-          <p className={css.muted}>{(gap ?? 0) > 0 ? L(`${fmtRM(gap ?? 0)} to go`, `${fmtRM(gap ?? 0)} lagi`) : L("Target reached", "Sasaran dicapai")}</p>
+          <p className={css.split}>
+            <span>{fmtRM(basis)} ({pct ?? 0}%)</span>
+            <span>{(gap ?? 0) > 0 ? L(`${fmtRM(gap ?? 0)} left`, `${fmtRM(gap ?? 0)} lagi`) : L("Reached", "Dicapai")}</span>
+          </p>
         </>
       )}
-      {sub}
     </div>
   );
 }
@@ -128,144 +139,151 @@ export function IntroduceLeadAction({ trigger }: { trigger: (open: () => void) =
   return <>{trigger(() => setO(true))}<IntroduceLead open={o} onClose={() => setO(false)} /></>;
 }
 
+/** v1.240.0 - the My Day line (the owner's answer "One-line strip"): the
+    company's week and mine in one sentence; pressing it opens the Overview,
+    where the full card is. The same request as the card. */
+export function WeekTargetStrip({ onOpen }: { onOpen: () => void }) {
+  const d = useCachedApi<WeekDash>("/staff/sales/week/dashboard", true, ["docs", "sales", "tasks", "enquiries"]).data;
+  if (!d) return null;
+  const co = d.company.target_cents === null ? L("company target not set", "sasaran syarikat belum ditetapkan") : L(`company ${d.company.pct ?? 0}%`, `syarikat ${d.company.pct ?? 0}%`);
+  const me = !d.me ? "" : d.me.target_cents !== null ? L(` · me ${d.me.pct ?? 0}%`, ` · saya ${d.me.pct ?? 0}%`)
+    : d.me.goals.length ? ` · ${d.me.goals.map((g) => `${g.actual}/${g.target}`).join(", ")}` : "";
+  return (
+    <button type="button" className={css.strip} onClick={onOpen} aria-label={L("Weekly sales target - open the Overview", "Sasaran jualan mingguan - buka Gambaran")}>
+      <span className={css.colIcon} aria-hidden><AppIcon name="chart" /></span>
+      <span className={css.stripText}><strong>{L("Weekly sales target", "Sasaran jualan mingguan")}</strong> · {co}{me}</span>
+      <Bar pct={d.company.pct} label={`${d.company.pct ?? 0}%`} />
+      <AppIcon name="next" />
+    </button>
+  );
+}
+
 export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: TabName) => void; canOpen?: (t: string) => boolean; onCreateQuotation?: () => void }) {
   const view = useCachedApi<WeekDash>("/staff/sales/week/dashboard", true, ["docs", "sales", "tasks", "enquiries"]);
   const [introduce, setIntroduce] = useState(false);
   const [targets, setTargets] = useState(false);
-  const [more, setMore] = useState(false);
+  const [lists, setLists] = useState(false);
   const d = view.data;
   const open = (t: string) => (canOpen ? canOpen(t) : false);
-  const goTab = (t: TabName) => go(t);
 
   if (!d) {
     return (
-      <section className={`${card} ${ov.card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
-        {view.failed ? <p className={css.muted}>{L("The weekly target could not be loaded.", "Sasaran mingguan tidak dapat dimuatkan.")}</p> : <SkelRows rows={4} />}
+      <section className={`${card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
+        {view.failed ? <p className={css.muted}>{L("The weekly target could not be loaded.", "Sasaran mingguan tidak dapat dimuatkan.")}</p> : <SkelRows rows={3} />}
       </section>
     );
   }
   const me = d.me;
   const behind = me && ["at_risk", "action", "missed"].includes(me.status);
+  const sales = d.can_sales && open("Sales");
 
-  /* the actions: each opens a screen that already exists */
-  const acts: { key: string; icon: AppIconName; label: string; onClick: () => void; primary?: boolean }[] = [];
-  if (d.can_sales && onCreateQuotation) acts.push({ key: "qt", icon: "document", label: L("Prepare a quotation", "Sediakan sebut harga"), onClick: onCreateQuotation, primary: true });
-  if (d.can_sales && me && me.open_quotations.n > 0) acts.push({ key: "open", icon: "documents", label: L(`Revisit open quotations (${me.open_quotations.n})`, `Semak sebut harga terbuka (${me.open_quotations.n})`), onClick: () => goTab("Sales") });
-  if (d.can_sales && me && me.followups_overdue > 0) acts.push({ key: "fu", icon: "clients", label: L(`Contact pending customers (${me.followups_overdue})`, `Hubungi pelanggan tertunggak (${me.followups_overdue})`), onClick: () => goTab("Sales") });
-  if (me && (me.enquiries_waiting ?? 0) > 0) acts.push({ key: "enq", icon: "chat", label: L(`Follow up enquiries (${me.enquiries_waiting})`, `Susuli pertanyaan (${me.enquiries_waiting})`), onClick: () => goTab("Sales") });
-  if (d.can_sales && behind) acts.push({ key: "plan", icon: "target", label: me?.plan ? L("Open my recovery plan", "Buka pelan pemulihan saya") : L("Submit a recovery plan", "Hantar pelan pemulihan"), onClick: () => goTab("Sales"), primary: true });
-  if (me) acts.push({ key: "lead", icon: "add", label: L("Introduce a lead", "Perkenalkan petunjuk"), onClick: () => setIntroduce(true), primary: !d.can_sales });
-  if (me && me.tasks.open > 0 && open("Tasks")) acts.push({ key: "tasks", icon: "assignment", label: L(`My sales tasks (${me.tasks.open})`, `Tugasan jualan saya (${me.tasks.open})`), onClick: () => goTab("Tasks") });
-  acts.sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
+  /* the sales actions - each opens a module that already exists */
+  const acts: { key: string; icon: AppIconName; label: string; onClick: () => void }[] = [];
+  if (sales && behind) acts.push({ key: "plan", icon: "target", label: me?.plan ? L("Recovery plan", "Pelan pemulihan") : L("Submit recovery plan", "Hantar pelan pemulihan"), onClick: () => go("Sales") });
+  if (me) acts.push({ key: "lead", icon: "add", label: L("New enquiry", "Pertanyaan baharu"), onClick: () => setIntroduce(true) });
+  if (sales && onCreateQuotation) acts.push({ key: "qt", icon: "document", label: L("Create quotation", "Cipta sebut harga"), onClick: onCreateQuotation });
+  if (sales) acts.push({ key: "fu", icon: "clients", label: me && me.followups_overdue > 0 ? L(`Follow up customers (${me.followups_overdue})`, `Susuli pelanggan (${me.followups_overdue})`) : L("Follow up customers", "Susuli pelanggan"), onClick: () => go("Sales") });
+  if (sales) acts.push({ key: "pipe", icon: "chart", label: me && me.open_quotations.n > 0 ? L(`Sales pipeline (${me.open_quotations.n})`, `Saluran jualan (${me.open_quotations.n})`) : L("Sales pipeline", "Saluran jualan"), onClick: () => go("Sales") });
+  if (me && open("Tasks")) acts.push({ key: "tasks", icon: "assignment", label: me.tasks.open > 0 ? L(`My sales tasks (${me.tasks.open})`, `Tugasan jualan saya (${me.tasks.open})`) : L("My sales tasks", "Tugasan jualan saya"), onClick: () => go("Tasks") });
 
-  const right = (
-    <div className={css.headActions}>
-      {d.can_set && <button type="button" className={ov.viewAll} onClick={() => setTargets(true)}>{L("Manage weekly targets", "Urus sasaran mingguan")}</button>}
-      {d.can_sales && open("Sales") && <button type="button" className={ov.viewAll} onClick={() => goTab("Sales")}>{L("View in Sales", "Lihat di Jualan")}</button>}
-    </div>
-  );
+  const hasLists = Boolean(d.team || d.all);
 
   return (
-    <section className={`${card} ${ov.card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
-      <div className={ov.head}>
-        <div className={ov.headText}>
-          <h3 className={ov.title}>{L("Weekly Sales Target", "Sasaran Jualan Mingguan")}</h3>
-          <p className={ov.sub}>{L(`${dmy(d.week.from)} – ${dmy(d.week.to)} · Collected: invoices paid in full`, `${dmy(d.week.from)} – ${dmy(d.week.to)} · Dikutip: invois dibayar penuh`)}</p>
+    <section className={`${card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
+      <div className={css.head}>
+        <span className={css.headIcon} aria-hidden><AppIcon name="chart" /></span>
+        <div className={css.headText}>
+          <h3 className={css.title}>{L("Weekly Sales Target", "Sasaran Jualan Mingguan")}</h3>
+          <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)}</p>
         </div>
-        {right}
+        {d.can_set && <button type="button" className={css.headBtn} onClick={() => setTargets(true)}>{L("Manage", "Urus")}</button>}
+        {sales && <button type="button" className={css.headBtn} onClick={() => go("Sales")}>{L("View details", "Lihat butiran")}<AppIcon name="next" /></button>}
       </div>
 
-      <div className={css.grid}>
-        <Against title={L("Company", "Syarikat")} basis={d.company.basis_cents} target={d.company.target_cents} pct={d.company.pct} gap={d.company.gap_cents}
-          notSet={d.can_set ? L("Set this week's company target with Manage weekly targets.", "Tetapkan sasaran syarikat minggu ini melalui Urus sasaran mingguan.") : L("Management has not set this week's company target.", "Pengurusan belum menetapkan sasaran syarikat minggu ini.")}
-          sub={d.other_channels_cents !== null && d.other_channels_cents > 0 ? <p className={css.note}>{L(`Also sold this week, not counted in the target: ${fmtRM(d.other_channels_cents)} (TikTok, online orders, manual sales).`, `Turut dijual minggu ini, tidak dikira dalam sasaran: ${fmtRM(d.other_channels_cents)} (TikTok, pesanan dalam talian, jualan manual).`)}</p> : undefined} />
-
+      <div className={css.cols}>
+        <Against title={L("Company target", "Sasaran syarikat")} icon="chart" basis={d.company.basis_cents} target={d.company.target_cents} pct={d.company.pct} gap={d.company.gap_cents}
+          empty={L("Target Not Set", "Sasaran Belum Ditetapkan")}
+          emptyNote={d.can_set ? L("Set this week's target with Manage.", "Tetapkan sasaran minggu ini melalui Urus.") : L("Management has not set this week's target.", "Pengurusan belum menetapkan sasaran minggu ini.")} />
         {me && (
-          <div className={css.block}>
-            <div className={css.labelRow}><p className={css.label}>{L("My contribution", "Sumbangan saya")}</p>{me.target_cents !== null && chip(me.status)}</div>
-            {!me.has_target ? (
-              <>
-                <p className={css.notSet}>{L("No target assigned", "Tiada sasaran ditetapkan")}</p>
-                <p className={css.muted}>{L("Your manager has not given you a target or goal this week. Every lead you introduce still helps the company target.", "Pengurus anda belum memberi sasaran atau matlamat minggu ini. Setiap petunjuk yang anda perkenalkan tetap membantu sasaran syarikat.")}</p>
-              </>
-            ) : (
-              <>
-                {me.target_cents !== null && (
-                  <>
-                    <p className={css.figure}><strong>{fmtRM(me.basis_cents)}</strong><span> / {fmtRM(me.target_cents)}</span><b className={css.pct}>{me.pct ?? 0}%</b></p>
-                    <Bar pct={me.pct} label={L(`${me.pct ?? 0}% of my weekly target`, `${me.pct ?? 0}% daripada sasaran mingguan saya`)} />
-                    <p className={css.muted}>{(me.gap_cents ?? 0) > 0 ? L(`${fmtRM(me.gap_cents ?? 0)} to go`, `${fmtRM(me.gap_cents ?? 0)} lagi`) : L("Target reached", "Sasaran dicapai")}
-                      {me.expected_cents !== null && me.status !== "achieved" ? L(` · expected by now ${fmtRM(me.expected_cents)}`, ` · dijangka setakat ini ${fmtRM(me.expected_cents)}`) : ""}</p>
-                  </>
-                )}
-                {me.goals.length > 0 && (
-                  <ul className={css.goals} aria-label={L("My contribution goals", "Matlamat sumbangan saya")}>
-                    {me.goals.map((g) => (
-                      <li key={g.metric}>
-                        <span>{GOAL_LABEL[g.metric] ? L(GOAL_LABEL[g.metric]![0], GOAL_LABEL[g.metric]![1]) : g.metric}</span>
-                        <strong>{g.actual} / {g.target}</strong>
-                        <Bar pct={g.pct ?? Math.round((g.actual / g.target) * 100)} label={`${g.actual} / ${g.target}`} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-            {(me.introductions.pending ?? 0) > 0 && <p className={css.muted}>{L(`${me.introductions.pending} lead(s) you introduced waiting for Sales.`, `${me.introductions.pending} petunjuk yang anda perkenalkan menunggu Jualan.`)}</p>}
-            {me.top_tasks.length > 0 && (
-              <ul className={css.tasks} aria-label={L("My sales tasks", "Tugasan jualan saya")}>
-                {me.top_tasks.map((t) => <li key={t.id}><AppIcon name="assignment" /><span>{t.title}</span>{t.deadline && <em>{dmy(t.deadline.slice(0, 10))}</em>}</li>)}
+          <div className={css.colGroup}>
+            <Against title={L("My target", "Sasaran saya")} icon="person" basis={me.basis_cents} target={me.target_cents} pct={me.pct} gap={me.gap_cents}
+              right={me.target_cents !== null ? chip(me.status) : undefined}
+              empty={L("No Individual Target Assigned", "Tiada Sasaran Individu")}
+              emptyNote={me.goals.length ? L("Your goals this week are below.", "Matlamat anda minggu ini di bawah.") : L("Every lead you bring in still helps the company target.", "Setiap petunjuk yang anda bawa tetap membantu sasaran syarikat.")} />
+            {me.goals.length > 0 && (
+              <ul className={css.goals} aria-label={L("My contribution goals", "Matlamat sumbangan saya")}>
+                {me.goals.map((g) => (
+                  <li key={g.metric}>
+                    <span>{GOAL_LABEL[g.metric] ? L(GOAL_LABEL[g.metric]![0], GOAL_LABEL[g.metric]![1]) : g.metric}</span>
+                    <strong>{g.actual} / {g.target}</strong>
+                  </li>
+                ))}
               </ul>
             )}
-          </div>
-        )}
-
-        {d.team && (
-          <div className={css.block}>
-            <p className={css.label}>{L("My team", "Pasukan saya")}</p>
-            {d.team.target_cents === null
-              ? <p className={css.muted}>{L("No team member has a target this week.", "Tiada ahli pasukan mempunyai sasaran minggu ini.")} <strong>{fmtRM(d.team.basis_cents)}</strong> {L("collected.", "dikutip.")}</p>
-              : <>
-                <p className={css.figure}><strong>{fmtRM(d.team.basis_cents)}</strong><span> / {fmtRM(d.team.target_cents)}</span><b className={css.pct}>{d.team.pct ?? 0}%</b></p>
-                <Bar pct={d.team.pct} label={L(`Team: ${d.team.pct ?? 0}% of the combined target`, `Pasukan: ${d.team.pct ?? 0}% daripada sasaran gabungan`)} />
-              </>}
-            <ul className={css.people}>
-              {d.team.rows.slice(0, 6).map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${r.pct ?? 0}%`}</span>{chip(r.status)}</li>)}
-            </ul>
-          </div>
-        )}
-
-        {d.all && (
-          <div className={css.block}>
-            <p className={css.label}>{L("Needs attention", "Perlu perhatian")}</p>
-            {d.all.attention.length === 0
-              ? <p className={css.muted}>{d.all.rows.some((r) => r.target_cents !== null) ? L("Nobody is behind their pace right now.", "Tiada siapa ketinggalan buat masa ini.") : L("No individual targets are set this week.", "Tiada sasaran individu ditetapkan minggu ini.")}</p>
-              : <ul className={css.people}>{d.all.attention.map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.pct ?? 0}% · {fmtRM(r.gap_cents ?? 0)}</span>{chip(r.status)}</li>)}</ul>}
-            {d.all.departments.length > 0 && (
-              <>
-                <p className={css.label}>{L("By department", "Mengikut jabatan")}</p>
-                <ul className={css.depts}>
-                  {d.all.departments.slice(0, 5).map((x) => (
-                    <li key={x.name ?? "-"}>
-                      <span className={css.who}>{x.name ?? L("No department", "Tiada jabatan")}</span>
-                      <span className={css.amt}>{fmtRM(x.basis_cents)}{x.target_cents !== null ? ` / ${fmtRM(x.target_cents)}` : ""}</span>
-                      {x.target_cents !== null && <Bar pct={x.pct} label={`${x.pct ?? 0}%`} />}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+            {(me.introductions.pending ?? 0) > 0 && <p className={css.muted}>{L(`${me.introductions.pending} lead(s) you introduced waiting for Sales`, `${me.introductions.pending} petunjuk anda menunggu Jualan`)}</p>}
           </div>
         )}
       </div>
 
+      <p className={css.basis}>
+        {L("Counts invoices paid in full this week, by the closer.", "Mengira invois dibayar penuh minggu ini, oleh penutup.")}
+        {d.other_channels_cents !== null && d.other_channels_cents > 0 ? L(` Not counted: ${fmtRM(d.other_channels_cents)} TikTok, online and manual sales.`, ` Tidak dikira: ${fmtRM(d.other_channels_cents)} jualan TikTok, dalam talian dan manual.`) : ""}
+      </p>
+
       {acts.length > 0 && (
-        <div className={`${css.acts} ${more ? css.actsOpen : ""}`}>
-          {acts.map((a, i) => (
-            <button key={a.key} type="button" className={`${btnSm} ${i > 0 ? css.extra : ""}`} onClick={a.onClick}><AppIcon name={a.icon} />{a.label}</button>
-          ))}
-          {acts.length > 1 && <button type="button" className={`${btnSm} ${css.moreBtn}`} aria-expanded={more} onClick={() => setMore((m) => !m)}>{more ? L("Less", "Kurang") : L(`More (${acts.length - 1})`, `Lagi (${acts.length - 1})`)}</button>}
+        <div className={css.acts} role="group" aria-label={L("Sales actions", "Tindakan jualan")}>
+          {acts.map((a) => <button key={a.key} type="button" className={css.act} onClick={a.onClick}><AppIcon name={a.icon} />{a.label}</button>)}
         </div>
+      )}
+
+      {hasLists && (
+        <>
+          <button type="button" className={css.listsToggle} aria-expanded={lists} onClick={() => setLists((v) => !v)}>
+            {d.all ? L(`Team & departments${d.all.attention.length ? ` · ${d.all.attention.length} need attention` : ""}`, `Pasukan & jabatan${d.all.attention.length ? ` · ${d.all.attention.length} perlu perhatian` : ""}`)
+              : L("My team", "Pasukan saya")}
+            <AppIcon name={lists ? "up" : "down"} />
+          </button>
+          <div className={`${css.lists} ${lists ? css.listsOpen : ""}`}>
+            {d.team && (
+              <div className={css.block}>
+                <p className={css.label}>{L("My team", "Pasukan saya")}</p>
+                {d.team.target_cents === null
+                  ? <p className={css.muted}>{L("No team member has a target this week.", "Tiada ahli pasukan mempunyai sasaran minggu ini.")} <strong>{fmtRM(d.team.basis_cents)}</strong> {L("collected.", "dikutip.")}</p>
+                  : <>
+                    <p className={css.split}><span><strong className={css.strongNum}>{fmtRM(d.team.basis_cents)}</strong> / {fmtRM(d.team.target_cents)}</span><span>{d.team.pct ?? 0}%</span></p>
+                    <Bar pct={d.team.pct} label={L(`Team: ${d.team.pct ?? 0}% of the combined target`, `Pasukan: ${d.team.pct ?? 0}% daripada sasaran gabungan`)} />
+                  </>}
+                <ul className={css.people}>
+                  {d.team.rows.slice(0, 8).map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${r.pct ?? 0}%`}</span>{chip(r.status)}</li>)}
+                </ul>
+              </div>
+            )}
+            {d.all && (
+              <>
+                <div className={css.block}>
+                  <p className={css.label}>{L("Needs attention", "Perlu perhatian")}</p>
+                  {d.all.attention.length === 0
+                    ? <p className={css.muted}>{d.all.rows.some((r) => r.target_cents !== null) ? L("Nobody is behind their pace right now.", "Tiada siapa ketinggalan buat masa ini.") : L("No individual targets are set this week.", "Tiada sasaran individu ditetapkan minggu ini.")}</p>
+                    : <ul className={css.people}>{d.all.attention.map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.pct ?? 0}% · {fmtRM(r.gap_cents ?? 0)}</span>{chip(r.status)}</li>)}</ul>}
+                </div>
+                {d.all.departments.length > 0 && (
+                  <div className={css.block}>
+                    <p className={css.label}>{L("By department", "Mengikut jabatan")}</p>
+                    <ul className={css.depts}>
+                      {d.all.departments.slice(0, 6).map((x) => (
+                        <li key={x.name ?? "-"}>
+                          <span className={css.who}>{x.name ?? L("No department", "Tiada jabatan")}</span>
+                          <span className={css.amt}>{fmtRM(x.basis_cents)}{x.target_cents !== null ? ` / ${fmtRM(x.target_cents)}` : ""}</span>
+                          {x.target_cents !== null && <Bar pct={x.pct} label={`${x.pct ?? 0}%`} />}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </>
       )}
 
       <IntroduceLead open={introduce} onClose={() => setIntroduce(false)} />

@@ -336,6 +336,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
       if (dow === 0) { days.push({ date: iso, status: "rest_day", in: null, out: null, open: false, scheduled: false, worked: false }); continue; }
       if (d === 8) { days.push({ date: iso, status: "leave", in: null, out: null, open: false, scheduled: true, worked: false }); continue; }
+      /* v1.240.0 - DAY=off: the browser tests' day (18-09) is the person's
+         rest day; DAY=later: a shift later that day, not clocked in yet */
+      if (process.env.DAY && iso === "2026-09-18") { days.push({ date: iso, status: process.env.DAY === "off" ? "rest_day" : "pending", in: null, out: null, open: false, scheduled: process.env.DAY !== "off", worked: false }); continue; }
       const late = d % 7 === 3; const half = d === 12;
       const inT = late ? "09:41" : "08:5" + (d % 10); const outT = half ? "13:02" : iso === today ? null : "18:1" + (d % 10);
       recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00` });
@@ -343,7 +346,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
       days.push({ date: iso, status: iso === today ? "pending" : half ? "half_day" : late ? "late" : "ok", in: inT, out: outT, open: iso === today, scheduled: true, worked: true });
     }
     data = { as_of: today, records: recs, ot: [], ot_eligible: true, days,
-      today_shift: { entry: { clocked_in: true, open_since: "2026-10-20 00:56:00", clock_out_at: null, launch_shift: false, leave_review: false, work_label: "Office" }, kind: "office", label: "Office day",
+      today_shift: process.env.DAY === "off" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "rest", label: "Rest day", windows: [], slots: [], slots_label: "", can_clock_in: false, why_not: "rest_day", can_ot: false }
+        : process.env.DAY === "later" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "live", label: "Live session", windows: [{ start: "23:30", end: "23:59" }], slots: [{ start: "23:30", end: "23:59", what: "Live", claimed: false }], slots_label: "23:30-23:59", can_clock_in: false, why_not: "too_early", can_ot: false }
+        : { entry: { clocked_in: true, open_since: "2026-10-20 00:56:00", clock_out_at: null, launch_shift: false, leave_review: false, work_label: "Office" }, kind: "office", label: "Office day",
         windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: true }], slots_label: "Today", can_clock_in: false, why_not: null, can_ot: false } };
   }
   if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
