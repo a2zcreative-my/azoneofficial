@@ -30,6 +30,7 @@
    mutation through api()/csrfFetch (CSRF), every string L()-bilingual,
    photos compressed client-side before upload (free-tier R2). */
 
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -212,7 +213,7 @@ const zoomOf = (sl: Slide): number => {
 export function ElfiaStorePanel({ role = "" }: { role?: string }) {
   /* v1.235.0 - the owner: price, discount, publish, bulk and Update now are
      the CEO, COO and super admin's (= PERMS.elfia_publish, enforced there) */
-  const canPrice = ELFIA_PUBLISH_ROLES.includes(role);
+  const canPrice = holds("elfia_publish", ELFIA_PUBLISH_ROLES.includes(role));
   const [tab, setTab] = useState<"overview" | "products" | "publishing">("products");
   const [editId, setEditId] = useState<number | null>(null);
   const [statusF, setStatusF] = useState<"" | "published" | "hidden">("");

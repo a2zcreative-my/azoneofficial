@@ -10,6 +10,93 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.238.0] - 2026-10-31 - Staff sign-in, login email and recovery
+
+The owner, 31-10-2026: "A2Z OS - CEO ACCOUNT MANAGEMENT, LOGIN RECOVERY &
+SYSTEM RELIABILITY UPGRADE". Answers: Cloudflare Email Sending; migration
+0155 approved (additive); the company owner and the super admin; P0 + P1.
+Audit: claude/ACCOUNT-RECOVERY-AUDIT.md. Not deployed.
+
+- **Sign-in & recovery sheet** (Users -> Staff Accounts, the key button on a
+  row; owner + super admin; CEO and super admin accounts stay the super
+  admin's; never your own): login email, sign-in methods, 2FA and backup
+  codes left, last sign-in, devices, the account's security history. It never
+  shows a password, a 2FA secret or a backup code.
+- **Change login email** on the SAME account (same users.id - every sale,
+  payslip, clock-in and commission row keeps pointing at the person). It
+  waits until the new address is proven: an email link (Cloudflare Email
+  Sending, once the domain is onboarded), a Google sign-in as that address,
+  or in person (who checked the identity + the person's OWN authenticator
+  code). Format and collision checked, reason and the editor's code
+  required; the old login keeps working until then; on apply every session
+  is signed out, the person and the old address are told, it is audited.
+  An Admin, COO, CCO or payroll / money account changed in person waits for
+  the other of owner and super admin.
+- **Google sign-in by Google's account id** (`users.google_sub`): linked on
+  the first sign-in; a DIFFERENT Google account on the same email is refused
+  (audited `auth.google_refused`), never merged; a renamed Google email still
+  reaches the same person.
+- **Recovery actions**: one-time set-password link (24 h, hash only; shown
+  once to hand over while email is off), reset 2FA (identity check, notified,
+  audited, never silent), unlink Google, sign out one device or all,
+  suspend / restore access. Every one asks for a reason and the code.
+- **Pages** /verify-email and /set-password - the token rides in the URL
+  fragment, never in a request line or a log.
+- **Report a problem** (Desk -> Quick actions): becomes a Task for the person
+  chosen in Security & Settings (else the owner, else the CEO); carries the
+  tab, the version and the last refused request's status and route - never a
+  password (a report that looks like it carries one is refused).
+- **Offboard sheet** (Staff): what the leaver still holds (open tasks,
+  customer follow-ups, assets, unpaid commission), hand the open tasks and
+  follow-ups to one colleague in the same audited step, the last day, and
+  the authenticator code for an executive or Admin account - the 1.236.0
+  prompt never asked for it.
+- **Security & Settings** also shows System health (errors, backups,
+  migrations) next to the audit log.
+- **Money writes once**: a quotation, invoice, payment, credit note, refund
+  or conversion carries a key made from itself; a network drop retries once
+  with the same key, so a repeat cannot land twice. Never queued offline.
+- **Devices**: sessions record the browser and when they were last seen.
+- **Migration 0155_account_identity** (additive): `users.google_sub`,
+  `users.email_verified_at`, `sessions.user_agent`, `sessions.last_seen_at`,
+  tables `email_changes` and `account_tokens`. Nothing is rewritten.
+- Guard `tests/account-identity.mjs` (whole worker on SQLite, 88 checks, 10
+  mutations). Updated: api-routes, authz-guard, login-ux, owner-access,
+  owner-coverage, outbox.
+
+## [1.237.0] - 2026-10-31 - The editable permission matrix
+
+The owner, 31-10-2026: the Roles & Permissions matrix "require to be
+editable for me as a CEO which is I have a right as a Super Admin. this is
+my system and I need to make sure that I can control everything." Answers:
+the company owner and the super admin edit; no locks; approval chains stay
+fixed; build. No migration. Audit: claude/EDITABLE-PERMISSIONS-AUDIT.md.
+
+- **Found**: nobody could edit what a role may DO - not the super admin
+  either; only tab visibility and per-user exceptions were editable, and
+  the CEO already held those.
+- **Edit matrix** (Users -> Roles & Permissions), for the verified company
+  owner and the super admin: press cells to allow or deny a role, review who
+  gains and who loses (with headcounts, and a warning when a route also
+  needs another permission or nobody would be left), give a reason, confirm
+  with your authenticator code. One batch; every cell audited before and
+  after; "Back to default" per row and "Reset all to default".
+- **One source**: the defaults stay in permissions.ts; the saved cells live
+  in system_meta.role_permissions and are applied inside `can()` itself, so
+  every server check follows the matrix from the next request.
+- **The fixed lists became permissions**: Confirm Paid, payroll process /
+  release / bank run, the four commission lists and the geofence moved into
+  PERMS with exactly the roles they had. Nothing changes until a cell is
+  edited. Rules that are not cells still hold (never confirm your own sale;
+  approval-chain stages; who edits the matrix).
+- **Screens follow**: /auth/me sends each person's capabilities; Mark paid,
+  leave entitlement, unpaid days, task delete, ELFIA publish, packages, role
+  and reporting-line assignment, HR controls and the geofence draw from them.
+- Only staff roles can be named; a customer never receives a staff
+  permission; an unreadable record means the defaults.
+- Guard `tests/matrix-edit.mjs` (40 checks, 6 mutations). Guards that
+  pinned the old constants updated to PERMS.
+
 ## [1.236.0] - 2026-10-30 - The company owner (CEO authority)
 
 The owner's brief, 30-10-2026: "CEO = HIGHEST COMPANY OPERATIONAL

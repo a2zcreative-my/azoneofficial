@@ -73,7 +73,7 @@ const MUT = [
   ["index.ts", "a rank check against the super admin comes back", 'if (!user || !allows(user, "backup_download"))', 'if (!user || !atLeast(user, "super_admin"))'],
   ["leave-chain.ts", "a new named list leaves the CEO out", "export const FINAL_ROLES", 'export const NEW_GATE_ROLES = ["super_admin", "admin"];\nexport const FINAL_ROLES'],
   ["permissions.ts", "a technical-only capability loses its reason", "content_manage: \"The website editor", "content_manage: \"\", x_: \"The website editor"],
-  ["permissions.ts", "the owner gets the credential backup", '["exec_accounts", "role_any", "tech_admin_grant"]', '["exec_accounts", "role_any", "tech_admin_grant", "backup_download"]'],
+  ["permissions.ts", "the owner gets the credential backup", '"tech_admin_grant", "account_email", "account_recovery"]', '"tech_admin_grant", "account_email", "account_recovery", "backup_download"]'],
 ];
 for (const [file, name, from, to] of MUT) {
   n++;

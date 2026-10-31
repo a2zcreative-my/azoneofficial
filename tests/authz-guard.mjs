@@ -143,9 +143,12 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
     [...perms.matchAll(/^\s{2}([a-z_]+):\s*\[([^\]]*)\]/gm)]
       .map(([, name, list]) => [name, [...list.matchAll(/"([^"]+)"/g)].map((x) => x[1])]),
   );
-  const procM = staff.match(/const PAYROLL_PROC = \[([^\]]*)\]/);
-  const PROC = new Set([...(procM?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((x) => x[1]));
-  if (PROC.size === 0) fail("PAYROLL_PROC is gone from staff.ts — payroll's role set can no longer be checked (AUDIT S1)");
+  /* v1.237.0 (the owner, 31-10-2026; claude/EDITABLE-PERMISSIONS-AUDIT.md):
+     PAYROLL_PROC moved into PERMS as payroll_process, so the matrix can edit
+     it; its default is read from there now. The rule is unchanged: a payroll
+     write admits no one the payroll processors do not include. */
+  const PROC = new Set(permSets.payroll_process ?? []);
+  if (PROC.size === 0) fail("PERMS.payroll_process is gone - payroll's role set can no longer be checked (AUDIT S1)");
 
   const starts = [...staff.matchAll(/if \(path === "(\/payroll[^"]*)" && method === "(POST|PUT|PATCH|DELETE)"\)/g)];
   if (starts.length === 0) fail("authz-guard found no payroll write routes — the matcher needs updating WITH the code");
@@ -289,7 +292,7 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
       /DELETE FROM sessions WHERE user_id = \?1/.test(window),
       "a session issued under the old factor rule outlived the change");
     ok2(`...and re-issues one for this browser, so the person is not signed out by their own change`,
-      /const fresh2fa = await createSession\(env, me\.id\);/.test(window)
+      /const fresh2fa = await createSession\(env, me\.id(?:, request)?\);/.test(window)
       && /sessionHeaders\(fresh2fa\)/.test(index.slice(at, at + 200)),
       "mirrors /auth/change-password exactly");
   }

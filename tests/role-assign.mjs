@@ -90,7 +90,7 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
 
 /* ---- 5 + 6. only they see it, and a confirmation that names both roles ---- */
 {
-  ok("the control renders only for ROLE_ASSIGN_ROLES", /const canSetRole = ROLE_ASSIGN_ROLES\.includes\(role\);/.test(dir) && /sec\.title === "Employment" && canSetRole && \(/.test(dir));
+  ok("the control renders only for ROLE_ASSIGN_ROLES", /const canSetRole = holds\("role_assign", ROLE_ASSIGN_ROLES\.includes\(role\)\);/.test(dir) && /sec\.title === "Employment" && canSetRole && \(/.test(dir));
   ok("it is its own route, not a field of Save", /`\/users\/\$\{u\.id\}\/role`/.test(dir) && !/\["role", /.test(dir.slice(dir.indexOf("const RECORD_SECTIONS"), dir.indexOf("const RECORD_FIELDS"))));
   ok("an executive account shows it locked", /disabled=\{!WORKING_ROLES\.includes\(u\.role\)\}/.test(dir));
   ok("the confirmation names both roles, in both languages", /\$\{roleLabel\(u\.role\)\} → \$\{roleLabel\(next\)\}\. This changes which tabs/.test(dir) && /Tukar peranan \$\{displayName\(u\)\}\?/.test(dir));

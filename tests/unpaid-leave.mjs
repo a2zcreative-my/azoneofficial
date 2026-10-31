@@ -227,9 +227,9 @@ ok("0097 has a health probe", /0097 \(unpaid day recorded by management\)/.test(
 
 /* ---- 9. the client gates match the server ---- */
 ok("the delete button is CEO-only in the browser too",
-   /const canDelete = \["ceo", "super_admin"\]\.includes\(user\.role\)/.test(page));
+   /const canDelete = holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)/ /* v1.237.0 - the server's answer (matrix edits), this rule until it arrives */.test(page));
 ok("the unpaid control is CEO-only in the browser too",
-   /const canUnpaid = \["ceo", "super_admin"\]\.includes\(role\)/.test(panels));
+   /const canUnpaid = holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(role\)\)/.test(panels)); // v1.237.0
 ok("the attendance panel is actually given the role",
    /<AttendanceAdminPanel role=\{user\.role\} \/>/.test(page),
    "without the prop the control renders for nobody, silently");
@@ -296,7 +296,7 @@ ok("the attendance panel is actually given the role",
      /\["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"\]\.includes\(user\.role\) \? \(\s*\n?\s*<AttendanceAdminPanel/.test(page));
   const panels = read("components/portal/role-panels.tsx");
   ok("the unpaid area of the card stays the CEO's",
-     /const canUnpaid = \["ceo", "super_admin"\]\.includes\(role\);/.test(panels) && /\{canUnpaid && section === "unpaid"/.test(panels));
+     /const canUnpaid = holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(role\)\);/.test(panels) && /\{canUnpaid && section === "unpaid"/.test(panels));
 }
 
 /* ---- v1.93.0: a part-time host has no leave ----
@@ -408,7 +408,7 @@ ok("the attendance panel is actually given the role",
      (staff.match(/Only the CEO can view or change leave entitlements/g) ?? []).length >= 3,
      "the read, the per-person read and the write");
   ok("the editor that remains is gated on those same two roles in the browser",
-     /canSetEntitlement = \["ceo", "super_admin"\]/.test(read("components/portal/leave.tsx")),
+     /canSetEntitlement = holds\("leave_entitlement", \["ceo", "super_admin"\]/.test(read("components/portal/leave.tsx")),
      "a control that renders for somebody the API will refuse is a promise the system cannot keep");
 }
 

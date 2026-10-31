@@ -13,6 +13,7 @@
  * A package line is a quotation line (DocItem) and its figures come from
  * lib/doc-totals.ts - the arithmetic the form and the paper use. Nothing
  * here prices, numbers, saves or prints a document. */
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { useMemo, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -40,7 +41,7 @@ const MAX_SUB = 10; // the worker keeps up to 10 inclusions a line
 
 export function PackagesPanel({ role }: { role: string }) {
   const list = useCachedApi<{ packages?: PackageRow[]; can_manage?: boolean; pending_migration?: boolean }>("/staff/packages", true, []);
-  const canManage = list.data?.can_manage ?? PACKAGE_MANAGE_ROLES.includes(role);
+  const canManage = list.data?.can_manage ?? holds("packages_manage", PACKAGE_MANAGE_ROLES.includes(role));
   const rows = useMemo(() => list.data?.packages ?? [], [list.data]);
   const [q, setQ] = useState("");
   const [issuer, setIssuer] = useState("");

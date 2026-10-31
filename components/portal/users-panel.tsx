@@ -32,6 +32,7 @@
  *
  * Held by tests/users-ui.mjs.
  */
+import { holds as holdsCap } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { L } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
@@ -39,6 +40,9 @@ import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
 import { AccessPolicyCard, AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
 import { OwnerCard, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
+import { AccountSheet } from "@/components/portal/account-sheet";
+import { SupportCard } from "@/components/portal/support-card";
+import { SystemHealthCard } from "@/components/admin/system-health";
 import { withStepUp } from "@/components/portal/page-shared";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import ap from "./access-policy.module.css";
@@ -91,6 +95,9 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
   const [editId, setEditId] = useState<number | null>(null);
   const [draft, setDraft] = useState<{ role: string; employment_status: string; reason?: string }>({ role: "live_host", employment_status: "part_time" });
   const [saving, setSaving] = useState(false);
+  /* v1.238.0 - the Sign-in & recovery sheet (components/portal/account-sheet) */
+  const recovery = holdsCap("account_recovery", superAdmin || owner) || holdsCap("account_email", superAdmin || owner);
+  const [sheetId, setSheetId] = useState<number | null>(null);
   /* v1.137.0 - one find box over both lists. The customer list is Google
      sign-ups and only grows; finding a person was scrolling. From v1.189.0
      each list is its own tab, and the box on either one is this one. */
@@ -254,9 +261,20 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
           </div>
         )}
       </div>
-      {canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin")) && (
+      {((canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin"))) || (kind === "staff" && recovery)) && (
         <div className={css.act}>
-          <button type="button" className={iconBtn}
+          {/* v1.238.0 - Sign-in & recovery: login email, password link, 2FA
+              reset, Google link, devices (owner + super admin; the worker's
+              canManageAccount decides each account) */}
+          {kind === "staff" && recovery && (
+            <button type="button" className={iconBtn}
+              aria-label={L(`Sign-in & recovery for ${properName(u.full_name || u.name)}`, `Log masuk & pemulihan untuk ${properName(u.full_name || u.name)}`)}
+              title={L("Sign-in & recovery", "Log masuk & pemulihan")}
+              onClick={() => setSheetId(u.id)}>
+              <AppIcon name="access" />
+            </button>
+          )}
+          {canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin")) && <button type="button" className={iconBtn}
             aria-label={kind === "staff"
               ? L(`Change role for ${properName(u.full_name || u.name)}`, `Tukar peranan untuk ${properName(u.full_name || u.name)}`)
               : L(`Promote ${properName(u.full_name || u.name)}`, `Naik taraf ${properName(u.full_name || u.name)}`)}
@@ -273,7 +291,7 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
                 : { role: "live_host", employment_status: "part_time" });
             }}>
             <AppIcon name="edit" />
-          </button>
+          </button>}
         </div>
       )}
       {/* The desk panel. `hidden` is the ONLY base display class here - the
@@ -334,7 +352,8 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
   const [reviewOpen, setReviewOpen] = useState(false);
   const [seenRoles, setSeenRoles] = useState(false);
   const openView = (v: UsersView) => { setView(v); if (v === "roles") setSeenRoles(true); };
-  const policy = usePolicy(seenRoles);
+  const [policyTick, setPolicyTick] = useState(0); // v1.237.0 - reload after a matrix edit
+  const policy = usePolicy(seenRoles, policyTick);
   const review = useReview(seenRoles && holds, reviewTick);
   const [ownerTick, setOwnerTick] = useState(0);
   const ownerState = useOwner(["ceo", "coo", "cco", "admin", "super_admin"].includes(role), ownerTick);
@@ -344,12 +363,13 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
   const [logKind, setLogKind] = useState<"" | "signin" | "twofa" | "other">("");
   const shownEvents = events.filter((e) => (!logWho || e.email === logWho)
     && (!logKind || (logKind === "signin" ? /^auth\.login/.test(e.action) : logKind === "twofa" ? /2fa/.test(e.action) && !/^auth\.login/.test(e.action) : !/^auth\.login|2fa/.test(e.action))));
-  const geofence = ["super_admin", "ceo", "coo"].includes(role);
+  const geofence = holdsCap("geofence_admin", ["super_admin", "ceo", "coo"].includes(role));
   const adminDoor = ["super_admin", "admin"].includes(role);
 
   return (
     <TabPage className={css.page}>
       {toastNode}{promptNode}
+      <AccountSheet userId={sheetId} open={sheetId !== null} onClose={() => setSheetId(null)} onChanged={load} />
       {/* v1.189.0 - the reference's underline tabs (gold rule under the open
           one); the shared LineTabs from v1.190.0, which Desk draws too */}
       <LineTabs value={view} onChange={openView} tabs={tabs} label={L("Users", "Pengguna")} />
@@ -479,7 +499,7 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
           <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("User exceptions", "Pengecualian pengguna")}</p><p className={ap.sumTitle}>{holds ? (review?.d ? L(`${review.d.exceptions.length} exception(s)`, `${review.d.exceptions.length} pengecualian`) : "…") : L("Kept by the CEO", "Disimpan oleh CEO")}</p><p className={ap.sub}>{holds && review?.d ? L(`${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} to review`, `${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} untuk disemak`) : L("Each with its reason and approver", "Setiap satu dengan sebab dan pelulusnya")}</p></section>
         </div>
         <TabZone label={L("What each role may do", "Apa yang setiap peranan boleh lakukan")}>
-          <AccessPolicyCard policy={policy} />
+          <AccessPolicyCard policy={policy} onChanged={() => { setPolicyTick((n) => n + 1); setReviewTick((n) => n + 1); }} />
         </TabZone>
         <TabZone label={L("What each role sees", "Apa yang setiap peranan lihat")}>
           <TabAccessCard canEdit={holds} headcount={headcount} />
@@ -595,6 +615,18 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
         {geofence && (
           <TabZone label={L("Office location", "Lokasi pejabat")}>
             <GeofenceCard />
+          </TabZone>
+        )}
+        {/* v1.238.0 - who receives Report a problem, and the system's
+            health (errors, backups, migrations) next to the audit trail */}
+        {holds && view === "security" && (
+          <TabZone label={L("Problem reports", "Laporan masalah")}>
+            <SupportCard />
+          </TabZone>
+        )}
+        {auditRead && view === "security" && (
+          <TabZone label={L("System health", "Kesihatan sistem")}>
+            <SystemHealthCard />
           </TabZone>
         )}
         {auditRead && view === "security" && (

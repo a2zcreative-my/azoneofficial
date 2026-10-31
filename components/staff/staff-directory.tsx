@@ -1,4 +1,5 @@
 "use client";
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
@@ -35,8 +36,9 @@ const api = makeApi("/staff");
    /api/v1/staff/users/42/offboard, which handleStaff does not serve, so the
    CEO's Offboard button answered "Staff route not found" every time.
    tests/api-routes.mjs now checks every client path against the routes the
-   worker actually serves, so a helper with the wrong base cannot ship again. */
-const apiRoot = makeApi("");
+   worker actually serves, so a helper with the wrong base cannot ship again.
+   v1.238.0 - the call now lives in components/staff/offboard-sheet.tsx,
+   with the same root helper. */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { esc, safeUrl } from "@/lib/escape-html";
 import { dmy } from "@/lib/format";
@@ -89,6 +91,7 @@ import sp from "./staff-page.module.css";
 import type { TabName } from "@/lib/portal-tabs";
 import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import { leaveTypeL } from "@/components/portal/page-shared";
+import { OffboardSheet, type OffboardPerson } from "@/components/staff/offboard-sheet";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -699,7 +702,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
      list lives in org-chart.tsx and tests/org-chart.mjs holds it against
      PERMS.org_assign in the worker, so the button and the door agree. The
      server refuses regardless of what this says. */
-  const canAssign = ORG_ASSIGN_ROLES.includes(role);
+  const canAssign = holds("org_assign", ORG_ASSIGN_ROLES.includes(role));
   /* v1.201.0 - FIVE TABS (the owner's mockup, 23-10-2026). `tab` is the
      page; `view` is now only the Organization Chart's own switch,
      Organisation or Team map - the directory is a tab of its own. */
@@ -738,6 +741,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   const todayS = todayIso();
   const { show: showToast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
+  /* v1.238.0 - the Offboard sheet: what they hold, the handover, the last
+     day, and the authenticator code for an executive or Admin account */
+  const [offboard, setOffboard] = useState<OffboardPerson | null>(null);
 
   const toggleSelect = (id: number) =>
     setSelected((prev) => {
@@ -858,7 +864,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
      it is the door list. Its own audited route, a confirmation that names
      both roles, an optional reason. Executive accounts show the control
      locked: those roles are the super_admin's to change (v1.4.157). */
-  const canSetRole = ROLE_ASSIGN_ROLES.includes(role);
+  const canSetRole = holds("role_assign", ROLE_ASSIGN_ROLES.includes(role));
   const roleLabel = (r: string) => L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "));
   const changeRole = async (u: Staff, next: string) => {
     if (!next || next === u.role) return;
@@ -1254,6 +1260,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     <>
       {/* outside every zone: a hidden tab must not hide a toast, a question or a drawer */}
       {toastNode}{promptNode}
+      <OffboardSheet person={offboard} onClose={() => setOffboard(null)}
+        colleagues={offboard ? staff.filter((x) => x.id !== offboard.id && x.is_active && x.role !== "customer" && x.role !== "super_admin" && !["resigned", "terminated"].includes(x.employment_status ?? "")).map((x) => ({ id: x.id, name: displayName(x) })) : []}
+        onDone={(m) => { showToast(L("Offboarded", "Khidmat ditamatkan"), m); void load(); }} />
       <style>{`@keyframes sd-pop { from { opacity: 0; transform: translateY(6px) scale(.9) } to { opacity: 1; transform: none } }
         @keyframes sd-drift { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
         @keyframes sd-spin { to { transform: rotate(360deg) } }
@@ -2080,32 +2089,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     suggestion; it just has to be looked at now. */}
                 {open.has(u.id) && canAmend && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
                   <button type="button" className={rowBtnDanger}
-                    onClick={() => {
-                      void prompt({
-                        title: L(`Offboard ${displayName(u)}?`, `Tamatkan khidmat ${displayName(u)}?`),
-                        message: L(
-                          "This does the whole exit in one audited step: marks them resigned from the date below, signs them out everywhere, and removes their two-factor setup. The date is their LAST DAY of employment — payroll prorates their final month on it. You can change it, or switch to terminated, in the fields afterwards.",
-                          "Ini melakukan keseluruhan proses keluar dalam satu langkah yang diaudit: menandakan letak jawatan dari tarikh di bawah, melog keluar mereka di semua peranti, dan membuang persediaan dua faktor. Tarikh itu ialah HARI TERAKHIR pekerjaan mereka — gaji bulan akhir dikira mengikutnya. Anda boleh menukarnya, atau menukar kepada ditamatkan, dalam medan selepas itu.",
-                        ),
-                        text: false,
-                        date: {
-                          label: L("Last day of employment", "Hari terakhir bekerja"),
-                          initial: todayIso(),
-                          required: true,
-                        },
-                        confirmLabel: L("Offboard", "Tamatkan khidmat"), variant: "danger",
-                      }).then(async (r) => {
-                        if (!r?.date) return;
-                        const res = await apiRoot<ErrShape & { left_on?: string }>(`/users/${u.id}/offboard`, { method: "POST", body: JSON.stringify({ left_on: r.date }) });
-                        if (res.ok) {
-                          showToast(L("Offboarded", "Khidmat ditamatkan"),
-                            `${displayName(u)} — ${L(`last day ${dmy(res.data?.left_on ?? r.date)}, signed out everywhere, 2FA cleared`, `hari terakhir ${dmy(res.data?.left_on ?? r.date)}, dilog keluar di semua peranti, 2FA dibuang`)}`);
-                          void load();
-                        } else {
-                          setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? L("Offboard failed", "Tamat khidmat gagal") }));
-                        }
-                      });
-                    }}>
+                    onClick={() => setOffboard({ id: u.id, name: displayName(u) })}>
                     <AppIcon name="offboard" className="mr-1 -mt-0.5 h-3.5 w-3.5" />{L("Offboard", "Tamatkan khidmat")}
                   </button>
                 )}

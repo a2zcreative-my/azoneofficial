@@ -287,7 +287,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     && ['"overview"', '"staff"', '"customers"', '"roles"', '"security"'].every((v) => usersPanel.includes(`hidden={view !== ${v}}`)));
   ok("each Users card keeps the gate the page gave it",
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
-    && /const geofence = \["super_admin", "ceo", "coo"\]\.includes\(role\)/.test(usersPanel)
+    && /const geofence = holdsCap\("geofence_admin", \["super_admin", "ceo", "coo"\]\.includes\(role\)\)/.test(usersPanel)
     && /const superAdmin = role === "super_admin";\s*const canEdit = superAdmin \|\| owner;/.test(usersPanel) /* v1.236.0 - the verified company owner changes roles too (the owner, 30-10-2026) */
     && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel)
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));

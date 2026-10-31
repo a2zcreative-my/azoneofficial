@@ -106,7 +106,7 @@ const grab = (src, re) => (src.match(re) ?? [])[1] ?? "";
   ok("the drawer's lines are figs(): no new figure", /const f = figs\(detailUser\);/.test(code) && !/\bapi\(|postPay\(|csrfFetch/.test(drawer));
   ok("no statutory amount is computed anywhere on the page", !/(?:epf|socso|eis|pcb|kwsp)[a-z_]*_cents/i.test(code));
   ok("…and the drawer says the statutory line is not calculated", /Not calculated — registration pending/.test(panel));
-  ok("the history and the warning are read only by those who already read payroll", /if \(!PAYROLL_PROC\.includes\(user\.role\)\) \{\s*return err\("forbidden", "Payroll access required", 403\);/.test(staff));
+  ok("the history and the warning are read only by those who already read payroll", /if \(!can\(user\.role, "payroll_process"\)\) \{\s*return err\("forbidden", "Payroll access required", 403\);/ /* v1.237.0 - PAYROLL_PROC is PERMS.payroll_process */.test(staff));
 }
 
 ok("no sample figure from the mockup", !/128,?450|Mohd Alif Farhan|14,250|AZZ001|Process Payroll/.test(panel + read("components/portal/payroll-history.tsx")));

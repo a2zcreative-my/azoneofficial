@@ -173,7 +173,7 @@ const i18n = read("lib/i18n.ts");
   ok("no company address in a placeholder", !/@a2zcreative/.test(code));
   const worker = read("worker/src/index.ts");
   const cb = worker.slice(worker.indexOf('const OAUTH_FAILED = "/login?error=oauth";'), worker.indexOf('const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)'));
-  ok("every Google failure lands on /login, one way", cb.length > 500 && (cb.match(/Location: OAUTH_FAILED/g) ?? []).length === 4 && !/\/admin\?(error|pending)/.test(worker));
+  ok("every Google failure lands on /login, one way", cb.length > 500 && (cb.match(/Location: OAUTH_FAILED/g) ?? []).length === 5 /* v1.238.0 - +1: a Google account other than the linked one */ && !/\/admin\?(error|pending)/.test(worker));
   ok("the server still answers a bad password and a missing account the same", /return errorResponse\("invalid_credentials", "Email or password is incorrect", 401\);/.test(worker) && /DUMMY_PASSWORD_HASH/.test(worker));
 }
 

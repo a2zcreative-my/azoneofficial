@@ -222,17 +222,24 @@ ok("the handful of runtime-chosen paths stays a handful", runtimeChosen <= 6,
      resignation which is to ensure that I can insert correctly instead of
      capture to today date"*. `left_on` is what payroll prorates a final month
      on, so the date is money, not decoration. */
+  /* v1.238.0 - the date prompt became the Offboard sheet (the owner,
+     31-10-2026, claude/ACCOUNT-RECOVERY-AUDIT.md: hand over open tasks and
+     follow-ups in the same step). The same properties, read where they now
+     live. */
+  const sheet = read("components/staff/offboard-sheet.tsx");
+  ok("the directory's Offboard button opens the sheet",
+     /onClick=\{\(\) => setOffboard\(\{ id: u\.id, name: displayName\(u\) \}\)\}/.test(dir) &&
+     /<OffboardSheet person=\{offboard\}/.test(dir));
   ok("offboarding asks for the last day",
-     /date: \{\s*\n?\s*label: L\("Last day of employment"/.test(dir),
+     /L\("Last day of employment"/.test(sheet) && /type="date"[^>]*value=\{leftOn\}[^>]*required/.test(sheet),
      "it used to take today, which is only right if somebody walks out the moment you press it");
   ok("the date cannot be left empty",
-     /label: L\("Last day of employment"[\s\S]{0,200}?required: true/.test(dir) &&
-     /if \(!r\?\.date\) return;/.test(dir),
+     /disabled=\{!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(leftOn\)\}/.test(sheet),
      "an OK button that submits no date puts the server back on today");
   ok("the chosen date is what gets sent",
-     /body: JSON\.stringify\(\{ left_on: r\.date \}\)/.test(dir));
+     /body: JSON\.stringify\(\{ left_on: leftOn,/.test(sheet));
   ok("the suggested date is today in MALAYSIA",
-     /const todayIso = \(\) => new Date\(Date\.now\(\) \+ 8 \* 3600 \* 1000\)/.test(dir),
+     /new Date\(Date\.now\(\) \+ 8 \* 3600 \* 1000\)\.toISOString\(\)\.slice\(0, 10\)/.test(sheet),
      "a laptop on UTC would otherwise propose yesterday as somebody's last day");
   ok("the server refuses a date it cannot read instead of substituting today",
      /if \(bodyOb\.left_on !== undefined &&[\s\S]{0,200}?return errorResponse\("invalid_input", "Last day must be a date/.test(index),
@@ -240,12 +247,15 @@ ok("the handful of runtime-chosen paths stays a handful", runtimeChosen <= 6,
   ok("omitting the date still means today, so an older client keeps working",
      /const leftOn = typeof bodyOb\.left_on === "string"\s*\n?\s*\? bodyOb\.left_on/.test(index));
   ok("the confirmation says which day it recorded",
-     /last day \$\{dmy\(res\.data\?\.left_on \?\? r\.date\)\}/.test(dir),
+     /last day \$\{dmy\(r\.data\?\.left_on \?\? leftOn\)\}/.test(sheet),
      "the one field worth getting wrong is the one worth reading back");
   ok("offboarding is called at the API root, not through the staff prefix",
-     /const apiRoot = makeApi\(""\)/.test(dir) &&
-     /apiRoot<[^>]*>\(`\/users\/\$\{u\.id\}\/offboard`/.test(dir),
+     /const apiRoot = makeApi\(""\)/.test(sheet) &&
+     /apiRoot\(`\/users\/\$\{person\.id\}\/offboard`/.test(sheet),
      "makeApi(\"/staff\") sent it to /api/v1/staff/users/42/offboard, which nothing serves");
+  ok("an executive or Admin offboard can be signed with the authenticator code",
+     /withStepUp<[\s\S]{0,200}apiRoot\(`\/users\/\$\{person\.id\}\/offboard`/.test(sheet),
+     "the v1.236.0 prompt never asked for the code, so the owner's offboard of a COO was refused with no way to sign it");
   ok("the route it now calls is the audited one that clears 2FA and sessions",
      /path\.startsWith\("\/api\/v1\/users\/"\) && path\.endsWith\("\/offboard"\)/.test(index));
   /* v1.104.0 - the staff LIST now arrives through useCachedApi, which takes

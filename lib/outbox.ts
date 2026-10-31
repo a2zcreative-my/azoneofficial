@@ -67,6 +67,30 @@ export const QUEUEABLE: readonly { method: string; path: RegExp; kind: string }[
   { method: "POST",  path: /^\/staff\/hotels\/\d+\/calls$/,               kind: "hotel_call" },
 ];
 
+/* v1.238.0 - ONCE ONLY: money writes that never wait on the device but must
+   never land twice. Sent with a key made from the request itself and a
+   five-minute window, re-sent once with the same key when the network
+   drops; the worker answers a repeat with the first answer. The same list as
+   worker/src/outbox.ts ONCE_ONLY (tests/outbox.mjs). */
+export const ONCE_ONLY: readonly { method: string; path: RegExp; kind: string }[] = [
+  { method: "POST", path: /^\/staff\/docs$/,                         kind: "document" },
+  { method: "POST", path: /^\/staff\/docs\/\d+\/payments$/,           kind: "payment" },
+  { method: "POST", path: /^\/staff\/docs\/\d+\/credit-note$/,        kind: "credit_note" },
+  { method: "POST", path: /^\/staff\/credit-notes\/\d+\/refund$/,     kind: "refund" },
+  { method: "POST", path: /^\/staff\/docs\/\d+\/convert$/,            kind: "convert" },
+];
+export function onceOnlyKind(method: string | undefined, path: string): string | null {
+  const m = (method ?? "GET").toUpperCase();
+  for (const r of ONCE_ONLY) if (r.method === m && r.path.test(path)) return r.kind;
+  return null;
+}
+/** The same press, pressed again within five minutes, gets the same key. */
+export async function onceKey(method: string, path: string, body: string | null, now = Date.now()): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${method} ${path} ${body ?? ""}`));
+  const hex = [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
+  return `${hex}-${Math.floor(now / 300_000)}`;
+}
+
 export function queueableKind(method: string | undefined, path: string): string | null {
   const m = (method ?? "GET").toUpperCase();
   for (const r of QUEUEABLE) if (r.method === m && r.path.test(path)) return r.kind;

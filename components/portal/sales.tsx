@@ -1,4 +1,5 @@
 "use client";
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-preview";
 
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
@@ -1310,7 +1311,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      mark paid / unpaid / overdue, or create it already paid - is the CEO,
      COO and admins only (worker permissions invoice_payment). Everyone who
      can invoice still sees the payment status. */
-  const canPay = ["super_admin", "ceo", "coo"].includes(user.role); // v1.234.0 - = PERMS.invoice_payment (the owner: CEO, COO, super admin only)
+  const canPay = holds("invoice_payment", ["super_admin", "ceo", "coo"].includes(user.role)); // v1.234.0 - = PERMS.invoice_payment (the owner: CEO, COO, super admin only)
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the

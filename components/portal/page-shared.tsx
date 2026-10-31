@@ -54,6 +54,8 @@ export interface User {
   requires_2fa?: boolean;
   /** v1.236.0 - the verified company owner (the worker decides; display only) */
   is_owner?: boolean;
+  /** v1.237.0 - the capabilities the server grants this person (matrix edits included) */
+  caps?: string[];
 }
 
 /* v1.26 BM sweep — display-point translation helper. The EN argument is the

@@ -67,7 +67,12 @@ function baseFixture(p) {
         A("System", "audit_read", "Read the full system audit log", only("ceo", "admin", "super_admin")),
         A("System", "owner_designate", "Name the company owner; give or take the CEO role; manage Super Admin accounts", only("super_admin"), "Recovery procedure"),
         A("System", "backup", "Download the database backup", only("super_admin"), "Holds password hashes and 2FA secrets"),
-      ].map((a) => ({ ...a, owner_grant: ["role_any", "exec_accounts", "tech_admin"].includes(a.key), cond: a.key === "confirm_paid" ? { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] } : {}, na: a.key === "confirm_paid" ? ["super_admin", "admin"] : [] })),
+      ].map((a) => ({ ...a, owner_grant: ["role_any", "exec_accounts", "tech_admin"].includes(a.key), cond: a.key === "confirm_paid" ? { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] } : {}, na: a.key === "confirm_paid" ? ["super_admin", "admin"] : [],
+        /* v1.237.0 - the editable cell behind each row (worker: cap, default, saved edit) */
+        cap: a.key === "tab_access" ? null : ({ sales_view: "sales", mark_paid: "invoice_payment", tech_admin: "tech_admin_grant", backup: "backup_download", geofence: "geofence_admin", commission_decide: "commission_settle" }[a.key] ?? a.key),
+        editable: a.key !== "tab_access", default_roles: a.key === "tab_access" ? null : a.roles, edited: false, edit_meta: null,
+        needs: a.key === "payroll_release" ? "payroll_process" : a.key === "bank_run" ? "expenses" : null })),
+      can_edit_actions: (OWNER && ROLE === "ceo") || ROLE === "super_admin", edited_count: 0,
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
       owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
       me_owner: OWNER && ROLE === "ceo",
@@ -490,6 +495,38 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     ];
     data = { users: us, staff: us };
   }
+  /* v1.238.0 - the Sign-in & recovery sheet (worker: staff.ts
+     /accounts/:id) for the owner and the super admin; a waiting Google-route
+     change, two devices and a short history. Invented people and addresses. */
+  if (/^\/staff\/accounts\/\d+$/.test(p)) {
+    const id = Number(p.split("/")[3]);
+    const may = ROLE === "super_admin" || (OWNER && ROLE === "ceo");
+    data = !may ? { error: { code: "forbidden", message: "Only the company owner or the super admin manages staff sign-in" } } : {
+      account: { id, employee_id: "A2Z-0042", name: "Nur Aisyah binti Rahman", email: "aisyah.rahman@example.test", role: "sales_marketing", is_active: true, employment_status: "permanent",
+        email_verified_at: null, methods: { password: true, google: true, google_unlinked_signup: false }, totp_enabled: true, backup_codes_left: 7, last_login: "2026-10-30 01:12:00" },
+      pending: process.env.PENDING ? [{ id: 3, new_email: "aisyah@a2zcreative.test", route: "google", needs_second: 0, approved: 0, requested_by: 9001, requested_by_name: "Fixture Person", reason: "Moving to the company mailbox", created_at: "2026-10-31 01:00:00", expires_at: "2026-11-01 01:00:00" }] : [],
+      sessions: [
+        { ref: "a1b2c3d4e5f6", created_at: "2026-10-30 01:12:00", expires_at: "2026-10-30 13:12:00", last_seen_at: "2026-10-30 04:40:00", user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1" },
+        { ref: "0f9e8d7c6b5a", created_at: "2026-10-29 23:50:00", expires_at: "2026-10-30 11:50:00", last_seen_at: null, user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36" },
+      ],
+      history: [
+        { id: 41, action: "auth.google_linked", created_at: "2026-10-29 23:50:00", detail: JSON.stringify({ via: "first_google_sign_in" }), who: "Nur Aisyah binti Rahman" },
+        { id: 40, action: "staff.role_change", created_at: "2026-09-02 03:00:00", detail: JSON.stringify({ from: "marketing", to: "sales_marketing" }), who: "Fixture Person" },
+      ],
+      can: { email: true, recovery: true }, mail_ready: !!process.env.MAIL, privileged: false, me: 9001,
+    };
+  }
+  if (p === "/staff/support/settings") data = {
+    assignee: { id: 9001, name: "Fixture Person" }, can_edit: ROLE === "super_admin" || (OWNER && ROLE === "ceo"),
+    people: [{ id: 9001, name: "Fixture Person", role: "ceo" }, { id: 9104, name: "Tech Support A2Z", role: "admin" }, { id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing" }],
+    kinds: { login: "Login problem", access: "Missing access", data: "Incorrect data", clock: "Clock-in failure", quotation: "Quotation error", system: "System error" },
+  };
+  if (/^\/staff\/users\/\d+\/handover$/.test(p)) data = {
+    tasks: [{ id: 71, title: "Follow up Aina Boutique (Melaka) quotation", status: "open", deadline: "2026-11-05" }, { id: 72, title: "Prepare November live schedule", status: "in_progress", deadline: null }],
+    followups: [{ id: 5, due_on: "2026-11-03", note: "Call about the renewal", company: "Kedai Runcit Pak Ali (Kuantan)" }],
+    assets: [{ id: 2, asset_tag: "AZOA-014", name: "iPhone 13 (live)" }],
+    commission: { open: 2, cents: 48650 },
+  };
   /* v1.201.0 - one staff vault for the Staff Records tab: a contract on
      file and two of the six joining steps ticked */
   if (/^\/staff\/users\/\d+\/documents$/.test(p)) data = p.includes("/9002/") ? {

@@ -93,6 +93,14 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
     ok(`${bad[0]} ${bad[1]} is NOT queueable`, !server.isQueueable(bad[0], bad[1]), "replaying a sign-in, a decision or a sync later is wrong");
   }
   ok("the CEO's four are queueable", ["/attendance", "/tasks/12", "/leave", "/claims", "/hotels/3/calls"].every((p) => server.isQueueable(p === "/tasks/12" ? "PATCH" : "POST", p)));
+  /* v1.238.0 - money writes: never queued, but once only, on both ends */
+  const co = client.ONCE_ONLY.map((r) => `${r.method} ${r.path.source.replace(/^\^\\\/staff/, "^")}`).sort();
+  const so = server.ONCE_ONLY.map((r) => `${r.method} ${r.path.source}`).sort();
+  ok("the client and the worker treat the same money writes as once-only", JSON.stringify(co) === JSON.stringify(so), `client: ${co.join(" | ")}\n      worker: ${so.join(" | ")}`);
+  ok("a part payment and a new document are once-only - and never queued", server.isOnceOnly("POST", "/docs/5/payments") && server.isOnceOnly("POST", "/docs") && !server.isQueueable("POST", "/docs/5/payments") && !client.queueableKind("POST", "/staff/docs"));
+  const k1 = await client.onceKey("POST", "/staff/docs/5/payments", '{"amount_cents":100}', 1_000_000);
+  ok("the same press within five minutes gets the same key; a different one does not", k1 === await client.onceKey("POST", "/staff/docs/5/payments", '{"amount_cents":100}', 1_000_000 + 60_000)
+     && k1 !== await client.onceKey("POST", "/staff/docs/5/payments", '{"amount_cents":200}', 1_000_000) && /^[A-Za-z0-9_-]{8,80}$/.test(k1));
 }
 
 /* ---- 2. the same answer twice ---- */
@@ -201,7 +209,9 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
      "minted per retry would defeat the whole point");
   ok("the live attempt carries both headers", /headers\.set\("Idempotency-Key", idem\); headers\.set\("X-Client-At", clientAt!\);/.test(apiSrc));
   ok("offline for certain parks without trying", /if \(kind && typeof navigator !== "undefined" && navigator\.onLine === false\) return park\(\);/.test(apiSrc));
-  ok("a thrown fetch parks a queueable write and fails the rest as before", /catch \{[\s\S]{0,300}?if \(kind\) return park\(\);\s*return \{ ok: false, status: 0, data: null \};/.test(apiSrc));
+  /* v1.238.0 - a money write (ONCE_ONLY) is re-sent once with the SAME key before failing; nothing else changes */
+  ok("a thrown fetch parks a queueable write, re-sends a money write once with its own key, and fails the rest as before",
+     /catch \{[\s\S]{0,300}?if \(kind\) return park\(\);[\s\S]{0,400}?if \(onceK\) \{[\s\S]{0,900}?headers\.set\("Idempotency-Key", onceK\);[\s\S]{0,400}?return \{ ok: false, status: 0, data: null \};/.test(apiSrc) && !/park\(\)[^;]*onceK/.test(apiSrc));
   ok("a parked write says so", /return \{ ok: true, status: 202, data: null, queued: true \};/.test(apiSrc));
   ok("the replay sends the SAME key and pressed-at, and says it IS a replay",
      /"Idempotency-Key": e\.id,\s*\n?\s*"X-Client-At": e\.clientAt, "X-Outbox-Replay": "1"/.test(apiSrc));

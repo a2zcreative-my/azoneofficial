@@ -3,6 +3,7 @@ import { backupManifest } from "./backup-manifest";
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, type StaffUser } from "./staff";
+import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges } from "./accounts"; // v1.238.0 - account identity
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
@@ -40,6 +41,10 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
+  /* v1.238.0 - Cloudflare Email Sending (worker/src/mail.ts). Both optional:
+     until they are set, nothing is emailed and the callers fall back. */
+  EMAIL?: { send(m: { from: string; to: string; subject: string; text: string; html?: string }): Promise<unknown> };
+  MAIL_FROM?: string;
   /** v1.29.3 — origins that may submit the PUBLIC enquiry form and nothing
       else. The consultancy site (azoneofficial.com) posts leads into the one
       back office; it can never mint a session or read staff data with this. */
@@ -80,7 +85,7 @@ export interface Env {
   VAPID_SUBJECT?: string;
 }
 
-import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, MANDATORY_2FA_ROLES } from "./permissions";
+import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES } from "./permissions";
 // v1.23.5: the ONE version number — read from the repo root package.json at
 // bundle time, so worker and site stamps always come from the same place.
 import pkg from "../../package.json";
@@ -286,7 +291,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0154_commission_product_rule";
+const LATEST_MIGRATION = "0155_account_identity";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1397,17 +1402,27 @@ async function twoFactorReauth(
   return null;
 }
 
-async function createSession(env: Env, userId: number): Promise<string> {
+async function createSession(env: Env, userId: number, req?: Request): Promise<string> {
   const token = randomHex(32);
   // Store only the hash: a leaked sessions table cannot be replayed.
   const tokenHash = await sha256Hex(token);
+  /* v1.238.0 - the device line on the account (migration 0155): the
+     browser's own description, trimmed - no IP, no fingerprint. A database
+     without 0155 yet stores the session as before. */
+  const ua = (req?.headers.get("user-agent") ?? "").slice(0, 200) || null;
   try {
-    await env.DB.prepare(
-      `INSERT INTO sessions (id, user_id, expires_at)
-       VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
-    )
-      .bind(tokenHash, userId)
-      .run();
+    try {
+      await env.DB.prepare(
+        `INSERT INTO sessions (id, user_id, expires_at, user_agent, last_seen_at)
+         VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'), ?3, datetime('now'))`,
+      ).bind(tokenHash, userId, ua).run();
+    } catch (e0) {
+      if (!String(e0).includes("no column") && !String(e0).includes("no such column") && !String(e0).includes("has no column")) throw e0;
+      await env.DB.prepare(
+        `INSERT INTO sessions (id, user_id, expires_at)
+         VALUES (?1, ?2, datetime('now', '+${SESSION_TTL_HOURS} hours'))`,
+      ).bind(tokenHash, userId).run();
+    }
   } catch (e) {
     throw new Error(`session insert for user ${userId}: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -1438,16 +1453,28 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
      setup, abandoned immediately, cleared the "you must enrol" flag for good
      while login (which correctly checks totp_enabled) still issued no
      challenge. The two halves now agree on the same column. */
-  const row = await env.DB.prepare(
+  const sel = (seen: boolean) => env.DB.prepare(
     `SELECT u.id, u.email, u.name, u.role, u.photo_key,
             CASE WHEN COALESCE(u.totp_enabled, 0) = 1 THEN 0 ELSE 1 END AS missing_2fa,
-            (SELECT value FROM system_meta WHERE key = 'company_owner') AS owner_meta
+            (SELECT value FROM system_meta WHERE key = 'company_owner') AS owner_meta,
+            (SELECT value FROM system_meta WHERE key = 'role_permissions') AS perm_meta${seen ? ",\n            CASE WHEN s.last_seen_at IS NULL OR s.last_seen_at < datetime('now', '-10 minutes') THEN 1 ELSE 0 END AS seen_stale" : ""}
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ?1 AND s.expires_at > datetime('now') AND u.is_active = 1`,
-  )
-    .bind(token)
-    .first<SessionUser & { missing_2fa: 1 | 0; owner_meta: string | null }>();
+  ).bind(token).first<SessionUser & { missing_2fa: 1 | 0; owner_meta: string | null; perm_meta: string | null; seen_stale?: 1 | 0 }>();
+  /* v1.238.0 - "last seen" on the device list, written at most every ten
+     minutes per session (migration 0155); before 0155 the old read. */
+  let row: (SessionUser & { missing_2fa: 1 | 0; owner_meta: string | null; perm_meta: string | null; seen_stale?: 1 | 0 }) | null;
+  try { row = await sel(true); } catch (e) {
+    if (!/no such column|has no column/.test(String(e))) throw e;
+    row = await sel(false);
+  }
   if (!row) return null;
+  if (row.seen_stale === 1) {
+    try { await env.DB.prepare(`UPDATE sessions SET last_seen_at = datetime('now') WHERE id = ?1`).bind(token).run(); } catch { /* never fatal */ }
+  }
+  /* v1.237.0 - the matrix cells the owner or the super admin edited, read on
+     every signed-in request and applied inside can() (permissions.ts). */
+  try { setPermissionOverrides(row.perm_meta ? (JSON.parse(row.perm_meta) as { perms?: unknown }).perms : null); } catch { setPermissionOverrides(null); }
 
   const requires_2fa = row.missing_2fa === 1 && MANDATORY_2FA_ROLES.includes(row.role);
   /* v1.236.0 - THE COMPANY OWNER, decided here and nowhere else (the owner,
@@ -3656,7 +3683,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return json({ twofa_required: true, challenge }, 200);
     }
 
-    const token = await createSession(env, user.id);
+    const token = await createSession(env, user.id, request);
     await audit(env, user.id, "auth.login");
 
     return json(
@@ -3726,7 +3753,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
     await resetRateLimit(env, key2fa);
-    const token = await createSession(env, row.id);
+    const token = await createSession(env, row.id, request);
     await audit(env, row.id, "auth.login_2fa");
     return json(
       { user: { id: row.id, email: row.email, name: row.name, role: row.role } },
@@ -3831,7 +3858,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        outlive it. Both handlers already demand the current password, so this
        cannot be driven by a stolen cookie alone. */
     await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(me.id).run();
-    const fresh2fa = await createSession(env, me.id);
+    const fresh2fa = await createSession(env, me.id, request);
     await audit(env, me.id, "auth.2fa_enabled");
     return json({ ok: true, backup_codes: codes }, 200, sessionHeaders(fresh2fa));
   }
@@ -3859,7 +3886,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        outlive it. Both handlers already demand the current password, so this
        cannot be driven by a stolen cookie alone. */
     await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(me.id).run();
-    const fresh2fa = await createSession(env, me.id);
+    const fresh2fa = await createSession(env, me.id, request);
     await audit(env, me.id, "auth.2fa_disabled");
     return json({ ok: true }, 200, sessionHeaders(fresh2fa));
   }
@@ -3944,7 +3971,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       .bind((body.email as string).toLowerCase().trim(), hash, (body.name as string).trim())
       .first<{ id: number }>();
     await audit(env, res?.id ?? null, "auth.bootstrap_super_admin", "users", String(res?.id));
-    const token = await createSession(env, res!.id);
+    const token = await createSession(env, res!.id, request);
     return json({ ok: true }, 201, sessionHeaders(token));
   }
 
@@ -3976,7 +4003,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         .bind(email, hash, (body.name as string).trim())
         .first<{ id: number }>();
       await audit(env, res?.id ?? null, "auth.register_customer", "users", String(res?.id));
-      const token = await createSession(env, res!.id);
+      const token = await createSession(env, res!.id, request);
       return json(
         { ok: true, user: { id: res!.id, email, name: (body.name as string).trim(), role: "customer" } },
         201,
@@ -4075,7 +4102,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     const profile = (await profileRes.json().catch(() => null)) as
-      | { email?: string; email_verified?: boolean; name?: string }
+      | { sub?: string; email?: string; email_verified?: boolean; name?: string }
       | null;
     if (!profileRes.ok || !profile?.email || profile.email_verified !== true) {
       return new Response(null, {
@@ -4085,13 +4112,75 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
 
     const email = profile.email.toLowerCase().trim();
-    let account = await env.DB.prepare(
-      // v1.5.0: also carry employment_status so an offboarded staff member
-      // cannot walk back in through Google.
-      `SELECT id, is_active, employment_status FROM users WHERE email = ?1`,
-    )
-      .bind(email)
-      .first<{ id: number; is_active: number; employment_status: string | null }>();
+    /* v1.238.0 - GOOGLE IDENTITY IS GOOGLE'S ACCOUNT ID, NOT AN EMAIL (the
+       owner, 31-10-2026, claude/ACCOUNT-RECOVERY-AUDIT.md: "Do not link a
+       different Google Account to an existing A2Z user solely because the
+       supplied email address matches"). Google's `sub` is permanent; an
+       address can be renamed, recycled or changed in A2Z OS. Order:
+         1. the account already linked to this sub - the person, whatever
+            email either side now shows (and a pending Google-route change
+            to this address completes here);
+         2. no link yet: the account with this email, if it has no Google
+            link or the SAME one - linked now, once, audited. An account
+            linked to a DIFFERENT Google account is refused, never merged;
+         3. no account with this email: a pending Google-route change TO
+            this address completes (the owner or super admin asked for it,
+            and Google has just proven the person owns the address);
+         4. otherwise a customer sign-up, as before (linked to this sub).
+       Before migration 0155 the column is absent and the old email match
+       stands. */
+    const sub = typeof profile.sub === "string" && profile.sub.length > 0 && profile.sub.length <= 255 ? profile.sub : null;
+    type GAcct = { id: number; is_active: number; employment_status: string | null; email?: string; google_sub?: string | null };
+    let account: GAcct | null = null;
+    let subReady = !!sub;
+    const refuseG = async (userId: number, why: string) => {
+      await audit(env, userId, "auth.google_refused", "users", String(userId), { reason: why });
+      /* the same door as every other Google failure: the page never tells a
+         visitor that an account exists - the audit row says why */
+      return new Response(null, { status: 302, headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState } });
+    };
+    if (subReady) {
+      try {
+        account = await env.DB.prepare(`SELECT id, is_active, employment_status, email, google_sub FROM users WHERE google_sub = ?1`).bind(sub).first<GAcct>();
+      } catch (e) {
+        if (!/no such column|has no column/.test(String(e))) throw e;
+        subReady = false;
+      }
+    }
+    if (account && account.email !== email) {
+      const pend = await pendingGoogleChange(env, email);
+      if (pend && pend.user_id === account.id) {
+        const r = await applyEmailChange(env, pend, { via: "google_sign_in" });
+        if (!r.ok) return await refuseG(account.id, r.code);
+      }
+    }
+    if (!account) {
+      const byEmail = await env.DB.prepare(
+        // v1.5.0: also carry employment_status so an offboarded staff member
+        // cannot walk back in through Google.
+        subReady ? `SELECT id, is_active, employment_status, email, google_sub FROM users WHERE email = ?1`
+          : `SELECT id, is_active, employment_status, email FROM users WHERE email = ?1`,
+      ).bind(email).first<GAcct>();
+      if (byEmail) {
+        if (subReady && byEmail.google_sub && byEmail.google_sub !== sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");
+        if (subReady && !byEmail.google_sub) {
+          await env.DB.prepare(`UPDATE users SET google_sub = ?1 WHERE id = ?2 AND google_sub IS NULL`).bind(sub, byEmail.id).run();
+          await audit(env, byEmail.id, "auth.google_linked", "users", String(byEmail.id), { via: "first_google_sign_in" });
+        }
+        account = byEmail;
+      } else if (subReady) {
+        const pend = await pendingGoogleChange(env, email);
+        if (pend) {
+          const target = await env.DB.prepare(`SELECT id, is_active, employment_status, email, google_sub FROM users WHERE id = ?1`).bind(pend.user_id).first<GAcct>();
+          if (target) {
+            if (target.google_sub && target.google_sub !== sub) return await refuseG(target.id, "change_needs_the_linked_google_account");
+            const r = await applyEmailChange(env, pend, { googleSub: sub, via: "google_sign_in" });
+            if (!r.ok) return await refuseG(target.id, r.code);
+            account = target;
+          }
+        }
+      }
+    }
 
     if (!account) {
       // Every self-registration is a CUSTOMER — no exceptions (v1.4.35).
@@ -4101,14 +4190,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // assignment: /admin Users (admin tier) or HR staff creation. A staff
       // member who signs in with Google on an email an admin already
       // elevated keeps their assigned role — that path is unchanged.
-      let res: { id: number; is_active: number; employment_status: string | null } | null = null;
+      let res: GAcct | null = null;
       try {
-        res = await env.DB.prepare(
-          `INSERT INTO users (email, password_hash, name, role, is_active)
-           VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active, employment_status`,
-        )
-          .bind(email, profile.name ?? email)
-          .first<{ id: number; is_active: number; employment_status: string | null }>();
+        res = subReady
+          ? await env.DB.prepare(
+            `INSERT INTO users (email, password_hash, name, role, is_active, google_sub, email_verified_at)
+             VALUES (?1, 'oauth$google', ?2, 'customer', 1, ?3, datetime('now')) RETURNING id, is_active, employment_status`,
+          ).bind(email, profile.name ?? email, sub).first<GAcct>()
+          : await env.DB.prepare(
+            `INSERT INTO users (email, password_hash, name, role, is_active)
+             VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active, employment_status`,
+          ).bind(email, profile.name ?? email).first<GAcct>();
       } catch (e) {
         throw new Error(`customer signup insert: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -4157,12 +4249,56 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       : ["super_admin", "admin"].includes(roleRow?.role ?? "")
         ? "/admin"
         : "/portal";
-    const token = await createSession(env, account.id);
+    const token = await createSession(env, account.id, request);
     await audit(env, account.id, "auth.login_google");
     const headers = new Headers({ Location: dest });
     for (const [k, v] of sessionHeaders(token) as [string, string][]) headers.append(k, v);
     headers.append("Set-Cookie", clearState);
     return new Response(null, { status: 302, headers });
+  }
+
+  /* ---- v1.238.0 - ACCOUNT LINKS (the owner, 31-10-2026; claude/ACCOUNT-
+     RECOVERY-AUDIT.md). Both answer without a session: the person may be
+     signed out, or signing in for the first time. Each takes a single-use
+     token whose SHA-256 alone is stored; a used, expired or unknown token
+     gets the same answer. Rate-limited per IP. Nothing here reveals whether
+     an account or an address exists. ---- */
+  if (path === "/api/v1/auth/email-verify" && method === "POST") {
+    if (!(await checkRateLimit(env, `acctlink:${clientIp(request)}`, 20, 900))) return errorResponse("rate_limited", "Too many attempts - wait 15 minutes", 429);
+    const b = (await request.json().catch(() => null)) as { token?: unknown } | null;
+    const tok = typeof b?.token === "string" && /^[0-9a-f]{64}$/.test(b.token) ? b.token : null;
+    const bad = errorResponse("link_invalid", "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one.", 400);
+    if (!tok) return bad;
+    await expireChanges(env);
+    const c = await env.DB.prepare(`SELECT * FROM email_changes WHERE token_hash = ?1 AND route = 'email' AND status = 'pending' AND expires_at > datetime('now')`)
+      .bind(await sha256Acct(tok)).first<Parameters<typeof applyEmailChange>[1]>();
+    if (!c) return bad;
+    const r = await applyEmailChange(env, c, { via: "email_link" });
+    if (!r.ok) return errorResponse(r.code, r.message, 409);
+    return json({ ok: true, email: c.new_email });
+  }
+  if (path === "/api/v1/auth/set-password" && method === "POST") {
+    if (!(await checkRateLimit(env, `acctlink:${clientIp(request)}`, 20, 900))) return errorResponse("rate_limited", "Too many attempts - wait 15 minutes", 429);
+    const b = (await request.json().catch(() => null)) as { token?: unknown; password?: unknown } | null;
+    const tok = typeof b?.token === "string" && /^[0-9a-f]{64}$/.test(b.token) ? b.token : null;
+    const pw = typeof b?.password === "string" ? b.password : "";
+    if (pw.length < 10 || pw.length > 200) return errorResponse("invalid_input", "Choose a password of at least 10 characters", 400);
+    const bad = errorResponse("link_invalid", "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one.", 400);
+    if (!tok) return bad;
+    const t = await env.DB.prepare(
+      `SELECT t.id, t.user_id FROM account_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = ?1 AND t.kind = 'set_password' AND t.used_at IS NULL AND t.expires_at > datetime('now')
+         AND u.is_active = 1 AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated')`,
+    ).bind(await sha256Acct(tok)).first<{ id: number; user_id: number }>();
+    if (!t) return bad;
+    const hash = await createPasswordHash(pw, env.SESSION_PEPPER);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(hash, t.user_id),
+      env.DB.prepare(`UPDATE account_tokens SET used_at = datetime('now'), token_hash = 'used:' || id WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(t.user_id),
+      env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.user_id),
+    ]);
+    await audit(env, t.user_id, "auth.password_set_by_link", "users", String(t.user_id), { token_id: t.id });
+    return json({ ok: true });
   }
 
   /* ---- authenticated ---- */
@@ -4196,7 +4332,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // Revoke every session (including any attacker's), then re-issue one for
     // this browser so the legitimate user is not logged out by their own change.
     await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(user.id).run();
-    const fresh = await createSession(env, user.id);
+    const fresh = await createSession(env, user.id, request);
     await audit(env, user.id, "auth.change_password");
     return json({ ok: true }, 200, sessionHeaders(fresh));
   }
@@ -4219,7 +4355,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const csrfHeaders: HeadersInit = getCookie(request, "csrf_token")
       ? {}
       : [["Set-Cookie", `csrf_token=${randomHex(16)}; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_HOURS * 3600}`]];
-    return json({ user: { ...user, oauth: ph?.password_hash.startsWith("oauth$") ?? false } }, 200, csrfHeaders);
+    /* v1.237.0 - what this person may do, as the server decides it (the
+       matrix's saved edits included): screens draw from it, the routes still
+       check every request. */
+    const caps = (Object.keys(PERMS) as (keyof typeof PERMS)[]).filter((k) => allows(user, k));
+    return json({ user: { ...user, oauth: ph?.password_hash.startsWith("oauth$") ?? false, caps } }, 200, csrfHeaders);
   }
 
   /* ---- staff portal (all routes require auth) ---- */
@@ -4838,6 +4978,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0152 (commission rates per package, per policy version)", `SELECT policy_id, match_key, rule, rate_bp, fixed_cents FROM commission_policy_packages LIMIT 1`],
       ["0153 (sales packages for quotations, their versions, the quotation link)", `SELECT p.issuers, v.version, v.items, d.package_id, d.package_version, d.package_customized FROM sales_packages p LEFT JOIN sales_package_versions v ON v.package_id = p.id LEFT JOIN sales_documents d ON 1 = 0 LIMIT 1`],
       ["0154 (commission product rule per policy version)", `SELECT product_rule FROM commission_policies LIMIT 1`],
+      ["0155 (account identity: Google sub, email changes, set-password links, session devices)", `SELECT u.google_sub, u.email_verified_at, s.user_agent, s.last_seen_at, c.route, t.kind FROM users u LEFT JOIN sessions s ON 1 = 0 LEFT JOIN email_changes c ON 1 = 0 LEFT JOIN account_tokens t ON 1 = 0 LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5013,6 +5154,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0152_commission_packages",
       "0153_sales_packages",
       "0154_commission_product_rule",
+      "0155_account_identity",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5078,9 +5220,28 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ).bind(statusOb, leftOn, idOb).run();
     const sess = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(idOb).run();
     try { await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(idOb).run(); } catch { /* pre-0018 */ }
+    /* v1.238.0 - THE HANDOVER (the owner, 31-10-2026; claude/ACCOUNT-
+       RECOVERY-AUDIT.md: "Transfer outstanding Tasks. Transfer relevant
+       customer responsibility."). Optional handover_to: an active staff
+       member who receives the leaver's open tasks and open customer
+       follow-ups, in this same audited step. Nothing finished moves; history
+       keeps the leaver's name. Assets are listed for return, never moved. */
+    let moved = { tasks: 0, followups: 0 };
+    const toId = Number((bodyOb as { handover_to?: unknown }).handover_to ?? 0);
+    if (toId) {
+      const to = await env.DB.prepare(
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'super_admin') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
+      ).bind(toId).first<{ id: number }>();
+      if (to && to.id !== idOb) {
+        const tr = await env.DB.prepare(`UPDATE tasks SET assigned_to = ?1 WHERE assigned_to = ?2 AND status != 'completed'`).bind(to.id, idOb).run();
+        let fr = 0;
+        try { fr = (await env.DB.prepare(`UPDATE customer_followups SET owner_id = ?1 WHERE owner_id = ?2 AND done_at IS NULL AND cancelled_at IS NULL`).bind(to.id, idOb).run()).meta?.changes ?? 0; } catch { /* pre-0143 */ }
+        moved = { tasks: tr.meta?.changes ?? 0, followups: fr };
+      }
+    }
     await audit(env, user.id, "staff.offboard", "users", String(idOb),
-      { status: statusOb, left_on: leftOn, sessions_revoked: sess.meta?.changes ?? 0 });
-    return json({ ok: true, status: statusOb, left_on: leftOn });
+      { status: statusOb, left_on: leftOn, sessions_revoked: sess.meta?.changes ?? 0, ...(toId ? { handover_to: toId, moved } : {}) });
+    return json({ ok: true, status: statusOb, left_on: leftOn, moved });
   }
 
   if (path === "/api/v1/system/backup" && method === "POST") {

@@ -45,12 +45,13 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, err, json, str } from "./shared";
+import { can } from "./permissions";
 
 export const COMMISSION_START_DAY = "2026-11-01"; // = staff.ts COMMISSION_START_MONTH (the owner, 28-10-2026)
-export const VIEW_ALL = ["super_admin", "admin", "ceo", "coo", "cco"]; // the CCO reviews only
-export const DRAFT_ROLES = ["super_admin", "ceo", "coo"];
-export const APPROVE_ROLES = ["super_admin", "ceo"];
-export const DECIDE_ROLES = ["super_admin", "ceo"];
+/* v1.237.0 - VIEW_ALL, DRAFT_ROLES, APPROVE_ROLES and DECIDE_ROLES are PERMS
+   commission_view_all, commission_draft, commission_approve and
+   commission_settle (editable in Roles & Permissions; the CCO reviews only
+   by default). */
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH = /^\d{4}-\d{2}$/;
 const mytToday = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -418,7 +419,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     || path === "/commission/flow" || path === "/commission/policy" || path.startsWith("/commission/policy/")
     || path === "/commission/settings" || path.startsWith("/commission/ledger/")
     || path === "/commission/packages" || path === "/commission/audit" || path.startsWith("/commission/invoice/"))) return null;
-  const all = VIEW_ALL.includes(user.role);
+  const all = can(user.role, "commission_view_all");
   const today = mytToday();
   const wantAll = params.get("scope") === "all" && all; // everyone else only ever reads their own
   const me = wantAll ? null : user.id;
@@ -490,7 +491,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       };
     }) : [];
     const match = (r: Record<string, unknown>) => !q || [r.doc_number, r.company, r.closer_name, r.package].some((x) => String(x ?? "").toLowerCase().includes(q));
-    return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: DECIDE_ROLES.includes(user.role) });
+    return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: can(user.role, "commission_settle") });
   }
 
   /* ---- one entry, with everything that happened to it ---- */
@@ -534,13 +535,13 @@ export async function handleCommission(env: Env, path: string, method: string, b
       if (pol) breakdown = commissionOf(row as unknown as Inv, pol, (await packagesOf(env, [pol.id])).get(pol.id)).lines;
     }
     const nextE = nextOfEntry(row as { status: string; user_id: number | null; payroll_month: string | null }, await syncSwitch(env), await entryContext(env));
-    return json({ entry: { ...row, package: lineSummary(row.items as string | null), next: nextE }, related, confirmations, history, breakdown, can_decide: DECIDE_ROLES.includes(user.role) });
+    return json({ entry: { ...row, package: lineSummary(row.items as string | null), next: nextE }, related, confirmations, history, breakdown, can_decide: can(user.role, "commission_settle") });
   }
 
   /* ---- decide an entry under review (CEO, super admin) ---- */
   const dec = path.match(/^\/commission\/ledger\/(\d+)\/decide$/);
   if (dec && method === "POST") {
-    if (!DECIDE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO decides a commission under review", 403);
+    if (!can(user.role, "commission_settle")) return err("forbidden", "Only the CEO decides a commission under review", 403);
     const id = Number(dec[1]);
     const decision = String(body?.decision ?? "");
     const note = str(body?.note, 500) ? String(body!.note).trim() : "";
@@ -735,11 +736,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const inF = inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY);
     return json({
       versions, log, in_force: inF ? { ...inF, packages: pkV.get(inF.id) ?? [] } : null, sync: await syncSwitch(env),
-      start: COMMISSION_START_DAY, today, can_draft: DRAFT_ROLES.includes(user.role), can_approve: APPROVE_ROLES.includes(user.role), can_switch: DECIDE_ROLES.includes(user.role),
+      start: COMMISSION_START_DAY, today, can_draft: can(user.role, "commission_draft"), can_approve: can(user.role, "commission_approve"), can_switch: can(user.role, "commission_settle"),
     });
   }
   if (path === "/commission/policy" && method === "POST") {
-    if (!DRAFT_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin drafts a commission policy", 403);
+    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO, COO or super admin drafts a commission policy", 403);
     const name = str(body?.name, 80) ? String(body!.name).trim() : "";
     const from = String(body?.effective_from ?? "");
     const kind = body?.rate_kind === "fixed" ? "fixed" : "percent";
@@ -833,7 +834,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       return json({ policy: p, rows: out, total_cents: out.reduce((a, r) => a + r.amount_cents, 0), note: "A preview only - nothing is written, and past entitlements keep their own version." });
     }
     if (pol[2] === "approve" && method === "POST") {
-      if (!APPROVE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO approves a commission policy", 403);
+      if (!can(user.role, "commission_approve")) return err("forbidden", "Only the CEO approves a commission policy", 403);
       if (p.status !== "draft") return err("conflict", "Only a draft is approved.", 409);
       if (p.effective_from < today) return err("invalid_input", `This draft starts on ${p.effective_from}, which has passed. Draft it again from today or later.`, 400);
       if (body?.confirm !== true) return err("invalid_input", "Tick that you approve this policy.", 400);
@@ -848,7 +849,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       return json({ ok: true });
     }
     if (pol[2] === "reject" && method === "POST") {
-      if (!APPROVE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO rejects a commission policy", 403);
+      if (!can(user.role, "commission_approve")) return err("forbidden", "Only the CEO rejects a commission policy", 403);
       const reason = str(body?.reason, 500) ? String(body!.reason).trim() : "";
       if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
       const r = await env.DB.prepare(`UPDATE commission_policies SET status = 'rejected', rejected_by = ?2, rejected_at = datetime('now'), reject_reason = ?3 WHERE id = ?1 AND status = 'draft'`).bind(id, user.id, reason).run();
@@ -858,7 +859,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     }
   }
   if (path === "/commission/settings" && method === "POST") {
-    if (!DECIDE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO switches commission into payroll", 403);
+    if (!can(user.role, "commission_settle")) return err("forbidden", "Only the CEO switches commission into payroll", 403);
     const value = body?.sync === "on" ? "on" : body?.sync === "off" ? "off" : "";
     const reason = str(body?.reason, 500) ? String(body!.reason).trim() : "";
     if (!value) return err("invalid_input", "sync is on or off", 400);

@@ -117,3 +117,15 @@ crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *"]
 # v1.162.0 - the Workers AI binding went with the Advisors (retired). Nothing
 # in the engine calls a model now. The AI Gateway in the dashboard can stay
 # where it is; it simply has nothing routed through it.
+
+# v1.238.0 - Cloudflare Email Sending (worker/src/mail.ts; the owner's answer,
+# 31-10-2026, claude/ACCOUNT-RECOVERY-AUDIT.md). OFF until you turn it on:
+#   1. Dashboard > Compute > Email Service > Email Sending > Onboard Domain
+#      (e.g. a2zcreative.my - Cloudflare adds SPF, DKIM and DMARC itself).
+#   2. Uncomment the two blocks below, then run PUSH.bat.
+# Until then the portal sends nothing: login email changes are verified by
+# Google sign-in or in person, and set-password links are handed over.
+# [[send_email]]
+# name = "EMAIL"
+# [vars] entry to add beside the others:
+# MAIL_FROM = "A2Z OS <no-reply@a2zcreative.my>"

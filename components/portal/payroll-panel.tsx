@@ -1,4 +1,5 @@
 "use client";
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
 /**
@@ -739,7 +740,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         `${date} — ${r.data?.days ?? 1} hari tanpa gaji. Kakitangan telah dimaklumkan.`));
     void load();
   };
-  const canMarkUnpaid = ["ceo", "super_admin"].includes(role);
+  const canMarkUnpaid = holds("unpaid_leave", ["ceo", "super_admin"].includes(role));
   // v1.4.80: staff payslip release state for this month.
   // v1.28.0: released also carries issuer_code — the employer stamped at
   // release time, which every payslip printed for this month must show.

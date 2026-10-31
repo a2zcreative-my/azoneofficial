@@ -42,6 +42,7 @@ import type { RecordFocus } from "@/lib/record-focus";
 import { installViewportSettle } from "@/lib/viewport-settle";
 
 import { api, sendOutboxEntry } from "@/lib/api";
+import { setCaps } from "@/lib/caps";
 import { setOutboxScope, startOutbox } from "@/lib/outbox";
 import { devicePushStatus, pushPermission, signOutRequest } from "@/lib/push-client";
 import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
@@ -389,6 +390,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     setDark(localStorage.getItem("azone-theme") === "dark");
     void api<{ user: User }>("/auth/me").then((r) => {
       if (r.ok && r.data) {
+        setCaps(r.data.user.caps); // v1.237.0 - before anything draws from them
         setUser(r.data.user);
         // v1.25.0: remembered data is per-account — switching users wipes it.
         setCacheScope(r.data.user.id);

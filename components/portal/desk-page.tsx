@@ -52,6 +52,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { btnSm, btnSmPrimary, card, chipSmNeutral, chipSmWarn } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 import css from "./desk-page.module.css";
+import { ReportProblem } from "@/components/portal/support-card";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -217,6 +218,8 @@ export function DeskPage({ user, go }: {
               {quick("orders", "gold", L("My Actions", "Tindakan Saya"), L("Everything waiting on you", "Semua yang menunggu anda"), () => setView("actions"))}
               {exec && quick("preview", "navy", L("View all watchers", "Lihat semua pemerhati"), L("What the rules find true now", "Apa yang peraturan dapati sekarang"), () => setView("alerts"))}
               {exec && quick("access", "gold", L("Watcher settings", "Tetapan pemerhati"), L("Rules, thresholds and who is told", "Peraturan, ambang dan siapa diberitahu"), () => setView("settings"))}
+              {/* v1.238.0 - a problem becomes a task for whoever looks after the portal */}
+              <ReportProblem tab="Desk" trigger={(open) => quick("fix", "green", L("Report a problem", "Laporkan masalah"), L("Login, access, wrong data, clock-in", "Log masuk, akses, data salah, daftar masuk"), open)} />
             </div>
           </section>
         </div>

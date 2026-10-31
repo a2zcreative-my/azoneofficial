@@ -35,6 +35,7 @@
    and then stays mounted, hidden, so a half-typed report survives a look at
    the calendar. */
 
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { useCallback, useEffect, useState } from "react";
 import { HolidaysCard, PayslipCard } from "@/components/admin/hr-admin-panel";
 import { UpcomingEventsCard } from "@/components/portal/events";
@@ -397,7 +398,7 @@ function HrAdministration({ role, admin, go, canOpen, open }: {
       show: admin, onClick: () => open("calendar") },
     { icon: "date", title: L("Company events", "Acara syarikat"), where: L("HR · Calendar & Holidays", "HR · Kalendar & Cuti"),
       text: L("Trainings, classes, meetings - who must attend is notified.", "Latihan, kelas, mesyuarat - yang perlu hadir dimaklumkan."),
-      show: CAN.events_manage.includes(role), onClick: () => open("calendar") },
+      show: holds("events_manage", CAN.events_manage.includes(role)), onClick: () => open("calendar") },
     { icon: "offboard", title: L("Joining, leaving, probation, letters", "Masuk, keluar, percubaan, surat"), where: L("HR · Employee Lifecycle", "HR · Kitaran Pekerja"),
       text: L("Checklists, probation decisions, numbered letters, training records.", "Senarai semak, keputusan percubaan, surat bernombor, rekod latihan."),
       show: admin, onClick: () => open("lifecycle") },
@@ -409,7 +410,7 @@ function HrAdministration({ role, admin, go, canOpen, open }: {
       show: canOpen("Leave"), onClick: () => go("Leave") },
     { icon: "balance", title: L("Leave entitlements", "Kelayakan cuti"), where: L("Leave", "Cuti"),
       text: L("Annual leave per person - the CEO's control.", "Cuti tahunan setiap orang - kawalan CEO."),
-      show: canOpen("Leave") && CAN.leave_entitlement.includes(role), onClick: () => go("Leave") },
+      show: canOpen("Leave") && holds("leave_entitlement", CAN.leave_entitlement.includes(role)), onClick: () => go("Leave") },
     { icon: "receipt", title: L("Claims decisions", "Keputusan tuntutan"), where: L("Claims", "Tuntutan"),
       text: L("Approve, reject and pay staff claims.", "Lulus, tolak dan bayar tuntutan kakitangan."),
       show: canOpen("Claims"), onClick: () => go("Claims") },
@@ -425,12 +426,12 @@ function HrAdministration({ role, admin, go, canOpen, open }: {
   ];
   const shown = controls.filter((c) => c.show);
   const access: [string, boolean][] = [
-    [L("Submit and read task reports", "Hantar dan baca laporan tugasan"), CAN.task_reports.includes(role)],
-    [L("Add and remove public holidays", "Tambah dan buang cuti umum"), CAN.hr_manage.includes(role)],
-    [L("Create and edit company events", "Cipta dan sunting acara syarikat"), CAN.events_manage.includes(role)],
-    [L("Joining, leaving, probation, letters and training", "Masuk, keluar, percubaan, surat dan latihan"), CAN.hr_manage.includes(role)],
+    [L("Submit and read task reports", "Hantar dan baca laporan tugasan"), holds("task_reports", CAN.task_reports.includes(role))],
+    [L("Add and remove public holidays", "Tambah dan buang cuti umum"), holds("hr_manage", CAN.hr_manage.includes(role))],
+    [L("Create and edit company events", "Cipta dan sunting acara syarikat"), holds("events_manage", CAN.events_manage.includes(role))],
+    [L("Joining, leaving, probation, letters and training", "Masuk, keluar, percubaan, surat dan latihan"), holds("hr_manage", CAN.hr_manage.includes(role))],
     [L("Generate payslip summaries here", "Jana ringkasan slip gaji di sini"), admin],
-    [L("Set leave entitlements", "Tetapkan kelayakan cuti"), CAN.leave_entitlement.includes(role)],
+    [L("Set leave entitlements", "Tetapkan kelayakan cuti"), holds("leave_entitlement", CAN.leave_entitlement.includes(role))],
   ];
   return (
     <>

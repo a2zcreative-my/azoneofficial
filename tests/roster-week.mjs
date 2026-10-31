@@ -229,7 +229,7 @@ const pkg = JSON.parse(read("package.json"));
      /const ok = await confirm\(\{[\s\S]{0,900}?variant: "danger",/.test(board)
      && /\{confirmNode\}/.test(board));
   ok("the Attendance tab hands the board the same tier as task_delete",
-     /canDeleteTask=\{\["ceo", "super_admin"\]\.includes\(user\.role\)\}/.test(read("components/portal/attendance-panel.tsx")) // v1.188.0 - the tab's own panel
+     /canDeleteTask=\{holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)\}/.test(read("components/portal/attendance-panel.tsx")) // v1.188.0 - the tab's own panel
      && /task_delete: \["super_admin", "ceo"\]/.test(read("worker/src/permissions.ts")));
   ok("Unschedule still means unschedule - the two are different buttons",
      /\{L\("Unschedule", "Nyahjadual"\)\}/.test(board) && /\{L\("Delete task", "Padam tugasan"\)\}/.test(board)

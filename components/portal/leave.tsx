@@ -1,4 +1,5 @@
 "use client";
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
@@ -1058,7 +1059,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   /* v1.62.0 — the CEO's entitlement control. Mirrors the server's
      `leave_entitlement` permission exactly; the API refuses anyone else
      regardless of what the client renders. */
-  const canSetEntitlement = ["ceo", "super_admin"].includes(user.role);
+  const canSetEntitlement = holds("leave_entitlement", ["ceo", "super_admin"].includes(user.role));
   /* the badge on the chooser: how many applications are still in progress */
   const mgmtPending = all.filter((l) => !["approved", "rejected", "cancelled"].includes(l.stage ?? l.status)).length;
   /* v1.196.0 - the search over a leave list: the person, the type, the

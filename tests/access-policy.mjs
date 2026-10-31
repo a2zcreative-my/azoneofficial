@@ -140,12 +140,13 @@ function source() {
   const caps = new Set([...perms.matchAll(/^\s{2}([a-z_]+):\s*\[/gm)].map((m) => m[1]));
   const catCaps = [...perms.matchAll(/cap: "([a-z_]+)"/g)].map((m) => m[1]);
   ok(catCaps.length > 20 && catCaps.every((c) => caps.has(c)), "every catalogue capability exists in PERMS");
-  ok(/Payroll: \(r\) => \["super_admin", "admin", "ceo", "coo"\]\.includes\(r\), \/\/ = PAYROLL_PROC/.test(staff) && /const PAYROLL_PROC = \["super_admin", "admin", "ceo", "coo"\];/.test(staff), "the Payroll read rule mirrors PAYROLL_PROC exactly");
-  ok(/const canPay = \["super_admin", "ceo", "coo"\]\.includes\(user\.role\)/.test(read("components/portal/sales.tsx")), "the Sales screen offers Mark paid only to the CEO, COO and super admin");
+  ok(/Payroll: \(r\) => can\(r, "payroll_process"\), \/\/ = PERMS\.payroll_process/.test(staff) && /payroll_process: \["super_admin", "admin", "ceo", "coo"\],/.test(perms), "the Payroll read rule IS PERMS.payroll_process (v1.237.0 - editable, so it cannot drift)");
+  ok(/const canPay = holds\("invoice_payment", \["super_admin", "ceo", "coo"\]\.includes\(user\.role\)\)/.test(read("components/portal/sales.tsx")), "the Sales screen offers Mark paid only to the CEO, COO and super admin");
   const users = read("components/portal/users-panel.tsx");
   ok(!/<AccessReviewCard/.test(users) && /<ExceptionsCard/.test(users) && /<AccessPolicyCard/.test(users), "Who sees what is gone from Security & Settings; exceptions live in Roles & Permissions");
   ok(/<GeofenceCard \/>/.test(users), "the office geofence stays in Users (the owner's answer)");
-  ok(!/method: "(POST|PUT|PATCH|DELETE)"/.test(read("components/portal/access-policy.tsx").replace(/\/staff\/tabs\/access\/person", \{ method: "POST"/g, "")), "the policy view writes nothing except through the exceptions route");
+  /* v1.237.0 - the owner, 31-10-2026: the action matrix is editable by the company owner and the super admin - through ONE route, /staff/access/policy (audited, reason + code) - and the exceptions route; nothing else */
+  ok(!/method: "(POST|PUT|PATCH|DELETE)"/.test(read("components/portal/access-policy.tsx").replace(/\/staff\/tabs\/access\/person", \{ method: "POST"/g, "").replace(/api\("\/staff\/access\/policy", \{ method: "POST"/g, "")), "the policy view writes only through the matrix route and the exceptions route");
   return out;
 }
 
@@ -158,9 +159,9 @@ report(source());
 
 const MUT = [
   ["worker/src/permissions.ts", "the Admin account marks paid again", 'invoice_payment: ["super_admin", "ceo", "coo"],', 'invoice_payment: ["super_admin", "admin", "ceo", "coo"],'],
-  ["worker/src/staff.ts", "the Admin account releases payslips again", 'export const PAYROLL_RELEASE_ROLES = ["super_admin", "ceo", "coo"];', 'export const PAYROLL_RELEASE_ROLES = ["super_admin", "admin", "ceo", "coo"];'],
-  ["worker/src/staff.ts", "the bank-run check is dropped", 'if (!BANK_RUN_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);', ""],
-  ["worker/src/staff.ts", "the release check is dropped (policy no longer = enforcement)", 'if (!PAYROLL_RELEASE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
+  ["worker/src/permissions.ts", "the Admin account releases payslips again", 'payroll_release: ["super_admin", "ceo", "coo"],', 'payroll_release: ["super_admin", "admin", "ceo", "coo"],'],
+  ["worker/src/staff.ts", "the bank-run check is dropped", 'if (!can(user.role, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);', ""],
+  ["worker/src/staff.ts", "the release check is dropped (policy no longer = enforcement)", 'if (!can(user.role, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
   ["worker/src/staff.ts", "a hollow exception is accepted", 'if (mode === "allow" && TAB_READ[tabName] && !TAB_READ[tabName]!(target.role)) {', "if (false) {"],
   ["worker/src/staff.ts", "an exception without a reason is accepted", 'if ((mode === "allow" || mode === "deny") && reasonX.length < 10)', "if (false)"],
   ["worker/src/staff.ts", "an ended exception keeps applying", "const liveEx = (p: PersonAccess, tab: string) => { const e = p.meta?.[tab]?.expires_on; return !e || e >= todayTA; };", "const liveEx = (_p: PersonAccess, _tab: string) => true;"],

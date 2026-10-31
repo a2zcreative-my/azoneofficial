@@ -33,6 +33,9 @@ export function WhatsAppFab() {
     pathname.startsWith("/portal") ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/login") ||
+    /* v1.238.0 - the single-use link pages: one job, nothing beside it */
+    pathname.startsWith("/verify-email") ||
+    pathname.startsWith("/set-password") ||
     CARD_PATHS.has(pathname) ||
     CARD_PATHS.has(pathname.replace(/\/$/, ""));
 

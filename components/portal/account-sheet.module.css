@@ -1,0 +1,168 @@
+/* v1.238.0 - Sign-in & recovery sheet (account-sheet.tsx). Tokens only, both themes. */
+.sheet {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  align-items: center;
+}
+.block {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.headRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.dl {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr);
+  gap: 0.375rem 0.75rem;
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+}
+.dl dt {
+  color: var(--muted-foreground);
+}
+.dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.muted {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.warnText {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--warning);
+}
+.error {
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  color: var(--danger);
+}
+.pending {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--warning-soft);
+}
+.pending p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.form {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  min-width: 0;
+}
+.routes {
+  display: grid;
+  gap: 0.5rem;
+}
+.radio {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 0.5rem !important;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  cursor: pointer;
+}
+.radio input {
+  margin-top: 0.2rem;
+}
+.radio span {
+  display: grid;
+  gap: 0.125rem;
+}
+.radio small {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.linkBox {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--gold-solid);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--gold-solid) 8%, transparent);
+}
+.linkBox p {
+  margin: 0;
+  font-size: var(--type-caption-size);
+}
+.list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.list li:last-child {
+  border-bottom: 0;
+}
+.main {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1 1 12rem;
+  font-size: var(--type-body-sm-size);
+}
+.main span {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}

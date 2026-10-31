@@ -605,7 +605,7 @@ const AUG = (() => {
      /return json\(\{ month: mA2, work_day_hours/.test(staff));
   const panel = read("components/portal/payroll-panel.tsx");
   ok("the client offers it only to the role the server admits",
-     /const canMarkUnpaid = \["ceo", "super_admin"\]\.includes\(role\)/.test(panel),
+     /const canMarkUnpaid = holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(role\)\)/ /* v1.237.0 */.test(panel),
      "a button that 403s is worse than no button");
 }
 

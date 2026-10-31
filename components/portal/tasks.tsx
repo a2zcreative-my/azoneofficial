@@ -14,6 +14,7 @@
    statuses the dropdown already has), what needs attention, the team's
    tallies from the rows already loaded, and the archive searchable. Every
    zone stays mounted and hides with tk.off. */
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, Task, TaskItem, User, priorityL } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
@@ -205,7 +206,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      else, so a hand-made request gets the same answer as a hidden button.
      The confirm names the task and says what leaves with it: closing a task
      is the reversible act, this one is not. */
-  const canDelete = ["ceo", "super_admin"].includes(user.role);
+  const canDelete = holds("task_delete", ["ceo", "super_admin"].includes(user.role));
   const remove = async (t: Task) => {
     if (
       !(await askDelete({

@@ -292,3 +292,7 @@ columns linking a quotation to the package and version it was made from.
 1.232.0 (Commission 2.1) adds migration `0154_commission_product_rule` - a
 policy version's rule for lines with no package rule (products earn only if
 listed).
+1.238.0 (Account identity) adds migration `0155_account_identity` - Google's
+account id and the email-verified time on users, the device and last-seen
+time on sessions, and two new tables: login email changes waiting for proof
+and single-use set-password links (hashes only). No business table changes.

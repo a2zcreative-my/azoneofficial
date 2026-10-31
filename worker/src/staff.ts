@@ -14,7 +14,7 @@ import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
-import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser, VIEW_ALL as COMMISSION_VIEW_ALL, DRAFT_ROLES as COMMISSION_DRAFT_ROLES, APPROVE_ROLES as COMMISSION_APPROVE_ROLES, DECIDE_ROLES as COMMISSION_DECIDE_ROLES } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
+import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
 import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; // v1.155.0 - the Sales Performance register; v1.158.0 - who may hold sales duty
@@ -54,7 +54,9 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is simply that rule with a name. */
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can, allows, roleChangeRule, roleDoor, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, type PolicyList } from "./permissions";
+import { Role, can, allows, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, type PolicyList } from "./permissions";
+import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
+import { mailReady, sendMail } from "./mail"; // v1.238.0 - Cloudflare Email Sending
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
 function pushKeys(env: Env): PushKeys | null {
@@ -1620,7 +1622,7 @@ async function leaveCoverageFor(env: Env, userId: number, start: string, end: st
    forensic proof of presence. The IP + user-agent already stored on every
    punch remain the cross-check. */
 const GEOFENCE_KEY = "attendance_geofence";
-export const GEOFENCE_ADMIN_ROLES = ["super_admin", "ceo", "coo"];
+/* v1.237.0 - GEOFENCE_ADMIN_ROLES is PERMS.geofence_admin (editable in Roles & Permissions) */
 
 interface Geofence { lat: number; lng: number; radius_m: number; label: string }
 
@@ -1841,6 +1843,15 @@ export async function lastRecoveryAdmin(env: Env, targetId: number): Promise<boo
     `SELECT COUNT(*) AS n FROM users WHERE role = 'super_admin' AND is_active = 1 AND COALESCE(totp_enabled, 0) = 1 AND id != ?1`,
   ).bind(targetId).first<{ n: number }>();
   return Number(others?.n ?? 0) === 0;
+}
+
+/* v1.237.0 - the saved matrix edits: { perms: cap -> roles, meta: cap -> who/when/why }. */
+export async function readPermRecord(env: Env): Promise<{ perms: Record<string, Role[]>; meta: Record<string, { by: number; by_name: string; at: string; reason: string }> }> {
+  const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'role_permissions'`).first<{ value: string }>().catch(() => null);
+  try {
+    const o = row?.value ? (JSON.parse(row.value) as { perms?: unknown; meta?: Record<string, { by: number; by_name: string; at: string; reason: string }> }) : {};
+    return { perms: cleanOverrides(o.perms), meta: o.meta && typeof o.meta === "object" ? o.meta : {} };
+  } catch { return { perms: {}, meta: {} }; }
 }
 
 /* v1.236.0 - the designated company owner record (system_meta), or null. */
@@ -2364,13 +2375,12 @@ const LEADERBOARD_ALWAYS_ROLES = ["sales_marketing", "live_host", "cco"];
     CEO or COO may confirm an invoice as Paid"; answer "Only CEO/COO confirm
     Paid"): the super admin no longer confirms. Confirmations it already
     made stay as they are. */
-export const CONFIRM_PAID_ROLES = ["ceo", "coo"];
+/* v1.237.0 - CONFIRM_PAID_ROLES is PERMS.confirm_paid (editable); "never your own sale" stays SELF_CONFIRM_ROLES below */
 /* v1.234.0 - the owner, 30-10-2026 (claude/USERS-ACCESS-AUDIT.md: "CEO, COO,
    Super Admin only"): releasing payslips and recording the payroll bank run
    are no longer the system Admin account's. Processing payroll (PAYROLL_PROC)
    is unchanged. Published, read-only, by GET /staff/access/policy. */
-export const PAYROLL_RELEASE_ROLES = ["super_admin", "ceo", "coo"];
-export const BANK_RUN_ROLES = ["super_admin", "ceo", "coo"];
+/* v1.237.0 - PAYROLL_RELEASE_ROLES and BANK_RUN_ROLES are PERMS.payroll_release and PERMS.bank_run (editable) */
 /** Who edits tab visibility and per-user exceptions (the CEO and the super admin). */
 export const TAB_ACCESS_EDITORS = ["ceo", "super_admin"];
 /** v1.216.2 - the owner, 28-10-2026 ("I also can make the sales"; answer
@@ -2862,7 +2872,7 @@ async function handleStaffRoutes(
      POST: super_admin/ceo/coo set, move or clear the fence. */
   if (path === "/attendance/geofence" && method === "GET") {
     const fence = await getGeofence(env);
-    const isGeoAdmin = GEOFENCE_ADMIN_ROLES.includes(user.role);
+    const isGeoAdmin = can(user.role, "geofence_admin");
     if (!fence) return json({ configured: false, can_edit: isGeoAdmin });
     return json({
       configured: true,
@@ -2899,7 +2909,7 @@ async function handleStaffRoutes(
     });
   }
   if (path === "/attendance/geofence" && method === "POST") {
-    if (!GEOFENCE_ADMIN_ROLES.includes(user.role)) {
+    if (!can(user.role, "geofence_admin")) {
       return err("forbidden", "Only the CEO, COO or super admin can change the office geofence", 403);
     }
     if (body && body.clear === true) {
@@ -7509,8 +7519,8 @@ async function handleStaffRoutes(
   if (path === "/payroll/commission-base" && method === "GET") {
     // v1.5.0 fix: PAYROLL_PROC was referenced before its declaration and
     // `url` was undefined — the commission card 500'd on every open.
-    const PAYROLL_PROC_CB = ["super_admin", "admin", "ceo", "coo"];
-    if (!PAYROLL_PROC_CB.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const mCB = new URL(request.url).searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mCB)) return err("invalid_input", "month must be YYYY-MM", 400);
     // Queries mirror /revenue verbatim (v1.4.169/172 bases).
@@ -7578,7 +7588,7 @@ async function handleStaffRoutes(
      never called hollow. Used to refuse an exception that would draw an
      empty tab, and by the access review to flag old ones. */
   const TAB_READ: Record<string, (r: string) => boolean> = {
-    Payroll: (r) => ["super_admin", "admin", "ceo", "coo"].includes(r), // = PAYROLL_PROC, GET /payroll
+    Payroll: (r) => can(r, "payroll_process"), // = PERMS.payroll_process, GET /payroll
     Finance: (r) => can(r, "expenses"),
     Accounting: (r) => can(r, "accounting_manage"),
     Assets: (r) => can(r, "hr_manage") || can(r, "exec_view"),
@@ -8924,7 +8934,7 @@ async function handleStaffRoutes(
         }
       }
     } catch { /* pre-0145 */ }
-    return json({ docs: results, can_confirm_paid: CONFIRM_PAID_ROLES.includes(user.role), can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
+    return json({ docs: results, can_confirm_paid: can(user.role, "confirm_paid"), can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
   }
   /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
      there is any discount staff will insert the discount amount. SKU need to
@@ -9869,7 +9879,7 @@ async function handleStaffRoutes(
      It never changes the invoice. */
   const confirmPaid = path.match(/^\/docs\/(\d+)\/confirm-paid$/);
   if (confirmPaid && method === "POST") {
-    if (!CONFIRM_PAID_ROLES.includes(user.role)) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
+    if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
     const invId = Number(confirmPaid[1]);
     const inv = await env.DB.prepare(
       `SELECT id, doc_number, doc_type, total_cents, payment_status, payment_ref, paid_at, salesperson_id FROM sales_documents WHERE id = ?1`,
@@ -9910,7 +9920,7 @@ async function handleStaffRoutes(
   }
   const confirmRevoke = path.match(/^\/docs\/(\d+)\/confirm-paid\/revoke$/);
   if (confirmRevoke && method === "POST") {
-    if (!CONFIRM_PAID_ROLES.includes(user.role)) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
+    if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
     let n = 0;
@@ -11430,7 +11440,7 @@ async function handleStaffRoutes(
      hr_manage (CEO now, hr_admin from next month, admin tier) writes;
      exec_view reads. Amounts stored in sen. */
 
-  const PAYROLL_PROC = ["super_admin", "admin", "ceo", "coo"];
+  /* v1.237.0 - PAYROLL_PROC is PERMS.payroll_process (editable in Roles & Permissions) */
 
   /* ---- v1.234.0 - THE ACCESS POLICY AND THE ACCESS REVIEW (the owner,
      30-10-2026; claude/USERS-ACCESS-AUDIT.md). Read-only, both. ----
@@ -11499,19 +11509,365 @@ async function handleStaffRoutes(
     return json({ ok: true, owner: { user_id: cand!.id, name: cand!.name, verified: true, set_at: rec.set_at } });
   }
 
+  /* ---- v1.238.0 - THE STAFF ACCOUNT: LOGIN EMAIL AND RECOVERY (the owner,
+     31-10-2026; claude/ACCOUNT-RECOVERY-AUDIT.md. Answers: Cloudflare Email
+     Sending; migration 0155; the owner and the super admin, each with an
+     authenticator code and a reason; P0 + P1). account_email and
+     account_recovery are matrix permissions (super admin by role, the
+     verified owner by OWNER_GRANTS); the account itself is judged by
+     canManageAccount, so CEO and super admin accounts stay the super
+     admin's. Never your own account. Customers are not staff accounts.
+     Nobody reads a password, a 2FA secret or a backup code here. ---- */
+  type AcctRow = { id: number; email: string; role: string; name: string; full_name: string | null; employee_id: string | null; is_active: number; employment_status: string | null; totp_enabled: number; totp_secret: string | null; google_sub?: string | null; email_verified_at?: string | null; password_hash: string };
+  const loadAcct = async (id: number): Promise<AcctRow | null> => {
+    try {
+      return await env.DB.prepare(`SELECT id, email, role, name, full_name, employee_id, is_active, employment_status, COALESCE(totp_enabled, 0) AS totp_enabled, totp_secret, google_sub, email_verified_at, password_hash FROM users WHERE id = ?1`).bind(id).first<AcctRow>();
+    } catch (e) {
+      if (!/no such column|has no column/.test(String(e))) throw e;
+      return await env.DB.prepare(`SELECT id, email, role, name, full_name, employee_id, is_active, employment_status, COALESCE(totp_enabled, 0) AS totp_enabled, totp_secret, password_hash FROM users WHERE id = ?1`).bind(id).first<AcctRow>();
+    }
+  };
+  /* the one gate for every account action below */
+  const acctGate = async (id: number, cap: "account_email" | "account_recovery", write: boolean): Promise<{ t: AcctRow } | { r: Response }> => {
+    if (!allows(user, cap)) return { r: err("forbidden", "Only the company owner or the super admin manages staff sign-in", 403) };
+    const t = await loadAcct(id);
+    if (!t || t.role === "customer") return { r: err("not_found", "No such staff account", 404) };
+    if (!canManageAccount(user, t.role)) return { r: err("forbidden", "CEO and super admin accounts are managed by the super admin only", 403) };
+    if (write && t.id === user.id) return { r: err("self_change", "Not on your own account - ask the other of owner and super admin.", 400) };
+    return { t };
+  };
+  const reasonOf = () => (typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "");
+  const acctMatch = path.match(/^\/accounts\/(\d+)(\/[a-z0-9/-]+)?$/);
+  if (acctMatch && method === "GET" && !acctMatch[2]) {
+    const g = await acctGate(Number(acctMatch[1]), allows(user, "account_recovery") ? "account_recovery" : "account_email", false);
+    if ("r" in g) return g.r;
+    const t = g.t;
+    await expireChanges(env);
+    let pending: unknown[] = [];
+    try {
+      pending = (await env.DB.prepare(
+        `SELECT c.id, c.new_email, c.route, c.needs_second, c.approved_by IS NOT NULL AS approved, c.requested_by, c.reason, c.created_at, c.expires_at,
+                COALESCE(NULLIF(TRIM(r.full_name), ''), r.name) AS requested_by_name
+         FROM email_changes c LEFT JOIN users r ON r.id = c.requested_by WHERE c.user_id = ?1 AND c.status = 'pending' ORDER BY c.id DESC`,
+      ).bind(t.id).all()).results;
+    } catch { /* pre-0155 */ }
+    let sessions: { id: string; created_at: string; expires_at: string; user_agent?: string | null; last_seen_at?: string | null }[] = [];
+    try {
+      sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at, user_agent, last_seen_at FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY COALESCE(last_seen_at, created_at) DESC`).bind(t.id).all<typeof sessions[number]>()).results;
+    } catch {
+      sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY created_at DESC`).bind(t.id).all<typeof sessions[number]>()).results;
+    }
+    const history = (await env.DB.prepare(
+      `SELECT a.id, a.action, a.created_at, a.detail, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE (a.entity = 'users' AND a.entity_id = ?1) OR (a.user_id = ?2 AND a.action LIKE 'auth.%')
+       ORDER BY a.id DESC LIMIT 40`,
+    ).bind(String(t.id), t.id).all()).results;
+    const lastLogin = await env.DB.prepare(`SELECT created_at FROM audit_log WHERE user_id = ?1 AND action IN ('auth.login', 'auth.login_google', 'auth.2fa_verified', 'auth.login_2fa') ORDER BY id DESC LIMIT 1`).bind(t.id).first<{ created_at: string }>();
+    const codes = await env.DB.prepare(`SELECT COUNT(*) AS n FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`).bind(t.id).first<{ n: number }>().catch(() => null);
+    const self = t.id === user.id;
+    return json({
+      account: {
+        id: t.id, employee_id: t.employee_id, name: (t.full_name ?? "").trim() || t.name, email: t.email, role: t.role,
+        is_active: t.is_active === 1, employment_status: t.employment_status, email_verified_at: t.email_verified_at ?? null,
+        methods: { password: !t.password_hash.startsWith("oauth$"), google: !!t.google_sub, google_unlinked_signup: t.password_hash.startsWith("oauth$") && !t.google_sub },
+        totp_enabled: t.totp_enabled === 1, backup_codes_left: Number(codes?.n ?? 0), last_login: lastLogin?.created_at ?? null,
+      },
+      pending, history,
+      sessions: sessions.map((x) => ({ ref: x.id.slice(0, 12), created_at: x.created_at, expires_at: x.expires_at, last_seen_at: x.last_seen_at ?? null, user_agent: x.user_agent ?? null })),
+      can: { email: !self && allows(user, "account_email"), recovery: !self && allows(user, "account_recovery") },
+      mail_ready: mailReady(env), privileged: privilegedTarget(t.role), me: user.id,
+    });
+  }
+  if (acctMatch && method === "POST" && acctMatch[2] === "/email") {
+    const g = await acctGate(Number(acctMatch[1]), "account_email", true);
+    if ("r" in g) return g.r;
+    const t = g.t;
+    const newEmail = typeof body?.new_email === "string" ? body.new_email.trim().toLowerCase() : "";
+    const route = typeof body?.route === "string" ? body.route : "";
+    const reason = reasonOf();
+    if (!EMAIL_RE.test(newEmail) || newEmail.length > 200) return err("invalid_input", "Enter a valid email address", 400);
+    if (newEmail === t.email.toLowerCase()) return err("invalid_input", "That is already the login email", 400);
+    if (!["email", "google", "in_person"].includes(route)) return err("invalid_input", "Choose how the new address is proven: email link, Google sign-in or in person", 400);
+    if (reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    if (route === "email" && !mailReady(env)) return err("mail_unavailable", "Email sending is not set up yet - prove the new address by Google sign-in or in person.", 409);
+    const checked = typeof body?.identity_checked === "string" ? body.identity_checked.trim().slice(0, 120) : "";
+    if (route === "in_person") {
+      if (checked.length < 3) return err("invalid_input", "Say who checked the person's identity (in person or by video call)", 400);
+      if (!t.totp_enabled || !t.totp_secret) return err("no_2fa", "In person needs the staff member's own authenticator - they have none. Use the email link or Google sign-in.", 409);
+    }
+    await expireChanges(env);
+    if (await emailTaken(env, newEmail)) return err("email_taken", "That address already belongs to an account, or another change is waiting for it", 409);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "change a staff login email");
+    if (su) return su;
+    if (route === "in_person") {
+      const tc = typeof body?.target_totp === "string" ? body.target_totp.trim() : "";
+      if (!/^\d{6}$/.test(tc)) return err("target_totp_required", `${(t.full_name ?? t.name).trim()} types their own 6-digit authenticator code to confirm`, 401);
+      if (!(await totpVerifyOnce(env, t.id, t.totp_secret!, tc))) return err("target_totp_invalid", "The staff member's code is not valid (or was already used) - try their current one", 401);
+    }
+    const needsSecond = route === "in_person" && privilegedTarget(t.role) ? 1 : 0;
+    const tok = route === "email" ? newToken() : null;
+    const ins = await env.DB.prepare(
+      `INSERT INTO email_changes (user_id, old_email, new_email, route, token_hash, needs_second, identity_checked_by, requested_by, reason, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', '+${CHANGE_TTL_HOURS} hours')) RETURNING *`,
+    ).bind(t.id, t.email, newEmail, route, tok ? await sha256Acct(tok) : null, needsSecond, checked || null, user.id, reason).first<ChangeRow>();
+    await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE user_id = ?1 AND status = 'pending' AND id != ?2`).bind(t.id, ins!.id).run();
+    await auditAcct(env, user.id, "user.email_change_requested", String(t.id), { from: t.email, to: newEmail, route, reason, needs_second: !!needsSecond, ...(checked ? { identity_checked_by: checked } : {}), by_owner: user.role !== "super_admin" });
+    let sent = false;
+    if (tok) {
+      sent = await sendMail(env, { to: newEmail, subject: "Confirm your new A2Z OS login email", text: `${user.name} asked to make this address the login email of your A2Z OS account.\n\nConfirm it within ${CHANGE_TTL_HOURS} hours:\n${primaryOrigin(env)}/verify-email#token=${tok}\n\nIf you did not expect this, ignore this email - nothing changes.` });
+      if (!sent) {
+        await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1`).bind(ins!.id).run();
+        return err("mail_failed", "The verification email could not be sent - nothing was changed. Try again, or prove the address by Google sign-in or in person.", 502);
+      }
+      await sendMail(env, { to: t.email, subject: "A change of your A2Z OS login email was requested", text: `${user.name} asked to change the login email of your A2Z OS account to ${newEmail}. It changes only when that address is confirmed. Until then this address keeps working.\n\nIf you did not expect this, tell A2Z Creative Marketing.` });
+    }
+    try { await notify(env, t.id, "security", route === "google" ? `${user.name} asked to change your login email to ${newEmail}. It completes when you sign in with Google as ${newEmail}.` : route === "email" ? `${user.name} asked to change your login email to ${newEmail}. Open the link sent to that address to confirm.` : `${user.name} is changing your login email to ${newEmail}.`, `email_change_req:${ins!.id}`); } catch { /* a notice never blocks */ }
+    if (route === "in_person" && !needsSecond) {
+      const r = await applyEmailChange(env, ins!, { via: "in_person" });
+      if (!r.ok) return err(r.code, r.message, 409);
+      return json({ ok: true, applied: true, change_id: ins!.id });
+    }
+    return json({ ok: true, applied: false, change_id: ins!.id, needs_second: !!needsSecond, sent });
+  }
+  const chMatch = path.match(/^\/accounts\/email-changes\/(\d+)\/(approve|cancel)$/);
+  if (chMatch && method === "POST") {
+    await expireChanges(env);
+    const c = await env.DB.prepare(`SELECT * FROM email_changes WHERE id = ?1`).bind(Number(chMatch[1])).first<ChangeRow>();
+    if (!c || c.status !== "pending") return err("not_pending", "This change is no longer waiting", 409);
+    const g = await acctGate(c.user_id, "account_email", true);
+    if ("r" in g) return g.r;
+    if (chMatch[2] === "cancel") {
+      await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1`).bind(c.id).run();
+      await auditAcct(env, user.id, "user.email_change_cancelled", String(c.user_id), { change_id: c.id, to: c.new_email });
+      return json({ ok: true });
+    }
+    if (!c.needs_second || c.approved_by) return err("invalid_state", "This change does not wait for a second approval", 409);
+    if (c.requested_by === user.id) return err("forbidden", "The second approval comes from the other of owner and super admin", 403);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "approve a login email change");
+    if (su) return su;
+    await env.DB.prepare(`UPDATE email_changes SET approved_by = ?1, approved_at = datetime('now') WHERE id = ?2 AND approved_by IS NULL`).bind(user.id, c.id).run();
+    await auditAcct(env, user.id, "user.email_change_approved", String(c.user_id), { change_id: c.id, to: c.new_email });
+    if (c.route === "in_person") {
+      const r = await applyEmailChange(env, { ...c, approved_by: user.id }, { via: "in_person_second_approval" });
+      if (!r.ok) return err(r.code, r.message, 409);
+      return json({ ok: true, applied: true });
+    }
+    return json({ ok: true, applied: false });
+  }
+  if (acctMatch && method === "POST" && ["/reset-2fa", "/password-link", "/google/unlink", "/sessions/revoke", "/suspend"].includes(acctMatch[2] ?? "")) {
+    const g = await acctGate(Number(acctMatch[1]), "account_recovery", true);
+    if ("r" in g) return g.r;
+    const t = g.t;
+    const action = acctMatch[2]!;
+    const reason = reasonOf();
+    if (action !== "/sessions/revoke" && reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    const checked = typeof body?.identity_checked === "string" ? body.identity_checked.trim().slice(0, 120) : "";
+    if (action === "/reset-2fa" && checked.length < 3) return err("invalid_input", "Say who checked the person's identity before resetting their 2FA", 400);
+    if (action === "/google/unlink" && !t.google_sub) return err("invalid_state", "No Google account is linked", 409);
+    if (action === "/suspend" && typeof body?.suspend !== "boolean") return err("invalid_input", "suspend must be true or false", 400);
+    if (action === "/suspend" && body!.suspend === true && await lastRecoveryAdmin(env, t.id)) return err("last_recovery_admin", "This is the last active super admin with 2FA - add another first", 409);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "change how this person signs in");
+    if (su) return su;
+    const byOwner = user.role !== "super_admin";
+    const who = (t.full_name ?? "").trim() || t.name;
+    if (action === "/reset-2fa") {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?1`).bind(t.id),
+        env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(t.id),
+        env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.id),
+      ]);
+      await auditAcct(env, user.id, "auth.2fa_reset_by_admin", String(t.id), { reason, identity_checked_by: checked, by_owner: byOwner });
+      try { await notify(env, t.id, "security", `${user.name} reset your two-factor sign-in. Set it up again the next time you sign in.`, `2fa_reset:${Date.now()}`); } catch { /* never blocks */ }
+      await sendMail(env, { to: t.email, subject: "Your A2Z OS two-factor sign-in was reset", text: `${user.name} reset the two-factor sign-in of your A2Z OS account. You will set it up again the next time you sign in.\n\nIf you did not ask for this, tell A2Z Creative Marketing at once.` });
+      return json({ ok: true });
+    }
+    if (action === "/password-link") {
+      const tok = newToken();
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM account_tokens WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(t.id),
+        env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${SET_PASSWORD_TTL_HOURS} hours'), ?3)`).bind(t.id, await sha256Acct(tok), user.id),
+      ]);
+      const link = `${primaryOrigin(env)}/set-password#token=${tok}`;
+      const emailed = await sendMail(env, { to: t.email, subject: "Set your A2Z OS password", text: `${user.name} sent you a link to set the password of your A2Z OS account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYour two-factor sign-in still applies.` });
+      await auditAcct(env, user.id, "auth.password_link_issued", String(t.id), { reason, emailed, by_owner: byOwner });
+      try { await notify(env, t.id, "security", `${user.name} issued you a one-time link to set your password${emailed ? " - it was emailed to you" : ""}.`, `pwlink:${Date.now()}`); } catch { /* never blocks */ }
+      /* emailed: the link went only to the person. Not emailed (sending is
+         not set up): it is shown once to hand over in person - never stored. */
+      return json({ ok: true, emailed, expires_in_hours: SET_PASSWORD_TTL_HOURS, ...(emailed ? {} : { link }) });
+    }
+    if (action === "/google/unlink") {
+      await env.DB.prepare(`UPDATE users SET google_sub = NULL WHERE id = ?1`).bind(t.id).run();
+      await auditAcct(env, user.id, "auth.google_unlinked", String(t.id), { reason, by_owner: byOwner });
+      try { await notify(env, t.id, "security", `${user.name} unlinked your Google account. Your next Google sign-in links the account you use then.`, `gunlink:${Date.now()}`); } catch { /* never blocks */ }
+      return json({ ok: true });
+    }
+    if (action === "/sessions/revoke") {
+      const ref = typeof body?.ref === "string" && /^[0-9a-f]{12}$/.test(body.ref) ? body.ref : null;
+      if (!ref && body?.all !== true) return err("invalid_input", "Name one device (ref) or all", 400);
+      const res = ref
+        ? await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND substr(id, 1, 12) = ?2`).bind(t.id, ref).run()
+        : await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.id).run();
+      await auditAcct(env, user.id, "user.force_logout", String(t.id), { sessions_revoked: res.meta?.changes ?? 0, ...(ref ? { device: ref } : { all: true }), by_owner: byOwner, ...(reason ? { reason } : {}) });
+      return json({ ok: true, sessions_revoked: res.meta?.changes ?? 0 });
+    }
+    /* /suspend - the same is_active switch as Deactivate in /admin (PATCH
+       /users/:id). A payroll run lists active accounts only, which the sheet
+       says; ending employment is Offboard. */
+    const sus = body!.suspend === true;
+    await env.DB.prepare(`UPDATE users SET is_active = ?1 WHERE id = ?2`).bind(sus ? 0 : 1, t.id).run();
+    if (sus) {
+      await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.id).run();
+      try { await env.DB.prepare(`DELETE FROM push_subscriptions WHERE user_id = ?1`).bind(t.id).run(); } catch { /* pre-0068 */ }
+    }
+    await auditAcct(env, user.id, sus ? "user.suspend" : "user.restore", String(t.id), { reason, by_owner: byOwner, name: who });
+    return json({ ok: true, is_active: !sus });
+  }
+
+  /* ---- v1.238.0 - "REPORT A PROBLEM" (the owner, 31-10-2026; claude/
+     ACCOUNT-RECOVERY-AUDIT.md: "Use existing Tasks/Desk infrastructure ...
+     Avoid a duplicate ticket-management system"). A report IS a task: it is
+     assigned to the person the owner or the super admin chose (Security &
+     Settings), else the company owner, else an active CEO; the reporter is
+     its creator, so it shows in their own Tasks. Five a day per person. A
+     report never carries a password: one that looks like it does is refused. */
+  const SUPPORT_KINDS: Record<string, [string, "high" | "normal"]> = {
+    login: ["Login problem", "high"], access: ["Missing access", "normal"], data: ["Incorrect data", "normal"],
+    clock: ["Clock-in failure", "high"], quotation: ["Quotation error", "normal"], system: ["System error", "normal"],
+  };
+  const supportAssignee = async (): Promise<{ id: number; name: string } | null> => {
+    const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
+    const set = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'support_assignee'`).first<{ value: string }>().catch(() => null);
+    const a = await pick(Number(set?.value ?? 0)); if (a) return a;
+    const o = await readOwner(env); const b = o ? await pick(o.user_id) : null; if (b) return b;
+    return await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE role = 'ceo' AND is_active = 1 ORDER BY id LIMIT 1`).first<{ id: number; name: string }>();
+  };
+  if (path === "/support/settings" && method === "GET") {
+    const editor = user.role === "super_admin" || user.is_owner === true;
+    const a = await supportAssignee();
+    const people = editor ? (await env.DB.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin') AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY ${STAFF_ORDER_SQL}`).all()).results : [];
+    return json({ assignee: a, can_edit: editor, people, kinds: Object.fromEntries(Object.entries(SUPPORT_KINDS).map(([k, v]) => [k, v[0]])) });
+  }
+  if (path === "/support/settings" && method === "POST") {
+    if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "The company owner or the super admin chooses who receives problem reports", 403);
+    const id = Number(body?.user_id);
+    const ok = Number.isInteger(id) && id > 0 ? await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'super_admin')`).bind(id).first() : null;
+    if (!ok) return err("invalid_input", "Choose an active staff member", 400);
+    await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('support_assignee', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(id)).run();
+    await audit(env, user.id, "support.assignee_set", "users", String(id));
+    return json({ ok: true });
+  }
+  if (path === "/support/report" && method === "POST") {
+    const kind = typeof body?.kind === "string" && SUPPORT_KINDS[body.kind] ? body.kind : "";
+    const text = typeof body?.description === "string" ? body.description.trim() : "";
+    if (!kind) return err("invalid_input", "Choose what kind of problem it is", 400);
+    if (text.length < 10 || text.length > 1000) return err("invalid_input", "Describe the problem in 10 to 1000 characters", 400);
+    if (/\b(password|kata laluan|passcode|pin)\s*[:=]/i.test(text)) return err("secret_in_report", "Remove the password from the report - nobody needs it to help you", 400);
+    if (!(await checkRateLimit(env, `support:${user.id}`, 5, 86400))) return err("rate_limited", "You have sent five reports today - they are being looked at", 429);
+    const to = await supportAssignee();
+    if (!to) return err("no_assignee", "Nobody is set to receive reports yet - tell the CEO", 409);
+    const ctx = (body?.context ?? {}) as Record<string, unknown>;
+    const ctxLine = ["tab", "version", "last_error"].map((k) => typeof ctx[k] === "string" && ctx[k] ? `${k}: ${String(ctx[k]).slice(0, 120)}` : "").filter(Boolean).join(" · ");
+    const [label, prio] = SUPPORT_KINDS[kind]!;
+    const t = await env.DB.prepare(
+      `INSERT INTO tasks (title, description, assigned_to, created_by, priority) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
+    ).bind(`[${label}] ${text.replace(/\s+/g, " ").slice(0, 70)}`, `${text}\n\n— Reported by ${user.name} through Report a problem${ctxLine ? `\n${ctxLine}` : ""}`, to.id, user.id, prio).first<{ id: number }>();
+    await audit(env, user.id, "support.report", "tasks", String(t?.id), { kind, assignee: to.id });
+    try { await notify(env, to.id, "task", `${user.name} reported a problem: ${label}`, `task:${t?.id}`); } catch { /* the task is the record */ }
+    return json({ ok: true, task_id: t?.id, assigned_to: to.name });
+  }
+
+  /* v1.238.0 - what a leaver still holds, for the Offboard sheet: open tasks,
+     open customer follow-ups (both can be handed to one person in the
+     offboard step), assets to collect, and commission not yet paid (settled
+     by the CEO's existing leaver decision). Read-only. */
+  const hoMatch = path.match(/^\/users\/(\d+)\/handover$/);
+  if (hoMatch && method === "GET") {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) return err("forbidden", "HR or management access required", 403);
+    const uid = Number(hoMatch[1]);
+    const tasks = (await env.DB.prepare(`SELECT id, title, status, deadline FROM tasks WHERE assigned_to = ?1 AND status != 'completed' ORDER BY deadline IS NULL, deadline LIMIT 100`).bind(uid).all()).results;
+    let followups: unknown[] = [];
+    try { followups = (await env.DB.prepare(`SELECT f.id, f.due_on, f.note, c.company FROM customer_followups f LEFT JOIN customers c ON c.id = f.customer_id WHERE f.owner_id = ?1 AND f.done_at IS NULL AND f.cancelled_at IS NULL ORDER BY f.due_on LIMIT 100`).bind(uid).all()).results; } catch { /* pre-0143 */ }
+    let assets: unknown[] = [];
+    try { assets = (await env.DB.prepare(`SELECT id, asset_tag, name FROM assets WHERE assigned_to = ?1 AND COALESCE(status, 'in_use') NOT IN ('disposed', 'lost') ORDER BY asset_tag LIMIT 100`).bind(uid).all()).results; } catch { /* pre-0058 */ }
+    let commission = { open: 0, cents: 0 };
+    try {
+      const c = await env.DB.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS cents FROM commission_ledger WHERE user_id = ?1 AND status IN ('eligible', 'review', 'included')`).bind(uid).first<{ n: number; cents: number }>();
+      commission = { open: Number(c?.n ?? 0), cents: Number(c?.cents ?? 0) };
+    } catch { /* pre-0150 or another column name */ }
+    return json({ tasks, followups, assets, commission });
+  }
+
+  /* ---- v1.237.0 - EDIT WHAT EACH ROLE MAY DO (the owner, 31-10-2026: the
+     matrix "require to be editable for me as a CEO which is I have a right as
+     a Super Admin"; claude/EDITABLE-PERMISSIONS-AUDIT.md). Answers: the
+     verified company owner and the super admin edit; no locks; approval
+     chains stay fixed. One batch per save: a reason (10+ characters) and the
+     editor's authenticator code; every cell audited with before and after;
+     a cell set back to its default is removed, and reset_all removes every
+     edit. The edits live in system_meta.role_permissions and are applied
+     inside can() - the one permission check. Only staff roles can be named:
+     a customer never receives a staff permission. ---- */
+  if (path === "/access/policy" && method === "POST") {
+    if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "Only the company owner or the super admin edits what roles may do", 403);
+    const reasonP = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reasonP.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    const resetAll = body?.reset_all === true;
+    const raw = Array.isArray(body?.changes) ? (body!.changes as unknown[]) : [];
+    const changes: { cap: keyof typeof PERMS; roles: Role[] | null }[] = [];
+    for (const c of raw) {
+      const o = (c ?? {}) as { cap?: unknown; roles?: unknown; reset?: unknown };
+      const cap = String(o.cap ?? "");
+      if (!(cap in PERMS)) return err("invalid_input", `Unknown permission: ${cap}`, 400);
+      if (o.reset === true) { changes.push({ cap: cap as keyof typeof PERMS, roles: null }); continue; }
+      if (!Array.isArray(o.roles)) return err("invalid_input", `roles must be a list for ${cap}`, 400);
+      const bad = (o.roles as unknown[]).map(String).filter((r) => !POLICY_ROLES.includes(r as Role));
+      if (bad.length) return err("invalid_input", `Not a staff role: ${bad.join(", ")}`, 400);
+      changes.push({ cap: cap as keyof typeof PERMS, roles: POLICY_ROLES.filter((r) => (o.roles as unknown[]).map(String).includes(r)) });
+    }
+    if (!resetAll && changes.length === 0) return err("invalid_input", "Nothing to change", 400);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "change what roles may do");
+    if (su) return su;
+    const rec = await readPermRecord(env);
+    const at = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const done: { cap: string; from: string[]; to: string[] }[] = [];
+    if (resetAll) {
+      for (const cap of Object.keys(rec.perms)) done.push({ cap, from: [...rec.perms[cap]!], to: POLICY_ROLES.filter((r) => PERMS[cap]!.includes(r)) });
+      rec.perms = {}; rec.meta = {};
+    } else {
+      for (const ch of changes) {
+        const from = POLICY_ROLES.filter((r) => (rec.perms[ch.cap] ?? PERMS[ch.cap]!).includes(r));
+        const def = POLICY_ROLES.filter((r) => PERMS[ch.cap]!.includes(r));
+        const to = ch.roles ?? def;
+        if (to.join() === def.join()) { delete rec.perms[ch.cap]; delete rec.meta[ch.cap]; }
+        else { rec.perms[ch.cap] = to; rec.meta[ch.cap] = { by: user.id, by_name: user.name, at, reason: reasonP }; }
+        if (from.join() !== to.join()) done.push({ cap: ch.cap, from, to });
+      }
+    }
+    await env.DB.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('role_permissions', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`,
+    ).bind(JSON.stringify(rec)).run();
+    setPermissionOverrides(rec.perms);
+    if (resetAll) {
+      await audit(env, user.id, "permissions.reset_all", "system_meta", "role_permissions", { cells: done.map((d) => d.cap), reason: reasonP, by_owner: user.role !== "super_admin" });
+    } else {
+      for (const d of done) await audit(env, user.id, "permissions.change", "permissions", d.cap, { cap: d.cap, from: d.from.join(" "), to: d.to.join(" "), reason: reasonP, by_owner: user.role !== "super_admin" });
+    }
+    return json({ ok: true, changed: done });
+  }
+
   if (path === "/access/policy" && method === "GET") {
     if (!can(user.role, "exec_view")) return err("forbidden", "Management access required", 403);
     const LISTS: Record<PolicyList, readonly string[]> = {
-      CONFIRM_PAID: CONFIRM_PAID_ROLES, PAYROLL_PROCESS: PAYROLL_PROC, PAYROLL_RELEASE: PAYROLL_RELEASE_ROLES, BANK_RUN: BANK_RUN_ROLES,
-      COMMISSION_VIEW_ALL: COMMISSION_VIEW_ALL, COMMISSION_DRAFT: COMMISSION_DRAFT_ROLES, COMMISSION_APPROVE: COMMISSION_APPROVE_ROLES, COMMISSION_DECIDE: COMMISSION_DECIDE_ROLES,
-      GEOFENCE: GEOFENCE_ADMIN_ROLES, TAB_ACCESS_EDIT: TAB_ACCESS_EDITORS,
+      TAB_ACCESS_EDIT: TAB_ACCESS_EDITORS,
     };
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
     const roles = [...POLICY_ROLES];
+    const permRec = await readPermRecord(env);
     const actions = ACTION_CATALOGUE.map((a) => {
-      const who: readonly string[] = (a.cap ? PERMS[a.cap] : LISTS[a.list!]) ?? [];
+      const who: readonly string[] = (a.cap ? rolesFor(a.cap) : LISTS[a.list!]) ?? [];
       /* v1.236.0 - the verified owner's column: the ceo role's own answer,
          plus OWNER_GRANTS (a ceo-role account WITHOUT the designation does
          not get those - shown "Conditional: verified company owner only"). */
@@ -11520,6 +11876,12 @@ async function handleStaffRoutes(
         module: a.module, key: a.key, en: a.en, ms: a.ms, note_en: a.note_en ?? null, note_ms: a.note_ms ?? null,
         roles: roles.filter((r) => who.includes(r)), owner_grant: ownerGrant,
         cond: a.cond ?? {}, na: a.na ?? [],
+        /* v1.237.0 - editable cells: the default the code holds, whether a
+           saved edit differs, and who changed it */
+        cap: a.cap ?? null, editable: !!a.cap, needs: a.needs ?? null,
+        default_roles: a.cap ? roles.filter((r) => PERMS[a.cap!]!.includes(r as Role)) : null,
+        edited: !!a.cap && permRec.perms[a.cap] !== undefined,
+        edit_meta: a.cap ? permRec.meta[a.cap] ?? null : null,
       };
     });
     const ownerRec = await readOwner(env);
@@ -11538,6 +11900,8 @@ async function handleStaffRoutes(
       roles, actions, tabs, can_edit_tabs: TAB_ACCESS_EDITORS.includes(user.role), counts,
       owner: ownerRow ? { user_id: ownerRow.id, name: ownerRow.name, verified: ownerRow.role === "ceo" && ownerRow.is_active === 1 && ownerRow.totp === 1, set_at: ownerRec!.set_at } : null,
       me_owner: user.is_owner === true,
+      can_edit_actions: user.role === "super_admin" || user.is_owner === true,
+      edited_count: Object.keys(permRec.perms).length,
     });
   }
   if (path === "/access/review" && method === "GET") {
@@ -11575,7 +11939,7 @@ async function handleStaffRoutes(
     const history = ((await env.DB.prepare(
       `SELECT a.id, a.action, a.entity_id, a.detail, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-        WHERE a.action IN ('staff.role_change', 'tabs.access_change', 'tabs.person_access', 'staff.reports_to', 'attendance.geofence_set', 'attendance.geofence_clear', 'owner.designate', 'owner.clear', 'user.update', 'user.offboard', 'user.force_logout', 'user.create')
+        WHERE a.action IN ('staff.role_change', 'tabs.access_change', 'tabs.person_access', 'staff.reports_to', 'attendance.geofence_set', 'attendance.geofence_clear', 'owner.designate', 'owner.clear', 'user.update', 'user.offboard', 'user.force_logout', 'user.create', 'permissions.change', 'permissions.reset_all')
         ORDER BY a.id DESC LIMIT 80`,
     ).all<{ id: number; action: string; entity_id: string | null; detail: string | null; created_at: string; who: string | null }>().catch(() => ({ results: [] }))).results ?? []);
     return json({ generated_at: new Date().toISOString(), today: todayTA, overrides, exceptions, people: strips, history });
@@ -12246,7 +12610,7 @@ async function handleStaffRoutes(
   if (path === "/payroll" && method === "GET") {
     // Full payroll is for the processors only (v1.4.40): CEO and COO run it,
     // admin tier as backstop. hr_admin and CCO no longer see other people's pay.
-    if (!PAYROLL_PROC.includes(user.role)) {
+    if (!can(user.role, "payroll_process")) {
       return err("forbidden", "Payroll access required", 403);
     }
     const url = new URL(request.url);
@@ -12292,8 +12656,8 @@ async function handleStaffRoutes(
         employer: issuerName(releasedRow?.issuer_code ?? (releasedRow ? null : OPERATING_ISSUER_CODE)),
         employer_is_legacy: releasedRow !== null && !releasedRow.issuer_code,
         /* v1.234.0 - so the panel offers only what the server allows */
-        can_release: PAYROLL_RELEASE_ROLES.includes(user.role),
-        can_record_paid: BANK_RUN_ROLES.includes(user.role),
+        can_release: can(user.role, "payroll_release"),
+        can_record_paid: can(user.role, "bank_run"),
       },
     });
   }
@@ -12302,7 +12666,7 @@ async function handleStaffRoutes(
     // bank run for a month has been DONE.
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
     /* v1.234.0 - and only the CEO, COO or super admin say it was paid */
-    if (!BANK_RUN_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);
+    if (!can(user.role, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);
     const mP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mP) return err("invalid_input", "month (YYYY-MM) is required", 400);
     await env.DB.prepare(
@@ -12329,7 +12693,7 @@ async function handleStaffRoutes(
      27-10-2026: "No fixed rule yet"), so the answer says so and every
      amount stays the invoice's own. */
   if (path === "/payroll/commission-sources" && method === "GET") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const mS = new URL(request.url).searchParams.get("month") ?? "";
     if (!/^\d{4}-\d{2}$/.test(mS)) return err("invalid_input", "month must be YYYY-MM", 400);
     /* before the start month there is no commission to show at all */
@@ -12404,7 +12768,7 @@ async function handleStaffRoutes(
        pay", see the /payroll guard above). A read permission was standing in
        for a write permission. It now uses the same PAYROLL_PROC set as every
        other payroll mutation. */
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const mC = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mC) return err("invalid_input", "month (YYYY-MM) is required", 400);
     const entries = await env.DB.prepare(
@@ -12437,9 +12801,9 @@ async function handleStaffRoutes(
     // deletes an early release so the automatic 5th-of-next-month gate
     // resumes. After the automatic moment, undo is a no-op for staff
     // visibility — the gate is open regardless of the override row.
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     /* v1.234.0 - release (and its undo) is the CEO, COO or super admin's */
-    if (!PAYROLL_RELEASE_ROLES.includes(user.role)) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);
+    if (!can(user.role, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);
     const mR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mR) return err("invalid_input", "month (YYYY-MM) is required", 400);
     if (body?.undo === true) {
@@ -12489,7 +12853,7 @@ async function handleStaffRoutes(
   }
   if (path === "/payroll/base" && method === "GET") {
     // v1.4.78: fixed basic salaries — the source Payroll auto-fills from.
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id AS user_id, base_salary_cents FROM users
        WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1 AND ${payrollBaseStaffSql()}`,
@@ -12498,7 +12862,7 @@ async function handleStaffRoutes(
   }
   if (path === "/payroll/base" && method === "POST") {
     // Set / adjust one person's fixed basic (increments happen here).
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const uid = Number(body?.user_id);
     const cents = Math.round(Number(body?.base_salary_cents));
     if (!uid || !Number.isFinite(cents) || cents < 0 || cents > 100000000) {
@@ -12514,7 +12878,7 @@ async function handleStaffRoutes(
     // "days worked" inputs from this; the inputs STAY editable so a wrong or
     // dishonest punch can be overridden (and permanently corrected in
     // Attendance → corrections & back-entry).
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlA = new URL(request.url);
     const mA = urlA.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     /* v1.87.0 — this month reached three queries straight from the query
@@ -12675,7 +13039,7 @@ async function handleStaffRoutes(
      payslip automatically is the one thing this system must not do - so the
      scan finds them, and a person decides. */
   if (path === "/payroll/absences" && method === "GET") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlA2 = new URL(request.url);
     const mA2 = urlA2.searchParams.get("month") ??
       new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
@@ -12798,7 +13162,7 @@ async function handleStaffRoutes(
   }
 
   if (path === "/payroll/detail" && method === "GET") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlD = new URL(request.url);
     const uid = Number(urlD.searchParams.get("user_id"));
     const mD = urlD.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
@@ -12810,7 +13174,7 @@ async function handleStaffRoutes(
     // v1.4.203: one-time M2E setup — Corporate ID + payer account (CEO asked
     // to store them so the button emits a fully-filled workbook). The M2E
     // USER ID and password are login credentials and are NEVER stored.
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const cid = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_corporate_id'`).first<{ value: string }>();
     const acc = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_payer_account'`).first<{ value: string }>();
     const cbid = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'm2e_client_batch_id'`).first<{ value: string }>();
@@ -12818,7 +13182,7 @@ async function handleStaffRoutes(
     return json({ corporate_id: cid?.value ?? "", payer_account: acc?.value ?? "", client_batch_id: cbid?.value ?? "", has_template: tpl !== null });
   }
   if (path === "/payroll/m2e-settings" && method === "POST") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const cid = String(body?.corporate_id ?? "").trim().toUpperCase().slice(0, 20);
     const acc = String(body?.payer_account ?? "").replace(/[^0-9]/g, "").slice(0, 20);
     const cbid = String(body?.client_batch_id ?? "").trim().toUpperCase().slice(0, 20);
@@ -12832,7 +13196,7 @@ async function handleStaffRoutes(
   if (path === "/payroll/m2e-template" && method === "POST") {
     // Binary body (on the exclusion list): the BLANK official template,
     // stored once in R2 and reused every month.
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const lenT = parseInt(request.headers.get("Content-Length") ?? "0", 10);
     if (!lenT || lenT > 12 * 1024 * 1024) return err("invalid_input", "Template file required (max 12MB)", 400);
     const bytesT = new Uint8Array(await request.arrayBuffer());
@@ -12852,7 +13216,7 @@ async function handleStaffRoutes(
        the filled .xlsm itself — Home sheet (Corporate ID, Client Batch ID
        AZOO{MM}{YYYY}, payer account, Value Date per the v1.4.202 rule) plus
        the salary rows from row 5 — macros untouched, ready to upload. */
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlM = new URL(request.url);
     const monthM = urlM.searchParams.get("month");
     if (!monthM || !/^\d{4}-\d{2}$/.test(monthM)) return err("invalid_input", "month (YYYY-MM) required", 400);
@@ -12935,7 +13299,7 @@ async function handleStaffRoutes(
        - Value date: optional ?value_date=YYYY-MM-DD (defaults to today MYT),
          emitted DDMMYYYY as the template requires.
        PAYROLL_PROC only; audited. */
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlPF = new URL(request.url);
     const monthPF = urlPF.searchParams.get("month");
     if (!monthPF || !/^\d{4}-\d{2}$/.test(monthPF)) return err("invalid_input", "month (YYYY-MM) required", 400);
@@ -13008,7 +13372,7 @@ async function handleStaffRoutes(
     // from the holiday calendar and re-derives + STORES every entry's
     // month_working_days and net_cents server-side — fixing stale rows
     // regardless of what the browser has loaded or saved.
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const monthR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!monthR) return err("invalid_input", "month (YYYY-MM) required", 400);
     /* v1.148.0 - this route rewrites net_cents for EVERY row in the month.
@@ -13130,7 +13494,7 @@ async function handleStaffRoutes(
     return json({ ok: true, month: monthR, working_days: workD, rows: fixed });
   }
   if (path === "/payroll" && method === "POST") {
-    if (!PAYROLL_PROC.includes(user.role)) return err("forbidden", "Payroll access required", 403);
+    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const month = str(body?.month, 7) && /^\d{4}-\d{2}$/.test(body!.month as string) ? (body!.month as string) : null;
     if (!body || typeof body.user_id !== "number" || !month) {
       return err("invalid_input", "user_id and month (YYYY-MM) are required", 400);

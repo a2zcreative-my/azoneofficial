@@ -24,6 +24,7 @@
    never unmounted. An anchor the Desk reveals opens its tab first:
    #ot-approvals -> Team, #pending-punches -> Settings, #roster-board -> Roster. */
 
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Attendance, type AttendanceMine } from "@/components/portal/attendance";
 import { AttendanceOverview, type OverviewTab } from "@/components/portal/attendance-overview";
@@ -146,7 +147,7 @@ export function AttendancePanel({ user, go }: { user: User; go: (t: TabName) => 
           /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task
              should be able to delete!") - mirrors task_delete in
              worker/src/permissions.ts, which is the CEO alone. */
-          canDeleteTask={["ceo", "super_admin"].includes(user.role)}
+          canDeleteTask={holds("task_delete", ["ceo", "super_admin"].includes(user.role))}
         />
         </div>
         </TabZone>

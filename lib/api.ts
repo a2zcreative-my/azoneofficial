@@ -17,7 +17,7 @@
  * - network failure yields { ok: false, status: 0, data: null }.
  */
 
-import { queueableKind, newIdempotencyKey, enqueue, reportDropped, type OutboxEntry } from "@/lib/outbox";
+import { queueableKind, newIdempotencyKey, enqueue, reportDropped, onceOnlyKind, onceKey, type OutboxEntry } from "@/lib/outbox";
 
 const API = "/api/v1";
 
@@ -96,6 +96,16 @@ export async function csrfFetch(url: string, init: RequestInit = {}): Promise<Re
   return res;
 }
 
+/* v1.238.0 - the last refused or failed request, for "Report a problem":
+   the status, the error code and the route with its ids taken out - never a
+   body, a message or a query string */
+let LAST_ERROR = "";
+function noteError(status: number, path: string, data: unknown): void {
+  const code = (data as { error?: { code?: unknown } } | null)?.error?.code;
+  LAST_ERROR = `${status || "network"} ${typeof code === "string" ? code.slice(0, 40) : ""} ${path.split("?")[0]!.replace(/\/\d+/g, "/:id")}`.replace(/\s+/g, " ").trim();
+}
+export function lastApiError(): string { return LAST_ERROR; }
+
 export async function api<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   const isMutating = Boolean(init?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(init.method));
   /* v1.105.0 - a queueable write (lib/outbox.ts QUEUEABLE) carries an
@@ -105,6 +115,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
   const kind = isMutating ? queueableKind(init?.method, path) : null;
   const idem = kind ? newIdempotencyKey() : null;
   const clientAt = kind ? new Date().toISOString() : null;
+  /* v1.238.0 - a money write (lib/outbox.ts ONCE_ONLY) is never queued, but
+     carries a key made from itself so a repeat cannot land twice */
+  const once = isMutating && !kind ? onceOnlyKind(init?.method, path) : null;
+  const onceK = once ? await onceKey(init!.method!, path, typeof init?.body === "string" ? init.body : null).catch(() => null) : null;
   const park = async (): Promise<ApiResult<T>> => {
     const kept = await enqueue({
       id: idem!, path, method: init!.method!, kind: kind!, clientAt: clientAt!,
@@ -133,6 +147,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
         if (csrf) headers.set("X-CSRF-Token", csrf);
       }
       if (idem) { headers.set("Idempotency-Key", idem); headers.set("X-Client-At", clientAt!); }
+      else if (onceK) headers.set("Idempotency-Key", onceK);
       const res = await fetch(`${API}${path}`, {
         credentials: "include",
         ...init,
@@ -146,11 +161,29 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
     if (isMutating && isCsrfFailure(res.status, data) && (await refreshCsrfCookie())) {
       ({ res, data } = await attempt());
     }
+    if (!res.ok) noteError(res.status, path, data);
     return { ok: res.ok, status: res.status, data };
   } catch {
+    noteError(0, path, null);
     /* fetch threw: no network, DNS, the tunnel. A queueable write is kept;
        anything else fails as it always did. */
     if (kind) return park();
+    /* v1.238.0 - the network dropped mid-way: a money write is sent ONCE
+       more with the same key - if the first one landed, the server answers
+       with that first answer instead of writing again */
+    if (onceK) {
+      try {
+        await new Promise((r) => setTimeout(r, 1500));
+        const headers = new Headers((init?.headers as Record<string, string>) ?? {});
+        if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+        const csrf = getCsrfToken();
+        if (csrf) headers.set("X-CSRF-Token", csrf);
+        headers.set("Idempotency-Key", onceK);
+        const res = await fetch(`${API}${path}`, { credentials: "include", ...init, headers });
+        const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | null);
+        return { ok: res.ok, status: res.status, data };
+      } catch { /* still no network - the honest answer below */ }
+    }
     return { ok: false, status: 0, data: null };
   }
 }

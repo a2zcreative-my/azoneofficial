@@ -233,7 +233,66 @@ export const PERMS: Record<string, readonly Role[]> = {
   owner_designate: ["super_admin"],
   /** read the full system audit log (was atLeast(user, "admin") - the same three roles) */
   audit_read: ["super_admin", "admin", "ceo"],
+
+  /* === v1.237.0 - THE NAMED LISTS, NOW PERMISSIONS (the owner, 31-10-2026:
+     the Roles & Permissions matrix "require to be editable for me as a CEO";
+     claude/EDITABLE-PERMISSIONS-AUDIT.md). These lived as constants inside
+     staff.ts and commission.ts, which no screen could change. Moved here
+     with EXACTLY the roles they had, so nothing changes until the owner or
+     the super admin edits a cell. */
+  /** confirm that a paid invoice's money arrived (never on your own sale - a rule in the route) */
+  confirm_paid: ["ceo", "coo"],
+  /** view and process payroll (was PAYROLL_PROC) */
+  payroll_process: ["super_admin", "admin", "ceo", "coo"],
+  /** release payslips (was PAYROLL_RELEASE_ROLES) */
+  payroll_release: ["super_admin", "ceo", "coo"],
+  /** record the payroll bank run (was BANK_RUN_ROLES) */
+  bank_run: ["super_admin", "ceo", "coo"],
+  /** see everyone's commission (was commission.ts VIEW_ALL) */
+  commission_view_all: ["super_admin", "admin", "ceo", "coo", "cco"],
+  /** draft a commission policy (was DRAFT_ROLES) */
+  commission_draft: ["super_admin", "ceo", "coo"],
+  /** approve a commission policy (was APPROVE_ROLES) */
+  commission_approve: ["super_admin", "ceo"],
+  /** decide reviews, settle leavers, the payroll switch (was DECIDE_ROLES) */
+  commission_settle: ["super_admin", "ceo"],
+  /** set the office geofence (was GEOFENCE_ADMIN_ROLES) */
+  geofence_admin: ["super_admin", "ceo", "coo"],
+
+  /* === v1.238.0 - ACCOUNT MANAGEMENT AND RECOVERY (the owner, 31-10-2026,
+     claude/ACCOUNT-RECOVERY-AUDIT.md: "Owner + Super Admin" - each with an
+     authenticator code and a reason). The super admin by role, the verified
+     company owner through OWNER_GRANTS; the account itself is still judged
+     by canManageAccount (CEO and super admin accounts stay the super
+     admin's). */
+  /** change a staff member's login email (pending until verified) */
+  account_email: ["super_admin"],
+  /** reset 2FA (re-enrol), set-password links, suspend or restore, sign out devices, unlink Google, the account's security history */
+  account_recovery: ["super_admin"],
 };
+
+/* v1.237.0 - THE OWNER'S EDITS, applied INSIDE can() (the owner, 31-10-2026;
+   answers: the owner and the super admin edit; no locks; approval chains stay
+   fixed). PERMS above is the DEFAULT; system_meta.role_permissions holds the
+   cells the owner or the super admin changed, and every one of the server's
+   can() checks reads them - there is no second engine and no second list.
+   index.ts getSessionUser loads them on every signed-in request
+   (setPermissionOverrides); an unreadable record means "no edits". */
+let OVERRIDES: Partial<Record<string, readonly Role[]>> = {};
+export const POLICY_ROLE_SET: readonly string[] = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];
+/** Keep only real capabilities and staff roles - a customer is never given a staff permission here. */
+export function cleanOverrides(raw: unknown): Record<string, Role[]> {
+  const out: Record<string, Role[]> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(k in PERMS) || !Array.isArray(v)) continue;
+    out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r)))] as Role[];
+  }
+  return out;
+}
+export function setPermissionOverrides(raw: unknown): void { OVERRIDES = cleanOverrides(raw); }
+/** The roles that hold a capability right now: the saved edit, else the default. */
+export function rolesFor(perm: keyof typeof PERMS): readonly Role[] { return OVERRIDES[perm] ?? PERMS[perm]!; }
 
 /* v1.236.0 - what the VERIFIED COMPANY OWNER holds beyond the ceo role.
    The owner is one account: role ceo, active, 2FA on, and named in
@@ -241,7 +300,7 @@ export const PERMS: Record<string, readonly Role[]> = {
    is_owner - nothing a person can type into a profile). The owner's answers:
    "One designated owner"; "Admin role only" (super admin accounts and the
    ceo role stay with the super admin); roles stay code-defined. */
-export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant"];
+export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery"];
 
 /* v1.236.0 - every capability the super admin holds and the CEO does not
    must be in OWNER_GRANTS or here, with the reason, or the build fails
@@ -312,7 +371,7 @@ export function roleChangeRule(actor: Actor & { id: number }, target: { id: numb
 
 export function can(role: Role | string | undefined | null, perm: keyof typeof PERMS): boolean {
   if (!role) return false;
-  return PERMS[perm]!.includes(role as Role);
+  return rolesFor(perm).includes(role as Role);
 }
 
 // Roles that must have 2FA enabled.
@@ -337,10 +396,9 @@ export const MANDATORY_2FA_ROLES: Role[] = [
    GET /staff/access/policy reads it; nothing here grants anything, and an
    action is changed only by changing the code that enforces it.
    tests/access-policy.mjs holds every row to a real constant. */
-export type PolicyList =
-  | "CONFIRM_PAID" | "PAYROLL_PROCESS" | "PAYROLL_RELEASE" | "BANK_RUN"
-  | "COMMISSION_VIEW_ALL" | "COMMISSION_DRAFT" | "COMMISSION_APPROVE" | "COMMISSION_DECIDE"
-  | "GEOFENCE" | "TAB_ACCESS_EDIT";
+/* v1.237.0 - one list is left: who edits this matrix and the tab matrix.
+   It is the editor itself, not a cell, so it cannot be edited away. */
+export type PolicyList = "TAB_ACCESS_EDIT";
 export interface PolicyAction {
   module: string; key: string; en: string; ms: string;
   cap?: keyof typeof PERMS; list?: PolicyList;
@@ -350,31 +408,35 @@ export interface PolicyAction {
   cond?: Partial<Record<Role, readonly [string, string]>>;
   /** v1.236.0 - roles the action does not apply to by design ("Not applicable"). */
   na?: readonly Role[];
+  /** v1.237.0 - the route also checks this capability first: giving the
+      action alone is not enough (the matrix review says so). */
+  needs?: keyof typeof PERMS;
 }
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
-  { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", list: "CONFIRM_PAID", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
+  { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", cap: "confirm_paid", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },
   { module: "Finance", key: "cashbook_correct", en: "Correct the cash book", ms: "Betulkan buku tunai", cap: "cashbook_correct" },
-  { module: "Finance", key: "bank_run", en: "Record the payroll bank run", ms: "Rekod pembayaran gaji bank", list: "BANK_RUN" },
+  { module: "Finance", key: "bank_run", en: "Record the payroll bank run", ms: "Rekod pembayaran gaji bank", cap: "bank_run", needs: "expenses" },
   { module: "Accounting", key: "accounting", en: "View and post the ledger", ms: "Lihat dan catat lejar", cap: "accounting_manage" },
-  { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", list: "PAYROLL_PROCESS" },
-  { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", list: "PAYROLL_RELEASE" },
+  { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", cap: "payroll_process" },
+  { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", cap: "payroll_release", needs: "payroll_process" },
   { module: "Payroll", key: "payroll_export", en: "Export payroll", ms: "Eksport gaji", cap: "payroll_export" },
-  { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", list: "COMMISSION_VIEW_ALL", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri", cond: { cco: ["Reviews only - no decisions", "Semak sahaja - tiada keputusan"], sales_marketing: ["Their own entries only", "Entri sendiri sahaja"] } },
-  { module: "Commission", key: "commission_draft", en: "Draft a commission policy", ms: "Draf polisi komisen", list: "COMMISSION_DRAFT" },
-  { module: "Commission", key: "commission_approve", en: "Approve a commission policy", ms: "Luluskan polisi komisen", list: "COMMISSION_APPROVE" },
-  { module: "Commission", key: "commission_decide", en: "Decide reviews, settle leavers, payroll switch", ms: "Putuskan semakan, selesaikan bekas staf, suis gaji", list: "COMMISSION_DECIDE" },
+  { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", cap: "commission_view_all", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri", cond: { cco: ["Reviews only - no decisions", "Semak sahaja - tiada keputusan"], sales_marketing: ["Their own entries only", "Entri sendiri sahaja"] } },
+  { module: "Commission", key: "commission_draft", en: "Draft a commission policy", ms: "Draf polisi komisen", cap: "commission_draft" },
+  { module: "Commission", key: "commission_approve", en: "Approve a commission policy", ms: "Luluskan polisi komisen", cap: "commission_approve" },
+  { module: "Commission", key: "commission_decide", en: "Decide reviews, settle leavers, payroll switch", ms: "Putuskan semakan, selesaikan bekas staf, suis gaji", cap: "commission_settle" },
+  { module: "Commission", key: "commission_closer", en: "Correct the closer of a sale", ms: "Betulkan penutup jualan", cap: "commission_decide" },
   { module: "Claims", key: "claims_submit", en: "Submit claims", ms: "Hantar tuntutan", cap: "claims_submit" },
   { module: "Claims", key: "claims_decide", en: "Approve claims", ms: "Luluskan tuntutan", cap: "claims_decide" },
   { module: "Leave", key: "leave_entitlement", en: "Set leave entitlement", ms: "Tetapkan kelayakan cuti", cap: "leave_entitlement" },
   { module: "Leave", key: "unpaid_leave", en: "Record unpaid days", ms: "Rekod hari tanpa gaji", cap: "unpaid_leave" },
   { module: "Attendance", key: "attendance_correct", en: "Correct attendance records", ms: "Betulkan rekod kehadiran", cap: "attendance_correct" },
-  { module: "Attendance", key: "geofence", en: "Set the office geofence", ms: "Tetapkan geofence pejabat", list: "GEOFENCE" },
+  { module: "Attendance", key: "geofence", en: "Set the office geofence", ms: "Tetapkan geofence pejabat", cap: "geofence_admin" },
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
   { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete" },
   { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
@@ -390,6 +452,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Users", key: "role_any", en: "Assign and revoke COO, CCO and customer roles", ms: "Tetapkan dan tarik balik peranan COO, CCO dan pelanggan", cap: "role_any", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
   { module: "Users", key: "exec_accounts", en: "Create, edit, reset, offboard or sign out COO, CCO and Admin accounts", ms: "Cipta, sunting, set semula, tamatkan atau log keluar akaun COO, CCO dan Admin", cap: "exec_accounts", note_en: "Authenticator code for every change", note_ms: "Kod pengesah untuk setiap perubahan" },
   { module: "Users", key: "tech_admin", en: "Grant or revoke technical Admin access", ms: "Beri atau tarik balik akses Admin teknikal", cap: "tech_admin_grant", note_en: "Company email; authenticator code and a reason", note_ms: "E-mel syarikat; kod pengesah dan sebab" },
+  { module: "Users", key: "account_email", en: "Change a staff login email", ms: "Tukar e-mel log masuk kakitangan", cap: "account_email", note_en: "Pending until the new address is verified; same account, history kept", note_ms: "Menunggu sehingga alamat baharu disahkan; akaun sama, sejarah kekal" },
+  { module: "Users", key: "account_recovery", en: "Account recovery: reset 2FA, set-password link, suspend, sign out devices", ms: "Pemulihan akaun: set semula 2FA, pautan kata laluan, gantung, log keluar peranti", cap: "account_recovery", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
   { module: "Users", key: "tab_access", en: "Edit tab visibility and exceptions", ms: "Sunting keterlihatan tab dan pengecualian", list: "TAB_ACCESS_EDIT" },
   { module: "System", key: "audit_read", en: "Read the full system audit log", ms: "Baca log audit sistem penuh", cap: "audit_read" },
   { module: "System", key: "owner_designate", en: "Name the company owner; give or take the CEO role; manage Super Admin accounts", ms: "Namakan pemilik syarikat; beri atau tarik peranan CEO; urus akaun Super Admin", cap: "owner_designate", note_en: "Recovery procedure", note_ms: "Prosedur pemulihan" },

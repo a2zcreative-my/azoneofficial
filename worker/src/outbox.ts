@@ -45,13 +45,32 @@ export function isQueueable(method: string, subPath: string): boolean {
   return QUEUEABLE.some((r) => r.method === method && r.path.test(subPath));
 }
 
+/* v1.238.0 - ONCE ONLY (the owner, 31-10-2026; claude/ACCOUNT-RECOVERY-
+   AUDIT.md: "Duplicate API requests do not create duplicate financial
+   records"). Money writes are NEVER queued on the phone, but a reply lost in
+   a tunnel used to mean a second press, and a second press a second part
+   payment. The client sends these with a key made from the request itself
+   and a five-minute window (lib/outbox.ts onceKey), and re-sends once with
+   the same key when the network drops: the server answers a repeat with the
+   first answer. lib/outbox.ts ONCE_ONLY is the same list (tests/outbox.mjs). */
+export const ONCE_ONLY: readonly { method: string; path: RegExp }[] = [
+  { method: "POST", path: /^\/docs$/ },
+  { method: "POST", path: /^\/docs\/\d+\/payments$/ },
+  { method: "POST", path: /^\/docs\/\d+\/credit-note$/ },
+  { method: "POST", path: /^\/credit-notes\/\d+\/refund$/ },
+  { method: "POST", path: /^\/docs\/\d+\/convert$/ },
+];
+export function isOnceOnly(method: string, subPath: string): boolean {
+  return ONCE_ONLY.some((r) => r.method === method && r.path.test(subPath));
+}
+
 const KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
 /** The idempotency key on this request, if it is one we honour. */
 export function idempotencyKey(request: Request, subPath: string): string | null {
   const k = request.headers.get("Idempotency-Key");
   if (!k || !KEY_RE.test(k)) return null;
-  if (!isQueueable(request.method, subPath)) return null;
+  if (!isQueueable(request.method, subPath) && !isOnceOnly(request.method, subPath)) return null;
   return k;
 }
 

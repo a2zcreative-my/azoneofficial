@@ -58,10 +58,36 @@ const server = http.createServer((req, res) => {
       /* v1.236.0 - OWNER=1: the owner's privileged changes and naming the
          owner answer 401 totp_required until an authenticator code is sent
          (the worker's ownerStepUp / requireFreshTotp) */
+      /* v1.237.0 - a matrix edit asks for the code too (owner or super admin) */
+      if (req.method === "POST" && p === "/staff/access/policy") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+      }
       if (process.env.OWNER && req.method === "POST" && (/^\/staff\/users\/\d+\/role$/.test(p) || p === "/staff/owner")) {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         const priv = p === "/staff/owner" || ["customer", "coo", "cco", "admin", "ceo"].includes(b.role);
         if (priv && !b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+      }
+      /* v1.238.0 - every account action asks for the editor's code first;
+         a set-password link is shown once (email off); a report becomes task 77 */
+      if (req.method === "POST" && /^\/staff\/accounts\//.test(p)) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+        const out = p.endsWith("/password-link") ? { ok: true, emailed: false, expires_in_hours: 24, link: "https://portal.example.test/set-password#token=" + "ab".repeat(32) }
+          : p.endsWith("/email") ? { ok: true, applied: b.route === "in_person", change_id: 4, needs_second: false, sent: false } : { ok: true };
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out)); return;
+      }
+      if (req.method === "POST" && p === "/staff/support/report") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, task_id: 77, assigned_to: "Fixture Person" })); return; }
+      if (req.method === "POST" && /^\/users\/\d+\/offboard$/.test(p)) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        if (process.env.OWNER && !b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, status: "resigned", left_on: b.left_on, moved: b.handover_to ? { tasks: 2, followups: 1 } : { tasks: 0, followups: 0 } })); return;
+      }
+      if (req.method === "POST" && (p === "/auth/email-verify" || p === "/auth/set-password")) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        const good = b.token === "cd".repeat(32);
+        res.writeHead(good ? 200 : 400, { "content-type": "application/json" });
+        res.end(JSON.stringify(good ? { ok: true, email: "aisyah@a2zcreative.test" } : { error: { code: "link_invalid", message: "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one." } })); return;
       }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
       /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a

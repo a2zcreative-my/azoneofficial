@@ -1,4 +1,5 @@
 "use client";
+import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openAttachment, openDocumentPreview } from "@/components/ui/document-preview";
 
 /**
@@ -1180,7 +1181,7 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                     {/* v1.235.0 - the owner kept this editor, and narrowed who
                         uses it: CEO, COO, super admin (= PERMS.elfia_publish).
                         Everyone else sees what the shop is set to. */}
-                    {!ELFIA_PUBLISH_ROLES.includes(role) ? (
+                    {!holds("elfia_publish", ELFIA_PUBLISH_ROLES.includes(role)) ? (
                       <span className="text-xs">{(it.bridge_enabled ?? 0) === 1
                         ? `${L("On ELFIA", "Di ELFIA")}${it.elfia_price_cents ? ` · RM ${rmBare(it.elfia_price_cents)}` : ""}`
                         : <span className="text-muted-foreground">{L("Not on ELFIA", "Tiada di ELFIA")}</span>}</span>
@@ -2601,7 +2602,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      always read. Nothing in the payslip had to change: the UNPAID LEAVE line
      and the 1/26 statutory rate were already there, waiting for a day to
      count. CEO only, matching the server. */
-  const canUnpaid = ["ceo", "super_admin"].includes(role);
+  const canUnpaid = holds("unpaid_leave", ["ceo", "super_admin"].includes(role));
   /* v1.91.0 — the card opened to COO, CCO and HR admin (attendance_correct).
      Working-hour patterns are written under hr_manage on the worker, so the
      Hours area follows THAT list; the unpaid area stays the CEO's. */
