@@ -70,10 +70,12 @@ ok("one booking path: every module books through bookCash, in one statement",
    && /SELECT date\('now', '\+8 hours'\), \?6, \?1, \?2, \?3, \?4, \?5, COALESCE\(\?7, date\('now', '\+8 hours'\)\), \?8\s+WHERE NOT EXISTS/.test(cb)
    && !/SELECT id FROM cashflow_entries WHERE ref = \?1 LIMIT 1/.test(staff + erp));
 ok("cash rows are never deleted - reversed instead", !/DELETE FROM cashflow_entries/.test(staff + erp + cb) && /return err\("reverse_instead"/.test(erp));
-ok("undo paths reverse: expense unpaid and deleted, invoice unpaid, deleted and un-converted",
+/* v1.242.0 (go-live audit B2, decision D-2): an invoice is never deleted
+   and never "un-converted" - it is VOIDED; the void reverses any live row */
+ok("undo paths reverse: expense unpaid and deleted, invoice unpaid and voided; an invoice is never deleted",
    /reverseLive\(env, user\.id, `EXP-\$\{exPaid\[1\]\}`, "Expense marked unpaid"\)/.test(staff) && /reverseLive\(env, user\.id, `EXP-\$\{exMatch\[1\]\}`, "Expense deleted"\)/.test(staff)
-   && /reverseLive\(env, user\.id, `INV-\$\{id\}`, `Invoice marked/.test(staff) && /reverseLive\(env, user\.id, `INV-\$\{dd\.id\}`, "Invoice deleted"\)/.test(staff)
-   && /reverseLive\(env, user\.id, `INV-\$\{inv\.id\}`, "Invoice reversed back to its quotation"\)/.test(staff));
+   && /reverseLive\(env, user\.id, `INV-\$\{id\}`, `Invoice marked/.test(staff) && /reverseLive\(env, user\.id, `INV-\$\{inv\.id\}`, "Invoice voided"\)/.test(staff)
+   && !/"Invoice deleted"/.test(staff) && /is an invoice: invoices are voided with a reason, never deleted/.test(staff));
 ok("nothing books commission as its own cash movement", !/["`]COMM-/.test(staff + erp + cb + strip(read("worker/src/business.ts"))));
 ok("a failure says what it was, and is logged", /await logError\(env, "cashbook", `GET \/erp\/cashbook: \$\{msg\}`\);\s*return err\("cashbook_failed", `Finance could not be read: \$\{msg\.slice\(0, 240\)\}`, 500\);/.test(cb));
 ok("the screen shows the reason and the status, and a worker older than the page", /r\.status === 404 \? L\("The API worker is older than this page/.test(read("components/portal/finance-panels.tsx")) && /\(HTTP \$\{r\.status\}/.test(read("components/portal/finance-panels.tsx")));
@@ -138,15 +140,19 @@ try {
   const jr = db.prepare(`SELECT e.ref, l.debit_cents, l.credit_cents FROM journal_entries e JOIN journal_lines l ON l.entry_id = e.id`).all();
   const jSum = jr.reduce((a, l) => a + l.debit_cents - l.credit_cents, 0);
   ok("the journal mirrors the reversal and stays balanced", jSum === 0 && jr.some((l) => l.ref.startsWith("REV-")) && jr.some((l) => l.ref === "EXP-1#2"), JSON.stringify(jr.map((l) => l.ref)));
-  /* the invoice id reuse (F12): paid, unpaid, deleted, the next invoice reuses id 13 */
+  /* paid, unpaid, then VOIDED (v1.242.0 - an invoice is never deleted, so
+     its id is never reused; F12's id-reuse case cannot arise any more) */
   ins.run(13, "INV", "INV-13", 70000, "unpaid", "2026-09-15 02:00:00");
   await call("/docs/13", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-15" });
   await call("/docs/13", 1, "PATCH", { payment_status: "unpaid" });
   ok("an invoice set back to unpaid has its money-in reversed", db.prepare(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE reversal_of = ?`).get(rows("INV-13")[0].id).n === 1);
-  await call("/docs/13", 1, "DELETE");
-  ins.run(13, "INV", "INV-13B", 90000, "unpaid", "2026-09-16 02:00:00");
-  await call("/docs/13", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-16" });
-  ok("a new invoice that reuses a deleted one's id still books", rows("INV-13").some((r) => r.amount_cents === 90000), JSON.stringify(rows("INV-13").map((r) => r.amount_cents)));
+  ok("an invoice cannot be deleted (B2): the row stays", (await call("/docs/13", 1, "DELETE")).status === 400 && db.prepare(`SELECT COUNT(*) AS n FROM sales_documents WHERE id = 13`).get().n === 1);
+  ok("it is voided instead, with a reason; its cash row stays reversed, nothing new books", (await call("/docs/13/void", 1, "POST", { reason: "Raised on the wrong customer account" })).status === 200
+     && db.prepare(`SELECT payment_status FROM sales_documents WHERE id = 13`).get().payment_status === "void" && rows("INV-13").length === 1);
+  ok("a voided invoice cannot be marked paid again", (await call("/docs/13", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-16" })).status === 409 && rows("INV-13").length === 1);
+  ins.run(15, "INV", "INV-15", 90000, "unpaid", "2026-09-16 02:00:00");
+  await call("/docs/15", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-16" });
+  ok("the next invoice books under its own ref", rows("INV-15").some((r) => r.amount_cents === 90000), JSON.stringify(rows("INV-15").map((r) => r.amount_cents)));
 
   /* 3. true dates: a back-filled claim row booked on the 15th for money paid on 3 August */
   db.exec(`INSERT INTO claims (id, user_id, claim_date, category, amount_cents, status, claim_type, paid_at) VALUES (7, 4, '2026-07-30', 'travel', 4500, 'approved', 'reimbursement', '2026-08-03 03:00:00')`);

@@ -215,7 +215,8 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("a parked write says so", /return \{ ok: true, status: 202, data: null, queued: true \};/.test(apiSrc));
   ok("the replay sends the SAME key and pressed-at, and says it IS a replay",
      /"Idempotency-Key": e\.id,\s*\n?\s*"X-Client-At": e\.clientAt, "X-Outbox-Replay": "1"/.test(apiSrc));
-  ok("a network failure stops the drain and keeps the entry", /if \(r === null\) \{ await bumpAttempts\(e\); break; \}/.test(clientSrc));
+  /* v1.243.0 (F3): the entry is kept as "queued" again (it was marked "sending" for the attempt) */
+  ok("a network failure stops the drain and keeps the entry", /if \(r === null\) \{ await bumpAttempts\(\{ \.\.\.e, state: "queued" \}\); break; \}/.test(clientSrc));
 
   /* v1.177.1 - THE QUEUE MAY NOT LIE, AND MAY NOT LOSE.
      Two defects shipped together and both are held here.
@@ -386,11 +387,50 @@ const client = await bundle(join(root, "lib/outbox.ts"), "client");
   ok("...counts the attempt and sets a future due time", after500.attempts === 1 && after500.nextAt > Date.now());
   ok("...and says nothing yet - it is still trying", refusals.length === 0);
 
+  /* v1.243.0 (go-live audit F3, the approved plan): a refused PUNCH is a
+     day somebody worked - it is KEPT as "needs HR" with the reason (shown
+     with its pressed time until the person says HR has it) and the person
+     is told; any other refused write still leaves the queue and is told. */
   store.clear();
   await client.enqueue(entry("k-400"));
   refusals = [];
   await client.drainOutbox(async () => ({ status: 409, data: { error: { message: "already clocked in" } } }));
-  ok("a 4xx removes the entry and tells the person", (await client.outboxAll()).length === 0 && refusals.length === 1 && /already clocked in/.test(refusals[0].message));
+  const k400 = (await client.outboxAll()).find((e) => e.id === "k-400");
+  ok("a 4xx on a punch keeps it as needs_hr, with the reason, and tells the person", k400?.state === "needs_hr" && /already clocked in/.test(k400.reason ?? "") && refusals.length === 1 && /already clocked in/.test(refusals[0].message), JSON.stringify(k400));
+  await client.drainOutbox(async () => { throw new Error("a needs_hr punch must not be sent again"); });
+  ok("...it is not sent again", (await client.outboxAll()).some((e) => e.id === "k-400"));
+  await client.dismissNeedsHr("k-400");
+  ok("...and leaves only when the person says HR has it", !(await client.outboxAll()).some((e) => e.id === "k-400"));
+  store.clear();
+  await client.enqueue({ ...entry("k-task"), path: "/staff/tasks/4", method: "PATCH", kind: "task" });
+  refusals = [];
+  await client.drainOutbox(async () => ({ status: 409, data: { error: { message: "task closed" } } }));
+  ok("a 4xx on any other write removes the entry and tells the person", (await client.outboxAll()).length === 0 && refusals.length === 1 && /task closed/.test(refusals[0].message));
+
+  /* v1.243.0 (F3) - THE SESSION EXPIRED: a 401/403 holds the punch (same key,
+     same pressed time), stops the drain, and releaseHeld after sign-in sends
+     it again with the SAME key */
+  store.clear();
+  await client.enqueue(entry("k-401"));
+  await client.enqueue(entry("k-401b"));
+  let sentKeys = [];
+  await client.drainOutbox(async (e) => { sentKeys.push(e.id); return { status: 401, data: { error: { message: "Sign in required" } } }; });
+  const held = await client.outboxAll();
+  ok("F3 a 401 keeps the punch as held_signin and stops the drain (the second is not tried)", held.find((e) => e.id === "k-401")?.state === "held_signin" && sentKeys.join() === "k-401" && held.length === 2, JSON.stringify(held.map((e) => [e.id, e.state])));
+  sentKeys = [];
+  await client.drainOutbox(async (e) => { sentKeys.push(e.id); return { status: 201, data: {} }; });
+  ok("F3 a held punch is not sent before sign-in", !sentKeys.includes("k-401"), sentKeys.join());
+  ok("F3 after sign-in releaseHeld makes it due", (await client.releaseHeld()) === 1);
+  sentKeys = []; const sentAt = [];
+  await client.drainOutbox(async (e) => { sentKeys.push(e.id); sentAt.push(e.clientAt); return { status: 201, data: {} }; });
+  ok("F3 ...and it is sent with the SAME key and pressed time, then confirmed (removed)", sentKeys.includes("k-401") && (await client.outboxAll()).length === 0);
+  /* a punch older than the server's 48-hour window goes to HR, never sent */
+  store.clear();
+  await client.enqueue({ ...entry("k-old"), clientAt: new Date(Date.now() - 50 * 3600 * 1000).toISOString() });
+  sentKeys = [];
+  await client.drainOutbox(async (e) => { sentKeys.push(e.id); return { status: 201, data: {} }; });
+  const old = (await client.outboxAll()).find((e) => e.id === "k-old");
+  ok("F3 a punch pressed over 48 hours ago is not sent; it is kept as needs_hr", sentKeys.length === 0 && old?.state === "needs_hr", JSON.stringify(old));
 
   /* --- 5. it gives up out loud rather than looping for ever --- */
   store.clear();

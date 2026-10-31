@@ -177,6 +177,9 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   const isINV = doc.doc_type === "INV";
   const isService = doc.kind === "service";
   const isPaid = isINV && doc.payment_status === "paid";
+  /* v1.242.0 (go-live audit B2) - a voided invoice prints as such: the number
+     is still on the paper, so the paper must say the invoice is not owed */
+  const isVoid = isINV && doc.payment_status === "void";
 
   /* ---- amount in words (Malaysian convention: RINGGIT MALAYSIA … ONLY) ---- */
   const ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
@@ -297,6 +300,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
           <p class="body">Payment by bank transfer to <strong>${esc(issuer.bank)}</strong> (${esc(issuer.bankHolder)}).
           Please send the transfer receipt via WhatsApp +60 12-383 4821 quoting the invoice number.</p>
           ${isPaid ? `<p class="paidline">&#10004; PAID${doc.paid_at ? ` &middot; ${dOnly(doc.paid_at)}` : ""}${doc.payment_ref ? ` &middot; Ref: ${esc(doc.payment_ref)}` : ""}</p>` : ""}
+          ${isVoid ? `<p class="paidline" style="color:#b91c1c">VOID &middot; this invoice is cancelled and nothing is owed on it</p>` : ""}
         </div>
         <div class="split2">${preparedBy("Authorised signature")}
           ${partnerBlock("Received &amp; acknowledged by", "Name &amp; designation", "Company chop")}</div>
@@ -429,8 +433,9 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .foot { margin-top: 12px; font-size: 8px; color: ${DOC.muted}; border-top: 1px solid ${DOC.line}; padding-top: 7px; text-align: center; line-height: 1.5; }
     .stamp { position: fixed; top: 34%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg); border: 4px solid #15803d;
       color: #15803d; font-size: 44px; font-weight: 900; letter-spacing: .2em; padding: 6px 26px; border-radius: 10px; opacity: .18; pointer-events: none; }
+    .stamp.void { border-color: #b91c1c; color: #b91c1c; opacity: .22; }
   </style></head><body${autoPrint ? ' onload="window.print()"' : ""}>
-  ${isPaid ? '<div class="stamp">PAID</div>' : ""}
+  ${isPaid ? '<div class="stamp">PAID</div>' : isVoid ? '<div class="stamp void">VOID</div>' : ""}
   <div class="goldbar"></div>
   <div class="hd">
     <div class="brand">${esc(issuer.name)}

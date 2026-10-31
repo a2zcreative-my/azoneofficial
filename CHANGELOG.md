@@ -10,6 +10,198 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.244.0] - 2026-10-31 - Release D of the go-live plan: backup, recovery and housekeeping
+
+The owner's decisions of 31-10-2026 on claude/FINAL-RELEASE-GATE-PLAN-V2.md:
+D-4 "backups bucket now; staging later"; D-9 "DB 30 nights, media 90 days,
+audit never". Evidence: claude/GATE-1.244.0.md. Built and delivered to the
+PC; NOT deployed. No migration. **Before the first deploy the owner creates
+the bucket once: `cd worker` then `npx wrangler r2 bucket create
+azoneofficial-backups`** (PUSH.bat checks and stops if it is missing).
+
+- **F7 The nightly backup has no size limit** (`worker/src/backup-manifest.ts`,
+  `runBackup`): every table is read in rowid order, 20,000 rows a query, into
+  gzipped NDJSON pages; each page and each table carries a SHA-256; the
+  manifest is written last. A table past 50,000 rows no longer stops the
+  backup. A run that fails removes its own pages; earlier backups stay.
+- **A separate backups bucket** (`BACKUPS` -> `azoneofficial-backups`,
+  `worker/wrangler.toml`, `worker/src/backup-store.ts`): the database export
+  goes to `db/`; without the binding it falls back to `MEDIA/backups/` as
+  before. The newest 30 complete backups are kept (D-9). The last 30
+  single-file backups in the media bucket are left as they are.
+- **Media is copied**: every 30 minutes, 40 new or changed objects a pass, to
+  `media/current/` with source etag, size and SHA-256; the copy an edit
+  replaced goes to `media/versions/<day>/`; each Sunday the weekly check
+  re-hashes 20 copies, moves the copy of a deleted object to
+  `media/deleted/<day>/`, writes `media/index.json` and reports damage in
+  the error log. Versions, deleted copies and pass records go after 90 days.
+- **Download** (Off-site copy, super admin) gives one file: the manifest line,
+  then every page. `scripts/verify-backup.mjs` verifies both formats.
+- **Recovery tooling**: `scripts/restore-drill.mjs` (rebuild in a new local
+  SQLite, row counts, 12 business figures, media SHA-256, a SQL script for a
+  fresh D1), `scripts/restore-rows.mjs` (reviewed INSERT statements, never
+  executed), `scripts/restore-media.mjs` (by key, from current / versions /
+  deleted), `docs/RESTORE.md`.
+- **PUSH.bat** (`scripts/release-backup.mjs`): checks the backups bucket and
+  takes a full `wrangler d1 export --remote` to `backups/pre-<version>-<time>.sql`
+  (with SHA-256) BEFORE any migration - a failure stops the release
+  (`PUSH.bat skip-pre-export` is the logged override); keeps the built site
+  per version (newest 5). `backups/` is gitignored.
+- **Housekeeping (D-9)**: read notifications older than 90 days are pruned
+  nightly; unread ones stay; `audit_log` is never pruned.
+- **F5** offboarding and deactivation remove the person's push
+  subscriptions, and no push goes to a phone of somebody who has left or is
+  switched off. **F2** a task cannot be reassigned to a leaver; the overdue,
+  due and acknowledgement sweeps ring current staff only. **F9** a due date
+  must be a real day (no 31-02). **F10** the morning brief and birthday
+  bells ring once per person (per day / per year). **F11** a leaver's
+  birthday is not announced and leavers are not told.
+- System health shows the media copy (objects, still to copy, last pass) and
+  the weekly check.
+- **Fix before the first deploy (31-10-2026)**: PUSH.bat stopped at [6/8]
+  with "could not read the migration ledger (spawnSync npx.cmd EINVAL)" -
+  Node on Windows refuses to start `npx.cmd` without a shell. Nothing had
+  been applied or published. The release scripts (`migration-preflight`,
+  `release-backup`, `restore-media`) now run wrangler through the new
+  `scripts/wrangler-exec.mjs`: the same node on wrangler's own JavaScript
+  entry, no `.cmd`, no shell (so the SQL is passed exactly). Guarded in
+  `go-live-d`.
+- Guards: new `go-live-d` (before: 29 of 37 fail on 1.243.0; after: 51 pass,
+  10 mutations caught). `backup-completeness` and `backup-restore` updated to
+  the approved paged format (over 50,000 rows now succeeds and verifies;
+  every failure case still publishes nothing), nothing weakened.
+
+## [1.243.0] - 2026-10-31 - Release C of the go-live plan: attendance, payroll and payout
+
+The owner's decisions of 31-10-2026 on claude/FINAL-RELEASE-GATE-PLAN-V2.md:
+D-5 October payroll waits for this release; D-3 "leave as it is" (D11 not
+built - the CEO still approves his own records). Evidence:
+claude/GATE-1.243.0.md. Built and delivered to the PC; NOT deployed.
+Migration **0158_payroll_population** (additive).
+
+- **D1 / D2 Overnight and month-edge sessions** (`clockedSessions`): the day
+  scope reads one day either side and pairs; a session is filed under its
+  clock-in day; the month scope also reads the next month's first morning, so
+  30-09 22:00 to 01-10 01:00 is one closed September session.
+- **D3** an HR manual punch re-derives that day and the day before; a manual
+  punch in the future, or within two minutes of the same punch, is refused;
+  the audit carries the details.
+- **D7** a clock-in on approved leave is refused (409 `on_leave`, naming the
+  leave); a half day leaves only the remaining window; Today's shift says
+  "on leave". **D9** a leaver cannot clock in (`not_on_staff`), is not offered
+  as a manager, as a live-session host or as a task assignee, and is not
+  counted by the company monitor. **D12** a clock-out after midnight is
+  classified against yesterday's shift (source-checked; see the gate file).
+- **D4** one CEO approval finalises a COO's or CCO's leave (no second
+  signature). **D6** a leave request is checked for overlap, entitlement and
+  rest days (one shift read). **D8** the balance answers for the person asked
+  about. **D10** HR dates are real dates; clearing the status is refused; the
+  change is audited (`staff.hr_update`, fields). **D5** the schedule shows
+  shifts scheduled ahead. **D17 / E8** default months are Malaysian time.
+- **E1 One payroll population** (`payrollPopulation`, migration 0158): a
+  person is in the run when employed in the month and in a payroll role -
+  the login switch is not a condition. The list, TOTAL, Paid and both bank
+  files use it. A person goes into the bank files only when payment-ready
+  (net above zero, bank recognised, account present); the rest are written to
+  `payroll_exceptions` and shown in an Exceptions block, in the CSV and in the
+  M2E file. Missing or unrecognised bank details block Paid; a suspended
+  login is a note only; **Record manual payment** (cash, cheque, transfer,
+  with a reference; the amount must equal the net) resolves one and can be
+  undone until Paid.
+- **E2 / E3 / E5** a month whose payslips are out (release row or the
+  automatic 5th-of-next-month gate) is closed to saves, overtime and
+  recomputes; forcing needs `payroll_release` and is audited
+  (`payroll.force_released`); a paid month is closed even to force. **Paid
+  is recorded once**, only after the payslips are out, with at least one
+  payee and no open exception; it records the release and the file and manual
+  totals; the bank movement is the file plus manual payments; the release
+  cannot be undone after Paid. **E4** commission is marked paid only for the
+  people paid and the rows included before the run. **E6** the CSV and the
+  M2E file are the same ready subset and both list the exceptions. **E7** a
+  payroll row is saved only for someone in the run.
+- **F3 Offline punches are never lost**: the outbox keeps each punch with a
+  state - queued, held for sign-in (401/403: kept, resent after the next
+  successful sign-in with the same key and pressed time), or with HR (older
+  than the server's 48-hour late window, or refused 4xx: shown with the
+  pressed time and the reason). On Shift shows each state; punches are kept
+  14 days.
+- Guards: new `go-live-c` (before: 41 of 48 fail on 1.242.0; after: 50 pass,
+  10 mutations caught). `outbox`, `unpaid-leave`, `clock-sessions`,
+  `staff-headcount`, `accounting-v2`, `commission-ledger`, `commission-flow`
+  and `commission-config` updated to the approved behaviour (Paid needs the
+  payslips out and recognised bank details; a released month refuses a plain
+  Save), nothing weakened.
+
+## [1.242.0] - 2026-10-31 - Release B of the go-live plan: transaction integrity
+
+The owner's decisions of 31-10-2026 on claude/FINAL-RELEASE-GATE-PLAN-V2.md:
+D-2 void, never delete; D-1 refuse an over-sell; D-8 a published price is
+CEO/COO/super admin; riders included; D-6 three locked matrix cells; D-7
+hr_admin unchanged. Evidence: claude/GATE-1.242.0.md. Built and delivered to
+the PC; NOT deployed. Migration **0157_invoice_void_once** (additive).
+
+- **B2 One live invoice per quotation, void never delete** (`worker/src/staff.ts`
+  convert / void / delete, migration 0157): the convert INSERT lands only when
+  no live invoice exists for the quotation, and 0157's partial unique index
+  refuses a second one even when two clicks cross (one 201, one 409 naming the
+  live invoice). `POST /docs/:id/void` (reason >= 10 characters) marks the row
+  void with who, when and why; the stock it took goes back once through 'in'
+  trail rows; the quotation is open again and the next invoice from it names
+  the one it replaces (`replaces_doc_id`). Void is refused on a paid invoice
+  (credit note) and while live part payments exist (B5: void those first).
+  `/unconvert` answers 410; `DELETE /docs/:id` refuses an invoice, and a
+  quotation with a live invoice. A voided invoice takes no payment, part
+  payment, credit note or edit; the open-quotation, outstanding and invoiced
+  figures exclude it; the lists carry it (status `void`, reason) and the
+  printed paper says VOID. Client: Void (reason dialog) replaces Undo; the
+  convert button is busy until the answer; voided rows struck through with a
+  Void chip; "Replaces INV-…" on a replacement; no Delete on invoices.
+- **B3 Part payments never exceed the total** (`worker/src/business.ts`): one
+  conditional INSERT; two parts in the same second: one 201, one 400.
+- **B1 Cash out never exceeds money in**: a refund (credit note with a refund
+  date, or the later refund) is booked only within (paid total or live parts)
+  minus refunds already out; an invoice with no money recorded refuses it
+  (`refund_exceeds_paid`). A credit note without a refund is still issued.
+- **B4** an unpaid invoice is never edited below the part payments received.
+- **B6** an expired quotation cannot be accepted on its link (410) or invoiced
+  until revised (409). **B7** an accepted quotation's money changes only
+  through a revision (`accepted_locked`); wording still edits in place.
+  **B11** a line discount is capped against the catalogue price it is saved
+  with, not the client's provisional price.
+- **C2 / D-1 Over-sell refused**: an invoice (new, converted or edited) that
+  asks more than the shelf holds is refused before any write, naming the item,
+  the ask and the shelf (`stock_short`); the deduction itself is conditional,
+  so a movement landing between the check and the write leaves the shelf at
+  0 and the never-seen invoice is taken back whole. The trail records what
+  actually left.
+- **C1** a returned loan is final: no revert, no edit; return and revert
+  claim the row first, so two presses move stock once. **C8** stock writes
+  (adjust, receipt, supplier return, postage, count post) carry a once-only
+  idempotency key; adjust and supplier return move stock relatively and
+  conditionally. **B10** the once-only key is minted per press (random) and
+  reused only for that press's retry - a genuine second identical write a
+  minute later is accepted. **C10** movement and return dates must exist and
+  not be in the future. **C6** a supplier return is valued at the item's cost,
+  never its selling price. **C7** a SKU that differs only by whitespace is
+  refused (the shop reads them as one). **C5** the Dashboard's low-stock count
+  excludes discontinued items and says "low or out of stock".
+- **C4 / D-8** a published item's list price (the shop's price when no web
+  price is set) changes only with `elfia_publish`, never to RM 0.00, never
+  under a standing discount it would not sit below.
+- **A6 / D-6 Locked matrix cells** (`worker/src/permissions.ts` LOCKED_CELLS):
+  `owner_designate` and `backup_download` stay super-admin only, the super
+  admin always keeps `exec_view` - refused on save (409 `locked_cell`) and
+  enforced on read, so a record written earlier cannot grant them; the matrix
+  shows the lock. D-7: hr_admin keeps sales and finance.
+- **PUSH.bat**: `scripts/migration-preflight.mjs` runs before the migrations
+  (read-only; stops the release if any quotation already has two live
+  invoices, naming them); `skip-data-preflight` is the logged override.
+  `scripts/race.mjs`: the staging race drill (refuses production hosts).
+- **Guards**: `go-live-b` (89 checks, 9 mutations caught; the pre-fix bundle
+  fails 62 of 79); `qt-once`, `cashflow`, `master-flow` updated to the approved
+  lifecycle (nothing weakened: the deleted-invoice cases became void cases).
+  Browser: `tests/browser/release-b.py`.
+
 ## [1.241.0] - 2026-10-31 - Release A of the go-live plan
 
 The owner's "Approved" on claude/FINAL-RELEASE-GATE-PLAN-V2.md (31-10-2026):

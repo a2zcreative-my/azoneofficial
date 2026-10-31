@@ -275,6 +275,17 @@
   font-size: 0.8125rem;
   color: var(--muted-foreground);
 }
+/* v1.243.0 (F3) - "HR has it": the person dismisses a punch HR now holds */
+.waitingLink {
+  padding: 0;
+  font: inherit;
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
 
 /* quick actions */
 .quick {

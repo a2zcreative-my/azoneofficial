@@ -48,6 +48,8 @@ interface Policy {
     /* v1.237.0 - the editable cell behind the row: its capability, its default, and the saved edit */
     cap?: string | null; editable?: boolean; default_roles?: string[] | null; edited?: boolean; needs?: string | null;
     edit_meta?: { by_name: string; at: string; reason: string } | null;
+    /* v1.242.0 (D-6) - one of the three locked cells: super_admin_only never moves; super_admin_keeps always includes the super admin */
+    locked?: { cap: string; rule: "super_admin_only" | "super_admin_keeps"; why: string } | null;
   }[];
   tabs: { tab: string; always: boolean; overridden: boolean; sees: string[]; reads: string[] | null }[];
   can_edit_tabs: boolean;
@@ -337,7 +339,7 @@ export function AccessPolicyCard({ policy, onChanged }: { policy: { d: Policy | 
                     <ul className={css.phoneActs}>
                       {acts.map((a) => { const s = actionStatus(a, role); return (
                         <li key={a.key}><span className={css.main}><strong>{L(a.en, a.ms)}</strong>{(s.note || a.note_en) && <span>{s.note || L(a.note_en ?? "", a.note_ms ?? a.note_en ?? "")}</span>}{a.edited && <span className={css.editedTag}>{L("Edited", "Disunting")}</span>}</span>
-                          {editing && !reviewing && a.editable ? <EditCell on={a.roles.includes(role)} label={`${roleLabel(role)} - ${L(a.en, a.ms)}`} onPress={() => toggle(a, role)} /> : <Cell st={s.st} note={s.note} />}</li>
+                          {editing && !reviewing && a.editable && !cellLocked(a, role) ? <EditCell on={a.roles.includes(role)} label={`${roleLabel(role)} - ${L(a.en, a.ms)}`} onPress={() => toggle(a, role)} /> : <Cell st={s.st} note={cellLocked(a, role) ? a.locked!.why : s.note} />}</li>
                       ); })}
                     </ul>
                   )}
@@ -361,6 +363,11 @@ function EditCell({ on, label, onPress }: { on: boolean; label: string; onPress:
   );
 }
 type EditProps = { toggle: (a: Act, r: string) => void; resetRow: (a: Act) => void; draft: Record<string, string[]> } | null;
+/** v1.242.0 (D-6) - a cell that cannot be toggled: every role of a super-admin-only cap; the super admin's own cell of a keeps cap */
+function cellLocked(a: Act, role: string): boolean {
+  if (!a.locked) return false;
+  return a.locked.rule === "super_admin_only" || role === "super_admin";
+}
 function ModuleRows({ module, acts, roles, open, summary, onToggle, edit }: { module: string; acts: Act[]; roles: string[]; open: boolean; summary: string; onToggle: () => void; edit: EditProps }) {
   return (
     <>
@@ -378,8 +385,9 @@ function ModuleRows({ module, acts, roles, open, summary, onToggle, edit }: { mo
           <th scope="row" colSpan={2} className={css.actHead}><span className={css.rowHead}><span>{L(a.en, a.ms)}</span>{a.note_en && <small>{L(a.note_en, a.note_ms ?? a.note_en)}</small>}
             {a.edited && <small className={css.editedTag} title={a.edit_meta ? `${a.edit_meta.by_name} · ${a.edit_meta.at} · ${a.edit_meta.reason}` : undefined}>{L("Edited", "Disunting")}{a.edit_meta ? ` · ${a.edit_meta.by_name}` : ""}</small>}
             {!a.editable && <small className={css.fixedTag}><AppIcon name="lock" />{L("Fixed: who edits this matrix", "Tetap: siapa menyunting matriks ini")}</small>}
+            {a.locked && <small className={css.fixedTag} title={a.locked.why}><AppIcon name="lock" />{a.locked.rule === "super_admin_only" ? L("Locked: super admin only", "Dikunci: super admin sahaja") : L("Locked: the super admin always keeps this", "Dikunci: super admin sentiasa memegang ini")}</small>}
             {edit && a.editable && a.default_roles && a.roles.join() !== a.default_roles.join() && <button type="button" className={css.linkBtn} onClick={() => edit.resetRow(a)}>{L("Back to default", "Kembali kepada asal")}</button>}</span></th>
-          {roles.map((r) => { const s = actionStatus(a, r); return <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}>{edit && a.editable ? <EditCell on={a.roles.includes(r)} label={`${roleLabel(r)} - ${L(a.en, a.ms)}`} onPress={() => edit.toggle(a, r)} /> : <Cell st={s.st} note={s.note} />}</td>; })}
+          {roles.map((r) => { const s = actionStatus(a, r); return <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}>{edit && a.editable && !cellLocked(a, r) ? <EditCell on={a.roles.includes(r)} label={`${roleLabel(r)} - ${L(a.en, a.ms)}`} onPress={() => edit.toggle(a, r)} /> : <Cell st={s.st} note={cellLocked(a, r) ? a.locked!.why : s.note} />}</td>; })}
         </tr>
       ))}
     </>

@@ -44,6 +44,14 @@ if /I "%~1"=="strict" set "PREFLIGHT_ARG="
 if /I "%~2"=="strict" set "PREFLIGHT_ARG="
 if /I "%~1"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
 if /I "%~2"=="allow-dirty" set "PREFLIGHT_ARG=--allow-dirty"
+REM  v1.242.0 - "skip-data-preflight" skips the production data check before the migrations (logged, explicit)
+set "DATAPREFLIGHT_ARG="
+if /I "%~1"=="skip-data-preflight" set "DATAPREFLIGHT_ARG=--skip-data-preflight"
+if /I "%~2"=="skip-data-preflight" set "DATAPREFLIGHT_ARG=--skip-data-preflight"
+REM  v1.244.0 - "skip-pre-export" skips the full SQL export of production taken before the migrations (logged, explicit; for an emergency only)
+set "PREEXPORT_ARG="
+if /I "%~1"=="skip-pre-export" set "PREEXPORT_ARG=--skip"
+if /I "%~2"=="skip-pre-export" set "PREEXPORT_ARG=--skip"
 if /I "%~1"=="secrets" set "SECRETS_MODE=1"
 if /I "%~2"=="secrets" set "SECRETS_MODE=1"
 
@@ -268,6 +276,21 @@ if defined PORTALGUARDS (
 echo   [6/8] Database columns...
 set CI=true
 cd worker
+REM  v1.242.0 - the data pre-flight: a pending migration that the production
+REM  data would refuse (0157's one-live-invoice-per-quotation index) stops the
+REM  release HERE, before anything is applied or published.
+call node ..\scripts\migration-preflight.mjs %DATAPREFLIGHT_ARG%
+if errorlevel 1 goto :failedpop
+REM  v1.244.0 (Release D, decision D-4) - two checks before anything changes:
+REM  the backups bucket this worker binds (azoneofficial-backups) must exist,
+REM  or the publish below would fail half way; and a FULL SQL export of the
+REM  production database is written to backups\pre-<version>-<time>.sql
+REM  (gitignored) with its SHA-256. If the export fails, NOTHING is applied
+REM  or published. "PUSH.bat skip-pre-export" is the logged override.
+call node ..\scripts\release-backup.mjs check-bucket
+if errorlevel 1 goto :failedpop
+call node ..\scripts\release-backup.mjs export %PREEXPORT_ARG%
+if errorlevel 1 goto :failedpop
 call npx wrangler d1 migrations apply azoneofficial --remote
 if errorlevel 1 goto :failedpop
 cd ..
@@ -289,6 +312,10 @@ if errorlevel 1 goto :failed
 call pnpm build
 if errorlevel 1 goto :failed
 if not exist "out\index.html" goto :nobuild
+REM  v1.244.0 (Release D) - the built site is kept per version in
+REM  backups\site-<version>\ (the newest five), so a rollback can republish
+REM  exactly what was live. A failure here is reported, never fatal.
+call node scripts\release-backup.mjs archive-site
 call :deployretry
 if errorlevel 1 set SITEREFUSED=1
 

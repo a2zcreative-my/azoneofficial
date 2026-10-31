@@ -2244,7 +2244,10 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                   {/* v1.4.172: lifecycle — Edit / ↩ Revert (keeps the row for
                       the audit trail) / Delete (wrong record: stock back +
                       sale removed + row gone). */}
-                  {!o.reverted && (
+                  {/* v1.242.0 (go-live audit C1) - a RETURNED loan is closed: no
+                      Edit, no Revert (the server refuses both; a revert would put
+                      the pieces on the shelf a second time) */}
+                  {!o.reverted && !o.returned_at && (
                     <>
                       <button type="button" className={rowBtn} title={L("Edit qty / Sold @ / remark / date — stock and sales totals follow", "Sunting kuantiti / Dijual @ / catatan / tarikh — stok dan jumlah jualan mengikut")}
                         onClick={() => setOutModal({
@@ -5567,8 +5570,10 @@ export function ExpensesPanel({ reporting }: { reporting?: ReactNode }) {
                         {payrollDue.canRecord && <button type="button" className={rowBtnPrimary}
                           title={L("Record that the salary bank run is done — the DUE pill clears and the payment moves to Payments completed", "Rekodkan bahawa bayaran gaji bank telah dibuat — pil PERLU DIBAYAR hilang dan bayaran berpindah ke Bayaran selesai")}
                           onClick={async () => {
-                            const res = await api(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
+                            const res = await api<{ error?: { code?: string; message?: string } }>(`/payroll/paid`, { method: "POST", body: JSON.stringify({ month: payrollDue.month }) });
                             if (res.ok) { showToast(L("Saved", "Disimpan"), L("Payroll payment recorded", "Bayaran gaji direkodkan")); void load(); }
+                            /* v1.243.0 (E1/E3) - the refusal says who is left behind, or that the payslips are not out yet */
+                            else showToast(L("Not recorded", "Tidak direkodkan"), res.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
                           /* v1.176.1 - say WHAT is being marked paid: this card
                              carries more than one thing that can be. */
                           }}>{L("Mark salary paid", "Tanda gaji dibayar")}</button>}

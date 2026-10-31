@@ -238,7 +238,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     tiles.push({ key: "stock", node: (
       <KpiTile icon="inventory" tone="blue" label={L("Inventory items", "Item inventori")} busy={items === null && invView.loading}
         value={items ? items.length : "—"}
-        sub={typeof sum?.low_stock === "number" ? L(`${sum.low_stock} low stock (5 or fewer)`, `${sum.low_stock} stok rendah (5 atau kurang)`) : L("Products on the stock list", "Produk dalam senarai stok")}
+        sub={typeof sum?.low_stock === "number" ? L(`${sum.low_stock} low or out of stock (5 or fewer)`, `${sum.low_stock} stok rendah atau habis (5 atau kurang)`) : L("Products on the stock list", "Produk dalam senarai stok")}
         onClick={() => go("Inventory")} />
     ) });
   }
@@ -543,7 +543,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   addSum("pending_claims", L("Claims waiting for a decision", "Tuntutan menunggu keputusan"), "Claims");
   addSum("pending_ot", L("Overtime to approve", "OT untuk diluluskan"), "Attendance");
   addSum("outstanding_invoices", L("Unpaid invoices", "Invois belum dibayar"), "Sales");
-  addSum("low_stock", L("Items low on stock", "Item stok rendah"), "Inventory");
+  addSum("low_stock", L("Items low or out of stock", "Item stok rendah atau habis"), "Inventory");
   addSum("lives_today", L("Live sessions today", "Sesi live hari ini"), "Attendance", 9999);
   addSum("clients", L("Clients on file", "Pelanggan dalam rekod"), "Sales", 999999);
   const maxSum = Math.max(1, ...sumRows.map((r) => r.n));

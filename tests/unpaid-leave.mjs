@@ -309,7 +309,8 @@ ok("the attendance panel is actually given the role",
   ok("applying for leave is refused for an hourly host",
      /path === "\/leave" && method === "POST"[\s\S]{0,600}?if \(await isHourlyUserId\(env, user\.id\)\) \{\s*\n?\s*return err\("forbidden"/.test(staff));
   ok("the balance reads zero for every type, and says why",
-     /if \(await isHourlyUserId\(env, user\.id\)\) \{\s*\n?\s*for \(const t of LEAVE_TYPES\) balances\[t\] = \{ entitled: 0, used: 0, accrued: 0, adjust: 0 \};\s*\n?\s*return json\(\{ year, month: monthMYT, balances, hourly: true \}\);/.test(staff));
+     /* v1.243.0 (D8): the balance is read for balUser - the caller, or the person HR asked for */
+     /if \(await isHourlyUserId\(env, balUser\)\) \{\s*\n?\s*for \(const t of LEAVE_TYPES\) balances\[t\] = \{ entitled: 0, used: 0, accrued: 0, adjust: 0 \};\s*\n?\s*return json\(\{ year, month: monthMYT, balances, hourly: true \}\);/.test(staff));
   ok("the entitlement table zeroes an hourly row whatever is stored",
      /const entitled = p\.hourly \? 0 : \(row\?\.entitled \?\? DEFAULT_ENTITLEMENT\[t\] \?\? 0\);/.test(staff));
   ok("setting one hourly entitlement is refused", /has no leave entitlement to set", 400\)/.test(staff));

@@ -28,6 +28,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
    stored on payslip_releases.issuer_code; the letterhead resolves it here. */
 import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.243.0 (E1) - the manual payment's method and reference
 import { incompleteCents } from "@/lib/payroll-days";
 import { btnSm, btnSmPrimary, card, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
@@ -508,6 +509,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [monthDays, setMonthDays] = useState(26);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: payConfirm, node: payConfirmNode } = useConfirm(); // v1.4.240
+  const { prompt: askText, node: manualNode } = usePrompt(); // v1.243.0 (E1)
   type PrCol = "rank" | "staff" | "basic" | "allow" | "comm" | "deduct" | "net"; // v1.215.0 - Sales Commission back; OT under Net
   /* v1.78.0 (CEO: "payroll should ascending with position which is CEO, COO,
      CCO, HR_admin, Sales Executive, Sales Marketing, Marketing Designer and
@@ -745,6 +747,10 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // v1.28.0: released also carries issuer_code — the employer stamped at
   // release time, which every payslip printed for this month must show.
   const [release, setRelease] = useState<{ available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean; can_release?: boolean; can_record_paid?: boolean } | null>(null);
+  /* v1.243.0 (go-live audit E1) - the ONE payroll population the server
+     decides: who the bank file carries, who is an exception and why */
+  type PopException = { user_id: number; name: string; kind: string; detail: string | null; blocking: boolean; resolved: boolean; resolution: string | null; amount_cents: number | null };
+  const [population, setPopulation] = useState<{ in_run: number; file_payees: number; file_total_cents: number; manual_total_cents: number; total_cents: number; exceptions: PopException[]; blocking: number; out_of_run: { user_id: number; name: string; why: string }[]; paid: { paid_at: string } | null; payslips_out: boolean } | null>(null);
   // v1.4.78: fixed basic per staff — auto-fills every month; adjust on increment.
   const [base, setBase] = useState<Record<number, number>>({});
   const baseRef = useRef<Record<number, number>>({}); // v1.224.0 - read by the commission fetch, which may land before or after the month's rows
@@ -820,7 +826,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const load = useCallback(async () => {
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
-      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean } }>(`/payroll?month=${month}`),
+      api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean }; population?: typeof population }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[]; ot_approved?: { user_id: number; minutes: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
@@ -942,6 +948,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     setEntries(commSumsRef.current?.month === month ? applyCommSums(map, bmap) : map);
     setWorkedDays(savedDays);
     setRelease(p.data?.release ?? null);
+    setPopulation(p.data?.population ?? null);
     // Snapshot the just-loaded state per row for no-change detection.
     const snap: Record<number, string> = {};
     for (const u of list) {
@@ -1135,10 +1142,36 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   });
   const downloadCsv = async () => {
     if (!(await confirmPaymentFile("csv"))) return;
+    /* v1.243.0 (E6) - fetched, so a refusal (payslips not released, no
+       payees) is read and shown instead of a download that never comes */
+    const res = await fetch(`${API}/payroll/payment-file?month=${month}`, { credentials: "include" });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+      showToast(L("No file", "Tiada fail"), j?.error?.message ?? L("The payment file could not be built", "Fail bayaran tidak dapat dibina"), "notice");
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = `${API}/payroll/payment-file?month=${month}`;
-    a.download = "";
-    a.click();
+    a.href = url; a.download = `azoo-m2e-salary-${month}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  /* v1.243.0 (E1) - a salary paid by hand, recorded with method and reference */
+  const recordManual = async (e: PopException) => {
+    const got = await askText({
+      title: L(`Paid ${e.name} by hand?`, `${e.name} dibayar secara tangan?`),
+      message: L("The bank file cannot carry this person. Record how the salary was paid - method and reference - and the person leaves the file but stays in the total. The amount is the payslip's net pay.",
+        "Fail bank tidak dapat membawa orang ini. Rekodkan cara gaji dibayar - kaedah dan rujukan - dan orang ini keluar daripada fail tetapi kekal dalam jumlah. Amaunnya ialah gaji bersih slip gaji."),
+      label: L("Method and reference, e.g. cash - voucher 12 / cheque - 004512 / transfer - MBB ref", "Kaedah dan rujukan, cth. cash - baucar 12 / cheque - 004512 / transfer - ruj MBB"),
+      required: true, confirmLabel: L("Record manual payment", "Rekod bayaran manual"),
+    });
+    if (!got) return;
+    const m = /^(cash|cheque|transfer|other)\s*-\s*(.+)$/i.exec(got.value.trim());
+    if (!m) { showToast(L("Not recorded", "Tidak direkod"), L("Start with the method: cash, cheque, transfer or other, then a dash and the reference.", "Mulakan dengan kaedah: cash, cheque, transfer atau other, kemudian sengkang dan rujukan."), "notice"); return; }
+    const net = netFor(e.user_id);
+    const r = await api<{ error?: { message?: string } }>(`/payroll/manual-payment`, { method: "POST", body: JSON.stringify({ month, user_id: e.user_id, method: m[1]!.toLowerCase(), reference: m[2]!.trim(), amount_cents: net }) });
+    if (r.ok) { showToast(L("Saved", "Disimpan"), L(`${e.name}: manual payment recorded`, `${e.name}: bayaran manual direkod`)); void load(); }
+    else showToast(L("Not recorded", "Tidak direkod"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
   };
 
   const head = (icon: AppIconName, tone: string | undefined, title: string, sub?: ReactNode, action?: ReactNode) => (
@@ -1157,7 +1190,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   return (
     <TabPage>
       {toastNode}
-      {payConfirmNode}
+      {payConfirmNode}{manualNode}
       <LineTabs value={view} onChange={(k) => go(k)} label={L("Payroll", "Gaji")} tabs={[
         ["overview", L("Overview", "Gambaran")],
         ["process", L("Payroll Processing", "Pemprosesan Gaji")],
@@ -1197,6 +1230,39 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             sub={release?.released ? L("100% released", "100% dikeluarkan") : L("0% released", "0% dikeluarkan")} />
         </KpiRow>
         </div>
+
+        {/* v1.243.0 (go-live audit E1) - THE EXCEPTIONS: everyone in the run
+            the bank file will not carry, and why. Paid is refused while a
+            blocking one is open; a manual payment resolves it. */}
+        {loaded && population && (population.exceptions.length > 0 || population.out_of_run.length > 0) && (
+          <div className={`${card} ${pp.alert}`} role="status" aria-label={L("Payroll exceptions", "Pengecualian gaji")}>
+            <span className={`${pp.well} ${population.blocking > 0 ? pp.goldWell : ""}`}><AppIcon name={population.blocking > 0 ? "warning" : "info"} /></span>
+            <div className={pp.alertBody}>
+              <p className={pp.title}>
+                {population.blocking > 0
+                  ? L(`${population.blocking} in this run cannot be paid by the bank file`, `${population.blocking} dalam gaji ini tidak dapat dibayar melalui fail bank`)
+                  : L("Exceptions in this run", "Pengecualian dalam gaji ini")}
+              </p>
+              <p className={pp.sub}>{L(`Bank file: ${population.file_payees} payee${population.file_payees === 1 ? "" : "s"}, ${rm(population.file_total_cents)}${population.manual_total_cents > 0 ? ` · paid by hand ${rm(population.manual_total_cents)}` : ""} · run total ${rm(population.total_cents)}`,
+                `Fail bank: ${population.file_payees} penerima, ${rm(population.file_total_cents)}${population.manual_total_cents > 0 ? ` · dibayar secara tangan ${rm(population.manual_total_cents)}` : ""} · jumlah gaji ${rm(population.total_cents)}`)}</p>
+              <ul className={pp.alertList}>
+                {population.exceptions.map((e) => (
+                  <li key={`${e.user_id}-${e.kind}`}>
+                    <span data-no-translate>{e.name}</span>{" - "}
+                    {e.kind === "no_bank" ? L("no bank details", "tiada butiran bank") : e.kind === "bank_unrecognised" ? L("bank not recognised by the M2E list", "bank tidak dikenali oleh senarai M2E") : e.kind === "login_suspended" ? L("login suspended, still paid what the month earned", "log masuk digantung, masih dibayar apa yang diperoleh bulan ini") : L(`paid by hand${e.amount_cents != null ? ` ${rm(e.amount_cents)}` : ""}${e.detail ? ` (${e.detail})` : ""}`, `dibayar secara tangan${e.amount_cents != null ? ` ${rm(e.amount_cents)}` : ""}${e.detail ? ` (${e.detail})` : ""}`)}
+                    {e.blocking && release?.can_record_paid && !population.paid && (
+                      <button type="button" className={`${btnSm} ${pp.alertAction}`} onClick={() => void recordManual(e)}>{L("Paid by hand…", "Dibayar secara tangan…")}</button>
+                    )}
+                    {e.blocking && <span className={pp.alertNote}>{L("· blocks Paid until the record is fixed or a manual payment is recorded", "· menghalang Dibayar sehingga rekod dibetulkan atau bayaran manual direkod")}</span>}
+                  </li>
+                ))}
+                {population.out_of_run.map((o) => (
+                  <li key={`out-${o.user_id}`}><span data-no-translate>{o.name}</span>{" - "}{L(`saved row is outside this run: ${o.why}`, `baris tersimpan di luar gaji ini: ${o.why}`)}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
         {loaded && (noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount > 0 || release?.employer_is_legacy) && (
           <div className={`${card} ${pp.alert}`} role="status">

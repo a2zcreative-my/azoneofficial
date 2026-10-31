@@ -114,7 +114,17 @@ try {
   ok("\"mine\" = the salesperson's documents", mine.collected?.cents === 280000 && mine.outstanding?.n === 1 && mine.outstanding.balance_cents === 120000, JSON.stringify(mine.outstanding));
   ok("a role without sales access is refused", (await call("/docs/summary", "live_host", 9)).status === 403);
   const list = (await call("/docs", "ceo", 1)).j.docs ?? [];
-  ok("GET /docs past 200 still carries the old unpaid invoice", list.some((d) => d.doc_number === "INV-4") && list.some((d) => d.doc_number === "INV-2"));
+  /* v1.244.0 - the list keeps a PAID invoice only while it was paid this
+     month or last, by the DATABASE clock (SQLite's date('now'), which the
+     Date mock above does not reach). This check expected INV-2 (paid
+     12-09-2026) unconditionally, so it went red at midnight on 01-11-2026
+     MYT with no code change. It now expects exactly what the rule says on
+     the day it runs - INV-2 listed while September is inside the window,
+     absent after - and the old unpaid INV-4 always. */
+  const windowStart = db.prepare(`SELECT date('now', '+8 hours', 'start of month', '-1 month') AS d`).get().d;
+  const inv2Due = "2026-09-12" >= windowStart;
+  ok("GET /docs past 200 still carries the old unpaid invoice (and a paid one only inside its window)",
+     list.some((d) => d.doc_number === "INV-4") && list.some((d) => d.doc_number === "INV-2") === inv2Due, `window from ${windowStart}`);
   globalThis.Date = RealDate;
 } catch (e) {
   ok("the summary route runs against SQLite", false, String(e).slice(0, 300));

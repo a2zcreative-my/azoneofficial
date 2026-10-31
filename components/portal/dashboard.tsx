@@ -35,6 +35,7 @@ export type DashboardLead = "business" | "sales" | "shift";
 export function noClockInWhy(code: string | null): string {
   const en = getLang() !== "ms";
   if (code === "no_slots") return en ? "No shift to clock in for today." : "Tiada syif untuk didaftar masuk hari ini.";
+  if (code === "on_leave") return en ? "On approved leave today - nothing to clock in for." : "Cuti diluluskan hari ini - tiada apa untuk didaftar masuk."; // v1.243.0 (D7)
   return en ? "All shifts clocked ✓" : "Semua syif didaftar ✓";
 }
 

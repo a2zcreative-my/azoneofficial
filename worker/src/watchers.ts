@@ -219,8 +219,9 @@ export async function morningBrief(env: Env): Promise<number> {
     if (yesterdayOrders !== null && yesterdayCents !== null) parts.push(`yesterday: ${yesterdayOrders} web order${yesterdayOrders === 1 ? "" : "s"}, RM ${(yesterdayCents / 100).toFixed(2)}`);
     if (openWatch) parts.push(`${openWatch} watcher finding${openWatch === 1 ? "" : "s"} open`);
     const day = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    await notify(env, e.id, "brief", `☀ Good morning, ${e.name.split(" ")[0]}. ${parts.join(" · ")}.`, `brief:${day}`);
-    sent++;
+    /* v1.244.0 (go-live audit F10) - once per person per day: a second run
+       of the 08:00 cron (a retry, a redeploy) adds nothing */
+    if (await notify(env, e.id, "brief", `☀ Good morning, ${e.name.split(" ")[0]}. ${parts.join(" · ")}.`, `brief:${day}`, { once: true }) !== false) sent++;
   }
   return sent;
 }

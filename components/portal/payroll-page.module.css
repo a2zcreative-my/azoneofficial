@@ -160,6 +160,14 @@
   line-height: 1.5;
   color: var(--muted-foreground);
 }
+/* v1.243.0 (E1) - the manual-payment button and the "blocks Paid" note on an exception line */
+.alertAction {
+  margin-left: 0.5rem;
+}
+.alertNote {
+  margin-left: 0.25rem;
+  color: var(--muted-foreground);
+}
 
 /* ---- two cards side by side ---- */
 .split {

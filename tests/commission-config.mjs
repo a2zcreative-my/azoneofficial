@@ -172,7 +172,11 @@ try {
   await call("/payroll/recompute", 1, "POST", { month: "2026-11" });
   const haf = db.prepare(`SELECT commission_cents FROM payroll_entries WHERE user_id = 5 AND month = '2026-11'`).get();
   ok("CORRECT: ...and Hafiz is paid it once, with his own 41 and 43", haf?.commission_cents === 2490 * 3 && led("invoice_id IN (41, 42, 43) AND status = 'included'").length === 3, JSON.stringify(haf));
-  await call("/payroll/paid", 1, "POST", { month: "2026-11" });
+  /* v1.243.0 (Release C): Paid needs the payslips out and recognised bank details */
+  db.exec(`INSERT OR IGNORE INTO payslip_releases (month, released_by) VALUES ('2026-11', 1)`);
+  db.exec(`UPDATE users SET bank_name = 'Maybank', bank_account = '5144' || id WHERE role != 'customer'`);
+  const paidNov = await call("/payroll/paid", 1, "POST", { month: "2026-11" });
+  ok("the November bank run is recorded", paidNov.status === 200, `${paidNov.status} ${JSON.stringify(paidNov.j)}`);
   const r43 = await fix(43, 4, 5);
   ok("CORRECT: already paid - unchanged, flagged, nothing deducted", r43.j?.commission?.unchanged_paid === 1 && led("invoice_id = 43")[0].status === "paid" && led("invoice_id = 43")[0].user_id === 5 && /nothing is deducted/.test(led("invoice_id = 43")[0].note ?? ""), JSON.stringify(led("invoice_id = 43")));
   ok("CORRECT: no row was ever deleted", db.prepare(`SELECT COUNT(*) AS n FROM commission_ledger`).get().n === 4);

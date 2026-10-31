@@ -21,7 +21,9 @@ const API = "/api/v1";
 
 
 interface ErrRow { id: number; created_at: string; source: string; message: string; path?: string | null }
-interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; last_offsite?: string | null; migrations_pending?: string[]; migrations_all?: { name: string; applied: boolean }[] | null }
+/* v1.244.0 (go-live Release D) - the media copy to the backups bucket */
+interface MediaBackup { bucket_bound: boolean; last_copy: { at: string; live: number; copied: number; pending: number; skipped?: string } | null; last_reconcile: { at: string; live: number; missing: number; stale: number; bad: number } | null }
+interface Health { errors: ErrRow[]; last_backup: { key: string; size: number; uploaded: string } | null; media_backup?: MediaBackup; last_offsite?: string | null; migrations_pending?: string[]; migrations_all?: { name: string; applied: boolean }[] | null }
 
 function myt(iso: string): string {
   const d = new Date(new Date(iso.replace(" ", "T").replace(/Z?$/, "Z")).getTime() + 8 * 3600 * 1000);
@@ -118,6 +120,18 @@ export function SystemHealthCard() {
               ? <>{L("Last backup","Sandaran terakhir")} <span className={backupAge !== null && backupAge > 2 ?"font-semibold text-warning" :"font-medium"}>{myt(health.last_backup.uploaded)}</span> · {(health.last_backup.size / 1024).toFixed(0)} KB{backupAge !== null && backupAge > 2 ? ` — ${L("older than 2 days, check the nightly cron","melebihi 2 hari, semak cron malam")}` :""}</>
               : L("No backup yet — nightly backups run at 03:20 MYT after the next deploy, or run one now.", "Belum ada sandaran — sandaran malam berjalan pada 03:20 MYT selepas deploy seterusnya, atau jalankan satu sekarang.")}
           </p>
+          )}
+          {loaded && health?.media_backup && (
+            <p className="text-muted-foreground mt-0.5 text-xs" data-testid="media-backup">
+              {!health.media_backup.bucket_bound
+                ? <span className="font-semibold text-warning">{L("Media copy is off — the backups bucket (azoneofficial-backups) is not bound to the API yet.", "Salinan media dimatikan — baldi sandaran (azoneofficial-backups) belum diikat kepada API.")}</span>
+                : health.media_backup.last_copy
+                  ? <>{L("Media copy", "Salinan media")}: {health.media_backup.last_copy.live} {L("objects", "objek")}{health.media_backup.last_copy.pending > 0 ? <span className="font-semibold text-warning"> · {health.media_backup.last_copy.pending} {L("still to copy", "belum disalin")}</span> : <> · {L("all copied", "semua disalin")}</>} · {L("last pass", "pusingan terakhir")} {myt(health.media_backup.last_copy.at)}
+                    {health.media_backup.last_reconcile && <> · {L("weekly check", "semakan mingguan")} {myt(health.media_backup.last_reconcile.at)}: {health.media_backup.last_reconcile.bad > 0 || health.media_backup.last_reconcile.missing + health.media_backup.last_reconcile.stale > 0
+                      ? <span className="font-semibold text-warning">{health.media_backup.last_reconcile.missing + health.media_backup.last_reconcile.stale} {L("without a current copy", "tanpa salinan semasa")}, {health.media_backup.last_reconcile.bad} {L("damaged", "rosak")}</span>
+                      : L("every object matches", "setiap objek sepadan")}</>}</>
+                  : L("Media copy: the first pass runs within 30 minutes of the deploy.", "Salinan media: pusingan pertama berjalan dalam 30 minit selepas deploy.")}
+            </p>
           )}
         </div>
         <span className="flex flex-wrap items-center gap-2">

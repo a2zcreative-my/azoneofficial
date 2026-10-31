@@ -136,6 +136,7 @@ export async function handleBusiness(
       if (inv.payment_status === "paid") {
         return err("invalid_input", `${inv.doc_number} is already marked paid - there is nothing left to receive on it.`, 400);
       }
+      if (inv.payment_status === "void") return err("voided", `${inv.doc_number} is void - no payment can be recorded on it.`, 409); // v1.242.0 (B2)
       const amount = num(body?.amount_cents);
       if (amount === null || !Number.isInteger(amount) || amount <= 0) {
         return err("invalid_input", "Enter the amount received, more than RM 0.00.", 400);
@@ -153,9 +154,17 @@ export async function handleBusiness(
           return err("invalid_input",
             `That is more than is left on ${inv.doc_number}: RM ${(left / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} remains. An overpayment is not a part payment.`, 400);
         }
+        /* v1.242.0 (go-live audit B3) - the read above is the friendly
+           message; the WRITE is the rule. ONE conditional insert: the row
+           lands only if, at that instant, the live parts plus this amount
+           still fit the total - so two part payments recorded in the same
+           second can never collect more than the invoice. */
         const res = await env.DB.prepare(
           `INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, reference, note, created_by)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`,
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+            WHERE (SELECT total_cents FROM sales_documents WHERE id = ?1)
+                  - COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= ?2
+           RETURNING id`,
         ).bind(
           invId, amount, on,
           str(body?.method, 40) ? String(body!.method).trim() : "bank_transfer",
@@ -163,6 +172,9 @@ export async function handleBusiness(
           str(body?.note, 300) ? String(body!.note).trim() : null,
           user.id,
         ).first<{ id: number }>();
+        if (!res?.id) {
+          return err("invalid_input", `Another payment was recorded on ${inv.doc_number} at the same moment, and together they would exceed its total. Nothing was recorded - check the invoice and try again.`, 400);
+        }
         await audit(env, user.id, "invoice.part_payment", "invoice_payments", String(res?.id), {
           invoice: inv.doc_number, amount_cents: amount, received_on: on, balance_cents: left - amount,
         });
@@ -586,7 +598,7 @@ export async function handleBusiness(
     };
     return {
       /* invoices raised in the month (Sales: Invoiced) */
-      invoiced_cents: await one(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND strftime('%Y-%m', created_at, '+8 hours') = ?1`, m),
+      invoiced_cents: await one(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' AND strftime('%Y-%m', created_at, '+8 hours') = ?1`, m),
       /* money received: invoices marked paid, by payment date (/revenue) */
       received_cents: await one(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = ?1`, m),
       /* part payments received in the month (phase 1) - not revenue */
@@ -698,13 +710,13 @@ export async function handleBusiness(
       `SELECT d.id, d.doc_number, c.company, d.total_cents, d.created_at, d.due_date,
               COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = d.id AND p.voided_at IS NULL), 0) AS received_cents
          FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id
-        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') != 'paid'
+        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void')
         ORDER BY d.created_at ASC LIMIT 300`);
     if (debtors.length === 0) {
       /* a database without 0140 still has debtors - ask without the parts */
       debtors = await run(`SELECT d.id, d.doc_number, c.company, d.total_cents, d.created_at, d.due_date, 0 AS received_cents
          FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id
-        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') != 'paid' ORDER BY d.created_at ASC LIMIT 300`);
+        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void') ORDER BY d.created_at ASC LIMIT 300`);
     }
     const creditors = await run<{ id: number; supplier: string; received_on: string; bill_due_on: string; total_cents: number }>(
       `SELECT id, supplier, received_on, bill_due_on, total_cents FROM stock_receipts
@@ -964,7 +976,7 @@ export async function handleBusiness(
       `SELECT r.id, r.customer_id, c.company, r.source_doc_id, d.doc_number AS source_number, d.total_cents, r.day_of_month, r.note,
               r.created_at, r.stopped_at,
               (SELECT x.doc_number FROM sales_documents x
-                WHERE x.customer_id = r.customer_id AND x.doc_type = 'INV'
+                WHERE x.customer_id = r.customer_id AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void'
                   AND x.reference LIKE ?1 || r.id || ' %'
                   AND strftime('%Y-%m', x.created_at, '+8 hours') = ?2
                 ORDER BY x.id DESC LIMIT 1) AS raised_number
@@ -1001,7 +1013,7 @@ export async function handleBusiness(
       ).bind(cid).all()).results ?? [];
       const recurring = (await recurringList()).filter((r) => r.customer_id === cid);
       const invoices = (await env.DB.prepare(
-        `SELECT id, doc_number, total_cents, created_at FROM sales_documents WHERE customer_id = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 24`,
+        `SELECT id, doc_number, total_cents, created_at, payment_status FROM sales_documents WHERE customer_id = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 24`, // v1.242.0 - payment_status so a voided one is shown struck through
       ).bind(cid).all()).results ?? [];
       const all = ((await env.DB.prepare(`SELECT DISTINCT tag FROM customer_tags ORDER BY tag LIMIT 200`).all<{ tag: string }>()).results ?? []).map((t) => t.tag);
       /* who may own a follow-up: the active sales team, by the same permission */
@@ -1480,10 +1492,15 @@ export async function handlePublicAcceptance(
   if (name.length < 2) return err("invalid_input", "Please type your name.", 400);
   if (body?.agree !== true) return err("invalid_input", "Please tick the box to accept.", 400);
   try {
-    const d = await env.DB.prepare(`SELECT id, doc_type, COALESCE(revision, 0) AS revision FROM sales_documents WHERE share_token = ?1`)
-      .bind(token).first<{ id: number; doc_type: string; revision: number }>();
+    const d = await env.DB.prepare(`SELECT id, doc_type, COALESCE(revision, 0) AS revision, valid_until FROM sales_documents WHERE share_token = ?1`)
+      .bind(token).first<{ id: number; doc_type: string; revision: number; valid_until: string | null }>();
     if (!d) return err("not_found", "This link is no longer valid — please ask for a new one", 404);
     if (d.doc_type !== "QT") return err("invalid_input", "Only a quotation can be accepted.", 400);
+    /* v1.242.0 (go-live audit B6) - a quotation past its valid-until date is
+       not open to acceptance; the team issues a revision with a new date */
+    if (d.valid_until && /^\d{4}-\d{2}-\d{2}/.test(d.valid_until) && d.valid_until.slice(0, 10) < mytToday()) {
+      return err("expired", `This quotation was valid until ${d.valid_until.slice(0, 10)} and can no longer be accepted - please ask us for an updated one.`, 410);
+    }
     const had = await env.DB.prepare(`SELECT accepted_name, accepted_at FROM quotation_acceptances WHERE doc_id = ?1 AND revision = ?2`)
       .bind(d.id, d.revision).first<{ accepted_name: string; accepted_at: string }>();
     if (had) return json({ ok: true, already: true, accepted_name: had.accepted_name, accepted_at: had.accepted_at, revision: d.revision });

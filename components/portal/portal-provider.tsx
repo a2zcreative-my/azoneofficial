@@ -43,7 +43,7 @@ import { installViewportSettle } from "@/lib/viewport-settle";
 
 import { api, sendOutboxEntry } from "@/lib/api";
 import { setCaps } from "@/lib/caps";
-import { setOutboxScope, startOutbox } from "@/lib/outbox";
+import { setOutboxScope, startOutbox, releaseHeld, pokeOutbox } from "@/lib/outbox";
 import { devicePushStatus, pushPermission, signOutRequest } from "@/lib/push-client";
 import { applyVersions, pokeVersions, resetVersions } from "@/lib/live";
 import {
@@ -420,6 +420,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
          we know who is signed in: a queued clock-in sent under the wrong
          session would be refused, and rightly. */
       setOutboxScope(r.data.user.id);
+      /* v1.243.0 (go-live audit F3) - a punch held because the session had
+         expired is sent again now, with the same key and pressed time */
+      void releaseHeld().then((n) => { if (n > 0) pokeOutbox(); });
     } else { setCacheScope(null); setOutboxScope(null); }
     setChecked(true);
   }

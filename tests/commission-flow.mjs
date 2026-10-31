@@ -201,6 +201,10 @@ async function runtime(staffBundle) {
 
     /* G - the bank run pays only what the payslip carries (F2) */
     at("2026-12-05T06:00:00Z");
+    /* v1.243.0 (Release C): Paid needs the payslips out and every payee's
+       bank details recognised - set both, as the CEO would before paying */
+    db.exec(`INSERT OR IGNORE INTO payslip_releases (month, released_by) VALUES ('2026-11', 1)`);
+    db.exec(`UPDATE users SET bank_name = 'Maybank', bank_account = '5144' || id WHERE role != 'customer'`);
     const bank = await call(`/payroll/paid`, 1, "POST", { month: "2026-11" });
     ok(bank.status === 200 && bank.j?.commission?.held === 1 && led("user_id = 4 AND status = 'paid'").length === aina.length && led("user_id = 5").every((r) => r.status === "included"), "G: the bank run pays Aina, holds what Hafiz's payslip does not carry (F2)", `${bank.status} ${JSON.stringify(bank.j)} ${snap()}`);
     ok(db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'commission.paid_held'`).get().n === 1, "G: the hold is audited");
@@ -216,8 +220,11 @@ async function runtime(staffBundle) {
     inv.run(23, "INV-G4", items(line("Live", 30000)), 30000, "paid", "2026-12-30 04:00:00", "2026-12-01 02:00:00", 4, "service");
     at("2027-01-07T02:00:00Z"); // December payslips visible from 05-01-2027, no release row
     await confirm(23, 30000);
-    await save(4, "2026-12");
-    ok(one(23)?.status === "eligible" && !one(23).payroll_month, "G: December's payslips are out - a late row is not added to December (F4)", JSON.stringify(one(23)));
+    const decSave = await save(4, "2026-12");
+    ok(decSave.status === 409 && decSave.j?.error?.code === "month_released", "G: December's payslips are out - a plain Save is refused (v1.243.0)", `${decSave.status} ${JSON.stringify(decSave.j)}`);
+    /* the CEO's forced Save still reaches the payroll - it must not take the late row */
+    const decForce = await call("/payroll", 1, "POST", { user_id: 4, month: "2026-12", basic_cents: 210000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, net_cents: 210000, force_released: true });
+    ok(decForce.status === 200 && one(23)?.status === "eligible" && !one(23).payroll_month, "G: December's payslips are out - a late row is not added to December, even on a forced Save (F4)", `${decForce.status} ${JSON.stringify(one(23))}`);
     await save(4, "2027-01");
     ok(one(23)?.payroll_month === "2027-01" && one(23).status === "included" && one(24)?.payroll_month === "2027-01", "G: it carries forward to January, with the November row no payroll took");
   } catch (e) {
@@ -256,7 +263,7 @@ const MUT = [
   ["staff.ts", "a GET attaches everyone (F1)", "{ include: null, released: await payslipsOut(mS) }", "{ include: (await env.DB.prepare(`SELECT id FROM users`).all()).results.map((r) => r.id), released: await payslipsOut(mS) }"],
   ["commission.ts", "a future month takes rows (F3)", "if (ids.length && month <= mytToday().slice(0, 7)) {", "if (ids.length) {"],
   ["commission.ts", "a time-released month takes rows (F4)", "  if (opts.released) return null;\n", ""],
-  ["commission.ts", "the bank run pays what no payslip carries (F2)", "WHERE payroll_month = ?1 AND status = 'included'\n          AND user_id IN", "WHERE payroll_month = ?1 AND status = 'included'\n          AND 1 OR user_id IN"],
+  ["commission.ts", "the bank run pays what no payslip carries (F2)", "WHERE payroll_month = ?1 AND status = 'included' AND COALESCE(included_at, '') <= datetime('now')${users}\n          AND user_id IN", "WHERE payroll_month = ?1 AND status = 'included' AND COALESCE(included_at, '') <= datetime('now')${users}\n          AND 1 OR user_id IN"],
   ["staff.ts", "a confirmed invoice may be re-dated (F5)", "if (live && live.day !== paidOn) {", "if (false) {"],
   ["commission.ts", "products earn the default rate", "} else if (listedOnly && isProduct(l)) {", "} else if (false) {"],
   ["commission.ts", "a library package rule is ignored", "const whole = inv.doc_package_id ? byKey.get(pkgKey(Number(inv.doc_package_id))) : undefined;", "const whole = undefined;"],

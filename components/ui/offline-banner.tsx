@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { outboxCount, subscribeOutbox, setRefusalHandler, type Refusal } from "@/lib/outbox";
+import { outboxAll, subscribeOutbox, setRefusalHandler, type Refusal } from "@/lib/outbox";
 import { getLang } from "@/lib/i18n";
 
 /* P0.4 — the connection is an external store, not component state.
@@ -77,7 +77,9 @@ export function OfflineBanner() {
     let alive = true;
     /* the count is asynchronous (IndexedDB), so it is set from the promise —
        never synchronously from this effect */
-    const recount = () => { void outboxCount().then((n) => { if (alive) setWaiting(n); }); };
+    /* v1.243.0 (F3) - only what the drain will actually send: a punch held for
+       sign-in or handed to HR is said on On Shift, never called "sending" */
+    const recount = () => { void outboxAll().then((all) => { if (alive) setWaiting(all.filter((e) => e.state !== "held_signin" && e.state !== "needs_hr").length); }); };
     recount();
     const unsub = subscribeOutbox(recount);
     setRefusalHandler((r) => setRefused((list) => [...list, r].slice(-5)));

@@ -194,8 +194,11 @@ try {
   await call("/payroll", 1, "POST", { user_id: 5, month: "2026-12", basic_cents: 210000, commission_cents: 0, allowance_cents: 0, deduction_cents: 0, net_cents: 210000 });
   ok("carry forward: November's late entitlement lands in December", led("invoice_id = 25")[0].payroll_month === "2026-12" && row(5, "2026-12").commission_cents === 3000);
 
-  /* 9. the bank run: paid */
-  await call("/payroll/paid", 1, "POST", { month: "2026-11" });
+  /* 9. the bank run: paid. v1.243.0 (go-live E1): recorded only when everyone
+     in the run is payable - bank details the file recognises */
+  db.exec(`UPDATE users SET bank_name = 'Maybank', bank_account = '5144' || id WHERE role != 'customer'`);
+  const paidNov = await call("/payroll/paid", 1, "POST", { month: "2026-11" });
+  ok("the November bank run is recorded", paidNov.status === 200, JSON.stringify(paidNov.j));
   ok("the November bank run marks its commission paid", led("payroll_month = '2026-11'").every((l) => l.status === "paid" && l.paid_out_at));
 
   /* 10. F: a new rate from a later date - history keeps its version */

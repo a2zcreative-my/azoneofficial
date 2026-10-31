@@ -9,7 +9,8 @@
  *
  * Staff route:   applied -> hr_reviewed -> pre_approved -> approved
  * COO/CCO route: applied -> hr_reviewed ->               -> approved
- *                (they skip pre-approval - no one pre-approves their own tier)
+ *                (they skip pre-approval - no one pre-approves their own tier;
+ *                 v1.243.0: the CEO's action at hr_reviewed is the approval)
  * Reject at any active stage is terminal.
  */
 
@@ -31,8 +32,12 @@ export function leaveSeesAll(role: string): boolean {
 export function leaveNextStage(stage: string, applicantRole: string): string {
   if (stage === "applied") return "hr_reviewed";
   if (stage === "hr_reviewed") {
-    // COO/CCO applicants skip pre-approval and go straight to final.
-    return applicantRole === "coo" || applicantRole === "cco" ? "pending_final" : "pre_approved";
+    /* COO/CCO applicants skip pre-approval and go straight to final.
+       v1.243.0 (go-live audit D4): the CEO's one action at this stage IS the
+       final approval - before, it moved the request to pending_final and
+       asked the same CEO to approve it a second time. Who approves is
+       unchanged (HR, then the CEO); the CEO no longer signs twice. */
+    return applicantRole === "coo" || applicantRole === "cco" ? "approved" : "pre_approved";
   }
   return "approved"; // pre_approved or pending_final -> final approval
 }

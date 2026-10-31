@@ -299,3 +299,15 @@ and single-use set-password links (hashes only). No business table changes.
 1.239.0 (Weekly target on the Dashboard) adds migration `0156_week_goals` - a
 metric and a count on weekly targets (every existing row stays revenue), and
 who introduced an enquiry and when and by whom it was qualified.
+1.242.0 (Go-live Release B) adds migration `0157_invoice_void_once` - four
+nullable columns on sales_documents (voided_at, voided_by, void_reason,
+replaces_doc_id) and a partial unique index: one live (non-void) invoice per
+quotation. No row is changed; PUSH.bat runs scripts/migration-preflight.mjs
+first and stops if any quotation already has two invoices.
+1.243.0 (Go-live Release C) adds migration `0158_payroll_population` - a new
+table payroll_exceptions (one row per person per month who is in the payroll
+run but cannot be paid by the bank file, with its kind and how it was
+resolved) and four nullable columns on payroll_payments (release_id,
+file_total_cents, file_payees, manual_total_cents). No row is changed.
+1.244.0 (Go-live Release D) adds no migration: backups, the media copy and
+housekeeping use the existing system_meta table and a second R2 bucket.

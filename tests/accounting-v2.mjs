@@ -182,7 +182,11 @@ try {
   db.exec(`INSERT INTO journal_lines (entry_id, account_id, debit_cents, credit_cents) VALUES (${entry("CF-900").id}, ${acct("1100")}, 1200, 0)`);
   /* payroll paid, then changed */
   db.exec(`INSERT INTO payroll_entries (user_id, month, basic_cents, net_cents) VALUES (4, '2026-08', 300000, 300000)`);
-  await call("/payroll/paid", 1, "POST", { month: "2026-08" });
+  /* v1.243.0 (go-live E1): Paid is recorded only when everyone in the run can
+     be paid - the person needs bank details the file recognises */
+  db.exec(`UPDATE users SET bank_name = 'Maybank', bank_account = '514411223344' WHERE id = 4`);
+  const paidAug = await call("/payroll/paid", 1, "POST", { month: "2026-08" });
+  ok("the August bank run is recorded (released by the automatic gate, everyone payable)", paidAug.status === 200, paidAug.text?.slice?.(0, 200) ?? String(paidAug.status));
   db.exec(`UPDATE payroll_entries SET net_cents = 310000 WHERE user_id = 4 AND month = '2026-08'`);
   /* a part payment on an unpaid invoice */
   ins.run(14, "INV", "INV-14", 400000, "unpaid", "2026-09-04 02:00:00", "product");

@@ -327,11 +327,17 @@ export async function commissionForPayroll(
     rows are paid when their payroll row for the month holds at least the
     sum; otherwise they stay included and show "not on a payslip" until the
     month is recomputed. Returns how many rows were paid and held. */
-export async function markCommissionPaid(env: Env, month: string): Promise<{ paid: number; held: number }> {
+/* v1.243.0 (go-live audit E4) - only the people THIS bank run paid (the
+   ready subset plus recorded manual payments, passed in by /payroll/paid),
+   and only rows included before the run was recorded: a row joined to the
+   month after Paid is not paid by a run that did not carry it. Paid is once
+   per month now (E3), so a second call cannot mark more. */
+export async function markCommissionPaid(env: Env, month: string, paidUsers?: number[]): Promise<{ paid: number; held: number }> {
   try {
+    const users = paidUsers && paidUsers.length ? ` AND user_id IN (${paidUsers.map((u) => Number(u)).join(",")})` : paidUsers ? " AND 0" : "";
     const r = await env.DB.prepare(
       `UPDATE commission_ledger SET status = 'paid', paid_out_at = datetime('now')
-        WHERE payroll_month = ?1 AND status = 'included'
+        WHERE payroll_month = ?1 AND status = 'included' AND COALESCE(included_at, '') <= datetime('now')${users}
           AND user_id IN (SELECT e.user_id FROM payroll_entries e WHERE e.month = ?1
                 AND COALESCE(e.commission_cents, 0) >= (SELECT COALESCE(SUM(l2.amount_cents), 0) FROM commission_ledger l2
                       WHERE l2.payroll_month = ?1 AND l2.user_id = e.user_id AND l2.status IN ('included', 'paid')))`,
@@ -887,7 +893,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const seen = new Map<string, { name: string; n: number; last_price_cents: number | null; last_on: string }>();
     try {
       const { results } = await env.DB.prepare(
-        `SELECT items, date(created_at, '+8 hours') AS d FROM sales_documents WHERE doc_type = 'INV' AND date(created_at, '+8 hours') >= date(?1, '-180 days') ORDER BY created_at DESC LIMIT 2000`,
+        `SELECT items, date(created_at, '+8 hours') AS d FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' AND date(created_at, '+8 hours') >= date(?1, '-180 days') ORDER BY created_at DESC LIMIT 2000`,
       ).bind(today).all<{ items: string | null; d: string }>();
       for (const r of results ?? []) {
         let lines: { name?: unknown; unit_price_cents?: number }[] = [];

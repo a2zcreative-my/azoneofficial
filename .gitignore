@@ -109,3 +109,9 @@ public/signatures/*
 # Local browser validation evidence
 browser-results/
 __pycache__/
+
+# --- v1.244.0 (go-live Release D): the release backups -------------------
+# PUSH.bat writes a FULL SQL export of the production database (names,
+# bank accounts, everything) and the built site of each release here. It is
+# for this computer only and must never be committed or uploaded.
+/backups/

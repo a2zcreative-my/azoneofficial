@@ -37,7 +37,7 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 interface Contact { id: number; name: string; role: string | null; phone: string | null; email: string | null; note: string | null }
 interface Followup { id: number; due_on: string; note: string; owner_name: string | null; done_at: string | null; done_note: string | null; cancelled_at: string | null; done_by_name: string | null }
 interface Recurring { id: number; source_number: string | null; total_cents: number | null; day_of_month: number; note: string | null; due_on: string; raised: boolean; raised_number: string | null; due: boolean }
-interface Invoice { id: number; doc_number: string; total_cents: number; created_at: string }
+interface Invoice { id: number; doc_number: string; total_cents: number; created_at: string; payment_status?: string | null }
 interface File {
   customer: { id: number; company: string };
   contacts: Contact[]; tags: string[]; all_tags: string[]; terms_days: number | null;
@@ -233,7 +233,7 @@ export function CustomerFile({ customerId, onChanged }: { customerId: number; on
             <label className={css.field}>{L("Invoice to repeat", "Invois untuk diulang")}
               <select className={selectClassSm} value={rec.source} onChange={(e) => setRec({ ...rec, source: e.target.value })}>
                 <option value="">{L("- pick an invoice -", "- pilih invois -")}</option>
-                {f.invoices.map((i) => <option key={i.id} value={i.id}>{i.doc_number} · {fmtRM(i.total_cents)}</option>)}
+                {f.invoices.filter((i) => i.payment_status !== "void").map((i) => <option key={i.id} value={i.id}>{i.doc_number} · {fmtRM(i.total_cents)}</option>)}
               </select>
             </label>
             <label className={css.field}>{L("Day of the month", "Hari dalam bulan")}

@@ -127,6 +127,7 @@ export const PAY_STATUS_MS: Record<string, string> = {
   unpaid: "belum dibayar",
   paid: "dibayar",
   overdue: "tertunggak",
+  void: "dibatalkan", // v1.242.0
   pending: "menunggu",
   delivered: "dihantar",
 };

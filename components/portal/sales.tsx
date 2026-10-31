@@ -71,6 +71,11 @@ export interface SalesDoc {
   delivery_status: string | null;
   created_at: string;
   converted_from?: number | null; // v1.4.233 — set when this INV came from a QT
+  /* v1.242.0 (B2, decision D-2) - a voided invoice: payment_status 'void' plus who, when, why; a replacement names what it replaces */
+  voided_at?: string | null;
+  void_reason?: string | null;
+  replaces_doc_id?: number | null;
+  replaces_number?: string | null;
   invoiced_as?: string | null; // v1.154.0 — on a QT: the INV it already became
   invoiced_as_id?: number | null;
   /* v1.181.11 - a revised quotation (0139); 0 = the original */
@@ -1262,6 +1267,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      the details. the button remain at outside"): one document open at a time
      — opening another closes the first, so the list never grows tall. */
   const [openDoc, setOpenDoc] = useState<number | null>(null);
+  const [busyDoc, setBusyDoc] = useState<number | null>(null); // v1.242.0 (B2) - one convert / void in flight per row
   /* v1.186.0 - the documents list's filters and page (see docRows) */
   const [docType, setDocType] = useState<"all" | "QT" | "INV" | "DO">("all");
   const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced">("all");
@@ -3104,8 +3110,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             <div
               key={d.id}
               data-record={`document:${d.id}`}
-              className={sc.row}
+              className={`${sc.row}${d.payment_status === "void" ? ` ${sc.rowVoid}` : ""}`}
               role="row"
+              data-void={d.payment_status === "void" ? "1" : undefined}
             >
               <div className={sc.cells}>
                 {/* v1.4.248 (CEO: "a minimalist version … click at the document
@@ -3126,8 +3133,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     {d.doc_number}
                   </RecordToggle>
                   <RevisionChip revision={d.revision} />
-                  {d.doc_type === "INV" && d.payment_status !== "paid" && (
+                  {d.doc_type === "INV" && d.payment_status !== "paid" && d.payment_status !== "void" && (
                     <PartPaidChip totalCents={d.total_cents} receivedCents={partPaid[d.id]} />
+                  )}
+                  {/* v1.242.0 (B2) - a voided invoice says so, with the reason on hover;
+                      a replacement names the invoice it replaces */}
+                  {d.doc_type === "INV" && d.payment_status === "void" && (
+                    <span className="erp-chip erp-chip-sm erp-chip-neutral ml-1 align-middle" title={d.void_reason ? `${L("Reason", "Sebab")}: ${d.void_reason}` : undefined}>
+                      {L("Void", "Batal")}
+                    </span>
+                  )}
+                  {d.doc_type === "INV" && d.replaces_doc_id != null && d.payment_status !== "void" && (
+                    <span className="bg-secondary ml-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium" title={L("Raised after the earlier invoice for this quotation was voided", "Dikeluarkan selepas invois terdahulu bagi sebut harga ini dibatalkan")}>
+                      {L("Replaces", "Menggantikan")} {d.replaces_number ?? `INV #${d.replaces_doc_id}`}
+                    </span>
                   )}
                   {/* v1.30.1 — which entity's letterhead this document carries.
                   Only the exception is tagged: A2Z is the default and a chip
@@ -3170,7 +3189,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     on a DO, the invoiced chip on a quotation - exactly the
                     controls the row had, in their own column */}
                 <span className={sc.cStatus} role="cell">
-                  {d.doc_type === "INV" && canPay && (
+                  {d.doc_type === "INV" && canPay && d.payment_status !== "void" && (
                     <select
                       className={selectClassSm}
                       value={d.payment_status ?? "unpaid"}
@@ -3257,8 +3276,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Open", "Terbuka")}
                     </span>
                   )}
-                  {d.doc_type === "INV" && !canPay && (
-                    <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : "erp-chip erp-chip-sm erp-chip-warning"}>
+                  {d.doc_type === "INV" && (!canPay || d.payment_status === "void") && (
+                    <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : d.payment_status === "void" ? "erp-chip erp-chip-sm erp-chip-neutral" : "erp-chip erp-chip-sm erp-chip-warning"}
+                      title={d.payment_status === "void" ? L(`Voided${d.void_reason ? `: ${d.void_reason}` : ""}`, `Dibatalkan${d.void_reason ? `: ${d.void_reason}` : ""}`) : undefined}>
                       {payStatusL(d.payment_status ?? "unpaid")}
                     </span>
                   )}
@@ -3270,23 +3290,37 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     <button
                       type="button"
                       className={rowBtnPrimary}
+                      disabled={busyDoc === d.id}
+                      aria-busy={busyDoc === d.id || undefined}
                       title={L(
                         "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
                         "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
                       )}
                       onClick={async () => {
-                        const res = await api<{
+                        /* v1.242.0 (go-live audit B2) - one press at a time: the
+                           button is busy until the answer, and the server itself
+                           allows one live invoice per quotation */
+                        if (busyDoc === d.id) return;
+                        setBusyDoc(d.id);
+                        let res: Awaited<ReturnType<typeof api<{
                           id?: number;
                           doc_number?: string;
                           stock?: Parameters<typeof stockToastLine>[0];
-                          error?: { message?: string };
-                        }>(`/staff/docs/${d.id}/convert`, {
-                          method: "POST",
-                          body: JSON.stringify({}),
-                        });
+                          replaces_doc_id?: number | null;
+                          invoice_number?: string;
+                          error?: { code?: string; message?: string };
+                        }>>>;
+                        try {
+                          res = await api(`/staff/docs/${d.id}/convert`, {
+                            method: "POST",
+                            body: JSON.stringify({}),
+                          });
+                        } finally {
+                          setBusyDoc(null);
+                        }
                         if (!res.ok || !res.data?.id) {
                           showToast(
-                            L("No changes", "Tiada perubahan"),
+                            res.data?.error?.code === "already_invoiced" ? L("Already invoiced", "Sudah diinvois") : L("No changes", "Tiada perubahan"),
                             res.data?.error?.message ??
                               L(
                                 "Conversion failed — check access",
@@ -3294,78 +3328,80 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                               ),
                             "notice"
                           );
+                          if (res.data?.error?.code === "already_invoiced") await load();
                           return;
                         }
                         showToast(
                           L("Saved", "Disimpan"),
-                          `${d.doc_number} → ${res.data.doc_number}${stockToastLine(res.data.stock)}`
+                          `${d.doc_number} → ${res.data.doc_number}${res.data.replaces_doc_id ? L(" (replaces the voided invoice)", " (menggantikan invois yang dibatalkan)") : ""}${stockToastLine(res.data.stock)}`
                         );
                         await load();
                         void printDoc(res.data.id);
                       }}
                     >
-                      → {L("Invoice", "Invois")}
+                      → {busyDoc === d.id ? L("Invoicing…", "Menginvois…") : L("Invoice", "Invois")}
                     </button>
                   )}
-                  {/* v1.4.233 (CEO: "reversal button … if accidentally click
-                invoice"): only on an INV that came from a QT and is still
-                unpaid — a paid invoice can never be reversed. Deletes the
-                accidental invoice; the quotation stands untouched. */}
+                  {/* v1.242.0 (go-live audit B2/B5, the owner's decision D-2):
+                      an unpaid invoice is VOIDED, with a reason - never deleted.
+                      It stays in the list struck through; its quotation is open
+                      again and the next invoice from it says what it replaces.
+                      Refused by the server while paid or while part payments
+                      exist (void those first). */}
                   {d.doc_type === "INV" &&
-                    d.converted_from != null &&
                     d.payment_status !== "paid" &&
+                    d.payment_status !== "void" &&
                     canInvoice && (
                       <button
                         type="button"
                         className={rowBtnWarning}
+                        disabled={busyDoc === d.id}
                         title={L(
-                          "Undo the Quotation → Invoice click: deletes this unpaid invoice; the quotation is untouched",
-                          "Batalkan klik Sebut harga → Invois: memadam invois belum dibayar ini; sebut harga tidak disentuh"
+                          "Void this unpaid invoice with a reason. It stays on record, struck through; the quotation it came from is open again.",
+                          "Batalkan invois belum dibayar ini dengan sebab. Ia kekal dalam rekod, dipotong; sebut harga asalnya terbuka semula."
                         )}
                         onClick={async () => {
-                          if (
-                            !(await askConfirm({
-                              title: L(
-                                `Reverse ${d.doc_number}?`,
-                                `Terbalikkan ${d.doc_number}?`
-                              ),
-                              message: L(
-                                "This deletes the invoice (it was created from a quotation and is still unpaid).\nThe quotation itself is not touched.",
-                                "Ini memadam invois (ia dibuat daripada sebut harga dan masih belum dibayar).\nSebut harga itu sendiri tidak disentuh."
-                              ),
-                              confirmLabel: L(
-                                "Reverse invoice",
-                                "Terbalikkan invois"
-                              ),
-                              variant: "danger",
-                            }))
-                          )
-                            return;
-                          const res = await api<{
-                            error?: { message?: string };
-                          }>(`/staff/docs/${d.id}/unconvert`, {
-                            method: "POST",
-                            body: JSON.stringify({}),
+                          const got = await askText({
+                            title: L(`Void ${d.doc_number}?`, `Batalkan ${d.doc_number}?`),
+                            message: L(
+                              "The invoice stays on record, struck through, with your reason. Stock it took goes back on the shelf. If it came from a quotation, that quotation is open to invoice again.",
+                              "Invois kekal dalam rekod, dipotong, bersama sebab anda. Stok yang diambilnya kembali ke rak. Jika ia datang daripada sebut harga, sebut harga itu terbuka untuk diinvois semula."
+                            ),
+                            label: L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)"),
+                            required: true,
+                            confirmLabel: L("Void invoice", "Batalkan invois"),
+                            variant: "danger",
                           });
+                          if (!got) return;
+                          setBusyDoc(d.id);
+                          let res: Awaited<ReturnType<typeof api<{ error?: { code?: string; message?: string } }>>>;
+                          try {
+                            res = await api(`/staff/docs/${d.id}/void`, {
+                              method: "POST",
+                              body: JSON.stringify({ reason: got.value }),
+                            });
+                          } finally {
+                            setBusyDoc(null);
+                          }
                           if (res.ok) {
                             showToast(
-                              L("Reversed", "Diterbalikkan"),
+                              L("Voided", "Dibatalkan"),
                               L(
-                                `${d.doc_number} deleted — the quotation stands`,
-                                `${d.doc_number} dipadam — sebut harga kekal`
+                                `${d.doc_number} is void — it stays on record${d.converted_from != null ? "; the quotation is open again" : ""}`,
+                                `${d.doc_number} dibatalkan — ia kekal dalam rekod${d.converted_from != null ? "; sebut harga terbuka semula" : ""}`
                               )
                             );
                             await load();
                           } else
                             showToast(
-                              L("No changes", "Tiada perubahan"),
+                              L("Not voided", "Tidak dibatalkan"),
                               res.data?.error?.message ??
-                                L("Reversal failed", "Pembalikan gagal"),
+                                L("Void refused", "Pembatalan ditolak"),
                               "notice"
                             );
                         }}
                       >
-                        ↩ {L("Undo", "Batalkan")}
+                        {L("Void", "Batalkan")}
                       </button>
                     )}
                   {/* v1.181.11 (CEO: "add on the Quotation ... based on
@@ -3386,6 +3422,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Revise", "Semak semula")}
                     </button>
                   )}
+                  {d.payment_status !== "void" && ( /* v1.242.0 (B2) - a voided invoice is history: no Edit */
                   <button
                     type="button"
                     className={rowBtn}
@@ -3397,6 +3434,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   >
                     {L("Edit", "Sunting")}
                   </button>
+                  )}
                   <button
                     type="button"
                     className={rowBtn}
@@ -3441,10 +3479,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     {L("Send PDF", "Hantar PDF")}
                   </button>
                   )}
-                  {/* v1.4.237 (CEO): delete with confirm; a PAID invoice is
-                refused by the server. Aging recomputes from this list, so
-                a deleted unpaid invoice drops out of it immediately. */}
-                  {canInvoice && (
+                  {/* v1.4.237 (CEO): delete with confirm. v1.242.0 (B2/B5): never
+                      an invoice - invoices are voided above, so their numbers
+                      and history stay; the server refuses the delete too. */}
+                  {canInvoice && d.doc_type !== "INV" && (
                     <button
                       type="button"
                       className={rowBtnDanger}
@@ -3456,8 +3494,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                               `Padam ${d.doc_number}?`
                             ),
                             message: L(
-                              `${d.doc_type === "INV" ? "It will disappear from Documents and from Outstanding invoices — aging." : "It will disappear from Documents."}\nThis cannot be undone.`,
-                              `${d.doc_type === "INV" ? "Ia akan hilang daripada Dokumen dan daripada Invois tertunggak — usia." : "Ia akan hilang daripada Dokumen."}\nIni tidak boleh dibatalkan.`
+                              "It will disappear from Documents.\nThis cannot be undone.",
+                              "Ia akan hilang daripada Dokumen.\nIni tidak boleh dibatalkan."
                             ),
                             confirmLabel: L("Delete document", "Padam dokumen"),
                             variant: "danger",

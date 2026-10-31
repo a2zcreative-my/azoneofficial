@@ -54,7 +54,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is simply that rule with a name. */
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can, allows, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, type PolicyList } from "./permissions";
+import { Role, can, allows, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
 import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
 import { mailReady, sendMail } from "./mail"; // v1.238.0 - Cloudflare Email Sending
 
@@ -77,8 +77,12 @@ export async function pushToUser(
   const keys = pushKeys(env);
   if (!keys) return tally;
   try {
+    /* v1.244.0 (go-live audit F5) - never to a phone of somebody who has left
+       or whose account is switched off: offboarding and deactivation now
+       remove the subscriptions, and this read covers any kept from before */
     const { results } = await env.DB.prepare(
-      `SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?1`,
+      `SELECT s.id, s.endpoint, s.p256dh, s.auth FROM push_subscriptions s JOIN users u ON u.id = s.user_id
+        WHERE s.user_id = ?1 AND u.is_active = 1 AND ${currentStaffSql("u.")}`,
     ).bind(userId).all<{ id: number; endpoint: string; p256dh: string; auth: string }>();
     for (const s of results) {
       /* an address that is not a push service (stored before v1.226.0) is
@@ -1179,14 +1183,23 @@ async function clockedSessions(
      the next calendar day. Asking only for the scope's own days would leave
      that clock-out with no clock-in to pair with, so the night was recorded
      and paid as nothing. The extra day is read, paired, and then dropped. */
+  /* v1.243.0 (go-live audit D1, D2) - AND ONE DAY FURTHER FORWARD. The
+     window read one day back (so a clock-out could find its clock-in) but
+     not one day forward: a clock-in on the scope's last day whose clock-out
+     landed after midnight was read without its clock-out, so the night
+     derived no overtime (D1) and a session across the month boundary was
+     paid in neither month (D2). Both edges are read now; pairing files each
+     session under its clock-in day and the scope filter below drops the
+     neighbours, exactly as before. */
   if (scope.month) {
     args.push(scope.month);
     where.push(`strftime('%Y-%m', created_at, '+8 hours', '+1 day') = ?${args.length}`
-      + ` OR strftime('%Y-%m', created_at, '+8 hours') = ?${args.length}`);
+      + ` OR strftime('%Y-%m', created_at, '+8 hours') = ?${args.length}`
+      + ` OR strftime('%Y-%m', created_at, '+8 hours', '-1 day') = ?${args.length}`);
   }
   if (scope.day) {
     args.push(scope.day);
-    where.push(`date(created_at, '+8 hours') BETWEEN date(?${args.length}, '-1 day') AND ?${args.length}`);
+    where.push(`date(created_at, '+8 hours') BETWEEN date(?${args.length}, '-1 day') AND date(?${args.length}, '+1 day')`);
   }
   if (scope.userId) { args.push(scope.userId); where.push(`user_id = ?${args.length}`); }
   if (where.length === 0) return new Map();
@@ -1346,6 +1359,9 @@ export async function deriveOtForDay(
   env: Env, userId: number, day: string, role: string, ip: string | null,
 ): Promise<number> {
   if (["ceo", "coo", "cco", "super_admin", "admin"].includes(role)) return 0;
+  /* v1.243.0 (go-live Release C) - a month whose payslips are out is never
+     re-derived by itself: the figures staff have read stay as read. */
+  if (await payslipsOutFor(env, day.slice(0, 7))) return 0;
   const me = await env.DB.prepare(`SELECT employment_status FROM users WHERE id = ?1`)
     .bind(userId).first<{ employment_status: string | null }>();
   if (me?.employment_status === "part_time") return 0;
@@ -1413,15 +1429,65 @@ export async function deriveOtForDay(
    a month - could all rewrite a month whose payslips were already in people's
    hands, silently and with no ceremony at all. They call it now, and the
    refusal names the thing being changed. */
-async function releasedMonthBlock(env: Env, day: string, force: unknown, what = "Changing overtime"): Promise<Response | null> {
-  if (force === true) return null;
+/* v1.243.0 (go-live audit E2) - the gate honours BOTH ways payslips go out:
+   an early release row, or the automatic moment (the 5th of the next month,
+   10:00 MYT, shifted past weekends and holidays). Before, a month whose
+   slips staff were already reading by the automatic gate could be saved or
+   recomputed without force. One function for the four routes and the
+   payslip screens (payslipsOutFor), so they cannot disagree. */
+export async function payslipAvailableFromFor(env: Env, month: string): Promise<string> {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7)); // 1-based payroll month
+  const d = new Date(Date.UTC(y, m, 5)); // 5th of the NEXT month
+  for (let i = 0; i < 14; i++) {
+    const iso = d.toISOString().slice(0, 10);
+    const dow = d.getUTCDay();
+    const hol = dow !== 0 && dow !== 6
+      ? await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1`).bind(iso).first().catch(() => null)
+      : null;
+    if (dow !== 0 && dow !== 6 && !hol) break;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return `${d.toISOString().slice(0, 10)} 10:00`;
+}
+export async function payslipsOutFor(env: Env, month: string): Promise<boolean> {
+  const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+  if (nowMyt >= await payslipAvailableFromFor(env, month)) return true;
+  const r = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(month).first().catch(() => null);
+  return Boolean(r);
+}
+async function releasedMonthBlock(env: Env, day: string, force: unknown, what = "Changing overtime", who?: { id: number; role: string }): Promise<Response | null> {
   const month = day.slice(0, 7);
+  /* v1.243.0 (go-live audit E3) - a month whose BANK RUN is recorded is
+     closed: no force opens it. The money has left; the figures it left on
+     are history (the owner: "Do not modify historical financial data"). */
+  const paidRow = await env.DB.prepare(`SELECT paid_at FROM payroll_payments WHERE month = ?1`).bind(month).first<{ paid_at: string }>().catch(() => null);
+  if (paidRow) {
+    return err("month_paid", `The bank run for ${month} was recorded on ${String(paidRow.paid_at).slice(0, 10)}. ${what} now would change a month that has been paid. Correct it in the next month's payroll instead.`, 409);
+  }
+  if (force === true) {
+    /* v1.243.0 (go-live audit E5) - forcing past a released month is the
+       release holder's call (payroll_release: CEO, COO, super admin), and
+       it is audited as forced every time */
+    if (who && !can(who.role, "payroll_release")) {
+      return err("forbidden", `${what} after the payslips are out needs the CEO, COO or super admin (force_released).`, 403);
+    }
+    if (who) await audit(env, who.id, "payroll.force_released", "payroll", month, { what, day, forced: true });
+    return null;
+  }
   const rel = await env.DB.prepare(`SELECT released_at FROM payslip_releases WHERE month = ?1`)
     .bind(month).first<{ released_at: string }>().catch(() => null);
-  if (!rel) return null;
-  return err("month_released",
-    `Payslips for ${month} were released on ${String(rel.released_at).slice(0, 10)}. ${what} now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
-    409);
+  if (rel) {
+    return err("month_released",
+      `Payslips for ${month} were released on ${String(rel.released_at).slice(0, 10)}. ${what} now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
+      409);
+  }
+  if (await payslipsOutFor(env, month)) {
+    return err("month_released",
+      `Payslips for ${month} are already out to staff (from ${await payslipAvailableFromFor(env, month)} MYT). ${what} now will not change a payslip anybody has already read. Send force_released to do it anyway - it is audited.`,
+      409);
+  }
+  return null;
 }
 
 /** v1.139.0 - one time-of-day validator. `^\d{2}:\d{2}$` accepted 25:99,
@@ -1439,6 +1505,11 @@ function validDay(d: unknown): d is string {
   const t = Date.parse(`${d}T00:00:00Z`);
   return Number.isFinite(t) && new Date(t).toISOString().startsWith(d);
 }
+
+/** v1.244.0 (go-live audit F9) - a task's due date, when one is given, is a
+    real day: "2026-02-31" was stored and raised a false OVERDUE every
+    morning. POST /tasks refuses it; PATCH uses validDay directly. */
+const badDeadline = (b: Record<string, unknown>) => typeof b.deadline === "string" && b.deadline !== "" && !validDay(b.deadline);
 
 /** v1.139.0 - re-derive the overtime of the days a correction touched.
     Amending a clock-out from 22:00 to 18:00 used to leave the four hours it
@@ -1483,11 +1554,23 @@ function json(data: unknown, status = 200): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
-function err(code: string, message: string, status: number): Response {
-  return json({ error: { code, message } }, status);
+function err(code: string, message: string, status: number, extra?: Record<string, unknown>): Response {
+  /* v1.242.0 - `extra` rides beside the error (never inside it), for a client
+     that can act on it: the live invoice an already_invoiced answer names */
+  return json({ error: { code, message }, ...(extra ?? {}) }, status);
 }
 function str(v: unknown, max = 2000): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
+}
+/* v1.242.0 (go-live audit C10) - a day that exists on the calendar (no 31
+   February, no 13th month), as YYYY-MM-DD; and today in Malaysia. */
+function validDayStr(v: unknown): v is string {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+function mytTodayStr(): string {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
 /* ── v1.131.0 — an approved leave day is CLOSED to new work ────────────────
@@ -2140,6 +2223,89 @@ const M2E_BANKS: [string, string][] = [
   ["standard chartered", "SCBLMYKX"], ["citibank", "CITIMYKL"],
   ["kuwait finance", "KFHOMYKL"], ["bank of china", "BKCHMYKL"],
 ];
+/* v1.243.0 (go-live audit E1, E3, E6; the owner's decision D-5) - ONE
+   PAYROLL POPULATION for the list, the total, Paid and both bank files.
+   For month M a saved payroll row is IN THE RUN when the person was employed
+   in M (payrollMonthStaffSql, and joined by M) and is payroll-eligible (a
+   staff role; never a customer, super admin or admin). Login status is NOT a
+   condition: a suspended login is paid what it earned. A row in the run goes
+   into the BANK FILE only when it is payment-ready: net above zero, a bank
+   the files recognise, an account number. Everyone in the run who is not
+   ready is an EXCEPTION (recorded in payroll_exceptions, 0158): no_bank /
+   bank_unrecognised block Paid until the record is fixed or a manual payment
+   is recorded; login_suspended is shown and blocks nothing; manual_payment is
+   the resolution that keeps the person out of the file and in the total. */
+export type PayrollPopRow = {
+  user_id: number; name: string; full_name: string | null; employee_id: string | null; bank_name: string | null; bank_account: string | null;
+  ic_number: string | null; is_active: number; role: string; net_cents: number;
+  ready: boolean; exception: "no_bank" | "bank_unrecognised" | null; manual: { amount_cents: number | null; detail: string | null } | null; suspended: boolean;
+};
+export type PayrollPopulation = {
+  rows: PayrollPopRow[]; ready: PayrollPopRow[]; file_total_cents: number; manual_total_cents: number; total_cents: number;
+  exceptions: { user_id: number; name: string; kind: string; detail: string | null; blocking: boolean; resolved: boolean; resolution: string | null; amount_cents: number | null }[];
+  blocking: number; out_of_run: { user_id: number; name: string; why: string }[];
+};
+export async function payrollPopulation(env: Env, month: string): Promise<PayrollPopulation> {
+  const { results } = await env.DB.prepare(
+    `SELECT p.user_id, u.name, u.full_name, u.employee_id, u.bank_name, u.bank_account, u.ic_number, u.is_active, u.role, u.joined_on, u.left_on, u.rejoined_on,
+            COALESCE(p.net_cents, MAX(0, p.basic_cents + p.commission_cents + p.allowance_cents + COALESCE(p.ot_cents, 0) - p.deduction_cents)) AS net_cents,
+            CASE WHEN ${payrollMonthStaffSql(month, "u.")} AND (u.joined_on IS NULL OR u.joined_on = '' OR substr(u.joined_on, 1, 7) <= '${month}') THEN 1 ELSE 0 END AS employed
+       FROM payroll_entries p JOIN users u ON u.id = p.user_id
+      WHERE p.month = ?1
+      ORDER BY ${STAFF_ORDER_SQL}`,
+  ).bind(month).all<{ user_id: number; name: string; full_name: string | null; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; is_active: number; role: string; net_cents: number; employed: number }>();
+  let manuals: { user_id: number; amount_cents: number | null; detail: string | null }[] = [];
+  let recorded: { user_id: number; kind: string; resolved_at: string | null; resolution: string | null }[] = [];
+  try {
+    manuals = ((await env.DB.prepare(`SELECT user_id, amount_cents, detail FROM payroll_exceptions WHERE month = ?1 AND kind = 'manual_payment' AND resolved_at IS NULL`).bind(month).all<{ user_id: number; amount_cents: number | null; detail: string | null }>()).results) ?? [];
+    recorded = ((await env.DB.prepare(`SELECT user_id, kind, resolved_at, resolution FROM payroll_exceptions WHERE month = ?1 AND kind != 'manual_payment'`).bind(month).all<{ user_id: number; kind: string; resolved_at: string | null; resolution: string | null }>()).results) ?? [];
+  } catch { /* pre-0158: derived live, recorded nowhere */ }
+  void recorded;
+  const rows: PayrollPopRow[] = [];
+  const out_of_run: PayrollPopulation["out_of_run"] = [];
+  for (const r of results ?? []) {
+    const nm = r.full_name || r.name;
+    if (["customer", "super_admin", "admin"].includes(r.role)) { out_of_run.push({ user_id: r.user_id, name: nm, why: "not a payroll role" }); continue; }
+    if (!r.employed) { out_of_run.push({ user_id: r.user_id, name: nm, why: `not employed in ${month}` }); continue; }
+    const code = r.bank_name ? bankCode(r.bank_name) : null;
+    const manual = manuals.find((m) => m.user_id === r.user_id) ?? null;
+    const exception: PayrollPopRow["exception"] = r.net_cents <= 0 ? null : !r.bank_name || !r.bank_account ? "no_bank" : !code ? "bank_unrecognised" : null;
+    rows.push({
+      user_id: r.user_id, name: nm, full_name: r.full_name, employee_id: r.employee_id, bank_name: r.bank_name, bank_account: r.bank_account, ic_number: r.ic_number,
+      is_active: r.is_active, role: r.role, net_cents: Number(r.net_cents ?? 0),
+      ready: r.net_cents > 0 && exception === null && manual === null,
+      exception, manual: manual ? { amount_cents: manual.amount_cents, detail: manual.detail } : null, suspended: r.is_active !== 1,
+    });
+  }
+  const ready = rows.filter((r) => r.ready);
+  const exceptions: PayrollPopulation["exceptions"] = [];
+  for (const r of rows) {
+    if (r.exception) exceptions.push({ user_id: r.user_id, name: r.name, kind: r.exception, detail: r.exception === "no_bank" ? "No bank name or account number on the staff record" : `Bank "${r.bank_name}" is not in the M2E bank list`, blocking: r.manual === null, resolved: r.manual !== null, resolution: r.manual ? "manual_payment" : null, amount_cents: r.manual?.amount_cents ?? null });
+    else if (r.manual) exceptions.push({ user_id: r.user_id, name: r.name, kind: "manual_payment", detail: r.manual.detail, blocking: false, resolved: true, resolution: "manual_payment", amount_cents: r.manual.amount_cents });
+    if (r.suspended && r.net_cents > 0) exceptions.push({ user_id: r.user_id, name: r.name, kind: "login_suspended", detail: "Login suspended - still paid what the month earned", blocking: false, resolved: false, resolution: null, amount_cents: null });
+  }
+  const file_total_cents = ready.reduce((a, r) => a + r.net_cents, 0);
+  const manual_total_cents = rows.filter((r) => r.manual).reduce((a, r) => a + (r.manual?.amount_cents ?? r.net_cents), 0);
+  return { rows, ready, file_total_cents, manual_total_cents, total_cents: rows.reduce((a, r) => a + r.net_cents, 0), exceptions, blocking: exceptions.filter((e) => e.blocking).length, out_of_run };
+}
+/** Keep the recorded exceptions in step with the records: a derived blocking
+    exception is written once, and closed when the record is fixed. */
+export async function syncPayrollExceptions(env: Env, month: string, pop: PayrollPopulation, byUser: number | null): Promise<void> {
+  try {
+    const open = ((await env.DB.prepare(`SELECT id, user_id, kind FROM payroll_exceptions WHERE month = ?1 AND kind IN ('no_bank', 'bank_unrecognised', 'login_suspended') AND resolved_at IS NULL`).bind(month).all<{ id: number; user_id: number; kind: string }>()).results) ?? [];
+    const want = pop.exceptions.filter((e) => e.kind !== "manual_payment");
+    for (const e of want) {
+      if (!open.some((o) => o.user_id === e.user_id && o.kind === e.kind)) {
+        await env.DB.prepare(`INSERT INTO payroll_exceptions (month, user_id, kind, detail, created_by) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(month, e.user_id, e.kind, e.detail, byUser).run();
+      }
+    }
+    for (const o of open) {
+      if (!want.some((e) => e.user_id === o.user_id && e.kind === o.kind)) {
+        await env.DB.prepare(`UPDATE payroll_exceptions SET resolved_at = datetime('now'), resolution = 'record_fixed', resolved_by = ?2 WHERE id = ?1`).bind(o.id, byUser).run();
+      }
+    }
+  } catch { /* pre-0158 */ }
+}
 function bankCode(name: string): string | null {
   const n = name.toLowerCase();
   for (const [frag, code] of M2E_BANKS) if (n.includes(frag)) return code;
@@ -3108,13 +3274,13 @@ async function handleStaffRoutes(
          outside a released month. */
       pending_ot: otDecide ? await pendingOtDays(env).then((l) => l.length).catch(() => null) : undefined,
 
-      low_stock: await gated(stock, `SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5`),
+      low_stock: await gated(stock, `SELECT COUNT(*) AS c FROM inventory_items WHERE stock <= 5 AND status != 'discontinued'`), // v1.242.0 (C5) - a discontinued item is not low, and the label says 'low or out'
       /* v1.154.0 - OPEN means not yet invoiced. converted_from lives on the
          INVOICE, so "QT with converted_from IS NULL" was every quotation ever
          written, invoiced or not. */
       open_quotations: await gated(sales, `SELECT COUNT(*) AS c FROM sales_documents q WHERE q.doc_type = 'QT'
-        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')`),
-      outstanding_invoices: await gated(sales, `SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') != 'paid'`),
+        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void')`), // v1.242.0 - a voided invoice reopens its quotation
+      outstanding_invoices: await gated(sales, `SELECT COUNT(*) AS c FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') NOT IN ('paid', 'void')`),
       clients: await gated(sales, `SELECT COUNT(*) AS c FROM customers WHERE COALESCE(company, '') != 'Walk-in Customer'`),
       active_stokis: await gated(can(user.role, "inventory"), `SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
 
@@ -3280,11 +3446,30 @@ async function handleStaffRoutes(
     const sets: string[] = [];
     const vals: string[] = [];
     const locked: string[] = [];
+    /* v1.243.0 (go-live audit D10) - a DATE FIELD is a real calendar date
+       (YYYY-MM-DD): a joined / left / re-joined / birthday / IC date typed as
+       anything else was stored as typed and then read by payroll's month
+       rule and the headcount as no date at all. Left on or after joined. */
+    const DATE_FIELDS = ["birthday", "id_issued_on", "joined_on", "left_on", "rejoined_on"] as const;
+    for (const f of DATE_FIELDS) {
+      if (str(body?.[f], 200) && !validDay((body![f] as string).trim())) return err("invalid_input", `${f} must be a real date, YYYY-MM-DD`, 400);
+    }
+    if (str(body?.left_on, 20) && str(body?.joined_on, 20) && (body!.left_on as string).trim() < (body!.joined_on as string).trim()) {
+      return err("invalid_input", "left_on cannot be before joined_on", 400);
+    }
+    /* v1.243.0 (D10) - the DEFAULT employment status ('permanent', written by
+       the database when nobody said) is not a status anybody set: HR may set
+       it once on a record the admin tier has not yet confirmed. Only the
+       default counts as unset; a status somebody chose stays locked. */
+    const statusUnset = current.employment_status === null || (current.employment_status === "permanent" && !(await env.DB.prepare(
+      `SELECT 1 AS x FROM audit_log WHERE entity = 'users' AND entity_id = ?1 AND action IN ('staff.hr_update', 'staff.role_change', 'admin.staff_update') AND detail LIKE '%employment_status%' LIMIT 1`,
+    ).bind(String(id)).first().catch(() => null)));
     for (const f of fields) {
       if (!str(body?.[f], 200)) continue;
       const incoming = (body![f] as string).trim();
       const existing = (current[f] ?? "").trim();
-      if (existing && existing !== incoming && !adminTier) {
+      const fillable = f === "employment_status" && statusUnset;
+      if (existing && existing !== incoming && !adminTier && !fillable) {
         locked.push(f);
         continue;
       }
@@ -3301,7 +3486,7 @@ async function handleStaffRoutes(
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
       .bind(...vals, id).run();
-    await audit(env, user.id, "staff.hr_update", "users", id);
+    await audit(env, user.id, "staff.hr_update", "users", id, { fields: fields.filter((f) => str(body?.[f], 200)) }); // v1.243.0 (D10) - which fields, so a set status is known to have been set
     return json({ ok: true });
   }
 
@@ -3421,8 +3606,10 @@ async function handleStaffRoutes(
     }
     let manager: { id: number; name: string } | null = null;
     if (managerId !== null) {
+      /* v1.243.0 (go-live audit D9) - a manager is a current staff member:
+         never a customer, never a system account, never someone who has left */
       manager = await env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1`,
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`,
       ).bind(managerId).first();
       if (!manager) return err("not_found", "That manager is not a staff record", 404);
       /* Walk up from the proposed manager. If the person we are assigning is
@@ -3511,6 +3698,14 @@ async function handleStaffRoutes(
        is the truth exactly as before. */
     const sentLateFrom = clientAt(request, path);
     const punchAt = sentLateFrom ?? new Date();
+    /* v1.243.0 (go-live audit D9) - someone who has LEFT cannot clock in: a
+       last day that has passed, or a record marked resigned / terminated
+       with no last day (the same rule every picker uses, currentStaffSql).
+       A clock-out is still taken, so an open session can be closed. */
+    if (body.type === "clock_in") {
+      const onStaff = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(user.id).first().catch(() => ({ x: 1 }));
+      if (!onStaff) return err("not_on_staff", "Your staff record says you have left the company, so there is nothing to clock in for. Speak to HR if that is wrong.", 403);
+    }
     /* v1.133.0 — A DAY IS A LIST OF SESSIONS, ONE PER SHIFT.
        CEO, 07-09-2026: "I want my staff being clock in and out based on their
        working schedule ... 11:00am to 05:00pm then next shift schedule
@@ -3573,7 +3768,28 @@ async function handleStaffRoutes(
     const assignedToday = (await assignedResolver(env, todayMYT, todayMYT)).list(user.id, todayMYT);
     /* v1.159.0 - the roster is the day where it speaks (withAssigned) */
     const shEarly = withAssigned(await shiftOn(env, user.id, todayMYT), assignedToday, user.role === "live_host");
-    const slotsToday = daySlots(shEarly.windows, assignedToday.map((a) => ({ start: a.start, end: a.end, what: a.what })));
+    const slotsAll = daySlots(shEarly.windows, assignedToday.map((a) => ({ start: a.start, end: a.end, what: a.what })));
+    /* v1.243.0 (go-live audit D7) - APPROVED LEAVE CLOSES THE SHIFT. The
+       windows a person may clock in for are the day's shifts minus their
+       approved leave (lib/leave-coverage remainingWindows - the same cut the
+       phone's Today's Shift card and the reminders use). A full day of leave
+       leaves nothing: the clock-in is refused and the leave is named. A half
+       day leaves the other half. */
+    const leaveToday = (await env.DB.prepare(
+      `SELECT type, start_date, end_date, days, day_part, coverage_json FROM leave_requests
+        WHERE user_id = ?1 AND status = 'approved' AND start_date <= ?2 AND end_date >= ?2`,
+    ).bind(user.id, todayMYT).all<LeaveCoverage & { type: string }>().catch(() => ({ results: [] as (LeaveCoverage & { type: string })[] }))).results ?? [];
+    const remainingToday = leaveToday.length ? remainingWindows(slotsAll, leaveToday, todayMYT) : slotsAll;
+    const slotsToday = remainingToday ?? [];
+    if (body.type === "clock_in" && !openNow && leaveToday.length && slotsAll.length > 0 && slotsToday.length === 0) {
+      const lv = leaveToday[0]!;
+      const span = lv.start_date === lv.end_date ? lv.start_date.split("-").reverse().join("-") : `${lv.start_date.split("-").reverse().join("-")} to ${lv.end_date.split("-").reverse().join("-")}`;
+      return json(
+        { error: { code: "on_leave", message: `You are on approved ${String(lv.type ?? "leave").replace(/_/g, " ")} leave today (${span}), so there is no shift to clock in for. If you are working after all, ask HR to cancel the leave first.` },
+          leave: { type: lv.type, start_date: lv.start_date, end_date: lv.end_date } },
+        409,
+      );
+    }
     if (body.type === "clock_in" && !openNow) {
       const mytNowP = new Date(punchAt.getTime() + 8 * 3600 * 1000);
       const verdict = canClockIn(slotsToday, sessionsToday, mytNowP.getUTCHours() * 60 + mytNowP.getUTCMinutes());
@@ -3687,6 +3903,15 @@ async function handleStaffRoutes(
          half a day for it. */
       const due = lateAgainst(sh, mins) ?? SHIFT.startMinutes;
       flag = mins <= due ? "ok" : mins <= sh.halfDay ? "late" : "half_day";
+    } else if (closesYesterday) {
+      /* v1.243.0 (go-live audit D12) - a clock-out after midnight that closes
+         yesterday's shift is judged against YESTERDAY's windows, on
+         yesterday's clock (00:20 is minute 1460 of the day it belongs to),
+         not against today's pattern, which it never worked. */
+      const asgY = (await assignedResolver(env, closesYesterday, closesYesterday)).list(user.id, closesYesterday);
+      const shY = withAssigned(await shiftOn(env, user.id, closesYesterday), asgY, user.role === "live_host");
+      const dueOutY = earlyAgainst(shY.windows, mins + 24 * 60);
+      flag = shY.kind === "rest_day" ? "rest_day" : dueOutY !== null && mins + 24 * 60 < dueOutY ? "early_out" : "completed";
     } else {
       /* v1.133.0 — against the END OF THE SHIFT being left, not the end of
          the day. Clocking out at 17:00 on an 11-17 + 20-22 day is a shift
@@ -4011,7 +4236,7 @@ async function handleStaffRoutes(
     if (decision === "replacement" && !can(user.role, "leave_entitlement")) {
       return err("forbidden", "Only the CEO can convert overtime to replacement leave", 403);
     }
-    const relD = await releasedMonthBlock(env, day, body?.force_released);
+    const relD = await releasedMonthBlock(env, day, body?.force_released, "Changing overtime", user);
     if (relD) return relD;
     const note = typeof body?.note === "string" ? body.note.slice(0, 300) : null;
     /* v1.139.0 - only rows that belong to a CLOSED pair are decided. The
@@ -4167,11 +4392,12 @@ async function handleStaffRoutes(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(st) || !host) {
       return err("invalid_input", "session_date, start_time and host_user_id are required", 400);
     }
-    const hostRow = await env.DB.prepare(`SELECT name, role, is_active FROM users WHERE id = ?1`)
-      .bind(host).first<{ name: string; role: string; is_active: number }>();
+    const hostRow = await env.DB.prepare(`SELECT name, role, is_active, ${currentStaffSql()} AS on_staff FROM users WHERE id = ?1`)
+      .bind(host).first<{ name: string; role: string; is_active: number; on_staff: number }>();
     if (!hostRow || !hostRow.is_active || ["customer", "super_admin", "admin"].includes(hostRow.role)) {
       return err("invalid_input", "Host must be an active staff member", 400);
     }
+    if (!hostRow.on_staff) return err("invalid_input", `${hostRow.name} has left the company and cannot be booked for a live session`, 400); // v1.243.0 (D9)
     /* v1.131.0 — door 1 of 5. A host on approved leave is not available. */
     {
       const no = await refuseIfOnLeave(env, user, host, [d], body?.leave_override === true, timeWindow(st, body?.end_time));
@@ -5004,7 +5230,7 @@ async function handleStaffRoutes(
     if (creditedRO) {
       return err("already_decided", "That day was already credited as replacement leave. Withdraw the credit first if it should be overtime instead.", 409);
     }
-    const relRO = await releasedMonthBlock(env, dateO, body?.force_released);
+    const relRO = await releasedMonthBlock(env, dateO, body?.force_released, "Changing overtime", user);
     if (relRO) return relRO;
     /* v1.159.1 (CEO: "should check based on their working schedule assigned")
        - a day with an assigned live is a working day, not a rest day worked */
@@ -5043,7 +5269,7 @@ async function handleStaffRoutes(
     const uidR = Number(body?.user_id);
     const dateR = typeof body?.date === "string" ? body.date : "";
     if (!uidR || !validDay(dateR)) return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
-    const relR = await releasedMonthBlock(env, dateR, body?.force_released);
+    const relR = await releasedMonthBlock(env, dateR, body?.force_released, "Changing overtime", user);
     if (relR) return relR;
     const { results: goneR } = await env.DB.prepare(
       `SELECT id, type, status, created_at FROM ot_records WHERE user_id = ?1 AND date(created_at, '+8 hours') = ?2`,
@@ -5077,7 +5303,7 @@ async function handleStaffRoutes(
     if (toMin(outA) <= toMin(inA)) return err("invalid_input", "OT out must be after OT in", 400);
     const whoA = await env.DB.prepare(`SELECT id FROM users WHERE id = ?1`).bind(uidA).first<{ id: number }>();
     if (!whoA) return err("not_found", "No such staff member", 404);
-    const relA = await releasedMonthBlock(env, dayA, body?.force_released);
+    const relA = await releasedMonthBlock(env, dayA, body?.force_released, "Changing overtime", user);
     if (relA) return relA;
     const stampA = (m: number) => new Date(Date.parse(`${dayA}T00:00:00Z`) + (m - 8 * 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
     const { results: rowsA } = await env.DB.prepare(
@@ -5208,7 +5434,6 @@ async function handleStaffRoutes(
         .map((r) => ({ type: r.type, at: r.created_at })));
       const claimedT = claimedSlots(slotsT, sessT);
       const nowT = new Date(Date.now() + 8 * 3600 * 1000);
-      const verdictT = canClockIn(slotsT, sessT, nowT.getUTCHours() * 60 + nowT.getUTCMinutes());
       const previous = new Date(Date.parse(`${tdy}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
       const priorAssigned = (await assignedResolver(env, previous, previous)).list(forUser, previous);
       const priorShift = withAssigned(await shiftOn(env, forUser, previous), priorAssigned, roleT === "live_host");
@@ -5218,6 +5443,9 @@ async function handleStaffRoutes(
         .bind(forUser, tdy, previous).all<LeaveCoverage>()).results;
       const remaining = remainingWindows(slotsT, leaveT, tdy);
       const priorRemaining = remainingWindows(priorSlots, leaveT, previous);
+      /* v1.243.0 (D7) - the verdict is read against the windows LEFT after approved leave, as the punch route decides it */
+      const onLeaveAllDay = leaveT.some((l) => l.start_date <= tdy && l.end_date >= tdy) && slotsT.length > 0 && (remaining ?? []).length === 0;
+      const verdictT = onLeaveAllDay ? { ok: false as const, reason: "on_leave" } : canClockIn(remaining ?? slotsT, sessT, nowT.getUTCHours() * 60 + nowT.getUTCMinutes());
       const recent = (await env.DB.prepare(`SELECT type, created_at, pending_approval FROM attendance_records
         WHERE user_id = ?1 AND date(created_at, '+8 hours') BETWEEN ?2 AND ?3 ORDER BY created_at`)
         .bind(forUser, previous, tdy).all<{ type: string; created_at: string; pending_approval: number }>()).results;
@@ -5289,9 +5517,9 @@ async function handleStaffRoutes(
        FROM users u
        WHERE u.is_active = 1
          AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')
-         AND COALESCE(u.employment_status, 'permanent') NOT IN ('resigned','terminated')
+         AND ${headcountSql("u.")}
        ORDER BY ${STAFF_ORDER_SQL}`,
-    ).bind(todayM).all();
+    ).bind(todayM).all(); // v1.243.0 (D9) - the headcount rule: a leaver past their last day and a future joiner are not on the monitor
     // v1.21.0: ship the fence with the list so management screens flag
     // "outside office" against the REAL configured fence (not a client
     // constant that could drift from it).
@@ -5327,7 +5555,7 @@ async function handleStaffRoutes(
       return err("forbidden", "HR access required", 403);
     }
     const urlV = new URL(request.url);
-    const monthV = urlV.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const monthV = urlV.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7); // v1.243.0 (D17/E8) - the month in Malaysia, not UTC
     if (!/^\d{4}-\d{2}$/.test(monthV)) return err("invalid_input", "month must be YYYY-MM", 400);
 
     const [yV, mV] = monthV.split("-").map(Number) as [number, number];
@@ -5383,7 +5611,7 @@ async function handleStaffRoutes(
          from the fortnight before they started. */
       const mine = employedDays(daysV, u.joined_on, u.left_on, u.rejoined_on);
       const byType: Record<string, number> = {};
-      let scheduled = 0, worked = 0, restDays = 0, publicHols = 0, absent = 0;
+      let scheduled = 0, scheduledAhead = 0, worked = 0, restDays = 0, publicHols = 0, absent = 0;
       let late = 0, earlyOut = 0, shortDays = 0, assignedDays = 0, noClockOut = 0;
       let schedMins = 0, workedMins = 0;
       const absentDates: string[] = [];
@@ -5401,6 +5629,11 @@ async function handleStaffRoutes(
         const lv = dayLeave[0];
         if (sh.kind === "rest_day") { restDays++; continue; }
         if (holForV(d, u.joined_on)) { publicHols++; continue; }
+        /* v1.243.0 (go-live audit D5) - a scheduled day still AHEAD is not a
+           day to reconcile yet: it is counted in the month's schedule
+           (scheduled_ahead, scheduled_minutes) but not in the days the row
+           must add up to, so a row balances on the days that have happened. */
+        if (d > todayV) { scheduledAhead++; schedMins += workMinutes(sh); continue; }
         scheduled++;
         schedMins += workMinutes(sh);
         if (lv) {
@@ -5450,7 +5683,7 @@ async function handleStaffRoutes(
       out.push({
         user_id: u.id, name: u.name, email: u.email, employee_id: u.employee_id,
         position: u.position, role: u.role, employment_status: u.employment_status,
-        scheduled, worked, leave_total: leaveTotal, leave_by_type: byType,
+        scheduled, scheduled_ahead: scheduledAhead, worked, leave_total: leaveTotal, leave_by_type: byType,
         absent, rest_days: restDays, public_holidays: publicHols,
         late, early_out: earlyOut, short_days: shortDays, assigned_days: assignedDays,
         no_clock_out: noClockOut, open_dates: openDates,
@@ -5655,8 +5888,49 @@ async function handleStaffRoutes(
     ) {
       return err("invalid_input", "type, start_date, end_date, and days are required", 400);
     }
-    const coverage = await leaveCoverageFor(env, user.id, String(body.start_date), String(body.end_date), body.days, body.day_part);
+    /* v1.243.0 (go-live audit D6) - FOUR THINGS A LEAVE REQUEST MUST BE:
+       real dates in the right order, not far in the past or the future;
+       no more days than the span holds; not overlapping another request of
+       this person that is still live (applied, in review, or approved); and
+       for annual leave, within what is left of the year's entitlement. */
+    const sdL = String(body.start_date), edL = String(body.end_date);
+    if (!validDay(sdL) || !validDay(edL) || edL < sdL) return err("invalid_input", "start_date and end_date must be real dates, and the end must not precede the start", 400);
+    const todayL = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const daysBack = (Date.parse(`${todayL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000;
+    const daysAhead = (Date.parse(`${sdL}T00:00:00Z`) - Date.parse(`${todayL}T00:00:00Z`)) / 86400000;
+    if (daysBack > 60) return err("invalid_input", "A leave cannot start more than 60 days ago. Ask HR to record an older one.", 400);
+    if (daysAhead > 400) return err("invalid_input", "A leave cannot start more than 400 days ahead.", 400);
+    const spanDays = (Date.parse(`${edL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000 + 1;
+    if (body.days > spanDays) return err("invalid_input", `${body.days} day(s) do not fit in ${sdL} to ${edL} (${spanDays} calendar day(s)).`, 400);
+    const clashL = await env.DB.prepare(
+      `SELECT id, type, start_date, end_date, status FROM leave_requests
+        WHERE user_id = ?1 AND status NOT IN ('rejected', 'cancelled') AND start_date <= ?3 AND end_date >= ?2 LIMIT 1`,
+    ).bind(user.id, sdL, edL).first<{ id: number; type: string; start_date: string; end_date: string; status: string }>();
+    if (clashL) return err("overlap", `You already have ${clashL.type} leave ${clashL.status === "approved" ? "approved" : "applied"} for ${clashL.start_date}${clashL.end_date !== clashL.start_date ? ` to ${clashL.end_date}` : ""}. Cancel or amend that one first.`, 409);
+    if (body.type === "annual" || body.type === "medical") {
+      const yearL = Number(sdL.slice(0, 4));
+      const rowL = await leaveBalanceRow(env, user.id, yearL, body.type);
+      const usedL = await env.DB.prepare(
+        `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests WHERE user_id = ?1 AND type = ?2 AND status NOT IN ('rejected', 'cancelled') AND start_date LIKE ?3 || '%'`,
+      ).bind(user.id, body.type, String(yearL)).first<{ used: number }>();
+      const entitledL = (rowL.entitled ?? DEFAULT_ENTITLEMENT[body.type] ?? 0) + (rowL.adjust ?? 0);
+      const leftL = entitledL - ((usedL?.used ?? 0) + (rowL.used_adjust ?? 0));
+      if (body.days > leftL) return err("over_entitlement", `Only ${Math.max(0, leftL)} day(s) of ${body.type} leave are left for ${yearL} (${entitledL} entitled, ${entitledL - leftL} taken or applied). ${body.type === "annual" ? "Apply for the days you have, or for unpaid leave." : "Attach the medical certificate and ask HR to adjust the entitlement."}`, 400);
+    }
+    const coverage = await leaveCoverageFor(env, user.id, sdL, edL, body.days, body.day_part);
     if (coverage.error) return err("invalid_input", coverage.error, 400);
+    /* a full day of leave on a day the pattern gives no hours to is not a leave day */
+    if (!isPartialLeave({ days: body.days, day_part: coverage.day_part, coverage_json: coverage.coverage_json, start_date: sdL, end_date: edL } as LeaveCoverage)) {
+      let working = 0;
+      const atL = await shiftResolver(env).catch(() => null); // read the schedule once, not per day
+      for (let t = Date.parse(`${sdL}T00:00:00Z`); t <= Date.parse(`${edL}T00:00:00Z`); t += 86400000) {
+        const d = new Date(t).toISOString().slice(0, 10);
+        const shL = atL ? atL(user.id, d) : null;
+        if (!shL || shL.kind !== "rest_day") working += 1;
+      }
+      if (working === 0) return err("invalid_input", `${sdL === edL ? sdL : `${sdL} to ${edL}`} is a rest day on your pattern - there is no working day to take leave from.`, 400);
+      if (body.days > working) return err("invalid_input", `${body.days} day(s) asked, but only ${working} working day(s) fall in ${sdL} to ${edL}.`, 400);
+    }
     const res = await env.DB.prepare(
       `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
@@ -5775,6 +6049,12 @@ async function handleStaffRoutes(
 
   if (path === "/leave/balance" && method === "GET") {
     const year = new Date().getFullYear();
+    /* v1.243.0 (go-live audit D8) - HR, who checks the balance at stage 1,
+       can read a named person's: ?user_id=N for hr_manage, the pre-approval
+       tier and the CEO (the chain, leaveSeesAll); everyone else their own. */
+    const forQ = Number(new URL(request.url).searchParams.get("user_id") ?? 0);
+    const balUser = forQ > 0 && forQ !== user.id ? (leaveSeesAll(user.role) ? forQ : -1) : user.id;
+    if (balUser === -1) return err("forbidden", "Only HR and the approval chain read another person's leave balance", 403);
     /* Monthly release (v1.4.30): entitlement accrues pro-rata over the months
        the company actually operates in the year — see leaveAccrual() at the
        top of this file, which is now the only place that rule is written.
@@ -5783,17 +6063,17 @@ async function handleStaffRoutes(
     const balances: Record<string, { entitled: number; used: number; accrued: number; adjust: number }> = {};
     /* v1.93.0 — a part-time host: every type reads zero, and the response
        says why, so the tab can say it instead of showing five empty tiles. */
-    if (await isHourlyUserId(env, user.id)) {
+    if (await isHourlyUserId(env, balUser)) {
       for (const t of LEAVE_TYPES) balances[t] = { entitled: 0, used: 0, accrued: 0, adjust: 0 };
       return json({ year, month: monthMYT, balances, hourly: true });
     }
     for (const t of LEAVE_TYPES) {
-      const row = await leaveBalanceRow(env, user.id, year, t);
+      const row = await leaveBalanceRow(env, balUser, year, t);
       const used = await env.DB.prepare(
         `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests
          WHERE user_id = ?1 AND type = ?2 AND status = 'approved'
          AND start_date LIKE ?3 || '%'`,
-      ).bind(user.id, t, String(year)).first<{ used: number }>();
+      ).bind(balUser, t, String(year)).first<{ used: number }>();
       const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
       const adjust = row.adjust ?? 0;
       balances[t] = {
@@ -5803,7 +6083,7 @@ async function handleStaffRoutes(
         adjust,
       };
     }
-    return json({ year, month: monthMYT, balances });
+    return json({ year, month: monthMYT, balances, user_id: balUser });
   }
 
   /* ============ v1.83.0 — a leave you can correct or take back ============
@@ -7250,7 +7530,7 @@ async function handleStaffRoutes(
     ).bind(m).first<{ cents: number; docs: number }>();
     const outstanding = env.DB.prepare(
       `SELECT COALESCE(SUM(total_cents), 0) AS cents, COUNT(*) AS docs
-       FROM sales_documents WHERE doc_type = 'INV' AND payment_status != 'paid'`,
+       FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') NOT IN ('paid', 'void')`,
     ).first<{ cents: number; docs: number }>();
     // v1.4.169 (CEO: "invoice also need to count it beside of TikTok or any
     // Postage tracking — non-TikTok orders… everything count correctly"):
@@ -7835,6 +8115,11 @@ async function handleStaffRoutes(
     if (assignedTo !== user.id && !can(user.role, "team_manage")) {
       return err("forbidden", "You can only create tasks for yourself", 403);
     }
+    /* v1.243.0 (F2 / D9) - current staff only: no customer, no leaver */
+    if (assignedTo !== user.id) {
+      const okA = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(assignedTo).first().catch(() => ({ x: 1 }));
+      if (!okA) return err("invalid_input", "Tasks go to a current staff member - that person is not on staff (or has left).", 400);
+    }
     /* v1.223.0 - a sales task names its customer, enquiry or quotation;
        one open task per person and record (weekly-sales.ts taskLink) */
     const tl = await taskLink(env, body, assignedTo);
@@ -7860,6 +8145,7 @@ async function handleStaffRoutes(
       const no = await refuseIfOnLeave(env, user, assignedTo, bDates, body?.leave_override === true, timeWindow(bStart, blk?.end_time));
       if (no) return no;
     }
+    if (badDeadline(body)) return err("invalid_input", "The due date must be a real date", 400);
     const prio = ["low", "normal", "high", "urgent"];
     const res = linkKind && linkId
       /* v1.223.0 - the linked insert repeats the "one open task" check in the
@@ -8209,7 +8495,7 @@ async function handleStaffRoutes(
        false overdue alerts every morning until somebody mutes the bell. */
     if (typeof body?.deadline === "string") {
       if (body.deadline === "") { sets.push(`deadline = ?${sets.length + 1}`); vals.push(null); }
-      else if (/^\d{4}-\d{2}-\d{2}$/.test(body.deadline)) {
+      else if (validDay(body.deadline)) { // v1.244.0 (go-live audit F9) - 31-02 is not a day
         sets.push(`deadline = ?${sets.length + 1}`); vals.push(body.deadline);
       } else return err("invalid_input", "The due date must be a real date", 400);
     }
@@ -8220,10 +8506,13 @@ async function handleStaffRoutes(
       if (!can(user.role, "team_manage")) {
         return err("forbidden", "Only management can reassign a task", 403);
       }
-      const nu = await env.DB.prepare(`SELECT is_active, role FROM users WHERE id = ?1`)
-        .bind(Number(body!.assigned_to)).first<{ is_active: number; role: string }>();
-      if (!nu || !nu.is_active || ["customer", "super_admin", "admin"].includes(nu.role)) {
-        return err("invalid_input", "That must be an active staff member", 400);
+      /* v1.244.0 (go-live audit F2) - the same rule as a new task: a current
+         staff member, never somebody who has left (their is_active stays 1
+         for the final payroll, so it alone let a leaver be chosen) */
+      const nu = await env.DB.prepare(`SELECT is_active, role, ${currentStaffSql()} AS on_staff FROM users WHERE id = ?1`)
+        .bind(Number(body!.assigned_to)).first<{ is_active: number; role: string; on_staff: number }>();
+      if (!nu || !nu.is_active || !nu.on_staff || ["customer", "super_admin", "admin"].includes(nu.role)) {
+        return err("invalid_input", "That must be a current staff member - that person is not on staff (or has left)", 400);
       }
       reassignedTo = Number(body!.assigned_to);
       sets.push(`assigned_to = ?${sets.length + 1}`); vals.push(reassignedTo);
@@ -8463,8 +8752,8 @@ async function handleStaffRoutes(
        the command palette silently skipped client results). Aliased. */
     const { results } = await env.DB.prepare(
       `SELECT c.id, c.company, c.contact_person AS name, c.phone, c.email,
-              (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoices,
-              (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV') AS invoiced_cents,
+              (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'void') AS invoices,
+              (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'void') AS invoiced_cents,
               (SELECT COALESCE(SUM(d.total_cents), 0) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND d.payment_status = 'paid') AS paid_cents,
               (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations
        FROM customers c
@@ -8820,11 +9109,11 @@ async function handleStaffRoutes(
               COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND COALESCE(i.payment_status, '') != 'paid' AND ${PARTS("i")} > 0 THEN 1 ELSE 0 END), 0) AS part,
               COALESCE(SUM(CASE WHEN i.id IS NULL AND q.valid_until IS NOT NULL AND substr(q.valid_until, 1, 10) < ?3 THEN 1 ELSE 0 END), 0) AS expired
          FROM sales_documents q
-         LEFT JOIN sales_documents i ON i.id = (SELECT MAX(x.id) FROM sales_documents x WHERE x.converted_from = q.id AND x.doc_type = 'INV')
+         LEFT JOIN sales_documents i ON i.id = (SELECT MAX(x.id) FROM sales_documents x WHERE x.converted_from = q.id AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')
         WHERE q.doc_type = 'QT' AND date(q.created_at, '+8 hours') BETWEEN ?1 AND ?2${mine ? ` AND q.salesperson_id = ${Number(user.id)}` : ""}`, from, to, today);
     const out = await one<{ n: number; total: number; balance: number }>(
       `SELECT COUNT(*) AS n, COALESCE(SUM(d.total_cents), 0) AS total, COALESCE(SUM(d.total_cents - ${PARTS("d")}), 0) AS balance
-         FROM sales_documents d WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'paid'${who}`);
+         FROM sales_documents d WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, '') NOT IN ('paid', 'void')${who}`);
     const { results: daily } = await env.DB.prepare(
       `SELECT ${PAID_DAY} AS day, SUM(d.total_cents) AS cents FROM sales_documents d
         WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2${who} GROUP BY day ORDER BY day`,
@@ -8863,7 +9152,7 @@ async function handleStaffRoutes(
       `SELECT COUNT(*) AS n FROM customers WHERE date(created_at, '+8 hours') BETWEEN ?1 AND ?2${mine ? ` AND created_by = ${Number(user.id)}` : ""}`, wFrom, wTo);
     const won = await one<Sum>(
       `SELECT COALESCE(SUM(d.total_cents), 0) AS cents, COUNT(*) AS n FROM sales_documents d
-        WHERE d.doc_type = 'INV' AND d.converted_from IS NOT NULL AND ${MADE_DAY} BETWEEN ?1 AND ?2${who}`, wFrom, wTo);
+        WHERE d.doc_type = 'INV' AND d.converted_from IS NOT NULL AND COALESCE(d.payment_status, '') != 'void' AND ${MADE_DAY} BETWEEN ?1 AND ?2${who}`, wFrom, wTo);
     return json({
       month, scope: mine ? "mine" : "all", today,
       collected: await collected(mFrom, mTo), collected_last: await collected(lFrom, lTo),
@@ -8892,8 +9181,8 @@ async function handleStaffRoutes(
               /* v1.154.0 - a quotation that has already become an invoice says
                  which one; the row offers no second click and the open count
                  leaves it out. NULL on everything but a converted QT. */
-              (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' ORDER BY i.id DESC LIMIT 1) AS invoiced_as,
-              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id
+              (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as,
+              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id
        FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${typed ? "WHERE d.doc_type = ?1" : ""}
@@ -8929,6 +9218,14 @@ async function handleStaffRoutes(
            FROM invoice_paid_confirmations c LEFT JOIN users u ON u.id = c.confirmed_by
           WHERE c.revoked_at IS NULL`,
       ).all<{ invoice_id: number; confirmed_at: string; amount_cents: number; confirmed_by: number; by_name: string | null }>();
+      /* v1.242.0 (B2) - the number of the invoice a replacement replaces (0157) */
+      try {
+        const { results: reps } = await env.DB.prepare(
+          `SELECT n.id, v.doc_number AS replaces_number FROM sales_documents n JOIN sales_documents v ON v.id = n.replaces_doc_id WHERE n.doc_type = 'INV' AND n.replaces_doc_id IS NOT NULL`,
+        ).all<{ id: number; replaces_number: string }>();
+        const byRep = new Map(reps.map((x) => [x.id, x.replaces_number]));
+        for (const r of results as Record<string, unknown>[]) if (byRep.has(Number(r.id))) r.replaces_number = byRep.get(Number(r.id));
+      } catch { /* pre-0157 */ }
       const byInv = new Map(conf.map((c) => [c.invoice_id, c]));
       for (const r of results as Record<string, unknown>[]) {
         const c = byInv.get(r.id as number);
@@ -9024,11 +9321,16 @@ async function handleStaffRoutes(
        optional; a line without them is exactly the old shape, so every
        existing document still parses. */
     const lineExtras = (i: Record<string, unknown>, qty: number, unit: number) => {
-      const o: { sku?: string; uom?: string; disc_cents?: number; sub?: string[] } = {};
+      const o: { sku?: string; uom?: string; disc_cents?: number; disc_asked?: number; sub?: string[] } = {};
       if (str(i.sku, 60)) o.sku = String(i.sku).slice(0, 60);
       if (str(i.uom, 12)) o.uom = String(i.uom).slice(0, 12).toUpperCase();
       if (typeof i.disc_cents === "number" && i.disc_cents > 0) {
+        /* v1.242.0 (go-live audit B11) - the cap is against the price the line
+           is SAVED with: a catalogue line is re-priced below and re-capped
+           there from the discount that was asked, not from this provisional
+           cap (a client price below the catalogue's clipped the discount) */
         o.disc_cents = Math.min(Math.round(i.disc_cents), qty * unit); // never below zero
+        o.disc_asked = Math.round(i.disc_cents);
       }
       if (Array.isArray(i.sub)) {
         const s = (i.sub as unknown[]).filter((x) => str(x, 160)).slice(0, 10).map((x) => String(x).slice(0, 160));
@@ -9064,10 +9366,11 @@ async function handleStaffRoutes(
         line.name = cat.name;
         line.unit_price_cents = cat.unit_price_cents;
         // the discount cap was computed against the client's price — re-cap
-        // against the authoritative one
-        if (line.disc_cents) line.disc_cents = Math.min(line.disc_cents, line.qty * line.unit_price_cents);
+        // against the authoritative one, from the discount that was asked (B11)
+        if (line.disc_cents) line.disc_cents = Math.min(line.disc_asked ?? line.disc_cents, line.qty * line.unit_price_cents);
       }
     }
+    for (const line of items) delete line.disc_asked; // v1.242.0 (B11) - never stored
 
     // Line discounts come off before the document-level discount.
     const subtotal = items.reduce((s, i) => s + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
@@ -9105,6 +9408,12 @@ async function handleStaffRoutes(
        exist, be active and be offered under this issuer, checked BEFORE a
        number is taken. The lines saved are the request's own - the package
        is a reference and a "customized" flag, never a source of lines. */
+    /* v1.242.0 (go-live audit C2, decision D-1) - an invoice for more than
+       the shelf holds is refused before anything is written */
+    if (docType === "INV" && kindD !== "service") {
+      const short = await stockShortages(env, JSON.stringify(items));
+      if (short.length) return err("stock_short", shortMessage(short), 400);
+    }
     const pkgD = await packageForDoc(env, body, { docType, kind: kindD, issuer: body.issuer === "azoo" ? "azoo" : "a2z", items, discount_cents: discount });
     if (pkgD instanceof Response) return pkgD;
     const number = await docNumber(env, docType);
@@ -9177,6 +9486,18 @@ async function handleStaffRoutes(
     let stockMove: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
     if (docType === "INV" && kindD !== "service" && res?.id) {
       stockMove = await deductForInvoice(env, res.id, number, JSON.stringify(items), docDate, user.id);
+      if (stockMove.short.length) {
+        /* v1.242.0 (C2) - the shelf changed between the check above and the
+           write: a line lost the race. Nothing of this invoice has been seen
+           by anyone yet, so it is taken back whole - the lines that did move
+           are restored, the row this request created is removed - and the
+           shortage is reported like the pre-check would have. */
+        await restoreForInvoice(env, res.id, number);
+        if (body.paid_received === true) await reverseLive(env, user.id, `INV-${res.id}`, "Invoice refused: stock short");
+        await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(res.id).run();
+        await audit(env, user.id, "doc.create_refused_stock", "sales_documents", String(res.id), { doc_number: number, short: stockMove.short });
+        return err("stock_short", `Not enough stock: ${stockMove.short.join("; ")}. Receive stock first, or reduce the quantity.`, 409);
+      }
     }
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id),
       pkgD ? { package_id: pkgD.id, package_version: pkgD.version, customized: pkgD.customized } : undefined);
@@ -9254,6 +9575,9 @@ async function handleStaffRoutes(
       if (!can(user.role, "invoice_payment")) return err("forbidden", "Only the CEO or COO records an invoice's payment. You can still see it.", 403);
       const ok = typeof body?.payment_status === "string" && ["unpaid", "paid", "overdue"].includes(body.payment_status);
       if (!ok) return err("invalid_input", "payment_status must be unpaid|paid|overdue", 400);
+      /* v1.242.0 (B2) - a voided invoice is history: no payment can be recorded on it */
+      const curV = await env.DB.prepare(`SELECT payment_status FROM sales_documents WHERE id = ?1`).bind(id).first<{ payment_status: string | null }>();
+      if (curV?.payment_status === "void") return err("voided", `${doc.doc_number} is void. Raise a new invoice from its quotation instead.`, 409);
       // v1.4.90: paid = payment received — record method (bank transfer),
       // optional reference, and the moment. Revenue counts from paid_at.
       if (body!.payment_status === "paid") {
@@ -9344,32 +9668,78 @@ async function handleStaffRoutes(
        one quotation, one invoice. A second click used to mint a second INV
        for the same sale - and deduct the stock again. The undo on the first
        invoice (below) is the way back if the first was a mistake. */
-    const already = await env.DB.prepare(
-      `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 1`,
-    ).bind(qt.id).first<{ doc_number: string }>();
-    if (already) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Undo that invoice first if it was a mistake.`, 409);
+    /* v1.242.0 (go-live audit B2, the owner's decision D-2 of 31-10-2026):
+       ONE LIVE INVOICE PER QUOTATION, enforced by the write itself. The read
+       below is the friendly message; the INSERT lands only if no live
+       (non-void) invoice exists for the quotation at that instant, and
+       migration 0157's partial unique index refuses a second one even if two
+       writes cross. A voided invoice does not count: the replacement raised
+       after it names it in replaces_doc_id. */
+    const liveInv = async () => env.DB.prepare(
+      `SELECT id, doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' ORDER BY id DESC LIMIT 1`,
+    ).bind(qt.id).first<{ id: number; doc_number: string }>();
+    const already = await liveInv();
+    if (already) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Void that invoice first (with a reason) if it was a mistake.`, 409, { invoice_id: already.id, invoice_number: already.doc_number });
+    /* v1.242.0 (B6) - an expired quotation is revised (new validity) before it is invoiced */
+    const validC = (qt as { valid_until?: string | null }).valid_until;
+    if (typeof validC === "string" && /^\d{4}-\d{2}-\d{2}/.test(validC) && validC.slice(0, 10) < new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)) {
+      return err("expired", `${String(qt.doc_number)} was valid until ${validC.slice(0, 10)}. Revise it with a new validity date, then invoice it.`, 409);
+    }
     /* v1.227.0 - the invoice keeps the quotation's closer, who must be a
        salesperson on staff; it no longer falls back to whoever converts */
     if (!(await closerEligible(env, qt.salesperson_id as number | null))) {
       return err("closer_required", `${String(qt.doc_number)} has no salesperson on staff. Edit the quotation and choose who closed it, then invoice it.`, 400);
     }
+    const kindQ = (qt as { kind?: string | null }).kind ?? "product";
+    /* v1.242.0 (C2 / D-1) - refused before anything is written when the shelf is short */
+    if (kindQ !== "service") {
+      const short = await stockShortages(env, String(qt.items ?? "[]"));
+      if (short.length) return err("stock_short", shortMessage(short), 400);
+    }
+    let replacesC: number | null = null;
+    try {
+      replacesC = (await env.DB.prepare(`SELECT id FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND payment_status = 'void' ORDER BY id DESC LIMIT 1`)
+        .bind(qt.id).first<{ id: number }>())?.id ?? null;
+    } catch { replacesC = null; }
     const numberC = await docNumber(env, "INV");
-    const resC = await env.DB.prepare(
-      `INSERT INTO sales_documents
+    const convertSql = (withReplaces: boolean) => `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
-        notes, payment_status, salesperson_id, created_by, converted_from, kind)
-       VALUES ('INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11, ?12) RETURNING id`,
-    ).bind(
+        notes, payment_status, salesperson_id, created_by, converted_from, kind${withReplaces ? ", replaces_doc_id" : ""})
+       SELECT 'INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11, ?12${withReplaces ? ", ?13" : ""}
+        WHERE NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')
+       RETURNING id`;
+    const convertArgs = [
       numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
       (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
       qt.notes ?? null, qt.salesperson_id, user.id, qt.id,
-      (qt as { kind?: string | null }).kind ?? "product", // v1.4.234: the invoice inherits the quotation's line
-    ).first<{ id: number }>();
+      kindQ, // v1.4.234: the invoice inherits the quotation's line
+    ];
+    let resC: { id: number } | null = null;
+    try {
+      resC = await env.DB.prepare(convertSql(true)).bind(...convertArgs, replacesC).first<{ id: number }>();
+    } catch (e) {
+      const m = String(e);
+      if (/UNIQUE constraint failed|constraint failed/i.test(m)) resC = null; // 0157's index: the other write won
+      else if (m.includes("no such column")) resC = await env.DB.prepare(convertSql(false)).bind(...convertArgs).first<{ id: number }>(); // pre-0157
+      else throw e;
+    }
+    if (!resC?.id) {
+      const won = await liveInv();
+      return err("already_invoiced", `${String(qt.doc_number)} was invoiced${won ? ` as ${won.doc_number}` : ""} a moment ago. Nothing was created twice.`, 409, won ? { invoice_id: won.id, invoice_number: won.doc_number } : undefined);
+    }
     // v1.4.263: the invoice born from a quotation deducts stock too — the QT
     // itself never moved any, so this is the sale's single deduction.
     let stockMoveC: Awaited<ReturnType<typeof deductForInvoice>> | null = null;
-    if (((qt as { kind?: string | null }).kind ?? "product") !== "service" && resC?.id) {
+    if (kindQ !== "service") {
       stockMoveC = await deductForInvoice(env, resC.id, numberC, String(qt.items ?? "[]"), null, user.id);
+      if (stockMoveC.short.length) {
+        /* v1.242.0 (C2) - a line lost the race with another stock movement:
+           the invoice nobody has seen yet is taken back whole */
+        await restoreForInvoice(env, resC.id, numberC);
+        await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(resC.id).run();
+        await audit(env, user.id, "doc.convert_refused_stock", "sales_documents", String(resC.id), { from: qt.doc_number, short: stockMoveC.short });
+        return err("stock_short", `Not enough stock: ${stockMoveC.short.join("; ")}. Receive stock first, or reduce the quantity.`, 409);
+      }
     }
     /* v1.30.1 — the invoice INHERITS the quotation's entity. A client who
        accepted an AZ ONE consultancy quotation must not receive an A2Z
@@ -9382,8 +9752,8 @@ async function handleStaffRoutes(
        was made from (history only; its lines are the quotation's, copied above) */
     const qtPkg = qt as { package_id?: number | null; package_version?: number | null; package_customized?: number | null };
     if (qtPkg.package_id) await stampPackage(env, resC?.id, { id: qtPkg.package_id, version: Number(qtPkg.package_version ?? 1), customized: Boolean(qtPkg.package_customized) });
-    await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC?.id), { from: qt.doc_number });
-    return json({ id: resC?.id, doc_number: numberC, stock: stockMoveC }, 201);
+    await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC.id), { from: qt.doc_number, ...(replacesC ? { replaces_doc_id: replacesC } : {}) });
+    return json({ id: resC.id, doc_number: numberC, stock: stockMoveC, replaces_doc_id: replacesC }, 201);
   }
 
   /* v1.4.233 (CEO: "reversal button for the Quotation if accidentally click
@@ -9392,20 +9762,53 @@ async function handleStaffRoutes(
      and payment_status is 'unpaid'. The invoice row is deleted (audited
      with its number); the quotation was never modified by the conversion,
      so it simply stands as before. A paid invoice can never be reversed. */
+  /* v1.242.0 (go-live audit B2/B5, the owner's decision D-2 of 31-10-2026):
+     the reversal is a VOID now. The invoice row stays, marked void with who,
+     when and why (migration 0157); the lists show it struck through; its
+     quotation is open again and the next invoice raised from it names this
+     one as replaced. Refused while the invoice is paid (a credit note is the
+     way back from money received) or while live part payments exist (void
+     those first - B5, so no payment row is ever orphaned). Stock the invoice
+     took goes back once, as 'in' rows on the trail. The old
+     /unconvert, which deleted the row, answers 410. */
   const docUnconv = path.match(/^\/docs\/(\d+)\/unconvert$/);
   if (docUnconv && method === "POST") {
+    return err("gone", "An invoice is no longer deleted to reverse it: void it, with a reason (Void invoice).", 410);
+  }
+  const docVoid = path.match(/^\/docs\/(\d+)\/void$/);
+  if (docVoid && method === "POST") {
     if (!can(user.role, "finance")) return err("forbidden", "Finance access required", 403);
+    const reasonV = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reasonV.length < 10) return err("invalid_input", "Say why this invoice is being voided (at least 10 characters).", 400);
     const inv = await env.DB.prepare(
       `SELECT id, doc_type, doc_number, payment_status, converted_from FROM sales_documents WHERE id = ?1`,
-    ).bind(docUnconv[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null; converted_from: number | null }>();
+    ).bind(docVoid[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null; converted_from: number | null }>();
     if (!inv || inv.doc_type !== "INV") return err("not_found", "Invoice not found", 404);
-    if (!inv.converted_from) return err("invalid_input", "This invoice was not created from a quotation", 400);
-    if (inv.payment_status === "paid") return err("invalid_input", "A PAID invoice cannot be reversed — unmark the payment first if this is truly a mistake", 400);
-    const restoredU = await restoreForInvoice(env, inv.id, inv.doc_number); // v1.4.263
-    await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(inv.id).run();
-    await reverseLive(env, user.id, `INV-${inv.id}`, "Invoice reversed back to its quotation"); // v1.219.0 (F11/F12)
-    await audit(env, user.id, "doc.unconvert", "sales_documents", String(inv.id), { doc_number: inv.doc_number, back_to_qt: inv.converted_from, stock_restored_rows: restoredU });
-    return json({ ok: true });
+    if (inv.payment_status === "void") return err("invalid_input", `${inv.doc_number} is already void.`, 400);
+    if (inv.payment_status === "paid") return err("invalid_input", `${inv.doc_number} is PAID: its money is in the books. Issue a credit note (and refund) instead - or, if the payment itself was a mistake, mark it unpaid first.`, 400);
+    let liveParts = 0;
+    try {
+      liveParts = Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL`).bind(inv.id).first<{ n: number }>())?.n ?? 0);
+    } catch { liveParts = 0; /* pre-0140 */ }
+    if (liveParts > 0) return err("has_payments", `${inv.doc_number} has ${liveParts} part payment(s) recorded. Void those first (each with a reason), then void the invoice.`, 409);
+    /* the write is conditional on the status the reviewer saw, so two voids
+       (or a void racing a payment) cannot cross */
+    let ran: { meta: { changes: number } };
+    try {
+      ran = await env.DB.prepare(
+        `UPDATE sales_documents SET payment_status = 'void', voided_at = datetime('now'), voided_by = ?2, void_reason = ?3
+          WHERE id = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') NOT IN ('paid', 'void')`,
+      ).bind(inv.id, user.id, reasonV).run();
+    } catch (e) {
+      if (String(e).includes("no such column")) return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0157_invoice_void_once)", 500);
+      throw e;
+    }
+    if (!ran.meta.changes) return err("conflict", `${inv.doc_number} changed a moment ago (paid or voided by someone else). Nothing was changed - reload and look again.`, 409);
+    const restoredV = await restoreForVoid(env, inv.id, inv.doc_number, user.id);
+    await revokePaidConfirmation(env, inv.id, user.id, "Invoice voided");
+    await reverseLive(env, user.id, `INV-${inv.id}`, "Invoice voided"); // nothing to reverse unless a row slipped in; never books
+    await audit(env, user.id, "doc.void", "sales_documents", String(inv.id), { doc_number: inv.doc_number, reason: reasonV, back_to_qt: inv.converted_from, stock_restored_rows: restoredV });
+    return json({ ok: true, voided: inv.doc_number, quotation_reopened: inv.converted_from });
   }
 
   /* v1.4.237 (CEO: delete a document so the aging card follows, with a
@@ -9421,14 +9824,20 @@ async function handleStaffRoutes(
       `SELECT id, doc_type, doc_number, payment_status FROM sales_documents WHERE id = ?1`,
     ).bind(docDel[1]).first<{ id: number; doc_type: string; doc_number: string; payment_status: string | null }>();
     if (!dd) return err("not_found", "Document not found", 404);
-    if (dd.doc_type === "INV" && dd.payment_status === "paid") {
-      return err("invalid_input", "A PAID invoice is an accounting record and cannot be deleted — unmark the payment first if this is truly a mistake", 400);
+    /* v1.242.0 (go-live audit B2/B5, decision D-2) - a numbered invoice is
+       never deleted; it is voided with a reason (POST /docs/:id/void) */
+    if (dd.doc_type === "INV") {
+      return err("invalid_input", `${dd.doc_number} is an invoice: invoices are voided with a reason, never deleted (Void invoice).`, 400);
     }
-    const restoredD = dd.doc_type === "INV" ? await restoreForInvoice(env, dd.id, dd.doc_number) : 0; // v1.4.263
+    /* a quotation with a live invoice is the invoice's origin - it stays */
+    if (dd.doc_type === "QT") {
+      const liveQ = await env.DB.prepare(`SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' LIMIT 1`).bind(dd.id).first<{ doc_number: string }>();
+      if (liveQ) return err("conflict", `${dd.doc_number} is invoiced as ${liveQ.doc_number}. Void the invoice first.`, 409);
+    }
+    const restoredD = 0;
     await env.DB.prepare(`DELETE FROM sales_documents WHERE id = ?1`).bind(dd.id).run();
     /* v1.219.0 (audit F11/F12): a deleted invoice leaves no live money-in row
        behind - and so a later invoice that reuses its id can still book */
-    if (dd.doc_type === "INV") await reverseLive(env, user.id, `INV-${dd.id}`, "Invoice deleted");
     /* v1.181.11 - a deleted quotation takes its earlier versions with it */
     try { await env.DB.prepare(`DELETE FROM sales_document_revisions WHERE doc_id = ?1`).bind(dd.id).run(); } catch { /* pre-0139 */ }
     await audit(env, user.id, "doc.delete", "sales_documents", String(dd.id), { doc_number: dd.doc_number, doc_type: dd.doc_type, stock_restored_rows: restoredD });
@@ -9528,10 +9937,10 @@ async function handleStaffRoutes(
       return err("invalid_input", "items are required", 400);
     }
     const extrasE = (i: Record<string, unknown>, qty: number, unit: number) => {
-      const o: { sku?: string; uom?: string; disc_cents?: number; sub?: string[] } = {};
+      const o: { sku?: string; uom?: string; disc_cents?: number; disc_asked?: number; sub?: string[] } = {};
       if (str(i.sku, 60)) o.sku = String(i.sku).slice(0, 60);
       if (str(i.uom, 12)) o.uom = String(i.uom).slice(0, 12).toUpperCase();
-      if (typeof i.disc_cents === "number" && i.disc_cents > 0) o.disc_cents = Math.min(Math.round(i.disc_cents), qty * unit);
+      if (typeof i.disc_cents === "number" && i.disc_cents > 0) { o.disc_cents = Math.min(Math.round(i.disc_cents), qty * unit); o.disc_asked = Math.round(i.disc_cents); } // v1.242.0 (B11)
       if (Array.isArray(i.sub)) {
         const s = (i.sub as unknown[]).filter((x) => str(x, 160)).slice(0, 10).map((x) => String(x).slice(0, 160));
         if (s.length) o.sub = s;
@@ -9562,9 +9971,10 @@ async function handleStaffRoutes(
         line.sku = cat.sku;
         line.name = cat.name;
         if (cat.unit_price_cents > 0) line.unit_price_cents = cat.unit_price_cents;
-        if (line.disc_cents) line.disc_cents = Math.min(line.disc_cents, line.qty * line.unit_price_cents);
+        if (line.disc_cents) line.disc_cents = Math.min(line.disc_asked ?? line.disc_cents, line.qty * line.unit_price_cents); // (B11)
       }
     }
+    for (const line of itemsE) delete line.disc_asked; // v1.242.0 (B11) - never stored
     const subE = itemsE.reduce((a, i) => a + i.qty * i.unit_price_cents - (i.disc_cents ?? 0), 0);
     const discE = typeof body.discount_cents === "number" && body.discount_cents >= 0 ? body.discount_cents : 0;
     const taxE = typeof body.tax_percent === "number" && body.tax_percent >= 0 ? body.tax_percent : 0;
@@ -9583,6 +9993,24 @@ async function handleStaffRoutes(
     if (docE.doc_type === "INV") {
       const curM = await env.DB.prepare(`SELECT payment_status, items, discount_cents, tax_percent, delivery_cents, total_cents FROM sales_documents WHERE id = ?1`)
         .bind(idE).first<{ payment_status: string | null; items: string | null; discount_cents: number | null; tax_percent: number | null; delivery_cents: number | null; total_cents: number | null }>();
+      /* v1.242.0 (B2) - a voided invoice is not edited */
+      if (curM?.payment_status === "void") return err("voided", "This invoice is void and cannot be edited. Raise a new invoice from its quotation.", 409);
+      /* v1.242.0 (go-live audit B4) - an unpaid invoice is never edited below
+         the part payments already received on it */
+      if (curM?.payment_status !== "paid") {
+        let partsE = 0;
+        try {
+          partsE = Number((await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL`).bind(idE).first<{ c: number }>())?.c ?? 0);
+        } catch { partsE = 0; /* pre-0140 */ }
+        if (partsE > 0 && totalE < partsE) {
+          return err("below_received", `RM ${(partsE / 100).toFixed(2)} has already been received on this invoice; its total cannot go below that. Void a part payment first (with a reason) if the money was not received.`, 400);
+        }
+      }
+      /* v1.242.0 (C2 / D-1) - a product invoice edit that needs more stock than the shelf has is refused before any write */
+      if ((docE.kind ?? "product") !== "service") {
+        const shortE = await stockShortages(env, JSON.stringify(itemsE), Number(idE));
+        if (shortE.length) return err("stock_short", shortMessage(shortE), 400);
+      }
       if (curM?.payment_status === "paid") {
         const money = (raw: unknown) => {
           let arr: Record<string, unknown>[] = [];
@@ -9694,16 +10122,42 @@ async function handleStaffRoutes(
         closerFrom = curSp.salesperson_id ?? null;
       }
     }
+    /* v1.242.0 (go-live audit B7) - a quotation the customer has ACCEPTED
+       (on its link, this revision) is what they agreed to: its money fields
+       change only through a revision, which keeps the accepted version and
+       prints REV n. Wording, customer, reference and address stay editable. */
+    if (docE.doc_type === "QT" && !revise) {
+      let acceptedQ: { accepted_at: string } | null = null;
+      try {
+        acceptedQ = await env.DB.prepare(
+          `SELECT a.accepted_at FROM quotation_acceptances a JOIN sales_documents d ON d.id = a.doc_id AND a.revision = COALESCE(d.revision, 0) WHERE d.id = ?1 LIMIT 1`,
+        ).bind(idE).first<{ accepted_at: string }>();
+      } catch { acceptedQ = null; /* pre-0143 */ }
+      if (acceptedQ) {
+        const curQ = await env.DB.prepare(`SELECT items, discount_cents, tax_percent, delivery_cents, total_cents FROM sales_documents WHERE id = ?1`).bind(idE)
+          .first<{ items: string | null; discount_cents: number | null; tax_percent: number | null; delivery_cents: number | null; total_cents: number | null }>();
+        const moneyQ = (raw: unknown) => {
+          let arr: Record<string, unknown>[] = [];
+          try { arr = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>[]); } catch { arr = []; }
+          return JSON.stringify((Array.isArray(arr) ? arr : []).map((i) => [Number(i.qty ?? 0), Number(i.unit_price_cents ?? 0), Number(i.disc_cents ?? 0)]));
+        };
+        const sameQ = !!curQ && totalE === Number(curQ.total_cents ?? 0) && moneyQ(itemsE) === moneyQ(curQ.items)
+          && discE === Number(curQ.discount_cents ?? 0) && taxE === Number(curQ.tax_percent ?? 0) && delE === Number(curQ.delivery_cents ?? 0);
+        if (!sameQ) {
+          return err("accepted_locked", `The customer accepted this quotation on ${acceptedQ.accepted_at.slice(0, 10)}. Its amounts change only through a revision (Revise), which keeps the version they accepted. Wording, customer and reference can still be edited.`, 409);
+        }
+      }
+    }
     let reviseFrom: { revision: number; total_cents: number } | null = null;
     if (revise) {
       if (docE.doc_type !== "QT") {
         return err("invalid_input", "Only a quotation is revised. Change an invoice with Edit, or issue a credit note.", 400);
       }
       const invR = await env.DB.prepare(
-        `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 1`,
+        `SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' ORDER BY id DESC LIMIT 1`,
       ).bind(idE).first<{ doc_number: string }>();
       if (invR) {
-        return err("conflict", `This quotation is already invoiced as ${invR.doc_number}. Undo that invoice first, or change the invoice instead.`, 409);
+        return err("conflict", `This quotation is already invoiced as ${invR.doc_number}. Void that invoice first, or change the invoice instead.`, 409);
       }
       const cur = await env.DB.prepare(`SELECT * FROM sales_documents WHERE id = ?1`).bind(idE).first<Record<string, unknown>>();
       if (!cur) return err("not_found", "Document not found", 404);
@@ -9800,6 +10254,10 @@ async function handleStaffRoutes(
     if (edited && edited.doc_type === "INV" && (edited.kind ?? "product") !== "service") {
       await restoreForInvoice(env, Number(idE), edited.doc_number);
       stockE = await deductForInvoice(env, Number(idE), edited.doc_number, JSON.stringify(itemsE), null, user.id);
+      /* v1.242.0 (C2) - checked before the write; a line that still comes up
+         short lost a race with another movement and moved nothing: named in
+         the error log so System Health shows it, and in the answer */
+      if (stockE.short.length) await logError(env, "stock_race", `${edited.doc_number} edit: ${stockE.short.join("; ")}`);
     }
     if (reviseFrom) {
       await audit(env, user.id, "doc.revise", "sales_documents", idE, {
@@ -10357,7 +10815,7 @@ async function handleStaffRoutes(
   if (path === "/payslip" && method === "GET") {
     if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll access required", 403);
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const month = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7); // v1.243.0 (D17/E8) - the month in Malaysia, not UTC
     const uid = Number(url.searchParams.get("user_id"));
     if (!uid) return err("invalid_input", "user_id required", 400);
     const staff = await env.DB.prepare(
@@ -10420,12 +10878,35 @@ async function handleStaffRoutes(
     }
     // Store UTC like every real punch: MYT − 8h.
     const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
+    if (!Number.isFinite(utc.getTime()) || utc.getTime() > Date.now() + 5 * 60 * 1000) {
+      return err("invalid_input", "The time must be a real moment, not in the future", 400); // v1.243.0 (C) - a manual punch cannot be tomorrow
+    }
     const createdAt = utc.toISOString().slice(0, 19).replace("T", " ");
+    /* v1.243.0 (go-live audit F3 recovery) - the same person, the same kind
+       of punch, within two minutes of one already stored (a real one, a
+       pending offline one, or an earlier manual one) is the same punch:
+       refused, so an HR entry of a phone's "needs HR" punch cannot double a
+       punch that did arrive after all. */
+    const dup = await env.DB.prepare(
+      `SELECT id, created_at, COALESCE(pending_approval, 0) AS pending FROM attendance_records
+        WHERE user_id = ?1 AND type = ?2 AND created_at BETWEEN datetime(?3, '-2 minutes') AND datetime(?3, '+2 minutes') LIMIT 1`,
+    ).bind(body.user_id, body.type, createdAt).first<{ id: number; created_at: string; pending: number }>().catch(async () =>
+      env.DB.prepare(`SELECT id, created_at, 0 AS pending FROM attendance_records WHERE user_id = ?1 AND type = ?2 AND created_at BETWEEN datetime(?3, '-2 minutes') AND datetime(?3, '+2 minutes') LIMIT 1`)
+        .bind(body.user_id, body.type, createdAt).first<{ id: number; created_at: string; pending: number }>());
+    if (dup) {
+      return err("already_punched", `A ${body.type === "clock_in" ? "clock-in" : "clock-out"} for this person is already stored at ${dup.created_at.slice(11, 16)} UTC (${dup.pending ? "waiting for approval" : "recorded"}), within two minutes of this one. ${dup.pending ? "Approve or reject that one instead." : "Nothing was added."}`, 409);
+    }
     await env.DB.prepare(
       `INSERT INTO attendance_records (user_id, type, created_at, manual_by)
        VALUES (?1, ?2, ?3, ?4)`,
     ).bind(body.user_id, body.type, createdAt, user.id).run();
-    await audit(env, user.id, "attendance.manual", "users", String(body.user_id));
+    await audit(env, user.id, "attendance.manual", "users", String(body.user_id), { type: body.type, myt });
+    /* v1.243.0 (go-live audit D3) - the day this punch belongs to is derived
+       again, and the day before it (a clock-out after midnight closes
+       yesterday's session). Released or paid months are never recomputed:
+       deriveOtForDay refuses them itself. */
+    const dayM = myt.slice(0, 10);
+    await reDeriveDays(env, body.user_id, [dayM, new Date(Date.parse(`${dayM}T00:00:00Z`) - 86400000).toISOString().slice(0, 10)]);
     return json({ ok: true }, 201);
   }
 
@@ -10981,7 +11462,7 @@ async function handleStaffRoutes(
        takes a day of pay off somebody; doing it after they have read their
        payslip changes the figure without changing the document they were
        given. Overridable, exactly like an overtime edit, and audited. */
-    const relU = await releasedMonthBlock(env, dateU, body?.force_released, "Recording an unpaid day");
+    const relU = await releasedMonthBlock(env, dateU, body?.force_released, "Recording an unpaid day", user);
     if (relU) return relU;
     const targetU = await env.DB.prepare(
       `SELECT id, name, role, is_active FROM users WHERE id = ?1`,
@@ -11137,7 +11618,7 @@ async function handleStaffRoutes(
     }
     /* both ends of a move are payroll months; either may be released */
     for (const d of new Set([rowP.start_date, newDate])) {
-      const rel = await releasedMonthBlock(env, d, body?.force_released, "Changing an unpaid day");
+      const rel = await releasedMonthBlock(env, d, body?.force_released, "Changing an unpaid day", user);
       if (rel) return rel;
     }
     if (newDate !== rowP.start_date) {
@@ -11197,7 +11678,7 @@ async function handleStaffRoutes(
     /* v1.148.0 - undoing an unpaid day GIVES pay back, and after a release
        that is just as much a change to a payslip already read as taking it
        away. Same guard, same override. */
-    const relD2 = await releasedMonthBlock(env, rowD2.start_date, body?.force_released, "Undoing an unpaid day");
+    const relD2 = await releasedMonthBlock(env, rowD2.start_date, body?.force_released, "Undoing an unpaid day", user);
     if (relD2) return relD2;
     await env.DB.prepare(`DELETE FROM leave_requests WHERE id = ?1 AND recorded_direct = 1`)
       .bind(idD2).run();
@@ -11827,7 +12308,10 @@ async function handleStaffRoutes(
       if (!Array.isArray(o.roles)) return err("invalid_input", `roles must be a list for ${cap}`, 400);
       const bad = (o.roles as unknown[]).map(String).filter((r) => !POLICY_ROLES.includes(r as Role));
       if (bad.length) return err("invalid_input", `Not a staff role: ${bad.join(", ")}`, 400);
-      changes.push({ cap: cap as keyof typeof PERMS, roles: POLICY_ROLES.filter((r) => (o.roles as unknown[]).map(String).includes(r)) });
+      const rolesC = POLICY_ROLES.filter((r) => (o.roles as unknown[]).map(String).includes(r));
+      const lockedC = lockedCellViolation(cap, rolesC); // v1.242.0 (A6 / D-6)
+      if (lockedC) return err("locked_cell", `${cap} cannot be changed that way. ${lockedC}`, 409);
+      changes.push({ cap: cap as keyof typeof PERMS, roles: rolesC });
     }
     if (!resetAll && changes.length === 0) return err("invalid_input", "Nothing to change", 400);
     const su = await requireFreshTotp(env, user, body?.totp, err, "change what roles may do");
@@ -11886,6 +12370,8 @@ async function handleStaffRoutes(
         default_roles: a.cap ? roles.filter((r) => PERMS[a.cap!]!.includes(r as Role)) : null,
         edited: !!a.cap && permRec.perms[a.cap] !== undefined,
         edit_meta: a.cap ? permRec.meta[a.cap] ?? null : null,
+        /* v1.242.0 (D-6) - the three locked cells, with the reason the matrix shows */
+        locked: a.cap ? LOCKED_CELLS.find((l) => l.cap === a.cap) ?? null : null,
       };
     });
     const ownerRec = await readOwner(env);
@@ -12290,31 +12776,12 @@ async function handleStaffRoutes(
       the 5th of the FOLLOWING month, 10:00 MYT, shifted forward past
       weekends and public holidays (never earlier). Returns "YYYY-MM-DD 10:00"
       in MYT wall time. */
-  const payslipAvailableFrom = async (month: string): Promise<string> => {
-    const y = Number(month.slice(0, 4));
-    const m = Number(month.slice(5, 7)); // 1-based payroll month
-    const d = new Date(Date.UTC(y, m, 5)); // 5th of the NEXT month
-    for (let i = 0; i < 14; i++) {
-      const iso = d.toISOString().slice(0, 10);
-      const dow = d.getUTCDay();
-      const hol = dow !== 0 && dow !== 6
-        ? await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1`).bind(iso).first()
-        : null;
-      if (dow !== 0 && dow !== 6 && !hol) break;
-      d.setUTCDate(d.getUTCDate() + 1);
-    }
-    return `${d.toISOString().slice(0, 10)} 10:00`;
-  };
+  const payslipAvailableFrom = (month: string): Promise<string> => payslipAvailableFromFor(env, month); // v1.243.0 - module-level (E2)
   /* v1.232.0 (Commission 2.1 audit F4) - a month whose payslips are OUT:
      released early (a release row) or past the moment staff see them,
      exactly as the payslip screens decide. Commission never joins such a
      month (commission.ts commissionForPayroll). */
-  const payslipsOut = async (month: string): Promise<boolean> => {
-    const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
-    if (nowMyt >= await payslipAvailableFrom(month)) return true;
-    const r = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(month).first().catch(() => null);
-    return Boolean(r);
-  };
+  const payslipsOut = (month: string): Promise<boolean> => payslipsOutFor(env, month); // v1.243.0 - module-level (E2)
 
   const payslipExtras = async (uid: number, month: string) => {
     const notPendingX = await notPendingSql(env);
@@ -12618,7 +13085,7 @@ async function handleStaffRoutes(
       return err("forbidden", "Payroll access required", 403);
     }
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const month = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7); // v1.243.0 (D17/E8) - the month in Malaysia, not UTC
     const { results } = await env.DB.prepare(
       `SELECT p.*, u.name, u.full_name, u.employee_id, u.position, u.department,
               u.employment_status, u.role AS user_role, u.bank_name, u.bank_account, u.ic_number
@@ -12647,8 +13114,26 @@ async function handleStaffRoutes(
       .catch(async () => await env.DB.prepare(
         `SELECT released_at, released_by FROM payslip_releases WHERE month = ?1`,
       ).bind(month).first<{ released_at: string; released_by: number }>() as never);
+    /* v1.243.0 (E1) - the one population: who is in the run, who the bank
+       file will carry, who is an exception and why; the list marks each row */
+    const popG = await payrollPopulation(env, month);
+    await syncPayrollExceptions(env, month, popG, user.id);
+    for (const r of results as Record<string, unknown>[]) {
+      const pr = popG.rows.find((x) => x.user_id === Number(r.user_id));
+      r.in_run = !!pr;
+      r.payment_ready = pr?.ready ?? false;
+      r.exception = pr?.exception ?? (popG.out_of_run.find((o) => o.user_id === Number(r.user_id))?.why ?? null);
+      r.manual_payment = pr?.manual ?? null;
+      r.login_suspended = pr?.suspended ?? false;
+    }
+    const paidRowG = await env.DB.prepare(`SELECT paid_at, paid_by FROM payroll_payments WHERE month = ?1`).bind(month).first<{ paid_at: string; paid_by: number | null }>().catch(() => null);
     return json({
       month, entries: results,
+      population: {
+        in_run: popG.rows.length, file_payees: popG.ready.length, file_total_cents: popG.file_total_cents, manual_total_cents: popG.manual_total_cents,
+        total_cents: popG.total_cents, exceptions: popG.exceptions, blocking: popG.blocking, out_of_run: popG.out_of_run,
+        paid: paidRowG ?? null, payslips_out: await payslipsOut(month),
+      },
       release: {
         available_from: await payslipAvailableFrom(month),
         released: releasedRow ?? null,
@@ -12665,6 +13150,42 @@ async function handleStaffRoutes(
       },
     });
   }
+  /* v1.243.0 (go-live audit E1) - A PAYMENT MADE BY HAND. When the bank file
+     cannot carry somebody (no bank details, a bank the file does not know)
+     the CEO pays them by cash, cheque or a transfer typed in, and records it
+     here with the method and reference: the person leaves the file, stays in
+     the total, and the exception that blocked Paid is resolved. Withdrawn
+     only while the month is unpaid. */
+  if (path === "/payroll/manual-payment" && method === "POST") {
+    if (!can(user.role, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records a manual salary payment", 403);
+    const mMP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
+    const uidMP = typeof body?.user_id === "number" ? body.user_id : 0;
+    if (!mMP || !uidMP) return err("invalid_input", "month (YYYY-MM) and user_id are required", 400);
+    const paidMP = await env.DB.prepare(`SELECT paid_at FROM payroll_payments WHERE month = ?1`).bind(mMP).first<{ paid_at: string }>().catch(() => null);
+    if (paidMP) return err("month_paid", `The bank run for ${mMP} is already recorded.`, 409);
+    if (body?.undo === true) {
+      const r = await env.DB.prepare(`UPDATE payroll_exceptions SET resolved_at = datetime('now'), resolved_by = ?3, resolution = 'withdrawn' WHERE month = ?1 AND user_id = ?2 AND kind = 'manual_payment' AND resolved_at IS NULL`).bind(mMP, uidMP, user.id).run().catch(() => null);
+      if (!r?.meta.changes) return err("not_found", "No manual payment is recorded for that person and month", 404);
+      await audit(env, user.id, "payroll.manual_payment_undo", "payroll_exceptions", `${mMP}:${uidMP}`);
+      return json({ ok: true });
+    }
+    const methodMP = typeof body?.method === "string" && ["cash", "cheque", "transfer", "other"].includes(body.method) ? body.method : null;
+    const refMP = typeof body?.reference === "string" ? body.reference.trim().slice(0, 120) : "";
+    const amtMP = typeof body?.amount_cents === "number" && Number.isInteger(body.amount_cents) && body.amount_cents > 0 ? body.amount_cents : null;
+    if (!methodMP || !refMP || !amtMP) return err("invalid_input", "method (cash|cheque|transfer|other), reference and amount_cents (> 0) are required", 400);
+    const popMP = await payrollPopulation(env, mMP);
+    const rowMP = popMP.rows.find((r) => r.user_id === uidMP);
+    if (!rowMP) return err("not_found", `That person is not in the ${mMP} run`, 404);
+    if (rowMP.manual) return err("conflict", `A manual payment is already recorded for ${rowMP.name} in ${mMP}`, 409);
+    if (amtMP !== rowMP.net_cents) return err("invalid_input", `The manual payment must equal the payslip's net pay: RM ${(rowMP.net_cents / 100).toFixed(2)} for ${rowMP.name}.`, 400);
+    try {
+      await env.DB.prepare(`INSERT INTO payroll_exceptions (month, user_id, kind, detail, amount_cents, created_by) VALUES (?1, ?2, 'manual_payment', ?3, ?4, ?5)`)
+        .bind(mMP, uidMP, `${methodMP} - ${refMP}`, amtMP, user.id).run();
+    } catch { return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0158_payroll_population)", 500); }
+    await env.DB.prepare(`UPDATE payroll_exceptions SET resolved_at = datetime('now'), resolved_by = ?3, resolution = 'manual_payment' WHERE month = ?1 AND user_id = ?2 AND kind IN ('no_bank', 'bank_unrecognised') AND resolved_at IS NULL`).bind(mMP, uidMP, user.id).run().catch(() => null);
+    await audit(env, user.id, "payroll.manual_payment", "payroll_exceptions", `${mMP}:${uidMP}`, { method: methodMP, reference: refMP, amount_cents: amtMP });
+    return json({ ok: true }, 201);
+  }
   if (path === "/payroll/paid" && method === "POST") {
     // v1.4.101: the Expenses "Payments due" card records that the payroll
     // bank run for a month has been DONE.
@@ -12673,22 +13194,43 @@ async function handleStaffRoutes(
     if (!can(user.role, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);
     const mP = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mP) return err("invalid_input", "month (YYYY-MM) is required", 400);
-    await env.DB.prepare(
-      `INSERT INTO payroll_payments (month, paid_by) VALUES (?1, ?2) ON CONFLICT(month) DO NOTHING`,
-    ).bind(mP, user.id).run();
+    /* v1.243.0 (go-live audit E1, E3, E4) - PAID IS SAID ONCE, FOR A RELEASED
+       MONTH, WITH NOBODY LEFT BEHIND. Refused while the payslips are not out
+       (the run pays what staff can read), while a blocking exception is open
+       (someone in the run the file could not carry and no manual payment
+       recorded), and a second time. It records the release it paid and what
+       the file carried; the bank movement is the file total plus manual
+       payments - never a figure nobody was paid. */
+    const alreadyP = await env.DB.prepare(`SELECT paid_at FROM payroll_payments WHERE month = ?1`).bind(mP).first<{ paid_at: string }>();
+    if (alreadyP) return err("already_paid", `The bank run for ${mP} was already recorded on ${String(alreadyP.paid_at).slice(0, 10)}.`, 409);
+    if (!(await payslipsOut(mP))) return err("release_required", `Release the payslips for ${mP} first - the bank run pays what staff can read on their payslip.`, 409);
+    const popP = await payrollPopulation(env, mP);
+    await syncPayrollExceptions(env, mP, popP, user.id);
+    if (popP.rows.length === 0) return err("no_payees", `There is no payroll row for ${mP} - nothing to record as paid.`, 409);
+    if (popP.blocking > 0) {
+      const names = popP.exceptions.filter((e) => e.blocking).map((e) => `${e.name} (${e.kind === "no_bank" ? "no bank details" : "bank not recognised"})`);
+      return err("exceptions_open", `${popP.blocking} person(s) in the ${mP} run cannot be paid by the bank file: ${names.join("; ")}. Fix the staff record, or record a manual payment for each, then mark the run paid.`, 409, { exceptions: popP.exceptions.filter((e) => e.blocking) });
+    }
+    const relIdP = (await env.DB.prepare(`SELECT rowid AS id FROM payslip_releases WHERE month = ?1`).bind(mP).first<{ id: number }>().catch(() => null))?.id ?? null;
+    try {
+      await env.DB.prepare(
+        `INSERT INTO payroll_payments (month, paid_by, release_id, file_total_cents, file_payees, manual_total_cents) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(month) DO NOTHING`,
+      ).bind(mP, user.id, relIdP, popP.file_total_cents, popP.ready.length, popP.manual_total_cents).run();
+    } catch (e) {
+      if (!String(e).includes("no such column")) throw e;
+      await env.DB.prepare(`INSERT INTO payroll_payments (month, paid_by) VALUES (?1, ?2) ON CONFLICT(month) DO NOTHING`).bind(mP, user.id).run(); // pre-0158
+    }
     // v1.19.0 C2: the salary run becomes ONE bank movement for the month.
     try {
-      const net = await env.DB.prepare(
-        `SELECT COALESCE(SUM(net_cents), 0) AS n FROM payroll_entries WHERE month = ?1`,
-      ).bind(mP).first<{ n: number }>();
-      await recordBankMovement(env, user.id, `PAYROLL-${mP}`, net?.n ?? 0, "salaries", `Payroll bank run ${mP}`);
+      await recordBankMovement(env, user.id, `PAYROLL-${mP}`, popP.file_total_cents + popP.manual_total_cents, "salaries", `Payroll bank run ${mP}`);
     } catch { /* pre-0041 net_cents */ }
-    await audit(env, user.id, "payroll.paid", "payroll_payments", mP);
+    await audit(env, user.id, "payroll.paid", "payroll_payments", mP, { release_id: relIdP, file_payees: popP.ready.length, file_total_cents: popP.file_total_cents, manual_total_cents: popP.manual_total_cents });
     /* v1.224.0 - the commission this run carried is paid out; v1.232.0 -
-       only what a saved payslip carries (the rest stays "in payroll") */
-    const commPaid = await markCommissionPaid(env, mP);
+       only what a saved payslip carries (the rest stays "in payroll");
+       v1.243.0 (E4) - only for the people this run actually paid */
+    const commPaid = await markCommissionPaid(env, mP, popP.rows.filter((r) => r.ready || r.manual).map((r) => r.user_id));
     if (commPaid.held) await audit(env, user.id, "commission.paid_held", "payroll_payments", mP, commPaid);
-    return json({ ok: true, commission: commPaid });
+    return json({ ok: true, commission: commPaid, file_payees: popP.ready.length, file_total_cents: popP.file_total_cents, manual_total_cents: popP.manual_total_cents });
   }
   /* v1.215.0 - THE INVOICES BEHIND A MONTH'S SALES COMMISSION (Payroll 2.0,
      phase A). Payroll processors read which invoices the CEO/COO confirmed
@@ -12811,6 +13353,9 @@ async function handleStaffRoutes(
     const mR = typeof body?.month === "string" && /^\d{4}-\d{2}$/.test(body.month) ? body.month : null;
     if (!mR) return err("invalid_input", "month (YYYY-MM) is required", 400);
     if (body?.undo === true) {
+      /* v1.243.0 (E3) - a release the bank run has paid against stays */
+      const paidR = await env.DB.prepare(`SELECT paid_at FROM payroll_payments WHERE month = ?1`).bind(mR).first<{ paid_at: string }>().catch(() => null);
+      if (paidR) return err("month_paid", `The bank run for ${mR} was recorded on ${String(paidR.paid_at).slice(0, 10)} against this release; it cannot be undone.`, 409);
       await env.DB.prepare(`DELETE FROM payslip_releases WHERE month = ?1`).bind(mR).run();
       await audit(env, user.id, "payroll.release_undo", "payslip_releases", mR);
       return json({ ok: true });
@@ -13169,7 +13714,7 @@ async function handleStaffRoutes(
     if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const urlD = new URL(request.url);
     const uid = Number(urlD.searchParams.get("user_id"));
-    const mD = urlD.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const mD = urlD.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7); // v1.243.0 (D17/E8) - the month in Malaysia, not UTC
     if (!uid) return err("invalid_input", "user_id is required", 400);
     return json({ extras: await payslipExtras(uid, mD) });
   }
@@ -13234,15 +13779,13 @@ async function handleStaffRoutes(
     const vdM = vdP && /^\d{4}-\d{2}-\d{2}$/.test(vdP) ? vdP : paymentDateFor(monthM);
     const [my, mm, md] = vdM.split("-");
     const valueDateM = `${md}${mm}${my}`;
-    const { results: rowsM } = await env.DB.prepare(
-      `SELECT u.full_name, u.name, u.employee_id, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
-              p.basic_cents, p.commission_cents, p.allowance_cents,
-              COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
-       FROM payroll_entries p JOIN users u ON u.id = p.user_id
-       WHERE p.month = ?1 AND u.is_active = 1
-         AND u.role NOT IN ('customer', 'super_admin')
-       ORDER BY ${STAFF_ORDER_SQL}`,
-    ).bind(monthM).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
+    /* v1.243.0 (E1, E6) - the SAME ready subset as the CSV, from the one
+       population: no is_active filter (a suspended login is paid), everyone
+       not ready named as an exception. The file waits for the release. */
+    if (!(await payslipsOut(monthM))) return err("release_required", `Release the payslips for ${monthM} first - the bank file carries what staff can read on their payslip.`, 409);
+    const popM = await payrollPopulation(env, monthM);
+    await syncPayrollExceptions(env, monthM, popM, user.id);
+    const rowsM = popM.ready.map((r) => ({ full_name: r.full_name, name: r.name, employee_id: r.employee_id, bank_name: r.bank_name, bank_account: r.bank_account, ic_number: r.ic_number, net_cents: r.net_cents, basic_cents: 0, commission_cents: 0, allowance_cents: 0, ot_cents: 0, deduction_cents: 0 }));
     const [yM, moM] = monthM.split("-");
     /* v1.4.205 (his real working batch, screenshots): Own Ref is UNIQUE per
        row — PAYROLL + value date as MMDDYY + 2-digit row number
@@ -13258,7 +13801,7 @@ async function handleStaffRoutes(
       const net = r.net_cents ?? Math.max(0, r.basic_cents + r.commission_cents + r.allowance_cents + r.ot_cents - r.deduction_cents);
       if (net <= 0) continue;
       const code = r.bank_name ? bankCode(r.bank_name) : null;
-      if (!r.bank_name || !r.bank_account || !code) { skipped.push(r.full_name || r.name); continue; }
+      if (!r.bank_name || !r.bank_account || !code) { skipped.push(r.full_name || r.name); continue; } // never true for a ready row (E6)
       m2eRows.push({
         mode: code === "MBBEMYKL" ? "IT" : "IG",
         valueDate: valueDateM,
@@ -13274,7 +13817,8 @@ async function handleStaffRoutes(
       });
       totalM += net;
     }
-    if (m2eRows.length === 0) return err("no_payees", `No payable rows for ${monthM}${skipped.length ? ` (missing bank details/code: ${skipped.join("; ")})` : ""}`, 409);
+    for (const e of popM.exceptions) if (e.blocking) skipped.push(`${e.name} - ${e.kind === "no_bank" ? "no bank details" : "bank not recognised"}`);
+    if (m2eRows.length === 0) return err("no_payees", `No payable rows for ${monthM}${skipped.length ? ` (exceptions: ${skipped.join("; ")})` : ""}`, 409);
     const filled = await fillM2eTemplate(new Uint8Array(await tplObj.arrayBuffer()), {
       corporateId: cidM.value,
       clientBatchId: cbidM.value,
@@ -13287,6 +13831,8 @@ async function handleStaffRoutes(
       "Content-Disposition": `attachment; filename="azoo-m2e-salary-${monthM}.xlsm"`,
     };
     if (skipped.length > 0) headersM["X-M2E-Skipped"] = encodeURIComponent(skipped.join("; "));
+    headersM["X-Payroll-Exceptions"] = encodeURIComponent(JSON.stringify(popM.exceptions.map((e) => ({ name: e.name, kind: e.kind, blocking: e.blocking })))); // (E6) the same list the CSV prints
+    headersM["X-Payroll-File-Total"] = String(totalM);
     return new Response(filled, { headers: headersM });
   }
   if (path === "/payroll/payment-file" && method === "GET") {
@@ -13311,17 +13857,13 @@ async function handleStaffRoutes(
     const vd = vdParam && /^\d{4}-\d{2}-\d{2}$/.test(vdParam) ? vdParam : paymentDateFor(monthPF);
     const [vy, vm, vdd] = vd.split("-");
     const valueDate = `${vdd}${vm}${vy}`; // DDMMYYYY per the template
-    const { results: rows } = await env.DB.prepare(
-      `SELECT u.full_name, u.name, u.employee_id, u.bank_name, u.bank_account, u.ic_number, p.net_cents,
-              p.basic_cents, p.commission_cents, p.allowance_cents,
-              COALESCE(p.ot_cents, 0) AS ot_cents, p.deduction_cents
-       FROM payroll_entries p JOIN users u ON u.id = p.user_id
-       WHERE p.month = ?1 AND u.is_active = 1
-         AND u.role NOT IN ('customer', 'super_admin')
-       ORDER BY ${STAFF_ORDER_SQL}`,
-    ).bind(monthPF).all<{ full_name: string | null; name: string; employee_id: string | null; bank_name: string | null; bank_account: string | null; ic_number: string | null; net_cents: number | null; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number }>();
-    const missing: string[] = [];
-    const noCode: string[] = [];
+    /* v1.243.0 (E1, E6) - the SAME ready subset as the M2E file (one population) */
+    if (!(await payslipsOut(monthPF))) return err("release_required", `Release the payslips for ${monthPF} first - the bank file carries what staff can read on their payslip.`, 409);
+    const popPF = await payrollPopulation(env, monthPF);
+    await syncPayrollExceptions(env, monthPF, popPF, user.id);
+    const rows = popPF.ready.map((r) => ({ full_name: r.full_name, name: r.name, employee_id: r.employee_id, bank_name: r.bank_name, bank_account: r.bank_account, ic_number: r.ic_number, net_cents: r.net_cents, basic_cents: 0, commission_cents: 0, allowance_cents: 0, ot_cents: 0, deduction_cents: 0 }));
+    const missing: string[] = popPF.exceptions.filter((e) => e.kind === "no_bank" && e.blocking).map((e) => e.name);
+    const noCode: string[] = popPF.exceptions.filter((e) => e.kind === "bank_unrecognised" && e.blocking).map((e) => e.name);
     const [yPF, mPF] = monthPF.split("-");
     // v1.4.205: Own Ref unique per row — PAYROLL + value date MMDDYY + seq
     const refBasePF = `PAYROLL${vd.slice(5, 7)}${vd.slice(8, 10)}${vd.slice(2, 4)}`;
@@ -13343,9 +13885,9 @@ async function handleStaffRoutes(
     for (const r of rows) {
       const net = r.net_cents ?? Math.max(0, r.basic_cents + r.commission_cents + r.allowance_cents + r.ot_cents - r.deduction_cents);
       if (net <= 0) continue; // e.g. the CEO's own RM 0 row
-      if (!r.bank_name || !r.bank_account) { missing.push(r.full_name || r.name); continue; }
+      if (!r.bank_name || !r.bank_account) { continue; } // never true for a ready row (E6)
       const code = bankCode(r.bank_name);
-      if (!code) noCode.push(`${r.full_name || r.name} (${r.bank_name})`);
+      if (!code) continue; // never true for a ready row (E6): the exception list above names them
       const nm = (r.full_name || r.name).toUpperCase().replace(/[^A-Z0-9 @\/\-.]/g, " ").slice(0, 40).trim();
       const acct = r.bank_account.replace(/[^0-9]/g, "");
       const mode = code === "MBBEMYKL" ? "IT" : "IG"; // payer account is Maybank
@@ -13361,8 +13903,10 @@ async function handleStaffRoutes(
     lines.push(`# TOTAL RM ${(totalC / 100).toFixed(2)} across ${payees} payees — paste ONLY the data rows into the M2E template sheet "Salary Bulk Payment (MY)" starting at cell A5 (do NOT paste this header or these # lines).`);
     lines.push(`# Value Date ${valueDate} = the 5th of the following month, moved earlier when it falls on a weekend (company payment rule). Override with &value_date=YYYY-MM-DD or edit in the template.`);
     lines.push(`# In Excel, account numbers and IC numbers that start with 0 need a leading apostrophe — paste-as-text or format the columns as Text first.`);
-    if (missing.length > 0) lines.push(`# MISSING BANK DETAILS (add in Staff Details, then re-download): ${missing.join("; ")}`);
-    if (noCode.length > 0) lines.push(`# BANK NOT RECOGNISED — fix the bank name in Staff Details or type the M2E Recipient Bank Code by hand: ${noCode.join("; ")}`);
+    if (missing.length > 0) lines.push(`# EXCEPTION - MISSING BANK DETAILS (not in this file; add in Staff Details or record a manual payment, then re-download): ${missing.join("; ")}`);
+    if (noCode.length > 0) lines.push(`# EXCEPTION - BANK NOT RECOGNISED (not in this file; fix the bank name in Staff Details or record a manual payment): ${noCode.join("; ")}`);
+    for (const e of popPF.exceptions.filter((x) => x.kind === "manual_payment")) lines.push(`# PAID BY HAND (not in this file): ${e.name}${e.amount_cents != null ? ` RM ${(e.amount_cents / 100).toFixed(2)}` : ""}${e.detail ? ` - ${e.detail}` : ""}`);
+    for (const e of popPF.exceptions.filter((x) => x.kind === "login_suspended")) lines.push(`# NOTE - LOGIN SUSPENDED, STILL PAID: ${e.name}`);
     await audit(env, user.id, "payroll.payment_file", "payroll", monthPF, { payees, total_cents: totalC, format: "m2e_salary" });
     return new Response(lines.join("\r\n"), {
       headers: {
@@ -13384,7 +13928,7 @@ async function handleStaffRoutes(
        from whatever leave and overtime happen to be recorded today. It is
        the single most powerful button on the payroll screen and it was the
        only one with no release check at all. */
-    const relR = await releasedMonthBlock(env, `${monthR}-01`, body?.force_released, "Recomputing this month");
+    const relR = await releasedMonthBlock(env, `${monthR}-01`, body?.force_released, "Recomputing this month", user);
     if (relR) return relR;
     // Mon–Fri count minus weekday holidays on the calendar.
     const yR = Number(monthR.slice(0, 4)), moR = Number(monthR.slice(5, 7));
@@ -13506,8 +14050,15 @@ async function handleStaffRoutes(
     /* v1.148.0 - saving a payroll row after the payslips went out changes the
        figure without changing the document the person was handed. Same guard,
        same audited override as an overtime edit. */
-    const relP = await releasedMonthBlock(env, `${month}-01`, body?.force_released, "Saving a payroll row");
+    const relP = await releasedMonthBlock(env, `${month}-01`, body?.force_released, "Saving a payroll row", user);
     if (relP) return relP;
+    /* v1.243.0 (go-live audit E7) - a payroll row is for a staff member
+       employed in the month: never a customer or a system account, never
+       somebody who had already left before the month */
+    const payee = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ?1 AND ${staffRolesSql()} AND role NOT IN ('super_admin', 'admin') AND ${payrollMonthStaffSql(month)} AND (joined_on IS NULL OR joined_on = '' OR substr(joined_on, 1, 7) <= '${month}')`,
+    ).bind(body.user_id).first<{ id: number }>();
+    if (!payee) return err("invalid_input", `That account is not on the ${month} payroll (not a staff member, or not employed in ${month}).`, 400);
     const cents = (v: unknown) => (typeof v === "number" && v >= 0 ? Math.round(v) : 0);
     // v1.4.82: worked_days + month_working_days persist the incomplete-month
     // basis (null = full month, no adjustment). Basic itself stays FULL.
@@ -13598,7 +14149,7 @@ async function handleStaffRoutes(
   if (path === "/attendance/export" && method === "GET") {
     if (!can(user.role, "payroll_export")) return err("forbidden", "Payroll export access required", 403);
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const month = url.searchParams.get("month") ?? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7); // v1.243.0 (D17/E8) - the month in Malaysia, not UTC
     const notPendingE = await notPendingSql(env, "a.");
     const { results } = await env.DB.prepare(
       `SELECT a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.email, u.employee_id, a.type, a.created_at
@@ -13719,19 +14270,25 @@ async function deductForInvoice(
         : `SELECT id, sku, name, stock FROM inventory_items WHERE UPPER(name) = UPPER(?1) LIMIT 1`,
     ).bind(sku || name).first<{ id: number; sku: string; name: string; stock: number }>();
     if (!inv) { if (name || sku) out.unmatched.push(name || sku); continue; }
-    const newStock = Math.max(0, inv.stock - qty);
-    if (inv.stock < qty) out.short.push(`${inv.sku} (had ${inv.stock}, invoice needs ${qty})`);
+    /* v1.242.0 (go-live audit C2, the owner's decision D-1: refuse an
+       over-sell). The write is conditional on the stock still being there,
+       so what the trail records is what actually left the shelf - never a
+       quantity the shelf did not have. The callers check first
+       (stockShortages) and refuse the document; a line that still comes up
+       short here lost a race, is reported in `short`, and moves nothing. */
     // v1.4.271 audit fix: this was the ONE movement site that skipped the
     // status column and the low-stock bell — an invoice could drain a SKU to
     // zero with the row still saying in_stock and nobody notified.
-    await env.DB.prepare(
-      `UPDATE inventory_items SET stock = ?1,
-              status = CASE WHEN ?1 = 0 THEN 'out_of_stock' WHEN ?1 <= 5 THEN 'low' ELSE 'in_stock' END
-       WHERE id = ?2`,
-    ).bind(newStock, inv.id).run();
+    const moved = await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock - ?1,
+              status = CASE WHEN stock - ?1 = 0 THEN 'out_of_stock' WHEN stock - ?1 <= 5 THEN 'low' ELSE 'in_stock' END
+       WHERE id = ?2 AND stock >= ?1`,
+    ).bind(qty, inv.id).run();
+    if (!moved.meta.changes) { out.short.push(`${inv.sku} (had ${inv.stock}, invoice needs ${qty})`); continue; }
     await checkLowStock(inv.id);
-    const remark = `Invoice ${docNumber} — stock deducted on invoice${inv.stock < qty ? ` (SHORT: had ${inv.stock}, needed ${qty})` : ""}`;
+    const remark = `Invoice ${docNumber} — stock deducted on invoice`;
     const args = [inv.id, inv.sku, inv.name, qty, remark, docDate, byUser];
+    out.deducted.push({ sku: inv.sku, name: inv.name, qty, stock: inv.stock - qty });
     try {
       await env.DB.prepare(
         `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by, direction, doc_id)
@@ -13784,6 +14341,79 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     ).bind(r.qty, r.item_id).run();
     await checkLowStock(Number(r.item_id));
     await env.DB.prepare(`DELETE FROM manual_stockouts WHERE id = ?1`).bind(r.id).run();
+  }
+  return rows.length;
+}
+
+/* v1.242.0 (go-live audit C2 / decision D-1) - what a product document would
+   take that the shelf does not have. Lines are matched like deductForInvoice
+   (SKU first, then exact name); an unmatched line is not a shortage (it never
+   moved stock). `excludeDocId` counts the document's own current deduction
+   as available - an edit that keeps a line is not short against itself. */
+async function stockShortages(
+  env: Env, itemsJson: string, excludeDocId: number | null = null,
+): Promise<{ sku: string; name: string; asked: number; on_hand: number }[]> {
+  const out: { sku: string; name: string; asked: number; on_hand: number }[] = [];
+  let items: { name?: string; sku?: string; qty?: number }[] = [];
+  try { items = JSON.parse(itemsJson); } catch { return out; }
+  const asked = new Map<number, { sku: string; name: string; qty: number; stock: number }>();
+  for (const it of items) {
+    const qty = Math.round(Number(it.qty ?? 0));
+    if (!qty || qty <= 0) continue;
+    const sku = (it.sku ?? "").trim();
+    const name = (it.name ?? "").trim();
+    if (!sku && !name) continue;
+    const inv = await env.DB.prepare(
+      sku
+        ? `SELECT id, sku, name, stock FROM inventory_items WHERE UPPER(sku) = UPPER(?1) LIMIT 1`
+        : `SELECT id, sku, name, stock FROM inventory_items WHERE UPPER(name) = UPPER(?1) LIMIT 1`,
+    ).bind(sku || name).first<{ id: number; sku: string; name: string; stock: number }>();
+    if (!inv) continue;
+    const cur = asked.get(inv.id);
+    if (cur) cur.qty += qty; else asked.set(inv.id, { sku: inv.sku, name: inv.name, qty, stock: Number(inv.stock ?? 0) });
+  }
+  for (const [itemId, a] of asked) {
+    let own = 0;
+    if (excludeDocId) {
+      try {
+        own = Number((await env.DB.prepare(`SELECT COALESCE(SUM(qty), 0) AS q FROM manual_stockouts WHERE doc_id = ?1 AND item_id = ?2 AND direction = 'out'`)
+          .bind(excludeDocId, itemId).first<{ q: number }>())?.q ?? 0);
+      } catch { own = 0; /* pre-0065 */ }
+    }
+    const onHand = a.stock + own;
+    if (onHand < a.qty) out.push({ sku: a.sku, name: a.name, asked: a.qty, on_hand: onHand });
+  }
+  return out;
+}
+function shortMessage(short: { sku: string; asked: number; on_hand: number }[]): string {
+  return `Not enough stock: ${short.map((x) => `${x.sku} asked ${x.asked}, on hand ${x.on_hand}`).join("; ")}. Receive stock first, or reduce the quantity.`;
+}
+
+/* v1.242.0 (go-live audit B2, decision D-2) - a VOIDED invoice keeps its
+   trail: the stock it took goes back on the shelf through 'in' rows that
+   name the void, so the movement history reads out-then-in instead of
+   vanishing. One-shot by construction: void is refused on a voided row. */
+async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser: number): Promise<number> {
+  let rows: { item_id: number; sku: string; item_name: string; qty: number }[] = [];
+  try {
+    rows = (await env.DB.prepare(
+      `SELECT item_id, sku, item_name, qty FROM manual_stockouts WHERE doc_id = ?1 AND direction = 'out'`,
+    ).bind(docId).all<{ item_id: number; sku: string; item_name: string; qty: number }>()).results;
+  } catch (e) {
+    if (!String(e).includes("no such column")) throw e;
+    return 0;
+  }
+  for (const r of rows) {
+    await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock + ?1,
+              status = CASE WHEN stock + ?1 = 0 THEN 'out_of_stock' WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END
+       WHERE id = ?2`,
+    ).bind(r.qty, r.item_id).run();
+    await checkLowStock(Number(r.item_id));
+    await env.DB.prepare(
+      `INSERT INTO manual_stockouts (item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by, direction, doc_id)
+       VALUES (?1, ?2, ?3, ?4, NULL, ?5, NULL, ?6, 'in', ?7)`,
+    ).bind(r.item_id, r.sku, r.item_name, r.qty, `Invoice ${docNumber} voided — stock restored`, byUser, docId).run();
   }
   return rows.length;
 }
@@ -13846,6 +14476,17 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         return err("invalid_state",
           "Only stock that went out for internal use or a marketing shoot can be marked returned - anything else is a revert", 409);
       }
+      /* v1.242.0 (C1) - the ROW is claimed first, conditionally: two "returned"
+         presses (or a return racing a revert) can only move the stock once */
+      let claimedR: { meta: { changes: number } };
+      try {
+        claimedR = await env.DB.prepare(
+          `UPDATE manual_stockouts SET returned_at = datetime('now') WHERE id = ?1 AND returned_at IS NULL AND COALESCE(reverted, 0) = 0`,
+        ).bind(row.id).run();
+      } catch {
+        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0124_movement_purpose)", 500);
+      }
+      if (!claimedR.meta.changes) return err("invalid_state", "This movement was just marked returned or reverted by someone else - the stock is already back", 409);
       /* Atomic, like the TikTok path: read-then-write here would let a sync
          landing in the gap be overwritten by an absolute figure (v1.139.0). */
       const upd = await env.DB.prepare(
@@ -13859,13 +14500,6 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
             SET status = CASE WHEN stock = 0 THEN 'out_of_stock' WHEN stock <= 5 THEN 'low' ELSE 'in_stock' END
           WHERE id = ?1`,
       ).bind(row.item_id).run();
-      try {
-        await env.DB.prepare(
-          `UPDATE manual_stockouts SET returned_at = datetime('now') WHERE id = ?1`,
-        ).bind(row.id).run();
-      } catch {
-        return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0124_movement_purpose)", 500);
-      }
       const backR = (await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`)
         .bind(row.item_id).first<{ stock: number }>())?.stock ?? null;
       await checkLowStock(row.item_id);
@@ -13875,6 +14509,9 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
     if (action === "revert") {
       if (isReverted) return err("invalid_state", "Already reverted — the stock is back on the shelf", 400);
+      /* v1.242.0 (go-live audit C1) - a returned loan is final: its pieces are
+         already back on the shelf, and a revert would put them there twice */
+      if (row.returned_at) return err("invalid_state", "This loan was marked returned: its stock is already back on the shelf, so there is nothing to revert.", 409);
       const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
       if (!item) return err("not_found", "The inventory item behind this record no longer exists", 409);
       /* v1.39.0 (AUDIT minor): revert must respect the row's DIRECTION.
@@ -13885,17 +14522,24 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       if (rowDir === "in" && item.stock < row.qty) {
         return err("insufficient_stock", `Reverting this stock-IN removes ${row.qty}, but only ${item.stock} remain`, 409);
       }
-      const back = rowDir === "in" ? item.stock - row.qty : item.stock + row.qty;
-      await env.DB.prepare(
-        `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-      ).bind(back, stockStatus(back), user.id, row.item_id).run();
-      const sid = await findManualSaleId(row);
-      if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
+      /* v1.242.0 (C1) - the row is claimed first, conditionally, and the
+         stock moves RELATIVELY: two reverts at once move it once */
+      let claimedV: { meta: { changes: number } };
       try {
-        await env.DB.prepare(`UPDATE manual_stockouts SET reverted = 1 WHERE id = ?1`).bind(row.id).run();
+        claimedV = await env.DB.prepare(`UPDATE manual_stockouts SET reverted = 1 WHERE id = ?1 AND COALESCE(reverted, 0) = 0 AND returned_at IS NULL`).bind(row.id).run();
       } catch {
         return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0050_manual_out_lifecycle)", 500);
       }
+      if (!claimedV.meta.changes) return err("invalid_state", "This movement was just reverted or marked returned by someone else - nothing was moved twice", 409);
+      const moveV = rowDir === "in" ? -row.qty : row.qty;
+      await env.DB.prepare(
+        `UPDATE inventory_items SET stock = MAX(0, stock + ?1),
+                status = CASE WHEN MAX(0, stock + ?1) = 0 THEN 'out_of_stock' WHEN MAX(0, stock + ?1) <= 5 THEN 'low' ELSE 'in_stock' END,
+                updated_by = ?2, updated_at = datetime('now') WHERE id = ?3`,
+      ).bind(moveV, user.id, row.item_id).run();
+      const back = (await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>())?.stock ?? item.stock + moveV;
+      const sid = await findManualSaleId(row);
+      if (sid) await env.DB.prepare(`DELETE FROM manual_sales WHERE id = ?1`).bind(sid).run();
       await checkLowStock(row.item_id); // v1.4.191 (recovery resets the alert)
       await audit(env, user.id, "inventory.manual_out_revert", "manual_stockouts", String(row.id),
         { qty: row.qty, unit_sale_cents: row.unit_sale_cents, sale_removed: !!sid });
@@ -13929,12 +14573,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     }
     // action === "edit"
     if (isReverted) return err("invalid_state", "Reverted records can't be edited — record a fresh stock out instead", 400);
+    if (row.returned_at) return err("invalid_state", "A returned loan is closed and can't be edited — record a fresh movement instead", 409); // v1.242.0 (C1)
     const newQty = typeof body?.qty === "number" && Math.floor(body.qty) > 0 ? Math.floor(body.qty) : null;
     const priceGiven = body?.sale_price !== undefined; // "" clears the sale
     const newSaleC = priceGiven && `${body!.sale_price}` !== "" && Number.isFinite(Number(body!.sale_price)) && Number(body!.sale_price) >= 0
       ? Math.round(Number(body!.sale_price) * 100) : null;
     const newRemark = str(body?.remark, 300) ? (body!.remark as string).trim() : null;
     const newDate = str(body?.out_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.out_date as string) ? (body!.out_date as string) : null;
+    if (newDate && (!validDayStr(newDate) || newDate > mytTodayStr())) return err("invalid_input", "The date must be a real date, today or earlier.", 400); // v1.242.0 (C10)
     if (newQty === null && !priceGiven && !newRemark && !newDate) return err("invalid_input", "Nothing to update", 400);
     if (newQty !== null && newQty !== row.qty) {
       const item = await env.DB.prepare(`SELECT stock FROM inventory_items WHERE id = ?1`).bind(row.item_id).first<{ stock: number }>();
@@ -14196,6 +14842,13 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       `SELECT id FROM inventory_items WHERE lower(trim(sku)) = lower(?1) LIMIT 1`,
     ).bind(skuN.toLowerCase()).first<{ id: number }>();
     if (clashN) return err("conflict", "An item with this SKU already exists", 409);
+    /* v1.242.0 (go-live audit C7) - the bridge matches on sku_key (upper-cased,
+       ALL whitespace stripped), so "ELF 001" and "ELF001" are one SKU to the
+       shop: refused here the same way, before two rows can answer one feed line */
+    try {
+      const clashK = await env.DB.prepare(`SELECT sku FROM inventory_items WHERE sku_key = ?1 LIMIT 1`).bind(skuKey(skuN)).first<{ sku: string }>();
+      if (clashK) return err("conflict", `An item with this SKU already exists as "${clashK.sku}" (spaces do not make a different SKU)`, 409);
+    } catch { /* pre-0079 */ }
     const stock = typeof body.stock === "number" && body.stock >= 0 ? Math.floor(body.stock) : 0;
     const priceC = typeof body.unit_price === "number" && body.unit_price >= 0 ? Math.round(body.unit_price * 100) : 0; // v1.4.101
     try {
@@ -14262,6 +14915,29 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
        CEO is about to act on. */
     const costU = typeof body.unit_cost === "number" && body.unit_cost >= 0 ? Math.round(body.unit_cost * 100) : null;
     const clearsCost = body.unit_cost === null;
+    /* v1.242.0 (go-live audit C4, the owner's decision D-8 of 31-10-2026) - a
+       PUBLISHED item's list price is the shop's price whenever no web price is
+       set, so changing it is pricing the shop: the CEO, COO or super admin
+       (elfia_publish), and never under a standing discount it would not sit
+       below (the feed would ignore the discount and charge full price). A
+       price of 0 makes the feed omit the price - refused for a published item.
+       Unpublished items are priced by inventory editors as before. */
+    if (priceU !== null) {
+      let pub: { bridge_enabled: number | null; unit_price_cents: number | null; elfia_price_cents: number | null; elfia_discount_cents: number | null } | null = null;
+      try {
+        pub = await env.DB.prepare(`SELECT bridge_enabled, unit_price_cents, elfia_price_cents, elfia_discount_cents FROM inventory_items WHERE id = ?1`).bind(invMatch[1])
+          .first<{ bridge_enabled: number | null; unit_price_cents: number | null; elfia_price_cents: number | null; elfia_discount_cents: number | null }>();
+      } catch { pub = null; /* pre-bridge schema: nothing is published */ }
+      if (pub?.bridge_enabled === 1 && priceU !== Number(pub.unit_price_cents ?? 0)) {
+        if (!can(user.role, "elfia_publish")) return err("forbidden", "This item is published to ELFIA, so its list price is the shop's price: only the CEO, COO or super admin changes it.", 403);
+        if (priceU === 0) return err("invalid_input", "A published item cannot be priced at RM 0.00 - the shop would show it without a price. Unpublish it first, or set a price.", 400);
+        const d = Number(pub.elfia_discount_cents ?? 0);
+        const base = pub.elfia_price_cents && pub.elfia_price_cents > 0 ? pub.elfia_price_cents : priceU;
+        if (d > 0 && d >= base) {
+          return err("invalid_input", `The discount (RM ${(d / 100).toFixed(2)}) would not be below this price, so the shop would ignore it. Lower or clear the discount first.`, 400);
+        }
+      }
+    }
     try {
       /* The status is recomputed from whatever the count ENDS as, in SQL, so
          a price-only save cannot leave a stale "low" behind either. */
@@ -16059,6 +16735,10 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         `SELECT id FROM inventory_items WHERE lower(trim(sku)) = lower(?1) AND id != ?2 LIMIT 1`,
       ).bind(newSku.toLowerCase(), target.id).first<{ id: number }>();
       if (clash) return err("conflict", "Another item already uses this SKU", 409);
+      try { // v1.242.0 (C7) - the shop's key ignores whitespace
+        const clashK = await env.DB.prepare(`SELECT sku FROM inventory_items WHERE sku_key = ?1 AND id != ?2 LIMIT 1`).bind(skuKey(newSku), target.id).first<{ sku: string }>();
+        if (clashK) return err("conflict", `Another item already uses this SKU as "${clashK.sku}" (spaces do not make a different SKU)`, 409);
+      } catch { /* pre-0079 */ }
     }
     await env.DB.prepare(
       `UPDATE inventory_items SET sku = COALESCE(?1, sku), name = COALESCE(?2, name),
@@ -16403,14 +17083,24 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (newStock < 0) {
       return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot remove ${-delta}`, 409);
     }
-    await env.DB.prepare(
-      `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-    ).bind(newStock, stockStatus(newStock), user.id, invAdjust[1]).run();
     // v1.4.172: the date the stock actually went out — backdatable from the
     // modal; defaults to today MYT. Sales totals attribute by this date.
+    /* v1.242.0 (go-live audit C10) - a typed date must exist and not be in the future */
+    if (body?.out_date !== undefined && body?.out_date !== null && body?.out_date !== "" && (!validDayStr(body.out_date) || (body.out_date as string) > mytTodayStr())) {
+      return err("invalid_input", "The movement date must be a real date, today or earlier.", 400);
+    }
     const outDate = str(body?.out_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.out_date as string)
       ? (body!.out_date as string)
       : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    /* v1.242.0 (C8) - RELATIVE and conditional: a second press that slips past
+       the idempotency key, or a TikTok deduction landing in the gap, can no
+       longer be overwritten by an absolute figure or take the shelf negative */
+    const movedA = await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock + ?1,
+              status = CASE WHEN stock + ?1 = 0 THEN 'out_of_stock' WHEN stock + ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
+              updated_by = ?2, updated_at = datetime('now') WHERE id = ?3 AND stock + ?1 >= 0`,
+    ).bind(delta, user.id, invAdjust[1]).run();
+    if (!movedA.meta.changes) return err("insufficient_stock", `The shelf changed a moment ago: only ${item.stock} of ${item.name} was in stock, so ${-delta} cannot be removed`, 409);
     let saleRowId: number | null = null;
     if (saleC !== null) {
       const qty = Math.abs(delta);
@@ -16520,28 +17210,45 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     if (!itemId || qty <= 0 || !str(body?.supplier, 120) || !str(body?.return_date, 10)) {
       return err("invalid_input", "item_id, qty (>0), supplier and return_date are required", 400);
     }
-    const item = await env.DB.prepare(
-      `SELECT sku, name, stock, unit_price_cents FROM inventory_items WHERE id = ?1`,
-    ).bind(itemId).first<{ sku: string; name: string; stock: number; unit_price_cents: number | null }>();
+    /* v1.242.0 (go-live audit C10) - the return day is a real day, today or earlier */
+    const retDay = String(body.return_date);
+    if (!validDayStr(retDay) || retDay > mytTodayStr()) return err("invalid_input", "The return date must be a real date, today or earlier.", 400);
+    let item: { sku: string; name: string; stock: number; unit_price_cents: number | null; unit_cost_cents?: number | null } | null;
+    try {
+      item = await env.DB.prepare(`SELECT sku, name, stock, unit_price_cents, unit_cost_cents FROM inventory_items WHERE id = ?1`).bind(itemId)
+        .first<{ sku: string; name: string; stock: number; unit_price_cents: number | null; unit_cost_cents: number | null }>();
+    } catch {
+      item = await env.DB.prepare(`SELECT sku, name, stock, unit_price_cents FROM inventory_items WHERE id = ?1`).bind(itemId)
+        .first<{ sku: string; name: string; stock: number; unit_price_cents: number | null }>(); // pre-0123
+    }
     if (!item) return err("not_found", "Item not found", 404);
     if (qty > item.stock) {
       return err("insufficient_stock", `Only ${item.stock} in stock for ${item.name} — cannot return ${qty}`, 409);
     }
+    /* v1.242.0 (go-live audit C6) - a supplier return is valued at what the
+       piece COST, never at its selling price: the item's recorded cost when
+       no unit cost is typed, and 0 (named in the answer) when no cost is
+       recorded either - a credit the supplier owes is not revenue. */
     const unitC = typeof body.unit_cost === "number" && body.unit_cost >= 0
       ? Math.round(body.unit_cost * 100)
-      : (item.unit_price_cents ?? 0);
+      : (item.unit_cost_cents ?? 0);
     const totalC = unitC * qty;
     // Stock leaves the shelf the moment it's boxed for the supplier.
+    /* v1.242.0 (C8) - the deduction is conditional and relative, so a second
+       press that slips past the idempotency key cannot take the shelf negative */
+    const movedR = await env.DB.prepare(
+      `UPDATE inventory_items SET stock = stock - ?1,
+              status = CASE WHEN stock - ?1 = 0 THEN 'out_of_stock' WHEN stock - ?1 <= 5 THEN 'low' ELSE 'in_stock' END,
+              updated_by = ?2, updated_at = datetime('now') WHERE id = ?3 AND stock >= ?1`,
+    ).bind(qty, user.id, itemId).run();
+    if (!movedR.meta.changes) return err("insufficient_stock", `The shelf changed a moment ago: not enough ${item.name} to return ${qty}`, 409);
     const newStock = item.stock - qty;
-    await env.DB.prepare(
-      `UPDATE inventory_items SET stock = ?1, status = ?2, updated_by = ?3, updated_at = datetime('now') WHERE id = ?4`,
-    ).bind(newStock, stockStatus(newStock), user.id, itemId).run();
     const res = await env.DB.prepare(
       `INSERT INTO supplier_returns (item_id, sku, item_name, qty, unit_cost_cents, total_cents, supplier, reason, return_date, created_by)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
     ).bind(itemId, item.sku, item.name, qty, unitC, totalC, body.supplier, str(body.reason, 300) ? body.reason : null, body.return_date, user.id).first<{ id: number }>();
-    await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id != null ? String(res.id) : undefined, { qty, total_cents: totalC });
-    return json({ ok: true, id: res?.id, stock: newStock }, 201);
+    await audit(env, user.id, "inventory.supplier_return", "supplier_returns", res?.id != null ? String(res.id) : undefined, { qty, total_cents: totalC, unit_cost_cents: unitC, cost_known: unitC > 0 });
+    return json({ ok: true, id: res?.id, stock: newStock, unit_cost_cents: unitC, cost_known: unitC > 0 }, 201);
   }
   /* v1.4.164 (CEO): edit an OUTSTANDING supplier return — qty, unit cost,
      supplier, date, reason. Settled or partially replaced rows are locked
@@ -16562,6 +17269,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
     const newSupplier = str(body?.supplier, 120) ? (body!.supplier as string) : null;
     const newReason = str(body?.reason, 300) ? (body!.reason as string) : null;
     const newDate = str(body?.return_date, 10) ? (body!.return_date as string) : null;
+    if (newDate && (!validDayStr(newDate) || newDate > mytTodayStr())) return err("invalid_input", "The return date must be a real date, today or earlier.", 400); // v1.242.0 (C10)
     if (newQty === null && newUnit === null && !newSupplier && !newReason && !newDate) {
       return err("invalid_input", "Nothing to update", 400);
     }
@@ -16721,7 +17429,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
         `SELECT doc_type, COUNT(*) AS n FROM sales_documents GROUP BY doc_type`,
       ).all(),
       env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM inventory_items WHERE status IN ('low', 'out_of_stock')`,
+        `SELECT COUNT(*) AS n FROM inventory_items WHERE status IN ('low', 'out_of_stock')`, // (C5) discontinued never carries these statuses
       ).first(),
       env.DB.prepare(`SELECT status, COUNT(*) AS n FROM bd_pipeline GROUP BY status`).all(),
       // Upcoming company events (v1.4.73) — next 60 days for the list, and a
@@ -17429,6 +18137,32 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
        book, the P&L and the trial balance see it. A credit with no money
        moving books nothing. Any commission the invoice earned goes to the
        CEO's review (commission.ts) - never taken from wages. */
+    /* v1.242.0 (go-live audit B1) - cash out never exceeds money in. What
+       came in on the invoice: its total when it is marked paid, otherwise
+       its live part payments; what already went out: the live refund rows
+       (CN-<id>, not reversed) of its credit notes. A refund is booked only
+       for the difference. */
+    const refundRoom = async (invId: number): Promise<{ in_cents: number; out_cents: number; room_cents: number }> => {
+      const inv = await env.DB.prepare(`SELECT total_cents, payment_status FROM sales_documents WHERE id = ?1`).bind(invId)
+        .first<{ total_cents: number; payment_status: string | null }>();
+      let inC = inv?.payment_status === "paid" ? Number(inv.total_cents ?? 0) : 0;
+      if (!inC) {
+        try {
+          const parts = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL`).bind(invId).first<{ c: number }>();
+          inC = Number(parts?.c ?? 0);
+        } catch { inC = 0; /* pre-0140 */ }
+      }
+      let outC = 0;
+      try {
+        const out = await env.DB.prepare(
+          `SELECT COALESCE(SUM(c.amount_cents), 0) AS c FROM cashflow_entries c
+            WHERE c.ref IN (SELECT 'CN-' || n.id FROM credit_notes n WHERE n.invoice_id = ?1)
+              AND c.type = 'out' AND NOT EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = c.id)`,
+        ).bind(invId).first<{ c: number }>();
+        outC = Number(out?.c ?? 0);
+      } catch { outC = 0; }
+      return { in_cents: inC, out_cents: outC, room_cents: Math.max(0, inC - outC) };
+    };
     const refundCN = async (cnId: number, invId: number, cents: number, day: string, cnNumber: string, invNumber: string) => {
       let kind: string | null = null;
       try { kind = (await env.DB.prepare(`SELECT kind FROM sales_documents WHERE id = ?1`).bind(invId).first<{ kind: string | null }>())?.kind ?? null; } catch { kind = null; }
@@ -17443,6 +18177,12 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const cn = await env.DB.prepare(`SELECT id, cn_number, invoice_id, invoice_number, amount_cents FROM credit_notes WHERE id = ?1`).bind(Number(mCnRefund[1]))
         .first<{ id: number; cn_number: string; invoice_id: number; invoice_number: string | null; amount_cents: number }>().catch(() => null);
       if (!cn) return err("not_found", "Credit note not found", 404);
+      const roomR = await refundRoom(cn.invoice_id); // v1.242.0 (B1)
+      if (cn.amount_cents > roomR.room_cents) {
+        return err("refund_exceeds_paid", roomR.in_cents === 0
+          ? `${cn.invoice_number ?? "This invoice"} has no money recorded on it - nothing can be paid back. Record the payment first, or issue the credit without a refund.`
+          : `Only RM ${(roomR.room_cents / 100).toFixed(2)} of ${cn.invoice_number ?? "this invoice"} can still be paid back (RM ${(roomR.in_cents / 100).toFixed(2)} received, RM ${(roomR.out_cents / 100).toFixed(2)} already refunded).`, 400);
+      }
       const booked = await refundCN(cn.id, cn.invoice_id, cn.amount_cents, day, cn.cn_number, cn.invoice_number ?? "");
       if (!booked) return err("conflict", `The refund for ${cn.cn_number} is already recorded.`, 409);
       await audit(env, user.id, "credit_note.refund", "credit_notes", String(cn.id), { amount_cents: cn.amount_cents, refund_on: day });
@@ -17455,8 +18195,9 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const cents = Math.round(Number(body?.amount_cents));
       const reason = String(body?.reason ?? "").trim();
       if (!Number.isFinite(cents) || cents <= 0) return err("invalid_input", "A positive amount_cents is required", 400);
-      const inv = await env.DB.prepare(`SELECT id, doc_number, customer_id, total_cents FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`).bind(invId).first<{ id: number; doc_number: string; customer_id: number; total_cents: number }>();
+      const inv = await env.DB.prepare(`SELECT id, doc_number, customer_id, total_cents, payment_status FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`).bind(invId).first<{ id: number; doc_number: string; customer_id: number; total_cents: number; payment_status: string | null }>();
       if (!inv) return err("not_found", "Invoice not found", 404);
+      if (inv.payment_status === "void") return err("voided", `${inv.doc_number} is void - a credit note is not needed and cannot be issued on it.`, 409); // v1.242.0 (B2)
       if (cents > inv.total_cents) return err("invalid_input", "Credit note cannot exceed the invoice total", 400);
       /* v1.225.0 - all the credit notes on one invoice never exceed it */
       const already = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM credit_notes WHERE invoice_id = ?1`).bind(invId).first<{ c: number }>().catch(() => ({ c: 0 }));
@@ -17464,6 +18205,14 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const refundOn = typeof body?.refund_on === "string" && body.refund_on ? String(body.refund_on) : null;
       const todayC = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       if (refundOn && (!/^\d{4}-\d{2}-\d{2}$/.test(refundOn) || refundOn > todayC)) return err("invalid_input", "The day the money was paid back must be a real date, today or earlier.", 400);
+      if (refundOn) {
+        const roomC = await refundRoom(invId); // v1.242.0 (B1) - a credit note with a refund: money must have come in first
+        if (cents > roomC.room_cents) {
+          return err("refund_exceeds_paid", roomC.in_cents === 0
+            ? `${inv.doc_number} has no money recorded on it - nothing can be paid back. Issue the credit note without a refund date, or record the payment first.`
+            : `Only RM ${(roomC.room_cents / 100).toFixed(2)} of ${inv.doc_number} can be paid back (RM ${(roomC.in_cents / 100).toFixed(2)} received, RM ${(roomC.out_cents / 100).toFixed(2)} already refunded).`, 400);
+        }
+      }
       try {
         const number = await docNumber(env, "CN");
         const token = crypto.randomUUID().replace(/-/g, "");
@@ -17530,7 +18279,7 @@ async function restoreForInvoice(env: Env, docId: number, docNumber: string): Pr
       const { results } = await env.DB.prepare(
         `SELECT d.id, d.doc_number, d.total_cents, d.due_date, d.created_at, c.company, c.phone
          FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id
-         WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') != 'paid'
+         WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void')
          ORDER BY d.due_date IS NULL, d.due_date ASC, d.created_at ASC LIMIT 300`,
       ).all<{ total_cents: number }>();
       const total = results.reduce((a, r) => a + (r.total_cents ?? 0), 0);

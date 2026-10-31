@@ -39,7 +39,7 @@ import type { MonitorRow } from "@/components/portal/dashboard-overview";
 import { useCachedApi } from "@/lib/cached-api";
 import { daysOf, hoursLabel, mytDay, pairSessions, type Session } from "@/lib/clock-sessions";
 import { dmy, mytToday } from "@/lib/format";
-import { outboxAll, subscribeOutbox } from "@/lib/outbox";
+import { outboxAll, subscribeOutbox, dismissNeedsHr } from "@/lib/outbox";
 import { chipInfo, chipNeutral, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSuccess, chipWarn, inputClass, selectClass } from "@/lib/ui-styles";
 import css from "./on-shift.module.css";
 
@@ -386,7 +386,7 @@ export function RecentDays({ records, days, known, statusLabel, onOpenAttendance
 /* punches kept on this device                                         */
 /* ------------------------------------------------------------------ */
 
-export interface WaitingPunch { id: string; type: string; clientAt: string }
+export interface WaitingPunch { id: string; type: string; clientAt: string; state: "queued" | "sending" | "held_signin" | "needs_hr"; reason: string | null }
 
 /** The punches this device is holding because it had no signal. They are NOT
     records: the server has not seen them. `onDrained` fires when the list
@@ -402,7 +402,7 @@ export function usePunchesWaiting(onDrained: () => void): WaitingPunch[] {
         const punches = all.filter((e) => e.kind === "punch").map((e) => {
           let type = "";
           try { type = String((JSON.parse(e.body ?? "{}") as { type?: unknown }).type ?? ""); } catch { /* unreadable body: still waiting */ }
-          return { id: e.id, type, clientAt: e.clientAt };
+          return { id: e.id, type, clientAt: e.clientAt, state: e.state ?? "queued", reason: e.reason ?? null };
         });
         if (last > punches.length) onDrained();
         last = punches.length;
@@ -416,22 +416,58 @@ export function usePunchesWaiting(onDrained: () => void): WaitingPunch[] {
   return list;
 }
 
+/* v1.243.0 (go-live audit F3) - the queue, by STATE: queued / sending (a
+   signal away), held for sign-in (the session expired; sent again after the
+   next sign-in, same pressed time), needs HR (refused, or older than the
+   server's 48-hour window: shown with its pressed time and the reason until
+   the person says HR has it). Nothing here is called recorded. */
 export function WaitingPunches({ list }: { list: WaitingPunch[] }) {
   if (list.length === 0) return null;
+  const when = (p: WaitingPunch) => `${p.type === "clock_out" ? L("Clock out", "Daftar keluar") : L("Clock in", "Daftar masuk")} ${L("pressed", "ditekan")} ${new Date(Date.parse(p.clientAt) + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ")}`;
+  const queued = list.filter((p) => p.state === "queued" || p.state === "sending");
+  const held = list.filter((p) => p.state === "held_signin");
+  const hr = list.filter((p) => p.state === "needs_hr");
   return (
-    <div className={css.waiting} role="status">
+    <div className={css.waiting} role="status" data-testid="waiting-punches">
       <AppIcon name="warning" className="erp-icon" />
       <div>
-        <p className={css.waitingTitle}>
-          {list.length === 1 ? L("1 punch waiting on this phone - not confirmed", "1 punch menunggu pada telefon ini - belum disahkan")
-            : L(`${list.length} punches waiting on this phone - not confirmed`, `${list.length} punch menunggu pada telefon ini - belum disahkan`)}
-        </p>
-        <p className={css.waitingSub}>
-          {list.map((p) => `${p.type === "clock_out" ? L("Clock out", "Daftar keluar") : L("Clock in", "Daftar masuk")} ${L("pressed", "ditekan")} ${new Date(Date.parse(p.clientAt) + 8 * 3600 * 1000).toISOString().slice(11, 16)}`).join(" · ")}
-          {" - "}
-          {L("the server has not received it yet. It is sent when you are back online and goes to the CEO to approve. Your status above changes only when the server confirms it.",
-             "pelayan belum menerimanya. Ia dihantar apabila anda kembali dalam talian dan dihantar kepada CEO untuk kelulusan. Status anda di atas hanya berubah apabila pelayan mengesahkannya.")}
-        </p>
+        {queued.length > 0 && (
+          <>
+            <p className={css.waitingTitle}>
+              {queued.length === 1 ? L("1 punch waiting on this phone - not confirmed", "1 punch menunggu pada telefon ini - belum disahkan")
+                : L(`${queued.length} punches waiting on this phone - not confirmed`, `${queued.length} punch menunggu pada telefon ini - belum disahkan`)}
+            </p>
+            <p className={css.waitingSub}>
+              {queued.map(when).join(" · ")}
+              {" - "}
+              {L("the server has not received it yet. It is sent when you are back online and goes to the CEO to approve. Your status above changes only when the server confirms it.",
+                 "pelayan belum menerimanya. Ia dihantar apabila anda kembali dalam talian dan dihantar kepada CEO untuk kelulusan. Status anda di atas hanya berubah apabila pelayan mengesahkannya.")}
+            </p>
+          </>
+        )}
+        {held.length > 0 && (
+          <>
+            <p className={css.waitingTitle} data-testid="held-signin">
+              {held.length === 1 ? L("Sign in to send 1 waiting punch", "Log masuk untuk menghantar 1 punch menunggu") : L(`Sign in to send ${held.length} waiting punches`, `Log masuk untuk menghantar ${held.length} punch menunggu`)}
+            </p>
+            <p className={css.waitingSub}>
+              {held.map(when).join(" · ")}
+              {" - "}
+              {L("your session had expired when the phone tried to send it. It is kept with the time you pressed it and is sent the moment you sign in again.",
+                 "sesi anda telah tamat apabila telefon cuba menghantarnya. Ia disimpan dengan masa anda menekannya dan dihantar sebaik sahaja anda log masuk semula.")}
+            </p>
+          </>
+        )}
+        {hr.map((p) => (
+          <div key={p.id} data-testid="needs-hr">
+            <p className={css.waitingTitle}>{L("Tell HR: a punch could not be sent", "Beritahu HR: satu punch tidak dapat dihantar")}</p>
+            <p className={css.waitingSub}>
+              {when(p)}{p.reason ? ` - ${p.reason}` : ""}. {L("HR can enter it by hand at that time; it is kept here until you say HR has it.", "HR boleh memasukkannya secara manual pada masa itu; ia disimpan di sini sehingga anda kata HR telah menerimanya.")}
+              {" "}
+              <button type="button" className={css.waitingLink} onClick={() => void dismissNeedsHr(p.id)}>{L("HR has it", "HR telah terima")}</button>
+            </p>
+          </div>
+        ))}
       </div>
     </div>
   );

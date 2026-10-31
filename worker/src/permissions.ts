@@ -293,7 +293,36 @@ export function cleanOverrides(raw: unknown): Record<string, Role[]> {
   }
   return out;
 }
-export function setPermissionOverrides(raw: unknown): void { OVERRIDES = cleanOverrides(raw); }
+/* v1.242.0 (go-live audit A6, the owner's decision D-6 of 31-10-2026) - THREE
+   LOCKED CELLS. The matrix stays editable, except: owner_designate and
+   backup_download stay super-admin only (naming the owner is the recovery
+   procedure; the backup holds password hashes and 2FA secrets), and the
+   super admin always keeps exec_view (the one account that can review
+   everything cannot be blinded by an edit). Enforced on save AND on read, so
+   a record written before this release cannot grant them either. */
+export const LOCKED_CELLS: readonly { cap: keyof typeof PERMS; rule: "super_admin_only" | "super_admin_keeps"; why: string }[] = [
+  { cap: "owner_designate", rule: "super_admin_only", why: "Naming the owner is the recovery procedure: super admin only, always." },
+  { cap: "backup_download", rule: "super_admin_only", why: "The backup holds password hashes and 2FA secrets: super admin only, always." },
+  { cap: "exec_view", rule: "super_admin_keeps", why: "The super admin always keeps the executive view - the one account that reviews everything cannot be blinded." },
+];
+export function lockedCellViolation(cap: string, roles: readonly string[]): string | null {
+  for (const l of LOCKED_CELLS) {
+    if (l.cap !== cap) continue;
+    if (l.rule === "super_admin_only" && (roles.length !== 1 || roles[0] !== "super_admin")) return l.why;
+    if (l.rule === "super_admin_keeps" && !roles.includes("super_admin")) return l.why;
+  }
+  return null;
+}
+export function setPermissionOverrides(raw: unknown): void {
+  const cleaned = cleanOverrides(raw);
+  for (const l of LOCKED_CELLS) {
+    const v = cleaned[l.cap];
+    if (!v) continue;
+    if (l.rule === "super_admin_only") delete cleaned[l.cap]; // the default is super_admin only
+    else if (!v.includes("super_admin")) cleaned[l.cap] = [...v, "super_admin"] as Role[];
+  }
+  OVERRIDES = cleaned;
+}
 /** The roles that hold a capability right now: the saved edit, else the default. */
 export function rolesFor(perm: keyof typeof PERMS): readonly Role[] { return OVERRIDES[perm] ?? PERMS[perm]!; }
 

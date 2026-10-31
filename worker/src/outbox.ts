@@ -59,6 +59,13 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp }[] = [
   { method: "POST", path: /^\/docs\/\d+\/credit-note$/ },
   { method: "POST", path: /^\/credit-notes\/\d+\/refund$/ },
   { method: "POST", path: /^\/docs\/\d+\/convert$/ },
+  { method: "POST", path: /^\/docs\/\d+\/void$/ },               // v1.242.0 (B2)
+  /* v1.242.0 (go-live audit C8) - stock writes join: adjust, receipt, supplier return, postage, count post */
+  { method: "POST", path: /^\/inventory\/\d+\/adjust$/ },
+  { method: "POST", path: /^\/inventory\/receipts$/ },
+  { method: "POST", path: /^\/inventory\/returns$/ },
+  { method: "POST", path: /^\/postage$/ },
+  { method: "POST", path: /^\/stock-counts\/\d+\/post$/ },
 ];
 export function isOnceOnly(method: string, subPath: string): boolean {
   return ONCE_ONLY.some((r) => r.method === method && r.path.test(subPath));

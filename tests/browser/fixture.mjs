@@ -71,6 +71,9 @@ function baseFixture(p) {
         /* v1.237.0 - the editable cell behind each row (worker: cap, default, saved edit) */
         cap: a.key === "tab_access" ? null : ({ sales_view: "sales", mark_paid: "invoice_payment", tech_admin: "tech_admin_grant", backup: "backup_download", geofence: "geofence_admin", commission_decide: "commission_settle" }[a.key] ?? a.key),
         editable: a.key !== "tab_access", default_roles: a.key === "tab_access" ? null : a.roles, edited: false, edit_meta: null,
+        /* v1.242.0 (D-6) - the worker's three locked cells, as it sends them */
+        locked: a.key === "owner_designate" ? { cap: "owner_designate", rule: "super_admin_only", why: "Naming the owner is the recovery procedure: super admin only, always." }
+          : a.key === "backup" ? { cap: "backup_download", rule: "super_admin_only", why: "The backup holds password hashes and 2FA secrets: super admin only, always." } : null,
         needs: a.key === "payroll_release" ? "payroll_process" : a.key === "bank_run" ? "expenses" : null })),
       can_edit_actions: (OWNER && ROLE === "ceo") || ROLE === "super_admin", edited_count: 0,
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
@@ -118,7 +121,9 @@ function baseFixture(p) {
   if (p === "/staff/inventory/manual-outs") data = { outs: [
     { id: 41, item_id: 2, sku: "ELFIA002", item_name: "ELFIA Daily care", qty: 12, unit_sale_cents: null, remark: "Restock from supplier — 12 cartons", created_at: D + "16 02:10:00", created_by_name: "Nur Aisyah", out_date: D + "16", reverted: 0, direction: "in", item_cost_cents: 1200 },
     { id: 40, item_id: 1, sku: "ELFIA001", item_name: "ELFIA Premium product", qty: 2, unit_sale_cents: null, remark: "Marketing / content shoot — coming back — Raya shoot", created_at: D + "12 06:00:00", created_by_name: "Farid Zul", out_date: D + "12", reverted: 0, direction: "out", item_cost_cents: 2400 },
-    { id: 39, item_id: 1, sku: "ELFIA001", item_name: "ELFIA Premium product", qty: 1, unit_sale_cents: null, remark: "Damaged / defective — torn seam", created_at: D + "05 03:00:00", created_by_name: "Nur Aisyah", out_date: D + "05", reverted: 0, direction: "out", item_cost_cents: 2400 }] };
+    { id: 39, item_id: 1, sku: "ELFIA001", item_name: "ELFIA Premium product", qty: 1, unit_sale_cents: null, remark: "Damaged / defective — torn seam", created_at: D + "05 03:00:00", created_by_name: "Nur Aisyah", out_date: D + "05", reverted: 0, direction: "out", item_cost_cents: 2400 },
+    /* v1.242.0 (C1) - a loan that came back: closed, no Edit / Revert */
+    { id: 38, item_id: 2, sku: "ELFIA002", item_name: "ELFIA Daily care", qty: 3, unit_sale_cents: null, remark: "Internal use — office display", created_at: D + "02 03:00:00", created_by_name: "Farid Zul", out_date: D + "02", reverted: 0, direction: "out", purpose: "internal_use", returned_at: D + "04 09:00:00", item_cost_cents: 1200 }] };
   if (p === "/staff/inventory/tiktok-out") data = { items: [
     { id: 2, sku: "ELFIA002", name: "ELFIA Daily care", stock: 30, today_qty: 3, month_qty: 41, total_qty: 180, last_at: D + "18 01:40:00", unit_price_cents: 2400, avg_sale_cents: 2150, month_value_cents: 88150 },
     { id: 1, sku: "ELFIA001", name: "ELFIA Premium product", stock: 4, today_qty: 0, month_qty: 9, total_qty: 66, last_at: D + "16 12:00:00", unit_price_cents: 4500, avg_sale_cents: 4290, month_value_cents: 38610 }] };

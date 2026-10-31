@@ -115,7 +115,12 @@ try {
   ok("a credit with no money moving books nothing", cn2.status === 201 && cash(`CN-${cn2.j.id}`).length === 0);
   ok("the refund can be recorded later, by the COO or an admin, not the CCO", (await call(`/credit-notes/${cn2.j.id}/refund`, 3, "POST", { refund_on: "2026-11-10" })).status === 403
     && (await call(`/credit-notes/${cn2.j.id}/refund`, 6, "POST", { refund_on: "2026-11-10" })).status === 200 && cash(`CN-${cn2.j.id}`).length === 1);
-  ok("a product invoice's refund books against Sales (4000)", (await call("/docs/11/credit-note", 1, "POST", { amount_cents: 1000, refund_on: "2026-11-10" })).status === 201 && jl(`CN-${db.prepare(`SELECT MAX(id) AS id FROM credit_notes`).get().id}`)[0].code === "4000");
+  /* v1.242.0 (go-live audit B1) - a refund needs money IN first: INV-11 is
+     unpaid, so its refund is refused; a part payment on it makes room */
+  const r11 = await call("/docs/11/credit-note", 1, "POST", { amount_cents: 1000, refund_on: "2026-11-10" });
+  ok("B1: a refund on an invoice with no money recorded is refused, and books nothing", r11.status === 400 && r11.j?.error?.code === "refund_exceeds_paid" && db.prepare(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE type = 'out' AND ref LIKE 'CN-%'`).get().n === cash(`CN-${cn1.j.id}`).length + cash(`CN-${cn2.j.id}`).length, JSON.stringify(r11.j));
+  ok("a part payment is received on INV-11", (await call("/docs/11/payments", 1, "POST", { amount_cents: 5000, received_on: "2026-11-10", method: "cash" })).status === 201);
+  ok("a product invoice's refund (within the money received) books against Sales (4000)", (await call("/docs/11/credit-note", 1, "POST", { amount_cents: 1000, refund_on: "2026-11-10" })).status === 201 && jl(`CN-${db.prepare(`SELECT MAX(id) AS id FROM credit_notes`).get().id}`)[0].code === "4000");
   ok("credit notes on one invoice never exceed its total", (await call("/docs/10/credit-note", 1, "POST", { amount_cents: 100000 })).status === 400);
   ok("a refund in the future is refused", (await call("/docs/10/credit-note", 1, "POST", { amount_cents: 100, refund_on: "2026-12-01" })).status === 400);
   const list = (await call("/credit-notes", 1)).j;

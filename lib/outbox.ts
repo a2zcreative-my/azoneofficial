@@ -78,13 +78,26 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp; kind: string }[
   { method: "POST", path: /^\/staff\/docs\/\d+\/credit-note$/,        kind: "credit_note" },
   { method: "POST", path: /^\/staff\/credit-notes\/\d+\/refund$/,     kind: "refund" },
   { method: "POST", path: /^\/staff\/docs\/\d+\/convert$/,            kind: "convert" },
+  { method: "POST", path: /^\/staff\/docs\/\d+\/void$/,               kind: "void" },          // v1.242.0 (B2)
+  /* v1.242.0 (go-live audit C8) - stock writes: a lost reply and a second press moved stock twice */
+  { method: "POST", path: /^\/staff\/inventory\/\d+\/adjust$/,       kind: "stock_adjust" },
+  { method: "POST", path: /^\/staff\/inventory\/receipts$/,          kind: "stock_receipt" },
+  { method: "POST", path: /^\/staff\/inventory\/returns$/,           kind: "stock_return" },
+  { method: "POST", path: /^\/staff\/postage$/,                      kind: "postage" },
+  { method: "POST", path: /^\/staff\/stock-counts\/\d+\/post$/,      kind: "stock_count" },
 ];
 export function onceOnlyKind(method: string | undefined, path: string): string | null {
   const m = (method ?? "GET").toUpperCase();
   for (const r of ONCE_ONLY) if (r.method === m && r.path.test(path)) return r.kind;
   return null;
 }
-/** The same press, pressed again within five minutes, gets the same key. */
+/* v1.242.0 (go-live audit B10) - the key is minted ONCE PER PRESS (api.ts,
+   newIdempotencyKey) and reused only for that press's retry. The 1.238.0
+   key was a hash of the request in a five-minute window, so a genuine
+   second identical write - two RM 50 part payments on one invoice within
+   five minutes - was answered with the first one's result and never
+   recorded. `onceKey` stays exported for the guard that documents the
+   change; nothing calls it. */
 export async function onceKey(method: string, path: string, body: string | null, now = Date.now()): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${method} ${path} ${body ?? ""}`));
   const hex = [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
@@ -111,7 +124,23 @@ export interface OutboxEntry {
       instead of dropping it; rows written before this version have no `nextAt`
       and are read as due now, which is the correct answer for them. */
   nextAt?: number;
+  /* v1.243.0 (go-live audit F3) - WHERE THE WRITE STANDS, said to the person:
+     queued (saved on this phone, pressed time kept) -> sending -> confirmed
+     (the server said 2xx: only then is it "recorded"; the entry is removed)
+     | held_signin (the server said 401/403: the session is gone; the entry
+     and its pressed time are KEPT and sent again, with the same key, after
+     the next successful sign-in) | needs_hr (the server refused it with
+     400/409, or it is older than the server's 48-hour late window: it is
+     kept, shown with its pressed time and the reason, and HR enters it by
+     hand with the original time; the person dismisses it once told). */
+  state?: "queued" | "sending" | "held_signin" | "needs_hr";
+  reason?: string | null;
 }
+/** The server (worker/src/outbox.ts MAX_LATE_MS) records a late punch at its
+    pressed time only within 48 hours; later than that it would be stored at
+    the arrival time, which is the wrong record. The phone stops sending it
+    and hands it to HR instead. */
+export const MAX_LATE_MS = 48 * 3600 * 1000;
 
 /** v1.177.1 - after this many server errors the queue stops trying and SAYS
     so. Six attempts across the backoff below spans about half an hour; a write
@@ -194,8 +223,12 @@ function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<
 export async function outboxAll(): Promise<OutboxEntry[]> {
   const all = (await tx<OutboxEntry[]>("readonly", (s) => s.getAll())) ?? [];
   const cutoff = Date.now() - MAX_AGE_MS;
+  /* v1.243.0 (F3) - a PUNCH is never quietly aged out: past the server's
+     late window it is shown as "needs HR" for two weeks, with its pressed
+     time, until the person dismisses it. Other writes keep the two-day rule. */
+  const cutoffPunch = Date.now() - 14 * 86400000;
   return all
-    .filter((e) => e.scope === scope && e.createdAt >= cutoff)
+    .filter((e) => e.scope === scope && e.createdAt >= (e.kind === "punch" ? cutoffPunch : cutoff))
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -235,6 +268,24 @@ async function remove(id: string): Promise<void> {
 async function bumpAttempts(e: OutboxEntry, due = 0): Promise<void> {
   const attempts = e.attempts + 1;
   await txOk("readwrite", (s) => { s.put({ ...e, attempts, nextAt: due || Date.now() }); });
+}
+/* v1.243.0 (F3) - the state is written on the entry itself, so every screen
+   that lists the queue reads the same word */
+async function setState(e: OutboxEntry, state: NonNullable<OutboxEntry["state"]>, reason: string | null): Promise<void> {
+  await txOk("readwrite", (s) => { s.put({ ...e, state, reason }); });
+  notifyChange();
+}
+/** After a successful sign-in: everything held for it is due again. */
+export async function releaseHeld(): Promise<number> {
+  const held = (await outboxAll()).filter((e) => e.state === "held_signin");
+  for (const e of held) await txOk("readwrite", (s) => { s.put({ ...e, state: "queued", reason: null, nextAt: Date.now() }); });
+  if (held.length) notifyChange();
+  return held.length;
+}
+/** The person has told HR about a punch the phone could not deliver: it leaves the queue. */
+export async function dismissNeedsHr(id: string): Promise<void> {
+  const e = (await outboxAll()).find((x) => x.id === id);
+  if (e && e.state === "needs_hr") await remove(id);
 }
 
 /* ---------------- listeners ---------------- */
@@ -287,14 +338,37 @@ export async function drainOutbox(send: (e: OutboxEntry) => Promise<{ status: nu
       /* v1.177.1 - a server error backs this entry off; until it is due again
          we step over it rather than hammering the same failing write. */
       if ((e.nextAt ?? 0) > now) continue;
+      /* v1.243.0 (F3) - a punch the server could no longer record at its
+         pressed time is not sent: it goes to HR with that time */
+      if (e.state === "needs_hr" || e.state === "held_signin") continue;
+      if (e.kind === "punch" && now - Date.parse(e.clientAt) > MAX_LATE_MS) {
+        await setState(e, "needs_hr", "older than 48 hours - the server would record it at the wrong time");
+        continue;
+      }
+      await setState(e, "sending", null);
       const r = await send(e);
-      if (r === null) { await bumpAttempts(e); break; } // network: try again later
+      if (r === null) { await bumpAttempts({ ...e, state: "queued" }); break; } // network: try again later
       if (r.status >= 200 && r.status < 300) { await remove(e.id); sent++; continue; }
+      if (r.status === 401 || r.status === 403) {
+        /* v1.243.0 (F3) - THE SESSION IS GONE, NOT THE PUNCH. It stays, with
+           its pressed time and its key, and is sent again after the next
+           successful sign-in (releaseHeld). Nothing else in the queue is
+           tried: it would meet the same door. */
+        await setState(e, "held_signin", "sign in to send it");
+        break;
+      }
       if (r.status >= 400 && r.status < 500) {
+        const msg = (r.data as { error?: { message?: string } } | null)?.error?.message ?? `refused (${r.status})`;
+        if (e.kind === "punch") {
+          /* v1.243.0 (F3) - a refused PUNCH is a day somebody worked: kept,
+             with the reason, for HR to enter by hand at the pressed time */
+          await setState(e, "needs_hr", msg);
+          onRefused?.({ entry: { ...e, state: "needs_hr", reason: msg }, status: r.status, message: msg });
+          continue;
+        }
         /* the server has SEEN it and said no. Repeating cannot change the
            answer, so it leaves the queue - and the person is told why. */
         await remove(e.id);
-        const msg = (r.data as { error?: { message?: string } } | null)?.error?.message ?? `refused (${r.status})`;
         onRefused?.({ entry: e, status: r.status, message: msg });
         continue;
       }
@@ -325,9 +399,13 @@ export async function drainOutbox(send: (e: OutboxEntry) => Promise<{ status: nu
 }
 
 /** Wire the automatic drains once per page. Returns an unsubscribe. */
+let kickNow: (() => void) | null = null;
+/** v1.243.0 (F3) - drain now (after a sign-in released the held entries). */
+export function pokeOutbox(): void { kickNow?.(); }
 export function startOutbox(send: (e: OutboxEntry) => Promise<{ status: number; data: unknown } | null>): () => void {
   if (typeof window === "undefined") return () => {};
   const kick = () => { void drainOutbox(send); };
+  kickNow = kick;
   window.addEventListener("online", kick);
   const onVis = () => { if (document.visibilityState === "visible") kick(); };
   document.addEventListener("visibilitychange", onVis);
@@ -337,5 +415,6 @@ export function startOutbox(send: (e: OutboxEntry) => Promise<{ status: number; 
     window.removeEventListener("online", kick);
     document.removeEventListener("visibilitychange", onVis);
     if (timer !== null) window.clearInterval(timer);
+    if (kickNow === kick) kickNow = null;
   };
 }

@@ -124,7 +124,9 @@ async function checks(f) {
   /* C */
   ok(/staff_total: await n\(`SELECT COUNT\(\*\) AS c FROM users WHERE is_active = 1 AND \$\{headcountSql\(\)\}/.test(f.staff), "C the Dashboard's Active staff tile is the same headcount");
   ok(/WHERE u\.is_active = 1 AND \$\{headcountSql\("u\."\)\} AND u\.role NOT IN \('customer', 'super_admin', 'admin'\)\s*ORDER BY \$\{STAFF_ORDER_SQL\}`,\s*\)\.all<\{ id: number; name: string; position: string \| null; leave_type/.test(f.staff), "C ...and its not-clocked-in list");
-  ok(/path === "\/staff-list"[\s\S]{0,500}?\$\{currentStaffSql\("u\."\)\}/.test(f.staff) && (f.staff.match(/\$\{headcountSql\(/g) ?? []).length === 2, "C pickers keep currentStaffSql (a starter can be rostered); headcount is used for the two counts only");
+  ok(/path === "\/staff-list"[\s\S]{0,500}?\$\{currentStaffSql\("u\."\)\}/.test(f.staff) && (f.staff.match(/\$\{headcountSql\(/g) ?? []).length === 3
+     && /AND \$\{headcountSql\("u\."\)\}\s*ORDER BY \$\{STAFF_ORDER_SQL\}`,\s*\)\.bind\(todayM\)\.all\(\); \/\/ v1\.243\.0 \(D9\)/.test(f.staff),
+   "C pickers keep currentStaffSql (a starter can be rostered); headcount is used for the two counts and, since 1.243.0 (go-live D9), the attendance monitor - the same not-clocked-in question");
   ok(/export function payrollMonthStaffSql\(month: string, alias = ""\): string \{/.test(f.staff) && /substr\(\$\{alias\}left_on, 1, 7\) >= '\$\{month\}'/.test(f.staff), "C payroll keeps its month rule - a leaver is paid for every month worked");
 
   /* D */

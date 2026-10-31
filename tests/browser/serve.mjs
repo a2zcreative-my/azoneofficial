@@ -37,6 +37,30 @@ const missing = new Set();
                   loads and the 404s. */
 const pkgVersion = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "package.json"), "utf8")).version;
 let twofaOn = false;
+/* v1.242.0 (go-live Release B) - the void / convert lifecycle, stateful:
+   POST /docs/:id/void (reason >= 10) marks the row void; GET /docs shows it
+   so; POST /docs/:id/convert answers once (201) and then 409
+   already_invoiced; SLOW_CONVERT=<ms> makes the convert take that long, so a
+   busy button can be observed; DELETE /docs/:id refuses an invoice. */
+const voided = new Map();
+const converted = new Set();
+const slowConvert = Number(process.env.SLOW_CONVERT ?? 0);
+/* v1.243.0 (go-live Release C) - two more, stateful:
+   POP=1          GET /staff/payroll?month=2026-09 carries the server's payroll
+                  population: Farid has no bank details (blocks Paid), Tan's
+                  login is suspended (a note); POST /staff/payroll/manual-payment
+                  resolves Farid's; POST /staff/payroll/paid is refused 409
+                  exceptions_open while anything blocks
+   /__punch?status=401|409|200   what POST /staff/attendance answers from then
+                  on (default 200); /__fixture-status lists every punch POST
+                  with its Idempotency-Key and X-Client-At (punch_log);
+                  /__reset puts all of it back as at start */
+/* v1.244.0 (go-live Release D) - /__mediabk?state=unbound|pending|ok|damaged
+   adds that media-copy state to GET /system/health (none: as before) */
+let mediaBk = null;
+let punchStatus = 200;
+const punchLog = [];
+let manualPaid = null;
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -44,7 +68,19 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   if (url.pathname === "/__fixture-status") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn })); return;
+    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
+  }
+  if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
+    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear();
+    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
+  }
+  if (url.pathname === "/__mediabk") {
+    mediaBk = url.searchParams.get("state") || null;
+    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ media_backup: mediaBk })); return;
+  }
+  if (url.pathname === "/__punch") {
+    punchStatus = Number(url.searchParams.get("status") ?? 200);
+    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ punch_status: punchStatus })); return;
   }
   if (url.pathname === "/__break") {
     chunksBroken = url.searchParams.get("on") === "1";
@@ -95,6 +131,22 @@ const server = http.createServer((req, res) => {
           res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, backup_codes: ["AAAA-1111", "BBBB-2222", "CCCC-3333", "DDDD-4444", "EEEE-5555", "FFFF-6666", "GGGG-7777", "HHHH-8888"] })); return;
         }
       }
+      if (req.method === "POST" && p === "/staff/attendance") {
+        punchLog.push({ key: req.headers["idempotency-key"] ?? null, client_at: req.headers["x-client-at"] ?? null, replay: req.headers["x-outbox-replay"] ?? null, status: punchStatus, body });
+        if (punchStatus === 401) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return; }
+        if (punchStatus === 409) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "on_leave", message: "You are on approved annual leave today (31-10-2026) - there is no shift to clock in to." } })); return; }
+      }
+      if (process.env.POP && req.method === "POST" && p === "/staff/payroll/manual-payment") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        const good = Number(b.user_id) === 9003 && ["cash", "cheque", "transfer", "other"].includes(b.method) && String(b.reference ?? "").trim().length >= 2 && Number.isInteger(b.amount_cents) && b.amount_cents > 0;
+        if (good) manualPaid = { user_id: 9003, method: b.method, reference: String(b.reference).trim(), amount_cents: b.amount_cents };
+        res.writeHead(good ? 200 : 400, { "content-type": "application/json" });
+        res.end(JSON.stringify(good ? { ok: true } : { error: { code: "invalid_input", message: "Method, reference and the payslip's net are required." } })); return;
+      }
+      if (process.env.POP && req.method === "POST" && p === "/staff/payroll/paid" && !manualPaid) {
+        res.writeHead(409, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { code: "exceptions_open", message: "1 person in the September 2026 run cannot be paid by the bank file: Farid Zulkifli (no bank details). Fix the record or record a manual payment, then mark it paid." }, exceptions: [{ user_id: 9003, kind: "no_bank" }] })); return;
+      }
       if (process.env.ALREADY_PUNCHED && req.method === "POST" && p === "/staff/attendance") {
         res.writeHead(409, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { code: "already_punched", message: "You already clocked out at 18:31 MYT. Clock in again when your next shift starts." }, already: true, at: "18:31" }));
@@ -130,6 +182,31 @@ const server = http.createServer((req, res) => {
           : p.endsWith("/email") ? { ok: true, applied: b.route === "in_person", change_id: 4, needs_second: false, sent: false } : { ok: true };
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out)); return;
       }
+      {
+        const mv = /^\/staff\/docs\/(\d+)\/void$/.exec(p);
+        if (mv && req.method === "POST") {
+          let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+          const reason = String(b.reason ?? "").trim();
+          if (reason.length < 10) { res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "Say why this invoice is being voided (at least 10 characters)." } })); return; }
+          if (mv[1] === "2") { res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "INV-AZO100926-2 is PAID: its money is in the books. Issue a credit note instead." } })); return; }
+          voided.set(mv[1], reason);
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, voided: `doc ${mv[1]}` })); return;
+        }
+        const mc = /^\/staff\/docs\/(\d+)\/convert$/.exec(p);
+        if (mc && req.method === "POST") {
+          const answer = () => {
+            if (converted.has(mc[1])) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "already_invoiced", message: "QT-AZO150926-1 was already invoiced as INV-AZOO311026-9. Void that invoice first (with a reason) if it was a mistake." }, invoice_id: 9100, invoice_number: "INV-AZOO311026-9" })); return; }
+            converted.add(mc[1]);
+            res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 9100, doc_number: "INV-AZOO311026-9", stock: null, replaces_doc_id: null }));
+          };
+          if (slowConvert) setTimeout(answer, slowConvert); else answer();
+          return;
+        }
+        const md = /^\/staff\/docs\/(\d+)$/.exec(p);
+        if (md && req.method === "DELETE" && ["2", "3", "4"].includes(md[1])) {
+          res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "Invoices are voided with a reason, never deleted (Void invoice)." } })); return;
+        }
+      }
       if (req.method === "POST" && p === "/enquiries/introduce") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 501 })); return; }
       if (req.method === "POST" && p === "/staff/support/report") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, task_id: 77, assigned_to: "Fixture Person" })); return; }
       if (req.method === "POST" && /^\/users\/\d+\/offboard$/.test(p)) {
@@ -144,6 +221,23 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(good ? { ok: true, email: "aisyah@a2zcreative.test" } : { error: { code: "link_invalid", message: "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one." } })); return;
       }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
+      if (req.method === "GET" && p === "/staff/docs" && Array.isArray(data?.docs) && (voided.size || converted.size)) {
+        data.docs = data.docs.map((d) => voided.has(String(d.id)) ? { ...d, payment_status: "void", voided_at: "2026-10-31 05:00:00", void_reason: voided.get(String(d.id)) }
+          : converted.has(String(d.id)) ? { ...d, invoiced_as: "INV-AZOO311026-9", invoiced_as_id: 9100 } : d);
+      }
+      if (process.env.POP && req.method === "GET" && p === "/staff/payroll" && url.searchParams.get("month") === "2026-09" && data?.entries) {
+        const farid = manualPaid
+          ? { user_id: 9003, name: "Farid Zulkifli", kind: "manual_payment", blocking: false, resolved: true, resolution: "manual_payment", amount_cents: manualPaid.amount_cents, detail: `${manualPaid.method} - ${manualPaid.reference}` }
+          : { user_id: 9003, name: "Farid Zulkifli", kind: "no_bank", blocking: true, resolved: false, resolution: null, amount_cents: null, detail: null };
+        data.population = { in_run: 3, file_payees: 2, file_total_cents: 624052, manual_total_cents: manualPaid ? manualPaid.amount_cents : 0, total_cents: 624052 + 95000,
+          exceptions: [farid, { user_id: 9004, name: "Tan Mei Ling", kind: "login_suspended", blocking: false, resolved: false, resolution: null, amount_cents: null, detail: null }],
+          blocking: manualPaid ? 0 : 1, out_of_run: [], paid: null, payslips_out: false };
+      }
+      if (mediaBk && req.method === "GET" && p === "/system/health" && data && !data.error) {
+        const copy = { at: "2026-10-31T21:30:00.000Z", live: 1240, copied: mediaBk === "pending" ? 40 : 0, pending: mediaBk === "pending" ? 120 : 0 };
+        data.media_backup = mediaBk === "unbound" ? { bucket_bound: false, last_copy: null, last_reconcile: null }
+          : { bucket_bound: true, last_copy: copy, last_reconcile: mediaBk === "pending" ? null : { at: "2026-10-31T19:25:00.000Z", live: 1240, missing: 0, stale: 0, bad: mediaBk === "damaged" ? 2 : 0 } };
+      }
       if (process.env.TWOFA && req.method === "GET") {
         if (p === "/auth/me" && data?.user) data.user.requires_2fa = !twofaOn;
         if (p === "/auth/2fa/status") Object.assign(data, { enabled: twofaOn, backup_codes_left: twofaOn ? 8 : 0 });

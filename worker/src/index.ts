@@ -1,8 +1,9 @@
-import { backupManifest } from "./backup-manifest";
+import { exportPaged, gzipText, type PagedManifest } from "./backup-manifest";
+import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, runMediaReconcile, pruneMediaBackups } from "./backup-store";
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
-import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, type StaffUser } from "./staff";
+import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, type StaffUser } from "./staff";
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges } from "./accounts"; // v1.238.0 - account identity
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
@@ -32,6 +33,8 @@ import { threadsAuthUrl, threadsCompleteAuth, threadsConfigured, threadsSetupRep
 export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
+  /** v1.244.0 (D-4) - azoneofficial-backups: the database export and the media copy */
+  BACKUPS?: R2Bucket;
   ALLOWED_ORIGIN: string;
   /** v1.29.0 — comma-separated origin list for the domain transition
       (primary FIRST). When set it supersedes ALLOWED_ORIGIN; each entry
@@ -291,7 +294,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0156_week_goals";
+const LATEST_MIGRATION = "0158_payroll_population";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1640,55 +1643,82 @@ async function logError(env: Env, source: string, message: string, path?: string
   }
 }
 
-/** v1.4.72: nightly database backup to R2. Dumps every application table as
-    JSON to backups/db-YYYY-MM-DD.json (MYT date) and keeps the newest 30 —
-    a bad migration or accidental delete is recoverable from any of them.
-    Exceeding the row cap fails before publishing or pruning any backup. */
+/** v1.4.72: nightly database backup to R2.
+    v1.244.0 (go-live audit F7, Release D; decisions D-4 and D-9): the
+    export is PAGED (backup-manifest.ts) - no table is too big any more -
+    and goes to the BACKUPS bucket (db/db-<MYT stamp>/, manifest last), or
+    to MEDIA/backups/ while that bucket is not bound. A failed run removes
+    the pages it wrote and leaves every earlier backup in place; retention
+    (the newest 30 complete) runs only after a success. */
 export async function runBackup(env: Env, actorId: number | null): Promise<
-  | { ok: true; key: string; tables: number; rows: number; bytes: number }
+  | { ok: true; key: string; tables: number; rows: number; bytes: number; pages: number }
   | { ok: false; message: string }
 > {
+  const { bucket, root, separate } = backupStore(env);
+  const prefix = `${root}db-${backupStamp()}/`;
+  const written: string[] = [];
   try {
-    const { results: tables } = await env.DB.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table'
-         AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-         AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'
-         AND name != 'd1_migrations'
-       ORDER BY name`,
-    ).all<{ name: string }>();
-    const dump: Record<string, unknown[]> = {};
-    let rowCount = 0;
-    for (const t of tables) {
-      if (!/^[A-Za-z0-9_]+$/.test(t.name)) throw new Error("Backup encountered an unsupported table name; no backup was published.");
-      // Read one sentinel row beyond the bounded export. Never publish a
-      // truncated table as a successful backup or replace the previous copy.
-      const { results } = await env.DB.prepare(`SELECT * FROM "${t.name}" LIMIT 50001`).all();
-      if (results.length > 50000) {
-        throw new Error(`Backup incomplete: table ${t.name} exceeds the 50000-row export limit. No backup was published; use a full database export.`);
-      }
-      dump[t.name] = results;
-      rowCount += results.length;
-    }
-    const mytDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    // v1.4.76: gzip the dump (R2 free tier) — JSON compresses ~85–90%.
-    const key = `backups/db-${mytDate}.json.gz`;
-    const manifest = await backupManifest(env.DB, dump, WORKER_VERSION);
-    const raw = JSON.stringify({ generated_at: new Date().toISOString(), database: "azoneofficial", tables: dump, manifest });
-    const gzipped = new Response(
-      new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")),
-    );
-    const body = await gzipped.arrayBuffer();
-    await env.MEDIA.put(key, body, { httpMetadata: { contentType: "application/gzip" } });
-    // Retention: keep the newest 30 backup objects.
-    const listed = await env.MEDIA.list({ prefix: "backups/" });
-    const sorted = listed.objects.sort((a, b) => b.key.localeCompare(a.key));
-    for (const stale of sorted.slice(30)) await env.MEDIA.delete(stale.key);
-    await audit(env, actorId, "system.backup", "r2", key, { tables: tables.length, rows: rowCount, bytes: body.byteLength, raw_bytes: raw.length, source: actorId ? "manual" : "cron" });
-    return { ok: true, key, tables: tables.length, rows: rowCount, bytes: body.byteLength };
+    const manifest = await exportPaged(env.DB, async (key, body) => {
+      written.push(key);
+      await bucket.put(key, body, { httpMetadata: { contentType: "application/gzip" } });
+    }, prefix, WORKER_VERSION);
+    const gzBytes = manifest.pages.reduce((s, p) => s + p.gz_bytes, 0);
+    const key = `${prefix}manifest.json`;
+    written.push(key);
+    await bucket.put(key, JSON.stringify(manifest), {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: { gz_bytes: String(gzBytes), rows: String(manifest.row_count), tables: String(manifest.table_count) },
+    });
+    const kept = await pruneDbBackups(env);
+    await audit(env, actorId, "system.backup", "r2", key, { tables: manifest.table_count, rows: manifest.row_count, pages: manifest.pages.length, bytes: gzBytes, bucket: separate ? "backups" : "media", pruned: kept.removed, source: actorId ? "manual" : "cron" });
+    return { ok: true, key, tables: manifest.table_count, rows: manifest.row_count, bytes: gzBytes, pages: manifest.pages.length };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    /* the pages of a run that did not finish are not a backup - remove them,
+       so nothing half-written is ever mistaken for one */
+    for (const k of written) { try { await bucket.delete(k); } catch { /* the sweep removes it after two days */ } }
     await logError(env, "backup", msg);
     return { ok: false, message: msg };
+  }
+}
+
+/** v1.244.0 - the newest complete backup, for the download and System Health. */
+async function newestBackup(env: Env): Promise<{ kind: "paged" | "legacy"; key: string; size: number; uploaded: string } | null> {
+  const units = await backupUnits(env);
+  const best = units.find((u) => u.complete) ?? null;
+  if (best) return best;
+  if (env.BACKUPS) {
+    /* before the first night on the new bucket: the last single-file backup */
+    const old = await backupUnits({ MEDIA: env.MEDIA });
+    return old.find((u) => u.complete) ?? null;
+  }
+  return null;
+}
+
+/** v1.244.0 - media copy, reconciliation and pruning, each recorded for
+    System Health in system_meta (no new table). */
+async function mediaBackupStep(env: Env, kind: "copy" | "nightly"): Promise<void> {
+  const save = async (k: string, v: unknown) => {
+    try {
+      await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2`).bind(k, JSON.stringify(v)).run();
+    } catch { /* pre-0057 */ }
+  };
+  if (kind === "copy") {
+    const r = await runMediaCopy(env, 40);
+    await save("media_backup_last", r);
+    return;
+  }
+  const pruned = await pruneMediaBackups(env);
+  /* Sunday (MYT) - the weekly full reconciliation */
+  if (new Date(Date.now() + 8 * 3600 * 1000).getUTCDay() === 0) {
+    const rec = await runMediaReconcile(env);
+    if (rec) {
+      await save("media_reconcile_last", { ...rec, pruned });
+      let last: { pending?: number } = {};
+      try { last = JSON.parse((await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'media_backup_last'`).first<{ value: string }>())?.value ?? "{}"); } catch { /* none yet */ }
+      if (rec.bad > 0) await logError(env, "media_backup", `${rec.bad} media backup cop${rec.bad === 1 ? "y does" : "ies do"} not match the SHA-256 recorded when copied: ${rec.bad_keys.slice(0, 5).join(", ")}`);
+      else if ((rec.missing + rec.stale) > 0 && (last.pending ?? 0) === 0) await logError(env, "media_backup", `${rec.missing} media object(s) have no backup copy and ${rec.stale} have an out-of-date one, although the copy reports nothing pending`);
+    }
   }
 }
 
@@ -2125,6 +2155,19 @@ export default {
     }
     if (event.cron === "20 19 * * *") {
       await runBackup(env, null);
+      /* v1.244.0 (D-9) - read notifications older than 90 days go, in
+         batches; unread ones stay whatever their age. audit_log is never
+         pruned (tests/go-live-d.mjs holds the worker to it). */
+      try {
+        for (let i = 0; i < 20; i++) {
+          const r = await env.DB.prepare(
+            `DELETE FROM notifications WHERE id IN (SELECT id FROM notifications WHERE is_read = 1 AND created_at < datetime('now', '-90 days') LIMIT 5000)`,
+          ).run();
+          if (!(r.meta?.changes ?? 0)) break;
+        }
+      } catch (e) { await logError(env, "housekeeping", `notifications prune: ${e instanceof Error ? e.message : String(e)}`); }
+      try { await mediaBackupStep(env, "nightly"); }
+      catch (e) { await logError(env, "media_backup", e instanceof Error ? e.message : String(e)); }
       return;
     }
     if (event.cron === "0 1 * * *") {
@@ -2139,19 +2182,25 @@ export default {
       // the celebration. Notifies every active staff member.
       try {
         const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(5, 10); // MM-DD MYT
+        /* v1.244.0 (go-live audit F11) - only people on staff today: a leaver's
+           birthday is not announced, and a leaver is not told about others.
+           (F10) once per person per year - a second pass, a redeploy or a
+           re-run of this cron adds nothing (ref birthday:<id>:<year>). */
+        const yearB = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 4);
         const { results: bdays } = await env.DB.prepare(
           `SELECT id, name FROM users WHERE is_active = 1 AND birthday IS NOT NULL
-           AND substr(birthday, 6, 5) = ?1 AND role NOT IN ('customer')`,
+           AND substr(birthday, 6, 5) = ?1 AND ${staffRolesSql()} AND ${currentStaffSql()}`,
         ).bind(today).all<{ id: number; name: string }>();
         if (bdays.length > 0) {
           const { results: staff } = await env.DB.prepare(
-            `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer')`,
+            `SELECT id FROM users WHERE is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`,
           ).all<{ id: number }>();
           for (const b of bdays) {
             for (const st of staff) {
               await env.DB.prepare(
-                `INSERT INTO notifications (user_id, kind, message, ref) VALUES (?1, 'birthday', ?2, ?3)`,
-              ).bind(st.id, `🎂 Today is ${b.name}'s birthday — wish them well!`, `birthday:${b.id}`).run();
+                `INSERT INTO notifications (user_id, kind, message, ref)
+                 SELECT ?1, 'birthday', ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ?1 AND ref = ?3)`,
+              ).bind(st.id, `🎂 Today is ${b.name}'s birthday — wish them well!`, `birthday:${b.id}:${yearB}`).run();
             }
           }
         }
@@ -2329,6 +2378,12 @@ export default {
       await purgeIdempotencyKeys(env); // v1.105.0 - a week is longer than any phone keeps its queue
     } catch { /* pre-migration — silent */ }
     await bridgeHousekeeping(env);
+    /* v1.244.0 (Release D) - the media copy: every new or changed photo,
+       receipt and document goes to the BACKUPS bucket, 40 a pass (a pass
+       every 30 minutes catches up a first copy of thousands within a day
+       and stays well inside the per-run request budget). Never fatal. */
+    try { await mediaBackupStep(env, "copy"); }
+    catch (e) { await logError(env, "media_backup", e instanceof Error ? e.message : String(e)); }
     /* v1.42.0 (CEO: "everyone is alert on their task and the task being
        track properly") — three task sweeps per 30-min pass, each firing at
        most once per task per day (deduped by a task_events row, so a redeploy
@@ -2340,13 +2395,16 @@ export default {
        3. UNACKNOWLEDGED — assigned by someone else, older than a day, never
           acknowledged → nudge the assignee, tell the assigner. A task nobody
           confirmed seeing is not "assigned" in any real sense.
-       Armored: pre-0083 the whole block is silent. */
+       Armored: pre-0083 the whole block is silent.
+       v1.244.0 (go-live audit F2) - a task still assigned to somebody who has
+       left rings nobody: the three sweeps read current staff only (their
+       tasks are handed over at offboarding, or reassigned). */
     try {
       const todayT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const tomorrowT = new Date(Date.now() + 32 * 3600 * 1000).toISOString().slice(0, 10);
       const { results: overdueT } = await env.DB.prepare(
         `SELECT t.id, t.title, t.deadline, t.assigned_to, t.created_by FROM tasks t
-         WHERE t.status != 'completed' AND t.deadline IS NOT NULL AND t.deadline < ?1
+         WHERE EXISTS (SELECT 1 FROM users ua WHERE ua.id = t.assigned_to AND ${currentStaffSql("ua.")}) AND t.status != 'completed' AND t.deadline IS NOT NULL AND t.deadline < ?1
            AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'overdue_alert' AND e.on_date = ?1)
          LIMIT 25`,
       ).bind(todayT).all<{ id: number; title: string; deadline: string; assigned_to: number; created_by: number | null }>();
@@ -2359,7 +2417,7 @@ export default {
       }
       const { results: dueT } = await env.DB.prepare(
         `SELECT t.id, t.title, t.deadline, t.assigned_to FROM tasks t
-         WHERE t.status != 'completed' AND t.deadline IN (?1, ?2)
+         WHERE EXISTS (SELECT 1 FROM users ua WHERE ua.id = t.assigned_to AND ${currentStaffSql("ua.")}) AND t.status != 'completed' AND t.deadline IN (?1, ?2)
            AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'due_reminder' AND e.on_date = ?1)
          LIMIT 25`,
       ).bind(todayT, tomorrowT).all<{ id: number; title: string; deadline: string; assigned_to: number }>();
@@ -2370,7 +2428,7 @@ export default {
       }
       const { results: unackT } = await env.DB.prepare(
         `SELECT t.id, t.title, t.assigned_to, t.created_by FROM tasks t
-         WHERE t.status = 'open' AND t.created_by IS NOT NULL AND t.created_by != t.assigned_to
+         WHERE EXISTS (SELECT 1 FROM users ua WHERE ua.id = t.assigned_to AND ${currentStaffSql("ua.")}) AND t.status = 'open' AND t.created_by IS NOT NULL AND t.created_by != t.assigned_to
            AND t.created_at < datetime('now', '-1 day')
            AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'ack')
            AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.kind = 'ack_nudge' AND e.on_date = ?1)
@@ -4811,11 +4869,37 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/system/backup/download" && method === "GET") {
     if (!user || !allows(user, "backup_download")) return errorResponse("forbidden", "Super admin required", 403);
-    const listed = await env.MEDIA.list({ prefix: "backups/" });
-    const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
+    /* v1.244.0 (F7) - the newest COMPLETE backup. A paged one downloads as
+       ONE file: its manifest line, then every page as stored, one after the
+       other (gzip members concatenate; NDJSON lines split) - read by
+       scripts/verify-backup.mjs and the restore scripts. */
+    const newest = await newestBackup(env);
     if (!newest) return errorResponse("not_found", "No backup exists yet — press Back up now first", 404);
-    const obj = await env.MEDIA.get(newest.key);
+    const bucketD = newest.key.startsWith("db/") && env.BACKUPS ? env.BACKUPS : env.MEDIA;
+    const obj = await bucketD.get(newest.key);
     if (!obj) return errorResponse("not_found", "Backup object missing", 404);
+    let bodyD: ReadableStream | null = obj.body;
+    let nameD = newest.key.split("/").pop() ?? "backup.json.gz";
+    if (newest.kind === "paged") {
+      const manifestD = JSON.parse(await obj.text()) as PagedManifest;
+      const head = new Uint8Array(await gzipText(JSON.stringify({ $manifest: manifestD }) + "\n"));
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const pagesD = manifestD.pages.map((pg) => pg.key);
+      void (async () => {
+        const w = writable.getWriter();
+        try {
+          await w.write(head);
+          for (const k of pagesD) {
+            const pgObj = await bucketD.get(k);
+            if (!pgObj) throw new Error(`page missing: ${k}`);
+            await w.write(new Uint8Array(await pgObj.arrayBuffer()));
+          }
+          await w.close();
+        } catch (e) { await w.abort(e); }
+      })();
+      bodyD = readable;
+      nameD = `azoo-db-${newest.key.match(/db-(\d{4}-\d{2}-\d{2}-\d{6})\//)?.[1] ?? "backup"}.ndjson.gz`;
+    }
     /* v1.45.0 (security audit C11) — this is a GET, and GETs are outside the
        CSRF check by design. The session cookie is SameSite=Lax, which IS sent
        on a top-level cross-site navigation, so a super admin lured to a link
@@ -4837,10 +4921,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       } catch { /* pre-0057 — download still works */ }
     }
     await audit(env, user.id, "system.backup_export", "system", newest.key);
-    return new Response(obj.body, {
+    return new Response(bodyD, {
       headers: {
         "Content-Type": "application/gzip",
-        "Content-Disposition": `attachment; filename="${newest.key.split("/").pop()}"`,
+        "Content-Disposition": `attachment; filename="${nameD}"`,
         "X-Offsite-Export": exportedAt,
       },
     });
@@ -4859,10 +4943,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     } catch { /* migration 0024 not applied yet — show empty rather than fail */ }
     let last_backup: { key: string; size: number; uploaded: string } | null = null;
     try {
-      const listed = await env.MEDIA.list({ prefix: "backups/" });
-      const newest = listed.objects.sort((a, b) => b.key.localeCompare(a.key))[0];
-      if (newest) last_backup = { key: newest.key, size: newest.size, uploaded: newest.uploaded.toISOString() };
+      const nb = await newestBackup(env);
+      if (nb) last_backup = { key: nb.key, size: nb.size, uploaded: nb.uploaded };
     } catch { /* keep null */ }
+    /* v1.244.0 (Release D) - where the backups are and the media copy's state */
+    let media_backup: { bucket_bound: boolean; last_copy: unknown; last_reconcile: unknown } = { bucket_bound: !!env.BACKUPS, last_copy: null, last_reconcile: null };
+    try {
+      const rows = (await env.DB.prepare(`SELECT key, value FROM system_meta WHERE key IN ('media_backup_last', 'media_reconcile_last')`).all<{ key: string; value: string }>()).results;
+      for (const r of rows) {
+        const v = JSON.parse(r.value);
+        if (r.key === "media_backup_last") media_backup.last_copy = v; else media_backup.last_reconcile = v;
+      }
+    } catch { /* none yet */ }
     let last_offsite: string | null = null;
     try {
       const meta = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'last_offsite_export'`)
@@ -4988,6 +5080,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0154 (commission product rule per policy version)", `SELECT product_rule FROM commission_policies LIMIT 1`],
       ["0155 (account identity: Google sub, email changes, set-password links, session devices)", `SELECT u.google_sub, u.email_verified_at, s.user_agent, s.last_seen_at, c.route, t.kind FROM users u LEFT JOIN sessions s ON 1 = 0 LEFT JOIN email_changes c ON 1 = 0 LEFT JOIN account_tokens t ON 1 = 0 LIMIT 1`],
       ["0156 (weekly goals: target metric, lead introductions, qualified date)", `SELECT t.metric, t.target_count, e.referred_by, e.qualified_at, e.qualified_by FROM sales_week_targets t LEFT JOIN enquiries e ON 1 = 0 LIMIT 1`],
+      ["0157 (invoice void lifecycle: one live invoice per quotation)", `SELECT voided_at, voided_by, void_reason, replaces_doc_id FROM sales_documents INDEXED BY ux_inv_live_per_qt WHERE doc_type = 'INV' AND converted_from = 0 AND voided_at IS NULL LIMIT 1`],
+      ["0158 (payroll population: exceptions, the release a bank run paid)", `SELECT x.kind, x.resolution, p.release_id, p.file_total_cents, p.manual_total_cents FROM payroll_exceptions x LEFT JOIN payroll_payments p ON 1 = 0 LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5165,6 +5259,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0154_commission_product_rule",
       "0155_account_identity",
       "0156_week_goals",
+      "0157_invoice_void_once",
+      "0158_payroll_population",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5172,7 +5268,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const applied = new Set(results.map((r) => r.name.replace(/\.sql$/, "")));
       migrations_all = EXPECTED_MIGRATIONS.map((name) => ({ name, applied: applied.has(name) }));
     } catch { /* d1_migrations absent — keep null, probes above still work */ }
-    return json({ errors, last_backup, last_offsite, migrations_pending, migrations_all });
+    return json({ errors, last_backup, media_backup, last_offsite, migrations_pending, migrations_all });
   }
 
   /* v1.4.282 (auditor pick 3: "staff offboarding flow — one button:
@@ -5230,6 +5326,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ).bind(statusOb, leftOn, idOb).run();
     const sess = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(idOb).run();
     try { await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(idOb).run(); } catch { /* pre-0018 */ }
+    /* v1.244.0 (go-live audit F5) - the leaver's phones stop receiving the
+       company's bells: their push subscriptions go with their sessions */
+    let pushRemoved = 0;
+    try { pushRemoved = (await env.DB.prepare(`DELETE FROM push_subscriptions WHERE user_id = ?1`).bind(idOb).run()).meta?.changes ?? 0; } catch { /* pre-0068 */ }
     /* v1.238.0 - THE HANDOVER (the owner, 31-10-2026; claude/ACCOUNT-
        RECOVERY-AUDIT.md: "Transfer outstanding Tasks. Transfer relevant
        customer responsibility."). Optional handover_to: an active staff
@@ -5250,7 +5350,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       }
     }
     await audit(env, user.id, "staff.offboard", "users", String(idOb),
-      { status: statusOb, left_on: leftOn, sessions_revoked: sess.meta?.changes ?? 0, ...(toId ? { handover_to: toId, moved } : {}) });
+      { status: statusOb, left_on: leftOn, sessions_revoked: sess.meta?.changes ?? 0, push_devices_removed: pushRemoved, ...(toId ? { handover_to: toId, moved } : {}) });
     return json({ ok: true, status: statusOb, left_on: leftOn, moved });
   }
 
@@ -5871,6 +5971,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       await env.DB.prepare(`UPDATE users SET is_active = ?1 WHERE id = ?2`).bind(body.is_active ? 1 : 0, id).run();
       if (!body.is_active) {
         await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(id).run();
+        /* v1.244.0 (F5) - a deactivated account's phones stop receiving bells */
+        try { await env.DB.prepare(`DELETE FROM push_subscriptions WHERE user_id = ?1`).bind(id).run(); } catch { /* pre-0068 */ }
       }
       changed.push("is_active");
     }

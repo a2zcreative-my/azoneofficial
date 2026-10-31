@@ -17,7 +17,7 @@
  * - network failure yields { ok: false, status: 0, data: null }.
  */
 
-import { queueableKind, newIdempotencyKey, enqueue, reportDropped, onceOnlyKind, onceKey, type OutboxEntry } from "@/lib/outbox";
+import { queueableKind, newIdempotencyKey, enqueue, reportDropped, onceOnlyKind, type OutboxEntry } from "@/lib/outbox";
 
 const API = "/api/v1";
 
@@ -117,8 +117,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<ApiResul
   const clientAt = kind ? new Date().toISOString() : null;
   /* v1.238.0 - a money write (lib/outbox.ts ONCE_ONLY) is never queued, but
      carries a key made from itself so a repeat cannot land twice */
+  /* v1.242.0 (go-live audit B10) - minted once per PRESS, random, reused only
+     for this press's retry: a second identical write a minute later is a new
+     press with a new key, and is accepted */
   const once = isMutating && !kind ? onceOnlyKind(init?.method, path) : null;
-  const onceK = once ? await onceKey(init!.method!, path, typeof init?.body === "string" ? init.body : null).catch(() => null) : null;
+  const onceK: string | null = once ? newIdempotencyKey() : null;
   const park = async (): Promise<ApiResult<T>> => {
     const kept = await enqueue({
       id: idem!, path, method: init!.method!, kind: kind!, clientAt: clientAt!,

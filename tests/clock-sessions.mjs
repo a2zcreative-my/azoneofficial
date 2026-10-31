@@ -236,7 +236,8 @@ ok("...and refused when there is no shift left to clock in for",
    /const verdict = canClockIn\(slotsToday, sessionsToday,/.test(staff) && /code: "no_shift"/.test(staff),
    "the CEO clocked in four times at 23:32 on a 10-18 pattern");
 ok("the shifts are the pattern PLUS the roster and the live board",
-   /const slotsToday = daySlots\(shEarly\.windows, assignedToday\.map/.test(staff)
+   /* v1.243.0 (D7): the day's shifts (slotsAll) less approved leave are the slots */
+   /const slotsAll = daySlots\(shEarly\.windows, assignedToday\.map/.test(staff) && /const slotsToday = remainingToday \?\? \[\];/.test(staff)
    && /\.list\(user\.id, todayMYT\)/.test(staff));
 ok("the refusal names the shifts", /every shift today \(\$\{slotsLabel\(slotsToday\)\}\)/.test(staff));
 ok("the phone is told whether a clock-in is possible, and why not",

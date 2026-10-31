@@ -43,6 +43,19 @@ database_id = "d9df2d7a-8303-4396-a4ee-a26836a4c9a8"
 binding = "MEDIA"
 bucket_name = "azoneofficial"
 
+# v1.244.0 (go-live Release D, the owner's decision D-4 of 31-10-2026:
+# "Backups bucket now; staging later"). A SECOND bucket for the nightly
+# database export (db/) and the copy of every media object (media/), so one
+# mistake on the media bucket cannot take the backups with it. The OWNER
+# creates it once, before the first deploy of 1.244.0:
+#   cd worker
+#   npx wrangler r2 bucket create azoneofficial-backups
+# PUSH.bat checks that it exists (scripts/release-backup.mjs check-bucket)
+# and stops before any migration or publish if it does not.
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "azoneofficial-backups"
+
 [vars]
 # Non-secret vars kept out of source: set them in the Cloudflare dashboard
 # (Workers & Pages → your Worker → Settings → Variables) or via

@@ -67,6 +67,18 @@
   padding: 0.5rem 0;
   font-size: var(--type-body-sm-size);
 }
+/* v1.242.0 (go-live audit B2) - a VOIDED invoice stays in the list, struck
+   through and quiet: the number and the amount read as history, the chip
+   says Void, and only PDF and the detail stay as actions. */
+.rowVoid {
+  opacity: 0.72;
+}
+.rowVoid .cDoc,
+.rowVoid .cAmt {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--muted-foreground);
+}
 .cells {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
