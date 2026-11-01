@@ -234,11 +234,20 @@ if (!existsSync(join(root, "worker", "node_modules"))) {
 
 console.log(`\nRunning ${GUARDS.length} guards before anything is published.\n`);
 
-/* One number, used by the call and by the message that reports it - a
-   hard-coded "120s" in the text is how a message starts lying about the
-   thing it describes. worker-compile-gate is the slow one (it type-checks
-   the whole API); everything else finishes in well under a second. */
+/* One number per guard, used by the call and by the message that reports
+   it - a hard-coded "120s" in the text is how a message starts lying about
+   the thing it describes. Most guards finish in seconds and keep 120s.
+   v1.245.1 - the go-live runtime guards rebuild the WHOLE worker with esbuild
+   once per mutation (9 to 12 rebuilds each) and run it against SQLite. In the
+   Linux sandbox go-live-b takes ~30s; on the owner's Windows PC each rebuild
+   takes ~13s and on 31-10-2026 go-live-b was killed at 120s during its 9th
+   mutation, after 8 caught - a timeout, not a failure. They get 10 minutes.
+   Nothing they check changes; a guard that hangs is still killed and still
+   stops the release. */
 const GUARD_TIMEOUT_MS = 120_000;
+const SLOW_GUARD_TIMEOUT_MS = 600_000;
+const SLOW_GUARDS = new Set(["go-live-a", "go-live-b", "go-live-c", "go-live-d", "go-live-p"]);
+const timeoutFor = (name) => (SLOW_GUARDS.has(name) ? SLOW_GUARD_TIMEOUT_MS : GUARD_TIMEOUT_MS);
 
 const failed = [];
 for (const [name, what] of GUARDS) {
@@ -260,18 +269,22 @@ for (const [name, what] of GUARDS) {
      on its own. That is the right fix, and it introduces one new way to fail
      that did not exist before: a guard could in principle keep the event loop
      alive and never return, hanging the deploy with no output at all. A
-     timeout turns that into a named failure instead of a frozen window. Every
-     guard runs in well under a second today. */
-  const run = spawnSync(process.execPath, [file], { cwd: root, encoding: "utf8", timeout: GUARD_TIMEOUT_MS });
+     timeout turns that into a named failure instead of a frozen window (the
+     go-live runtime guards get longer - see SLOW_GUARDS above). */
+  const limit = timeoutFor(name);
+  const started = Date.now();
+  const run = spawnSync(process.execPath, [file], { cwd: root, encoding: "utf8", timeout: limit });
+  const secs = Math.round((Date.now() - started) / 1000);
   if (run.status === 0) {
-    console.log("ok");
+    /* the slow ones say how long they took, so a budget running thin shows before it runs out */
+    console.log(SLOW_GUARDS.has(name) ? `ok (${secs}s of ${limit / 1000}s)` : "ok");
   } else {
     console.log("FAILED");
     /* signal SIGTERM with no status is what spawnSync reports on a timeout;
        say so, because "FAILED" with no output reads like a broken guard. */
     const timedOut = run.status === null && run.signal !== null;
     failed.push(timedOut
-      ? `${name} — did not finish within ${GUARD_TIMEOUT_MS / 1000}s (it was killed, not failed)`
+      ? `${name} — did not finish within ${limit / 1000}s (it was killed, not failed)`
       : `${name} — ${what}`);
     const out = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
     if (out) console.log(out.split("\n").map((l) => `      ${l}`).join("\n"));
