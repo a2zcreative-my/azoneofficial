@@ -262,9 +262,15 @@ export function PortalProvider({ children }: { children: ReactNode }) {
          applies: a tab this account cannot see snaps to the Dashboard. */
       const wanted = new URL(window.location.href).searchParams.get("tab");
       if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {
-        setTabState(wanted as TabName);
+        /* v1.247.0 - a task email deep-links to its task (/portal?tab=Tasks&task=123):
+           the Tasks tab opens on that record through the same focus a bell
+           uses, with every task permission still the server's */
+        const taskId = Number(new URL(window.location.href).searchParams.get("task") ?? 0);
+        if (wanted === "Tasks" && Number.isInteger(taskId) && taskId > 0) openRecord("Tasks", "task", taskId);
+        else setTabState(wanted as TabName);
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
+        clean.searchParams.delete("task");
         window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
         settle();
         return;
@@ -286,7 +292,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         if (live && r.ok && r.data?.today_shift?.entry?.launch_shift) setTabState(current => current === "Dashboard" ? "On Shift" : current);
       }).catch(() => {}).finally(() => { window.clearTimeout(timeout); settle(); });
     return () => { live = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [user]);
+  }, [user, openRecord]);
   useEffect(() => {
     try {
       if (user && entryReady) window.sessionStorage.setItem(`azone-tab:${user.id}`, tab);
@@ -838,6 +844,13 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     return null;
   }
   if (!user) {
+    /* v1.247.0 - remember where the person was heading (a task email's link),
+       so the login page can bring them back to it after they sign in. The
+       path only - never a token, never anything but our own /portal. */
+    try {
+      const here = window.location.pathname + window.location.search;
+      if (here.startsWith("/portal") && here.includes("?")) window.sessionStorage.setItem("azone-return", here);
+    } catch { /* private mode */ }
     return (
       <div className={css.gate}>
         <p className={css.gateEyebrow}>

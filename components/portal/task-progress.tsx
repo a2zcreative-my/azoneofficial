@@ -45,7 +45,7 @@ export interface TaskDetail {
   me: number;
   can: {
     edit: boolean; reassign: boolean; assistants: boolean; tick: boolean; update: boolean; comment: boolean; files: boolean; restricted_files: boolean;
-    request_review: boolean; review: boolean; approve: boolean; cancel: boolean; assist: boolean; self_set: boolean; is_assignee: boolean; is_assistant: boolean;
+    request_review: boolean; review: boolean; approve: boolean; cancel: boolean; assist: boolean; self_set: boolean; is_assignee: boolean; is_assistant: boolean; remind?: boolean;
   };
 }
 type TFile = { id: number; update_id: number | null; comment_id: number | null; file_name: string; content_type: string | null; size_bytes: number | null; level: string; created_at: string; uploader: string; open: boolean };
@@ -212,6 +212,20 @@ function ReviewBar({ d, onChanged, onUpdate }: { d: TaskDetail; onChanged: (t?: 
     onChanged(decision === "approve" ? L("Approved", "Diluluskan") : decision === "return" ? L("Returned", "Dikembalikan") : L("Cancelled", "Dibatalkan"),
       decision === "approve" ? L("The task is completed, with your name on the record.", "Tugasan selesai, dengan nama anda dalam rekod.") : L("The people on the task are told.", "Mereka yang terlibat dimaklumkan."));
   });
+  /* v1.247.0 - a reminder to the assignee: the bell, and the official email
+     when the sender is on; with a reason; once per task every 12 hours */
+  const remind = () => run(async () => {
+    setProblem("");
+    const got = await prompt({
+      title: L("Send a reminder", "Hantar peringatan"),
+      message: L(`${t.assignee ?? "The assignee"} gets a notification and, when email is on, an email from hello@a2zcreative.my with your reason. One reminder per task every 12 hours.`, `${t.assignee ?? "Penerima"} menerima notifikasi dan, apabila e-mel dihidupkan, e-mel daripada hello@a2zcreative.my dengan sebab anda. Satu peringatan setiap 12 jam bagi setiap tugasan.`),
+      label: L("Reason", "Sebab"), required: true, confirmLabel: L("Send reminder", "Hantar peringatan"),
+    });
+    if (!got) return;
+    const r = await api<{ email?: boolean; email_to?: string | null; why?: string | null; error?: { message?: string } }>(`/staff/tasks/${t.id}/remind`, { method: "POST", body: JSON.stringify({ reason: got.value }) });
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not sent", "Tidak dihantar")); return; }
+    onChanged(L("Reminder sent", "Peringatan dihantar"), r.data?.email ? L(`Notification sent; the email is queued for ${r.data.email_to}.`, `Notifikasi dihantar; e-mel dalam giliran untuk ${r.data.email_to}.`) : L(`Notification sent in the portal. No email: ${r.data?.why ?? "email is off"}.`, `Notifikasi dihantar dalam portal. Tiada e-mel: ${r.data?.why ?? "e-mel dimatikan"}.`));
+  });
   const closed = t.status === "completed";
   const line = closed ? (t.stage === "cancelled" ? L("This task was cancelled.", "Tugasan ini dibatalkan.") : L("This task is completed.", "Tugasan ini selesai."))
     : t.stage === "review" ? L("Waiting for review - the person who set it, the Project Owner or management approves it or sends it back.", "Menunggu semakan - yang menetapkan, Pemilik Projek atau pengurusan meluluskan atau mengembalikannya.")
@@ -233,6 +247,7 @@ function ReviewBar({ d, onChanged, onUpdate }: { d: TaskDetail; onChanged: (t?: 
         {d.can.review && <button type="button" className={btnSm} disabled={busy} onClick={() => void decide("return")}>{L("Return", "Kembalikan")}</button>}
         {!d.can.review && d.can.approve && !d.can.self_set && !closed && t.stage !== "review" && <button type="button" className={btnSm} disabled={busy} onClick={() => void decide("approve")}>{L("Close as completed", "Tutup sebagai selesai")}</button>}
         {d.can.cancel && !d.can.self_set && <button type="button" className={btnSmDanger} disabled={busy} onClick={() => void decide("cancel")}>{L("Cancel task", "Batalkan")}</button>}
+        {d.can.remind && <button type="button" className={btnSm} disabled={busy} data-testid="send-reminder" onClick={() => void remind()}>{L("Send reminder", "Hantar peringatan")}</button>}
       </span>
       <Problem text={problem} />
     </div>

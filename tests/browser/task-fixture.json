@@ -19,7 +19,7 @@
      "deadline": "2026-11-27",
      "status": "in_progress",
      "progress": 40,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": null,
      "link_id": null,
      "stage": "review",
@@ -35,14 +35,14 @@
        "id": 1,
        "title": "Collect statements",
        "done": 1,
-       "done_at": "2026-11-01 00:59:08",
+       "done_at": "2026-11-01 07:19:54",
        "done_by_name": "Farid Zulkifli"
       },
       {
        "id": 2,
        "title": "Fill the form",
        "done": 1,
-       "done_at": "2026-11-01 00:59:08",
+       "done_at": "2026-11-01 07:19:54",
        "done_by_name": "Farid Zulkifli"
       },
       {
@@ -72,7 +72,7 @@
       "id": 5,
       "kind": "review_request",
       "body": "Submitted to the bank, reference MBB-SME-2207",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Farid Zulkifli",
       "by_id": 14
      },
@@ -99,7 +99,8 @@
      "assist": false,
      "self_set": false,
      "is_assignee": false,
-     "is_assistant": false
+     "is_assistant": false,
+     "remind": true
     }
    },
    "updates": {
@@ -121,7 +122,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -141,7 +142,7 @@
       "progress_snapshot": null,
       "progress_source": null,
       "corrects_id": 1,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -161,7 +162,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -181,7 +182,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -201,7 +202,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": [
        {
         "id": 1,
@@ -211,7 +212,7 @@
         "content_type": "application/pdf",
         "size_bytes": null,
         "level": "team",
-        "created_at": "2026-11-01 00:59:08",
+        "created_at": "2026-11-01 07:19:54",
         "uploader_id": 14,
         "uploader": "Farid Zulkifli",
         "open": true
@@ -230,7 +231,7 @@
       "content_type": "application/pdf",
       "size_bytes": null,
       "level": "team",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "uploader_id": 14,
       "uploader": "Farid Zulkifli",
       "open": true
@@ -241,7 +242,7 @@
     "activity": [
      {
       "key": "a2r",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.reassign",
       "text": "Reassigned from Farid Zulkifli to Sara Designer",
       "by": "Alif Farhan",
@@ -251,7 +252,7 @@
      },
      {
       "key": "a3r",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.reassign",
       "text": "Reassigned from Sara Designer to Farid Zulkifli",
       "by": "Alif Farhan",
@@ -261,7 +262,7 @@
      },
      {
       "key": "a4e",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.edit",
       "text": "Changed deadline 2026-11-20 → 2026-11-27",
       "by": "Farid Zulkifli",
@@ -270,7 +271,7 @@
      },
      {
       "key": "c1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.create",
       "text": "Created the task for Farid Zulkifli",
       "by": "Alif Farhan",
@@ -279,7 +280,7 @@
      },
      {
       "key": "e1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Collect statements\"",
       "by": "Farid Zulkifli",
@@ -289,7 +290,7 @@
      },
      {
       "key": "e2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Fill the form\"",
       "by": "Farid Zulkifli",
@@ -299,7 +300,7 @@
      },
      {
       "key": "e3",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Get signatures\"",
       "by": "Farid Zulkifli",
@@ -309,7 +310,7 @@
      },
      {
       "key": "e4",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_undone",
       "text": "Unticked \"Get signatures\"",
       "by": "Farid Zulkifli",
@@ -319,7 +320,7 @@
      },
      {
       "key": "e5",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.status",
       "text": "Status → in progress",
       "by": "Farid Zulkifli",
@@ -329,7 +330,7 @@
      },
      {
       "key": "e6",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.stage",
       "text": "Stage → blocked",
       "by": "Farid Zulkifli",
@@ -339,7 +340,7 @@
      },
      {
       "key": "e7",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.stage",
       "text": "Stage → ready for review",
       "by": "Farid Zulkifli",
@@ -349,7 +350,7 @@
      },
      {
       "key": "f1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "file",
       "text": "Attached statements.pdf",
       "by": "Farid Zulkifli",
@@ -357,7 +358,7 @@
      },
      {
       "key": "m1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "comment",
       "text": "Commented",
       "by": "Farid Zulkifli",
@@ -367,7 +368,7 @@
      },
      {
       "key": "m2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "comment",
       "text": "Commented",
       "by": "Alif Farhan",
@@ -377,7 +378,7 @@
      },
      {
       "key": "u1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 40%",
       "by": "Farid Zulkifli",
@@ -387,7 +388,7 @@
      },
      {
       "key": "u2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 40%",
       "by": "Farid Zulkifli",
@@ -397,7 +398,7 @@
      },
      {
       "key": "u3",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.blocker",
       "text": "Reported a blocker",
       "by": "Farid Zulkifli",
@@ -407,7 +408,7 @@
      },
      {
       "key": "u4",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.correction",
       "text": "Correction",
       "by": "Farid Zulkifli",
@@ -417,7 +418,7 @@
      },
      {
       "key": "u5",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.review_request",
       "text": "Submitted for review",
       "by": "Farid Zulkifli",
@@ -433,7 +434,7 @@
       "id": 1,
       "user_id": 14,
       "comment": "A question for Alif, not a report",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "mentions": [],
       "name": "Farid",
       "author": "Farid Zulkifli",
@@ -444,7 +445,7 @@
       "id": 2,
       "user_id": 1,
       "comment": "Please get the signature before Wednesday.",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "mentions": [
        {
         "id": 14,
@@ -469,12 +470,13 @@
      "deadline": "2026-11-27",
      "status": "in_progress",
      "progress": 40,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": null,
      "link_id": null,
      "stage": "review",
      "progress_source": "checklist",
      "assignee": "Farid",
+     "assignee_photo": null,
      "item_count": 5,
      "item_done": 2,
      "acknowledged": 0,
@@ -482,7 +484,7 @@
       "id": 5,
       "kind": "review_request",
       "body": "Submitted to the bank, reference MBB-SME-2207",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Farid Zulkifli",
       "by_id": 14
      },
@@ -503,7 +505,7 @@
      "deadline": "2026-11-27",
      "status": "in_progress",
      "progress": 40,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": null,
      "link_id": null,
      "stage": "review",
@@ -519,14 +521,14 @@
        "id": 1,
        "title": "Collect statements",
        "done": 1,
-       "done_at": "2026-11-01 00:59:08",
+       "done_at": "2026-11-01 07:19:54",
        "done_by_name": "Farid Zulkifli"
       },
       {
        "id": 2,
        "title": "Fill the form",
        "done": 1,
-       "done_at": "2026-11-01 00:59:08",
+       "done_at": "2026-11-01 07:19:54",
        "done_by_name": "Farid Zulkifli"
       },
       {
@@ -556,7 +558,7 @@
       "id": 5,
       "kind": "review_request",
       "body": "Submitted to the bank, reference MBB-SME-2207",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Farid Zulkifli",
       "by_id": 14
      },
@@ -583,7 +585,8 @@
      "assist": false,
      "self_set": false,
      "is_assignee": true,
-     "is_assistant": false
+     "is_assistant": false,
+     "remind": false
     }
    },
    "updates": {
@@ -605,7 +608,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -625,7 +628,7 @@
       "progress_snapshot": null,
       "progress_source": null,
       "corrects_id": 1,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -645,7 +648,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -665,7 +668,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -685,7 +688,7 @@
       "progress_snapshot": 40,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": [
        {
         "id": 1,
@@ -695,7 +698,7 @@
         "content_type": "application/pdf",
         "size_bytes": null,
         "level": "team",
-        "created_at": "2026-11-01 00:59:08",
+        "created_at": "2026-11-01 07:19:54",
         "uploader_id": 14,
         "uploader": "Farid Zulkifli",
         "open": true
@@ -714,7 +717,7 @@
       "content_type": "application/pdf",
       "size_bytes": null,
       "level": "team",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "uploader_id": 14,
       "uploader": "Farid Zulkifli",
       "open": true
@@ -725,7 +728,7 @@
     "activity": [
      {
       "key": "a2r",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.reassign",
       "text": "Reassigned from Farid Zulkifli to Sara Designer",
       "by": "Alif Farhan",
@@ -735,7 +738,7 @@
      },
      {
       "key": "a3r",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.reassign",
       "text": "Reassigned from Sara Designer to Farid Zulkifli",
       "by": "Alif Farhan",
@@ -745,7 +748,7 @@
      },
      {
       "key": "a4e",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.edit",
       "text": "Changed deadline 2026-11-20 → 2026-11-27",
       "by": "Farid Zulkifli",
@@ -754,7 +757,7 @@
      },
      {
       "key": "c1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.create",
       "text": "Created the task for Farid Zulkifli",
       "by": "Alif Farhan",
@@ -763,7 +766,7 @@
      },
      {
       "key": "e1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Collect statements\"",
       "by": "Farid Zulkifli",
@@ -773,7 +776,7 @@
      },
      {
       "key": "e2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Fill the form\"",
       "by": "Farid Zulkifli",
@@ -783,7 +786,7 @@
      },
      {
       "key": "e3",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_done",
       "text": "Ticked \"Get signatures\"",
       "by": "Farid Zulkifli",
@@ -793,7 +796,7 @@
      },
      {
       "key": "e4",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.item_undone",
       "text": "Unticked \"Get signatures\"",
       "by": "Farid Zulkifli",
@@ -803,7 +806,7 @@
      },
      {
       "key": "e5",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.status",
       "text": "Status → in progress",
       "by": "Farid Zulkifli",
@@ -813,7 +816,7 @@
      },
      {
       "key": "e6",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.stage",
       "text": "Stage → blocked",
       "by": "Farid Zulkifli",
@@ -823,7 +826,7 @@
      },
      {
       "key": "e7",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.stage",
       "text": "Stage → ready for review",
       "by": "Farid Zulkifli",
@@ -833,7 +836,7 @@
      },
      {
       "key": "f1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "file",
       "text": "Attached statements.pdf",
       "by": "Farid Zulkifli",
@@ -841,7 +844,7 @@
      },
      {
       "key": "m1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "comment",
       "text": "Commented",
       "by": "Farid Zulkifli",
@@ -851,7 +854,7 @@
      },
      {
       "key": "m2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "comment",
       "text": "Commented",
       "by": "Alif Farhan",
@@ -861,7 +864,7 @@
      },
      {
       "key": "u1",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 40%",
       "by": "Farid Zulkifli",
@@ -871,7 +874,7 @@
      },
      {
       "key": "u2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 40%",
       "by": "Farid Zulkifli",
@@ -881,7 +884,7 @@
      },
      {
       "key": "u3",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.blocker",
       "text": "Reported a blocker",
       "by": "Farid Zulkifli",
@@ -891,7 +894,7 @@
      },
      {
       "key": "u4",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.correction",
       "text": "Correction",
       "by": "Farid Zulkifli",
@@ -901,7 +904,7 @@
      },
      {
       "key": "u5",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.review_request",
       "text": "Submitted for review",
       "by": "Farid Zulkifli",
@@ -917,7 +920,7 @@
       "id": 1,
       "user_id": 14,
       "comment": "A question for Alif, not a report",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "mentions": [],
       "name": "Farid",
       "author": "Farid Zulkifli",
@@ -928,7 +931,7 @@
       "id": 2,
       "user_id": 1,
       "comment": "Please get the signature before Wednesday.",
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "mentions": [
        {
         "id": 14,
@@ -953,12 +956,13 @@
      "deadline": "2026-11-27",
      "status": "in_progress",
      "progress": 40,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": null,
      "link_id": null,
      "stage": "review",
      "progress_source": "checklist",
      "assignee": "Farid",
+     "assignee_photo": null,
      "item_count": 5,
      "item_done": 2,
      "acknowledged": 0,
@@ -966,7 +970,7 @@
       "id": 5,
       "kind": "review_request",
       "body": "Submitted to the bank, reference MBB-SME-2207",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Farid Zulkifli",
       "by_id": 14
      },
@@ -987,7 +991,7 @@
      "deadline": "2026-11-10",
      "status": "in_progress",
      "progress": 0,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": "project",
      "link_id": 1,
      "stage": null,
@@ -1002,7 +1006,7 @@
        "id": 11,
        "name": "Ed Editor",
        "photo_key": null,
-       "added_at": "2026-11-01 00:59:08"
+       "added_at": "2026-11-01 07:19:54"
       }
      ],
      "items": [
@@ -1055,7 +1059,7 @@
       "id": 8,
       "kind": "progress",
       "body": "Captions for week 1 drafted",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Ed Editor",
       "by_id": 11
      },
@@ -1082,7 +1086,8 @@
      "assist": false,
      "self_set": false,
      "is_assignee": false,
-     "is_assistant": true
+     "is_assistant": true,
+     "remind": false
     }
    },
    "updates": {
@@ -1104,7 +1109,7 @@
       "progress_snapshot": 0,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -1124,7 +1129,7 @@
       "progress_snapshot": null,
       "progress_source": null,
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      }
     ]
@@ -1136,7 +1141,7 @@
     "activity": [
      {
       "key": "a10",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "assist.add",
       "text": "Added Ed Editor to help",
       "by": "Aina Seller",
@@ -1145,7 +1150,7 @@
      },
      {
       "key": "c2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.create",
       "text": "Created the task for Sara Designer",
       "by": "Aina Seller",
@@ -1154,7 +1159,7 @@
      },
      {
       "key": "e11",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.status",
       "text": "Status → in progress",
       "by": "Ed Editor",
@@ -1164,7 +1169,7 @@
      },
      {
       "key": "u7",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.assist_request",
       "text": "Offered to help",
       "by": "Ed Editor",
@@ -1174,7 +1179,7 @@
      },
      {
       "key": "u8",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 0%",
       "by": "Ed Editor",
@@ -1198,12 +1203,13 @@
      "deadline": "2026-11-10",
      "status": "in_progress",
      "progress": 0,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": "project",
      "link_id": 1,
      "stage": null,
      "progress_source": "checklist",
      "assignee": "Sara",
+     "assignee_photo": null,
      "item_count": 5,
      "item_done": 0,
      "acknowledged": 0,
@@ -1211,7 +1217,7 @@
       "id": 8,
       "kind": "progress",
       "body": "Captions for week 1 drafted",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Ed Editor",
       "by_id": 11
      },
@@ -1237,7 +1243,7 @@
      "deadline": "2026-11-10",
      "status": "in_progress",
      "progress": 0,
-     "created_at": "2026-11-01 00:59:08",
+     "created_at": "2026-11-01 07:19:54",
      "link_kind": "project",
      "link_id": 1,
      "stage": null,
@@ -1252,7 +1258,7 @@
        "id": 11,
        "name": "Ed Editor",
        "photo_key": null,
-       "added_at": "2026-11-01 00:59:08"
+       "added_at": "2026-11-01 07:19:54"
       }
      ],
      "items": [
@@ -1305,7 +1311,7 @@
       "id": 8,
       "kind": "progress",
       "body": "Captions for week 1 drafted",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "by": "Ed Editor",
       "by_id": 11
      },
@@ -1332,7 +1338,8 @@
      "assist": true,
      "self_set": false,
      "is_assignee": false,
-     "is_assistant": false
+     "is_assistant": false,
+     "remind": false
     }
    },
    "updates": {
@@ -1354,7 +1361,7 @@
       "progress_snapshot": 0,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      },
      {
@@ -1374,7 +1381,7 @@
       "progress_snapshot": null,
       "progress_source": null,
       "corrects_id": null,
-      "created_at": "2026-11-01 00:59:08",
+      "created_at": "2026-11-01 07:19:54",
       "files": []
      }
     ]
@@ -1386,7 +1393,7 @@
     "activity": [
      {
       "key": "a10",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "assist.add",
       "text": "Added Ed Editor to help",
       "by": "Aina Seller",
@@ -1395,7 +1402,7 @@
      },
      {
       "key": "c2",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "task.create",
       "text": "Created the task for Sara Designer",
       "by": "Aina Seller",
@@ -1404,7 +1411,7 @@
      },
      {
       "key": "e11",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "event.status",
       "text": "Status → in progress",
       "by": "Ed Editor",
@@ -1414,7 +1421,7 @@
      },
      {
       "key": "u7",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.assist_request",
       "text": "Offered to help",
       "by": "Ed Editor",
@@ -1424,7 +1431,7 @@
      },
      {
       "key": "u8",
-      "at": "2026-11-01 00:59:08",
+      "at": "2026-11-01 07:19:54",
       "kind": "update.progress",
       "text": "Progress update · 0%",
       "by": "Ed Editor",

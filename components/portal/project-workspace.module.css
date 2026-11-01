@@ -223,3 +223,7 @@
 .unstarted .pitem { cursor: default; }
 .unstarted .pitem:hover { background: var(--card); }
 .problem { margin: 0; font-size: var(--type-caption-size); color: var(--danger); }
+
+/* v1.246.4 - the start and due date pickers, side by side (stacked on a phone) */
+.dateRow { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+@media (max-width: 480px) { .dateRow { grid-template-columns: 1fr; } }

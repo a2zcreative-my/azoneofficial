@@ -47,7 +47,16 @@ const STAFF_ONLY = ["editor", "marketing", "live_host", "hr_admin", "sales_marke
 
 function destinationFor(role: string): string {
   if (role === "customer") return "/account";
-  if (STAFF_ONLY.includes(role)) return "/portal";
+  if (STAFF_ONLY.includes(role)) {
+    /* v1.247.0 - back to the task a notification email pointed at, when the
+       person had to sign in first. Our own /portal path only; used once. */
+    try {
+      const back = window.sessionStorage.getItem("azone-return");
+      window.sessionStorage.removeItem("azone-return");
+      if (back && /^\/portal\?[A-Za-z0-9=&%._-]*$/.test(back)) return back;
+    } catch { /* private mode */ }
+    return "/portal";
+  }
   return "/admin";
 }
 

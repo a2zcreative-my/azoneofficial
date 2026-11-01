@@ -20,7 +20,7 @@ import { btnSm, card } from "@/lib/ui-styles";
 import css from "./shift-reminder-prefs.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
-type Key = "shift_clock_in" | "shift_clock_out";
+type Key = "shift_clock_in" | "shift_clock_out" | "email_tasks" | "email_digest"; // v1.247.0 - task emails
 interface Prefs { prefs: Record<Key, boolean>; devices: number; push_configured: boolean }
 
 export function ShiftReminderPrefs() {
@@ -50,7 +50,7 @@ export function ShiftReminderPrefs() {
     setBusy(null);
     if (r.ok) {
       if (r.data?.prefs) setData(r.data);
-      showToast(L("Saved", "Disimpan"), next ? L("Reminder on", "Peringatan hidup") : L("Reminder off", "Peringatan mati"));
+      showToast(L("Saved", "Disimpan"), next ? L("On", "Hidup") : L("Off", "Mati"));
     } else {
       setData((d) => (d ? { ...d, prefs: { ...d.prefs, [key]: !next } } : d));
       showToast(L("Not saved", "Tidak disimpan"), L("Try again", "Cuba lagi"), "notice");
@@ -76,6 +76,11 @@ export function ShiftReminderPrefs() {
     ["shift_clock_in", L("Clock-in reminder", "Peringatan masuk kerja"), L("15 minutes before each shift starts, unless you have already clocked in.", "15 minit sebelum setiap syif bermula, kecuali anda sudah clock in.")],
     ["shift_clock_out", L("Clock-out reminder", "Peringatan keluar kerja"), L("15 minutes before your shift ends, and when it ends - only while you are clocked in.", "15 minit sebelum syif tamat, dan semasa ia tamat - hanya semasa anda masih clock in.")],
   ];
+  /* v1.247.0 - the task emails from hello@a2zcreative.my, per person */
+  const mailRows: [Key, string, string][] = [
+    ["email_tasks", L("Task emails", "E-mel tugasan"), L("Assignments, reviews, mentions, deadline and overdue reminders, by email to your staff address. The bell keeps them either way.", "Tugasan, semakan, sebutan, peringatan tarikh akhir dan lewat, melalui e-mel ke alamat kakitangan anda. Loceng tetap menyimpannya.")],
+    ["email_digest", L("Daily task digest", "Ringkasan tugasan harian"), L("One summary each working morning, when the company has it on.", "Satu ringkasan setiap pagi bekerja, apabila syarikat menghidupkannya.")],
+  ];
 
   const deviceLine: Record<DevicePush, string> = {
     on: L("On for this device.", "Hidup untuk peranti ini."),
@@ -94,7 +99,7 @@ export function ShiftReminderPrefs() {
       </div>
       {!data ? <SkelRows rows={2} /> : (
         <ul className={css.list}>
-          {rows.map(([key, label, hint]) => (
+          {[...rows, ...(data.prefs.email_tasks === undefined ? [] : mailRows)].map(([key, label, hint]) => (
             <li key={key} className={css.row}>
               <label className={css.label} htmlFor={`pref-${key}`}>
                 <span className={css.name}>{label}</span>

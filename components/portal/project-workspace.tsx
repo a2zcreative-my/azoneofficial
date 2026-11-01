@@ -137,7 +137,7 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
   const [menu, setMenu] = useState<number | null>(null);
   const [settings, setSettings] = useState(false);
   const [openTask, setOpenTask] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<null | { kind: "task" } | { kind: "edit" } | { kind: "owner" } | { kind: "status" } | { kind: "note"; assist: boolean } | { kind: "reassign"; task: PTask }>(null);
+  const [sheet, setSheet] = useState<null | { kind: "task" } | { kind: "edit" } | { kind: "dates" } | { kind: "owner" } | { kind: "status" } | { kind: "note"; assist: boolean } | { kind: "reassign"; task: PTask }>(null);
   const { show: toast, node: toastNode } = useSaveToast();
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -209,9 +209,17 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
             <Fact label={L("Package", "Pakej")}>{w.package ? `${w.package.name}${w.package.customized ? L(" (customized)", " (diubah suai)") : ""}` : L("Custom service lines", "Baris perkhidmatan tersuai")}</Fact>
             <Fact label={L("Project Owner", "Pemilik Projek")}>
               {p.owner ? <span className={pw.person}><Avatar name={p.owner.name ?? ""} size="sm" /><span>{p.owner.name}</span></span> : <span className={pw.factMuted}>{L("Not assigned", "Belum ditetapkan")}{w.suggested_owner ? ` · ${L("suggested", "dicadangkan")}: ${w.suggested_owner.name}` : ""}</span>}
+              {/* v1.246.4 - the owner's screenshot: the action is where the fact is, not only in Project Settings */}
+              {can.assign_owner && <button type="button" className={pw.linkBtn} onClick={() => setSheet({ kind: "owner" })} data-testid="fact-owner">{p.owner ? L("Change", "Tukar") : L("Assign owner", "Tetapkan pemilik")}</button>}
             </Fact>
-            <Fact label={L("Start Date", "Tarikh Mula")}>{fmtDay(p.start_date)}</Fact>
-            <Fact label={L("Due Date", "Tarikh Akhir")}>{fmtDay(p.due_date)}</Fact>
+            <Fact label={L("Start Date", "Tarikh Mula")}>
+              {p.start_date ? fmtDay(p.start_date) : <span className={pw.factMuted}>{L("Not set", "Belum ditetapkan")}</span>}
+              {can.edit && <button type="button" className={pw.linkBtn} onClick={() => setSheet({ kind: "dates" })} data-testid="fact-start">{p.start_date ? L("Change", "Tukar") : L("Set start date", "Tetapkan tarikh mula")}</button>}
+            </Fact>
+            <Fact label={L("Due Date", "Tarikh Akhir")}>
+              {p.due_date ? fmtDay(p.due_date) : <span className={pw.factMuted}>{L("Not set", "Belum ditetapkan")}</span>}
+              {can.edit && <button type="button" className={pw.linkBtn} onClick={() => setSheet({ kind: "dates" })} data-testid="fact-due">{p.due_date ? L("Change", "Tukar") : L("Set due date", "Tetapkan tarikh akhir")}</button>}
+            </Fact>
           </div>
 
           {/* the sub-tabs and Add Task */}
@@ -323,6 +331,7 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
       {sheet?.kind === "task" && <TaskSheet w={w} onClose={() => setSheet(null)} onDone={done} />}
       {sheet?.kind === "reassign" && <TaskSheet w={w} task={sheet.task} onClose={() => setSheet(null)} onDone={done} />}
       {sheet?.kind === "edit" && <EditSheet w={w} onClose={() => setSheet(null)} onDone={done} />}
+      {sheet?.kind === "dates" && <DatesSheet w={w} onClose={() => setSheet(null)} onDone={done} />}
       {sheet?.kind === "owner" && <OwnerSheet w={w} onClose={() => setSheet(null)} onDone={done} />}
       {sheet?.kind === "status" && <StatusSheet w={w} onClose={() => setSheet(null)} onDone={done} />}
     </div>
@@ -410,6 +419,35 @@ function Problem({ text }: { text: string }) { return text ? <p className={pw.wa
 
 /** A project-level note (no task), or an offer to help. A task's own update
     is posted from the task (task-progress.tsx). */
+/* v1.246.4 - STARTING A PROJECT ASKS FOR ITS DATES (the owner, 01-11-2026).
+   Start date defaults to today; the due date is the owner's to pick. Both
+   can be changed later on the project. */
+export function StartSheet({ quotationId, docNumber, company, onClose, onStarted }: {
+  quotationId: number; docNumber: string; company: string; onClose: () => void; onStarted: (id: number) => void;
+}) {
+  const [f, setF] = useState(() => ({ start_date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10), due_date: "" }));
+  const [problem, setProblem] = useState("");
+  const { busy, run } = useBusy();
+  const submit = () => run(async () => {
+    setProblem("");
+    if (!f.due_date) { setProblem(L("Pick the due date.", "Pilih tarikh akhir.")); return; }
+    if (f.start_date && f.due_date < f.start_date) { setProblem(L("The due date is before the start date.", "Tarikh akhir sebelum tarikh mula.")); return; }
+    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: quotationId, start_date: f.start_date || undefined, due_date: f.due_date }) });
+    if (!r.ok || !r.data?.id) { setProblem(r.data?.error?.message ?? L("Not started", "Tidak dimulakan")); return; }
+    onStarted(r.data.id);
+  });
+  return (
+    <SideDrawer open onClose={onClose} title={L("Start project", "Mulakan projek")} subtitle={`${docNumber} · ${company}`}
+      footer={<button type="button" className={`${btnClass} ${pw.submit}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="confirm-start">{busy ? L("Starting…", "Memulakan…") : L("Start project", "Mulakan projek")}</button>}>
+      <div className={pw.form} data-testid="start-sheet">
+        <p className={pw.note}>{L("When does the work start, and when is it due to the client? Both can be changed later on the project.", "Bila kerja bermula, dan bila ia perlu siap kepada pelanggan? Kedua-duanya boleh ditukar kemudian pada projek.")}</p>
+        <DateFields value={f} onChange={setF} />
+        <Problem text={problem} />
+      </div>
+    </SideDrawer>
+  );
+}
+
 /* v1.246.3 - THE CUSTOMER AGREED (the owner, 01-11-2026: "there should be
    a button first for acceptance Quotation before Start Project"). The
    salesperson records who said yes and how; the row lands in the same
@@ -546,6 +584,41 @@ function TaskSheet({ w, task, onClose, onDone }: { w: Workspace; task?: PTask; o
   );
 }
 
+/* v1.246.4 - the project's start and due dates, on their own (the owner:
+   "require pick date of due date ... Start date and also Due date"). The
+   same PATCH the Edit sheet uses, with the project's version guard. */
+function DatesSheet({ w, onClose, onDone }: { w: Workspace; onClose: () => void; onDone: Done }) {
+  const p = w.project;
+  const [f, setF] = useState({ start_date: p.start_date ?? "", due_date: p.due_date ?? "" });
+  const [problem, setProblem] = useState("");
+  const { busy, run } = useBusy();
+  const submit = () => run(async () => {
+    setProblem("");
+    if (f.start_date && f.due_date && f.due_date < f.start_date) { setProblem(L("The due date is before the start date.", "Tarikh akhir sebelum tarikh mula.")); return; }
+    const r = await api<{ error?: { message?: string } }>(`/staff/projects/${p.id}`, { method: "PATCH", body: JSON.stringify({ start_date: f.start_date, due_date: f.due_date, version: p.version }) });
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not saved", "Tidak disimpan")); return; }
+    onDone(L("Dates saved", "Tarikh disimpan"));
+  });
+  return (
+    <SideDrawer open onClose={onClose} title={L("Project dates", "Tarikh projek")} subtitle={p.title}
+      footer={<button type="button" className={`${btnClass} ${pw.submit}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="save-dates">{busy ? L("Saving…", "Menyimpan…") : L("Save dates", "Simpan tarikh")}</button>}>
+      <div className={pw.form} data-testid="dates-sheet">
+        <DateFields value={f} onChange={setF} />
+        <Problem text={problem} />
+      </div>
+    </SideDrawer>
+  );
+}
+/** Start and due date pickers, side by side; the due date cannot be before the start. */
+function DateFields({ value, onChange }: { value: { start_date: string; due_date: string }; onChange: (v: { start_date: string; due_date: string }) => void }) {
+  return (
+    <div className={pw.dateRow}>
+      <label className={fieldLabel}>{L("Start date", "Tarikh mula")}<input className={inputClass} type="date" value={value.start_date} onChange={(e) => onChange({ ...value, start_date: e.target.value })} /></label>
+      <label className={fieldLabel}>{L("Due date", "Tarikh akhir")}<input className={inputClass} type="date" min={value.start_date || undefined} value={value.due_date} onChange={(e) => onChange({ ...value, due_date: e.target.value })} /></label>
+    </div>
+  );
+}
+
 function EditSheet({ w, onClose, onDone }: { w: Workspace; onClose: () => void; onDone: Done }) {
   const p = w.project;
   const [f, setF] = useState({ title: p.title, description: p.description ?? "", start_date: p.start_date ?? "", due_date: p.due_date ?? "", notes: p.notes ?? "", deliverables: p.deliverables.join("\n") });
@@ -566,8 +639,7 @@ function EditSheet({ w, onClose, onDone }: { w: Workspace; onClose: () => void; 
       <div className={pw.form}>
         <label className={fieldLabel}>{L("Project title", "Tajuk projek")}<input className={inputClass} maxLength={200} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></label>
         <label className={fieldLabel}>{L("Description", "Penerangan")}<textarea className={textareaClass} rows={3} maxLength={4000} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
-        <label className={fieldLabel}>{L("Start date", "Tarikh mula")}<input className={inputClass} type="date" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></label>
-        <label className={fieldLabel}>{L("Due date", "Tarikh akhir")}<input className={inputClass} type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></label>
+        <DateFields value={{ start_date: f.start_date, due_date: f.due_date }} onChange={(v) => setF({ ...f, ...v })} />
         <label className={fieldLabel}>{L("Deliverables (one per line)", "Hasil (satu setiap baris)")}<textarea className={textareaClass} rows={4} value={f.deliverables} onChange={(e) => setF({ ...f, deliverables: e.target.value })} /></label>
         <label className={fieldLabel}>{L("Implementation notes (owner and management only)", "Nota pelaksanaan (pemilik dan pengurusan sahaja)")}<textarea className={textareaClass} rows={3} maxLength={4000} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
         <Problem text={problem} />
@@ -718,7 +790,6 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
   const [unstarted, setUnstarted] = useState<{ id: number; doc_number: string; company: string; contact_person: string | null; label: string; can_start: boolean }[]>([]);
   const [accepting, setAccepting] = useState<{ id: number; doc_number: string; company: string; contact_person: string | null } | null>(null);
   const { show: showToast, node: toastNode } = useSaveToast();
-  const [starting, setStarting] = useState<number | null>(null);
   const [startErr, setStartErr] = useState("");
   useEffect(() => {
     let alive = true;
@@ -728,13 +799,12 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
     return () => { alive = false; };
   }, [scope, tick]);
   const choose = (id: number | null) => { setOpen(id); onOpen?.(id); };
-  const start = async (qid: number) => {
-    setStarting(qid); setStartErr("");
-    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: qid }) });
-    setStarting(null);
-    if (!r.ok || !r.data?.id) { setStartErr(r.data?.error?.message ?? L("Not started", "Tidak dimulakan")); return; }
-    setTick((n) => n + 1);
-    choose(r.data.id);
+  /* v1.246.4 - Start project asks for the start and due dates first */
+  const [startFor, setStartFor] = useState<{ id: number; doc_number: string; company: string } | null>(null);
+  const start = (qid: number) => {
+    setStartErr("");
+    const q = unstarted.find((x) => x.id === qid);
+    if (q) setStartFor(q);
   };
   if (open) {
     return (
@@ -749,6 +819,8 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
   return (
     <section className={card} aria-label={L("Projects", "Projek")} data-testid="projects-board">
       {toastNode}
+      {startFor && <StartSheet quotationId={startFor.id} docNumber={startFor.doc_number} company={startFor.company} onClose={() => setStartFor(null)}
+        onStarted={(id) => { setStartFor(null); setTick((n) => n + 1); choose(id); }} />}
       {accepting && <AcceptanceSheet quotationId={accepting.id} docNumber={accepting.doc_number} company={accepting.company} contact={accepting.contact_person} onClose={() => setAccepting(null)}
         onDone={(t, x) => { setAccepting(null); showToast(t, x); setTick((n) => n + 1); }} />}
       <div className={pw.wrap}>
@@ -787,7 +859,7 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
                   <span />
                   <span />
                   <span>{q.can_start
-                    ? <button type="button" className={btnSmPrimary} disabled={starting === q.id} onClick={() => void start(q.id)}><AppIcon name="add" />{starting === q.id ? L("Starting…", "Memulakan…") : L("Start project", "Mulakan projek")}</button>
+                    ? <button type="button" className={btnSmPrimary} onClick={() => start(q.id)}><AppIcon name="add" />{L("Start project", "Mulakan projek")}</button>
                     : q.label === "expired"
                       ? <span className={chipSmNeutral}>{L("Revise first", "Semak semula dahulu")}</span>
                       : <button type="button" className={btnSm} onClick={() => setAccepting(q)}><AppIcon name="verify" />{L("Record acceptance", "Rekod penerimaan")}</button>}</span>
@@ -806,17 +878,14 @@ export function CreateBrief({ quotationId, docNumber, company, contact, onCreate
   const [state, setState] = useState<{ can_create: boolean; can_record_acceptance?: boolean; quotation_state?: { label: string }; suggested_owner: { name: string | null } | null } | null>(null);
   const [problem, setProblem] = useState("");
   const [accepting, setAccepting] = useState(false);
+  const [starting, setStarting] = useState(false); // v1.246.4 - the Start project sheet (dates)
   const [tick, setTick] = useState(0);
   const { show: showToast, node: toastNode } = useSaveToast();
   const { busy, run } = useBusy();
   useEffect(() => { void api<{ can_create: boolean; can_record_acceptance?: boolean; quotation_state?: { label: string }; suggested_owner: { name: string | null } | null }>(`/staff/projects/by-quotation/${quotationId}`).then((r) => setState(r.data ?? null)); }, [quotationId, tick]);
   if (!state) return <SkelRows rows={2} />;
-  const create = () => run(async () => {
-    setProblem("");
-    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: quotationId }) });
-    if (!r.ok || !r.data?.id) { setProblem(r.data?.error?.message ?? L("Not created", "Tidak dicipta")); return; }
-    onCreated(r.data.id);
-  });
+  /* v1.246.4 - creating the brief asks for its start and due dates first */
+  const create = () => run(async () => { setProblem(""); setStarting(true); });
   return (
     <div className={pw.cta} data-testid="create-brief">
       <span className={pw.well}><AppIcon name="assignment" /></span>
@@ -835,6 +904,7 @@ export function CreateBrief({ quotationId, docNumber, company, contact, onCreate
             : <p className={pw.note}>{L("The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance and create its project brief.", "Jurujual sebut harga atau CEO, COO atau CCO merekod penerimaan pelanggan dan mencipta ringkasan projeknya.")}</p>}
       <Problem text={problem} />
       {toastNode}
+      {starting && <StartSheet quotationId={quotationId} docNumber={docNumber ?? `#${quotationId}`} company={company ?? ""} onClose={() => setStarting(false)} onStarted={(id) => { setStarting(false); onCreated(id); }} />}
       {accepting && <AcceptanceSheet quotationId={quotationId} docNumber={docNumber ?? `#${quotationId}`} company={company ?? ""} contact={contact} onClose={() => setAccepting(false)}
         onDone={(t, x) => { setAccepting(false); showToast(t, x); setTick((n) => n + 1); }} />}
     </div>

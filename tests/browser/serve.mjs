@@ -18,6 +18,8 @@ import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fixture, projectFixture } from "./fixture.mjs";
 
+/* v1.247.0 - the task email settings as the worker answers them by default (task-mail.ts DEFAULT_SETTINGS) */
+const MAIL_SETTINGS = { enabled: true, triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true }, lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30", quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8 };
 const [dir, portS] = process.argv.slice(2);
 const port = Number(portS ?? 4177);
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".txt": "text/plain", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".ttf": "font/ttf", ".webp": "image/webp", ".jpg": "image/jpeg" };
@@ -218,6 +220,24 @@ const server = http.createServer((req, res) => {
         if (md && req.method === "DELETE" && ["2", "3", "4"].includes(md[1])) {
           res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "Invoices are voided with a reason, never deleted (Void invoice)." } })); return;
         }
+      }
+      /* v1.246.4 - a project edit (the dates sheet): answered as the worker does */
+      if (req.method === "PATCH" && /^\/staff\/projects\/\d+$/.test(p)) {
+        projectPosts.push({ p, body });
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, version: 2 })); return;
+      }
+      /* v1.247.0 - a manual task reminder and the task email settings */
+      if (req.method === "POST" && /^\/staff\/tasks\/\d+\/remind$/.test(p)) {
+        taskPosts.push({ method: req.method, p, body });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, bell: true, email: true, email_to: "farid@example.test", why: null })); return;
+      }
+      if (req.method === "PUT" && p === "/staff/tasks/mail-settings") {
+        taskPosts.push({ method: req.method, p, body });
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ settings: { ...MAIL_SETTINGS, ...b }, sender: { ready: true, from: "A2Z Creative Marketing <hello@a2zcreative.my>" }, can_edit: true })); return;
+      }
+      if (req.method === "GET" && p.startsWith("/staff/tasks/mail-preview")) {
+        res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>preview</title><h1>New task assigned</h1><p>View Task in A2Z OS</p>"); return;
       }
       /* v1.246.3 - a staff-recorded quotation acceptance */
       if (req.method === "POST" && /^\/staff\/docs\/\d+\/acceptance$/.test(p)) {

@@ -9,6 +9,7 @@ import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
+import { drainMailOutbox, taskMailSweep, taskDigest } from "./task-mail"; // v1.247.0 - task emails: the outbox drains on the five-minute tick, reminders ride the hourly pass, the digest at 08:30 MYT
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
 import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
@@ -294,7 +295,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0160_acceptance_recorded";
+const LATEST_MIGRATION = "0161_task_mail";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -2092,6 +2093,10 @@ export default {
     // the 30-min work below.
     if (event.cron === "*/5 * * * *") {
       await pollElfiaOrders(env);
+      /* v1.247.0 - the task email outbox drains every five minutes (25 a
+         pass); a failure is retried at 5 and 20 minutes, then the row is
+         dead and on the log. Never fatal, never before the orders. */
+      try { await drainMailOutbox(env); } catch (e) { await logError(env, "task_mail", e instanceof Error ? e.message : String(e)); }
       /* The cron does not pass through the staff dispatch, so the topics it
          writes are bumped by hand. A web order that lands while the ops map
          is open should move the map, not wait for somebody to reload. */
@@ -2115,6 +2120,9 @@ export default {
         } catch (e) {
           await logError(env, "watchers", e instanceof Error ? e.message : String(e));
         }
+        /* v1.247.0 - deadline reminders by email (lead time), overdue on day
+           1, 3 and 7, the HOD after the escalation days - once each, by ref */
+        try { await taskMailSweep(env); } catch (e) { await logError(env, "task_mail_sweep", e instanceof Error ? e.message : String(e)); }
       }
       /* v1.163.0 - Hankei's reservations lapse on the five-minute tick.
          The STATIC QR does not expire with them: a customer who pays late
@@ -2148,6 +2156,12 @@ export default {
     /* v1.108.0 - 08:00 MYT: the morning brief to the CEO, COO and CCO. Their
        desk, who is in, yesterday's web sales, open watcher findings - one
        notification before the day starts. */
+    /* v1.247.0 - 08:30 MYT: the optional daily task digest, one per person
+       with open work, off until the CEO turns it on (Tasks > Reports) */
+    if (event.cron === "30 0 * * *") {
+      try { await taskDigest(env); } catch (e) { await logError(env, "task_digest", e instanceof Error ? e.message : String(e)); }
+      return;
+    }
     if (event.cron === "0 0 * * *") {
       try { await morningBrief(env); }
       catch (e) { await logError(env, "morning_brief", e instanceof Error ? e.message : String(e)); }
@@ -5084,6 +5098,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0158 (payroll population: exceptions, the release a bank run paid)", `SELECT x.kind, x.resolution, p.release_id, p.file_total_cents, p.manual_total_cents FROM payroll_exceptions x LEFT JOIN payroll_payments p ON 1 = 0 LIMIT 1`],
       ["0159 (project workspace and task progress: one brief per quotation, append-only task updates)", `SELECT p.quotation_id, p.owner_id, p.scope_snapshot, u.kind, u.client_key, f.level, a.removed_at, t.stage, t.progress_source, c.client_key FROM projects p LEFT JOIN task_updates u ON 1 = 0 LEFT JOIN task_files f ON 1 = 0 LEFT JOIN task_assistants a ON 1 = 0 LEFT JOIN tasks t ON 1 = 0 LEFT JOIN task_comments c ON 1 = 0 LIMIT 1`], // v1.246.3 - probed the re-cut 0159 (task_updates, not project_updates)
       ["0160 (a quotation acceptance recorded by staff)", `SELECT channel, recorded_by, note FROM quotation_acceptances LIMIT 1`],
+      ["0161 (task email outbox: one row per email, its delivery state)", `SELECT ref, status, attempts, last_error, not_before FROM mail_outbox INDEXED BY ux_mail_outbox_ref WHERE ref = '' LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5265,6 +5280,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0158_payroll_population",
       "0159_project_workspace",
       "0160_acceptance_recorded",
+      "0161_task_mail",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

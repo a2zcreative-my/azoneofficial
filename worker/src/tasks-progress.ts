@@ -29,6 +29,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, currentStaffSql, staffRolesSql } from "./staff";
+import { queueTaskMailTo, taskForMail } from "./task-mail"; // v1.247.0 - the email leg
 import { can } from "./permissions";
 import { audit, err, json, putGuarded } from "./shared";
 import { projectAccess, type ProjectRow, type Access as ProjectAccess } from "./projects";
@@ -233,6 +234,21 @@ export async function appendTaskUpdate(
   } else {
     await tell(env, [t.created_by, owner, ...(a.assignee ? [] : [t.assigned_to])], user.id, `📝 ${who} updated ${t.title}: ${text.slice(0, 120)}`, ref);
   }
+  /* v1.247.0 - by email: a review request to the reviewers (each at once); an
+     important update (progress, blocker, waiting, correction) to the Owner
+     and the assigner, AT MOST ONE AN HOUR PER TASK - the ref carries the
+     hour, so a burst of updates lands as one email with the latest in it.
+     An offer to help is not an email. */
+  const tm = await taskForMail(env, t.id);
+  if (tm) {
+    const upd = { task: { ...tm, status, stage, progress }, by: who, summary: text, next: typeof body?.next_action === "string" ? body.next_action.slice(0, 200) : null };
+    if (kind === "review_request") {
+      await queueTaskMailTo(env, "review", await reviewersOf(env, t, a.project), user.id, `task:${t.id}:review:${row.id}`, upd);
+    } else if (kind !== "assist_request") {
+      const hour = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 13);
+      await queueTaskMailTo(env, "update", [t.created_by, owner, ...(a.assignee ? [] : [t.assigned_to])], user.id, `task:${t.id}:update:${hour}`, upd);
+    }
+  }
   return json({ id: row.id, existing: false, status, stage, progress, progress_source: source }, 201);
 }
 
@@ -381,6 +397,7 @@ async function route(
         request_review: a.assignee && !a.selfSet && a.open && t.stage !== "review", review: a.review && a.open && !a.selfSet && t.stage === "review",
         approve: a.review && a.open, cancel: (a.manage || (a.creator && !a.assignee)) && a.open,
         assist: !!a.project && !a.team && !a.update && a.open, self_set: a.selfSet, is_assignee: a.assignee, is_assistant: a.assistant,
+        remind: (a.manage || a.creator) && !a.assignee && a.open, // v1.247.0 - a manual reminder to the assignee (POST /tasks/:id/remind)
       },
     });
   }
@@ -433,6 +450,9 @@ async function route(
     const team = [t.assigned_to, ...(await assistantsOf(env, t.id)).map((x) => x.id)];
     const msg = decision === "approve" ? `✅ Approved: ${t.title} (${user.name})` : decision === "return" ? `↩ Returned for more work: ${t.title} - ${reason.slice(0, 120)}` : `⛔ Cancelled: ${t.title} - ${reason.slice(0, 120)}`;
     await tell(env, team, user.id, msg, `task:${t.id}:u:${row?.id}`);
+    /* v1.247.0 - the decision, by email, to the people who did the work */
+    const tmd = await taskForMail(env, t.id);
+    if (tmd) await queueTaskMailTo(env, "decision", team, user.id, `task:${t.id}:decision:${row?.id}`, { task: { ...tmd, status: nextStatus, stage: nextStage }, by: user.name, summary: decision === "approve" ? "Approved as completed - thank you." : `${decision === "return" ? "Returned for more work" : "Cancelled"}: ${reason}` });
     return json({ ok: true, status: nextStatus, stage: nextStage, id: row?.id });
   }
 

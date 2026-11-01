@@ -279,7 +279,9 @@ async function runtime(workerBundle) {
     /* v1.246.3 - the yes came on WhatsApp: the salesperson records it, then the project */
     ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 102 })).status === 409, "a valid, unaccepted quotation has no project yet either");
     const rec = await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Puan Siti", accepted_position: "Owner", channel: "whatsapp", note: "Agreed 31-10" });
-    const c4 = await call("/staff/projects", U.lia, "POST", { quotation_id: 102 });
+    ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 102, start_date: "2026-11-10", due_date: "2026-11-01" })).status === 400 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 0, "v1.246.4 a due date before the start date is refused, and no project is made");
+    const c4 = await call("/staff/projects", U.lia, "POST", { quotation_id: 102, start_date: "2026-11-02", due_date: "2026-12-15" });
+    ok(JSON.stringify(db.prepare(`SELECT start_date, due_date FROM projects WHERE quotation_id = 102`).get()) === JSON.stringify({ start_date: "2026-11-02", due_date: "2026-12-15" }), "v1.246.4 Start project keeps the start and due dates picked on the sheet");
     await call(`/staff/projects/${c4.j?.id}/owner`, U.ceo, "POST", { owner_id: U.lia });
     ok(rec.status === 201 && c4.status === 201 && (await call(`/staff/projects/${c4.j?.id}/status`, U.ceo, "POST", { to: "in_progress" })).status === 200, "the salesperson records the customer's acceptance (who, how, when), the project starts, no reason needed", `${rec.text.slice(0, 100)} ${c4.text.slice(0, 100)}`);
     const list = (await call(`/staff/projects?scope=mine`, U.lia)).j?.projects ?? [];

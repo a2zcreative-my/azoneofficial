@@ -10,6 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.247.0] - 2026-11-01 - Task emails from hello@a2zcreative.my; project start and due dates
+
+The owner's brief "A2Z OS - Automated Task Email Notifications & Staff Reminder System" (01-11-2026), the audit claude/TASK-EMAIL-AUDIT.md and his answers (emails first, the digest off until he turns it on, overdue on day 1, 3 and 7 then stop, the sender A2Z Creative Marketing <hello@a2zcreative.my>).
+
+- **The email leg of the one notification engine** (`worker/src/task-mail.ts`): beside every task bell, the same event queues one email per recipient into `mail_outbox` (migration **0161**) under the same ref - a retried request or a second cron pass never emails twice. The five-minute cron drains it through Cloudflare Email Sending (`mail.ts`): accepted (by Cloudflare - never called inbox delivery), failed and retried at 5 and 20 minutes with the provider's own answer kept, then dead. An email failure never touches a task.
+- **What is emailed:** a new task (to the assignee, at once), a reassignment (new assignee at once; the previous one told plainly), an important update (progress, blocker, waiting for client - to the Project Owner and the assigner, at most one per task an hour, with status, progress, summary and next action), an @mention (the mentioned person only, if on the task), ready for review (the reviewer), approved/returned (the people who did the work), due within the lead time (24 h; not on leave or a public holiday), overdue on day 1, 3 and 7 then stop, escalation to the assignee's verified HOD (`reports_to`) after 2 days - and when no HOD is set nobody is guessed (the log says so). Checklist ticks, helpers and offers to help are never emailed.
+- **Manual reminder** on the task drawer (Send reminder): management, the Project Owner or the person who set the task; a reason; once per task every 12 hours; bell + email; audited.
+- **Optional daily digest** at 08:30 MYT (new cron `30 0 * * *`), off until the CEO turns it on; never empty, never on approved leave or a public holiday.
+- **Frequency control:** master switch and per-trigger switches, quiet hours 21:00-08:00 (held, sent in the morning; assignments, reassignments and reminders go at once), a cap of 8 task emails per person per day (assignments and reminders always go), per-person switches "Task emails" and "Daily task digest" on Notifications.
+- **Tasks > Reports & Archive - Task Email Notifications** (CEO edits; COO and CCO read): sender status, triggers, lead time, escalation, cap, quiet hours, the real template preview, Send a test to me (the CEO's own address only), the delivery log with the provider's answer, Retry.
+- **Deep link:** View Task opens `/portal?tab=Tasks&task=<id>` on that task's drawer; signed out, the login returns there afterwards. No token in any link.
+- **Sender:** nothing is queued until the domain is onboarded (Cloudflare dashboard > Compute > Email Service > Email Sending > Onboard Domain a2zcreative.my) and the two lines in `wrangler.toml` are uncommented (`[[send_email]] name = "EMAIL"`, `MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative.my>"`). No MX or email routing is changed.
+- **Projects: start and due dates** (the owner's screenshot, 1.246.4 folded in): Start project asks for the start date (today by default) and the due date; on the project, Start Date and Due Date each have a Set / Change link that opens the date pickers; the Project Owner fact has Assign / Change. The project's PATCH (version-guarded) is unchanged.
+- Evidence: new runtime guard tests/go-live-m.mjs (62 checks, 13 mutations; the 1.244.0 worker fails it), all guards, browser tests.
+- Not deployed.
+
 ## [1.246.3] - 2026-11-01 - A project starts only once the customer agreed
 
 The owner, 01-11-2026: "once Quotation agreed to proceed by client/customer then only start project button able to click. there should a button first for acceptance Quotation before Start Project".

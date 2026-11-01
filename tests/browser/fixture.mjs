@@ -453,7 +453,12 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.185.0 - the Ecommerce page: the TikTok connection, the orders the
      sync stored, and the buyer cities behind the map and the top states */
   /* v1.226.0 - Profile -> Shift reminders: the person's own switches */
-  if (p === "/staff/notification-prefs") data = { prefs: { shift_clock_in: true, shift_clock_out: false }, devices: 1, push_configured: true };
+  if (p === "/staff/notification-prefs") data = { prefs: { shift_clock_in: true, shift_clock_out: false, email_tasks: true, email_digest: true }, devices: 1, push_configured: true };
+  /* v1.247.0 - task emails: the settings (as the worker defaults them) and a small invented log */
+  if (p === "/staff/tasks/mail-settings") data = { settings: { enabled: true, triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true }, lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30", quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8 }, sender: { ready: !process.env.MAIL_OFF, from: process.env.MAIL_OFF ? null : "A2Z Creative Marketing <hello@a2zcreative.my>" }, can_edit: ROLE === "ceo" };
+  if (p === "/staff/tasks/mail-log") data = { counts: { accepted: 1, queued: 0, failed: 0, dead: 1 }, sender: { ready: true, from: "A2Z Creative Marketing <hello@a2zcreative.my>" }, rows: [
+    { id: 2, user_id: 9003, to_email: "farid@example.test", to_name: "Farid Zul", kind: "overdue", subject: "[A2Z OS] Task overdue — Fixture inventory count", status: "dead", attempts: 3, last_error: "550 5.1.1 mailbox unavailable", not_before: null, created_at: D + "30 01:00:00", sent_at: null, reason: null, created_by_name: null },
+    { id: 1, user_id: 9002, to_email: "aisyah@example.test", to_name: "Nur Aisyah", kind: "assigned", subject: "[A2Z OS] New task assigned — Check inventory delivery", status: "accepted", attempts: 1, last_error: null, not_before: null, created_at: D + "30 00:55:00", sent_at: D + "30 01:00:00", reason: null, created_by_name: null }] };
   if (p === "/integrations/tiktok/status") data = { configured: true, authorized: true, last_event_at: "2026-10-08 10:24:00", last_event_verified: true };
   if (p === "/staff/postage") data = { records: [
     { id: 501, order_ref: "TT-586296403794167044", status: "delivered", created_at: "2026-10-04 04:55:00", items_label: "1× ELFIA Premium product", courier: "jnt", tracking_no: "JT6401234567", buyer_city: "Johor Bahru", order_amount_cents: 3970 },

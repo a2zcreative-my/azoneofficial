@@ -242,7 +242,30 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1500)
     cl = pg.locator("tr:has-text('Nur Aisyah')").first
     check("Claims: the same photo beside the staff name", cl.count() == 1 and cl.locator("img[src*='/api/v1/media/file/']").count() >= 1, cl.inner_text()[:120] if cl.count() else "no row")
-    check("no page errors (quotation task, checklist, photos)", not errs, str(errs)[:300])
+    # v1.247.0 - task emails: Reports & Archive panel, and Send reminder on a task drawer
+    tab(pg, "Tasks")
+    pg.get_by_role("tab", name="Reports & Archive", exact=True).first.click(); pg.wait_for_timeout(1500)
+    mp = pg.get_by_test_id("task-mail-panel")
+    mt = mp.inner_text() if mp.count() else ""
+    check("Reports & Archive: the Task Email panel shows the sender, the triggers and the log", mp.count() == 1 and "hello@a2zcreative.my" in mt and "New task assigned" in mt and "Overdue" in mt and "Delivery log" in mt, mt[:200])
+    check("the log shows the provider's own answer for a send that failed, and offers Retry to the CEO", "550 5.1.1 mailbox unavailable" in mt and mp.get_by_role("button", name="Retry").count() == 1)
+    check("the digest switch is off by default (the owner's answer)", mp.get_by_role("switch", name="Daily digest").get_attribute("aria-checked") == "false")
+    check("the preview is the real template in a sandboxed frame", mp.get_by_test_id("mail-preview").get_attribute("sandbox") == "")
+    mp.get_by_role("switch", name="Daily digest").click(); pg.wait_for_timeout(200)
+    pg.get_by_test_id("mail-save").click(); pg.wait_for_timeout(900)
+    puts = get(4213, "/__tasks")["posts"]
+    check("Save sends the settings with the digest on", any(x.get("p") == "/staff/tasks/mail-settings" and '"digest_on":true' in (x.get("body") or "") for x in puts), str(puts)[-300:])
+    dr, _ = open_task(pg, "All Tasks", "Financing application - Maybank SME")
+    rb = dr.get_by_test_id("send-reminder")
+    check("the task drawer offers Send reminder to the person who set it", rb.count() == 1)
+    if rb.count():
+        rb.click(); pg.wait_for_timeout(500)
+        pd = pg.get_by_role("dialog").filter(has_text="Send a reminder").last
+        check("Send reminder asks for the reason first", pd.count() == 1)
+        pd.get_by_role("textbox").fill("The bank needs it by Friday"); pd.get_by_role("button", name="Send reminder").click(); pg.wait_for_timeout(900)
+        puts = get(4213, "/__tasks")["posts"]
+        check("it posts the reason to the task's reminder route, and says the email is queued", any(x.get("p", "").endswith("/remind") and "Friday" in (x.get("body") or "") for x in puts) and pg.get_by_text("Reminder sent").count() >= 1)
+    check("no page errors (quotation task, checklist, photos, task emails)", not errs, str(errs)[:300])
     ctx.close()
     b.close()
 

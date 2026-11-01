@@ -125,7 +125,7 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 # ELFIA_ORDERS_URL and ELFIA_BRIDGE_KEY are set — its handler RETURNS
 # immediately so 5-min firings never fall into the 30-min chain).
 [triggers]
-crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *"] # 5-min ELFIA orders (+ hourly watchers on :00) / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings / 08:00 MYT morning brief (v1.108.0)
+crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *", "30 0 * * *"] # 5-min ELFIA orders (+ hourly watchers on :00, task email outbox v1.247.0) / 30-min TikTok sync / 03:20 MYT backup / 09:00 MYT birthday greetings / 08:00 MYT morning brief (v1.108.0) / 08:30 MYT task digest (v1.247.0)
 
 # v1.162.0 - the Workers AI binding went with the Advisors (retired). Nothing
 # in the engine calls a model now. The AI Gateway in the dashboard can stay
@@ -138,7 +138,10 @@ crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *"]
 #   2. Uncomment the two blocks below, then run PUSH.bat.
 # Until then the portal sends nothing: login email changes are verified by
 # Google sign-in or in person, and set-password links are handed over.
+# v1.247.0 - TASK EMAILS (the owner, 01-11-2026): the sender is the company
+# address. Until these two are live nothing is queued (the settings page under
+# Tasks > Reports & Archive says so); the day they are, task emails start.
 # [[send_email]]
 # name = "EMAIL"
 # [vars] entry to add beside the others:
-# MAIL_FROM = "A2Z OS <no-reply@a2zcreative.my>"
+# MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative.my>"

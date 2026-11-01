@@ -272,8 +272,19 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (path === "/projects" && method === "POST") {
     const qid = typeof body?.quotation_id === "number" ? body.quotation_id : NaN;
     if (!Number.isInteger(qid)) return err("invalid_input", "quotation_id is required", 400);
+    /* v1.246.4 - the start and due dates picked in the Start project sheet */
+    const dates: { start_date?: string; due_date?: string } = {};
+    for (const f of ["start_date", "due_date"] as const) {
+      if (body?.[f] === undefined || body?.[f] === null || body?.[f] === "") continue;
+      if (!validDay(body[f])) return err("invalid_input", `${f.replace("_", " ")} must be a real date`, 400);
+      dates[f] = String(body[f]);
+    }
+    if (dates.start_date && dates.due_date && dates.due_date < dates.start_date) return err("invalid_input", "The due date is before the start date", 400);
     const made = await ensureProject(env, user, qid);
     if (made instanceof Response) return made;
+    if (!made.existing && (dates.start_date || dates.due_date)) {
+      await env.DB.prepare(`UPDATE projects SET start_date = COALESCE(?1, start_date), due_date = COALESCE(?2, due_date) WHERE id = ?3`).bind(dates.start_date ?? null, dates.due_date ?? null, made.id).run();
+    }
     return json(made, made.existing ? 200 : 201);
   }
 

@@ -28,6 +28,7 @@ import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
+import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
 import { StateChip, TaskProgressTabs, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
@@ -1119,6 +1120,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       <TabZone label={L("Reports and archive", "Laporan dan arkib")} className={view !== "reports" ? tk.off : ""}>
         {/* the company-wide card (management roles), as before */}
         {progress}
+        {/* v1.247.0 - task emails: settings, preview, delivery log (CEO, COO, CCO; the server decides) */}
+        {["ceo", "coo", "cco", "super_admin"].includes(user.role) && view === "reports" && <TaskMailPanel />}
         {canManage && (
           <section className={card} aria-label={L("Staff task performance", "Prestasi tugasan kakitangan")}>
             {head("trophy", tk.goldWell, L("Staff Task Performance", "Prestasi Tugasan Kakitangan"), L("From the tasks on the board: closed out of total, and what is late.", "Daripada tugasan pada papan: ditutup daripada jumlah, dan yang lewat."))}

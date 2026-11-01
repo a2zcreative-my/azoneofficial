@@ -324,3 +324,7 @@ tasks stay rows of tasks with link_kind project. No row is changed.
 quotation_acceptances (channel, recorded_by, note) so staff can record that
 the customer agreed outside the shared link; a project starts only once the
 quotation is accepted (on the link or recorded) or invoiced. No row is changed.
+1.247.0 adds `0161_task_mail`: mail_outbox, one row per task email with its
+delivery state (queued, sending, accepted by Cloudflare, failed and retried,
+dead), keyed by the same ref as the in-app notification so an event is
+emailed once. Settings live in system_meta. No existing table is changed.

@@ -139,7 +139,7 @@ try {
   ok("ONE SEND: a later tick in the window sends nothing more", calls.length === 0 && bells(`shift_start:${D}:1000`) === 1);
 
   /* SWITCHES (the person's own) and a MOVED shift */
-  ok("SWITCHES: defaults are on", JSON.stringify((await call("/notification-prefs", 4)).j?.prefs) === JSON.stringify({ shift_clock_in: true, shift_clock_out: true }));
+  ok("SWITCHES: defaults are on", JSON.stringify((await call("/notification-prefs", 4)).j?.prefs) === JSON.stringify({ shift_clock_in: true, shift_clock_out: true, email_tasks: true, email_digest: true })); // v1.247.0 - the two task email switches join the same table, default on
   ok("SWITCHES: an unknown switch is refused", (await call("/notification-prefs", 4, "PUT", { key: "payroll", enabled: false })).status === 400);
   ok("SWITCHES: on/off must be true or false", (await call("/notification-prefs", 4, "PUT", { key: "shift_clock_in", enabled: "no" })).status === 400);
   ok("SWITCHES: Aina turns the clock-in reminder off", (await call("/notification-prefs", 4, "PUT", { key: "shift_clock_in", enabled: false })).j?.prefs?.shift_clock_in === false);

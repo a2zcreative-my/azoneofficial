@@ -24,14 +24,19 @@ export function mailReady(env: Env): boolean {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
-/** Send one message. True only when Cloudflare accepted it. Never throws. */
-export async function sendMail(env: Env, m: MailMessage): Promise<boolean> {
-  if (!mailReady(env)) return false;
+/** v1.247.0 - the provider's own answer, kept verbatim for the delivery log. */
+export async function sendMailResult(env: Env, m: MailMessage): Promise<{ ok: boolean; error: string | null }> {
+  if (!mailReady(env)) return { ok: false, error: "Email sending is not configured (send_email binding / MAIL_FROM)" };
   try {
     const html = m.html ?? `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#14213d">${esc(m.text).replace(/\n/g, "<br>")}</div>`;
     await env.EMAIL!.send({ from: env.MAIL_FROM!, to: m.to, subject: m.subject, text: m.text, html });
-    return true;
-  } catch {
-    return false;
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: (e instanceof Error ? e.message : String(e)).slice(0, 500) };
   }
+}
+
+/** Send one message. True only when Cloudflare accepted it. Never throws. */
+export async function sendMail(env: Env, m: MailMessage): Promise<boolean> {
+  return (await sendMailResult(env, m)).ok;
 }

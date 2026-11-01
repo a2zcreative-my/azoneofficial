@@ -15,6 +15,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS } from "./task-mail";
 import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
@@ -58,7 +59,7 @@ export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", 
 
 import { Role, can, allows, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
 import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
-import { mailReady, sendMail } from "./mail"; // v1.238.0 - Cloudflare Email Sending
+import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
 function pushKeys(env: Env): PushKeys | null {
@@ -8308,6 +8309,12 @@ async function handleStaffRoutes(
         `${firstBlock ? `🗓️ Scheduled${own ? " — yours" : ""}` : "📋 New task assigned"}: ${body.title as string}${when}${scope}.`
         + (own ? "" : " Open the Tasks tab and press Acknowledge."),
         `task:${res?.id}`);
+      /* v1.247.0 - the same event, by email, after the task row is committed;
+         a failure here never touches the task (queueTaskMail never throws) */
+      if (!own && res?.id) {
+        const tm = await taskForMail(env, res.id);
+        if (tm) await queueTaskMail(env, "assigned", assignedTo, `task:${res.id}:assigned:${assignedTo}`, { task: tm, by: user.name }, { urgent: true });
+      }
     }
     await audit(env, user.id, "task.create", "tasks", String(res?.id));
     return json({ id: res?.id, block_id: firstBlock, days: blockDays }, 201);
@@ -8680,6 +8687,15 @@ async function handleStaffRoutes(
         await notify(env, row.assigned_to, "task",
           `📋 No longer yours: ${row.title} — it has been reassigned.`, `task:${id}:unassign`);
       }
+      /* v1.247.0 - by email too: the new person (urgent), the previous one plainly */
+      const tm = await taskForMail(env, id);
+      if (tm) {
+        const stamp = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 13);
+        await queueTaskMail(env, "moved", reassignedTo, `task:${id}:moved:${reassignedTo}:${stamp}`, { task: tm, by: user.name }, { urgent: true });
+        if (row.assigned_to !== user.id && row.assigned_to !== reassignedTo) {
+          await queueTaskMail(env, "moved", row.assigned_to, `task:${id}:unassigned:${row.assigned_to}:${stamp}`, { task: { ...tm, title: `${tm.title} (no longer yours)` }, by: user.name, summary: "This task has been reassigned to somebody else. Nothing more is needed from you on it." });
+        }
+      }
     }
     await audit(env, user.id, "task.update", "tasks", String(id), {
       ...(reassignedTo ? { reassigned_to: reassignedTo, from: row.assigned_to, ...(reason ? { reason } : {}) } : {}),
@@ -8775,6 +8791,103 @@ async function handleStaffRoutes(
      assignee, the person who set the task, or those who manage it add,
      rename and remove deliverables while the task is open. Progress is
      recounted from the list each time; every add and removal is an event. */
+  /* ═══════════════ v1.247.0 - TASK EMAILS: settings, log, test, retry, reminder ═══════════════
+     The settings are one JSON row in system_meta (the existing protected
+     settings store), read by the CEO, COO and CCO, written by the CEO or a
+     super admin (audited). The sender itself (the binding, MAIL_FROM) is
+     never in the UI - wrangler.toml and the dashboard own it. */
+  const mailUrl = new URL(request.url);
+  const mailMgr = can(user.role, "project_manage") || user.role === "super_admin";
+  const mailAdmin = user.role === "ceo" || user.role === "super_admin";
+  if (path === "/tasks/mail-settings" && (method === "GET" || method === "PUT")) {
+    if (!mailMgr) return err("forbidden", "Task email settings are for the CEO, COO and CCO", 403);
+    if (method === "PUT") {
+      if (!mailAdmin) return err("forbidden", "Only the CEO changes task email settings", 403);
+      const cur = await readMailSettings(env);
+      const next = validateSettings(body, cur);
+      if (typeof next === "string") return err("invalid_input", next, 400);
+      await writeMailSettings(env, next, user.id);
+      await audit(env, user.id, "tasks.mail_settings", "system_meta", "task_mail_settings", { from: cur, to: next });
+    }
+    const st = await readMailSettings(env);
+    return json({ settings: st, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null }, can_edit: mailAdmin });
+  }
+  if (path === "/tasks/mail-log" && method === "GET") {
+    const mine = mailUrl.searchParams.get("mine") === "1" || !mailMgr;
+    const status = mailUrl.searchParams.get("status");
+    const where: string[] = []; const args: unknown[] = [];
+    if (mine) { args.push(user.id); where.push(`m.user_id = ?${args.length}`); }
+    if (status && ["queued", "sending", "accepted", "failed", "dead"].includes(status)) { args.push(status); where.push(`m.status = ?${args.length}`); }
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT m.id, m.user_id, ${mine ? "m.to_email" : "m.to_email"} AS to_email, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS to_name, m.kind, m.ref, m.subject, m.status, m.attempts, m.last_error, m.not_before, m.created_at, m.sent_at, m.reason,
+                COALESCE(NULLIF(TRIM(c.full_name), ''), c.name) AS created_by_name
+           FROM mail_outbox m LEFT JOIN users u ON u.id = m.user_id LEFT JOIN users c ON c.id = m.created_by
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY m.id DESC LIMIT 200`,
+      ).bind(...args).all();
+      const counts = mailMgr ? (await env.DB.prepare(`SELECT status, COUNT(*) AS n FROM mail_outbox WHERE created_at >= datetime('now', '-7 days') GROUP BY status`).all<{ status: string; n: number }>()).results : [];
+      return json({ rows: results, counts: Object.fromEntries((counts ?? []).map((c) => [c.status, Number(c.n)])), sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null } });
+    } catch (e) {
+      if (/no such table/i.test(String(e))) return json({ rows: [], counts: {}, pending_migration: true, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null } });
+      throw e;
+    }
+  }
+  const mailRetry = path.match(/^\/tasks\/mail-log\/(\d+)\/retry$/);
+  if (mailRetry && method === "POST") {
+    if (!mailAdmin) return err("forbidden", "Only the CEO retries a failed email", 403);
+    const r = await env.DB.prepare(`UPDATE mail_outbox SET status = 'queued', attempts = 0, not_before = NULL, last_error = NULL, created_at = ?2 WHERE id = ?1 AND status IN ('failed', 'dead') AND to_email != '-'`).bind(mailRetry[1], new Date().toISOString().slice(0, 19).replace("T", " ")).run();
+    if (!Number((r as { meta?: { changes?: number } }).meta?.changes ?? 0)) return err("not_found", "No failed email with that id", 404);
+    await audit(env, user.id, "tasks.mail_retry", "mail_outbox", mailRetry[1]!);
+    return json({ ok: true });
+  }
+  if (path === "/tasks/mail-preview" && method === "GET") {
+    if (!mailMgr) return err("forbidden", "Task email settings are for the CEO, COO and CCO", 403);
+    const kind = mailUrl.searchParams.get("kind") ?? "assigned";
+    if (!(MAIL_KINDS as string[]).includes(kind)) return err("invalid_input", "Unknown email kind", 400);
+    /* the real template, with the viewer's own name and a sample task - no live record is read */
+    const built = buildTaskMail(env, kind as never, { task: { id: 0, title: "Prepare client proposal", priority: "high", deadline: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10), description: "Prepare the full proposal and presentation deck based on the approved package.", status: "in_progress", progress: 60, link_label: "Sample project (QT-SAMPLE-1)" }, by: user.name, summary: kind === "digest" ? "Overdue (1):\n• Sample task (due 30-10-2026)\n\nOpen tasks assigned to you: 3" : "Proposal draft and deck design are completed. Waiting for internal review.", next: "Internal review", to: { id: user.id, email: user.email, name: user.name, first: user.name.split(/\s+/)[0] ?? user.name, role: user.role } });
+    return new Response(built.html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+  if (path === "/tasks/mail-test" && method === "POST") {
+    if (!mailAdmin) return err("forbidden", "Only the CEO sends a test email", 403);
+    const me = await recipientFor(env, user.id);
+    if (!me.to) return err("invalid_state", `A test needs your own verified staff email (${me.why})`, 409);
+    if (!mailReady(env)) return err("invalid_state", "Email sending is not configured yet - onboard the domain in the Cloudflare dashboard and set MAIL_FROM (wrangler.toml), then PUSH.bat", 409);
+    const built = buildTaskMail(env, "test", { task: { id: 0, title: "Test email" }, to: me.to });
+    const res = await sendMailResult(env, { to: me.to.email, subject: built.subject, text: built.text, html: built.html });
+    try {
+      await env.DB.prepare(`INSERT INTO mail_outbox (user_id, to_email, kind, ref, subject, body_text, status, attempts, last_error, sent_at, created_by) VALUES (?1, ?2, 'test', ?3, ?4, ?5, ?6, 1, ?7, ?8, ?1)`)
+        .bind(user.id, me.to.email, `test:${user.id}:${Date.now()}`, built.subject, built.text, res.ok ? "accepted" : "dead", res.error, res.ok ? new Date().toISOString().slice(0, 19).replace("T", " ") : null).run();
+    } catch { /* pre-0161: the answer below still says what happened */ }
+    await audit(env, user.id, "tasks.mail_test", "users", String(user.id), { to: me.to.email, ok: res.ok, error: res.error });
+    if (!res.ok) return err("send_failed", `Cloudflare did not accept the test: ${res.error}`, 502);
+    return json({ ok: true, to: me.to.email });
+  }
+  /* MANUAL REMINDER (brief 3H): the CEO, COO, CCO, the Project Owner or the
+     person who set the task, with a reason, to the assignee only, once per
+     task per 12 hours, through the same bell and the same outbox. */
+  const taskRemind = path.match(/^\/tasks\/(\d+)\/remind$/);
+  if (taskRemind && method === "POST") {
+    const t = await loadTask(env, taskRemind[1]!);
+    if (!t) return err("not_found", "Task not found", 404);
+    const ta = await taskAccess(env, user, t);
+    if (!ta.manage && !ta.creator) return err("forbidden", "Only management, the Project Owner or the person who set the task sends a reminder", 403);
+    if (!ta.open) return err("task_closed", "This task is closed - nothing to remind", 409);
+    if (t.assigned_to === user.id) return err("invalid_input", "This task is yours - there is nobody to remind", 400);
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 5) return err("invalid_input", "Say why you are reminding (at least 5 characters) - it goes in the email and the audit history", 400);
+    try {
+      const recent = await env.DB.prepare(`SELECT created_at FROM mail_outbox WHERE ref LIKE ?1 AND created_at > ?2 ORDER BY id DESC LIMIT 1`).bind(`task:${t.id}:remind:%`, new Date(Date.now() - 12 * 3600 * 1000).toISOString().slice(0, 19).replace("T", " ")).first<{ created_at: string }>();
+      if (recent) return err("too_soon", `A reminder for this task went out at ${recent.created_at.slice(11, 16)} UTC - one per task every 12 hours`, 429);
+    } catch { /* pre-0161 */ }
+    const stamp = Date.now();
+    await notify(env, t.assigned_to, "task", `🔔 Reminder from ${user.name}: ${t.title} - ${reason.slice(0, 160)}`, `task:${t.id}:remind:${stamp}`);
+    const tm = await taskForMail(env, t.id);
+    const q = tm ? await queueTaskMail(env, "reminder", t.assigned_to, `task:${t.id}:remind:${stamp}`, { task: tm, by: user.name, summary: reason }, { createdBy: user.id, reason, urgent: true }) : { queued: false, why: "task not found", to: undefined };
+    await audit(env, user.id, "task.remind", "tasks", String(t.id), { to: t.assigned_to, reason, email: q.queued ? "queued" : `not queued: ${q.why}` });
+    return json({ ok: true, bell: true, email: q.queued, email_to: q.queued ? q.to : null, why: q.why }, 201);
+  }
+
   const taskItemEdit = path.match(/^\/tasks\/(\d+)\/items(?:\/(\d+))?$/);
   if (taskItemEdit && (method === "POST" || method === "PATCH" || method === "DELETE") && !(method === "POST" && taskItemEdit[2])) {
     const t = await loadTask(env, taskItemEdit[1]!);
@@ -8946,6 +9059,11 @@ async function handleStaffRoutes(
     }
     for (const uid of mentions.filter((x) => x !== user.id)) {
       try { await notify(env, uid, "task", `@ ${user.name} mentioned you on ${t.title}: ${text}`, `task:${t.id}:c:${ins.id}:${uid}`, { once: true }); } catch { /* a bell never blocks */ }
+    }
+    /* v1.247.0 - a mention, by email, to the mentioned person only */
+    if (mentions.some((x) => x !== user.id)) {
+      const tm = await taskForMail(env, t.id);
+      if (tm) for (const uid of mentions.filter((x) => x !== user.id)) await queueTaskMail(env, "mention", uid, `task:${t.id}:mention:${ins.id}:${uid}`, { task: tm, by: user.name, summary: String(body.comment).slice(0, 400) });
     }
     return json({ ok: true, id: ins.id }, 201);
   }
@@ -17904,7 +18022,7 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
     return json({ device: Boolean(row) });
   }
   if (path === "/notification-prefs" && (method === "GET" || method === "PUT")) {
-    const KEYS = ["shift_clock_in", "shift_clock_out"] as const;
+    const KEYS = ["shift_clock_in", "shift_clock_out", "email_tasks", "email_digest"] as const; // v1.247.0 - task emails and the daily digest, per person
     try {
       if (method === "PUT") {
         const k = body?.key, v = body?.enabled;

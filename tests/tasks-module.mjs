@@ -61,7 +61,7 @@ const staff = read("worker/src/staff.ts");
   /* v1.246.0 - the owner's brief of 01-11-2026 (part 8) asked for the comments: ONE component reads and posts them */
   ok("one screen reads and posts task comments - the task's Updates & Comments (task-progress.tsx)", commenters.length === 1 && /task-progress\.tsx$/.test(commenters[0] ?? ""), commenters.join(", "));
   const routes = staff.split("path.match(/^\\/tasks").slice(1).map((x) => x.slice(0, x.indexOf("$/"))).sort();
-  const want = ["\\/(\\d+)", "\\/(\\d+)\\/ack", "\\/(\\d+)\\/comments", "\\/(\\d+)\\/items", "\\/(\\d+)\\/items(?:\\/(\\d+))?", "\\/(\\d+)\\/items\\/(\\d+)\\/toggle"].sort(); // v1.246.2 - the checklist edit route (POST add, PATCH rename, DELETE remove)
+  const want = ["\\/(\\d+)", "\\/(\\d+)\\/ack", "\\/(\\d+)\\/comments", "\\/(\\d+)\\/items", "\\/(\\d+)\\/items(?:\\/(\\d+))?", "\\/(\\d+)\\/items\\/(\\d+)\\/toggle", "\\/(\\d+)\\/remind", "\\/mail-log\\/(\\d+)\\/retry"].sort(); // v1.247.0 - the manual reminder and the email retry; v1.246.2 - the checklist edit route (POST add, PATCH rename, DELETE remove)
   ok("the worker's task routes are the ones there were (no events or archive read)", JSON.stringify(routes) === JSON.stringify(want), JSON.stringify(routes));
 }
 

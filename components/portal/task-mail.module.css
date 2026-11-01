@@ -1,0 +1,43 @@
+/* v1.247.0 - Task emails (Tasks > Reports & Archive). Tokens only - both themes. */
+.head { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.875rem; }
+.well { display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 0.625rem; background: var(--brand-primary, var(--primary)); color: var(--primary-foreground); flex-shrink: 0; }
+.headText { flex: 1; min-width: 0; }
+.title { margin: 0; font-size: var(--type-title-size, 1.0625rem); font-weight: 700; color: var(--foreground); }
+.sub { margin: 0.125rem 0 0; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }
+.sender { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.625rem 0.75rem; border-radius: 0.625rem; font-size: var(--type-body-sm-size); margin-bottom: 1rem; overflow-wrap: anywhere; }
+.senderOk { background: var(--success-soft, var(--secondary)); color: var(--foreground); }
+.senderOff { background: var(--warning-soft, var(--secondary)); color: var(--foreground); }
+.grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.25rem; }
+@media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+.col { display: grid; gap: 0.75rem; align-content: start; min-width: 0; }
+.h3 { margin: 0; font-size: var(--type-body-size, 0.9375rem); font-weight: 700; color: var(--foreground); }
+.triggers { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--border); border-radius: 0.75rem; overflow: hidden; }
+.trigger { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.625rem 0.875rem; border-top: 1px solid var(--border); }
+.trigger:first-child { border-top: 0; }
+.trigText { display: grid; gap: 0.125rem; min-width: 0; font-size: var(--type-body-sm-size); color: var(--foreground); }
+.trigText span { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.switch { position: relative; flex-shrink: 0; width: 2.5rem; height: 1.375rem; border: 0; border-radius: 999px; background: var(--border); cursor: pointer; transition: background 0.15s; }
+.switch:disabled { opacity: 0.55; cursor: not-allowed; }
+.switch:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.switchOn { background: var(--gold-solid, var(--brand-accent, var(--primary))); }
+.knob { position: absolute; top: 0.1875rem; left: 0.1875rem; width: 1rem; height: 1rem; border-radius: 999px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); transition: transform 0.15s; }
+.switchOn .knob { transform: translateX(1.125rem); }
+@media (prefers-reduced-motion: reduce) { .switch, .knob { transition: none; } }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.625rem 1rem; }
+.fields label { display: grid; gap: 0.25rem; font-size: var(--type-caption-size); font-weight: 600; color: var(--muted-foreground); }
+.pair { display: flex; align-items: center; gap: 0.375rem; }
+.note { margin: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.cmds { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.previewHead { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.preview { width: 100%; height: 34rem; border: 1px solid var(--border); border-radius: 0.75rem; background: #f3f4f6; }
+.logHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 1.25rem 0 0.5rem; }
+.counts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
+.countsNote { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.only { display: inline-flex; align-items: center; gap: 0.375rem; margin-left: auto; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.tableWrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.75rem; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
+.table th { text-align: left; padding: 0.5rem 0.75rem; font-size: var(--type-caption-size); font-weight: 600; color: var(--muted-foreground); background: var(--secondary); }
+.table td { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); vertical-align: top; color: var(--foreground); }
+.nowrap { white-space: nowrap; }
+.subject { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.why { display: block; margin-top: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); overflow-wrap: anywhere; }
