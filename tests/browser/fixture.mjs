@@ -1419,17 +1419,52 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 9101, email: "root@azoneofficial.com", name: "System Root", role: "super_admin", employment_status: null, is_active: 1, created_at: "2025-01-01 00:00:00" },
     { id: 9104, email: "tech@azoneofficial.com", name: "Tech Support", role: "admin", employment_status: null, is_active: 1, created_at: "2025-02-01 00:00:00" }] }
     : { error: { code: "forbidden", message: "Admin role required" } };
-  /* v1.249.0 - the agent desk. ROLE=agent is Zul (9005), an agent: one task,
-     the active packages, his own two requests. Sales and management see three. */
+  /* v1.249.0 - the agent desk. v1.250.0 - the agent portal workflow. ROLE=agent
+     is Zul (9005): request 1 has a PUBLISHED quotation, 2 waits for his answer
+     (more info), 4 is his draft. Ros (9006) has 3, waiting for Sales to verify
+     the client's yes. Internal entries never reach the agent's JSON. */
+  const isAg = ROLE === "agent";
   const AGREQ = [
-    { id: 1, agent_id: 9005, agent_name: "Zul Agent", client_name: "Puan Rina", client_phone: "0129998888", client_email: null, company: "Rina Bakery", package_id: 11, package_name: "10 Video Content", note: "Wants it before CNY", status: "quoted", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: 1, quotation_number: "QT-AZO150926-1", manager_note: ROLE === "agent" ? null : "Quoted RM700", created_at: "2026-10-30 02:00:00", updated_at: "2026-10-31 02:00:00" },
-    { id: 2, agent_id: 9005, agent_name: "Zul Agent", client_name: "Encik Kamal", client_phone: null, client_email: "kamal@example.test", company: null, package_id: 12, package_name: "Promosi Produk", note: null, status: "new", assigned_to: null, assigned_name: null, quotation_id: null, quotation_number: null, manager_note: null, created_at: "2026-10-31 03:00:00", updated_at: null },
-    { id: 3, agent_id: 9006, agent_name: "Ros Agent", client_name: "Cik Lina", client_phone: "0111112222", client_email: null, company: "Lina Spa", package_id: 11, package_name: "10 Video Content", note: null, status: "contacted", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: null, quotation_number: null, manager_note: null, created_at: "2026-10-29 03:00:00", updated_at: "2026-10-30 03:00:00" },
+    { id: 1, ref: "AGR-0001", agent_id: 9005, agent_name: "Zul Agent", client_name: "Puan Rina", contact_person: "Puan Rina", client_phone: "0129998888", client_email: "rina@example.test", company: "Rina Bakery", package_id: 11, package_name: "10 Video Content", custom: 0, requirement: "Ten videos for the CNY campaign", timeline: "Before CNY", budget_text: "RM700", note: null, issuer_code: "azoo", status: "quotation_ready", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: 1, quotation_number: "QT-AZO150926-1", published_number: "QT-AZO150926-1", published_revision: 0, next_follow_up_on: "2026-10-30", overdue: true, manager_note: "Quoted RM700", last_text: "Quotation QT-AZO150926-1 published to you", last_at: "2026-10-31 02:00:00", last_by: "Nur Aisyah binti Rahman", created_at: "2026-10-30 02:00:00" },
+    { id: 2, ref: "AGR-0002", agent_id: 9005, agent_name: "Zul Agent", client_name: "Encik Kamal", contact_person: null, client_phone: null, client_email: "kamal@example.test", company: null, package_id: 12, package_name: "Promosi Produk", custom: 0, requirement: null, timeline: null, budget_text: null, note: null, issuer_code: "a2z", status: "more_info", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: null, quotation_number: null, published_number: null, published_revision: null, next_follow_up_on: null, overdue: false, manager_note: null, last_text: "More information needed: Which products?", last_at: "2026-10-31 03:00:00", last_by: "Nur Aisyah binti Rahman", created_at: "2026-10-31 03:00:00" },
+    { id: 3, ref: "AGR-0003", agent_id: 9006, agent_name: "Ros Agent", client_name: "Cik Lina", contact_person: "Cik Lina", client_phone: "0111112222", client_email: null, company: "Lina Spa", package_id: 11, package_name: "10 Video Content", custom: 0, requirement: null, timeline: null, budget_text: null, note: null, issuer_code: "azoo", status: "acceptance_pending", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: 1, quotation_number: "QT-AZO150926-1", published_number: "QT-AZO150926-1", published_revision: 0, next_follow_up_on: "2026-11-05", overdue: false, manager_note: null, last_text: "Client says yes - to verify: Go ahead", last_at: "2026-11-01 01:00:00", last_by: "Ros Agent", created_at: "2026-10-29 03:00:00" },
+    { id: 4, ref: "AGR-0004", agent_id: 9005, agent_name: "Zul Agent", client_name: "Draft Co", contact_person: null, client_phone: null, client_email: null, company: null, package_id: null, package_name: null, custom: 1, requirement: null, timeline: null, budget_text: null, note: null, issuer_code: null, status: "draft", assigned_to: null, assigned_name: null, quotation_id: null, quotation_number: null, published_number: null, published_revision: null, next_follow_up_on: null, overdue: false, manager_note: null, last_text: "Draft saved", last_at: "2026-11-01 02:00:00", last_by: "Zul Agent", created_at: "2026-11-01 02:00:00" },
   ];
+  const STAFF_ONLY = ["agent_name", "assigned_to", "quotation_id", "quotation_number", "manager_note", "next_follow_up_on", "overdue"];
+  const asAgent = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => !STAFF_ONLY.includes(k)));
   if (p0 === "/staff/agent/packages") data = { packages: [
     { id: 11, name: "10 Video Content", category: "Video", description: "Ten short videos for social media", issuers: ["azoo"], total_cents: 70000, lines: [{ name: "Video Content 30s", qty: 10 }] },
     { id: 12, name: "Promosi Produk", category: "Design & Video", description: "Bahan promosi untuk media sosial dan e-commerce", issuers: ["a2z"], total_cents: 35000, lines: [{ name: "Poster", qty: 3 }, { name: "Video 15s", qty: 1 }] }] };
-  if (p0 === "/staff/agent/requests") data = { requests: ROLE === "agent" ? AGREQ.filter((r) => r.agent_id === 9005) : AGREQ, can_manage: ["ceo", "coo", "cco", "super_admin"].includes(ROLE), can_submit: ROLE === "agent" };
+  if (p0 === "/staff/agent/requests") {
+    const rows = isAg ? AGREQ.filter((r) => r.agent_id === 9005).map(asAgent) : AGREQ.filter((r) => r.status !== "draft");
+    const counts = {}; for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
+    data = { requests: rows, counts, can_manage: ["ceo", "coo", "cco", "super_admin"].includes(ROLE), can_submit: isAg, mail_ready: false, me: isAg ? 9005 : 9001 };
+  }
+  if (p0 === "/staff/agent/agents") data = { agents: [{ id: 9005, name: "Zul Agent", email: "zul.agent@gmail.com", is_active: 1, requests: 2, won: 0 }, { id: 9006, name: "Ros Agent", email: "ros.agent@gmail.com", is_active: 1, requests: 1, won: 0 }] };
+  const agOne = /^\/staff\/agent\/requests\/(\d+)$/.exec(p0);
+  if (agOne) {
+    const r = AGREQ.find((x) => x.id === Number(agOne[1]));
+    if (!r || (isAg && r.agent_id !== 9005) || (!isAg && r.status === "draft")) data = { error: { code: "not_found", message: "Request not found" } };
+    else {
+      const H = [
+        { id: 1, kind: "submitted", visibility: "agent", body: "Submitted to Sales", created_at: r.created_at, actor: r.agent_name, actor_id: r.agent_id },
+        { id: 2, kind: "assign", visibility: "agent", body: "Sales assigned: Nur Aisyah binti Rahman", created_at: "2026-10-30 04:00:00", actor: "Fixture Person", actor_id: 9001 },
+        { id: 3, kind: "comment", visibility: "internal", body: "Hold the price until the deposit term is agreed", created_at: "2026-10-30 05:00:00", actor: "Fixture Person", actor_id: 9001 },
+        ...(r.id === 1 ? [{ id: 4, kind: "published", visibility: "agent", body: "Quotation QT-AZO150926-1 published to you", created_at: "2026-10-31 02:00:00", actor: "Nur Aisyah binti Rahman", actor_id: 9002 }] : []),
+        ...(r.id === 2 ? [{ id: 5, kind: "status", visibility: "agent", body: "More information needed: Which products?", created_at: "2026-10-31 03:00:00", actor: "Nur Aisyah binti Rahman", actor_id: 9002 }] : []),
+        ...(r.id === 3 ? [{ id: 6, kind: "file", visibility: "agent", body: "File: whatsapp-yes.png", created_at: "2026-11-01 00:59:00", actor: "Ros Agent", actor_id: 9006 }, { id: 7, kind: "feedback", visibility: "agent", body: "Client says yes - to verify: Go ahead", created_at: "2026-11-01 01:00:00", actor: "Ros Agent", actor_id: 9006 }] : []),
+      ].map((e) => ({ next_action: null, follow_up_on: null, status_to: null, channel: null, ...e }));
+      const qt = r.published_number ? { doc_number: r.published_number, revision: 0, issuer_name: "AZ ONE OFFICIAL", customer: r.company, total_cents: 70000, valid_until: "2026-11-30", lines: [{ name: "Video Content 30s", qty: 10 }], link: "https://a2zcreative.my/doc?t=0123456789abcdef0123456789abcdef", notice: null, acceptance: null } : null;
+      const files = r.id === 3 ? [{ id: 1, file_name: "whatsapp-yes.png", visibility: "agent", created_at: "2026-11-01 00:59:00", uploader: "Ros Agent" }] : [];
+      data = isAg
+        ? { request: asAgent(r), history: H.filter((e) => e.visibility === "agent"), files, quotation: qt, mail_ready: false,
+            can: { edit: ["draft", "more_info"].includes(r.status), share: ["quotation_ready", "with_client", "revision_requested"].includes(r.status) && !!qt, feedback: ["quotation_ready", "with_client", "revision_requested"].includes(r.status) && !!qt } }
+        : { request: r, history: H, files, quotation: qt,
+            linked: r.quotation_id ? { id: 1, doc_number: "QT-AZO150926-1", revision: 0, total_cents: 70000, valid_until: "2026-11-30", voided_at: null, customer: r.company, acceptance: null } : null,
+            can: { handle: ["ceo", "coo", "cco"].includes(ROLE), manage: ["ceo", "coo", "cco"].includes(ROLE), to: ["ceo", "coo", "cco"].includes(ROLE) ? (r.status === "acceptance_pending" ? ["with_client", "not_proceeding"] : ["preparing", "not_proceeding"]) : [], publish: ["ceo", "coo", "cco"].includes(ROLE) && !!r.quotation_id, verify: ["ceo", "coo", "cco"].includes(ROLE) && r.status === "acceptance_pending" } };
+    }
+  }
+  if (/^\/staff\/agent\/requests\/\d+\/prefill$/.test(p0)) data = isAg ? { error: { code: "not_found" } } : { prefill: { source: "agent_request", agent_request_id: 3, company: "Lina Spa", contact_person: "Cik Lina", phone: "0111112222", email: "", reference: "AGR-0003", doc_type: "QT", items: [{ name: "Video Content 30s", qty: 10, unit_price_cents: 7000 }], package_id: 11, package_version: 1, issuer: "azoo", salesperson_id: 9002 } };
   if (data === undefined) { onMissing(p0); return {}; }
   return data;
 }

@@ -158,7 +158,7 @@ async function runtime(workerBundle) {
     ok((await call(`/staff/agent/requests`, U.agent, "POST", { client_name: "Puan Rina", client_phone: "0129998888", package_id: 2 })).status === 400, "R1 a draft package cannot be requested - only active ones");
     ok((await call(`/staff/agent/requests`, U.agent, "POST", { client_name: "Puan Rina", package_id: 1 })).status === 400, "R2 a phone or an email is required so Sales can reach the client");
     const r1 = await call(`/staff/agent/requests`, U.agent, "POST", { client_name: "Puan Rina", client_phone: "0129998888", company: "Rina Bakery", package_id: 1, note: "Wants it before CNY" });
-    ok(r1.status === 201 && n(`SELECT COUNT(*) AS n FROM agent_requests WHERE agent_id = 20 AND package_version = 1 AND status = 'new'`) === 1, "R3 an agent submits a client with the package (version kept), status New", r1.text.slice(0, 120));
+    ok(r1.status === 201 && n(`SELECT COUNT(*) AS n FROM agent_requests WHERE agent_id = 20 AND package_version = 1 AND status = 'submitted'`) === 1, "R3 an agent submits a client with the package (version kept), status Submitted (v1.250.0 statuses)", r1.text.slice(0, 120));
     const r1b = await call(`/staff/agent/requests`, U.agent, "POST", { client_name: "puan rina", client_phone: "0129998888", package_id: 1 });
     ok(r1b.j?.existing === true && n(`SELECT COUNT(*) AS n FROM agent_requests`) === 1, "R4 the same client and package twice in a day is one request");
     await call(`/staff/agent/requests`, U.agent2, "POST", { client_name: "Encik Kamal", client_email: "kamal@x.test", package_id: 1 });
@@ -174,10 +174,10 @@ async function runtime(workerBundle) {
     ok((await call(`/staff/agent/requests/${rid}`, U.aina, "PATCH", { status: "contacted" })).status === 403, "S2 Sales cannot edit a request");
     ok((await call(`/staff/agent/requests`, U.ed)).status === 403 && (await call(`/staff/agent/requests`, U.hr)).status === 403, "S3 an editor or HR admin does not see agents' requests");
     ok((await call(`/staff/agent/requests/${rid}`, U.coo, "PATCH", { assigned_to: U.ed })).status === 400, "S4 follow-up goes to a salesperson or management, not anyone");
-    const ed = await call(`/staff/agent/requests/${rid}`, U.coo, "PATCH", { status: "quoted", assigned_to: U.aina, quotation_id: 50, manager_note: "Quoted RM700" });
+    const ed = await call(`/staff/agent/requests/${rid}`, U.coo, "PATCH", { status: "under_review", assigned_to: U.aina, quotation_id: 50, manager_note: "Quoted RM700" });
     ok(ed.status === 200 && db.prepare(`SELECT status, assigned_to, quotation_id FROM agent_requests WHERE id = ?`).get(rid)?.quotation_id === 50, "S5 the COO (management) sets status, the follow-up salesperson and the quotation it became");
     const hist = await call(`/staff/agent/requests/${rid}`, U.agent);
-    ok(hist.j?.history?.length === 2 && hist.j?.request?.manager_note === null && hist.j?.request?.status === "quoted", "S6 the agent sees what happened (the history) but never the team's private note");
+    ok(hist.j?.history?.length === 3 && hist.j.history.every((e) => e.visibility === "agent") && !("manager_note" in (hist.j?.request ?? {})) && !("quotation_id" in (hist.j?.request ?? {})) && hist.j?.request?.status === "under_review", "S6 the agent sees what happened (the history) but never the team's private note, internal entries or the linked draft quotation", JSON.stringify(hist.j).slice(0, 300));
     let frozen = false; try { db.exec(`UPDATE agent_request_events SET kind = 'x'`); } catch { frozen = true; }
     ok(frozen, "S7 a request's history cannot be edited");
 
@@ -244,10 +244,10 @@ try { rmSync(dir, { recursive: true, force: true }); } catch { /* temp */ }
 
 const MUT = [
   ["worker/src/index.ts", "the agent gate is gone", '    if (user.role === "agent" && !AGENT_STAFF_PATHS.some((rx) => rx.test(sub))) {', "    if (false) {"],
-  ["worker/src/agent.ts", "an agent sees every request", "      if (!viewer && !manager) { where.push(`r.agent_id = ?${binds.length + 1}`); binds.push(user.id); }", "      if (false) { where.push(`r.agent_id = ?${binds.length + 1}`); binds.push(user.id); }"],
-  ["worker/src/agent.ts", "Sales edits requests", "        if (!manager) return err(\"forbidden\", \"Management (CEO, COO, CCO) edits agent requests; Sales reads them\", 403);", ""],
+  ["worker/src/agent.ts", "an agent sees every request", "      if (!staff) { where.push(`r.agent_id = ?${binds.length + 1}`); binds.push(user.id); }", "      if (false) { where.push(`r.agent_id = ?${binds.length + 1}`); binds.push(user.id); }"],
+  ["worker/src/agent.ts", "Sales edits requests", "      if (!handler) return err(\"forbidden\", \"The assigned salesperson or management changes a request; Sales & Marketing read and comment\", 403);", ""],
   ["worker/src/agent.ts", "draft packages are offered", "          WHERE p.status = 'active' ORDER BY p.category, p.name`,", "          WHERE 1 = 1 ORDER BY p.category, p.name`,"],
-  ["worker/src/agent.ts", "the private note reaches the agent", "        return json({ request: viewer || manager ? r : { ...r, manager_note: null }, history: results ?? [] });", "        return json({ request: r, history: results ?? [] });"],
+  ["worker/src/agent.ts", "the private note reaches the agent", "        return json({ request: { ...agentView(r as unknown as Record<string, unknown>), ...base }", "        return json({ request: { ...(r as unknown as Record<string, unknown>), ...base }"],
   ["worker/src/task-mail.ts", "everyone's tasks in every email", "    `SELECT title, status, progress, deadline FROM tasks WHERE assigned_to = ?1 AND status != 'completed'", "    `SELECT title, status, progress, deadline FROM tasks WHERE (assigned_to = ?1 OR 1 = 1) AND status != 'completed'"],
   ["worker/src/task-mail.ts", "updates repeat at will", "    if (recent) { out.skipped.push({ id, why: \"already sent a task update this hour\" }); continue; }", ""],
   ["worker/src/staff.ts", "anybody sends a task update", "    if (!can(user.role, \"task_mail_send\")) return err(\"forbidden\", \"Sending a task update is for the CEO (Roles & Permissions decides)\", 403);", ""],

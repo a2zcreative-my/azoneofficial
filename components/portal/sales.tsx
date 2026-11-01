@@ -1622,8 +1622,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      with no `source` behaves exactly as before. */
   type Prefill = {
     company?: string; contact_person?: string; phone?: string; reference?: string;
-    source?: "enquiry" | "recurring";
+    source?: "enquiry" | "recurring" | "agent_request"; // v1.250.0 - an agent's request (Agents > Create quotation in Sales)
     customer_id?: number; doc_type?: string; kind?: string; items?: DocItem[];
+    email?: string; package_id?: number | null; package_version?: number | null; package_name?: string;
     discount_cents?: number; tax_percent?: number; delivery_cents?: number; issuer?: string; salesperson_id?: number;
   };
   const applyPrefill = (pf: Prefill) => {
@@ -1662,21 +1663,32 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       customer_id: existing ? existing.id : d.customer_id,
       /* v1.225.0 - the enquiry's consultant, if they are on the salesperson list */
       salesperson_id: pf.salesperson_id && staffList.some((u) => u.id === pf.salesperson_id) ? pf.salesperson_id : d.salesperson_id,
+      /* v1.250.0 - an agent request brings its package lines and its issuing company;
+         everything after this is the normal form (pricing, approval, numbering) */
+      ...(pf.source === "agent_request" ? {
+        items: Array.isArray(pf.items) && pf.items.length ? pf.items : d.items,
+        issuer: pf.issuer ?? d.issuer,
+        kind: pf.issuer === "azoo" ? "service" : d.kind,
+      } : {}),
     }));
+    if (pf.source === "agent_request" && pf.package_id) setPkgRef({ id: pf.package_id, version: Number(pf.package_version ?? 1), name: pf.package_name ?? L(`Package #${pf.package_id}`, `Pakej #${pf.package_id}`) });
     if (!existing)
       setCust((c) => ({
         ...c,
         company: pf.company ?? "",
         contact_person: pf.contact_person ?? "",
         phone: pf.phone ?? "",
+        ...(pf.email ? { email: pf.email } : {}), // v1.250.0 - an agent request carries the client's email
       }));
-    if (pf.source === "enquiry") {
+    if (pf.source === "enquiry" || pf.source === "agent_request") {
       setWorkTab("create");
       if (!existing) setCustTab("add");
       jump(existing ? "sales-work" : "sales-customers");
     }
     showToast(
-      pf.source === "enquiry"
+      pf.source === "agent_request"
+        ? L(`Prefilled from agent request ${pf.reference ?? ""}`, `Diisi awal daripada permintaan ejen ${pf.reference ?? ""}`)
+        : pf.source === "enquiry"
         ? L("Prefilled from the enquiry", "Diisi awal daripada pertanyaan")
         : L("Prefilled from prospect", "Diisi awal daripada prospek"),
       existing

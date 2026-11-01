@@ -398,3 +398,16 @@ export async function putGuarded(
     return err("upload_failed", "the file could not be stored — try again", 500);
   }
 }
+
+/** v1.250.0 - the customer link of a document (32 hex characters - unguessable,
+    short enough for a URL). One helper for the Sales share button and the
+    agent desk's Publish to Agent, so both hand out the same link. */
+export async function ensureShareToken(env: Env, docId: number, userId: number): Promise<string> {
+  const existing = await env.DB.prepare(`SELECT share_token FROM sales_documents WHERE id = ?1`).bind(docId).first<{ share_token: string | null }>();
+  if (existing?.share_token) return existing.share_token;
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  await env.DB.prepare(`UPDATE sales_documents SET share_token = ?1 WHERE id = ?2 AND share_token IS NULL`).bind(token, docId).run();
+  const now = await env.DB.prepare(`SELECT share_token FROM sales_documents WHERE id = ?1`).bind(docId).first<{ share_token: string | null }>();
+  if (now?.share_token === token) await audit(env, userId, "doc.share", "sales_documents", String(docId));
+  return now?.share_token ?? token;
+}

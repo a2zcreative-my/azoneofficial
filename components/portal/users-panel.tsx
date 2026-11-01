@@ -145,6 +145,25 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
     }
   };
 
+  /* v1.250.0 (the agent portal brief) - Grant Agent Access: the SAME account
+     becomes an agent (no second user), on the existing role door - the
+     owner or the super admin, a reason and the authenticator code. The
+     server refuses an email nobody has proven (Google sign-in or a verify
+     link); the customer's history is keyed by email and stays. */
+  const grantAgent = async (u: Account) => {
+    if (saving) return;
+    const why = await prompt({ title: L(`Grant Agent Access: ${properName(u.full_name || u.name)}`, `Beri Akses Ejen: ${properName(u.full_name || u.name)}`),
+      label: L("Why (at least 10 characters, kept in the audit history). The same account becomes an agent; they no longer see their customer pages while an agent.", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit). Akaun yang sama menjadi ejen; mereka tidak lagi melihat halaman pelanggan semasa menjadi ejen."), required: true });
+    if (!why || why.value.trim().length < 10) return;
+    setSaving(true);
+    const res = await withStepUp<{ error?: { message?: string } }>(
+      (totp) => api(`/staff/users/${u.id}/role`, { method: "POST", body: JSON.stringify({ role: "agent", reason: why.value.trim(), ...(totp ? { totp } : {}) }) }),
+      prompt, { title: L("Confirm Agent access", "Sahkan akses ejen"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
+    setSaving(false);
+    if (res.ok) { showToast(L("Agent access given", "Akses ejen diberi"), L(`${firstName(u.name)} signs in to the Agents workspace now`, `${firstName(u.name)} kini log masuk ke ruang kerja Ejen`)); load(); }
+    else showToast(L("Not given", "Tidak diberi"), res.data?.error?.message ?? L("Agent access was not given", "Akses ejen tidak diberi"), "notice");
+  };
+
   /* The two fields and their Save, without a wrapper: the same markup is the
      inline panel on a desk and the body of the bottom sheet on a phone, so
      the two can never offer different choices. */
@@ -273,6 +292,11 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
               title={L("Sign-in & recovery", "Log masuk & pemulihan")}
               onClick={() => setSheetId(u.id)}>
               <AppIcon name="access" />
+            </button>
+          )}
+          {kind === "customer" && (owner || superAdmin) && (
+            <button type="button" className={btnSm} disabled={saving} data-testid={`grant-agent-${u.id}`} onClick={() => void grantAgent(u)}>
+              <AppIcon name="users" />{L("Grant Agent Access", "Beri Akses Ejen")}
             </button>
           )}
           {canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin")) && <button type="button" className={iconBtn}
@@ -459,8 +483,8 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
                   </p>
                   <p className={css.sub}>
                     {canEdit
-                      ? L("Promote here when someone joins — personal emails hold part-time roles only.",
-                          "Naik taraf di sini apabila seseorang menyertai — e-mel peribadi memegang peranan separuh masa sahaja.")
+                      ? L("Promote here when someone joins — personal emails hold part-time roles only. Grant Agent Access turns the same account into an agent (verified email only).",
+                          "Naik taraf di sini apabila seseorang menyertai — e-mel peribadi memegang peranan separuh masa sahaja. Beri Akses Ejen menjadikan akaun yang sama sebagai ejen (e-mel disahkan sahaja).")
                       : L("Sign-ups land here with zero staff access — promotions by the super admin only.",
                           "Pendaftaran mendarat di sini tanpa akses kakitangan — naik taraf oleh super admin sahaja.")}
                   </p>

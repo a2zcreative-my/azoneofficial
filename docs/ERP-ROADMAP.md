@@ -343,3 +343,8 @@ the due date every reminder and report reads. No row is changed.
 the role CHECK accepts agent, plus agent_requests (a client an agent brings
 in with the package wanted) and agent_request_events (append-only). Agents
 are never staff for payroll, attendance or headcount. No row is changed.
+1.250.0 widens the same 0164 before it ever ran: agent_requests gets eleven
+request statuses, contact, custom requirement, issuer, timeline, budget, the
+published quotation revision, follow-up and a retry key; agent_request_events
+gets visibility (agent or internal) and the update fields; agent_request_files
+holds private files. sales_documents and customers are not changed.

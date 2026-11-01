@@ -15,7 +15,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
-import { handleAgent } from "./agent"; // v1.249.0 - the agent desk
+import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
 import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
@@ -41,7 +41,7 @@ import {
   daySlots, canClockIn, claimedSlots, slotsLabel,
   type Punch, type Session,
 } from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
-import { logError as sharedLogError, readVersions, putGuarded } from "./shared";
+import { logError as sharedLogError, readVersions, putGuarded, ensureShareToken } from "./shared";
 import { bookCash, reverseLive, handleCashbook } from "./cashbook"; // v1.219.0 - Finance 2.0
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce, checkRateLimit } from "./index"; // v1.127.0 - step-up before a signature is attached; v1.177.2 - budget the overflow reporter
@@ -1797,6 +1797,7 @@ const PUSH_TAB: Record<string, string> = {
      kind (an old row, a dormant route) lands on the portal, not a dead tab.
      v1.216.0 - new enquiries are listed on Sales again (the owner, 28-10-2026) */
   enquiry: "Sales",
+  agent: "Agents", // v1.250.0 - an agent request changed
   /* v1.220.0 - a request to update someone's responsibilities lands on the
      Staff tab, where the CEO and HR write them */
   profile_request: "Staff Details",
@@ -2713,7 +2714,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -2796,7 +2797,7 @@ async function handleStaffRoutes(
 
   /* ---- v1.249.0 the agent desk (agent.ts): packages to promote, agents' requests ---- */
   if (path === "/agent" || path.startsWith("/agent/")) {
-    const ag = await handleAgent(env, path, method, body, user, new URL(request.url).searchParams);
+    const ag = await handleAgent(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (ag) return ag;
   }
 
@@ -3002,7 +3003,7 @@ async function handleStaffRoutes(
      CEO role and super admin accounts stay the super admin's alone. */
   const roleMatch = path.match(/^\/users\/(\d+)\/role$/);
   if (roleMatch && method === "POST") {
-    const OFFERED = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "customer", "admin", "ceo"];
+    const OFFERED = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "customer", "agent", "admin", "ceo"]; // v1.250.0 - agent (Grant Agent Access); it was offered on screen since 1.249.0 but refused here
     const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
     const newRole = typeof body?.role === "string" ? body.role : "";
     const newStatus = typeof body?.employment_status === "string" && body.employment_status !== "" ? body.employment_status : null;
@@ -3023,6 +3024,17 @@ async function handleStaffRoutes(
     }
     const rule = roleChangeRule(user, target, newRole);
     if (!rule.ok) return err(rule.code, rule.message, rule.status);
+    /* v1.250.0 (the agent portal brief: "Verify the agent's email address") -
+       Agent access goes only to a PROVEN email: a Google sign-in, or an
+       address confirmed through a verify link. A customer is never made an
+       agent on an address nobody has proven they read. */
+    if (newRole === "agent" && target.role !== "agent") {
+      const v = await env.DB.prepare(`SELECT google_sub, email_verified_at, password_hash FROM users WHERE id = ?1`).bind(id)
+        .first<{ google_sub: string | null; email_verified_at: string | null; password_hash: string }>().catch(() => null);
+      if (!v || !(v.google_sub || v.email_verified_at || v.password_hash.startsWith("oauth$"))) {
+        return err("email_unverified", "This email is not verified yet - the person signs in with Google once, or confirms the address from a verification link, before Agent access is given", 409);
+      }
+    }
     if (target.role === newRole && (!newStatus || newStatus === target.employment_status)) {
       return json({ ok: true, role: newRole, employment_status: target.employment_status, unchanged: true });
     }
@@ -9923,6 +9935,7 @@ async function handleStaffRoutes(
     }
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id),
       pkgD ? { package_id: pkgD.id, package_version: pkgD.version, customized: pkgD.customized } : undefined);
+    await linkAgentQuotation(env, res?.id, docType, referenceD, user.id); // v1.250.0 - an AGR-#### reference joins its agent request
     return json({ id: res?.id, doc_number: number, total_cents: total, stock: stockMove }, 201);
   }
   const docGet = path.match(/^\/docs\/(\d+)$/);
@@ -10300,16 +10313,8 @@ async function handleStaffRoutes(
         const iss = await issueDoc(env, forIssue, user.id).catch((e) => { if (/no such table|no such column/i.test(String(e))) return { ok: true as const }; throw e; });
         if (!iss.ok) return iss.res;
       }
-      const existing = await env.DB.prepare(`SELECT share_token FROM sales_documents WHERE id = ?1`)
-        .bind(idS).first<{ share_token: string | null }>();
-      let token = existing?.share_token ?? null;
-      if (!token) {
-        // 32 hex characters — unguessable, and short enough to sit in a URL.
-        token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-          .map((b) => b.toString(16).padStart(2, "0")).join("");
-        await env.DB.prepare(`UPDATE sales_documents SET share_token = ?1 WHERE id = ?2`).bind(token, idS).run();
-        await audit(env, user.id, "doc.share", "sales_documents", idS);
-      }
+      /* v1.250.0 - one helper (shared.ts) for this button and Publish to Agent */
+      const token = await ensureShareToken(env, Number(idS), user.id);
       return json({ ok: true, token, url: `${origin}/doc?t=${token}` });
     } catch (e) {
       if (String(e).includes("no such column")) {
