@@ -179,8 +179,11 @@ ok("PATCH /tasks can change the title, priority and deadline",
 ok("an empty deadline clears it rather than erroring",
    /body\.deadline === ""[\s\S]{0,120}?vals\.push\(null\)/.test(staff),
    "a task stuck with the WRONG due date alerts every morning until the bell is muted");
-ok("reassigning a task is management-only",
-   /Only management can reassign a task/.test(staff));
+/* v1.245.0 - and the Project Owner, on a task of their own open project
+   (projects.ts projectTaskGate; tests/go-live-p.mjs runs both sides) */
+ok("reassigning a task is management-only (or the Project Owner, on a project task)",
+   /Only management \(or the Project Owner, on a project task\) can reassign a task/.test(staff)
+   && /const manages = projOfTask \? !projGate : can\(user\.role, "team_manage"\);[\s\S]{0,9000}?if \(!manages\) \{/.test(staff)); // v1.246.0 (T-4)
 ok("reassigning moves the scheduled days with it",
    /UPDATE task_blocks SET user_id = \?1 WHERE task_id = \?2/.test(staff),
    "blocks left behind would show two people booked for one piece of work");

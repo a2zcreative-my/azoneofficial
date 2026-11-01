@@ -66,6 +66,15 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp }[] = [
   { method: "POST", path: /^\/inventory\/returns$/ },
   { method: "POST", path: /^\/postage$/ },
   { method: "POST", path: /^\/stock-counts\/\d+\/post$/ },
+  /* v1.245.0 - Project Workspace writes: a double press or a lost reply lands once */
+  { method: "POST", path: /^\/projects$/ },
+  { method: "POST", path: /^\/projects\/\d+\/updates$/ },
+  { method: "POST", path: /^\/projects\/\d+\/status$/ },
+  { method: "POST", path: /^\/projects\/\d+\/owner$/ },
+  /* v1.246.0 - a task's progress update, comment and review decision land once */
+  { method: "POST", path: /^\/tasks\/\d+\/updates$/ },
+  { method: "POST", path: /^\/tasks\/\d+\/comments$/ },
+  { method: "POST", path: /^\/tasks\/\d+\/review$/ },
 ];
 export function isOnceOnly(method: string, subPath: string): boolean {
   return ONCE_ONLY.some((r) => r.method === method && r.path.test(subPath));

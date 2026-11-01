@@ -1,0 +1,1441 @@
+{
+ "captured_from": "tests/go-live-t.mjs",
+ "ids": {
+  "reviewer": 1,
+  "assignee": 1,
+  "assistant": 2,
+  "other": 2
+ },
+ "views": {
+  "reviewer": {
+   "detail": {
+    "task": {
+     "id": 1,
+     "title": "Financing application - Maybank SME",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "high",
+     "deadline": "2026-11-27",
+     "status": "in_progress",
+     "progress": 40,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": null,
+     "link_id": null,
+     "stage": "review",
+     "progress_source": "checklist",
+     "assignee": "Farid Zulkifli",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Alif Farhan",
+     "acknowledged_at": null,
+     "assistants": [],
+     "items": [
+      {
+       "id": 1,
+       "title": "Collect statements",
+       "done": 1,
+       "done_at": "2026-11-01 00:59:08",
+       "done_by_name": "Farid Zulkifli"
+      },
+      {
+       "id": 2,
+       "title": "Fill the form",
+       "done": 1,
+       "done_at": "2026-11-01 00:59:08",
+       "done_by_name": "Farid Zulkifli"
+      },
+      {
+       "id": 3,
+       "title": "Get signatures",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 4,
+       "title": "Submit to bank",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 5,
+       "title": "Follow up",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      }
+     ],
+     "link": null,
+     "latest_update": {
+      "id": 5,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "at": "2026-11-01 00:59:08",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "counts": {
+      "updates": 5,
+      "files": 1,
+      "comments": 2
+     }
+    },
+    "me": 1,
+    "can": {
+     "edit": true,
+     "reassign": true,
+     "assistants": true,
+     "tick": true,
+     "update": true,
+     "comment": true,
+     "files": true,
+     "restricted_files": true,
+     "request_review": false,
+     "review": true,
+     "approve": true,
+     "cancel": true,
+     "assist": false,
+     "self_set": false,
+     "is_assignee": false,
+     "is_assistant": false
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 5,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: 2 months of statements, not 3",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "progress_source": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "blocker",
+      "body": "Director travelling until Tuesday",
+      "completed_work": null,
+      "blockers": "No signature until Tuesday",
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "blocked",
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Bank form downloaded",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Statements collected, form half filled.",
+      "completed_work": "3 months of statements",
+      "blockers": null,
+      "next_action": "Get the director's signature",
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": [
+       {
+        "id": 1,
+        "update_id": 1,
+        "comment_id": null,
+        "file_name": "statements.pdf",
+        "content_type": "application/pdf",
+        "size_bytes": null,
+        "level": "team",
+        "created_at": "2026-11-01 00:59:08",
+        "uploader_id": 14,
+        "uploader": "Farid Zulkifli",
+        "open": true
+       }
+      ]
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 1,
+      "update_id": 1,
+      "comment_id": null,
+      "file_name": "statements.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 00:59:08",
+      "uploader_id": 14,
+      "uploader": "Farid Zulkifli",
+      "open": true
+     }
+    ]
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "a2r",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.reassign",
+      "text": "Reassigned from Farid Zulkifli to Sara Designer",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Farid is on the TikTok live all week"
+     },
+     {
+      "key": "a3r",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.reassign",
+      "text": "Reassigned from Sara Designer to Farid Zulkifli",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Back to Farid, the live was moved"
+     },
+     {
+      "key": "a4e",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.edit",
+      "text": "Changed deadline 2026-11-20 → 2026-11-27",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null
+     },
+     {
+      "key": "c1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.create",
+      "text": "Created the task for Farid Zulkifli",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Collect statements\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Fill the form\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Get signatures\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e4",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_undone",
+      "text": "Unticked \"Get signatures\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e5",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.status",
+      "text": "Status → in progress",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e6",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.stage",
+      "text": "Stage → blocked",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e7",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.stage",
+      "text": "Stage → ready for review",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "file",
+      "text": "Attached statements.pdf",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     {
+      "key": "m1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "comment",
+      "text": "Commented",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "A question for Alif, not a report"
+     },
+     {
+      "key": "m2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "comment",
+      "text": "Commented",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Please get the signature before Wednesday."
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 40%",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Statements collected, form half filled."
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 40%",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Bank form downloaded"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.blocker",
+      "text": "Reported a blocker",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Director travelling until Tuesday"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.correction",
+      "text": "Correction",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Correction: 2 months of statements, not 3"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.review_request",
+      "text": "Submitted for review",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Submitted to the bank, reference MBB-SME-2207"
+     }
+    ]
+   },
+   "comments": {
+    "comments": [
+     {
+      "id": 1,
+      "user_id": 14,
+      "comment": "A question for Alif, not a report",
+      "created_at": "2026-11-01 00:59:08",
+      "mentions": [],
+      "name": "Farid",
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "files": []
+     },
+     {
+      "id": 2,
+      "user_id": 1,
+      "comment": "Please get the signature before Wednesday.",
+      "created_at": "2026-11-01 00:59:08",
+      "mentions": [
+       {
+        "id": 14,
+        "name": "Farid Zulkifli"
+       }
+      ],
+      "name": "Alif",
+      "author": "Alif Farhan",
+      "photo_key": null,
+      "files": []
+     }
+    ]
+   },
+   "list": [
+    {
+     "id": 1,
+     "title": "Financing application - Maybank SME",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "high",
+     "deadline": "2026-11-27",
+     "status": "in_progress",
+     "progress": 40,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": null,
+     "link_id": null,
+     "stage": "review",
+     "progress_source": "checklist",
+     "assignee": "Farid",
+     "item_count": 5,
+     "item_done": 2,
+     "acknowledged": 0,
+     "latest_update": {
+      "id": 5,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "at": "2026-11-01 00:59:08",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "assistants": [],
+     "link_label": null
+    }
+   ]
+  },
+  "assignee": {
+   "detail": {
+    "task": {
+     "id": 1,
+     "title": "Financing application - Maybank SME",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "high",
+     "deadline": "2026-11-27",
+     "status": "in_progress",
+     "progress": 40,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": null,
+     "link_id": null,
+     "stage": "review",
+     "progress_source": "checklist",
+     "assignee": "Farid Zulkifli",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Alif Farhan",
+     "acknowledged_at": null,
+     "assistants": [],
+     "items": [
+      {
+       "id": 1,
+       "title": "Collect statements",
+       "done": 1,
+       "done_at": "2026-11-01 00:59:08",
+       "done_by_name": "Farid Zulkifli"
+      },
+      {
+       "id": 2,
+       "title": "Fill the form",
+       "done": 1,
+       "done_at": "2026-11-01 00:59:08",
+       "done_by_name": "Farid Zulkifli"
+      },
+      {
+       "id": 3,
+       "title": "Get signatures",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 4,
+       "title": "Submit to bank",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 5,
+       "title": "Follow up",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      }
+     ],
+     "link": null,
+     "latest_update": {
+      "id": 5,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "at": "2026-11-01 00:59:08",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "counts": {
+      "updates": 5,
+      "files": 1,
+      "comments": 2
+     }
+    },
+    "me": 14,
+    "can": {
+     "edit": true,
+     "reassign": false,
+     "assistants": false,
+     "tick": true,
+     "update": true,
+     "comment": true,
+     "files": true,
+     "restricted_files": false,
+     "request_review": false,
+     "review": false,
+     "approve": false,
+     "cancel": false,
+     "assist": false,
+     "self_set": false,
+     "is_assignee": true,
+     "is_assistant": false
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 5,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: 2 months of statements, not 3",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "progress_source": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "blocker",
+      "body": "Director travelling until Tuesday",
+      "completed_work": null,
+      "blockers": "No signature until Tuesday",
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "blocked",
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Bank form downloaded",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Statements collected, form half filled.",
+      "completed_work": "3 months of statements",
+      "blockers": null,
+      "next_action": "Get the director's signature",
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 40,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": [
+       {
+        "id": 1,
+        "update_id": 1,
+        "comment_id": null,
+        "file_name": "statements.pdf",
+        "content_type": "application/pdf",
+        "size_bytes": null,
+        "level": "team",
+        "created_at": "2026-11-01 00:59:08",
+        "uploader_id": 14,
+        "uploader": "Farid Zulkifli",
+        "open": true
+       }
+      ]
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 1,
+      "update_id": 1,
+      "comment_id": null,
+      "file_name": "statements.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 00:59:08",
+      "uploader_id": 14,
+      "uploader": "Farid Zulkifli",
+      "open": true
+     }
+    ]
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "a2r",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.reassign",
+      "text": "Reassigned from Farid Zulkifli to Sara Designer",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Farid is on the TikTok live all week"
+     },
+     {
+      "key": "a3r",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.reassign",
+      "text": "Reassigned from Sara Designer to Farid Zulkifli",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Back to Farid, the live was moved"
+     },
+     {
+      "key": "a4e",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.edit",
+      "text": "Changed deadline 2026-11-20 → 2026-11-27",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null
+     },
+     {
+      "key": "c1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.create",
+      "text": "Created the task for Farid Zulkifli",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Collect statements\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Fill the form\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_done",
+      "text": "Ticked \"Get signatures\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e4",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.item_undone",
+      "text": "Unticked \"Get signatures\"",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e5",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.status",
+      "text": "Status → in progress",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e6",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.stage",
+      "text": "Stage → blocked",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e7",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.stage",
+      "text": "Stage → ready for review",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "file",
+      "text": "Attached statements.pdf",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     {
+      "key": "m1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "comment",
+      "text": "Commented",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "A question for Alif, not a report"
+     },
+     {
+      "key": "m2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "comment",
+      "text": "Commented",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Please get the signature before Wednesday."
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 40%",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Statements collected, form half filled."
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 40%",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Bank form downloaded"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.blocker",
+      "text": "Reported a blocker",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Director travelling until Tuesday"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.correction",
+      "text": "Correction",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Correction: 2 months of statements, not 3"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.review_request",
+      "text": "Submitted for review",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Submitted to the bank, reference MBB-SME-2207"
+     }
+    ]
+   },
+   "comments": {
+    "comments": [
+     {
+      "id": 1,
+      "user_id": 14,
+      "comment": "A question for Alif, not a report",
+      "created_at": "2026-11-01 00:59:08",
+      "mentions": [],
+      "name": "Farid",
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "files": []
+     },
+     {
+      "id": 2,
+      "user_id": 1,
+      "comment": "Please get the signature before Wednesday.",
+      "created_at": "2026-11-01 00:59:08",
+      "mentions": [
+       {
+        "id": 14,
+        "name": "Farid Zulkifli"
+       }
+      ],
+      "name": "Alif",
+      "author": "Alif Farhan",
+      "photo_key": null,
+      "files": []
+     }
+    ]
+   },
+   "list": [
+    {
+     "id": 1,
+     "title": "Financing application - Maybank SME",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "high",
+     "deadline": "2026-11-27",
+     "status": "in_progress",
+     "progress": 40,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": null,
+     "link_id": null,
+     "stage": "review",
+     "progress_source": "checklist",
+     "assignee": "Farid",
+     "item_count": 5,
+     "item_done": 2,
+     "acknowledged": 0,
+     "latest_update": {
+      "id": 5,
+      "kind": "review_request",
+      "body": "Submitted to the bank, reference MBB-SME-2207",
+      "at": "2026-11-01 00:59:08",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "assistants": [],
+     "link_label": null
+    }
+   ]
+  },
+  "assistant": {
+   "detail": {
+    "task": {
+     "id": 2,
+     "title": "Design & content creation",
+     "description": null,
+     "assigned_to": 10,
+     "created_by": 5,
+     "priority": "normal",
+     "deadline": "2026-11-10",
+     "status": "in_progress",
+     "progress": 0,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": "project",
+     "link_id": 1,
+     "stage": null,
+     "progress_source": "checklist",
+     "assignee": "Sara Designer",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Aina Seller",
+     "acknowledged_at": null,
+     "assistants": [
+      {
+       "id": 11,
+       "name": "Ed Editor",
+       "photo_key": null,
+       "added_at": "2026-11-01 00:59:08"
+      }
+     ],
+     "items": [
+      {
+       "id": 6,
+       "title": "Design concept",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 7,
+       "title": "Week 1",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 8,
+       "title": "Week 2",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 9,
+       "title": "Week 3",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 10,
+       "title": "Final graphics",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      }
+     ],
+     "link": {
+      "kind": "project",
+      "id": 1,
+      "label": "Social Media Management (3 Months) - ABC Sdn Bhd",
+      "project_id": 1,
+      "quotation_id": 100,
+      "quotation": "QT-2026-0018",
+      "customer": "ABC Sdn Bhd"
+     },
+     "latest_update": {
+      "id": 8,
+      "kind": "progress",
+      "body": "Captions for week 1 drafted",
+      "at": "2026-11-01 00:59:08",
+      "by": "Ed Editor",
+      "by_id": 11
+     },
+     "counts": {
+      "updates": 2,
+      "files": 0,
+      "comments": 0
+     }
+    },
+    "me": 11,
+    "can": {
+     "edit": false,
+     "reassign": false,
+     "assistants": false,
+     "tick": true,
+     "update": true,
+     "comment": true,
+     "files": true,
+     "restricted_files": false,
+     "request_review": false,
+     "review": false,
+     "approve": false,
+     "cancel": false,
+     "assist": false,
+     "self_set": false,
+     "is_assignee": false,
+     "is_assistant": true
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 8,
+      "task_id": 2,
+      "project_id": 1,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Captions for week 1 drafted",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 0,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 7,
+      "task_id": 2,
+      "project_id": 1,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can do the captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "progress_source": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "a10",
+      "at": "2026-11-01 00:59:08",
+      "kind": "assist.add",
+      "text": "Added Ed Editor to help",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "c2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.create",
+      "text": "Created the task for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e11",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.status",
+      "text": "Status → in progress",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "u7",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.assist_request",
+      "text": "Offered to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can do the captions"
+     },
+     {
+      "key": "u8",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 0%",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "Captions for week 1 drafted"
+     }
+    ]
+   },
+   "comments": {
+    "comments": []
+   },
+   "list": [
+    {
+     "id": 2,
+     "title": "Design & content creation",
+     "description": null,
+     "assigned_to": 10,
+     "created_by": 5,
+     "priority": "normal",
+     "deadline": "2026-11-10",
+     "status": "in_progress",
+     "progress": 0,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": "project",
+     "link_id": 1,
+     "stage": null,
+     "progress_source": "checklist",
+     "assignee": "Sara",
+     "item_count": 5,
+     "item_done": 0,
+     "acknowledged": 0,
+     "latest_update": {
+      "id": 8,
+      "kind": "progress",
+      "body": "Captions for week 1 drafted",
+      "at": "2026-11-01 00:59:08",
+      "by": "Ed Editor",
+      "by_id": 11
+     },
+     "assistants": [
+      {
+       "id": 11,
+       "name": "Ed Editor"
+      }
+     ],
+     "link_label": "Social Media Management (3 Months) - ABC Sdn Bhd · ABC Sdn Bhd"
+    }
+   ]
+  },
+  "other": {
+   "detail": {
+    "task": {
+     "id": 2,
+     "title": "Design & content creation",
+     "description": null,
+     "assigned_to": 10,
+     "created_by": 5,
+     "priority": "normal",
+     "deadline": "2026-11-10",
+     "status": "in_progress",
+     "progress": 0,
+     "created_at": "2026-11-01 00:59:08",
+     "link_kind": "project",
+     "link_id": 1,
+     "stage": null,
+     "progress_source": "checklist",
+     "assignee": "Sara Designer",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Aina Seller",
+     "acknowledged_at": null,
+     "assistants": [
+      {
+       "id": 11,
+       "name": "Ed Editor",
+       "photo_key": null,
+       "added_at": "2026-11-01 00:59:08"
+      }
+     ],
+     "items": [
+      {
+       "id": 6,
+       "title": "Design concept",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 7,
+       "title": "Week 1",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 8,
+       "title": "Week 2",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 9,
+       "title": "Week 3",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      },
+      {
+       "id": 10,
+       "title": "Final graphics",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      }
+     ],
+     "link": {
+      "kind": "project",
+      "id": 1,
+      "label": "Social Media Management (3 Months) - ABC Sdn Bhd",
+      "project_id": 1,
+      "quotation_id": 100,
+      "quotation": "QT-2026-0018",
+      "customer": "ABC Sdn Bhd"
+     },
+     "latest_update": {
+      "id": 8,
+      "kind": "progress",
+      "body": "Captions for week 1 drafted",
+      "at": "2026-11-01 00:59:08",
+      "by": "Ed Editor",
+      "by_id": 11
+     },
+     "counts": {
+      "updates": 2,
+      "files": 0,
+      "comments": null
+     }
+    },
+    "me": 6,
+    "can": {
+     "edit": false,
+     "reassign": false,
+     "assistants": false,
+     "tick": false,
+     "update": false,
+     "comment": false,
+     "files": false,
+     "restricted_files": false,
+     "request_review": false,
+     "review": false,
+     "approve": false,
+     "cancel": false,
+     "assist": true,
+     "self_set": false,
+     "is_assignee": false,
+     "is_assistant": false
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 8,
+      "task_id": 2,
+      "project_id": 1,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Captions for week 1 drafted",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 0,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     },
+     {
+      "id": 7,
+      "task_id": 2,
+      "project_id": 1,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can do the captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "progress_source": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 00:59:08",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "a10",
+      "at": "2026-11-01 00:59:08",
+      "kind": "assist.add",
+      "text": "Added Ed Editor to help",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "c2",
+      "at": "2026-11-01 00:59:08",
+      "kind": "task.create",
+      "text": "Created the task for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e11",
+      "at": "2026-11-01 00:59:08",
+      "kind": "event.status",
+      "text": "Status → in progress",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "u7",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.assist_request",
+      "text": "Offered to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can do the captions"
+     },
+     {
+      "key": "u8",
+      "at": "2026-11-01 00:59:08",
+      "kind": "update.progress",
+      "text": "Progress update · 0%",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "Captions for week 1 drafted"
+     }
+    ]
+   },
+   "comments": null,
+   "list": []
+  }
+ }
+}

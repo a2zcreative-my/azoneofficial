@@ -1,0 +1,108 @@
+/* v1.246.0 - task progress: the drawer's Updates & Comments, Files and
+   Activity tabs, the review bar and the Add Status Update sheet (the owner's
+   reference pictures 02 and 03). Tokens only - both themes. */
+
+.wrap { display: grid; gap: 0.875rem; min-width: 0; }
+.tabsGap { display: grid; gap: 0.875rem; padding-top: 0.25rem; }
+
+/* review / stage bar at the top of Details */
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem;
+  padding: 0.75rem 0.875rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card);
+}
+.barText { display: grid; gap: 0.125rem; min-width: 0; font-size: var(--type-body-sm-size); color: var(--foreground); }
+.barSub { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.barCmds { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* facts the drawer did not show before */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.625rem 1rem; margin: 0; }
+.facts dt { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.facts dd { margin: 0.125rem 0 0; font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); overflow-wrap: anywhere; }
+.helpers { display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+.helper {
+  display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.125rem 0.25rem 0.125rem 0.125rem;
+  border: 1px solid var(--border); border-radius: 999px; font-size: var(--type-caption-size); color: var(--foreground);
+}
+.helper button { border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; padding: 0 0.25rem; font: inherit; }
+.helper button:hover { color: var(--danger); }
+
+/* quick box (picture 02) */
+.quick { display: grid; gap: 0.5rem; padding: 0.75rem 0.875rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); }
+.quickHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.quickTitle { margin: 0; font-size: var(--type-body-sm-size); font-weight: 700; color: var(--foreground); }
+.quickRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 0.3rem 0.75rem; font: inherit; font-size: var(--type-caption-size); font-weight: 600; color: var(--muted-foreground); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--secondary); color: var(--foreground); }
+.seg button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.attach {
+  position: relative; display: inline-flex; align-items: center; gap: 0.375rem; cursor: pointer;
+  font-size: var(--type-caption-size); color: var(--muted-foreground);
+}
+.attach input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.attach:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 0.375rem; }
+.counter { justify-self: end; font-size: var(--type-caption-size); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.filter { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+
+/* the merged list */
+.feed { list-style: none; margin: 0; padding: 0 0 0 1.125rem; display: grid; gap: 1rem; border-left: 2px solid var(--border); }
+.entry { position: relative; display: grid; gap: 0.3rem; min-width: 0; }
+.entry::before {
+  content: ""; position: absolute; left: calc(-1.125rem - 6px); top: 0.6rem; width: 10px; height: 10px; border-radius: 999px;
+  background: var(--info); box-shadow: 0 0 0 3px var(--card);
+}
+.entryMuted::before { background: var(--muted-foreground); }
+.entryHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.5rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.entryWho { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 700; color: var(--foreground); font-size: var(--type-body-sm-size); }
+.entryText { margin: 0; font-size: var(--type-body-sm-size); color: var(--foreground); white-space: pre-line; overflow-wrap: anywhere; }
+.entryExtra { margin: 0; display: grid; gap: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); white-space: pre-line; overflow-wrap: anywhere; }
+.entryExtra b { color: var(--foreground); font-weight: 600; }
+.entryCmd { margin-left: auto; border: 0; background: transparent; color: var(--muted-foreground); font: inherit; font-size: var(--type-caption-size); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.entryCmd:hover { color: var(--foreground); }
+
+/* files */
+.fileChips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.fileChip {
+  display: inline-flex; align-items: center; gap: 0.5rem; max-width: 100%; padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border); border-radius: 0.625rem; background: var(--secondary);
+  font-size: var(--type-caption-size); color: var(--foreground); text-decoration: none; overflow-wrap: anywhere;
+}
+a.fileChip:hover { border-color: var(--muted-foreground); }
+.fileMeta { color: var(--muted-foreground); }
+.thumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.thumb { display: block; width: 5.5rem; height: 4.25rem; border-radius: 0.5rem; overflow: hidden; border: 1px solid var(--border); background: var(--secondary); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fileList { display: grid; gap: 0.5rem; }
+.fileRow {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem;
+  padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: 0.625rem; background: var(--card);
+  font-size: var(--type-body-sm-size); color: var(--foreground);
+}
+.fileName { display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.link { color: var(--info); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+
+/* the Add Status Update sheet (picture 03) */
+.form { display: grid; gap: 0.875rem; }
+.taskHead { display: flex; align-items: center; gap: 0.625rem; padding: 0.75rem; border-radius: 0.75rem; background: var(--secondary); }
+.taskHeadIcon { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 0.5rem; background: var(--tint-gold); color: var(--gold-solid); flex-shrink: 0; }
+.taskHeadName { margin: 0; font-size: var(--type-body-sm-size); font-weight: 700; color: var(--foreground); overflow-wrap: anywhere; }
+.taskHeadSub { margin: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.range { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.75rem; }
+.range input { width: 100%; accent-color: var(--info); }
+.pct { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--foreground); }
+.readonly { margin: 0; font-size: var(--type-body-sm-size); color: var(--foreground); }
+.track { display: block; height: 0.5rem; border-radius: 999px; background: var(--secondary); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: 999px; background: var(--info); }
+.note { margin: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.warn { margin: 0; font-size: var(--type-caption-size); color: var(--danger); }
+.extras { display: grid; gap: 0.625rem; margin-top: 0.5rem; }
+.submit { width: 100%; }
+.empty { margin: 0; padding: 0.75rem 0; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }
+.sticky { position: sticky; bottom: 0; padding-top: 0.5rem; background: linear-gradient(to bottom, transparent, var(--card) 35%); }
+
+@media (max-width: 640px) {
+  .facts { grid-template-columns: 1fr 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .entry::before { transition: none; }
+}

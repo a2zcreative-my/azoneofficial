@@ -260,8 +260,17 @@ export interface Task {
   item_done?: number;
   acknowledged?: number;
   // v1.223.0 — the sales record a task is about (Weekly Sales), present post-0149
-  link_kind?: "customer" | "enquiry" | "quotation" | "recovery" | null;
+  link_kind?: "customer" | "enquiry" | "quotation" | "recovery" | "project" | null; // v1.245.0 - project
   link_id?: number | null;
+  /* v1.246.0 - task progress: the stage inside a status, where the number
+     comes from, the latest PROGRESS update (never a comment), the helpers and
+     what it is about - present from 0159 */
+  stage?: "waiting_client" | "blocked" | "review" | "cancelled" | null;
+  progress_source?: "checklist" | "manual" | null;
+  created_at?: string;
+  latest_update?: { id: number; kind: string; body: string; at: string; by: string | null; by_id: number } | null;
+  assistants?: { id: number; name: string }[];
+  link_label?: string | null;
 }
 export interface TaskItem { // v1.42.0 — one scope deliverable
   id: number; title: string; done: number; done_at?: string | null; done_by_name?: string | null;

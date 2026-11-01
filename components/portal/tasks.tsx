@@ -27,6 +27,8 @@ import { taskFigures } from "@/lib/task-figures"; // v1.203.0
 import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
+import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
+import { StateChip, TaskProgressTabs, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
@@ -39,8 +41,8 @@ import tk from "./tasks-page.module.css";
 /* v1.209.0 - Create left the tab row for a drawer from the + button (the
    owner's Tasks brief, 25-10-2026); Calendar joined it, drawn from the
    deadlines already loaded. */
-type TaskView = "overview" | "mine" | "all" | "calendar" | "reports";
-type StatusF = "active" | "open" | "in_progress" | "completed" | "any";
+type TaskView = "overview" | "mine" | "all" | "projects" | "calendar" | "reports";
+type StatusF = "active" | "open" | "in_progress" | "completed" | "any" | "review" | "blocked" | "waiting_client" | "overdue" | "stale" | "assisting" | "set_by_me";
 type SortK = "newest" | "deadline" | "priority" | "title" | "progress";
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 const PRIORITY_CHIP: Record<string, string> = { urgent: chipDanger, high: chipWarn, normal: chipInfo, low: chipNeutral };
@@ -85,9 +87,10 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const load = useCallback(async () => { refreshBoard(); }, [refreshBoard]);
 
   /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
-  const [view, setView] = useState<TaskView>(() => (["overview", "mine", "all", "calendar", "reports"].includes(initialView ?? "") ? initialView as TaskView : "overview"));
+  const [view, setView] = useState<TaskView>(() => (["overview", "mine", "all", "projects", "calendar", "reports"].includes(initialView ?? "") ? initialView as TaskView : "overview"));
   /* the Dashboard's "Create task" still opens the form: it is a drawer now */
   const [createOpen, setCreateOpen] = useState(() => initialView === "create");
+  const [projOpen, setProjOpen] = useState<number | null>(null); // v1.245.0 - the project open in Tasks > Projects
   /* v1.209.0 - THE TASK DRAWER: one task, its facts, its checklist and the
      commands the row always had. `openTask` (which checklist is loaded) is
      the drawer's task. */
@@ -207,6 +210,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      The confirm names the task and says what leaves with it: closing a task
      is the reversible act, this one is not. */
   const canDelete = holds("task_delete", ["ceo", "super_admin"].includes(user.role));
+  /* v1.245.0 - Tasks > Projects: the project briefs (one per quotation) and their tasks */
+  const canProjects = holds("project_view", ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor", "live_host"].includes(user.role));
   const remove = async (t: Task) => {
     if (
       !(await askDelete({
@@ -238,6 +243,18 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
 
   /* ---- one task's facts, by the rules the list has always used ---- */
   const isOverdue = (t: Task) => !!t.deadline && t.deadline < todayISO && t.status !== "completed";
+  /* v1.246.0 (T-8) - no progress report for 3 days on a task with a due
+     date, 7 without: counted from the latest update, or from when it was set */
+  const daysSince = (v: string) => Math.floor((Date.parse(`${todayISO}T00:00:00Z`) - Date.parse(`${v.slice(0, 10)}T00:00:00Z`)) / 86400000);
+  const isStale = (t: Task) => t.status !== "completed" && daysSince(t.latest_update?.at ?? t.created_at ?? todayISO) >= (t.deadline ? 3 : 7);
+  const stageChip = (t: Task) => t.stage && t.status !== "completed" ? <StateChip status={t.status} stage={t.stage} /> : t.stage === "cancelled" ? <StateChip status={t.status} stage={t.stage} /> : null;
+  /* the latest PROGRESS report - text, who, when; never a comment (T-1) */
+  const latestCell = (t: Task) => t.latest_update ? (
+    <span className={tk.latest}>
+      <span className={tk.latestText}>{t.latest_update.body}</span>
+      <span className={tk.muted}>{t.latest_update.by ?? ""} · {stamp(t.latest_update.at)}</span>
+    </span>
+  ) : <span className={isStale(t) || isOverdue(t) ? tk.warnText : tk.muted}>{L("No progress report yet", "Belum ada laporan kemajuan")}</span>;
   const isMine = (t: Task) => t.assigned_to === undefined || t.assigned_to === user.id;
   const isAssigned = (t: Task) => t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
   const unacked = (t: Task) => isAssigned(t) && t.acknowledged === 0 && t.status !== "completed";
@@ -259,7 +276,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         ["open", "Open"],
         ["in_progress", "Pending"],
         ["completed", "Closed"],
-      ].map(([v, lbl]) => (
+      ].filter(([v]) => v !== "completed" || !isAssigned(t) || t.status === "completed").map(([v, lbl]) => ( /* v1.246.0 (T-2) - a task somebody else set is closed by its reviewer, in the drawer */
         <option key={v} value={v}>
           {L(
             lbl!,
@@ -289,7 +306,10 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   ) : null;
   /* v1.223.0 (Weekly Sales): a sales task names what it is about - the same
      task in Tasks and in Sales, never a copy */
-  const linkChip = (t: Task) => t.link_kind && t.link_id ? (
+  const linkChip = (t: Task) => t.link_kind === "project" && t.link_id ? (
+    <button type="button" className={chipInfo} title={L("Open the project", "Buka projek")}
+      onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{L("Project", "Projek")} #{t.link_id}</button>
+  ) : t.link_kind && t.link_id ? (
     <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan") } as Record<string, string>)[t.link_kind] ?? t.link_kind} #{t.link_id}</span>
   ) : null;
   const scopeChip = (t: Task) => (t.item_count ?? 0) > 0 ? (
@@ -365,6 +385,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [statusF, setStatusF] = useState<StatusF>("active");
   const [prioF, setPrioF] = useState("");
   const [whoF, setWhoF] = useState<number>(0);
+  const [aboutF, setAboutF] = useState(""); // v1.246.0 - project / customer
   const [sortK, setSortK] = useState<SortK>("newest");
   const [mineMode, setMineMode] = useState<"list" | "board">("list");
   const [allMode, setAllMode] = useState<"list" | "board">("list");
@@ -378,10 +399,22 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     return u ? (u.position || (u.role ?? "").replace(/_/g, " ")) : "";
   };
   const [archQ, setArchQ] = useState("");
+  const [older, setOlder] = useState<Task[]>([]);
+  const [olderNext, setOlderNext] = useState<number | null>(null); // null = not asked yet, 0 = no more
+  const [olderBusy, setOlderBusy] = useState(false);
   const needle = q.trim().toLowerCase();
   const sift = (rows: Task[], opts: { status?: boolean; who?: boolean } = {}) => rows
     .filter((t) => !opts.status ? true
-      : statusF === "any" ? true : statusF === "active" ? t.status !== "completed" : t.status === statusF)
+      : statusF === "any" ? true : statusF === "active" ? t.status !== "completed"
+      /* v1.246.0 - the stage filters, the overdue and quiet ones, and the
+         tasks I help on or set for somebody else */
+      : statusF === "review" || statusF === "blocked" || statusF === "waiting_client" ? t.status !== "completed" && t.stage === statusF
+      : statusF === "overdue" ? isOverdue(t)
+      : statusF === "stale" ? isStale(t)
+      : statusF === "assisting" ? (t.assistants ?? []).some((a) => a.id === user.id)
+      : statusF === "set_by_me" ? t.created_by === user.id && t.assigned_to !== user.id
+      : t.status === statusF)
+    .filter((t) => !aboutF || t.link_label === aboutF)
     .filter((t) => !prioF || t.priority === prioF)
     .filter((t) => !opts.who || !whoF || t.assigned_to === whoF)
     .filter((t) => !needle || [t.title, t.description ?? "", t.assignee ?? ""].some((x) => x.toLowerCase().includes(needle)))
@@ -394,8 +427,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         default: return 0; // the server's order: newest first
       }
     });
-  const filtering = !!(needle || prioF || whoF || statusF !== "active");
-  const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setStatusF("active"); setSortK("newest"); setAllPage(1); };
+  const filtering = !!(needle || prioF || whoF || aboutF || statusF !== "active");
+  const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setAboutF(""); setStatusF("active"); setSortK("newest"); setAllPage(1); };
+  const abouts = useMemo(() => [...new Set(tasks.map((t) => t.link_label).filter((x): x is string => !!x))].sort(), [tasks]);
   const toolbar = (withWho: boolean, withStatus = true) => (
     <div className={tk.toolbar} role="search">
       <label className={tk.search}>
@@ -410,7 +444,20 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           <option value="open">{L("Open", "Terbuka")}</option>
           <option value="in_progress">{L("Pending", "Menunggu")}</option>
           <option value="completed">{L("Closed", "Selesai")}</option>
+          <option value="review">{L("Waiting for review", "Menunggu semakan")}</option>
+          <option value="blocked">{L("Blocked", "Terhalang")}</option>
+          <option value="waiting_client">{L("Waiting for client", "Menunggu pelanggan")}</option>
+          <option value="overdue">{L("Overdue", "Lewat")}</option>
+          <option value="stale">{L("No recent update", "Tiada kemas kini terkini")}</option>
+          <option value="assisting">{L("I am helping on", "Saya membantu")}</option>
+          <option value="set_by_me">{L("Set by me", "Ditetapkan oleh saya")}</option>
           <option value="any">{L("All statuses", "Semua status")}</option>
+        </select>
+      )}
+      {abouts.length > 0 && (
+        <select className={inputClassSm} aria-label={L("Project or customer", "Projek atau pelanggan")} value={aboutF} onChange={(e) => { setAboutF(e.target.value); setAllPage(1); }}>
+          <option value="">{L("All projects and customers", "Semua projek dan pelanggan")}</option>
+          {abouts.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       )}
       <select className={inputClassSm} aria-label={L("Priority", "Keutamaan")} value={prioF} onChange={(e) => { setPrioF(e.target.value); setAllPage(1); }}>
@@ -469,6 +516,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 <th>{L("Deadline", "Tarikh akhir")}</th>
                 <th>{L("Status", "Status")}</th>
                 <th>{L("Progress", "Kemajuan")}</th>
+                <th>{L("Latest update", "Kemas kini terkini")}</th>
                 {canDelete && <th><span className={tk.srOnly}>{L("Delete", "Padam")}</span></th>}
               </tr>
             </thead>
@@ -489,7 +537,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       {t.description && (
                         <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{t.description}</p>
                       )}
-                      <span className={tk.badges}>{linkChip(t)}{scopeChip(t)}{ackControl(t)}</span>
+                      <span className={tk.badges}>{stageChip(t)}{linkChip(t)}{scopeChip(t)}{ackControl(t)}</span>
                     </td>
                     {opts.who && (
                       <td data-label={L("Assigned to", "Diberikan kepada")}>
@@ -507,6 +555,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                     </td>
                     <td data-label={L("Status", "Status")}>{statusSelect(t)}</td>
                     <td data-label={L("Progress", "Kemajuan")}>{progressBar(t)}</td>
+                    <td data-label={L("Latest update", "Kemas kini terkini")}>{latestCell(t)}</td>
                     {canDelete && <td className={tk.delCell}>{deleteBtn(t)}</td>}
                   </tr>
                 );
@@ -569,12 +618,23 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const unackedCount = tasks.filter(unacked).length;
   const pctOf = (n: number) => (tasks.length > 0 ? Math.round((n / tasks.length) * 100) : 0);
 
-  const myTasks = tasks.filter(isMine);
+  /* v1.246.0 - My Tasks: what I do, and what I help on (an assistant never
+     replaces the person responsible - the row still names them) */
+  const myTasks = tasks.filter((t) => isMine(t) || (t.assistants ?? []).some((a) => a.id === user.id));
   const myActive = myTasks.filter((t) => t.status !== "completed");
   const attention = openTasks.filter((t) => isOverdue(t) || unacked(t) || t.priority === "urgent")
     .filter((t) => canManage || isMine(t))
     .sort((a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9));
   const closed = tasks.filter((t) => t.status === "completed");
+  const loadOlder = async () => {
+    if (olderBusy) return;
+    setOlderBusy(true);
+    const before = olderNext ?? Math.min(...closed.map((t) => t.id), ...older.map((t) => t.id));
+    const qs = Number.isFinite(before) ? `&before=${before}` : "";
+    const r = await api<{ tasks: Task[]; next_before: number | null }>(`/staff/tasks?archive=1${canManage ? "&all=1" : ""}${qs}`);
+    setOlderBusy(false);
+    if (r.ok && r.data) { setOlder((o) => [...o, ...r.data!.tasks]); setOlderNext(r.data.next_before ?? 0); }
+  };
   const archNeedle = archQ.trim().toLowerCase();
   /* the team's tallies, from the rows already loaded (managers' board) */
   const assignees = (() => {
@@ -618,6 +678,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      the list narrowed to it (openList, as the overview's own rows do), its
      filters cleared, its row in view and its scope checklist open */
   const focused = useRecordFocus(focus, loaded, (f) => {
+    if (f.kind === "project") { setProjOpen(f.id); setView("projects"); return; } // v1.245.0
     if (f.kind !== "task") return;
     const t = tasks.find((x) => x.id === f.id);
     if (!t) { setView(canManage ? "all" : "mine"); return; }
@@ -641,6 +702,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         ["overview", L("Overview", "Gambaran")],
         ["mine", L("My Tasks", "Tugasan Saya")],
         ...(canManage ? [["all", L("All Tasks", "Semua Tugasan")] as const] : []),
+        ...(canProjects ? [["projects", L("Projects", "Projek")] as const] : []),
         ["calendar", L("Calendar", "Kalendar")],
         ["reports", L("Reports & Archive", "Laporan & Arkib")],
       ] as readonly (readonly [TaskView, string])[]} aside={
@@ -668,6 +730,37 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             sub={L(`${pctOf(doneCount)}% of total`, `${pctOf(doneCount)}% daripada jumlah`)}
             onClick={() => go("reports", "task-archive")} />
         </KpiRow>
+
+        {/* v1.246.0 (the brief, part 14) - progress at a glance, from the same
+            board rows: what waits for a reviewer, what is blocked, what has
+            gone quiet, and the newest progress reports - each opens the task */}
+        <section className={card} aria-label={L("Progress reports", "Laporan kemajuan")} data-testid="progress-overview">
+          {head("documents", tk.goldWell, L("Progress reports", "Laporan kemajuan"), L("Waiting for review, blocked, gone quiet, and the latest reports.", "Menunggu semakan, terhalang, senyap, dan laporan terkini."))}
+          <div className={tk.progressCounts}>
+            <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("review"); go(canManage ? "all" : "mine"); }}><strong>{openTasks.filter((t) => t.stage === "review").length}</strong>{L("Waiting for review", "Menunggu semakan")}</button>
+            <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("blocked"); go(canManage ? "all" : "mine"); }}><strong>{openTasks.filter((t) => t.stage === "blocked").length}</strong>{L("Blocked", "Terhalang")}</button>
+            <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("stale"); go(canManage ? "all" : "mine"); }}><strong>{openTasks.filter(isStale).length}</strong>{L("No recent update", "Tiada kemas kini terkini")}</button>
+          </div>
+          {(() => {
+            const recent = tasks.filter((t) => t.latest_update).sort((a, b) => (b.latest_update!.at).localeCompare(a.latest_update!.at)).slice(0, 5);
+            return recent.length === 0 ? <p className={tk.empty}><AppIcon name="info" />{L("No progress reports yet.", "Belum ada laporan kemajuan.")}</p> : (
+              <ul className={tk.attn}>
+                {recent.map((t) => (
+                  <li key={t.id}>
+                    <button type="button" onClick={() => void openChecklist(t.id)}>
+                      <span className={tk.attnText}>
+                        <strong>{t.title}</strong>
+                        <span className={tk.muted}>{t.latest_update!.by} · {stamp(t.latest_update!.at)} — {t.latest_update!.body.slice(0, 100)}</span>
+                      </span>
+                      <span className={tk.badges}><StateChip status={t.status} stage={t.stage ?? null} /></span>
+                      <AppIcon name="next" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </section>
 
         {/* v1.209.0 - your own work as a board, three columns (the three
             statuses there are), the newest three of each */}
@@ -937,6 +1030,13 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         })()}
       </TabZone>
 
+      {/* ============================== PROJECTS ============================== */}
+      {/* v1.245.0 - the project briefs: no new sidebar item, they live here
+          and on their quotation's page in Sales (the owner's brief) */}
+      <TabZone label={L("Project briefs", "Ringkasan projek")} className={view !== "projects" ? tk.off : ""}>
+        {canProjects && view === "projects" && <ProjectsBoard openId={projOpen} onOpen={setProjOpen} />}
+      </TabZone>
+
       {/* ============================ REPORTS & ARCHIVE ============================ */}
       <TabZone label={L("Reports and archive", "Laporan dan arkib")} className={view !== "reports" ? tk.off : ""}>
         {/* the company-wide card (management roles), as before */}
@@ -969,13 +1069,13 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           </section>
         )}
       <div id="task-archive">
-        {renderTasks(tasks.filter((t) => t.status === "completed").filter((t) => !archNeedle || [t.title, t.description ?? "", t.assignee ?? ""].some((x) => x.toLowerCase().includes(archNeedle))), L("Completed tasks", "Tugasan selesai"), !loaded, {
+        {renderTasks([...tasks.filter((t) => t.status === "completed"), ...older.filter((o) => !tasks.some((t) => t.id === o.id))].filter((t) => !archNeedle || [t.title, t.description ?? "", t.assignee ?? ""].some((x) => x.toLowerCase().includes(archNeedle))), L("Completed tasks", "Tugasan selesai"), !loaded, {
           who: canManage,
           pager: { page: archPage, set: setArchPage },
           /* v1.209.0 - the board read is the newest 200 (100 for your own);
              the archive says so rather than looking complete. The owner chose
              "not now" for a server page past them. */
-          sub: <>{L("Closed tasks stay here with their scope checklist — who ticked each item and when. Set a status back to Open or Pending to re-open one.", "Tugasan yang ditutup kekal di sini dengan senarai skopnya — siapa menanda setiap item dan bila. Tetapkan status kembali kepada Terbuka atau Menunggu untuk membukanya semula.")} {L(`Searched among the newest ${canManage ? 200 : 100} tasks on the board.`, `Dicari dalam ${canManage ? 200 : 100} tugasan terbaharu pada papan.`)}</>,
+          sub: <>{L("Closed tasks stay here with their scope checklist — who ticked each item and when. Set a status back to Open or Pending to re-open one.", "Tugasan yang ditutup kekal di sini dengan senarai skopnya — siapa menanda setiap item dan bila. Tetapkan status kembali kepada Terbuka atau Menunggu untuk membukanya semula.")} {L(`Every open task is on the board; the newest ${closed.length + older.length} closed ones are searched here.`, `Semua tugasan terbuka ada pada papan; ${closed.length + older.length} tugasan ditutup terbaharu dicari di sini.`)}</>,
           tools: (
             <div className={tk.toolbar} role="search">
               <label className={tk.search}>
@@ -983,6 +1083,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 <input type="search" value={archQ} aria-label={L("Search the archive", "Cari dalam arkib")}
                   placeholder={L("Search closed tasks…", "Cari tugasan ditutup…")} onChange={(e) => { setArchQ(e.target.value); setArchPage(1); }} />
               </label>
+              {/* v1.246.0 (audit A9) - the board carries the newest 300 closed
+                  tasks; older ones are fetched 300 at a time, on a press */}
+              {olderNext !== 0 && <button type="button" className={btnSm} disabled={olderBusy} aria-busy={olderBusy || undefined} onClick={() => void loadOlder()}>{L("Load older closed tasks", "Muat tugasan ditutup yang lebih lama")}</button>}
             </div>
           ),
         })}
@@ -1120,7 +1223,6 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         const mine = isMine(t);
         const canEdit = mine || canManage;
         const creator = t.created_by == null ? null : t.created_by === user.id ? L("You", "Anda") : team.find((u) => u.id === t.created_by)?.name ?? null;
-        const doneItems = (items ?? []).filter((it) => it.done === 1 && it.done_by_name);
         const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
         const saveEdit = async () => {
           if (!editing || !editing.title.trim()) return;
@@ -1137,11 +1239,16 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           <SideDrawer open onClose={closeDetail} wide title={t.title}
             subtitle={<span className={tk.badges}>
               <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
-              <span className={t.status === "completed" ? chipSuccess : t.status === "in_progress" ? chipWarn : chipInfo}>{statusL(t.status)}</span>
+              <StateChip status={t.status} stage={t.stage ?? null} />{/* v1.246.0 - status and stage together */}
               {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`Overdue — was due ${dmy(t.deadline)}`, `Lewat — sepatutnya ${dmy(t.deadline)}`) : L(`Due ${dmy(t.deadline)}`, `Perlu siap ${dmy(t.deadline)}`)}</span>}
             </span>}
             footer={<span className={tk.drawerFoot}>{statusSelect(t)}{ackControl(t)}{deleteBtn(t)}</span>}>
             <div className={tk.detail} data-record={`task:${t.id}`}>
+              {/* v1.246.0 - Details (the task information and checklist, as
+                  before) · Updates & Comments · Files · Activity, the review
+                  bar and the helpers: task-progress.tsx, the same pieces the
+                  project rows and the phone open */}
+              <TaskProgressTabs key={t.id} taskId={t.id} onChanged={() => void load()} details={<>
               <section className={tk.detailSec} aria-label={L("Task information", "Maklumat tugasan")}>
                 <div className={tk.detailHead}>
                   <p className={tk.title}>{L("Task information", "Maklumat tugasan")}</p>
@@ -1194,18 +1301,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 {progressBar(t)}
                 {checklist(t)}
               </section>
-              <section className={tk.detailSec} aria-label={L("Activity", "Aktiviti")}>
-                <p className={tk.title}>{L("Activity", "Aktiviti")}</p>
-                {!items ? <SkelRows rows={2} /> : doneItems.length === 0 && !(isAssigned(t) && t.acknowledged) ? (
-                  <p className={tk.muted}>{L("Nothing ticked yet.", "Belum ada yang ditanda.")}</p>
-                ) : (
-                  <ul className={tk.activity}>
-                    {isAssigned(t) && t.acknowledged ? <li><AppIcon name="verify" />{L("The assignee acknowledged this task.", "Penerima telah mengakui tugasan ini.")}</li> : null}
-                    {doneItems.map((it) => <li key={it.id}><AppIcon name="success" /><span><strong>{it.done_by_name}</strong> {L("ticked", "menanda")} “{it.title}”{it.done_at ? ` · ${dmy(it.done_at.slice(0, 10))}` : ""}</span></li>)}
-                  </ul>
-                )}
-                <p className={tk.hint}>{L("Status changes and acknowledgements are recorded by the system and notified as they happen; a full timeline of them is not shown here yet.", "Perubahan status dan pengakuan direkodkan oleh sistem dan dimaklumkan semasa berlaku; garis masa penuhnya belum dipaparkan di sini.")}</p>
-              </section>
+              </>} />
             </div>
           </SideDrawer>
         );

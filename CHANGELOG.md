@@ -10,6 +10,132 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.246.0] - 2026-11-01 - Task progress: every task reports, discusses and is reviewed
+
+The owner's brief "A2Z OS - Task Assignment, Progress Reporting, Comments &
+Quotation Project Integration" (three reference pictures) and his decisions
+of 01-11-2026 on claude/TASK-PROGRESS-AUDIT.md: T-1 one release with one
+progress record for every task (1.245.0 below was never deployed and ships
+inside this release, re-cut); T-2 a task somebody else set is completed by its
+reviewer; T-3 the assignee still edits title, priority and deadline - recorded
+old and new, the assigner told; T-4 project tasks are run by the CEO, COO, CCO
+and the Project Owner only; T-5 to T-9 the recommended defaults. Evidence:
+claude/GATE-1.246.0.md. Built and delivered to the PC; NOT deployed. Migration
+`0159_project_workspace` re-cut before it was ever applied (additive: new
+tables, new nullable columns, no row changed).
+
+- **Every task has a progress record** (`task_updates`, append-only by database
+  triggers, `worker/src/tasks-progress.ts`): status, progress, completed work,
+  blockers, next action, evidence files; the author and time from the session;
+  a correction is a new entry; a retry lands once. A project task's entries
+  name the project, so the Project Workspace reads the same rows (no second
+  store).
+- **Statuses**: Open, In Progress, Waiting for Client, Blocked, Ready for
+  Review, Completed, Cancelled - the three stored statuses plus a stage, no
+  table rebuilt.
+- **Review (T-2)**: the person doing a task somebody else set submits it for
+  review; the person who set it, the Project Owner or management approves it
+  or returns it with a reason; nobody approves their own work. Self-set tasks
+  close as before. Cancelling needs a reason and is kept on record.
+- **Progress has one source**: with a checklist it is done/total (2 of 5 =
+  40%) and cannot be typed; without one it moves only in a progress update.
+  Every tick and untick is kept (unticking no longer erases who ticked).
+- **Comments** (the existing `task_comments`, now on screen): separate from
+  progress, for the people on the task, @mentions, once per press, never
+  edited. **Files** are private (`private/tasks/`), opened only through the
+  task; restricted files for the reviewer side. Public media uploads are no
+  longer used for task evidence.
+- **Helpers** (`task_assistants`): added by management or the Project Owner,
+  never replacing the person responsible; they see the task in My Tasks,
+  post updates, comments and files, and tick the checklist.
+- **The task drawer**: Details (with the review bar, acknowledged time,
+  helpers) · Updates & Comments · Files · Activity (the whole story: created,
+  reassigned with reason, edits old -> new, ticks, updates, comments, files,
+  review, reminders). Add Update opens picture 03's Add Status Update.
+- **All Tasks**: a Latest update column (the report, who, when - never a
+  comment), filters Waiting for review, Blocked, Waiting for client, Overdue,
+  No recent update (3 days with a due date, 7 without), I am helping on, Set
+  by me, and project / customer. Every open task is listed (the 200 cap is
+  gone); the archive loads older closed tasks on a press. My Tasks includes
+  the tasks you help on.
+- **Tasks Overview**: Progress reports - waiting for review, blocked, gone
+  quiet, and the newest reports.
+- **The quotation page (picture 01)**: six tabs; Project & Tasks with the
+  project head, facts, sub-tabs Tasks · Updates · Files · Team · Project Brief,
+  Add Task and Project Settings; a task row opens the task itself.
+- **Moving a project task to somebody else needs a reason**; HR admin and the
+  Admin account no longer manage project tasks (T-4).
+- Guard `tests/go-live-t.mjs` (the brief's 22 tests and the audit's defects,
+  70 checks, 13 mutations; 56 of 67 fail on the 1.244.0 worker);
+  `tests/go-live-p.mjs` re-cut; `tasks-module`, `roster-tasks`, `tab-zones`
+  updated to the approved behaviour.
+
+## [1.245.0] - 2026-10-31 - Project Workspace: a quotation becomes a project brief (built, never deployed - ships inside 1.246.0)
+
+The owner's brief "A2Z OS - Quotation-linked Project Workspace & Task Report"
+(three reference pictures) and his decisions of 31-10-2026 on
+claude/PROJECT-WORKSPACE-AUDIT.md: P-1 the brief is created on a press; P-2
+the Project Owner is assigned by the CEO or COO (never guessed); P-3 the CEO
+or COO confirm completion; P-4 a full tabbed quotation page; P-5 a Gantt view
+now; P-6 the assigned team sees the client's phone and email. Evidence:
+claude/GATE-1.245.0.md. Built and delivered to the PC; NOT deployed.
+Migration `0159_project_workspace` (additive: two new tables, no existing row
+or column changed).
+
+- **The quotation page** (`components/portal/quotation-page.tsx`, Sales >
+  Documents > Open on a quotation row): Sales > Quotations > number, the
+  state (Open / Accepted / Invoiced / Expired, derived as before), Edit,
+  Revise, Convert to Invoice (the list's own press, `convertQt`), Project
+  Task, PDF; seven tabs - Overview, Client Details (the customer file),
+  Items & Package, Financial, Project Task, Files, Activity Log.
+- **The project brief** (`worker/src/projects.ts`, table `projects`): one per
+  quotation (unique index); client, package and lines are read from the
+  quotation, and frozen into a scope snapshot when the project becomes active.
+  Statuses draft, ready, in progress, waiting for client, on hold, completed,
+  cancelled; an expired quotation cannot be activated; activating a quotation
+  the client has not accepted needs management and a reason; completion only
+  by the CEO or COO; cancel needs a reason. Optimistic version on edits.
+- **The Project Owner** is assigned or transferred by the CEO or COO (transfer
+  needs a reason) and is told; the closer, the commission and payroll are
+  never touched.
+- **Project tasks are ordinary tasks** (`link_kind = 'project'`) - the same
+  task engine, the same leave and leaver checks. The Project Owner may add
+  and reassign tasks on his project; a project task cannot be deleted.
+- **Progress updates are append-only** (`project_updates` in 1.245.0 - `task_updates` from 1.246.0, database triggers
+  refuse change or removal): status, progress, completed work, blockers, next
+  action, an optional file; a correction is a new row naming the one it
+  corrects; a repeated press or offline replay lands once (Idempotency-Key).
+  An update never completes the project.
+- **Who sees what is decided on the server** (`projectAccess`): management and
+  the owner manage; the assigned team updates its own tasks; other staff read
+  and may offer help; prices only to management, the owner and sales; the
+  client's phone and email to those plus the assigned team (P-6); customers
+  have no access. New caps `project_view`, `project_manage`,
+  `project_owner_assign`, `project_complete` (rows in the Users matrix).
+- **Project files** are private (`private/projects/`), opened only through the
+  project; a restricted file only by the owner and management.
+- **Tasks > Projects** (a sixth tab, for project_view): the briefs I own, am
+  assigned to, or all; the project opens in place; a project bell opens it
+  there. No new sidebar or bottom-bar item.
+- **A faster PUSH.bat** (also delivered alone to the PC on 31-10/01-11-2026
+  as a fix to 1.244.0): the guards run side by side (`scripts/run-guards.mjs`,
+  the PC's cores less one, at most 6; `GUARD_JOBS=1` for one at a time) and
+  still report in the list's order; each has a budget against a hang (5
+  minutes, 15 for the go-live guards, which rebuild the whole worker once per
+  mutation - on the owner's PC go-live-b was killed at 120s after 8 of its 9
+  mutations were caught). The engine type check runs once instead of twice,
+  and one `wrangler secret list` serves both secret checks. Same guards, same
+  verdicts: 4 jobs on a 2-core sandbox took 132s instead of 245s; a failing,
+  a hanging and a missing guard each still stop the release.
+- **`PUSH.bat portal`** deploys the portal only: the ELFIA store is not
+  checked, rebuilt, published, saved or health-checked that run. Plain
+  `PUSH.bat` still does both. The five-second "Replace the Threads
+  credentials now?" question is gone: stored secrets are kept, missing ones
+  are still asked for, and `PUSH.bat secrets` replaces them.
+- Guard `tests/go-live-p.mjs` (74 checks, 12 mutations, the brief's 20 tests);
+  `tests/tab-zones.mjs`, `tests/roster-tasks.mjs`, `tests/tasks-module.mjs`
+  updated to the approved behaviour.
+
 ## [1.244.0] - 2026-10-31 - Release D of the go-live plan: backup, recovery and housekeeping
 
 The owner's decisions of 31-10-2026 on claude/FINAL-RELEASE-GATE-PLAN-V2.md:

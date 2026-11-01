@@ -85,6 +85,15 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp; kind: string }[
   { method: "POST", path: /^\/staff\/inventory\/returns$/,           kind: "stock_return" },
   { method: "POST", path: /^\/staff\/postage$/,                      kind: "postage" },
   { method: "POST", path: /^\/staff\/stock-counts\/\d+\/post$/,      kind: "stock_count" },
+  /* v1.245.0 - Project Workspace writes (worker/src/outbox.ts ONCE_ONLY) */
+  { method: "POST", path: /^\/staff\/projects$/,                      kind: "project_create" },
+  { method: "POST", path: /^\/staff\/projects\/\d+\/updates$/,         kind: "project_update" },
+  { method: "POST", path: /^\/staff\/projects\/\d+\/status$/,          kind: "project_status" },
+  { method: "POST", path: /^\/staff\/projects\/\d+\/owner$/,           kind: "project_owner" },
+  /* v1.246.0 - a task's progress update, comment and review decision land once */
+  { method: "POST", path: /^\/staff\/tasks\/\d+\/updates$/,           kind: "task_update" },
+  { method: "POST", path: /^\/staff\/tasks\/\d+\/comments$/,          kind: "task_comment" },
+  { method: "POST", path: /^\/staff\/tasks\/\d+\/review$/,            kind: "task_review" },
 ];
 export function onceOnlyKind(method: string | undefined, path: string): string | null {
   const m = (method ?? "GET").toUpperCase();

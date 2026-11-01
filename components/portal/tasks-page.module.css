@@ -980,3 +980,20 @@
   font-variant-numeric: tabular-nums;
   color: var(--primary);
 }
+
+/* v1.246.0 - the Latest update column: two lines of the report, then who and
+   when; amber when a task has gone quiet or is overdue with nothing reported */
+.latest { display: grid; gap: 0.125rem; min-width: 12rem; max-width: 20rem; }
+.latestText {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: var(--type-caption-size); color: var(--foreground); overflow-wrap: anywhere;
+}
+.warnText { font-size: var(--type-caption-size); color: var(--warning); }
+.progressCounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
+.countBtn {
+  display: grid; gap: 0.125rem; justify-items: start; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: 0.625rem;
+  background: var(--card); color: var(--muted-foreground); font: inherit; font-size: var(--type-caption-size); text-align: left; cursor: pointer;
+}
+.countBtn strong { font-size: var(--type-section-size); color: var(--foreground); font-variant-numeric: tabular-nums; }
+.countBtn:hover { border-color: var(--muted-foreground); }
+.countBtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }

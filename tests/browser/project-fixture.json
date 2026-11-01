@@ -1,0 +1,3023 @@
+{
+ "captured_from": "tests/go-live-p.mjs",
+ "project_id": 1,
+ "views": {
+  "mgmt": {
+   "workspace": {
+    "project": {
+     "id": 1,
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "description": "Three months of content",
+     "status": "in_progress",
+     "start_date": "2026-11-01",
+     "due_date": "2026-11-25",
+     "deliverables": [
+      "12 posts",
+      "1 shoot"
+     ],
+     "notes": "Kick-off on Monday",
+     "version": 8,
+     "created_at": "2026-11-01 01:17:06",
+     "updated_at": "2026-11-01 01:17:06",
+     "activated_at": "2026-11-01 01:17:06",
+     "activation_reason": null,
+     "completed_at": null,
+     "cancelled_at": null,
+     "cancel_reason": null,
+     "completion_requested_at": null,
+     "completion_requested_by": null,
+     "owner": {
+      "id": 5,
+      "name": "Aina Seller",
+      "set_at": "2026-11-01 01:17:06",
+      "set_by": "Alif Farhan"
+     },
+     "progress": 33
+    },
+    "quotation": {
+     "id": 100,
+     "doc_number": "QT-2026-0018",
+     "state": {
+      "accepted": false,
+      "accepted_at": null,
+      "accepted_name": null,
+      "invoiced": false,
+      "invoice": null,
+      "expired": false,
+      "label": "open"
+     },
+     "created_at": "2026-10-31 01:00:00",
+     "valid_until": "2026-11-30",
+     "revision": 1,
+     "issuer_code": null,
+     "reference": null,
+     "salesperson": {
+      "id": 5,
+      "name": "Aina Seller"
+     }
+    },
+    "client": {
+     "id": 1,
+     "company": "ABC Sdn Bhd",
+     "contact_person": "Mr. Ahmad",
+     "phone": "0123456789",
+     "email": "ahmad@abc.test"
+    },
+    "package": {
+     "id": 1,
+     "name": "Social Media Management (3 Months)",
+     "version": 1,
+     "customized": false
+    },
+    "scope": {
+     "frozen": true,
+     "revision": 0,
+     "revised_after_activation": true,
+     "lines": [
+      {
+       "name": "Social media management",
+       "qty": 3,
+       "uom": "MTH",
+       "sub": [
+        "12 posts a month"
+       ],
+       "unit_price_cents": 150000,
+       "disc_cents": 0,
+       "line_cents": 450000
+      },
+      {
+       "name": "Content shoot",
+       "qty": 1,
+       "uom": "JOB",
+       "sub": [],
+       "unit_price_cents": 80000,
+       "disc_cents": 0,
+       "line_cents": 80000
+      }
+     ],
+     "totals": {
+      "total_cents": 530000,
+      "discount_cents": 0,
+      "tax_percent": 0,
+      "delivery_cents": 0
+     }
+    },
+    "tasks": [
+     {
+      "id": 3,
+      "title": "Content strategy & plan",
+      "description": null,
+      "assigned_to": 5,
+      "assignee": "Aina Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-05",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     },
+     {
+      "id": 1,
+      "title": "Design & content creation",
+      "description": null,
+      "assigned_to": 10,
+      "assignee": "Sara Designer",
+      "photo_key": null,
+      "status": "completed",
+      "stage": null,
+      "progress": 100,
+      "progress_source": "manual",
+      "priority": "normal",
+      "deadline": "2026-11-10",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": "2026-11-01 01:17:06",
+      "last_update_by": "Aina Seller",
+      "last_update_kind": "review_approved",
+      "last_update": "Approved as completed",
+      "label": "completed",
+      "mine": false
+     },
+     {
+      "id": 2,
+      "title": "Client review & feedback",
+      "description": null,
+      "assigned_to": 6,
+      "assignee": "Lia Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-15",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     }
+    ],
+    "team": [
+     {
+      "id": 5,
+      "name": "Aina Seller",
+      "photo_key": null
+     },
+     {
+      "id": 10,
+      "name": "Sara Designer",
+      "photo_key": null
+     },
+     {
+      "id": 6,
+      "name": "Lia Seller",
+      "photo_key": null
+     }
+    ],
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ],
+    "file_count": 2,
+    "suggested_owner": null,
+    "can": {
+     "edit": true,
+     "add_task": true,
+     "assign_owner": true,
+     "update": true,
+     "assist": false,
+     "status": true,
+     "complete": true,
+     "prices": true,
+     "contact": true,
+     "files": true,
+     "restricted_files": true,
+     "is_owner": false,
+     "is_assigned": false,
+     "manage": true
+    },
+    "transitions": [
+     {
+      "to": "waiting_client",
+      "label": "Waiting for client"
+     },
+     {
+      "to": "on_hold",
+      "label": "On hold",
+      "needs_reason": true
+     },
+     {
+      "to": "completed",
+      "label": "Confirm completed"
+     },
+     {
+      "to": "cancelled",
+      "label": "Cancel the project",
+      "needs_reason": true
+     }
+    ]
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "u6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_approved",
+      "text": "Approved on \"Design & content creation\"",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Approved as completed"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_request",
+      "text": "Ready for review on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "All designs delivered"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.note",
+      "text": "Note",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Owner note for the team"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.correction",
+      "text": "Correction on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Correction: week 1 only, week 2 on Monday"
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.assist_request",
+      "text": "Asked to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can help with captions"
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.progress",
+      "text": "Progress on \"Design & content creation\" - 30%",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client."
+     },
+     {
+      "key": "t3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Content strategy & plan\" for Aina Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Client review & feedback\" for Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Design & content creation\" for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "r16",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.reassign",
+      "text": "Reassigned \"Client review & feedback\" to Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "f2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Attached contract.pdf (restricted)"
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Attached brief.pdf"
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → completed",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → in progress",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null
+     },
+     {
+      "key": "a6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (due_date)",
+      "by": "Cee Officer",
+      "by_id": 3,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (description)",
+      "by": "Ops Lead",
+      "by_id": 2,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (notes)",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (title, start_date, due_date, deliverables)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.owner_set",
+      "text": "Set the Project Owner to Aina Seller",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a15",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status ready → in progress (quotation accepted)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a14",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status draft → ready",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.create",
+      "text": "Created the project brief from QT-2026-0018",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     }
+    ]
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "file_name": "contract.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "restricted",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 5,
+      "uploader": "Aina Seller",
+      "open": true
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "file_name": "brief.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 10,
+      "uploader": "Sara Designer",
+      "open": true
+     }
+    ]
+   },
+   "list": {
+    "projects": [
+     {
+      "id": 1,
+      "quotation_id": 100,
+      "title": "Social Media Management - ABC Sdn Bhd",
+      "status": "in_progress",
+      "due_date": "2026-11-25",
+      "owner_id": 5,
+      "updated_at": "2026-11-01 01:17:06",
+      "doc_number": "QT-2026-0018",
+      "company": "ABC Sdn Bhd",
+      "owner_name": "Aina Seller",
+      "tasks": 3,
+      "done": 1,
+      "progress": 33,
+      "my_open": 0
+     }
+    ],
+    "can_manage": true
+   },
+   "by_quotation": {
+    "project": {
+     "id": 1,
+     "status": "in_progress",
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "owner_id": 5
+    },
+    "quotation_state": {
+     "accepted": false,
+     "accepted_at": null,
+     "accepted_name": null,
+     "invoiced": false,
+     "invoice": null,
+     "expired": false,
+     "label": "open"
+    },
+    "events": [
+     {
+      "at": "2026-11-01 01:17:06",
+      "kind": "quotation_accepted",
+      "text": "Accepted by Ahmad (revision 0)",
+      "by": null
+     },
+     {
+      "at": "2026-10-31 01:00:00",
+      "kind": "quotation_created",
+      "text": "QT-2026-0018 created",
+      "by": "Aina Seller"
+     }
+    ],
+    "can_create": false,
+    "suggested_owner": {
+     "id": 5,
+     "name": "Aina Seller"
+    }
+   }
+  },
+  "owner": {
+   "workspace": {
+    "project": {
+     "id": 1,
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "description": "Three months of content",
+     "status": "in_progress",
+     "start_date": "2026-11-01",
+     "due_date": "2026-11-25",
+     "deliverables": [
+      "12 posts",
+      "1 shoot"
+     ],
+     "notes": "Kick-off on Monday",
+     "version": 8,
+     "created_at": "2026-11-01 01:17:06",
+     "updated_at": "2026-11-01 01:17:06",
+     "activated_at": "2026-11-01 01:17:06",
+     "activation_reason": null,
+     "completed_at": null,
+     "cancelled_at": null,
+     "cancel_reason": null,
+     "completion_requested_at": null,
+     "completion_requested_by": null,
+     "owner": {
+      "id": 5,
+      "name": "Aina Seller",
+      "set_at": "2026-11-01 01:17:06",
+      "set_by": "Alif Farhan"
+     },
+     "progress": 33
+    },
+    "quotation": {
+     "id": 100,
+     "doc_number": "QT-2026-0018",
+     "state": {
+      "accepted": false,
+      "accepted_at": null,
+      "accepted_name": null,
+      "invoiced": false,
+      "invoice": null,
+      "expired": false,
+      "label": "open"
+     },
+     "created_at": "2026-10-31 01:00:00",
+     "valid_until": "2026-11-30",
+     "revision": 1,
+     "issuer_code": null,
+     "reference": null,
+     "salesperson": {
+      "id": 5,
+      "name": "Aina Seller"
+     }
+    },
+    "client": {
+     "id": 1,
+     "company": "ABC Sdn Bhd",
+     "contact_person": "Mr. Ahmad",
+     "phone": "0123456789",
+     "email": "ahmad@abc.test"
+    },
+    "package": {
+     "id": 1,
+     "name": "Social Media Management (3 Months)",
+     "version": 1,
+     "customized": false
+    },
+    "scope": {
+     "frozen": true,
+     "revision": 0,
+     "revised_after_activation": true,
+     "lines": [
+      {
+       "name": "Social media management",
+       "qty": 3,
+       "uom": "MTH",
+       "sub": [
+        "12 posts a month"
+       ],
+       "unit_price_cents": 150000,
+       "disc_cents": 0,
+       "line_cents": 450000
+      },
+      {
+       "name": "Content shoot",
+       "qty": 1,
+       "uom": "JOB",
+       "sub": [],
+       "unit_price_cents": 80000,
+       "disc_cents": 0,
+       "line_cents": 80000
+      }
+     ],
+     "totals": {
+      "total_cents": 530000,
+      "discount_cents": 0,
+      "tax_percent": 0,
+      "delivery_cents": 0
+     }
+    },
+    "tasks": [
+     {
+      "id": 3,
+      "title": "Content strategy & plan",
+      "description": null,
+      "assigned_to": 5,
+      "assignee": "Aina Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-05",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": true
+     },
+     {
+      "id": 1,
+      "title": "Design & content creation",
+      "description": null,
+      "assigned_to": 10,
+      "assignee": "Sara Designer",
+      "photo_key": null,
+      "status": "completed",
+      "stage": null,
+      "progress": 100,
+      "progress_source": "manual",
+      "priority": "normal",
+      "deadline": "2026-11-10",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": "2026-11-01 01:17:06",
+      "last_update_by": "Aina Seller",
+      "last_update_kind": "review_approved",
+      "last_update": "Approved as completed",
+      "label": "completed",
+      "mine": false
+     },
+     {
+      "id": 2,
+      "title": "Client review & feedback",
+      "description": null,
+      "assigned_to": 6,
+      "assignee": "Lia Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-15",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     }
+    ],
+    "team": [
+     {
+      "id": 5,
+      "name": "Aina Seller",
+      "photo_key": null
+     },
+     {
+      "id": 10,
+      "name": "Sara Designer",
+      "photo_key": null
+     },
+     {
+      "id": 6,
+      "name": "Lia Seller",
+      "photo_key": null
+     }
+    ],
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ],
+    "file_count": 2,
+    "suggested_owner": null,
+    "can": {
+     "edit": true,
+     "add_task": true,
+     "assign_owner": false,
+     "update": true,
+     "assist": false,
+     "status": true,
+     "complete": false,
+     "prices": true,
+     "contact": true,
+     "files": true,
+     "restricted_files": true,
+     "is_owner": true,
+     "is_assigned": true,
+     "manage": true
+    },
+    "transitions": [
+     {
+      "to": "waiting_client",
+      "label": "Waiting for client"
+     },
+     {
+      "to": "on_hold",
+      "label": "On hold",
+      "needs_reason": true
+     },
+     {
+      "to": "cancelled",
+      "label": "Cancel the project",
+      "needs_reason": true
+     }
+    ]
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "u6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_approved",
+      "text": "Approved on \"Design & content creation\"",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Approved as completed"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_request",
+      "text": "Ready for review on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "All designs delivered"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.note",
+      "text": "Note",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Owner note for the team"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.correction",
+      "text": "Correction on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Correction: week 1 only, week 2 on Monday"
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.assist_request",
+      "text": "Asked to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can help with captions"
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.progress",
+      "text": "Progress on \"Design & content creation\" - 30%",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client."
+     },
+     {
+      "key": "t3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Content strategy & plan\" for Aina Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Client review & feedback\" for Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Design & content creation\" for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "r16",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.reassign",
+      "text": "Reassigned \"Client review & feedback\" to Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "f2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Attached contract.pdf (restricted)"
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Attached brief.pdf"
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → completed",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → in progress",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null
+     },
+     {
+      "key": "a6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (due_date)",
+      "by": "Cee Officer",
+      "by_id": 3,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (description)",
+      "by": "Ops Lead",
+      "by_id": 2,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (notes)",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (title, start_date, due_date, deliverables)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.owner_set",
+      "text": "Set the Project Owner to Aina Seller",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a15",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status ready → in progress (quotation accepted)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a14",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status draft → ready",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.create",
+      "text": "Created the project brief from QT-2026-0018",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     }
+    ]
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "file_name": "contract.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "restricted",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 5,
+      "uploader": "Aina Seller",
+      "open": true
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "file_name": "brief.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 10,
+      "uploader": "Sara Designer",
+      "open": true
+     }
+    ]
+   },
+   "list": {
+    "projects": [
+     {
+      "id": 1,
+      "quotation_id": 100,
+      "title": "Social Media Management - ABC Sdn Bhd",
+      "status": "in_progress",
+      "due_date": "2026-11-25",
+      "owner_id": 5,
+      "updated_at": "2026-11-01 01:17:06",
+      "doc_number": "QT-2026-0018",
+      "company": "ABC Sdn Bhd",
+      "owner_name": "Aina Seller",
+      "tasks": 3,
+      "done": 1,
+      "progress": 33,
+      "my_open": 1
+     }
+    ],
+    "can_manage": false
+   },
+   "by_quotation": {
+    "project": {
+     "id": 1,
+     "status": "in_progress",
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "owner_id": 5
+    },
+    "quotation_state": {
+     "accepted": false,
+     "accepted_at": null,
+     "accepted_name": null,
+     "invoiced": false,
+     "invoice": null,
+     "expired": false,
+     "label": "open"
+    },
+    "events": [
+     {
+      "at": "2026-11-01 01:17:06",
+      "kind": "quotation_accepted",
+      "text": "Accepted by Ahmad (revision 0)",
+      "by": null
+     },
+     {
+      "at": "2026-10-31 01:00:00",
+      "kind": "quotation_created",
+      "text": "QT-2026-0018 created",
+      "by": "Aina Seller"
+     }
+    ],
+    "can_create": false,
+    "suggested_owner": {
+     "id": 5,
+     "name": "Aina Seller"
+    }
+   }
+  },
+  "assigned": {
+   "workspace": {
+    "project": {
+     "id": 1,
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "description": "Three months of content",
+     "status": "in_progress",
+     "start_date": "2026-11-01",
+     "due_date": "2026-11-25",
+     "deliverables": [
+      "12 posts",
+      "1 shoot"
+     ],
+     "notes": null,
+     "version": 8,
+     "created_at": "2026-11-01 01:17:06",
+     "updated_at": "2026-11-01 01:17:06",
+     "activated_at": "2026-11-01 01:17:06",
+     "activation_reason": null,
+     "completed_at": null,
+     "cancelled_at": null,
+     "cancel_reason": null,
+     "completion_requested_at": null,
+     "completion_requested_by": null,
+     "owner": {
+      "id": 5,
+      "name": "Aina Seller",
+      "set_at": "2026-11-01 01:17:06",
+      "set_by": "Alif Farhan"
+     },
+     "progress": 33
+    },
+    "quotation": {
+     "id": 100,
+     "doc_number": "QT-2026-0018",
+     "state": {
+      "accepted": false,
+      "accepted_at": null,
+      "accepted_name": null,
+      "invoiced": false,
+      "invoice": null,
+      "expired": false,
+      "label": "open"
+     },
+     "created_at": "2026-10-31 01:00:00",
+     "valid_until": "2026-11-30",
+     "revision": 1,
+     "issuer_code": null,
+     "reference": null,
+     "salesperson": {
+      "id": 5,
+      "name": "Aina Seller"
+     }
+    },
+    "client": {
+     "id": 1,
+     "company": "ABC Sdn Bhd",
+     "contact_person": "Mr. Ahmad",
+     "phone": "0123456789",
+     "email": "ahmad@abc.test"
+    },
+    "package": {
+     "id": 1,
+     "name": "Social Media Management (3 Months)",
+     "version": 1,
+     "customized": false
+    },
+    "scope": {
+     "frozen": true,
+     "revision": 0,
+     "revised_after_activation": true,
+     "lines": [
+      {
+       "name": "Social media management",
+       "qty": 3,
+       "uom": "MTH",
+       "sub": [
+        "12 posts a month"
+       ]
+      },
+      {
+       "name": "Content shoot",
+       "qty": 1,
+       "uom": "JOB",
+       "sub": []
+      }
+     ],
+     "totals": null
+    },
+    "tasks": [
+     {
+      "id": 3,
+      "title": "Content strategy & plan",
+      "description": null,
+      "assigned_to": 5,
+      "assignee": "Aina Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-05",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     },
+     {
+      "id": 1,
+      "title": "Design & content creation",
+      "description": null,
+      "assigned_to": 10,
+      "assignee": "Sara Designer",
+      "photo_key": null,
+      "status": "completed",
+      "stage": null,
+      "progress": 100,
+      "progress_source": "manual",
+      "priority": "normal",
+      "deadline": "2026-11-10",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": "2026-11-01 01:17:06",
+      "last_update_by": "Aina Seller",
+      "last_update_kind": "review_approved",
+      "last_update": "Approved as completed",
+      "label": "completed",
+      "mine": true
+     },
+     {
+      "id": 2,
+      "title": "Client review & feedback",
+      "description": null,
+      "assigned_to": 6,
+      "assignee": "Lia Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-15",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     }
+    ],
+    "team": [
+     {
+      "id": 5,
+      "name": "Aina Seller",
+      "photo_key": null
+     },
+     {
+      "id": 10,
+      "name": "Sara Designer",
+      "photo_key": null
+     },
+     {
+      "id": 6,
+      "name": "Lia Seller",
+      "photo_key": null
+     }
+    ],
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ],
+    "file_count": 2,
+    "suggested_owner": null,
+    "can": {
+     "edit": false,
+     "add_task": false,
+     "assign_owner": false,
+     "update": true,
+     "assist": false,
+     "status": false,
+     "complete": false,
+     "prices": false,
+     "contact": true,
+     "files": true,
+     "restricted_files": false,
+     "is_owner": false,
+     "is_assigned": true,
+     "manage": false
+    },
+    "transitions": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "u6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_approved",
+      "text": "Approved on \"Design & content creation\"",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Approved as completed"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_request",
+      "text": "Ready for review on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "All designs delivered"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.note",
+      "text": "Note",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Owner note for the team"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.correction",
+      "text": "Correction on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Correction: week 1 only, week 2 on Monday"
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.assist_request",
+      "text": "Asked to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can help with captions"
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.progress",
+      "text": "Progress on \"Design & content creation\" - 30%",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client."
+     },
+     {
+      "key": "t3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Content strategy & plan\" for Aina Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Client review & feedback\" for Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Design & content creation\" for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "r16",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.reassign",
+      "text": "Reassigned \"Client review & feedback\" to Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "f2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Attached contract.pdf (restricted)"
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Attached brief.pdf"
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → completed",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → in progress",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null
+     },
+     {
+      "key": "a6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (due_date)",
+      "by": "Cee Officer",
+      "by_id": 3,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (description)",
+      "by": "Ops Lead",
+      "by_id": 2,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (notes)",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (title, start_date, due_date, deliverables)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.owner_set",
+      "text": "Set the Project Owner to Aina Seller",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a15",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status ready → in progress (quotation accepted)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a14",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status draft → ready",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.create",
+      "text": "Created the project brief from QT-2026-0018",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     }
+    ]
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "file_name": "contract.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "restricted",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 5,
+      "uploader": "Aina Seller",
+      "open": false
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "file_name": "brief.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 10,
+      "uploader": "Sara Designer",
+      "open": true
+     }
+    ]
+   },
+   "list": {
+    "projects": [
+     {
+      "id": 1,
+      "quotation_id": 100,
+      "title": "Social Media Management - ABC Sdn Bhd",
+      "status": "in_progress",
+      "due_date": "2026-11-25",
+      "owner_id": 5,
+      "updated_at": "2026-11-01 01:17:06",
+      "doc_number": "QT-2026-0018",
+      "company": "ABC Sdn Bhd",
+      "owner_name": "Aina Seller",
+      "tasks": 3,
+      "done": 1,
+      "progress": 33,
+      "my_open": 0
+     }
+    ],
+    "can_manage": false
+   },
+   "by_quotation": {
+    "project": {
+     "id": 1,
+     "status": "in_progress",
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "owner_id": 5
+    },
+    "quotation_state": {
+     "accepted": false,
+     "accepted_at": null,
+     "accepted_name": null,
+     "invoiced": false,
+     "invoice": null,
+     "expired": false,
+     "label": "open"
+    },
+    "events": [
+     {
+      "at": "2026-11-01 01:17:06",
+      "kind": "quotation_accepted",
+      "text": "Accepted by Ahmad (revision 0)",
+      "by": null
+     },
+     {
+      "at": "2026-10-31 01:00:00",
+      "kind": "quotation_created",
+      "text": "QT-2026-0018 created",
+      "by": "Aina Seller"
+     }
+    ],
+    "can_create": false,
+    "suggested_owner": {
+     "id": 5,
+     "name": "Aina Seller"
+    }
+   }
+  },
+  "other": {
+   "workspace": {
+    "project": {
+     "id": 1,
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "description": "Three months of content",
+     "status": "in_progress",
+     "start_date": "2026-11-01",
+     "due_date": "2026-11-25",
+     "deliverables": [
+      "12 posts",
+      "1 shoot"
+     ],
+     "notes": null,
+     "version": 8,
+     "created_at": "2026-11-01 01:17:06",
+     "updated_at": "2026-11-01 01:17:06",
+     "activated_at": "2026-11-01 01:17:06",
+     "activation_reason": null,
+     "completed_at": null,
+     "cancelled_at": null,
+     "cancel_reason": null,
+     "completion_requested_at": null,
+     "completion_requested_by": null,
+     "owner": {
+      "id": 5,
+      "name": "Aina Seller",
+      "set_at": "2026-11-01 01:17:06",
+      "set_by": "Alif Farhan"
+     },
+     "progress": 33
+    },
+    "quotation": {
+     "id": 100,
+     "doc_number": "QT-2026-0018",
+     "state": {
+      "accepted": false,
+      "accepted_at": null,
+      "accepted_name": null,
+      "invoiced": false,
+      "invoice": null,
+      "expired": false,
+      "label": "open"
+     },
+     "created_at": "2026-10-31 01:00:00",
+     "valid_until": "2026-11-30",
+     "revision": 1,
+     "issuer_code": null,
+     "reference": null,
+     "salesperson": {
+      "id": 5,
+      "name": "Aina Seller"
+     }
+    },
+    "client": {
+     "id": 1,
+     "company": "ABC Sdn Bhd",
+     "contact_person": "Mr. Ahmad"
+    },
+    "package": {
+     "id": 1,
+     "name": "Social Media Management (3 Months)",
+     "version": 1,
+     "customized": false
+    },
+    "scope": {
+     "frozen": true,
+     "revision": 0,
+     "revised_after_activation": true,
+     "lines": [
+      {
+       "name": "Social media management",
+       "qty": 3,
+       "uom": "MTH",
+       "sub": [
+        "12 posts a month"
+       ]
+      },
+      {
+       "name": "Content shoot",
+       "qty": 1,
+       "uom": "JOB",
+       "sub": []
+      }
+     ],
+     "totals": null
+    },
+    "tasks": [
+     {
+      "id": 3,
+      "title": "Content strategy & plan",
+      "description": null,
+      "assigned_to": 5,
+      "assignee": "Aina Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-05",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     },
+     {
+      "id": 1,
+      "title": "Design & content creation",
+      "description": null,
+      "assigned_to": 10,
+      "assignee": "Sara Designer",
+      "photo_key": null,
+      "status": "completed",
+      "stage": null,
+      "progress": 100,
+      "progress_source": "manual",
+      "priority": "normal",
+      "deadline": "2026-11-10",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": "2026-11-01 01:17:06",
+      "last_update_by": "Aina Seller",
+      "last_update_kind": "review_approved",
+      "last_update": "Approved as completed",
+      "label": "completed",
+      "mine": false
+     },
+     {
+      "id": 2,
+      "title": "Client review & feedback",
+      "description": null,
+      "assigned_to": 6,
+      "assignee": "Lia Seller",
+      "photo_key": null,
+      "status": "open",
+      "stage": null,
+      "progress": 0,
+      "progress_source": null,
+      "priority": "normal",
+      "deadline": "2026-11-15",
+      "created_at": "2026-11-01 01:17:06",
+      "created_by": 5,
+      "last_update_at": null,
+      "last_update_by": null,
+      "last_update_kind": null,
+      "last_update": null,
+      "label": "not_started",
+      "mine": false
+     }
+    ],
+    "team": [
+     {
+      "id": 5,
+      "name": "Aina Seller",
+      "photo_key": null
+     },
+     {
+      "id": 10,
+      "name": "Sara Designer",
+      "photo_key": null
+     },
+     {
+      "id": 6,
+      "name": "Lia Seller",
+      "photo_key": null
+     }
+    ],
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ],
+    "file_count": 2,
+    "suggested_owner": null,
+    "can": {
+     "edit": false,
+     "add_task": false,
+     "assign_owner": false,
+     "update": false,
+     "assist": true,
+     "status": false,
+     "complete": false,
+     "prices": false,
+     "contact": false,
+     "files": false,
+     "restricted_files": false,
+     "is_owner": false,
+     "is_assigned": false,
+     "manage": false
+    },
+    "transitions": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "u6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_approved",
+      "text": "Approved on \"Design & content creation\"",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Approved as completed"
+     },
+     {
+      "key": "u5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.review_request",
+      "text": "Ready for review on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "All designs delivered"
+     },
+     {
+      "key": "u4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.note",
+      "text": "Note",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Owner note for the team"
+     },
+     {
+      "key": "u3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.correction",
+      "text": "Correction on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Correction: week 1 only, week 2 on Monday"
+     },
+     {
+      "key": "u2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.assist_request",
+      "text": "Asked to help",
+      "by": "Ed Editor",
+      "by_id": 11,
+      "photo_key": null,
+      "quote": "I can help with captions"
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "update.progress",
+      "text": "Progress on \"Design & content creation\" - 30%",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client."
+     },
+     {
+      "key": "t3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Content strategy & plan\" for Aina Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Client review & feedback\" for Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "t1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.create",
+      "text": "Added task \"Design & content creation\" for Sara Designer",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "r16",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.reassign",
+      "text": "Reassigned \"Client review & feedback\" to Lia Seller",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "f2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": "Attached contract.pdf (restricted)"
+     },
+     {
+      "key": "f1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "file",
+      "text": "File on \"Design & content creation\"",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null,
+      "quote": "Attached brief.pdf"
+     },
+     {
+      "key": "e3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → completed",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "task.status",
+      "text": "\"Design & content creation\" → in progress",
+      "by": "Sara Designer",
+      "by_id": 10,
+      "photo_key": null
+     },
+     {
+      "key": "a6",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (due_date)",
+      "by": "Cee Officer",
+      "by_id": 3,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a5",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (description)",
+      "by": "Ops Lead",
+      "by_id": 2,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a4",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (notes)",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a3",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.edit",
+      "text": "Edited the project (title, start_date, due_date, deliverables)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a2",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.owner_set",
+      "text": "Set the Project Owner to Aina Seller",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a15",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status ready → in progress (quotation accepted)",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a14",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.status",
+      "text": "Status draft → ready",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     },
+     {
+      "key": "a1",
+      "at": "2026-11-01 01:17:06",
+      "kind": "project.create",
+      "text": "Created the project brief from QT-2026-0018",
+      "by": "Aina Seller",
+      "by_id": 5,
+      "photo_key": null,
+      "quote": null
+     }
+    ]
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 6,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "review_approved",
+      "body": "Approved as completed",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 5,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "review_request",
+      "body": "All designs delivered",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": "review",
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 4,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 5,
+      "author": "Aina Seller",
+      "photo_key": null,
+      "kind": "note",
+      "body": "Owner note for the team",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 3,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "Correction: week 1 only, week 2 on Monday",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": 1,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "author_id": 11,
+      "author": "Ed Editor",
+      "photo_key": null,
+      "kind": "assist_request",
+      "body": "I can help with captions",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "author_id": 10,
+      "author": "Sara Designer",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Design untuk minggu 1 & 2 sudah siap. Menunggu feedback client.",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 30,
+      "corrects_id": null,
+      "created_at": "2026-11-01 01:17:06",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": [
+     {
+      "id": 2,
+      "task_id": null,
+      "task_title": null,
+      "file_name": "contract.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "restricted",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 5,
+      "uploader": "Aina Seller",
+      "open": false
+     },
+     {
+      "id": 1,
+      "task_id": 1,
+      "task_title": "Design & content creation",
+      "file_name": "brief.pdf",
+      "content_type": "application/pdf",
+      "size_bytes": null,
+      "level": "team",
+      "created_at": "2026-11-01 01:17:06",
+      "uploader_id": 10,
+      "uploader": "Sara Designer",
+      "open": true
+     }
+    ]
+   },
+   "list": {
+    "projects": [
+     {
+      "id": 1,
+      "quotation_id": 100,
+      "title": "Social Media Management - ABC Sdn Bhd",
+      "status": "in_progress",
+      "due_date": "2026-11-25",
+      "owner_id": 5,
+      "updated_at": "2026-11-01 01:17:06",
+      "doc_number": "QT-2026-0018",
+      "company": "ABC Sdn Bhd",
+      "owner_name": "Aina Seller",
+      "tasks": 3,
+      "done": 1,
+      "progress": 33,
+      "my_open": 0
+     }
+    ],
+    "can_manage": false
+   },
+   "by_quotation": {
+    "project": {
+     "id": 1,
+     "status": "in_progress",
+     "title": "Social Media Management - ABC Sdn Bhd",
+     "owner_id": 5
+    },
+    "quotation_state": {
+     "accepted": false,
+     "accepted_at": null,
+     "accepted_name": null,
+     "invoiced": false,
+     "invoice": null,
+     "expired": false,
+     "label": "open"
+    },
+    "events": [
+     {
+      "at": "2026-11-01 01:17:06",
+      "kind": "quotation_accepted",
+      "text": "Accepted by Ahmad (revision 0)",
+      "by": null
+     },
+     {
+      "at": "2026-10-31 01:00:00",
+      "kind": "quotation_created",
+      "text": "QT-2026-0018 created",
+      "by": "Aina Seller"
+     }
+    ],
+    "can_create": false,
+    "suggested_owner": {
+     "id": 5,
+     "name": "Aina Seller"
+    }
+   }
+  },
+  "none": {
+   "by_quotation": {
+    "project": null,
+    "quotation_state": {
+     "accepted": false,
+     "accepted_at": null,
+     "accepted_name": null,
+     "invoiced": false,
+     "invoice": null,
+     "expired": false,
+     "label": "open"
+    },
+    "events": [
+     {
+      "at": "2026-10-31 01:00:00",
+      "kind": "quotation_created",
+      "text": "QT-2026-0019 created",
+      "by": "Lia Seller"
+     }
+    ],
+    "can_create": true,
+    "suggested_owner": {
+     "id": 6,
+     "name": "Lia Seller"
+    }
+   }
+  }
+ }
+}

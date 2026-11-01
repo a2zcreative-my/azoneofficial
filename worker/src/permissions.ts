@@ -52,6 +52,17 @@ export const PERMS: Record<string, readonly Role[]> = {
      edit a task - which is what "this is finished" or "this was wrong"
      usually means. */
   task_delete: ["super_admin", "ceo"],
+  /* v1.245.0 - Project Workspace (the owner, 31-10-2026; claude/PROJECT-
+     WORKSPACE-AUDIT.md, decisions P-1 to P-6). Seeing a project's shared
+     fields is every staff role (never a customer); managing any project is
+     CEO, COO, CCO; naming the Project Owner and confirming Completed are CEO
+     and COO (P-2, P-3). The Project Owner and the assigned team get their
+     rights per project from the database (worker/src/projects.ts), not from
+     a role. None of these reaches invoice Paid, payroll or commission. */
+  project_view: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor", "live_host"],
+  project_manage: ["super_admin", "ceo", "coo", "cco"],
+  project_owner_assign: ["super_admin", "ceo", "coo"],
+  project_complete: ["super_admin", "ceo", "coo"],
   /* v1.72.0 — recording an unpaid day is a pay decision, not attendance
      data entry: it removes one twenty-sixth of a month wage. Same reasoning
      as claims_decide. Admin and hr_admin keep every other correction on the
@@ -471,7 +482,11 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Attendance", key: "attendance_correct", en: "Correct attendance records", ms: "Betulkan rekod kehadiran", cap: "attendance_correct" },
   { module: "Attendance", key: "geofence", en: "Set the office geofence", ms: "Tetapkan geofence pejabat", cap: "geofence_admin" },
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
-  { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete" },
+  { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete", note_en: "Never a project task (reassign or complete it)", note_ms: "Bukan tugasan projek (agih semula atau selesaikan)" },
+  { module: "Projects", key: "project_view", en: "View shared project information", ms: "Lihat maklumat projek yang dikongsi", cap: "project_view", note_en: "Prices and contact details need more", note_ms: "Harga dan butiran hubungan memerlukan lebih" },
+  { module: "Projects", key: "project_manage", en: "Edit any project, assign its tasks, change its status", ms: "Sunting mana-mana projek, agih tugasan, tukar status", cap: "project_manage", note_en: "The Project Owner can for their own project", note_ms: "Pemilik Projek boleh untuk projek sendiri" },
+  { module: "Projects", key: "project_owner", en: "Assign or transfer the Project Owner", ms: "Tetapkan atau pindah Pemilik Projek", cap: "project_owner_assign", note_en: "Never changes the closer or commission", note_ms: "Tidak menukar penutup jualan atau komisen" },
+  { module: "Projects", key: "project_complete", en: "Confirm a project Completed", ms: "Sahkan projek Selesai", cap: "project_complete", note_en: "The owner requests it", note_ms: "Pemilik memohonnya" },
   { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
   { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign", na: ["super_admin", "admin"] },
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },

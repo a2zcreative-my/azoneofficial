@@ -294,7 +294,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0158_payroll_population";
+const LATEST_MIGRATION = "0159_project_workspace";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -5082,6 +5082,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0156 (weekly goals: target metric, lead introductions, qualified date)", `SELECT t.metric, t.target_count, e.referred_by, e.qualified_at, e.qualified_by FROM sales_week_targets t LEFT JOIN enquiries e ON 1 = 0 LIMIT 1`],
       ["0157 (invoice void lifecycle: one live invoice per quotation)", `SELECT voided_at, voided_by, void_reason, replaces_doc_id FROM sales_documents INDEXED BY ux_inv_live_per_qt WHERE doc_type = 'INV' AND converted_from = 0 AND voided_at IS NULL LIMIT 1`],
       ["0158 (payroll population: exceptions, the release a bank run paid)", `SELECT x.kind, x.resolution, p.release_id, p.file_total_cents, p.manual_total_cents FROM payroll_exceptions x LEFT JOIN payroll_payments p ON 1 = 0 LIMIT 1`],
+      ["0159 (project workspace: one brief per quotation, append-only updates)", `SELECT p.quotation_id, p.owner_id, p.scope_snapshot, u.kind, u.client_key FROM projects p LEFT JOIN project_updates u ON 1 = 0 LIMIT 1`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5261,6 +5262,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0156_week_goals",
       "0157_invoice_void_once",
       "0158_payroll_population",
+      "0159_project_workspace",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5589,6 +5591,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!isPublic) {
       if (!user || user.role === "customer") {
         return errorResponse("forbidden", "Staff access required", 403);
+      }
+      /* v1.245.0 - a project file is opened through its project (team or
+         restricted level, decided per project), never by its key */
+      if (key.startsWith("private/projects/") || key.startsWith("private/tasks/")) { // v1.246.0 - task evidence too
+        return errorResponse("forbidden", "Open project files from the project", 403);
       }
       if (key.startsWith("backups/") && !allows(user, "backup_download")) {
         return errorResponse("forbidden", "Backups are super admin only — use the export button in /admin", 403);

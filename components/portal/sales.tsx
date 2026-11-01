@@ -48,6 +48,7 @@ import { RecurringDue, type RecurringRow } from "@/components/portal/recurring-d
 import bizCss from "@/components/portal/business.module.css"; // v1.181.16
 import sc from "@/components/portal/sales-docs.module.css"; // v1.186.0 - the documents table
 import { QuoteApprovalLimit, type QuoteApproval } from "@/components/portal/quote-approval"; // v1.181.17
+import { QuotationPage } from "@/components/portal/quotation-page"; // v1.245.0 - the quotation page (P-4)
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -1267,6 +1268,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      the details. the button remain at outside"): one document open at a time
      — opening another closes the first, so the list never grows tall. */
   const [openDoc, setOpenDoc] = useState<number | null>(null);
+  const [qtPage, setQtPage] = useState<number | null>(null); // v1.245.0 - the quotation page (P-4)
   const [busyDoc, setBusyDoc] = useState<number | null>(null); // v1.242.0 (B2) - one convert / void in flight per row
   /* v1.186.0 - the documents list's filters and page (see docRows) */
   const [docType, setDocType] = useState<"all" | "QT" | "INV" | "DO">("all");
@@ -1447,6 +1449,50 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   };
   /* v1.181.11 - Edit and Revise load a document into the form the same way;
      they differ in what saving it does (see saveDoc). */
+  /* v1.245.0 - the one Quotation -> Invoice press, shared by the row and the
+     quotation page (unchanged behaviour, moved out of the row) */
+  const convertQt = async (d: SalesDoc) => {
+    /* v1.242.0 (go-live audit B2) - one press at a time: the
+       button is busy until the answer, and the server itself
+       allows one live invoice per quotation */
+    if (busyDoc === d.id) return;
+    setBusyDoc(d.id);
+    let res: Awaited<ReturnType<typeof api<{
+      id?: number;
+      doc_number?: string;
+      stock?: Parameters<typeof stockToastLine>[0];
+      replaces_doc_id?: number | null;
+      invoice_number?: string;
+      error?: { code?: string; message?: string };
+    }>>>;
+    try {
+      res = await api(`/staff/docs/${d.id}/convert`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } finally {
+      setBusyDoc(null);
+    }
+    if (!res.ok || !res.data?.id) {
+      showToast(
+        res.data?.error?.code === "already_invoiced" ? L("Already invoiced", "Sudah diinvois") : L("No changes", "Tiada perubahan"),
+        res.data?.error?.message ??
+          L(
+            "Conversion failed — check access",
+            "Penukaran gagal — semak akses"
+          ),
+        "notice"
+      );
+      if (res.data?.error?.code === "already_invoiced") await load();
+      return;
+    }
+    showToast(
+      L("Saved", "Disimpan"),
+      `${d.doc_number} → ${res.data.doc_number}${res.data.replaces_doc_id ? L(" (replaces the voided invoice)", " (menggantikan invois yang dibatalkan)") : ""}${stockToastLine(res.data.stock)}`
+    );
+    await load();
+    void printDoc(res.data.id);
+  };
   const openInForm = async (d: SalesDoc, revise: boolean) => {
     const r = await fetch(`/api/v1/staff/docs/${d.id}`, {
       credentials: "include",
@@ -3057,7 +3103,17 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           />
           </div>
           </div>
-          <div className={workTab === "documents" ? "mt-3" : "hidden"}>
+          {workTab === "documents" && qtPage != null && (
+            <div className="mt-3">
+              <QuotationPage docId={qtPage} canInvoice={canInvoice} invoicing={busyDoc === qtPage}
+                onBack={() => setQtPage(null)}
+                onEdit={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, false); } }}
+                onRevise={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, true); } }}
+                onConvert={() => { const q = docs.find((x) => x.id === qtPage); return q ? convertQt(q) : undefined; }}
+                onPdf={() => void printDoc(qtPage)} />
+            </div>
+          )}
+          <div className={workTab === "documents" ? "mt-3" : "hidden"} hidden={qtPage != null}>
         {/* v1.186.0 - THE DOCUMENTS, AS A TABLE (the owner's reference,
             22-10-2026): a type pill row, a search, a status pick, and ten a
             page; one row per document - number, type, customer, date,
@@ -3296,48 +3352,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                         "One click Quotation → Invoice: same items, customer and sales person, fresh INV number",
                         "Satu klik Sebut harga → Invois: barang, pelanggan dan jurujual sama, nombor INV baharu"
                       )}
-                      onClick={async () => {
-                        /* v1.242.0 (go-live audit B2) - one press at a time: the
-                           button is busy until the answer, and the server itself
-                           allows one live invoice per quotation */
-                        if (busyDoc === d.id) return;
-                        setBusyDoc(d.id);
-                        let res: Awaited<ReturnType<typeof api<{
-                          id?: number;
-                          doc_number?: string;
-                          stock?: Parameters<typeof stockToastLine>[0];
-                          replaces_doc_id?: number | null;
-                          invoice_number?: string;
-                          error?: { code?: string; message?: string };
-                        }>>>;
-                        try {
-                          res = await api(`/staff/docs/${d.id}/convert`, {
-                            method: "POST",
-                            body: JSON.stringify({}),
-                          });
-                        } finally {
-                          setBusyDoc(null);
-                        }
-                        if (!res.ok || !res.data?.id) {
-                          showToast(
-                            res.data?.error?.code === "already_invoiced" ? L("Already invoiced", "Sudah diinvois") : L("No changes", "Tiada perubahan"),
-                            res.data?.error?.message ??
-                              L(
-                                "Conversion failed — check access",
-                                "Penukaran gagal — semak akses"
-                              ),
-                            "notice"
-                          );
-                          if (res.data?.error?.code === "already_invoiced") await load();
-                          return;
-                        }
-                        showToast(
-                          L("Saved", "Disimpan"),
-                          `${d.doc_number} → ${res.data.doc_number}${res.data.replaces_doc_id ? L(" (replaces the voided invoice)", " (menggantikan invois yang dibatalkan)") : ""}${stockToastLine(res.data.stock)}`
-                        );
-                        await load();
-                        void printDoc(res.data.id);
-                      }}
+                      onClick={() => void convertQt(d)}
                     >
                       → {busyDoc === d.id ? L("Invoicing…", "Menginvois…") : L("Invoice", "Invois")}
                     </button>
@@ -3409,6 +3424,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       Quotation") - Revise keeps the number, prints REV n and
                       keeps the version the customer was sent. Only an open
                       quotation: an invoiced one has become the invoice. */}
+                  {/* v1.245.0 - the quotation page: its tabs and its Project Task */}
+                  {d.doc_type === "QT" && (
+                    <button type="button" className={rowBtn} data-testid="open-quotation"
+                      title={L("Open the quotation page - overview, client, items, financial, Project Task, files and activity", "Buka halaman sebut harga - gambaran, pelanggan, item, kewangan, Tugasan Projek, fail dan aktiviti")}
+                      onClick={() => { setQtPage(d.id); jump("sales-work"); }}>
+                      {L("Open", "Buka")}
+                    </button>
+                  )}
                   {d.doc_type === "QT" && !d.invoiced_as && (
                     <button
                       type="button"

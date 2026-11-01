@@ -16,7 +16,7 @@
 import http from "node:http";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, extname } from "node:path";
-import { fixture } from "./fixture.mjs";
+import { fixture, projectFixture } from "./fixture.mjs";
 
 const [dir, portS] = process.argv.slice(2);
 const port = Number(portS ?? 4177);
@@ -61,6 +61,10 @@ let mediaBk = null;
 let punchStatus = 200;
 const punchLog = [];
 let manualPaid = null;
+/* v1.245.0 - PROJECT=none: QT 1 has no brief until Create project brief is pressed; posted updates are kept (/__projects) */
+let projectMade = false;
+const projectPosts = [];
+const taskPosts = []; // v1.246.0
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -70,8 +74,10 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
+  if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
+  if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
-    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear();
+    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0;
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (url.pathname === "/__mediabk") {
@@ -93,6 +99,12 @@ const server = http.createServer((req, res) => {
     /* v1.181.4 - a stored photo is an IMAGE, not JSON: answer every media
        file with the app icon, so an avatar drawn from a photo_key renders in
        the probes instead of silently falling back to the initial. */
+    /* v1.246.0 - a private task or project file streams like a media file */
+    if (req.method === "GET" && /^\/staff\/(tasks|projects)\/\d+\/files\/\d+$/.test(p)) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(readFileSync(join(dir, "icon-192.png")));
+      return;
+    }
     if (req.method === "GET" && p.startsWith("/media/file/")) {
       res.writeHead(200, { "content-type": "image/png" });
       res.end(readFileSync(join(dir, "icon-192.png")));
@@ -207,6 +219,20 @@ const server = http.createServer((req, res) => {
           res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "Invoices are voided with a reason, never deleted (Void invoice)." } })); return;
         }
       }
+      if (req.method === "POST" && p === "/staff/projects") {
+        projectMade = true; projectPosts.push({ p, body, key: req.headers["idempotency-key"] ?? null });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: projectFixture.id, existing: false })); return;
+      }
+      /* v1.246.0 - a task's update, comment, review, helper or file: answered
+         as the worker would (201), recorded for the probe at /__tasks */
+      if ((req.method === "POST" || req.method === "DELETE") && /^\/staff\/tasks\/\d+\/(updates|comments|review|files|assistants)(\/\d+)?$/.test(p)) {
+        taskPosts.push({ method: req.method, p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, update: req.headers["x-update-id"] ?? null, comment: req.headers["x-comment-id"] ?? null });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 950 + taskPosts.length })); return;
+      }
+      if (req.method === "POST" && /^\/staff\/projects\/\d+\/(updates|files|owner|status)$/.test(p)) {
+        projectPosts.push({ p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, csrf: req.headers["x-csrf-token"] ?? null });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 900 + projectPosts.length })); return;
+      }
       if (req.method === "POST" && p === "/enquiries/introduce") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 501 })); return; }
       if (req.method === "POST" && p === "/staff/support/report") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, task_id: 77, assigned_to: "Fixture Person" })); return; }
       if (req.method === "POST" && /^\/users\/\d+\/offboard$/.test(p)) {
@@ -220,7 +246,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(good ? 200 : 400, { "content-type": "application/json" });
         res.end(JSON.stringify(good ? { ok: true, email: "aisyah@a2zcreative.test" } : { error: { code: "link_invalid", message: "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one." } })); return;
       }
-      const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path) }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
+      const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path), made: projectMade }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
       if (req.method === "GET" && p === "/staff/docs" && Array.isArray(data?.docs) && (voided.size || converted.size)) {
         data.docs = data.docs.map((d) => voided.has(String(d.id)) ? { ...d, payment_status: "void", voided_at: "2026-10-31 05:00:00", void_reason: voided.get(String(d.id)) }
           : converted.has(String(d.id)) ? { ...d, invoiced_as: "INV-AZOO311026-9", invoiced_as_id: 9100 } : d);

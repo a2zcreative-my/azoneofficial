@@ -48,13 +48,16 @@ const staff = read("worker/src/staff.ts");
 {
   const calls = [...code.matchAll(/api(?:<[^>]*>)?\(\s*`([^`]+)`/g)].map((m) => m[1]);
   const allowed = [/^\/staff\/tasks$/, /^\/staff\/tasks\/\$\{id\}\/items$/, /^\/staff\/tasks\/\$\{taskId\}\/items\/\$\{itemId\}\/toggle$/, /^\/staff\/tasks\/\$\{taskId\}\/items$/,
-    /^\/staff\/tasks\/\$\{id\}\/ack$/, /^\/staff\/tasks\/\$\{id\}$/, /^\/staff\/tasks\/\$\{t\.id\}$/, /^\/staff\/tasks\/\$\{focusedTask\}\/items$/];
+    /^\/staff\/tasks\/\$\{id\}\/ack$/, /^\/staff\/tasks\/\$\{id\}$/, /^\/staff\/tasks\/\$\{t\.id\}$/, /^\/staff\/tasks\/\$\{focusedTask\}\/items$/,
+    /* v1.246.0 (audit A9) - the archive pages the closed tasks past the board's newest 300 */
+    /^\/staff\/tasks\?archive=1\$\{canManage \? "&all=1" : ""\}\$\{qs\}$/];
   const odd = calls.filter((c) => !allowed.some((re) => re.test(c)));
   ok("the Tasks page calls only the task routes that exist", calls.length >= 7 && odd.length === 0, odd.join(", "));
   ok("…and reads the board through the one cached read the Dashboard shares", /useCachedApi<\{ tasks: Task\[\] \}>\(`\/staff\/tasks\$\{canManage \? "\?all=1" : ""\}`, true, \["tasks"\]\)/.test(code));
   const walk = (d) => readdirSync(join(root, d), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : /\.tsx?$/.test(e.name) ? [join(d, e.name)] : []);
   const commenters = [...walk("components"), ...walk("app"), ...walk("lib")].filter((f) => /tasks\/\$\{[^}]+\}\/comments/.test(read(f)));
-  ok("no screen reads or posts task comments (the owner: not now)", commenters.length === 0, commenters.join(", "));
+  /* v1.246.0 - the owner's brief of 01-11-2026 (part 8) asked for the comments: ONE component reads and posts them */
+  ok("one screen reads and posts task comments - the task's Updates & Comments (task-progress.tsx)", commenters.length === 1 && /task-progress\.tsx$/.test(commenters[0] ?? ""), commenters.join(", "));
   const routes = staff.split("path.match(/^\\/tasks").slice(1).map((x) => x.slice(0, x.indexOf("$/"))).sort();
   const want = ["\\/(\\d+)", "\\/(\\d+)\\/ack", "\\/(\\d+)\\/comments", "\\/(\\d+)\\/items", "\\/(\\d+)\\/items\\/(\\d+)\\/toggle"].sort();
   ok("the worker's task routes are the ones there were (no events or archive read)", JSON.stringify(routes) === JSON.stringify(want), JSON.stringify(routes));
@@ -65,8 +68,8 @@ const staff = read("worker/src/staff.ts");
   const drawer = code.slice(code.indexOf("const saveEdit = async"), code.indexOf("return (", code.indexOf("const saveEdit = async")));
   ok("Save sends the changed fields through update()", /if \(await update\(t\.id, patch\)\) setEditing\(null\);/.test(drawer) && !/api\(|csrfFetch|method:/.test(drawer));
   ok("reassignment is offered to managers only", /if \(canManage && editing\.assigned_to && editing\.assigned_to !== t\.assigned_to\) patch\.assigned_to = editing\.assigned_to;/.test(drawer) && /\{canManage && \(\s*<Sub t=\{L\("Assigned to"/.test(code));
-  ok("Edit is shown to the assignee or a manager (the route's own rule)", /const canEdit = mine \|\| canManage;/.test(code) && /if \(row\.assigned_to !== user\.id && !can\(user\.role, "team_manage"\)\) \{\s*return err\("forbidden", "Not your task", 403\);/.test(staff));
-  ok("…and the worker still refuses a reassignment to anyone else", /if \(!can\(user\.role, "team_manage"\)\) \{\s*return err\("forbidden", "Only management can reassign a task", 403\);/.test(staff));
+  ok("Edit is shown to the assignee or a manager (the route's own rule)", /const canEdit = mine \|\| canManage;/.test(code) && /const manages = projOfTask \? !projGate : can\(user\.role, "team_manage"\);/.test(staff) && /if \(row\.assigned_to !== user\.id && !manages\) \{\s*return projGate \?\? err\("forbidden", "Not your task", 403\);/.test(staff)); // v1.246.0 (T-4) - a project task: its Owner and project_manage only
+  ok("…and the worker still refuses a reassignment to anyone else", /if \(!manages\) \{\s*return err\("forbidden", "Only management \(or the Project Owner, on a project task\) can reassign a task", 403\);/.test(staff)); // v1.246.0 (T-4)
   ok("update() is the one PATCH on the page", (code.match(/method: "PATCH"/g) ?? []).length === 1);
 }
 
@@ -102,8 +105,10 @@ const staff = read("worker/src/staff.ts");
 
 /* ---- 7. the archive says how far back it goes ---- */
 {
-  ok("the board read is the newest 200 (all) / 100 (own)", /FROM tasks t JOIN users u ON u\.id = t\.assigned_to ORDER BY t\.created_at DESC LIMIT 200/.test(staff) && /SELECT \* FROM tasks WHERE assigned_to = \?1 ORDER BY created_at DESC LIMIT 100/.test(staff));
-  ok("…and the archive says so", /Searched among the newest \$\{canManage \? 200 : 100\} tasks on the board\./.test(src));
+  /* v1.246.0 (audit A9) - every OPEN task, never cut; the closed ones newest
+     300 at a time, the archive pages further on a press (go-live-t proves it) */
+  ok("the board read is every open task and the newest 300 closed", /AND t\.status != 'completed' ORDER BY t\.created_at DESC`\)/.test(staff) && /AND t\.status = 'completed' ORDER BY t\.id DESC LIMIT 300`\)/.test(staff));
+  ok("…and the archive says so, and loads older ones", /Every open task is on the board; the newest \$\{closed\.length \+ older\.length\} closed ones are searched here\./.test(src) && /Load older closed tasks/.test(src));
 }
 
 /* ---- 8. a link opens the drawer ---- */

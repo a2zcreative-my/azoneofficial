@@ -24,6 +24,7 @@ import type { StaffUser } from "./staff";
 import { PERMS, can } from "./permissions";
 import { buildOrg, reportingLine, type OrgNode, type OrgPerson } from "../../lib/org-tree";
 import { audit, err, json, str } from "./shared";
+import { projectTaskGate } from "./projects";
 
 /* v1.239.0 - who sets targets is the matrix capability sales_week_target
    (default super admin, CEO, COO); this name stays for the readers of 1.223 */
@@ -316,14 +317,23 @@ async function finalise(env: Env, from: string, rows: Awaited<ReturnType<typeof 
     assignment returns the open one instead of making a duplicate (the
     insert in staff.ts also refuses one with NOT EXISTS). Returns null for
     an ordinary task, the link, or the Response to send. */
-export async function taskLink(env: Env, body: Record<string, unknown>, assignedTo: number): Promise<{ kind: string; id: number } | Response | null> {
-  const LINK_KINDS = ["customer", "enquiry", "quotation"];
+export async function taskLink(env: Env, body: Record<string, unknown>, assignedTo: number, user?: StaffUser): Promise<{ kind: string; id: number } | Response | null> {
+  const LINK_KINDS = ["customer", "enquiry", "quotation", "project"];
   const kind = typeof body.link_kind === "string" && LINK_KINDS.includes(body.link_kind) ? body.link_kind : null;
   const id = kind && typeof body.link_id === "number" && Number.isInteger(body.link_id) && body.link_id > 0 ? body.link_id : null;
   if (body.link_kind !== undefined && body.link_kind !== null && (!kind || !id)) {
-    return err("invalid_input", "A linked task needs a customer, enquiry or quotation and its id", 400);
+    return err("invalid_input", "A linked task needs a customer, enquiry, quotation or project and its id", 400);
   }
   if (!kind || !id) return null;
+  /* v1.245.0 (Project Workspace) - a PROJECT task is created by the project's
+     owner or the CEO, COO or CCO while the project is open (projects.ts
+     decides), and one person may hold several tasks on one project - the
+     "one open task per record" rule below is for sales follow-ups. */
+  if (kind === "project") {
+    if (!user) return err("forbidden", "A project task needs a signed-in manager", 403);
+    const gate = await projectTaskGate(env, user, id);
+    return gate ?? { kind, id };
+  }
   const exists = await env.DB.prepare(
     kind === "customer" ? `SELECT id FROM customers WHERE id = ?1`
       : kind === "enquiry" ? `SELECT id FROM enquiries WHERE id = ?1`

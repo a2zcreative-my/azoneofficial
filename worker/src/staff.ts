@@ -14,6 +14,8 @@ import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
+import { handleProjects, projectTaskGate, taskProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
@@ -2702,7 +2704,7 @@ async function handleStaffRoutes(
   /* v1.155.0: the Sales Performance evidence screenshot is a raw image body. */
   const isSpEvidence = path === "/sales-performance/evidence";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path)
+    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -2775,6 +2777,14 @@ async function handleStaffRoutes(
   /* ---- v1.231.0 Sales packages (packages.ts): the library of service
      packages a quotation can be filled from. Read: sales; write: CEO, COO,
      CCO, super admin (packages_manage). ---- */
+  /* ---- v1.245.0 Project Workspace (projects.ts): one brief per
+     quotation, append-only progress, private files. View: every staff role;
+     editing: the Project Owner and CEO / COO / CCO, decided per project. ---- */
+  if (path === "/projects" || path.startsWith("/projects/")) {
+    const pj = await handleProjects(env, path, method, body, user, new URL(request.url).searchParams, request);
+    if (pj) return pj;
+  }
+
   if (path === "/packages" || path.startsWith("/packages/")) {
     const pk = await handlePackages(env, path, method, body, user, new URL(request.url).searchParams);
     if (pk) return pk;
@@ -8075,14 +8085,43 @@ async function handleStaffRoutes(
 
   /* ---- tasks ---- */
 
+  /* v1.246.0 - a task's own record: GET /tasks/:id, its progress updates,
+     review, helpers, private files and activity (tasks-progress.ts decides
+     who may do what). PATCH and DELETE /tasks/:id stay below. */
+  if (/^\/tasks\/\d+(\/updates|\/review|\/assistants(\/\d+)?|\/files(\/\d+)?|\/activity)?$/.test(path)) {
+    const tp = await handleTaskProgress(env, path, method, body, user, request);
+    if (tp) return tp;
+  }
   if (path === "/tasks" && method === "GET") {
     const url = new URL(request.url);
     const all = url.searchParams.get("all") === "1" && can(user.role, "team_manage");
-    const { results } = await env.DB.prepare(
-      all
-        ? `SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to ORDER BY t.created_at DESC LIMIT 200`
-        : `SELECT * FROM tasks WHERE assigned_to = ?1 ORDER BY created_at DESC LIMIT 100`,
-    ).bind(...(all ? [] : [user.id])).all();
+    /* v1.246.0 (go-live audit A9, A10) - every OPEN task, never cut at 200;
+       the closed ones newest first, 300 at a time (Reports & Archive pages
+       with ?archive=1&before=<id>). Staff see what they do, what they help
+       on and what they set for somebody else. */
+    const archive = url.searchParams.get("archive") === "1";
+    const beforeN = Number(url.searchParams.get("before") ?? 0);
+    const before = Number.isInteger(beforeN) && beforeN > 0 ? beforeN : 0;
+    const scope = all ? "1 = 1"
+      : `(t.assigned_to = ?1 OR t.created_by = ?1 OR EXISTS (SELECT 1 FROM task_assistants x WHERE x.task_id = t.id AND x.user_id = ?1 AND x.removed_at IS NULL))`;
+    const pick = (sql: string) => env.DB.prepare(sql).bind(...(all ? [] : [user.id])).all();
+    let results: Record<string, unknown>[];
+    try {
+      results = archive
+        ? (await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed'${before ? ` AND t.id < ${before}` : ""} ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[]
+        : [
+          ...(await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status != 'completed' ORDER BY t.created_at DESC`)).results as Record<string, unknown>[],
+          ...(await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed' ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[],
+        ];
+    } catch (e) {
+      if (!/no such table|no such column/i.test(String(e))) throw e;
+      /* pre-0159: the list as it was */
+      results = (await env.DB.prepare(
+        all
+          ? `SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to ORDER BY t.created_at DESC LIMIT 200`
+          : `SELECT * FROM tasks WHERE assigned_to = ?1 ORDER BY created_at DESC LIMIT 100`,
+      ).bind(...(all ? [] : [user.id])).all()).results as Record<string, unknown>[];
+    }
     /* v1.42.0: each task carries its scope tally (done/total items) and
        whether the assignee has ACKNOWLEDGED it — the two facts the list
        needs to be a monitoring surface instead of a list of titles.
@@ -8103,7 +8142,29 @@ async function handleStaffRoutes(
         t.acknowledged = acked.has(t.id as number) ? 1 : 0;
       }
     } catch { /* pre-0083 */ }
-    return json({ tasks: results });
+    /* v1.246.0 - the latest PROGRESS update (never a comment), the helpers
+       and what the task is about, for the list's Latest update column and
+       its filters. Read, never copied onto the task. */
+    try {
+      const ids = results.map((t) => Number(t.id));
+      const latest = await latestUpdates(env, ids);
+      const helpers = (await env.DB.prepare(
+        `SELECT a.task_id, a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name FROM task_assistants a JOIN users u ON u.id = a.user_id WHERE a.removed_at IS NULL`,
+      ).all<{ task_id: number; user_id: number; name: string }>()).results;
+      const projects = new Map((await env.DB.prepare(
+        `SELECT p.id, p.title, c.company FROM projects p LEFT JOIN customers c ON c.id = p.customer_id`,
+      ).all<{ id: number; title: string; company: string | null }>()).results.map((p) => [p.id, p]));
+      const custIds = [...new Set(results.filter((t) => t.link_kind === "customer").map((t) => Number(t.link_id)))];
+      const custs = new Map(custIds.length ? (await env.DB.prepare(`SELECT id, company FROM customers WHERE id IN (${custIds.map((_, i) => `?${i + 1}`).join(",")})`).bind(...custIds).all<{ id: number; company: string }>()).results.map((c) => [c.id, c.company]) : []);
+      for (const t of results) {
+        t.latest_update = latest.get(Number(t.id)) ?? null;
+        t.assistants = helpers.filter((h) => h.task_id === Number(t.id)).map((h) => ({ id: h.user_id, name: h.name }));
+        const pj = t.link_kind === "project" ? projects.get(Number(t.link_id)) : undefined;
+        t.link_label = pj ? `${pj.title}${pj.company ? ` · ${pj.company}` : ""}` : t.link_kind === "customer" ? custs.get(Number(t.link_id)) ?? null : null;
+      }
+    } catch (e) { if (!/no such table|no such column/i.test(String(e))) throw e; }
+    const lastClosed = archive ? results[results.length - 1] : null;
+    return json({ tasks: results, ...(archive ? { next_before: results.length === 300 && lastClosed ? lastClosed.id : null } : {}) });
   }
   if (path === "/tasks" && method === "POST") {
     // Staff create their own tasks (they know their work). Managers may also
@@ -8112,7 +8173,7 @@ async function handleStaffRoutes(
       return err("invalid_input", "title is required", 400);
     }
     const assignedTo = typeof body.assigned_to === "number" ? body.assigned_to : user.id;
-    if (assignedTo !== user.id && !can(user.role, "team_manage")) {
+    if (assignedTo !== user.id && !can(user.role, "team_manage") && body.link_kind !== "project") { // a project task: taskLink asks projects.ts
       return err("forbidden", "You can only create tasks for yourself", 403);
     }
     /* v1.243.0 (F2 / D9) - current staff only: no customer, no leaver */
@@ -8120,18 +8181,17 @@ async function handleStaffRoutes(
       const okA = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(assignedTo).first().catch(() => ({ x: 1 }));
       if (!okA) return err("invalid_input", "Tasks go to a current staff member - that person is not on staff (or has left).", 400);
     }
-    /* v1.223.0 - a sales task names its customer, enquiry or quotation;
-       one open task per person and record (weekly-sales.ts taskLink) */
-    const tl = await taskLink(env, body, assignedTo);
+    /* v1.223.0 - a sales task names its customer, enquiry, quotation
+       or project (weekly-sales.ts taskLink) */
+    const tl = await taskLink(env, body, assignedTo, user);
     if (tl instanceof Response) return tl;
     const linkKind = tl?.kind ?? null, linkId = tl?.id ?? null;
     /* v1.66.0 Track R — assigned FROM the roster, with a slot.
        v1.67.0 — a run of days, from the form's repeat rule. One day still
        works exactly as before: `block_date` on its own is a run of one.
-       v1.131.0 moved this parse ABOVE the task insert. It has to be read
-       before anything is written, because door 5 refuses a run that lands on
-       approved leave — and a refusal after the INSERT would leave the task
-       behind with no days on it, which reads as "it worked, silently". */
+       v1.131.0 moved this parse ABOVE the task insert: door 5 refuses a
+       run on approved leave, and a refusal after the INSERT would leave a
+       task with no days on it, which reads as "it worked, silently". */
     const blk = body.block as { block_date?: unknown; dates?: unknown;
                                 start_time?: unknown; end_time?: unknown } | undefined;
     const rawB: unknown[] = Array.isArray(blk?.dates)
@@ -8153,7 +8213,7 @@ async function handleStaffRoutes(
       ? await env.DB.prepare(
         `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline, link_kind, link_id)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
-          WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE link_kind = ?7 AND link_id = ?8 AND assigned_to = ?3 AND status != 'completed')
+          WHERE ?7 = 'project' OR NOT EXISTS (SELECT 1 FROM tasks WHERE link_kind = ?7 AND link_id = ?8 AND assigned_to = ?3 AND status != 'completed')
          RETURNING id`,
       ).bind(
         body.title, str(body.description, 5000) ? body.description : null,
@@ -8461,50 +8521,84 @@ async function handleStaffRoutes(
   const taskMatch = path.match(/^\/tasks\/(\d+)$/);
   if (taskMatch && method === "PATCH") {
     const id = taskMatch[1]!;
-    const row = await env.DB.prepare(`SELECT title, assigned_to, created_by FROM tasks WHERE id = ?1`)
-      .bind(id).first<{ title: string; assigned_to: number; created_by: number | null }>();
+    const row = await env.DB.prepare(`SELECT title, assigned_to, created_by, description, priority, deadline, status, progress FROM tasks WHERE id = ?1`)
+      .bind(id).first<{ title: string; assigned_to: number; created_by: number | null; description: string | null; priority: string; deadline: string | null; status: string; progress: number }>();
     if (!row) return err("not_found", "Task not found", 404);
-    if (row.assigned_to !== user.id && !can(user.role, "team_manage")) {
-      return err("forbidden", "Not your task", 403);
+    /* v1.245.0 - a PROJECT task is also managed by that project's owner
+       (and project_manage), while the project is open - projects.ts decides.
+       v1.246.0 (T-4) - and ONLY by them: team_manage alone (HR admin, the
+       Admin account) manages standalone tasks, not project work. */
+    const projOfTask = await taskProject(env, id);
+    const projGate = projOfTask && row.assigned_to !== user.id ? await projectTaskGate(env, user, projOfTask) : null;
+    const manages = projOfTask ? !projGate : can(user.role, "team_manage");
+    if (row.assigned_to !== user.id && !manages) {
+      return projGate ?? err("forbidden", "Not your task", 403);
+    }
+    if (projOfTask && row.assigned_to === user.id) {
+      const closed = await projectTaskGate(env, user, projOfTask);
+      if (closed && closed.status === 409) return closed;
     }
     const sets: string[] = [];
     const vals: (string | number | null)[] = [];
-    if (typeof body?.progress === "number" && body.progress >= 0 && body.progress <= 100) {
-      sets.push(`progress = ?${sets.length + 1}`); vals.push(body.progress);
+    const changed: Record<string, [unknown, unknown]> = {};
+    /* v1.246.0 (go-live audit A1) - progress has ONE writer at a time. With a
+       checklist it is done/total, set by the ticks; without one it moves only
+       inside a progress update (POST /tasks/:id/updates), which records who,
+       when and why. A PATCH that repeats the current value (older screens
+       send it with every status change) is ignored. */
+    if (typeof body?.progress === "number" && Math.round(body.progress) !== Number(row.progress) && !(body.status === "completed")) {
+      return err("progress_via_update", "Progress moves with the checklist or with a progress update - not here", 409);
     }
-    if (typeof body?.status === "string" && ["open", "in_progress", "completed"].includes(body.status)) {
+    if (typeof body?.status === "string" && ["open", "in_progress", "completed"].includes(body.status) && body.status !== row.status) {
+      /* v1.246.0 (T-2) - a task somebody else set is COMPLETED by its
+         reviewer (POST /tasks/:id/review); the person doing it submits it
+         for review. A self-set task closes here, as it always did. */
+      const selfSet = row.created_by === null || row.created_by === row.assigned_to;
+      if (body.status === "completed" && !selfSet) {
+        return err("review_required", row.assigned_to === user.id
+          ? "Submit it for review - the person who set it (or the Project Owner or management) approves it as completed"
+          : "Approve it from the task's review - the decision is recorded", 409);
+      }
       sets.push(`status = ?${sets.length + 1}`); vals.push(body.status);
+      sets.push(`stage = NULL`);
+      if (body.status === "completed") {
+        const cl = await env.DB.prepare(`SELECT COUNT(*) AS n FROM task_items WHERE task_id = ?1`).bind(id).first<{ n: number }>().catch(() => null);
+        if (!Number(cl?.n ?? 0)) { sets.push(`progress = ?${sets.length + 1}`); vals.push(100); }
+      }
+      changed.status = [row.status, body.status];
     }
     /* v1.69.0 (CEO: "I want to have an option for me to update the Task") —
        until now this route could move a task's status and nothing else, so
        fixing a wrong deadline or a typo in a title meant deleting the task
        and building it again, losing its scope, its comments and its history.
-       That is not editing, that is retyping. */
-    if (str(body?.title, 200)) {
-      sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim());
+       That is not editing, that is retyping.
+       v1.246.0 (T-3, the owner kept it) - the assignee still edits these;
+       every change is recorded old -> new and the assigner is told. */
+    if (str(body?.title, 200) && String(body!.title).trim() !== row.title) {
+      sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim()); changed.title = [row.title, String(body!.title).trim()];
     }
     if (typeof body?.description === "string") {
-      sets.push(`description = ?${sets.length + 1}`);
-      vals.push(body.description.trim() === "" ? null : body.description.slice(0, 5000));
+      const d = body.description.trim() === "" ? null : body.description.slice(0, 5000);
+      if (d !== row.description) { sets.push(`description = ?${sets.length + 1}`); vals.push(d); changed.description = [null, null]; }
     }
-    if (typeof body?.priority === "string" && ["low", "normal", "high", "urgent"].includes(body.priority)) {
-      sets.push(`priority = ?${sets.length + 1}`); vals.push(body.priority);
+    if (typeof body?.priority === "string" && ["low", "normal", "high", "urgent"].includes(body.priority) && body.priority !== row.priority) {
+      sets.push(`priority = ?${sets.length + 1}`); vals.push(body.priority); changed.priority = [row.priority, body.priority];
     }
     /* An empty string clears the deadline. A task with no due date is a
        normal thing; a task stuck with the WRONG due date is what generates
        false overdue alerts every morning until somebody mutes the bell. */
     if (typeof body?.deadline === "string") {
-      if (body.deadline === "") { sets.push(`deadline = ?${sets.length + 1}`); vals.push(null); }
+      if (body.deadline === "") { if (row.deadline !== null) { sets.push(`deadline = ?${sets.length + 1}`); vals.push(null); changed.deadline = [row.deadline, null]; } }
       else if (validDay(body.deadline)) { // v1.244.0 (go-live audit F9) - 31-02 is not a day
-        sets.push(`deadline = ?${sets.length + 1}`); vals.push(body.deadline);
+        if (body.deadline !== row.deadline) { sets.push(`deadline = ?${sets.length + 1}`); vals.push(body.deadline); changed.deadline = [row.deadline, body.deadline]; }
       } else return err("invalid_input", "The due date must be a real date", 400);
     }
     /* Reassignment is a management act — it puts work on another person's
        plate, the same rule the roster applies to moving a block. */
     let reassignedTo: number | null = null;
     if (Number(body?.assigned_to) && Number(body!.assigned_to) !== row.assigned_to) {
-      if (!can(user.role, "team_manage")) {
-        return err("forbidden", "Only management can reassign a task", 403);
+      if (!manages) {
+        return err("forbidden", "Only management (or the Project Owner, on a project task) can reassign a task", 403);
       }
       /* v1.244.0 (go-live audit F2) - the same rule as a new task: a current
          staff member, never somebody who has left (their is_active stays 1
@@ -8517,25 +8611,37 @@ async function handleStaffRoutes(
       reassignedTo = Number(body!.assigned_to);
       sets.push(`assigned_to = ?${sets.length + 1}`); vals.push(reassignedTo);
     }
-    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-    await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reassignedTo !== null && projOfTask && reason.length < 5) return err("invalid_input", "Say why the task moves to somebody else (at least 5 characters)", 400);
+    if (sets.length === 0) {
+      if (typeof body?.status === "string" || body?.title !== undefined || body?.priority !== undefined || body?.deadline !== undefined || body?.description !== undefined) return json({ ok: true, unchanged: true });
+      return err("invalid_input", "Nothing to update", 400);
+    }
+    await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
       .bind(...vals, id).run();
     /* v1.42.0: every status move leaves a trail row, and the OTHER party is
        told — the assigner monitors without asking, the assignee is never
        surprised by a manager's change. Armored (pre-0083 keeps old shape). */
-    if (typeof body?.status === "string") {
+    if (changed.status) {
+      const st = String(changed.status[1]);
       const todayS = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       try {
         await env.DB.prepare(
           `INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, ?2, ?3, ?4)`,
-        ).bind(id, `status:${body.status}`, user.id, todayS).run();
+        ).bind(id, `status:${st}`, user.id, todayS).run();
       } catch { /* pre-0083 */ }
-      const statusLbl = body.status === "completed" ? "Closed" : body.status === "in_progress" ? "Pending" : "Open";
+      const statusLbl = st === "completed" ? "Closed" : st === "in_progress" ? "In progress" : "Open";
       if (user.id === row.assigned_to && row.created_by && row.created_by !== user.id) {
-        await notify(env, row.created_by, "task", `📋 ${row.title} → ${statusLbl} (by the assignee)`, `task:${id}:st:${body.status}`);
+        await notify(env, row.created_by, "task", `📋 ${row.title} → ${statusLbl} (by the assignee)`, `task:${id}:st:${st}`);
       } else if (user.id !== row.assigned_to) {
-        await notify(env, row.assigned_to, "task", `📋 Your task was set to ${statusLbl}: ${row.title}`, `task:${id}:st:${body.status}`);
+        await notify(env, row.assigned_to, "task", `📋 Your task was set to ${statusLbl}: ${row.title}`, `task:${id}:st:${st}`);
       }
+    }
+    /* v1.246.0 (T-3) - the assignee moved their own due date or priority on a
+       task somebody else set: that person hears it, with old and new */
+    if (user.id === row.assigned_to && row.created_by && row.created_by !== user.id && (changed.deadline || changed.priority)) {
+      const what = [changed.deadline ? `due ${changed.deadline[0] ?? "none"} → ${changed.deadline[1] ?? "none"}` : "", changed.priority ? `priority ${changed.priority[0]} → ${changed.priority[1]}` : ""].filter(Boolean).join(", ");
+      await notify(env, row.created_by, "task", `✏ ${user.name} changed ${row.title}: ${what}`, `task:${id}:edit:${Date.now()}`);
     }
     /* Whoever now owns it hears that it moved, and the blocks that were
        already on the roster move with it — leaving them on the old person's
@@ -8553,7 +8659,10 @@ async function handleStaffRoutes(
           `📋 No longer yours: ${row.title} — it has been reassigned.`, `task:${id}:unassign`);
       }
     }
-    await audit(env, user.id, "task.update", "tasks", String(id));
+    await audit(env, user.id, "task.update", "tasks", String(id), {
+      ...(reassignedTo ? { reassigned_to: reassignedTo, from: row.assigned_to, ...(reason ? { reason } : {}) } : {}),
+      ...(Object.keys(changed).length ? { changed } : {}),
+    });
     return json({ ok: true });
   }
 
@@ -8582,6 +8691,14 @@ async function handleStaffRoutes(
       `SELECT title, assigned_to, created_by FROM tasks WHERE id = ?1`,
     ).bind(id).first<{ title: string; assigned_to: number; created_by: number | null }>();
     if (!row) return err("not_found", "Task not found", 404);
+    /* v1.245.0 - a project task keeps its history: it is reassigned or
+       completed, never deleted (its progress updates name it) */
+    if (await taskProject(env, id)) return err("project_task", "This task belongs to a project and keeps its history - reassign it or mark it completed", 409);
+    /* v1.246.0 - progress reports and evidence are append-only: a task that
+       has them keeps them, and is cancelled (with a reason) instead */
+    const kept = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM task_updates WHERE task_id = ?1) + (SELECT COUNT(*) FROM task_files WHERE task_id = ?1) AS n`)
+      .bind(id).first<{ n: number }>().catch(() => null);
+    if (Number(kept?.n ?? 0) > 0) return err("task_has_history", "This task has progress reports or files, which are kept - cancel it with a reason instead", 409);
     for (const childSql of [
       `DELETE FROM task_items WHERE task_id = ?1`,
       `DELETE FROM task_events WHERE task_id = ?1`,
@@ -8615,10 +8732,11 @@ async function handleStaffRoutes(
      report, tasks.progress becomes derived (done/total). */
   const taskItems = path.match(/^\/tasks\/(\d+)\/items$/);
   if (taskItems && method === "GET") {
-    const t = await env.DB.prepare(`SELECT assigned_to, created_by FROM tasks WHERE id = ?1`)
-      .bind(taskItems[1]).first<{ assigned_to: number; created_by: number | null }>();
+    const t = await loadTask(env, taskItems[1]!);
     if (!t) return err("not_found", "Task not found", 404);
-    if (t.assigned_to !== user.id && t.created_by !== user.id && !can(user.role, "team_manage")) {
+    /* v1.246.0 - the people on the task, its helpers, and (project tasks)
+       the staff who may see the project read the checklist */
+    if (!(await taskAccess(env, user, t)).view) {
       return err("forbidden", "Not your task", 403);
     }
     try {
@@ -8632,12 +8750,15 @@ async function handleStaffRoutes(
   }
   const taskItemToggle = path.match(/^\/tasks\/(\d+)\/items\/(\d+)\/toggle$/);
   if (taskItemToggle && method === "POST") {
-    const t = await env.DB.prepare(`SELECT title, assigned_to, created_by, status FROM tasks WHERE id = ?1`)
-      .bind(taskItemToggle[1]).first<{ title: string; assigned_to: number; created_by: number | null; status: string }>();
+    const t = await loadTask(env, taskItemToggle[1]!);
     if (!t) return err("not_found", "Task not found", 404);
-    if (t.assigned_to !== user.id && !can(user.role, "team_manage")) {
+    /* v1.246.0 (T-5, T-4) - the assignee, a helper, or those who manage the
+       task (a project task: its Owner and the CEO, COO, CCO) tick the scope */
+    const ta = await taskAccess(env, user, t);
+    if (!ta.assignee && !ta.assistant && !ta.manage) {
       return err("forbidden", "Only the assignee (or a manager) ticks the scope", 403);
     }
+    if (!ta.open) return err("task_closed", "This task is closed - its checklist no longer changes", 409);
     try {
       const it = await env.DB.prepare(`SELECT id, done FROM task_items WHERE id = ?1 AND task_id = ?2`)
         .bind(taskItemToggle[2], taskItemToggle[1]).first<{ id: number; done: number }>();
@@ -8651,6 +8772,14 @@ async function handleStaffRoutes(
       ).bind(taskItemToggle[1]).first<{ n: number; d: number }>();
       const progress = agg && agg.n > 0 ? Math.round((agg.d / agg.n) * 100) : 0;
       await env.DB.prepare(`UPDATE tasks SET progress = ?1 WHERE id = ?2`).bind(progress, taskItemToggle[1]).run();
+      /* v1.246.0 (go-live audit A7) - every tick and untick leaves a row, so
+         unticking no longer erases who ticked it and when; and the progress
+         is now the checklist's, said so on the task */
+      try {
+        await env.DB.prepare(`UPDATE tasks SET progress_source = 'checklist' WHERE id = ?1`).bind(taskItemToggle[1]).run();
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, ?2, ?3, ?4)`)
+          .bind(taskItemToggle[1], `${nowDone ? "item_done" : "item_undone"}:${it.id}`, user.id, new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)).run();
+      } catch { /* pre-0159 */ }
       /* The moment the whole scope is ticked, the assigner hears it — once
          per day, so re-ticking cannot spam. */
       if (progress === 100 && t.created_by && t.created_by !== user.id) {
@@ -8706,37 +8835,71 @@ async function handleStaffRoutes(
      /tasks/:id/items already used: the assignee, the person who set the task,
      or someone who manages the team. */
   const taskScopeOk = async (taskId: string): Promise<boolean> => {
-    if (can(user.role, "team_manage")) return true;
-    const t = await env.DB.prepare(`SELECT assigned_to, created_by FROM tasks WHERE id = ?1`)
-      .bind(taskId).first<{ assigned_to: number | null; created_by: number | null }>();
+    /* v1.246.0 - one rule with the rest of the task (tasks-progress.ts): the
+       assignee, the helpers, whoever set it and those who manage it - for a
+       project task its Owner and the CEO, COO, CCO (T-4). Staff who only see
+       the project read its progress, not its conversation (T-6). */
+    const t = await loadTask(env, taskId);
     if (!t) return false;
-    return t.assigned_to === user.id || t.created_by === user.id;
+    return (await taskAccess(env, user, t)).team;
   };
   if (commentMatch && method === "POST") {
     if (!body || !str(body.comment, 2000)) return err("invalid_input", "comment is required", 400);
     if (!(await taskScopeOk(commentMatch[1]!))) return err("forbidden", "That task is not yours", 403);
-    /* An attachment must be the caller's own upload — otherwise a comment
-       could quietly staple somebody else's file (a payslip, a signed
-       document) onto a task for others to open. */
-    let attachment: number | null = null;
-    if (typeof body.attachment_media_id === "number") {
-      const own = await env.DB.prepare(`SELECT id FROM media WHERE id = ?1 AND uploaded_by = ?2`)
-        .bind(body.attachment_media_id, user.id).first<{ id: number }>().catch(() => null);
-      if (!own) return err("forbidden", "That attachment is not yours to post", 403);
-      attachment = body.attachment_media_id;
+    /* v1.246.0 (go-live audit A4) - files go through the task's own private
+       upload (POST /tasks/:id/files, X-Comment-Id), never a public media row */
+    if (body.attachment_media_id !== undefined && body.attachment_media_id !== null) {
+      return err("invalid_input", "Attach files with the task's own upload - they stay private to the task", 400);
     }
-    await env.DB.prepare(
-      `INSERT INTO task_comments (task_id, user_id, comment, attachment_media_id) VALUES (?1, ?2, ?3, ?4)`,
-    ).bind(commentMatch[1], user.id, body.comment, attachment).run();
-    return json({ ok: true }, 201);
+    const t = (await loadTask(env, commentMatch[1]!))!;
+    /* the people a comment names: only people who are on the task */
+    const asked = Array.isArray(body.mentions) ? [...new Set((body.mentions as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 10) : [];
+    const mentions: number[] = [];
+    for (const uid of asked) {
+      const who = await env.DB.prepare(`SELECT id, role, name, full_name, is_active FROM users WHERE id = ?1`).bind(uid).first<StaffUser & { is_active: number }>();
+      if (who && who.is_active && (await taskAccess(env, who, t)).team) mentions.push(uid);
+    }
+    const key = (request.headers.get("Idempotency-Key") ?? "").slice(0, 80) || null;
+    if (key) {
+      const again = await env.DB.prepare(`SELECT id FROM task_comments WHERE user_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>().catch(() => null);
+      if (again) return json({ ok: true, id: again.id, existing: true });
+    }
+    const ins = await env.DB.prepare(
+      `INSERT INTO task_comments (task_id, user_id, comment, client_key, mentions) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(user_id, client_key) WHERE client_key IS NOT NULL DO NOTHING RETURNING id`,
+    ).bind(commentMatch[1], user.id, body.comment, key, mentions.length ? JSON.stringify(mentions) : null).first<{ id: number }>();
+    if (!ins) {
+      const again = await env.DB.prepare(`SELECT id FROM task_comments WHERE user_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>();
+      return json({ ok: true, id: again?.id, existing: true });
+    }
+    /* the thread's people hear it once; a mention says so */
+    const pj = t.link_kind === "project" && t.link_id ? await env.DB.prepare(`SELECT owner_id FROM projects WHERE id = ?1`).bind(t.link_id).first<{ owner_id: number | null }>().catch(() => null) : null;
+    const text = String(body.comment).slice(0, 120);
+    for (const uid of new Set([t.assigned_to, t.created_by, pj?.owner_id].filter((x): x is number => typeof x === "number" && x !== user.id && !mentions.includes(x)))) {
+      try { await notify(env, uid, "task", `💬 ${user.name} on ${t.title}: ${text}`, `task:${t.id}:c:${ins.id}:${uid}`, { once: true }); } catch { /* a bell never blocks */ }
+    }
+    for (const uid of mentions.filter((x) => x !== user.id)) {
+      try { await notify(env, uid, "task", `@ ${user.name} mentioned you on ${t.title}: ${text}`, `task:${t.id}:c:${ins.id}:${uid}`, { once: true }); } catch { /* a bell never blocks */ }
+    }
+    return json({ ok: true, id: ins.id }, 201);
   }
   if (commentMatch && method === "GET") {
     if (!(await taskScopeOk(commentMatch[1]!))) return err("forbidden", "That task is not yours", 403);
     const { results } = await env.DB.prepare(
-      `SELECT c.comment, c.created_at, u.name FROM task_comments c
-       JOIN users u ON u.id = c.user_id WHERE c.task_id = ?1 ORDER BY c.created_at`,
-    ).bind(commentMatch[1]).all();
-    return json({ comments: results });
+      `SELECT c.id, c.user_id, c.comment, c.created_at, c.mentions, u.name, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS author, u.photo_key FROM task_comments c
+       JOIN users u ON u.id = c.user_id WHERE c.task_id = ?1 ORDER BY c.created_at, c.id`,
+    ).bind(commentMatch[1]).all<Record<string, unknown>>();
+    /* each comment with its files (private, opened through the task) and the
+       names it mentions */
+    const files = (await env.DB.prepare(`SELECT id, comment_id, file_name, content_type, size_bytes, level FROM task_files WHERE task_id = ?1 AND comment_id IS NOT NULL`)
+      .bind(commentMatch[1]).all<{ id: number; comment_id: number; file_name: string; content_type: string | null; size_bytes: number | null; level: string }>().catch(() => ({ results: [] as { id: number; comment_id: number; file_name: string; content_type: string | null; size_bytes: number | null; level: string }[] }))).results;
+    const names = new Map<number, string>();
+    for (const r of results) for (const uid of (() => { try { return JSON.parse(String(r.mentions ?? "[]")) as number[]; } catch { return []; } })())
+      if (!names.has(uid)) names.set(uid, (await env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`).bind(uid).first<{ n: string }>())?.n ?? "");
+    return json({ comments: results.map((r) => ({
+      ...r, mentions: (() => { try { return (JSON.parse(String(r.mentions ?? "[]")) as number[]).map((id) => ({ id, name: names.get(id) ?? "" })); } catch { return []; } })(),
+      files: files.filter((f) => f.comment_id === r.id),
+    })) });
   }
 
   /* ---- CRM customers ---- */

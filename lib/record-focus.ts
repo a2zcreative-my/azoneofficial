@@ -36,6 +36,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
   document: "Sales",
   client: "Sales",
   announcement: "Announcements", // v1.217.0 - the bell opens the post itself
+  project: "Tasks", // v1.245.0 - a project bell (proj:<id>:...) opens the project in Tasks > Projects
 };
 
 /** The record a notification or Desk `ref` names, or null when it names a
@@ -45,12 +46,12 @@ export const TAB_OF_KIND: Record<string, TabName> = {
 export function recordOfRef(ref: string | null | undefined): { kind: string; id: number } | null {
   if (!ref) return null;
   /* v1.220.0 - staff:<id>: a request to update someone's responsibilities opens that person on the Staff tab */
-  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff):(\d+)(?::|$)/.exec(ref);
+  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff|proj):(\d+)(?::|$)/.exec(ref);
   if (!m) return null;
   const id = Number(m[2]);
   if (!Number.isFinite(id) || id <= 0) return null;
   const word = m[1]!;
-  const kind = word === "task-close" ? "task" : word === "quote" ? "document" : word;
+  const kind = word === "task-close" ? "task" : word === "quote" ? "document" : word === "proj" ? "project" : word;
   return { kind, id };
 }
 

@@ -21,6 +21,88 @@
  */
 
 const ROLE = process.env.ROLE ?? "ceo";
+/* v1.245.0 - THE PROJECT WORKSPACE, as the real worker answers it.
+   tests/browser/project-fixture.json is CAPTURED by tests/go-live-p.mjs
+   (PROJECT_FIXTURE_OUT=... NOMUT=1 node tests/go-live-p.mjs), never written by
+   hand: four views of one project - management (CEO/COO/CCO), the Project
+   Owner (a salesperson), an assigned team member, and a member of staff who
+   is neither. Its quotation is shown as the fixture's own QT 1. PROJECT=none:
+   QT 1 has no brief yet (until POST /staff/projects, serve.mjs). */
+import { readFileSync as readFixtureFile } from "node:fs";
+const PROJ = (() => {
+  try {
+    const raw = readFixtureFile(new URL("./project-fixture.json", import.meta.url), "utf8")
+      .replaceAll("QT-2026-0018", "QT-AZO150926-1").replaceAll("ABC Sdn Bhd", "Aina Boutique").replaceAll("Mr. Ahmad", "Aina Rahman");
+    return JSON.parse(raw);
+  } catch { return null; }
+})();
+const PROJ_VIEW = ["ceo", "coo", "cco", "super_admin", "admin"].includes(ROLE) ? "mgmt" : ROLE === "sales_marketing" ? "owner" : ["live_host", "marketing"].includes(ROLE) ? "assigned" : "other";
+export const projectFixture = { id: PROJ?.project_id ?? 1 };
+/* v1.246.0 - TASK PROGRESS, as the real worker answers it.
+   tests/browser/task-fixture.json is CAPTURED by tests/go-live-t.mjs
+   (TASK_FIXTURE_OUT=... NOMUT=1 node tests/go-live-t.mjs): a task waiting for
+   review seen by its reviewer (CEO) and by its assignee (a live host), and a
+   project task seen by a helper (editor) and by staff who only see the
+   project (HR admin). TASKP=1 adds them to the board as tasks 801 and 802;
+   a project row of project-fixture.json opens the project task's view. */
+const TASKS_CAP = (() => {
+  try { return JSON.parse(readFixtureFile(new URL("./task-fixture.json", import.meta.url), "utf8").replaceAll("QT-2026-0018", "QT-AZO150926-1").replaceAll("ABC Sdn Bhd", "Aina Boutique")); } catch { return null; }
+})();
+const TASK_VIEW = ROLE === "ceo" || ROLE === "coo" || ROLE === "cco" ? { std: "reviewer", proj: "assistant" } : ROLE === "live_host" ? { std: "assignee", proj: "assistant" } : ROLE === "editor" ? { std: "assignee", proj: "assistant" } : { std: "assignee", proj: "other" };
+/* the captured viewer becomes the fixture's signed-in person (9001), so the
+   task lands in that person's My Tasks exactly as it would for them */
+const asMe = (c, who) => {
+  const me = 9001;
+  const swap = (x) => (x === who ? me : x);
+  if (c.detail?.task) { c.detail.task.assigned_to = swap(c.detail.task.assigned_to); for (const a of c.detail.task.assistants ?? []) a.id = swap(a.id); c.detail.me = me; }
+  for (const r of c.list ?? []) { r.assigned_to = swap(r.assigned_to); for (const a of r.assistants ?? []) a.id = swap(a.id); }
+  return c;
+};
+const remapTask = (v, id, title) => {
+  if (!v) return v;
+  const c = structuredClone(v);
+  if (c.detail?.task) { c.detail.task.id = id; if (title) c.detail.task.title = title; }
+  for (const r of c.list ?? []) { r.id = id; if (title) r.title = title; }
+  for (const u of c.updates?.updates ?? []) u.task_id = id;
+  return c;
+};
+export function taskViewFor(p0) {
+  if (!TASKS_CAP) return undefined;
+  const m = /^\/staff\/tasks\/(\d+)(\/updates|\/comments|\/files|\/activity)?$/.exec(p0);
+  if (!m) return undefined;
+  const id = Number(m[1]);
+  let v;
+  if (process.env.TASKP && id === 801) v = TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801);
+  else if (process.env.TASKP && id === 802) v = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11) : remapTask(TASKS_CAP.views[TASK_VIEW.proj], 802);
+  else {
+    const pt = PROJ?.views?.[PROJ_VIEW]?.workspace?.tasks?.find((t) => t.id === id);
+    if (!pt) return undefined;
+    v = remapTask(TASKS_CAP.views[PROJ_VIEW === "assigned" ? "assistant" : PROJ_VIEW === "other" ? "other" : "assistant"], id, pt.title);
+    if (PROJ_VIEW === "mgmt" || PROJ_VIEW === "owner") v.detail.can = { ...TASKS_CAP.views.reviewer.detail.can, review: false, request_review: false };
+  }
+  if (!v) return undefined;
+  const sub = m[2] ?? "";
+  return sub === "" ? v.detail : sub === "/updates" ? v.updates : sub === "/files" ? v.files : sub === "/activity" ? v.activity : (v.comments ?? { error: { code: "forbidden", message: "That task is not yours" } });
+}
+export function taskListExtra(all) {
+  if (!TASKS_CAP || !process.env.TASKP) return [];
+  const a = (TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801)).list ?? [];
+  const b = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11).list ?? [] : [];
+  return [...a, ...b].map((r) => ({ ...r, ...(all ? {} : {}) }));
+}
+function projectFor(p, made) {
+  if (!PROJ) return undefined;
+  const v = PROJ.views[PROJ_VIEW];
+  const id = PROJ.project_id;
+  const one = (x) => { const c = structuredClone(x); if (c?.quotation) c.quotation.id = 1; if (Array.isArray(c?.projects)) for (const r of c.projects) if (r.quotation_id === 100) r.quotation_id = 1; return c; };
+  if (p === "/staff/projects/by-quotation/1") return process.env.PROJECT === "none" && !made ? one(PROJ.views.none.by_quotation) : one(v.by_quotation);
+  if (p === "/staff/projects") return one(v.list);
+  if (p === `/staff/projects/${id}`) return one(v.workspace);
+  if (p === `/staff/projects/${id}/activity`) return one(v.activity);
+  if (p === `/staff/projects/${id}/updates`) return one(v.updates);
+  if (p === `/staff/projects/${id}/files`) return one(v.files ?? { files: [] });
+  return undefined;
+}
 /* v1.236.0 - OWNER=1: a super admin has named the fixture CEO the verified
    company owner (worker: system_meta.company_owner, getSessionUser) */
 const OWNER = !!process.env.OWNER;
@@ -279,7 +361,7 @@ const accounts = [
   { id: 4, code: "3000", name: "Capital", type: "equity", debit_cents: 0, credit_cents: 1950000 },
 ];
 
-export function fixture(p0, url, { onMissing = () => {} } = {}) {
+export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   let data = baseFixture(p0);
   const q = url ? new URL(url).searchParams : new URLSearchParams();
   /* the panels' own prefixes: makeApi("/staff"), makeApi("/staff/erp"), makeApi("/staff/companies") */
@@ -1275,6 +1357,9 @@ export function fixture(p0, url, { onMissing = () => {} } = {}) {
     pending_migration: false,
   };
   if (p === "/staff/finance/pnl" || p === "/finance/pnl") data = { month: "2026-09", revenue_cents: 2000000, cogs_cents: 300000, expenses_cents: 1800000, net_cents: -100000, rows: [] };
+  if (p0.startsWith("/staff/projects")) { const pj = projectFor(p0, made); if (pj !== undefined) data = pj; }
+  if (/^\/staff\/tasks\/\d+/.test(p0)) { const tv = taskViewFor(p0); if (tv !== undefined) data = tv; }
+  if (p0 === "/staff/tasks" && data?.tasks && process.env.TASKP) data = { ...data, tasks: [...taskListExtra(q.get("all") === "1"), ...data.tasks] };
   if (data === undefined) { onMissing(p0); return {}; }
   return data;
 }

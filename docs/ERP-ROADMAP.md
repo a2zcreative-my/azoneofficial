@@ -311,3 +311,12 @@ resolved) and four nullable columns on payroll_payments (release_id,
 file_total_cents, file_payees, manual_total_cents). No row is changed.
 1.244.0 (Go-live Release D) adds no migration: backups, the media copy and
 housekeeping use the existing system_meta table and a second R2 bucket.
+1.245.0 (Project Workspace, never deployed) and 1.246.0 (Task progress) add
+migration `0159_project_workspace`, re-cut for 1.246.0 before it was ever
+applied: projects (one per quotation, unique quotation_id; the scope snapshot
+frozen at activation), task_updates (the progress record of EVERY task,
+append-only - two triggers refuse UPDATE and DELETE, a partial unique index
+lands a replayed update once; a project task's rows also name the project),
+task_files (private evidence), task_assistants, nullable tasks.stage and
+tasks.progress_source, and task_comments.client_key and mentions. Project
+tasks stay rows of tasks with link_kind project. No row is changed.
