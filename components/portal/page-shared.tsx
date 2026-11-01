@@ -253,6 +253,7 @@ export interface Task {
   status: string;
   progress: number;
   assignee?: string;
+  assignee_photo?: string | null; // v1.246.2 - the staff photo beside the name
   assigned_to?: number;
   created_by?: number | null;
   // v1.42.0 — scope tally + acknowledgement, present post-0083

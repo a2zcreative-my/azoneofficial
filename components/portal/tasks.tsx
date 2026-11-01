@@ -60,9 +60,16 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     assigned_to: 0,
     priority: "normal",
     deadline: "",
+    quotation_id: 0, // v1.246.2 - set under a quotation: the task joins its project
   });
   const [openTask, setOpenTask] = useState<number | null>(null);
   const [items, setItems] = useState<TaskItem[] | null>(null);
+  /* v1.246.2 - the quotations this person may set a task under (their own,
+     or every live one for the CEO, COO and CCO); read when the drawer opens */
+  const [quotes, setQuotes] = useState<{ id: number; doc_number: string; company: string; label: string; project_id: number | null; project_title: string | null }[] | null>(null);
+  /* v1.246.2 - the checklist being edited: a new line, a renamed item */
+  const [newItem, setNewItem] = useState("");
+  const [renaming, setRenaming] = useState<{ id: number; title: string } | null>(null);
   const { confirm: askDelete, node: deleteConfirmNode } = useConfirm();
   const { show: showTaskToast, node: taskToastNode } = useSaveToast();
   const canManage = MANAGE_ROLES.includes(user.role);
@@ -100,12 +107,20 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
   };
 
+  useEffect(() => {
+    if (!createOpen) return;
+    let alive = true;
+    void api<{ quotations: { id: number; doc_number: string; company: string; label: string; project_id: number | null; project_title: string | null }[] }>(`/staff/projects/quotations`)
+      .then((r) => { if (alive) setQuotes(r.ok ? r.data?.quotations ?? [] : []); });
+    return () => { alive = false; };
+  }, [createOpen]);
   const create = async () => {
     if (!draft.title) return;
     // Staff self-assign; managers may pick someone. 0 = self on the server.
     const payload = {
       ...draft,
       assigned_to: draft.assigned_to || undefined,
+      quotation_id: draft.quotation_id || undefined,
       // v1.42.0: the scope, one line per deliverable
       items: draft.scope.split("\n").map((l) => l.trim()).filter(Boolean),
     };
@@ -116,7 +131,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     /* v1.200.0 - the form says what happened, the way every other task
        action already did (v1.77.0 / v1.79.0) */
     if (!r.ok) {
-      showTaskToast(L("Not created", "Tidak dibuat"), L("The task did not reach the server — try again", "Tugasan itu tidak sampai ke pelayan — cuba lagi"), "notice");
+      const why = (r.data as { error?: { message?: string } } | undefined)?.error?.message;
+      showTaskToast(L("Not created", "Tidak dibuat"), why ?? L("The task did not reach the server — try again", "Tugasan itu tidak sampai ke pelayan — cuba lagi"), "notice");
       return;
     }
     showTaskToast(r.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Task created", "Tugasan dibuat"),
@@ -129,6 +145,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       assigned_to: 0,
       priority: "normal",
       deadline: "",
+      quotation_id: 0,
     });
     setCreateOpen(false);
     void load();
@@ -339,8 +356,48 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       <span className={tk.pct}>{t.progress}%</span>
     </span>
   );
+  /* v1.246.2 - the checklist is edited, not only ticked: add, rename, remove
+     (the assignee, the person who set the task, or a manager, while open) */
+  const reloadItems = async (taskId: number) => {
+    const rr = await api<{ items: TaskItem[] }>(`/staff/tasks/${taskId}/items`);
+    if (rr.ok && rr.data) setItems(rr.data.items ?? []);
+    void load();
+  };
+  const itemFail = (r: { data?: unknown }, fallback: string) =>
+    showTaskToast(L("Not saved", "Tidak disimpan"), (r.data as { error?: { message?: string } } | undefined)?.error?.message ?? fallback, "notice");
+  const addItem = async (t: Task) => {
+    const title = newItem.trim();
+    if (title.length < 2) return;
+    const r = await api(`/staff/tasks/${t.id}/items`, { method: "POST", body: JSON.stringify({ title }) });
+    if (!r.ok) { itemFail(r, L("The deliverable was not added", "Hasil kerja tidak ditambah")); return; }
+    setNewItem("");
+    showTaskToast(L("Deliverable added", "Hasil kerja ditambah"), title);
+    await reloadItems(t.id);
+  };
+  const renameItem = async (t: Task) => {
+    if (!renaming) return;
+    const title = renaming.title.trim();
+    if (title.length < 2) return;
+    const r = await api(`/staff/tasks/${t.id}/items/${renaming.id}`, { method: "PATCH", body: JSON.stringify({ title }) });
+    if (!r.ok) { itemFail(r, L("The deliverable was not renamed", "Hasil kerja tidak dinamakan semula")); return; }
+    setRenaming(null);
+    await reloadItems(t.id);
+  };
+  const removeItem = async (t: Task, it: TaskItem) => {
+    const go = await askDelete({
+      title: L("Remove this deliverable?", "Buang hasil kerja ini?"),
+      message: it.done ? L(`"${it.title}" is already ticked. Removing it changes the task's progress; the tick stays in the activity.`, `"${it.title}" sudah ditanda. Membuangnya mengubah kemajuan tugasan; tanda itu kekal dalam aktiviti.`) : it.title,
+      confirmLabel: L("Remove", "Buang"),
+    });
+    if (!go) return;
+    const r = await api(`/staff/tasks/${t.id}/items/${it.id}`, { method: "DELETE" });
+    if (!r.ok) { itemFail(r, L("The deliverable was not removed", "Hasil kerja tidak dibuang")); return; }
+    showTaskToast(L("Deliverable removed", "Hasil kerja dibuang"), it.title);
+    await reloadItems(t.id);
+  };
   const checklist = (t: Task) => {
     const mine = isMine(t);
+    const editable = (mine || canManage || t.created_by === user.id) && t.status !== "completed";
     return (
       <div className={tk.checklist}>
         {/* v1.77.0 — skeleton until the first fetch lands: two
@@ -358,15 +415,23 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         {items && items.length === 0 && (
           <p className={tk.muted}>{L("No scope items on this task.", "Tiada item skop pada tugasan ini.")}</p>
         )}
-        {items && items.map((it) => (
-          <label key={it.id} className={tk.item}>
+        {items && items.map((it) => renaming?.id === it.id ? (
+          <form key={it.id} className={tk.itemEdit} onSubmit={(e) => { e.preventDefault(); void renameItem(t); }}>
+            <input className={inputClassSm} value={renaming.title} aria-label={L("Deliverable", "Hasil kerja")} autoFocus maxLength={200}
+              onChange={(e) => setRenaming({ id: it.id, title: e.target.value })} />
+            <button type="submit" className={btnSm} disabled={renaming.title.trim().length < 2}>{L("Save", "Simpan")}</button>
+            <button type="button" className={btnSm} onClick={() => setRenaming(null)}>{L("Cancel", "Batal")}</button>
+          </form>
+        ) : (
+          <div key={it.id} className={tk.item}>
             <input
               type="checkbox"
+              aria-label={it.title}
               checked={it.done === 1}
               disabled={!mine && !canManage}
               onChange={() => void toggleItem(t.id, it.id)}
             />
-            <span className={it.done ? tk.itemDone : ""}>
+            <span className={`${tk.itemText} ${it.done ? tk.itemDone : ""}`}>
               {it.title}
               {it.done === 1 && it.done_by_name ? (
                 <span className={tk.itemBy}>
@@ -374,8 +439,21 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 </span>
               ) : null}
             </span>
-          </label>
+            {editable && (
+              <span className={tk.itemCmds}>
+                <button type="button" className={tk.itemBtn} aria-label={L(`Rename "${it.title}"`, `Namakan semula "${it.title}"`)} title={L("Rename", "Namakan semula")} onClick={() => setRenaming({ id: it.id, title: it.title })}><AppIcon name="edit" /></button>
+                <button type="button" className={`${tk.itemBtn} ${tk.itemBtnDanger}`} aria-label={L(`Remove "${it.title}"`, `Buang "${it.title}"`)} title={L("Remove", "Buang")} onClick={() => void removeItem(t, it)}>×</button>
+              </span>
+            )}
+          </div>
         ))}
+        {items && editable && (
+          <form className={tk.itemAdd} onSubmit={(e) => { e.preventDefault(); void addItem(t); }} data-testid="item-add">
+            <input className={inputClassSm} value={newItem} maxLength={200} placeholder={L("Add a deliverable…", "Tambah hasil kerja…")} aria-label={L("Add a deliverable", "Tambah hasil kerja")}
+              onChange={(e) => setNewItem(e.target.value)} />
+            <button type="submit" className={btnSm} disabled={newItem.trim().length < 2}><AppIcon name="add" />{L("Add", "Tambah")}</button>
+          </form>
+        )}
       </div>
     );
   };
@@ -541,7 +619,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                     </td>
                     {opts.who && (
                       <td data-label={L("Assigned to", "Diberikan kepada")}>
-                        {t.assignee ? <span className={tk.who}><Avatar name={t.assignee} size="sm" /><span>{t.assignee}</span></span> : <span className={tk.muted}>—</span>}
+                        {t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span className={tk.muted}>—</span>}
                       </td>
                     )}
                     {opts.who && <td data-label={L("Position", "Jawatan")} className={tk.cap}>{positionOf(t.assigned_to) || <span className={tk.muted}>—</span>}</td>}
@@ -638,11 +716,11 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const archNeedle = archQ.trim().toLowerCase();
   /* the team's tallies, from the rows already loaded (managers' board) */
   const assignees = (() => {
-    const m = new Map<number, { id: number; name: string; role: string; open: number; pending: number; overdue: number; closed: number; total: number }>();
+    const m = new Map<number, { id: number; name: string; photo: string | null; role: string; open: number; pending: number; overdue: number; closed: number; total: number }>();
     for (const t of tasks) {
       if (t.assigned_to == null) continue;
       const fromRoster = team.find((u) => u.id === t.assigned_to);
-      const cur = m.get(t.assigned_to) ?? { id: t.assigned_to, name: t.assignee ?? fromRoster?.name ?? `#${t.assigned_to}`, role: fromRoster?.position || (fromRoster?.role ?? "").replace(/_/g, " "), open: 0, pending: 0, overdue: 0, closed: 0, total: 0 };
+      const cur = m.get(t.assigned_to) ?? { id: t.assigned_to, name: t.assignee ?? fromRoster?.name ?? `#${t.assigned_to}`, photo: t.assignee_photo ?? null, role: fromRoster?.position || (fromRoster?.role ?? "").replace(/_/g, " "), open: 0, pending: 0, overdue: 0, closed: 0, total: 0 };
       cur.total += 1;
       if (t.status === "completed") cur.closed += 1;
       else if (t.status === "in_progress") cur.pending += 1;
@@ -870,7 +948,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                   <tbody>
                     {assignees.map((a) => (
                       <tr key={a.id}>
-                        <td><button type="button" className={tk.nameBtn} onClick={() => { setWhoF(a.id); setStatusF("any"); go("all"); }}><Avatar name={a.name} size="sm" /><span>{a.name}</span></button></td>
+                        <td><button type="button" className={tk.nameBtn} onClick={() => { setWhoF(a.id); setStatusF("any"); go("all"); }}><Avatar name={a.name} photoKey={a.photo} size="sm" /><span>{a.name}</span></button></td>
                         <td className={tk.cap}>{a.role || "—"}</td>
                         <td className={tk.num}>{a.open}</td><td className={tk.num}>{a.pending}</td>
                         <td className={`${tk.num} ${a.overdue > 0 ? tk.danger : ""}`}>{a.overdue}</td>
@@ -1053,7 +1131,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       const share = a.total > 0 ? Math.round((a.closed / a.total) * 100) : 0;
                       return (
                         <tr key={a.id}>
-                          <td><span className={tk.who}><Avatar name={a.name} size="sm" /><span>{a.name}</span></span></td>
+                          <td><span className={tk.who}><Avatar name={a.name} photoKey={a.photo} size="sm" /><span>{a.name}</span></span></td>
                           <td className={tk.num}>{a.open + a.pending}</td>
                           <td className={`${tk.num} ${a.overdue > 0 ? tk.danger : ""}`}>{a.overdue}</td>
                           <td className={tk.num}>{a.closed}</td>
@@ -1177,6 +1255,23 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               </select>
             </Sub>
           )}
+            {/* v1.246.2 - the owner, 01-11-2026: "Create a task should be able
+                to capture that Quotation" - the task joins the quotation's
+                project (created on the spot when there is none yet). */}
+            <Sub t={L("For a quotation (optional)", "Untuk sebut harga (pilihan)")}>
+              <select className={inputClass} value={draft.quotation_id} aria-label={L("For a quotation (optional)", "Untuk sebut harga (pilihan)")}
+                onChange={(e) => setDraft((d) => ({ ...d, quotation_id: Number(e.target.value) }))}>
+                <option value={0}>{L("No quotation — a standalone task", "Tiada sebut harga — tugasan berasingan")}</option>
+                {(quotes ?? []).map((q) => (
+                  <option key={q.id} value={q.id}>{q.doc_number} · {q.company}{q.project_id ? "" : L(" · new project", " · projek baharu")}</option>
+                ))}
+              </select>
+              <p className={tk.hint}>
+                {draft.quotation_id ? L("This task becomes a project task of that quotation — it shows under Projects and on the quotation's Project & Tasks tab.", "Tugasan ini menjadi tugasan projek sebut harga itu — ia dipaparkan di bawah Projek dan pada tab Projek & Tugasan sebut harga itu.")
+                    : quotes !== null && quotes.length === 0 ? L("No live quotation to set a task under.", "Tiada sebut harga aktif untuk tugasan.")
+                      : L("Pick a quotation to make this a project task.", "Pilih sebut harga untuk menjadikannya tugasan projek.")}
+              </p>
+            </Sub>
             <Sub t={L("Priority", "Keutamaan")}>
               <select
                 className={inputClass}
@@ -1285,7 +1380,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                     <p className={tk.label}>{L("Description", "Keterangan")}</p>
                     {t.description ? <p className={tk.descBox}>{t.description}</p> : <p className={tk.muted}>{L("No description.", "Tiada keterangan.")}</p>}
                     <dl className={tk.facts}>
-                      <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{t.assignee ? <span className={tk.who}><Avatar name={t.assignee} size="sm" /><span>{t.assignee}{positionOf(t.assigned_to) ? <span className={tk.muted}> · {positionOf(t.assigned_to)}</span> : null}</span></span> : mine ? L("You", "Anda") : "—"}</dd></div>
+                      <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}{positionOf(t.assigned_to) ? <span className={tk.muted}> · {positionOf(t.assigned_to)}</span> : null}</span></span> : mine ? L("You", "Anda") : "—"}</dd></div>
                       {creator && <div><dt>{L("Created by", "Dibuat oleh")}</dt><dd>{creator}</dd></div>}
                       <div><dt>{L("Priority", "Keutamaan")}</dt><dd className={tk.cap}>{priorityL(t.priority)}</dd></div>
                       <div><dt>{L("Deadline", "Tarikh akhir")}</dt><dd>{t.deadline ? dmy(t.deadline) : L("No deadline", "Tiada tarikh akhir")}</dd></div>

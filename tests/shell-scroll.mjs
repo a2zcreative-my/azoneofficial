@@ -123,6 +123,10 @@ ok("the worker records which axis the report is about",
      .erp-topbar - sticky at the top and the owner of --hdr-pt in
      styles/erp-v3.css - with the inset still written inline on the element.
      The admin and account consoles keep the utility spelling for now. */
+  /* v1.246.2 - the bar is flush with the top of the scroll column: the page's top padding (0.75rem phone, 1rem desktop) is pulled back */
+  ok("the V3 topbar pulls the page's top padding back, so no strip shows above it",
+     /\.erp-topbar \{[^}]*margin-top: -0\.75rem;/.test(v3) && /@media \(min-width: 768px\) \{\s*\.erp-topbar \{[^}]*margin-top: -1rem;/.test(v3)
+     && /\.page \{[^}]*padding-top: 0\.75rem;/.test(read("app/portal/portal.module.css")) && /@media \(min-width: 768px\) \{\s*\.page \{\s*padding-top: 1rem;/.test(read("app/portal/portal.module.css")));
   ok("the V3 topbar is sticky at the top and owns its --hdr-pt",
      /\.erp-topbar \{[^}]*position: sticky;[^}]*top: 0;[^}]*--hdr-pt: 0\.5rem;/.test(v3)
      && /@media \(min-width: 768px\) \{\s*\.erp-topbar \{\s*--hdr-pt: 0\.75rem;/.test(v3));

@@ -50,7 +50,9 @@ const staff = read("worker/src/staff.ts");
   const allowed = [/^\/staff\/tasks$/, /^\/staff\/tasks\/\$\{id\}\/items$/, /^\/staff\/tasks\/\$\{taskId\}\/items\/\$\{itemId\}\/toggle$/, /^\/staff\/tasks\/\$\{taskId\}\/items$/,
     /^\/staff\/tasks\/\$\{id\}\/ack$/, /^\/staff\/tasks\/\$\{id\}$/, /^\/staff\/tasks\/\$\{t\.id\}$/, /^\/staff\/tasks\/\$\{focusedTask\}\/items$/,
     /* v1.246.0 (audit A9) - the archive pages the closed tasks past the board's newest 300 */
-    /^\/staff\/tasks\?archive=1\$\{canManage \? "&all=1" : ""\}\$\{qs\}$/];
+    /^\/staff\/tasks\?archive=1\$\{canManage \? "&all=1" : ""\}\$\{qs\}$/,
+    /* v1.246.2 - the quotations a task is set under; the checklist edited (add, rename, remove) */
+    /^\/staff\/projects\/quotations$/, /^\/staff\/tasks\/\$\{t\.id\}\/items$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{renaming\.id\}$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{it\.id\}$/];
   const odd = calls.filter((c) => !allowed.some((re) => re.test(c)));
   ok("the Tasks page calls only the task routes that exist", calls.length >= 7 && odd.length === 0, odd.join(", "));
   ok("…and reads the board through the one cached read the Dashboard shares", /useCachedApi<\{ tasks: Task\[\] \}>\(`\/staff\/tasks\$\{canManage \? "\?all=1" : ""\}`, true, \["tasks"\]\)/.test(code));
@@ -59,7 +61,7 @@ const staff = read("worker/src/staff.ts");
   /* v1.246.0 - the owner's brief of 01-11-2026 (part 8) asked for the comments: ONE component reads and posts them */
   ok("one screen reads and posts task comments - the task's Updates & Comments (task-progress.tsx)", commenters.length === 1 && /task-progress\.tsx$/.test(commenters[0] ?? ""), commenters.join(", "));
   const routes = staff.split("path.match(/^\\/tasks").slice(1).map((x) => x.slice(0, x.indexOf("$/"))).sort();
-  const want = ["\\/(\\d+)", "\\/(\\d+)\\/ack", "\\/(\\d+)\\/comments", "\\/(\\d+)\\/items", "\\/(\\d+)\\/items\\/(\\d+)\\/toggle"].sort();
+  const want = ["\\/(\\d+)", "\\/(\\d+)\\/ack", "\\/(\\d+)\\/comments", "\\/(\\d+)\\/items", "\\/(\\d+)\\/items(?:\\/(\\d+))?", "\\/(\\d+)\\/items\\/(\\d+)\\/toggle"].sort(); // v1.246.2 - the checklist edit route (POST add, PATCH rename, DELETE remove)
   ok("the worker's task routes are the ones there were (no events or archive read)", JSON.stringify(routes) === JSON.stringify(want), JSON.stringify(routes));
 }
 
@@ -70,7 +72,7 @@ const staff = read("worker/src/staff.ts");
   ok("reassignment is offered to managers only", /if \(canManage && editing\.assigned_to && editing\.assigned_to !== t\.assigned_to\) patch\.assigned_to = editing\.assigned_to;/.test(drawer) && /\{canManage && \(\s*<Sub t=\{L\("Assigned to"/.test(code));
   ok("Edit is shown to the assignee or a manager (the route's own rule)", /const canEdit = mine \|\| canManage;/.test(code) && /const manages = projOfTask \? !projGate : can\(user\.role, "team_manage"\);/.test(staff) && /if \(row\.assigned_to !== user\.id && !manages\) \{\s*return projGate \?\? err\("forbidden", "Not your task", 403\);/.test(staff)); // v1.246.0 (T-4) - a project task: its Owner and project_manage only
   ok("…and the worker still refuses a reassignment to anyone else", /if \(!manages\) \{\s*return err\("forbidden", "Only management \(or the Project Owner, on a project task\) can reassign a task", 403\);/.test(staff)); // v1.246.0 (T-4)
-  ok("update() is the one PATCH on the page", (code.match(/method: "PATCH"/g) ?? []).length === 1);
+  ok("update() is the one PATCH on the task; the checklist rename is the other (v1.246.2)", (code.match(/method: "PATCH"/g) ?? []).length === 2 && /items\/\$\{renaming\.id\}`, \{ method: "PATCH"/.test(code));
 }
 
 /* ---- 3. create is the same create ---- */

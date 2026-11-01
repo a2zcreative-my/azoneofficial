@@ -14,7 +14,7 @@ import { handleErp } from "./erp";
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
-import { handleProjects, projectTaskGate, taskProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
 import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
@@ -3319,6 +3319,19 @@ async function handleStaffRoutes(
   }
 
   /* v1.5.0: /trends/my removed with the Social tab. */
+
+  /* v1.246.2 - THE PHOTO BOOK (the owner, 01-11-2026: "the photo was not
+     appear, should staff photo appear!"). Every row that names a staff
+     member - a task, a claim, a leave form, an asset - draws the photo from
+     here, so no list has to carry it. Names and photo keys only: nothing
+     sensitive. Customers have no book. */
+  if (path === "/photo-book" && method === "GET") {
+    if (user.role === "customer") return err("forbidden", "Staff only", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.name, u.full_name, u.photo_key FROM users u WHERE ${staffRolesSql("u.")} AND u.photo_key IS NOT NULL`,
+    ).all<{ id: number; name: string; full_name: string | null; photo_key: string }>();
+    return json({ people: results });
+  }
 
   if (path === "/staff-list" && method === "GET") {
     // v1.4.93: minimal staff list (id, name, role) for pickers like the
@@ -8108,10 +8121,10 @@ async function handleStaffRoutes(
     let results: Record<string, unknown>[];
     try {
       results = archive
-        ? (await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed'${before ? ` AND t.id < ${before}` : ""} ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[]
+        ? (await pick(`SELECT t.*, u.name AS assignee, u.photo_key AS assignee_photo FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed'${before ? ` AND t.id < ${before}` : ""} ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[]
         : [
-          ...(await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status != 'completed' ORDER BY t.created_at DESC`)).results as Record<string, unknown>[],
-          ...(await pick(`SELECT t.*, u.name AS assignee FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed' ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[],
+          ...(await pick(`SELECT t.*, u.name AS assignee, u.photo_key AS assignee_photo FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status != 'completed' ORDER BY t.created_at DESC`)).results as Record<string, unknown>[],
+          ...(await pick(`SELECT t.*, u.name AS assignee, u.photo_key AS assignee_photo FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE ${scope} AND t.status = 'completed' ORDER BY t.id DESC LIMIT 300`)).results as Record<string, unknown>[],
         ];
     } catch (e) {
       if (!/no such table|no such column/i.test(String(e))) throw e;
@@ -8181,11 +8194,6 @@ async function handleStaffRoutes(
       const okA = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(assignedTo).first().catch(() => ({ x: 1 }));
       if (!okA) return err("invalid_input", "Tasks go to a current staff member - that person is not on staff (or has left).", 400);
     }
-    /* v1.223.0 - a sales task names its customer, enquiry, quotation
-       or project (weekly-sales.ts taskLink) */
-    const tl = await taskLink(env, body, assignedTo, user);
-    if (tl instanceof Response) return tl;
-    const linkKind = tl?.kind ?? null, linkId = tl?.id ?? null;
     /* v1.66.0 Track R — assigned FROM the roster, with a slot.
        v1.67.0 — a run of days, from the form's repeat rule. One day still
        works exactly as before: `block_date` on its own is a run of one.
@@ -8206,6 +8214,20 @@ async function handleStaffRoutes(
       if (no) return no;
     }
     if (badDeadline(body)) return err("invalid_input", "The due date must be a real date", 400);
+    /* v1.246.2 - a task set "for a quotation" (the Create Task drawer): the
+       quotation's project is created if it does not exist yet, and the task
+       is that project's. Who may: the quotation's salesperson, its creator,
+       or the CEO, COO, CCO (ensureProject); then the project's own task gate. */
+    if (body.link_kind === undefined && typeof body.quotation_id === "number" && Number.isInteger(body.quotation_id)) {
+      const made = await ensureProject(env, user, body.quotation_id);
+      if (made instanceof Response) return made;
+      body.link_kind = "project"; body.link_id = made.id;
+    }
+    /* v1.223.0 - a sales task names its customer, enquiry, quotation
+       or project (weekly-sales.ts taskLink) */
+    const tl = await taskLink(env, body, assignedTo, user);
+    if (tl instanceof Response) return tl;
+    const linkKind = tl?.kind ?? null, linkId = tl?.id ?? null;
     const prio = ["low", "normal", "high", "urgent"];
     const res = linkKind && linkId
       /* v1.223.0 - the linked insert repeats the "one open task" check in the
@@ -8747,6 +8769,50 @@ async function handleStaffRoutes(
       ).bind(Number(taskItems[1])).all(); // v1.241.0 (go-live audit F1) - the id was never bound: every checklist read empty
       return json({ items: results });
     } catch { return json({ items: [], pending_migration: true }); }
+  }
+  /* v1.246.2 - THE CHECKLIST IS EDITED, not only ticked (the owner,
+     01-11-2026: "I should be able to edit Deliverables checklist"). The
+     assignee, the person who set the task, or those who manage it add,
+     rename and remove deliverables while the task is open. Progress is
+     recounted from the list each time; every add and removal is an event. */
+  const taskItemEdit = path.match(/^\/tasks\/(\d+)\/items(?:\/(\d+))?$/);
+  if (taskItemEdit && (method === "POST" || method === "PATCH" || method === "DELETE") && !(method === "POST" && taskItemEdit[2])) {
+    const t = await loadTask(env, taskItemEdit[1]!);
+    if (!t) return err("not_found", "Task not found", 404);
+    const ta = await taskAccess(env, user, t);
+    if (!ta.assignee && !ta.creator && !ta.manage) return err("forbidden", "Only the assignee, the person who set the task, or a manager edits its checklist", 403);
+    if (!ta.open) return err("task_closed", "This task is closed - its checklist no longer changes", 409);
+    const title = typeof body?.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
+    if ((method === "POST" || method === "PATCH") && (title.length < 2 || title.length > 200)) return err("invalid_input", "A deliverable is 2 to 200 characters", 400);
+    const dayMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    let itemId = taskItemEdit[2] ? Number(taskItemEdit[2]) : 0;
+    try {
+      if (method === "POST") {
+        const cnt = await env.DB.prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(sort), -1) AS s FROM task_items WHERE task_id = ?1`).bind(t.id).first<{ n: number; s: number }>();
+        if (Number(cnt?.n ?? 0) >= 30) return err("invalid_input", "A task holds up to 30 deliverables - split the work into another task", 400);
+        const ins = await env.DB.prepare(`INSERT INTO task_items (task_id, title, sort) VALUES (?1, ?2, ?3) RETURNING id`).bind(t.id, title, Number(cnt?.s ?? -1) + 1).first<{ id: number }>();
+        itemId = ins?.id ?? 0;
+        await env.DB.prepare(`INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, ?2, ?3, ?4)`).bind(t.id, `item_added:${itemId}`, user.id, dayMYT).run();
+      } else {
+        const it = await env.DB.prepare(`SELECT id, title, done FROM task_items WHERE id = ?1 AND task_id = ?2`).bind(itemId, t.id).first<{ id: number; title: string; done: number }>();
+        if (!it) return err("not_found", "Scope item not found", 404);
+        if (method === "PATCH") {
+          await env.DB.prepare(`UPDATE task_items SET title = ?1 WHERE id = ?2`).bind(title, it.id).run();
+          await audit(env, user.id, "task.item_rename", "task_items", String(it.id), { task_id: t.id, from: it.title, to: title });
+        } else {
+          await env.DB.prepare(`DELETE FROM task_items WHERE id = ?1`).bind(it.id).run();
+          await env.DB.prepare(`INSERT INTO task_events (task_id, kind, user_id, on_date) VALUES (?1, ?2, ?3, ?4)`).bind(t.id, `item_removed:${it.id}:${it.title.slice(0, 120)}`, user.id, dayMYT).run();
+          await audit(env, user.id, "task.item_remove", "task_items", String(it.id), { task_id: t.id, title: it.title, was_done: it.done });
+        }
+      }
+      const agg = await env.DB.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(done), 0) AS d FROM task_items WHERE task_id = ?1`).bind(t.id).first<{ n: number; d: number }>();
+      const progress = agg && agg.n > 0 ? Math.round((agg.d / agg.n) * 100) : 0;
+      await env.DB.prepare(`UPDATE tasks SET progress = ?1, progress_source = CASE WHEN ?3 > 0 THEN 'checklist' ELSE progress_source END WHERE id = ?2`).bind(progress, t.id, Number(agg?.n ?? 0)).run();
+      return json({ ok: true, id: itemId, progress, count: Number(agg?.n ?? 0) }, method === "POST" ? 201 : 200);
+    } catch (e) {
+      if (/no such table|no such column/i.test(String(e))) return err("migration_missing", "Run the database migrations first (PUSH.bat)", 503);
+      throw e;
+    }
   }
   const taskItemToggle = path.match(/^\/tasks\/(\d+)\/items\/(\d+)\/toggle$/);
   if (taskItemToggle && method === "POST") {

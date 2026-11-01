@@ -143,7 +143,7 @@ export function ClaimsOverview({ scope, mine, month, loaded, showStaff, waitingO
                     <tr key={c.id}>
                       <td className={css.mono}>{noOf(c)}</td>
                       <td className={css.muted}>{dmy(c.claim_date)}</td>
-                      {showStaff && <td><span className={css.who}><Avatar name={who || "?"} size="sm" /><span className={css.name}>{who || "—"}</span></span></td>}
+                      {showStaff && <td><span className={css.who}><Avatar name={who || "?"} userId={c.user_id} size="sm" /><span className={css.name}>{who || "—"}</span></span></td>}
                       <td>{c.claim_type === "salary_advance" ? L("Salary advance", "Pendahuluan gaji") : its.length > 1 ? L(`${its.length} items`, `${its.length} item`) : <span className={css.cap}>{catOf(c.category)}</span>}</td>
                       <td className={css.desc}>{c.description || "—"}</td>
                       <td className={css.num}>{(c.amount_cents / 100).toFixed(2)}</td>

@@ -318,7 +318,7 @@ const checks = n;
 const MUT = [
   /* both layers at once: the read-first check AND the conflict clause (the
      unique index alone then answers a second press with an error, not the project) */
-  ["worker/src/projects.ts", "P-1 a second press is not answered with the same project", [["    if (existing) return json({ id: existing.id, existing: true });\n", ""], ["       ON CONFLICT(quotation_id) DO NOTHING RETURNING id`,", "       RETURNING id`,"]]],
+  ["worker/src/projects.ts", "P-1 a second press is not answered with the same project", [["  if (existing) return { id: existing.id, existing: true };\n", ""], ["     ON CONFLICT(quotation_id) DO NOTHING RETURNING id`,", "     RETURNING id`,"]]], // v1.246.2 - ensureProject
   ["worker/src/projects.ts", "anyone with project_view edits", "  const manage = view && (mgmt || owner);", "  const manage = view;"],
   ["worker/src/projects.ts", "the CCO assigns owners", "    if (!a.ownerAssign) return err(\"forbidden\", \"Only the CEO or COO assign the Project Owner\", 403);", "    if (!a.manage) return err(\"forbidden\", \"Only the CEO or COO assign the Project Owner\", 403);"],
   ["worker/src/projects.ts", "unassigned staff post progress", "    } else if (!a.manage && !a.assigned) {\n      return err(\"forbidden\", \"Only the Project Owner, the assigned team", "    } else if (false) {\n      return err(\"forbidden\", \"Only the Project Owner, the assigned team"],

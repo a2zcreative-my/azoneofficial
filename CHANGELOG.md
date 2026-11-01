@@ -10,6 +10,25 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.246.2] - 2026-11-01 - Tasks from a quotation, an editable checklist, staff photos, the header gap
+
+The owner's screenshots of 01-11-2026, after 1.246.0 went up.
+
+- **Create Task - "For a quotation (optional)":** pick one of your live quotations (the CEO, COO and CCO see every live one) and the task becomes a **project task** of that quotation - the project is created on the spot when none exists yet (`POST /tasks` with `quotation_id`; `GET /projects/quotations`). It then shows under Tasks > Projects and on the quotation's Project & Tasks tab. Who may: the quotation's salesperson or creator, and management. Until management names a Project Owner, the quotation's salesperson may set its tasks; once an Owner is named, the Owner and management do (the 1.245.0 rule, unchanged).
+- **Tasks > Projects - "Quotations without a project":** the live quotations that have no project yet, each with **Start project**.
+- **Deliverables checklist is editable:** add, rename and remove deliverables on an open task (the assignee, the person who set it, or a manager). Progress is recounted from the list; every add and removal is on the task's activity; a rename is audited with the old and new wording. (`POST/PATCH/DELETE /tasks/:id/items(/:iid)`, up to 30 items.)
+- **Staff photos everywhere a staff member is named:** tasks, claims, leave, assets, projects... The `Avatar` now reads a **photo book** (`GET /staff/photo-book`: ids, names and photo keys of staff with a photo, nothing else), read once per session, when the row carries no key of its own. The task list also carries the assignee's photo.
+- **A question asked from inside a drawer opened behind it** (the confirm and prompt dialogs sat at z 50, under the drawer's 60): both now sit at the modal layer.
+- **Header:** the sticky top bar sits flush at the top of the page - the page's top padding no longer shows as a grey strip above it.
+- Evidence: go-live-t 86 checks / 16 mutations (Q1-Q5, C1-C6 new), go-live-p 76 / 12, browser task-progress.py (quotation picker, Start project, checklist editing, photos), all guards green.
+- Not deployed. No new migration.
+
+## [1.246.1] - 2026-11-01 - Package "Clear selection" clears the lines
+
+- Sales -> Create quotation: **Clear selection** on an applied package (and choosing no package in the picker) now takes the package's lines, their descriptions and the package discount back out of the form. The lines that were there before the package come back (a blank line when there were none). When the lines were edited after applying, the portal asks first. Before, only the "Package applied" bar went away and the lines stayed.
+- Evidence: tests/sales-packages.mjs F6/F7 (74 checks, 6 mutations caught), new browser test tests/browser/package-clear.py 13/13.
+- Ships together with 1.246.0 (neither is deployed yet). No database or server change.
+
 ## [1.246.0] - 2026-11-01 - Task progress: every task reports, discusses and is reviewed
 
 The owner's brief "A2Z OS - Task Assignment, Progress Reporting, Comments &

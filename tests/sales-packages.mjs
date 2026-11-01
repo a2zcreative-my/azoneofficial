@@ -188,7 +188,10 @@ async function source() {
   ok(/\{doc\.doc_type === "QT" && \(\s*<div className="mb-3">\s*<PackagePicker issuer=\{doc\.issuer\}/.test(s), "F1 the picker is on quotations only, by the form's issuer");
   ok(/\.\.\.\(doc\.doc_type === "QT" \? \{ package_id: pkgRef\?\.id \?\? null, package_version: pkgRef\?\.version \?\? null \} : \{\}\)/.test(s), "F2 a quotation sends its package link with the existing save");
   ok((s.match(/<DocPreview\b/g) ?? []).length === 1 && /const subtotal = docSubtotal\(doc\.items\);[\s\S]*const subtotal = docSubtotal\(doc\.items\);/.test(s), "F3 one preview, one line arithmetic for form and paper");
-  ok(/const applyPackage = \(p: PackageRow, mode: "replace" \| "add"\) => \{[\s\S]{0,700}?setDoc\(/.test(s) && !/api<[^>]*>\(`\/staff\/packages\/\$\{[^}]*\}`, \{ method: "PUT"/.test(s), "F4 applying fills the form's own lines and never writes the package");
+  ok(/const applyPackage = \(p: PackageRow, mode: "replace" \| "add"\) => \{[\s\S]{0,1400}?setDoc\(/.test(s) && !/api<[^>]*>\(`\/staff\/packages\/\$\{[^}]*\}`, \{ method: "PUT"/.test(s), "F4 applying fills the form's own lines and never writes the package");
+  /* v1.246.1 - Clear selection takes the package lines and discount out */
+  ok(/onClear=\{\(\) => void clearPackage\(\)\}/.test(s) && /const clearPackage = async \(\) => \{[\s\S]{0,1600}?setDoc\(\(d\) => \{[\s\S]{0,300}?items: back, discount_cents:[\s\S]{0,400}?setPkgRef\(null\);/.test(s), "F6 Clear selection removes the package lines (descriptions included) and its discount, not only the label");
+  ok(/pkgUndo\.current = pkgRef && pkgUndo\.current/.test(s) && /title: L\("Remove the package lines\?"/.test(s), "F7 clearing restores the lines from before the package and asks first when they were edited");
   ok(/role="tab" aria-selected=\{workTab === "packages"\}/.test(s) && /\["outstanding", L\("Outstanding", "Tertunggak"\)\]/.test(s), "F5 the Packages pill sits beside the existing seven");
   return out;
 }

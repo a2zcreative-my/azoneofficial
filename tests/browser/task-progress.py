@@ -184,6 +184,54 @@ with sync_playwright() as p:
     check("helper: the project, quotation and customer are named", "Aina Boutique" in dr.inner_text() and "QT-AZO150926-1" in dr.inner_text())
     check("no page errors (helper)", not errs, str(errs)[:300])
     ctx.close()
+
+    # ---------------- v1.246.2: a task under a quotation; the checklist edited ----------------
+    ctx, pg, errs, reqs = page(b, 4213)
+    tab(pg, "Tasks")
+    pg.get_by_role("button", name="Create Task").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
+    sel = pg.get_by_label("For a quotation (optional)").filter(visible=True).first
+    opts = [o.inner_text().strip() for o in sel.locator("option").all()]
+    check("Create Task: a quotation can be picked (the live ones, 'new project' marked)", sel.count() == 1 and any("QT-AZO160926-2" in o and "new project" in o for o in opts) and any("QT-AZO150926-1" in o for o in opts), str(opts))
+    sel.select_option("2"); pg.wait_for_timeout(300)
+    check("Create Task: picking one says the task becomes a project task", "becomes a project task" in pg.get_by_role("dialog").last.inner_text())
+    pg.get_by_role("dialog").last.get_by_placeholder("e.g. Prepare LIVE rundown").fill("Kick-off call"); pg.wait_for_timeout(200)
+    pg.get_by_role("dialog").last.get_by_role("button", name="Create task").click(); pg.wait_for_timeout(1200)
+    posts = [r for r in reqs if r[0] == "POST" and r[1].endswith("/staff/tasks")]
+    check("Create Task: the quotation goes with the task (quotation_id)", bool(posts) and '"quotation_id":2' in (posts[-1][2] or ""), (posts[-1][2] if posts else "no post")[:200])
+    pg.get_by_role("tab", name="Projects", exact=True).first.click(); pg.wait_for_timeout(1200)
+    un = pg.get_by_test_id("unstarted-quotations")
+    check("Projects: quotations without a project are listed with Start project", un.count() == 1 and "QT-AZO160926-2" in un.inner_text() and un.get_by_role("button", name="Start project").count() == 1, un.inner_text()[:200] if un.count() else "absent")
+    dr, _ = open_task(pg, "All Tasks", "Financing application - Maybank SME")
+    add = dr.get_by_test_id("item-add")
+    check("the checklist can be edited: an Add a deliverable box, rename and remove on each item", add.count() == 1 and dr.get_by_role("button", name=re.compile("^Rename ")).count() >= 1 and dr.get_by_role("button", name=re.compile("^Remove ")).count() >= 1)
+    add.get_by_role("textbox").fill("Scan the signed form"); pg.wait_for_timeout(200)
+    add.get_by_role("button", name="Add").click(); pg.wait_for_timeout(1000)
+    items_posts = [r for r in reqs if r[0] == "POST" and re.search(r"/staff/tasks/\d+/items$", r[1])]
+    check("Add posts the deliverable to the task's checklist", bool(items_posts) and "Scan the signed form" in (items_posts[-1][2] or ""))
+    dr.get_by_role("button", name=re.compile("^Rename ")).first.click(); pg.wait_for_timeout(300)
+    ed = dr.get_by_label("Deliverable", exact=True)
+    check("Rename opens the wording in place with Save and Cancel", ed.count() == 1 and dr.get_by_role("button", name="Cancel").count() >= 1)
+    ed.fill("Collect the statements (3 months)"); dr.get_by_role("button", name="Save").first.click(); pg.wait_for_timeout(800)
+    patches = [r for r in reqs if r[0] == "PATCH" and re.search(r"/staff/tasks/\d+/items/\d+$", r[1])]
+    check("Save sends the new wording", bool(patches) and "3 months" in (patches[-1][2] or ""))
+    dr.get_by_role("button", name=re.compile("^Remove ")).first.click(); pg.wait_for_timeout(500)
+    cd = pg.get_by_role("dialog").filter(has_text="Remove this deliverable?").last
+    check("Remove asks first", cd.count() == 1)
+    if cd.count(): cd.get_by_role("button", name="Remove", exact=True).last.click(); pg.wait_for_timeout(800)
+    dels = [r for r in reqs if r[0] == "DELETE" and re.search(r"/staff/tasks/\d+/items/\d+$", r[1])]
+    check("confirming removes it on the server", bool(dels))
+    # v1.246.2 - the staff photo beside the name, from the photo book (the owner: "should staff photo appear!")
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+    pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(1200)
+    row = pg.locator("tr:has-text('Check inventory delivery')").first
+    imgs = row.locator("img[src*='/api/v1/media/file/']")
+    check("All Tasks: the assignee's photo shows beside the name (photo book, not initials)", imgs.count() >= 1 and "9002-aisyah.jpg" in (imgs.first.get_attribute("src") or ""), row.inner_text()[:120])
+    tab(pg, "Claims")
+    pg.wait_for_timeout(1500)
+    cl = pg.locator("tr:has-text('Nur Aisyah')").first
+    check("Claims: the same photo beside the staff name", cl.count() == 1 and cl.locator("img[src*='/api/v1/media/file/']").count() >= 1, cl.inner_text()[:120] if cl.count() else "no row")
+    check("no page errors (quotation task, checklist, photos)", not errs, str(errs)[:300])
+    ctx.close()
     b.close()
 
 fails = [r for r in res if r.startswith("FAIL")]

@@ -133,7 +133,7 @@ ok("failed leave reads cannot silently authorize a booking",
 }
 /* Door 5 — the roster's "assign a task with a slot", which is POST /tasks. */
 {
-  const door = region(`if (path === "/tasks" && method === "POST")`, 3000);
+  const door = region(`if (path === "/tasks" && method === "POST")`, 4200); // v1.246.2 - the quotation link (ensureProject) sits between the leave check and the insert
   ok("POST /tasks checks the block it carries",
      /refuseIfOnLeave\(env, user, assignedTo, bDates,/.test(door));
   ok("...BEFORE the task row is written",

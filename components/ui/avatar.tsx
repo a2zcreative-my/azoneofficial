@@ -12,6 +12,7 @@
  */
 
 import { useState } from "react";
+import { usePhotoBook } from "@/lib/photo-book"; // v1.246.2 - the photo by name when the row has no key
 
 const SIZE = {
   sm: "h-7 w-7 text-[10px] ring-1",
@@ -20,25 +21,31 @@ const SIZE = {
 } as const;
 
 export function Avatar({
-  name, photoKey, size = "md", online,
+  name, photoKey, userId, size = "md", online,
 }: {
   name: string;
-  /** Media key; resolved through the existing /api/v1/media/file route. */
+  /** Media key; resolved through the existing /api/v1/media/file route.
+      Left out (undefined): the photo book is asked by name (v1.246.2).
+      null: deliberately no photo - initials. */
   photoKey?: string | null;
+  /** The staff id, when known - a surer lookup than the name. */
+  userId?: number | null;
   size?: keyof typeof SIZE;
   /** Green presence dot, bottom-right. */
   online?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const book = usePhotoBook();
+  const key = photoKey === undefined ? book.lookup(name, userId) : photoKey;
   const initials = name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
-  const show = photoKey && !failed;
+  const show = key && !failed;
 
   return (
     <span className="relative inline-flex shrink-0">
       {show ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/api/v1/media/file/${encodeURIComponent(photoKey)}`}
+          src={`/api/v1/media/file/${encodeURIComponent(key)}`}
           alt=""
           onError={() => setFailed(true)}
           className={`ring-gold rounded-full object-cover ${SIZE[size]}`}

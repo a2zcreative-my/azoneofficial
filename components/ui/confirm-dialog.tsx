@@ -46,6 +46,8 @@ export function useConfirm() {
   const node = opts ? (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
+      /* v1.246.2 - above a side drawer (--z-drawer 60): asked from inside a drawer, the question used to open BEHIND it */
+      style={{ zIndex: "var(--z-modal)" }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-title"

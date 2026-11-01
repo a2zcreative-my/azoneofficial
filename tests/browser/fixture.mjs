@@ -220,6 +220,11 @@ function baseFixture(p) {
   if (p === "/staff/payroll") data = { entries: [], release: { available_from: "2026-10-05 10:00:00", released: null, employer: "A2Z Creative Marketing", can_release: ["super_admin", "ceo", "coo"].includes(ROLE), can_record_paid: ["super_admin", "ceo", "coo"].includes(ROLE) } };
   if (p === "/staff/hankeis") data = { can: { order_create: true, payment_verify: true, pack: true, settings: true }, counts: { awaiting_payment: 1, verified: 2 }, money: { verified_cents: 12000 }, open_exceptions: 0, outbox_pending: 0, recent: [{ id: 1, order_no: "HK-0001", total_cents: 6000, order_state: "open", payment_state: "awaiting_payment", fulfilment_state: "pending", created_at: "2026-09-20 10:00:00", customer_name: "Aina" }], setup: { qr_configured: true, recipient_configured: true, account_configured: true, ocr_available: false } };
   if (p === "/staff/hankeis/catalogue") data = { products: [], packages: [] };
+  /* v1.246.1 - one active package for the Create form's picker (Clear selection test) */
+  if (p === "/staff/packages") data = { can_manage: ["super_admin", "ceo", "coo"].includes(ROLE), packages: [
+    { id: 71, name: "Fixture Video Pack", category: "Video", description: "Fixture package", kind: "service", issuers: ["a2z", "azoo"], status: "active", current_version: 3,
+      updated_at: "2026-09-10 02:00:00", updated_by_name: "Fixture COO", item_count: 1, discount_cents: 5000, subtotal_cents: 70000, total_cents: 65000, used_by: 0,
+      items: [{ name: "Fixture video content", qty: 1, unit_price_cents: 70000, sub: ["Fixture concept line", "Fixture editing line"] }] }] };
   if (p === "/staff/hankeis/customers") data = { customers: [] };
   if (p === "/staff/sales-performance/overview") Object.assign(data, { me: 9001, can_manage: true, today: "2026-09-16", days: 1, tiktok_orders: [], range: { from: "2026-09-16", to: "2026-09-16", label: "today" } });
   return data === fallback ? undefined : data;
@@ -545,7 +550,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.200.0 - a task's scope checklist, with who ticked what */
   if (/^\/staff\/tasks\/\d+\/items$/.test(p)) {
     const id = Number(p.split("/")[3]);
-    data = { items: id === 5 ? [
+    /* v1.246.2 - the captured task's own checklist (the drawer reads it here) */
+    const cap = (id === 801 || id === 802) && TASKS_CAP ? (taskViewFor(`/staff/tasks/${id}`)?.task?.items ?? []) : null;
+    data = { items: cap ? cap.map((i) => ({ id: i.id, title: i.title, done: i.done, done_at: i.done_at ?? null, done_by_name: i.done_by_name ?? null })) : id === 5 ? [
       { id: 51, title: "Read the three campaign briefs", done: 1, done_at: D + "14 03:00:00", done_by_name: "Fixture Person" },
       { id: 52, title: "Check the budget line", done: 0 },
       { id: 53, title: "Reply to Nur Aisyah", done: 0 },
@@ -1357,7 +1364,13 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     pending_migration: false,
   };
   if (p === "/staff/finance/pnl" || p === "/finance/pnl") data = { month: "2026-09", revenue_cents: 2000000, cogs_cents: 300000, expenses_cents: 1800000, net_cents: -100000, rows: [] };
-  if (p0.startsWith("/staff/projects")) { const pj = projectFor(p0, made); if (pj !== undefined) data = pj; }
+  /* v1.246.2 - the photo book: every staff row with a photo (the Avatar looks names up here) */
+  if (p0 === "/staff/photo-book") data = { people: staff.filter((u) => u.photo_key).map((u) => ({ id: u.id, name: u.name, full_name: u.full_name ?? null, photo_key: u.photo_key })) };
+  /* v1.246.2 - the quotations a task can be set under / that have no project yet */
+  if (p0 === "/staff/projects/quotations") data = { can_manage: ["super_admin", "ceo", "coo", "cco"].includes(ROLE), quotations: [
+    { id: 1, doc_number: "QT-AZO150926-1", company: "Fixture Trading", label: "accepted", project_id: process.env.PROJECT === "none" && !made ? null : 7, project_status: "in_progress", project_title: "Fixture project" },
+    { id: 2, doc_number: "QT-AZO160926-2", company: "Zainab Kitchen", label: "open", project_id: null, project_status: null, project_title: null }] };
+  else if (p0.startsWith("/staff/projects")) { const pj = projectFor(p0, made); if (pj !== undefined) data = pj; }
   if (/^\/staff\/tasks\/\d+/.test(p0)) { const tv = taskViewFor(p0); if (tv !== undefined) data = tv; }
   if (p0 === "/staff/tasks" && data?.tasks && process.env.TASKP) data = { ...data, tasks: [...taskListExtra(q.get("all") === "1"), ...data.tasks] };
   if (data === undefined) { onMissing(p0); return {}; }

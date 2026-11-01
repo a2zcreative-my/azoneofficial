@@ -111,14 +111,58 @@ export async function projectAccess(env: Env, user: StaffUser, p: ProjectRow): P
 /** For staff.ts: may this person create a task on project #id, or reassign /
     edit a project task? The project's owner and project_manage, while the
     project is open. Returns null when allowed, else the Response. */
+/* v1.246.2 - ONE way a project comes to exist: from its quotation, by the
+   quotation's salesperson, its creator or the CEO, COO or CCO - pressed on
+   the quotation page, on the Projects board, or implied by a task set under
+   the quotation. The Owner is chosen by management afterwards (P-2); until
+   then the quotation's salesperson may set tasks under it (projectTaskGate).
+   UNIQUE(quotation_id): two presses that cross make one. */
+export async function ensureProject(env: Env, user: StaffUser, qid: number): Promise<{ id: number; existing: boolean } | Response> {
+  let qt: QtRow | null = null;
+  try { qt = await loadQt(env, qid); } catch (e) { if (missing(e)) return MIGRATION(); throw e; }
+  if (!qt) return err("not_found", "Quotation not found", 404);
+  /* an existing project is simply found (its own gates decide what the
+     caller may do with it); creating one is for the people below */
+  const existing = await env.DB.prepare(`SELECT id FROM projects WHERE quotation_id = ?1`).bind(qid).first<{ id: number }>();
+  if (existing) return { id: existing.id, existing: true };
+  const manager = can(user.role, "project_manage");
+  const mayCreate = manager || qt.salesperson_id === user.id || qt.created_by === user.id;
+  if (!mayCreate) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO create its project brief", 403);
+  const cust = await env.DB.prepare(`SELECT id, company FROM customers WHERE id = ?1`).bind(qt.customer_id).first<{ id: number; company: string }>();
+  if (!cust) return err("invalid_input", "The quotation's customer was not found", 409);
+  let title = `${cust.company} - ${qt.doc_number}`;
+  if (qt.package_id) {
+    const pk = await env.DB.prepare(`SELECT name FROM sales_packages WHERE id = ?1`).bind(qt.package_id).first<{ name: string }>().catch(() => null);
+    if (pk?.name) title = `${pk.name} - ${cust.company}`;
+  }
+  const ins = await env.DB.prepare(
+    `INSERT INTO projects (quotation_id, customer_id, title, status, created_by, updated_by) VALUES (?1, ?2, ?3, 'draft', ?4, ?4)
+     ON CONFLICT(quotation_id) DO NOTHING RETURNING id`,
+  ).bind(qid, qt.customer_id, title.slice(0, 200), user.id).first<{ id: number }>();
+  if (!ins) {
+    const again = await env.DB.prepare(`SELECT id FROM projects WHERE quotation_id = ?1`).bind(qid).first<{ id: number }>();
+    return { id: again?.id ?? 0, existing: true };
+  }
+  await audit(env, user.id, "project.create", "projects", String(ins.id), { quotation_id: qid, doc_number: qt.doc_number });
+  return { id: ins.id, existing: false };
+}
 export async function projectTaskGate(env: Env, user: StaffUser, projectId: number): Promise<Response | null> {
   let p: ProjectRow | null = null;
   try { p = await loadProject(env, projectId); } catch (e) { if (missing(e)) return MIGRATION(); throw e; }
   if (!p) return err("not_found", "That project was not found", 404);
   if (!OPEN.includes(p.status)) return err("project_closed", `This project is ${p.status.replace("_", " ")} - its tasks no longer change`, 409);
   const a = await projectAccess(env, user, p);
-  if (!a.manage) return err("forbidden", "Only the Project Owner or the CEO, COO or CCO manage this project's tasks", 403);
-  return null;
+  if (a.manage) return null;
+  /* v1.246.2 - no Owner chosen yet: the quotation's own salesperson (or
+     whoever raised it) sets its first tasks - they are the ones who know the
+     work, and the owner asked for a task to "capture the quotation" from
+     the Create Task drawer. Once an Owner is named, the Owner and management
+     run the tasks, as before. */
+  if (p.owner_id == null) {
+    const qt = await env.DB.prepare(`SELECT salesperson_id, created_by FROM sales_documents WHERE id = ?1`).bind(p.quotation_id).first<{ salesperson_id: number | null; created_by: number | null }>();
+    if (qt && (qt.salesperson_id === user.id || qt.created_by === user.id)) return null;
+  }
+  return err("forbidden", "Only the Project Owner or the CEO, COO or CCO manage this project's tasks", 403);
 }
 /** For staff.ts: the project a task belongs to, if any. */
 export async function taskProject(env: Env, taskId: number | string): Promise<number | null> {
@@ -222,30 +266,33 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (path === "/projects" && method === "POST") {
     const qid = typeof body?.quotation_id === "number" ? body.quotation_id : NaN;
     if (!Number.isInteger(qid)) return err("invalid_input", "quotation_id is required", 400);
-    const qt = await loadQt(env, qid);
-    if (!qt) return err("not_found", "Quotation not found", 404);
-    const mayCreate = can(user.role, "project_manage") || qt.salesperson_id === user.id || qt.created_by === user.id;
-    if (!mayCreate) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO create its project brief", 403);
-    const cust = await env.DB.prepare(`SELECT id, company FROM customers WHERE id = ?1`).bind(qt.customer_id).first<{ id: number; company: string }>();
-    if (!cust) return err("invalid_input", "The quotation's customer was not found", 409);
-    const existing = await env.DB.prepare(`SELECT id FROM projects WHERE quotation_id = ?1`).bind(qid).first<{ id: number }>();
-    if (existing) return json({ id: existing.id, existing: true });
-    let title = `${cust.company} - ${qt.doc_number}`;
-    if (qt.package_id) {
-      const pk = await env.DB.prepare(`SELECT name FROM sales_packages WHERE id = ?1`).bind(qt.package_id).first<{ name: string }>().catch(() => null);
-      if (pk?.name) title = `${pk.name} - ${cust.company}`;
+    const made = await ensureProject(env, user, qid);
+    if (made instanceof Response) return made;
+    return json(made, made.existing ? 200 : 201);
+  }
+
+  /* v1.246.2 - the quotations a task can be set under (the Create Task
+     drawer) and the ones with no project yet (the Projects board). The CEO,
+     COO and CCO see every live quotation; a salesperson sees their own. */
+  if (path === "/projects/quotations" && method === "GET") {
+    const all = can(user.role, "project_manage");
+    const rows = (await env.DB.prepare(
+      `SELECT d.id, d.doc_number, d.valid_until, d.revision, d.salesperson_id, d.created_by, c.company,
+              p.id AS project_id, p.status AS project_status, p.title AS project_title
+         FROM sales_documents d JOIN customers c ON c.id = d.customer_id
+         LEFT JOIN projects p ON p.quotation_id = d.id
+        WHERE d.doc_type = 'QT' AND COALESCE(d.void_reason, '') = '' AND d.created_at >= datetime('now', '-365 days')
+          AND (?1 = 1 OR d.salesperson_id = ?2 OR d.created_by = ?2)
+          AND COALESCE(p.status, 'draft') NOT IN ('completed', 'cancelled')
+        ORDER BY d.id DESC LIMIT 300`,
+    ).bind(all ? 1 : 0, user.id).all<QtRow & { company: string; project_id: number | null; project_status: string | null; project_title: string | null }>().catch(() => ({ results: [] as (QtRow & { company: string; project_id: number | null; project_status: string | null; project_title: string | null })[] }))).results;
+    const out = [];
+    for (const r of rows) {
+      const st = await quotationState(env, r);
+      if (st.expired && !r.project_id) continue; // an expired, unaccepted quotation is revised first
+      out.push({ id: r.id, doc_number: r.doc_number, company: r.company, label: st.label, project_id: r.project_id, project_status: r.project_status, project_title: r.project_title });
     }
-    /* UNIQUE(quotation_id): two presses that cross make one project */
-    const ins = await env.DB.prepare(
-      `INSERT INTO projects (quotation_id, customer_id, title, status, created_by, updated_by) VALUES (?1, ?2, ?3, 'draft', ?4, ?4)
-       ON CONFLICT(quotation_id) DO NOTHING RETURNING id`,
-    ).bind(qid, qt.customer_id, title.slice(0, 200), user.id).first<{ id: number }>();
-    if (!ins) {
-      const again = await env.DB.prepare(`SELECT id FROM projects WHERE quotation_id = ?1`).bind(qid).first<{ id: number }>();
-      return json({ id: again?.id, existing: true });
-    }
-    await audit(env, user.id, "project.create", "projects", String(ins.id), { quotation_id: qid, doc_number: qt.doc_number });
-    return json({ id: ins.id, existing: false }, 201);
+    return json({ quotations: out, can_manage: all });
   }
 
   const m = /^\/projects\/(\d+)(\/[a-z]+)?(?:\/(\d+))?$/.exec(path);

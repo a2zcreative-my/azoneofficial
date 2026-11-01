@@ -81,6 +81,7 @@ export function usePrompt() {
 
   const node = opts ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
+      style={{ zIndex: "var(--z-modal)" }} /* v1.246.2 - above a side drawer, like the confirm dialog */
       role="dialog" aria-modal="true" aria-labelledby="prompt-title" onClick={() => close(null)}>
       <style>{`
         @keyframes prompt-pop { 0% { opacity: 0; transform: scale(.9) translateY(10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }

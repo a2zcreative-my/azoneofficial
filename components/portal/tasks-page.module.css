@@ -375,6 +375,57 @@
   color: var(--muted-foreground);
   text-decoration: line-through;
 }
+.itemText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.itemCmds {
+  display: inline-flex;
+  gap: 0.125rem;
+  flex-shrink: 0;
+}
+.itemBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.itemBtn:hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.itemBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.itemBtnDanger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.itemEdit,
+.itemAdd {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0;
+}
+.itemEdit input,
+.itemAdd input {
+  flex: 1;
+  min-width: 0;
+}
+.itemAdd {
+  margin-top: 0.25rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
 .itemBy {
   display: inline-block;
   margin-left: 0.25rem;

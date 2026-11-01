@@ -546,6 +546,8 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
       : k.startsWith("stage:") ? (k.slice(6) === "none" ? "Back to work" : `Stage → ${({ waiting_client: "waiting for client", blocked: "blocked", review: "ready for review", cancelled: "cancelled" } as Record<string, string>)[k.slice(6)] ?? k.slice(6)}`)
       : k.startsWith("item_done:") ? `Ticked "${items.get(Number(k.slice(10))) ?? "an item"}"`
       : k.startsWith("item_undone:") ? `Unticked "${items.get(Number(k.slice(12))) ?? "an item"}"`
+      : k.startsWith("item_added:") ? (items.has(Number(k.slice(11))) ? `Added "${items.get(Number(k.slice(11)))}" to the checklist` : "Added a deliverable to the checklist (since removed)")
+      : k.startsWith("item_removed:") ? `Removed "${k.slice(13).replace(/^\d+:/, "")}" from the checklist`
       : k === "scope_done" ? "Every checklist item is done"
       : k === "ack_nudge" ? "Reminder: not acknowledged yet" : k === "due_reminder" ? "Reminder: due soon" : k === "overdue_alert" ? "Reminder: overdue"
       : k.startsWith("assist_") ? "" : k;

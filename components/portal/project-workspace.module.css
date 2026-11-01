@@ -217,3 +217,9 @@
 }
 @media (max-width: 900px) { .factsRow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .head .bar { min-width: 9rem; }
+
+/* v1.246.2 - quotations with no project yet, under the Projects list */
+.unstarted { display: grid; gap: 0.5rem; margin-top: 1rem; padding-top: 0.875rem; border-top: 1px dashed var(--border); }
+.unstarted .pitem { cursor: default; }
+.unstarted .pitem:hover { background: var(--card); }
+.problem { margin: 0; font-size: var(--type-caption-size); color: var(--danger); }

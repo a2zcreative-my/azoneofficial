@@ -666,12 +666,28 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
   const [picked, setOpen] = useState<number | null>(null);
   const open = picked ?? openId ?? null;
   const [tick, setTick] = useState(0);
+  /* v1.246.2 - the quotations with no project yet (mine, or every live one
+     for the CEO, COO and CCO): a project starts from here too, not only from
+     the quotation page in Sales */
+  const [unstarted, setUnstarted] = useState<{ id: number; doc_number: string; company: string; label: string }[]>([]);
+  const [starting, setStarting] = useState<number | null>(null);
+  const [startErr, setStartErr] = useState("");
   useEffect(() => {
     let alive = true;
     void api<{ projects: PRow[] }>(`/staff/projects?scope=${scope}`).then((r) => { if (alive) setRows(r.data?.projects ?? []); });
+    void api<{ quotations: { id: number; doc_number: string; company: string; label: string; project_id: number | null }[] }>(`/staff/projects/quotations`)
+      .then((r) => { if (alive) setUnstarted((r.data?.quotations ?? []).filter((q) => !q.project_id)); });
     return () => { alive = false; };
   }, [scope, tick]);
   const choose = (id: number | null) => { setOpen(id); onOpen?.(id); };
+  const start = async (qid: number) => {
+    setStarting(qid); setStartErr("");
+    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: qid }) });
+    setStarting(null);
+    if (!r.ok || !r.data?.id) { setStartErr(r.data?.error?.message ?? L("Not started", "Tidak dimulakan")); return; }
+    setTick((n) => n + 1);
+    choose(r.data.id);
+  };
   if (open) {
     return (
       <div className={pw.wrap}>
@@ -696,7 +712,7 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
             ))}
           </div>
         </div>
-        {rows === null ? <SkelRows rows={4} /> : rows.length === 0 ? <p className={pw.empty}>{scope === "all" ? L("No projects yet. A project brief is created from a quotation in Sales.", "Belum ada projek. Ringkasan projek dicipta daripada sebut harga di Jualan.") : L("Nothing here — try All.", "Tiada di sini — cuba Semua.")}</p> : (
+        {rows === null ? <SkelRows rows={4} /> : rows.length === 0 ? <p className={pw.empty}>{scope === "all" ? L("No projects yet. Start one from a quotation below, or set a task under a quotation in Create Task.", "Belum ada projek. Mulakan daripada sebut harga di bawah, atau tetapkan tugasan di bawah sebut harga dalam Buat Tugasan.") : L("Nothing here — try All.", "Tiada di sini — cuba Semua.")}</p> : (
           <div className={pw.plist}>
             {rows.map((r) => (
               <button key={r.id} type="button" className={pw.pitem} onClick={() => choose(r.id)} data-project={r.id}>
@@ -706,6 +722,22 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
                 <span><ProjectStatusChip status={r.status} />{r.my_open > 0 && <span className={chipSmInfo} style={{ marginLeft: "0.375rem" }}>{L(`${r.my_open} mine`, `${r.my_open} saya`)}</span>}</span>
               </button>
             ))}
+          </div>
+        )}
+        {unstarted.length > 0 && (
+          <div className={pw.unstarted} data-testid="unstarted-quotations">
+            <p className={pw.pSub}>{L(`Quotations without a project (${unstarted.length})`, `Sebut harga tanpa projek (${unstarted.length})`)}</p>
+            {startErr && <p className={pw.problem} role="alert">{startErr}</p>}
+            <div className={pw.plist}>
+              {unstarted.map((q) => (
+                <div key={q.id} className={pw.pitem} data-quotation={q.id}>
+                  <span><p className={pw.pTitle}>{q.doc_number}</p><p className={pw.pSub}>{q.company} · {q.label}</p></span>
+                  <span />
+                  <span />
+                  <span><button type="button" className={btnSm} disabled={starting === q.id} onClick={() => void start(q.id)}><AppIcon name="add" />{starting === q.id ? L("Starting…", "Memulakan…") : L("Start project", "Mulakan projek")}</button></span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

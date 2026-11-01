@@ -1353,7 +1353,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                             <td data-label={L("Applied", "Dimohon")} className={lv.muted}>{l.created_at ? dmy(l.created_at.slice(0, 10)) : "—"}</td>
                             <td className={lv.personCell}>
                               <button type="button" className={lv.person} onClick={() => setDrawerId(l.id)} title={L("Open the application", "Buka permohonan")}>
-                                <Avatar name={who(l)} size="sm" />
+                                <Avatar name={who(l)} userId={l.user_id} size="sm" />
                                 <span className={lv.personText}><strong>{who(l)}</strong><span>{l.user_department || l.user_position || "—"}</span></span>
                               </button>
                             </td>

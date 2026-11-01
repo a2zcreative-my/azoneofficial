@@ -306,6 +306,45 @@ async function runtime(workerBundle) {
     const arch = (await call("/staff/tasks?all=1&archive=1", U.ceo)).j;
     ok(Array.isArray(arch?.tasks) && arch.tasks.every((t) => t.status === "completed"), "A9 the archive pages the closed ones");
 
+    /* ---------- v1.246.2 a task set UNDER A QUOTATION (the owner, 01-11-2026) ---------- */
+    const lq = (await call("/staff/projects/quotations", U.lia)).j;
+    ok(lq?.can_manage === false && lq?.quotations?.some((q) => q.id === 102 && q.project_id === null) && !lq?.quotations?.some((q) => q.id === 100), "Q1 a salesperson sees their own live quotations to set a task under, not a colleague's", JSON.stringify(lq?.quotations?.map((q) => q.id)));
+    const cq = (await call("/staff/projects/quotations", U.ceo)).j;
+    ok(cq?.can_manage === true && [100, 102].every((id) => cq?.quotations?.some((q) => q.id === id)) && !cq?.quotations?.some((q) => q.id === 101), "Q1 the CEO sees every live quotation; an expired one with no project is left out (revise it first)", JSON.stringify(cq?.quotations?.map((q) => q.id)));
+    ok((await call("/staff/tasks", U.ed, "POST", { title: "Sneak in", quotation_id: 102 })).status === 403 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 0 && (await call("/staff/tasks", U.lia, "POST", { title: "Not mine", quotation_id: 100 })).status === 403, "Q2 a task under somebody else's quotation is refused, and no project appears for it (editor; a salesperson on a colleague's)");
+    const lt = await call("/staff/tasks", U.lia, "POST", { title: "Shoot day", quotation_id: 102, items: ["Book the studio", "Shoot"] });
+    const LT = lt.j?.id ?? 999999;
+    const lp = db.prepare(`SELECT id, owner_id, status FROM projects WHERE quotation_id = 102`).get();
+    const ltd = (await call(`/staff/tasks/${LT}`, U.lia)).j?.task;
+    ok(lt.status === 201 && lp && lp.owner_id === null && lp.status === "draft" && ltd?.link?.kind === "project" && ltd?.link?.project_id === lp.id && ltd?.link?.quotation === "QT-2026-0019", "Q3 a salesperson's task under their own quotation creates its project (draft, Owner still to be chosen - P-2) and joins it", `${lt.text.slice(0, 120)} ${JSON.stringify(lp)}`);
+    ok(lastAudit("project.create").quotation_id === 102 && ((await call("/staff/projects?scope=assigned", U.lia)).j?.projects ?? []).some((p) => p.id === lp?.id) && (await call(`/staff/projects/by-quotation/102`, U.ceo)).j?.project?.id === lp?.id, "Q3 the project is audited, under the salesperson's Projects (I'm on), and on the quotation page");
+    ok((await call("/staff/tasks", U.aina, "POST", { title: "Not my project", quotation_id: 102 })).status === 403, "Q3 a colleague who is not the quotation's salesperson cannot set tasks under it");
+    const ct = await call("/staff/tasks", U.ceo, "POST", { title: "Approve the storyboard", assigned_to: U.lia, quotation_id: 102 });
+    ok(ct.status === 201 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 1 && n(`SELECT COUNT(*) AS n FROM tasks WHERE link_kind = 'project' AND link_id = ${lp?.id}`) === 2, "Q4 the CEO's task under the same quotation joins the one project - no second project", ct.text.slice(0, 120));
+    ok(!((await call("/staff/projects/quotations", U.ceo)).j?.quotations ?? []).some((q) => q.id === 102 && q.project_id === null), "Q4 the quotation no longer counts as 'without a project'");
+
+
+    /* ---------- v1.246.2 the checklist is edited, not only ticked ---------- */
+    ok((await call(`/staff/tasks/${LT}/items`, U.ed, "POST", { title: "Hijack" })).status === 403 && (await call(`/staff/tasks/${LT}/items`, U.mira, "POST", { title: "Hijack" })).status === 403, "C1 staff not on the task cannot add a deliverable");
+    const add = await call(`/staff/tasks/${LT}/items`, U.lia, "POST", { title: "Edit the reel" });
+    const items1 = (await call(`/staff/tasks/${LT}/items`, U.lia)).j?.items ?? [];
+    ok(add.status === 201 && add.j?.count === 3 && items1.length === 3 && items1[2]?.title === "Edit the reel", "C2 the assignee adds a deliverable (after the others)", add.text.slice(0, 120));
+    ok((await call(`/staff/tasks/${LT}/items`, U.lia, "POST", { title: "x" })).status === 400, "C2 a one-letter deliverable is refused");
+    await call(`/staff/tasks/${LT}/items/${items1[0].id}/toggle`, U.lia, "POST", {});
+    const ren = await call(`/staff/tasks/${LT}/items/${items1[1].id}`, U.ceo, "PATCH", { title: "Shoot (two days)" });
+    const items2 = (await call(`/staff/tasks/${LT}/items`, U.lia)).j?.items ?? [];
+    ok(ren.status === 200 && items2[1]?.title === "Shoot (two days)" && lastAudit("task.item_rename").from === "Shoot", "C3 a manager renames a deliverable; the old and new wording are audited");
+    const del = await call(`/staff/tasks/${LT}/items/${items1[2].id}`, U.lia, "DELETE");
+    const ltAfter = db.prepare(`SELECT progress, progress_source FROM tasks WHERE id = ?`).get(LT);
+    ok(del.status === 200 && del.j?.count === 2 && del.j?.progress === 50 && ltAfter?.progress === 50 && ltAfter?.progress_source === "checklist", "C4 removing a deliverable recounts the progress from the list (1 of 2 ticked = 50%)", `${del.text.slice(0, 100)} ${JSON.stringify(ltAfter)}`);
+    const actC = (await call(`/staff/tasks/${LT}/activity`, U.lia)).j;
+    ok((actC?.activity ?? []).some((e) => e.text === "Added a deliverable to the checklist (since removed)") && (actC?.activity ?? []).some((e) => e.text === "Removed \"Edit the reel\" from the checklist"), "C5 the add and the removal are on the task's activity", JSON.stringify((actC?.activity ?? []).map((e) => e.text)));
+    ok((await call(`/staff/tasks/${T1}/items`, U.ceo, "POST", { title: "Too late" })).status === 409, "C6 a closed task's checklist no longer changes");
+    const own = await call(`/staff/projects/${lp?.id}/owner`, U.ceo, "POST", { owner_id: U.hana });
+    const q5a = await call("/staff/tasks", U.lia, "POST", { title: "After the owner", quotation_id: 102 });
+    const q5b = await call("/staff/tasks", U.hana, "POST", { title: "Owner's task", quotation_id: 102 });
+    ok(own.status === 200 && q5a.status === 403 && q5b.status === 201, "Q5 once an Owner is named, the Owner (not the salesperson) sets the project's tasks - the 1.245.0 rule", `${own.status} ${q5a.status} ${q5b.status} ${q5b.text.slice(0, 100)}`);
+
     /* ---------- S22 boundaries ---------- */
     ok((await call(`/staff/tasks/${PT}`, U.shop)).status === 403 && (await call(`/staff/tasks/${PT}/updates`, U.shop)).status === 403, "S22 a customer account opens no task route");
     ok(money() === money0, "S22 nothing in Sales, Commission, Payroll, the cash book or part payments was written by any task action");
@@ -352,6 +391,10 @@ const MUT = [
   ["worker/src/tasks-progress.ts", "a helper opens a restricted file", "    if (f.level === \"restricted\" && !(a.manage || a.review || a.creator)) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "the open tasks are cut at 200 again", "AND t.status != 'completed' ORDER BY t.created_at DESC`)", "AND t.status != 'completed' ORDER BY t.created_at DESC LIMIT 200`)"],
   ["worker/src/tasks-progress.ts", "an offer to help counts as the latest update", "export const LATEST_KINDS = [\"progress\",", "export const LATEST_KINDS = [\"assist_request\", \"progress\","],
+  /* v1.246.2 */
+  ["worker/src/projects.ts", "anybody sets a task under any quotation", "  if (!mayCreate) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO create its project brief\", 403);", "  if (false) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO create its project brief\", 403);"],
+  ["worker/src/staff.ts", "anybody edits any task's checklist", "    if (!ta.assignee && !ta.creator && !ta.manage) return err(\"forbidden\", \"Only the assignee, the person who set the task, or a manager edits its checklist\", 403);", "    if (false) return err(\"forbidden\", \"Only the assignee, the person who set the task, or a manager edits its checklist\", 403);"],
+  ["worker/src/staff.ts", "removing a deliverable leaves the old percentage", "      await env.DB.prepare(`UPDATE tasks SET progress = ?1, progress_source = CASE WHEN ?3 > 0 THEN 'checklist' ELSE progress_source END WHERE id = ?2`).bind(progress, t.id, Number(agg?.n ?? 0)).run();", "      if (method !== \"DELETE\") await env.DB.prepare(`UPDATE tasks SET progress = ?1, progress_source = CASE WHEN ?3 > 0 THEN 'checklist' ELSE progress_source END WHERE id = ?2`).bind(progress, t.id, Number(agg?.n ?? 0)).run();"],
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   n++;

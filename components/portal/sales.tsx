@@ -1303,6 +1303,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      The lines are the form's own (doc.items); this is only the reference the
      quotation saves (package_id + package_version). */
   const [pkgRef, setPkgRef] = useState<(PackageRef & { issuers?: string[] }) | null>(null);
+  /* v1.246.1 - what the form held just before a package was applied, and the
+     lines as the package wrote them, so Clear selection takes the package's
+     lines and discount back out instead of leaving them behind. */
+  const pkgUndo = useRef<{ items: DocItem[]; discount_cents: number; kind: typeof doc.kind; delivery_cents: number; applied: string } | null>(null);
   // v1.4.96: aligned with the worker's finance permission — sales_marketing
   // creates QT/DO; invoices are created by finance roles ON THEIR BEHALF via
   // the Sales person dropdown (that's the attribution mechanism).
@@ -1554,6 +1558,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
        (readable even if the package has since been archived) */
     const fp = full as { package_id?: number | null; package_version?: number | null };
     setPkgRef(null);
+    pkgUndo.current = null;
     if (full.doc_type === "QT" && fp.package_id) {
       const ref = { id: fp.package_id, version: Number(fp.package_version ?? 1) };
       void api<{ package?: { name: string; issuers: string[] } }>(`/staff/packages/${ref.id}?version=${ref.version}`).then((r) =>
@@ -1579,6 +1584,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     setPaidDate("");
     setEditingDoc(null);
     setPkgRef(null);
+    pkgUndo.current = null;
   };
 
   /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
@@ -1703,18 +1709,47 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      it always was - edit, add, remove, preview, save. */
   const applyPackage = (p: PackageRow, mode: "replace" | "add") => {
     const lines: DocItem[] = p.items.map((i) => ({ ...i, sub: i.sub ? [...i.sub] : undefined }));
-    setDoc((d) => {
-      const kept = d.items.filter((it) => (it.name.trim() || it.unit_price_cents > 0) && !it.sku);
-      return {
-        ...d,
-        kind: "service",
-        delivery_cents: 0,
-        items: mode === "add" && kept.length ? [...kept, ...lines] : lines,
-        discount_cents: mode === "add" ? d.discount_cents + p.discount_cents : p.discount_cents,
-      };
-    });
+    const kept = doc.items.filter((it) => (it.name.trim() || it.unit_price_cents > 0) && !it.sku);
+    const items = mode === "add" && kept.length ? [...kept, ...lines] : lines;
+    // the state to go back to: the lines from before (kept ones on "add"; on a
+    // second package, the state before the first one), never the package lines
+    pkgUndo.current = pkgRef && pkgUndo.current
+      ? { ...pkgUndo.current, applied: JSON.stringify(items) }
+      : { items: mode === "add" ? kept : [], discount_cents: mode === "add" ? doc.discount_cents : 0, kind: doc.kind, delivery_cents: doc.delivery_cents, applied: JSON.stringify(items) };
+    setDoc((d) => ({
+      ...d,
+      kind: "service",
+      delivery_cents: 0,
+      items,
+      discount_cents: mode === "add" ? d.discount_cents + p.discount_cents : p.discount_cents,
+    }));
     setPkgRef({ id: p.id, version: p.current_version, name: p.name, issuers: p.issuers });
     showToast(L("Package applied", "Pakej digunakan"), L(`${p.name}: ${p.item_count} line(s) copied into this quotation. Edit them as needed.`, `${p.name}: ${p.item_count} baris disalin ke sebut harga ini. Sunting mengikut keperluan.`));
+  };
+  /* v1.246.1 - CLEAR SELECTION takes the package off the quotation: its
+     lines (descriptions included) and its discount leave the form, and the
+     lines that were there before it come back (a blank line when there were
+     none). Lines edited after applying are not thrown away without asking. */
+  const clearPackage = async () => {
+    const undo = pkgUndo.current;
+    const edited = undo ? JSON.stringify(doc.items) !== undo.applied : doc.items.some((it) => it.name.trim() || it.unit_price_cents > 0);
+    if (edited) {
+      const go = await askConfirm({
+        title: L("Remove the package lines?", "Buang baris pakej?"),
+        message: L("The lines on this quotation were changed after the package was applied. Clearing removes them and the package discount.", "Baris sebut harga ini telah diubah selepas pakej digunakan. Mengosongkan akan membuang baris itu dan diskaun pakej."),
+        confirmLabel: L("Clear package", "Kosongkan pakej"),
+      });
+      if (!go) return;
+    }
+    setDoc((d) => {
+      const back = undo?.items.length ? undo.items : [{ name: "", qty: 1, unit_price_cents: 0 }];
+      return undo
+        ? { ...d, items: back, discount_cents: undo.discount_cents, kind: undo.kind, delivery_cents: undo.delivery_cents }
+        : { ...d, items: back, discount_cents: 0 };
+    });
+    pkgUndo.current = null;
+    setPkgRef(null);
+    showToast(L("Package cleared", "Pakej dikosongkan"), L("Its lines and discount were removed from this quotation.", "Baris dan diskaunnya telah dibuang daripada sebut harga ini."));
   };
   const createDoc = async () => {
     // v1.4.94: silent returns were why "nothing saved" — every stop now says why.
@@ -2642,7 +2677,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 <PackagePicker issuer={doc.issuer} applied={pkgRef}
                   hasLines={doc.items.filter((it) => it.name.trim() || it.unit_price_cents > 0).length}
                   canAdd={doc.kind === "service" || !doc.items.some((it) => it.sku)}
-                  onApply={applyPackage} onClear={() => setPkgRef(null)} />
+                  onApply={applyPackage} onClear={() => void clearPackage()} />
               </div>
             )}
             {/* ---- the lines, under the paper's own column headers ---- */}
