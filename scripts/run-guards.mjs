@@ -53,7 +53,8 @@
  * still has to be run before a release, so their absence is on the record
  * instead of being quietly forgotten.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { cpus } from "node:os";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -236,61 +237,91 @@ console.log(`\nRunning ${GUARDS.length} guards before anything is published.\n`)
 
 /* One number per guard, used by the call and by the message that reports
    it - a hard-coded "120s" in the text is how a message starts lying about
-   the thing it describes. Most guards finish in seconds and keep 120s.
+   the thing it describes. The budget catches a guard that HANGS; it is not a
+   speed target.
    v1.245.1 - the go-live runtime guards rebuild the WHOLE worker with esbuild
-   once per mutation (9 to 12 rebuilds each) and run it against SQLite. In the
-   Linux sandbox go-live-b takes ~30s; on the owner's Windows PC each rebuild
-   takes ~13s and on 31-10-2026 go-live-b was killed at 120s during its 9th
-   mutation, after 8 caught - a timeout, not a failure. They get 10 minutes.
-   Nothing they check changes; a guard that hangs is still killed and still
-   stops the release. */
-const GUARD_TIMEOUT_MS = 120_000;
-const SLOW_GUARD_TIMEOUT_MS = 600_000;
+   once per mutation (9 to 12 rebuilds each) and run it against SQLite. On the
+   owner's Windows PC each rebuild takes ~13s and on 31-10-2026 go-live-b was
+   killed at 120s during its 9th mutation, after 8 caught - a timeout, not a
+   failure. And the guards now run SIDE BY SIDE (below), so each one shares
+   the machine and takes longer than it would alone. Budgets: 5 minutes, and
+   15 for the go-live guards. Nothing any guard checks changed; a guard that
+   hangs is still killed and still stops the release. */
+const GUARD_TIMEOUT_MS = 300_000;
+const SLOW_GUARD_TIMEOUT_MS = 900_000;
 const SLOW_GUARDS = new Set(["go-live-a", "go-live-b", "go-live-c", "go-live-d", "go-live-p"]);
-const timeoutFor = (name) => (SLOW_GUARDS.has(name) ? SLOW_GUARD_TIMEOUT_MS : GUARD_TIMEOUT_MS);
+
+/* v1.245.1 - SIDE BY SIDE. The guards are independent processes: each reads
+   the source, bundles into its own mkdtemp() folder and runs against its own
+   in-memory SQLite - none writes into the checkout or shares a temp file. Run
+   one after another they took ~4 minutes in the sandbox and over 10 on the
+   owner's PC; run JOBS at a time (default: the PC's cores less one, at most
+   6) the same guards give the same verdicts in a fraction of that. The
+   longest start first. The report is still printed in the list's order, one
+   line per guard, exactly as before. GUARD_JOBS=1 runs them one at a time. */
+const JOBS = Math.max(1, Math.floor(Number(process.env.GUARD_JOBS)) || Math.min(6, Math.max(1, cpus().length - 1)));
+console.log(`(${JOBS} at a time)\n`);
+
+const runGuard = (name, file, limit) => new Promise((done) => {
+  const started = Date.now();
+  const child = spawn(process.execPath, [file], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "", stderr = "", killed = false;
+  child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (d) => { stdout += d; });
+  child.stderr.on("data", (d) => { stderr += d; });
+  /* v1.148.1 - a guard could in principle keep the event loop alive and
+     never return, hanging the deploy with no output at all. The budget turns
+     that into a named failure instead of a frozen window. */
+  const timer = setTimeout(() => { killed = true; child.kill(); }, limit);
+  const finish = (status, signal) => { clearTimeout(timer); done({ status: killed ? null : status, signal: killed ? (signal ?? "SIGTERM") : signal, stdout, stderr, secs: Math.round((Date.now() - started) / 1000) }); };
+  child.on("error", (e) => { stderr += String(e?.stack ?? e); finish(1, null); });
+  child.on("close", finish);
+});
 
 const failed = [];
-for (const [name, what] of GUARDS) {
-  const file = join(root, "tests", `${name}.mjs`);
-  process.stdout.write(`  ${name.padEnd(24)} `);
-
-  if (!existsSync(file)) {
-    /* A guard file that has gone missing is the worst case: the suite still
-       reports a tidy row of passes, one of them for a check that no longer
-       exists. Treat it as a failure, loudly. */
-    console.log("MISSING");
-    failed.push(`${name} — the guard file is not in this checkout`);
-    continue;
-  }
-
-  /* v1.148.1 - a guard gets 120 seconds. Eighteen of them `await import()` a
-     .ts module, which used to end in process.exit() and abort Node on
-     Windows during loader teardown; they set exitCode now and let Node drain
-     on its own. That is the right fix, and it introduces one new way to fail
-     that did not exist before: a guard could in principle keep the event loop
-     alive and never return, hanging the deploy with no output at all. A
-     timeout turns that into a named failure instead of a frozen window (the
-     go-live runtime guards get longer - see SLOW_GUARDS above). */
-  const limit = timeoutFor(name);
-  const started = Date.now();
-  const run = spawnSync(process.execPath, [file], { cwd: root, encoding: "utf8", timeout: limit });
-  const secs = Math.round((Date.now() - started) / 1000);
-  if (run.status === 0) {
-    /* the slow ones say how long they took, so a budget running thin shows before it runs out */
-    console.log(SLOW_GUARDS.has(name) ? `ok (${secs}s of ${limit / 1000}s)` : "ok");
-  } else {
+const results = new Map();
+let printed = 0;
+const flush = () => {
+  while (printed < GUARDS.length && results.has(GUARDS[printed][0])) {
+    const [name, what] = GUARDS[printed++];
+    const r = results.get(name);
+    process.stdout.write(`  ${name.padEnd(24)} `);
+    if (r.missing) {
+      /* A guard file that has gone missing is the worst case: the suite still
+         reports a tidy row of passes, one of them for a check that no longer
+         exists. Treat it as a failure, loudly. */
+      console.log("MISSING");
+      failed.push(`${name} — the guard file is not in this checkout`);
+      continue;
+    }
+    if (r.status === 0) {
+      /* the slow ones say how long they took, so a budget running thin shows before it runs out */
+      console.log(SLOW_GUARDS.has(name) ? `ok (${r.secs}s of ${r.limit / 1000}s)` : "ok");
+      continue;
+    }
     console.log("FAILED");
-    /* signal SIGTERM with no status is what spawnSync reports on a timeout;
-       say so, because "FAILED" with no output reads like a broken guard. */
-    const timedOut = run.status === null && run.signal !== null;
+    /* no status and a signal is a kill on the budget; say so, because
+       "FAILED" with no output reads like a broken guard. */
+    const timedOut = r.status === null && r.signal !== null;
     failed.push(timedOut
-      ? `${name} — did not finish within ${limit / 1000}s (it was killed, not failed)`
+      ? `${name} — did not finish within ${r.limit / 1000}s (it was killed, not failed)`
       : `${name} — ${what}`);
-    const out = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
+    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
     if (out) console.log(out.split("\n").map((l) => `      ${l}`).join("\n"));
     if (timedOut) console.log("      (no verdict - the guard never returned)");
   }
-}
+};
+const queue = [...GUARDS].sort((a, b) => Number(SLOW_GUARDS.has(b[0])) - Number(SLOW_GUARDS.has(a[0])));
+await Promise.all(Array.from({ length: JOBS }, async () => {
+  for (let g = queue.shift(); g; g = queue.shift()) {
+    const name = g[0];
+    const file = join(root, "tests", `${name}.mjs`);
+    const limit = SLOW_GUARDS.has(name) ? SLOW_GUARD_TIMEOUT_MS : GUARD_TIMEOUT_MS;
+    results.set(name, existsSync(file) ? { ...(await runGuard(name, file, limit)), limit } : { missing: true });
+    flush();
+  }
+}));
+flush();
 
 if (failed.length) {
   console.error("\n============================================");

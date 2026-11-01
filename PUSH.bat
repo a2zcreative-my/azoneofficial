@@ -5,6 +5,7 @@ set "GITFAILED="
 set "HEALTHFAILED="
 set "PREFLIGHT_ARG=--allow-dirty"
 set "SECRETS_MODE="
+set "PORTAL_ONLY="
 title ELFIA + PORTAL - deploy everything
 REM ============================================================
 REM  ONE FILE. DOUBLE-CLICK IT. IT PUTS EVERYTHING LIVE.
@@ -54,6 +55,12 @@ if /I "%~1"=="skip-pre-export" set "PREEXPORT_ARG=--skip"
 if /I "%~2"=="skip-pre-export" set "PREEXPORT_ARG=--skip"
 if /I "%~1"=="secrets" set "SECRETS_MODE=1"
 if /I "%~2"=="secrets" set "SECRETS_MODE=1"
+REM  v1.245.1 - "PUSH.bat portal": the portal only. The ELFIA store is not
+REM  checked, rebuilt, published or saved to GitHub - for a release that
+REM  changes nothing in the shop, it saves the store's 1-2 minutes. Plain
+REM  PUSH.bat still does both, portal first, as it always has.
+if /I "%~1"=="portal" set "PORTAL_ONLY=1"
+if /I "%~2"=="portal" set "PORTAL_ONLY=1"
 
 REM  Which folder am I sitting in? The portal has a wrangler.toml at its
 REM  ROOT (its website is a worker); the store does not (its website is a
@@ -68,6 +75,7 @@ echo   DEPLOY EVERYTHING
 echo   =================
 if defined SECRETS_MODE echo   ^(secrets mode: the Threads credentials will be asked for again^)
 if defined PREFLIGHT_ARG echo   ^(dirty worktree override explicitly requested^)
+if defined PORTAL_ONLY echo   ^(portal only: the ELFIA store is not touched this time^)
 echo   Portal: %PORTAL%
 echo   Store : %STORE%
 echo.
@@ -76,13 +84,15 @@ echo   says DONE.
 echo.
 
 if not exist "%PORTAL%\worker\wrangler.toml" goto :nofolders
-if not exist "%STORE%\worker\wrangler.toml"  goto :nofolders
+if not defined PORTAL_ONLY if not exist "%STORE%\worker\wrangler.toml"  goto :nofolders
 
 echo   [0/7] Reading the shared handoff and checking worktree ownership...
 call node "%PORTAL%\scripts\release-preflight.mjs" --root "%PORTAL%\." --role portal %PREFLIGHT_ARG%
 if errorlevel 1 goto :preflightfailed
-call node "%PORTAL%\scripts\release-preflight.mjs" --root "%STORE%\." --role store %PREFLIGHT_ARG%
-if errorlevel 1 goto :preflightfailed
+if not defined PORTAL_ONLY (
+  call node "%PORTAL%\scripts\release-preflight.mjs" --root "%STORE%\." --role store %PREFLIGHT_ARG%
+  if errorlevel 1 goto :preflightfailed
+)
 
 REM ============================================================
 REM  PORTAL
@@ -120,28 +130,21 @@ if defined SECRETS_MODE (
   call :asksecret THREADS_APP_ID
   call :asksecret THREADS_APP_SECRET
 ) else (
+  REM  v1.245.1 - ONE "wrangler secret list" serves this check and the push
+  REM  keys below, step 2b: each call is a few seconds of npx and a round trip
+  REM  to Cloudflare, and the answer cannot change between the two.
   call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
   set "TH_MISSING="
   findstr /C:"THREADS_APP_ID" "%TEMP%\azone-secrets.txt" >nul
   if errorlevel 1 (set "TH_MISSING=1" & call :asksecret THREADS_APP_ID) else (echo         THREADS_APP_ID is set.)
   findstr /C:"THREADS_APP_SECRET" "%TEMP%\azone-secrets.txt" >nul
   if errorlevel 1 (set "TH_MISSING=1" & call :asksecret THREADS_APP_SECRET) else (echo         THREADS_APP_SECRET is set.)
-  del "%TEMP%\azone-secrets.txt" >nul 2>&1
-  REM  v1.95.2 - THE OFFER, on a timer. Cloudflare returns secret NAMES and
-  REM  never values, so a secret that is set may still be stale, wrong, or
-  REM  one you have just rotated - and this file is double-clicked, so
-  REM  "run it with an argument" was no use. It asks once, waits five
-  REM  seconds, and carries on by itself if nobody answers. A deploy left
-  REM  running in another window still finishes on its own.
-  if "!TH_MISSING!"=="" (
-    choice /C YN /N /T 5 /D N /M "        Replace the Threads credentials now? [y/N] (continuing in 5s) "
-    if errorlevel 2 (
-      echo         Keeping the stored values.
-    ) else (
-      call :asksecret THREADS_APP_ID
-      call :asksecret THREADS_APP_SECRET
-    )
-  )
+  REM  v1.95.2 offered to replace them here on a five-second timer, every
+  REM  run. v1.245.1, the owner on 01-11-2026: make PUSH.bat fast - no wait:
+  REM  set secrets are kept, and replacing them is "PUSH.bat secrets", which
+  REM  asks for both before deploying as usual. Missing ones are still asked
+  REM  for above.
+  if "!TH_MISSING!"=="" echo         Keeping the stored values ^(to replace them: PUSH.bat secrets^).
 )
 cd ..
 
@@ -161,7 +164,8 @@ cd worker
 if defined SECRETS_MODE (
   call :askvapid
 ) else (
-  call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+  REM  the list step 2 saved; read it again only if it is not there
+  if not exist "%TEMP%\azone-secrets.txt" call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
   set "VP_MISSING="
   findstr /C:"VAPID_PUBLIC_KEY" "%TEMP%\azone-secrets.txt" >nul
   if errorlevel 1 set "VP_MISSING=1"
@@ -243,9 +247,11 @@ for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\s
 REM  v1.90.1 - the engine is COMPILED before it is published (the 19-08
 REM  outage: wrangler bundles without checking types, so a line naming
 REM  something that does not exist goes live and every request 500s).
-echo   [4/8] Checking the ENGINE code compiles...
-call node tests\worker-compile-gate.mjs
-if errorlevel 1 goto :failed
+REM  v1.245.1 - that compile is the guard worker-compile-gate, which the
+REM  next step runs with every other guard. It used to run here a second
+REM  time first - the same full type check twice, about half a minute on
+REM  the owner's PC for nothing. It still runs, once, and still stops the
+REM  portal if the engine does not compile.
 
 REM  v1.139.0 - AND EVERY OTHER GUARD, BEFORE ANYTHING IS PUBLISHED.
 REM  The 08-09 audit found that this file ran exactly one of the 63 guards.
@@ -254,7 +260,7 @@ REM  command - so a broken authorization rule, a wrong bridge price or a
 REM  silent delete went live first and was reported in a build log
 REM  afterwards. run-guards installs the API's type definitions itself if
 REM  they are missing, so this needs nothing else.
-echo   [5/8] Checking every rule that protects live data...
+echo   [4/7] Checking every rule that protects live data ^(the engine compile included^)...
 call node scripts\run-guards.mjs
 if errorlevel 1 set PORTALGUARDS=1
 
@@ -273,7 +279,7 @@ if defined PORTALGUARDS (
   goto :storesection
 )
 
-echo   [6/8] Database columns...
+echo   [5/7] Database columns...
 set CI=true
 cd worker
 REM  v1.242.0 - the data pre-flight: a pending migration that the production
@@ -296,13 +302,13 @@ if errorlevel 1 goto :failedpop
 cd ..
 set CI=
 
-echo   [7/8] Publishing the ENGINE (azoneofficial-api)...
+echo   [6/7] Publishing the ENGINE (azoneofficial-api)...
 cd worker
 call :deployretry
 if errorlevel 1 goto :failedpop
 cd ..
 
-echo   [8/8] Building and publishing the WEBSITE (azoneofficial)...
+echo   [7/7] Building and publishing the WEBSITE (azoneofficial)...
 echo         ^(this is the half that was missing^)
 REM  v1.172.0 - Next.js 16: `next build` no longer runs ESLint, so the lint
 REM  gate the build used to give for free is its own step here, exactly as
@@ -323,6 +329,11 @@ REM ============================================================
 REM  STORE
 REM ============================================================
 :storesection
+if defined PORTAL_ONLY (
+  echo.
+  echo   ========== STORE - skipped ^(PUSH.bat portal^) ==========
+  goto :savecode
+)
 echo.
 echo   ========== STORE (elfiaofficialstore.my) ==========
 cd /d "%STORE%"
@@ -396,6 +407,7 @@ if errorlevel 1 set STOREREFUSED=1
 REM ============================================================
 REM  SAVE THE CODE (never blocks a deploy - it runs last)
 REM ============================================================
+:savecode
 echo.
 echo   Saving both folders to GitHub (history only - the deploys
 echo   above are already live)...
@@ -410,9 +422,11 @@ if defined PORTALGUARDS (
 call node "%PORTAL%\scripts\verify-release.mjs" save "%PORTAL%\." "portal deploy"
   if errorlevel 1 set GITFAILED=1
 )
-cd /d "%STORE%"
-call node "%PORTAL%\scripts\verify-release.mjs" save "%STORE%\." "store deploy"
-if errorlevel 1 set GITFAILED=1
+if not defined PORTAL_ONLY (
+  cd /d "%STORE%"
+  call node "%PORTAL%\scripts\verify-release.mjs" save "%STORE%\." "store deploy"
+  if errorlevel 1 set GITFAILED=1
+)
 
 REM ============================================================
 REM  CHECK THE LIVE SYSTEMS
@@ -425,11 +439,13 @@ call node "%PORTAL%\scripts\verify-release.mjs" health https://a2zcreative.my/ap
 if errorlevel 1 set HEALTHFAILED=1
 echo.
 echo.
-echo     --- https://elfiaofficialstore.my/api/v1/health
-call node "%PORTAL%\scripts\verify-release.mjs" health https://elfiaofficialstore.my/api/v1/health
-if errorlevel 1 set HEALTHFAILED=1
-echo.
-echo.
+if not defined PORTAL_ONLY (
+  echo     --- https://elfiaofficialstore.my/api/v1/health
+  call node "%PORTAL%\scripts\verify-release.mjs" health https://elfiaofficialstore.my/api/v1/health
+  if errorlevel 1 set HEALTHFAILED=1
+  echo.
+  echo.
+)
 REM  v1.139.0 - the website step used to EXIT here, so a refusal on the
 REM  portal's pages meant the store - engine, migrations and all - was never
 REM  deployed at all, and neither health check ran. A refusal is reported at
@@ -440,13 +456,18 @@ if defined PORTALGUARDS goto :verificationfailed
 if defined GITFAILED goto :verificationfailed
 if defined HEALTHFAILED goto :verificationfailed
 echo   ============================================
-echo    DONE - engines AND websites are published.
+if defined PORTAL_ONLY (
+  echo    DONE - the portal's engine AND website are published.
+  echo    ^(the ELFIA store was not touched - PUSH.bat portal^)
+) else (
+  echo    DONE - engines AND websites are published.
+)
 echo   ============================================
 echo.
 echo    IMPORTANT: your browser is still holding the old pages.
 echo    Open each one and press Ctrl+F5 (hold Ctrl, tap F5):
 echo      1. https://a2zcreative.my/portal
-echo      2. https://elfiaofficialstore.my
+if not defined PORTAL_ONLY echo      2. https://elfiaofficialstore.my
 echo.
 pause
 exit /b 0
