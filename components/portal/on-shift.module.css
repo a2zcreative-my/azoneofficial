@@ -136,6 +136,18 @@
   width: 20px;
   height: 20px;
 }
+/* v1.247.2 - Clock In is a calm solid green (the owner, 01-11-2026: the gold
+   was hard on the eyes). Text and mark take the page colour, so it reads in
+   both themes (white on deep green, dark on light green). */
+.punchIn {
+  border: 1px solid var(--success);
+  background: var(--success);
+  color: var(--background);
+  font-weight: 700;
+}
+@media (hover: hover) { .punchIn:hover { background: color-mix(in srgb, var(--success) 88%, var(--foreground)); } }
+.punchIn :global(svg) * { fill: currentColor; }
+.punchIn:disabled { opacity: 0.6; }
 .forgot {
   justify-self: center;
   min-height: 44px;

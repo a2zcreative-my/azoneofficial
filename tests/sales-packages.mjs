@@ -25,7 +25,7 @@
  *
  *   node tests/sales-packages.mjs
  */
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -34,7 +34,10 @@ import { DatabaseSync } from "node:sqlite";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
-const bundle = (srcRoot, entry, out) => execSync(`npx esbuild "${join(srcRoot, entry)}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
+/* v1.247.2 - the bundle also exports the permission matrix setter, so a check can
+   grant "Manage sales packages" to a salesperson the way the owner's matrix does */
+const bundle = (srcRoot, entry, out) => { if (entry === "worker/src/staff.ts") { writeFileSync(join(srcRoot, "pkg-entry.ts"), `export { handleStaff } from "./worker/src/staff.ts";\nexport { setPermissionOverrides } from "./worker/src/permissions.ts";\n`); try { return bundle0(srcRoot, "pkg-entry.ts", out); } finally { rmSync(join(srcRoot, "pkg-entry.ts"), { force: true }); } } return bundle0(srcRoot, entry, out); };
+const bundle0 = (srcRoot, entry, out) => execSync(`npx esbuild "${join(srcRoot, entry)}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
 
 async function runtime(staffBundle) {
   const out = [];
@@ -53,7 +56,7 @@ async function runtime(staffBundle) {
     (5,'Hana','h@x.t','hr_admin',1,'x'),(6,'Adm','d@x.t','admin',1,'x'),(7,'Sup','s@x.t','super_admin',1,'x'),(9,'Farid','f@x.t','live_host',1,'x')`);
   db.exec(`INSERT INTO customers (id, company, created_by) VALUES (1,'ABC Sdn Bhd',4)`);
   const ROLE = { 1: "ceo", 2: "coo", 3: "cco", 4: "sales_marketing", 5: "hr_admin", 6: "admin", 7: "super_admin", 9: "live_host" };
-  const { handleStaff } = await import(pathToFileURL(staffBundle).href + `?v=${Math.random()}`);
+  const { handleStaff, setPermissionOverrides } = await import(pathToFileURL(staffBundle).href + `?v=${Math.random()}`);
   const call = async (p, id = 1, method = "GET", body) => {
     const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x" });
     return { status: r?.status ?? 404, j: r ? await r.json().catch(() => null) : null };
@@ -148,6 +151,17 @@ async function runtime(staffBundle) {
     ok((await call(`/packages/${pid}`, 1, "DELETE")).status === 409, "D6 a package a document names cannot be deleted - it is archived");
     ok((await call(`/packages/${cco.j.id}`, 7, "DELETE")).status === 200 && !db.prepare(`SELECT id FROM sales_package_versions WHERE package_id = ?`).get(cco.j.id), "D7 an unused draft can be deleted, with its versions");
     ok(db.prepare(`SELECT COUNT(*) AS c FROM audit_log WHERE action LIKE 'package.%'`).get().c >= 6, "D8 every package change is in the audit trail");
+    /* D9 (the owner, 01-11-2026) - management only archives: a salesperson the matrix
+       lets manage packages may edit one, never archive, bring back or delete it */
+    setPermissionOverrides({ packages_manage: ["super_admin", "ceo", "coo", "cco", ROLE[4]] });
+    const mine = await call("/packages", 4, "POST", { name: "Seller made", issuers: ["a2z"], items: LINES, status: "active" });
+    ok(mine.status === 201, "D9 with the matrix grant a salesperson may create a package", JSON.stringify(mine.j));
+    ok((await call(`/packages/${mine.j?.id}/status`, 4, "POST", { status: "archived" })).status === 403 && (await call(`/packages/${mine.j?.id}`, 4, "PUT", { status: "archived" })).status === 403, "D10 ...but cannot archive it, by the button or by the editor's status");
+    ok((await call(`/packages/${pid}/status`, 4, "POST", { status: "active" })).status === 403, "D11 ...nor bring an archived one back");
+    await call(`/packages/${mine.j?.id}/status`, 4, "POST", { status: "draft" });
+    ok((await call(`/packages/${mine.j?.id}`, 4, "DELETE")).status === 403, "D12 ...nor delete one");
+    ok((await call(`/packages/${mine.j?.id}/status`, 1, "POST", { status: "archived" })).status === 200, "D13 management (here the CEO) archives it");
+    setPermissionOverrides(null);
   } catch (e) { ok(false, `runtime threw: ${e?.stack ?? e}`); }
   return out;
 }
@@ -205,6 +219,7 @@ report(await source());
 
 /* mutations of packages.ts - each must fail a runtime check */
 const MUT = [
+  ["anybody the matrix lets manage packages archives them", 'if ((to === "archived" || wasArchived?.status === "archived") && !PACKAGE_ARCHIVE_ROLES.includes(user.role))', 'if (false)'],
   ["a draft or archived package may start a quotation", 'if (pkg.status !== "active") return err(', 'if (false) return err('],
   ["any issuer may use any package", 'if (!pkg.issuers.split(",").includes(ctx.issuer)) return err(', 'if (false) return err('],
   ["everybody with Sales may write packages", 'if (method !== "GET" && !manage) return err(', 'if (false) return err('],

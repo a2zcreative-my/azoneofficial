@@ -42,6 +42,8 @@ const MAX_SUB = 10; // the worker keeps up to 10 inclusions a line
 export function PackagesPanel({ role }: { role: string }) {
   const list = useCachedApi<{ packages?: PackageRow[]; can_manage?: boolean; pending_migration?: boolean }>("/staff/packages", true, []);
   const canManage = list.data?.can_manage ?? holds("packages_manage", PACKAGE_MANAGE_ROLES.includes(role));
+  /* v1.247.2 - archive, bring back and delete are management's only (by role); the server says the same */
+  const canArchive = ["super_admin", "ceo", "coo", "cco"].includes(role);
   const rows = useMemo(() => list.data?.packages ?? [], [list.data]);
   const [q, setQ] = useState("");
   const [issuer, setIssuer] = useState("");
@@ -141,9 +143,9 @@ export function PackagesPanel({ role }: { role: string }) {
                   <td className={css.actCell}>
                     <span className={css.actions}>
                       <button type="button" className={btnSm} onClick={() => setEditing(p)}><AppIcon name={canManage ? "edit" : "document"} />{canManage ? L("Edit", "Sunting") : L("View", "Lihat")}</button>
-                      {canManage && p.status !== "active" && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "active")}>{L("Activate", "Aktifkan")}</button>}
-                      {canManage && p.status === "active" && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "archived")}>{L("Archive", "Arkib")}</button>}
-                      {canManage && p.used_by === 0 && p.status !== "active" && <button type="button" className={btnSm} onClick={() => void remove(p)} aria-label={L(`Delete ${p.name}`, `Padam ${p.name}`)}>{L("Delete", "Padam")}</button>}
+                      {canManage && p.status !== "active" && (p.status !== "archived" || canArchive) && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "active")}>{L("Activate", "Aktifkan")}</button>}
+                      {canArchive && p.status === "active" && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "archived")}>{L("Archive", "Arkib")}</button>}
+                      {canArchive && p.used_by === 0 && p.status !== "active" && <button type="button" className={btnSm} onClick={() => void remove(p)} aria-label={L(`Delete ${p.name}`, `Padam ${p.name}`)}>{L("Delete", "Padam")}</button>}
                     </span>
                   </td>
                 </tr>
@@ -155,7 +157,7 @@ export function PackagesPanel({ role }: { role: string }) {
       )}
 
       {editing && (
-        <PackageEditor pkg={editing === "new" ? null : editing} canManage={canManage}
+        <PackageEditor pkg={editing === "new" ? null : editing} canManage={canManage} canArchive={canArchive}
           onClose={() => setEditing(null)}
           onSaved={(msg) => { toast(L("Saved", "Disimpan"), msg); setEditing(null); list.refresh(); }} />
       )}
@@ -168,7 +170,7 @@ export function PackagesPanel({ role }: { role: string }) {
 type Draft = { name: string; category: string; description: string; notes: string; issuers: string[]; status: PackageStatus; items: DocItem[]; discount_cents: number };
 const blankLine = (): DocItem => ({ name: "", qty: 1, unit_price_cents: 0 });
 
-function PackageEditor({ pkg, canManage, onClose, onSaved }: { pkg: PackageRow | null; canManage: boolean; onClose: () => void; onSaved: (msg: string) => void }) {
+function PackageEditor({ pkg, canManage, canArchive = false, onClose, onSaved }: { pkg: PackageRow | null; canManage: boolean; canArchive?: boolean; onClose: () => void; onSaved: (msg: string) => void }) {
   const [d, setD] = useState<Draft>(() => pkg
     ? { name: pkg.name, category: pkg.category ?? "", description: pkg.description ?? "", notes: "", issuers: [...pkg.issuers], status: pkg.status, items: pkg.items.map((i) => ({ ...i })), discount_cents: pkg.discount_cents }
     : { name: "", category: "", description: "", notes: "", issuers: ["a2z"], status: "draft", items: [blankLine()], discount_cents: 0 });
@@ -244,10 +246,10 @@ function PackageEditor({ pkg, canManage, onClose, onSaved }: { pkg: PackageRow |
               <span className={css.hint}>{L("A quotation shows only the packages offered under its issuing company. AZ ONE OFFICIAL quotes services only.", "Sebut harga hanya memaparkan pakej yang ditawarkan di bawah syarikat pengeluarnya. AZ ONE OFFICIAL hanya menyebut harga perkhidmatan.")}</span>
             </fieldset>
             <label className={css.field}><span>{L("Status", "Status")}</span>
-              <select className={selectClassSm} value={d.status} disabled={ro} onChange={(e) => setD({ ...d, status: e.target.value as PackageStatus })}>
+              <select className={selectClassSm} value={d.status} disabled={ro || (pkg?.status === "archived" && !canArchive)} onChange={(e) => setD({ ...d, status: e.target.value as PackageStatus })}>
                 <option value="draft">{statusLabel("draft")}</option>
                 <option value="active">{statusLabel("active")}</option>
-                {pkg && <option value="archived">{statusLabel("archived")}</option>}
+                {pkg && (canArchive || pkg.status === "archived") && <option value="archived">{statusLabel("archived")}</option>}
               </select>
               <span className={css.hint}>{L("Only active packages can be chosen on a new quotation. Archived ones stay on the quotations made from them.", "Hanya pakej aktif boleh dipilih pada sebut harga baharu. Pakej diarkibkan kekal pada sebut harga yang dibuat daripadanya.")}</span>
             </label>

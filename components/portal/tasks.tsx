@@ -46,6 +46,9 @@ type TaskView = "overview" | "mine" | "all" | "projects" | "calendar" | "reports
 type StatusF = "active" | "open" | "in_progress" | "completed" | "any" | "review" | "blocked" | "waiting_client" | "overdue" | "stale" | "assisting" | "set_by_me";
 type SortK = "newest" | "deadline" | "priority" | "title" | "progress";
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+/* v1.247.2 - "Madam Jariah - QT-1 · Madam Jariah": the company is said once when
+   the project's title already names it */
+const projName = (label: string) => { const i = label.lastIndexOf(" · "); return i > 0 && label.slice(0, i).includes(label.slice(i + 3)) ? label.slice(0, i) : label; };
 const PRIORITY_CHIP: Record<string, string> = { urgent: chipDanger, high: chipWarn, normal: chipInfo, low: chipNeutral };
 /** rows on one page of the All Tasks and archive tables */
 const PER = 15;
@@ -325,8 +328,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   /* v1.223.0 (Weekly Sales): a sales task names what it is about - the same
      task in Tasks and in Sales, never a copy */
   const linkChip = (t: Task) => t.link_kind === "project" && t.link_id ? (
-    <button type="button" className={chipInfo} title={L("Open the project", "Buka projek")}
-      onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{/* v1.247.1 - the project's name, not its number */}{t.link_label ?? `${L("Project", "Projek")} #${t.link_id}`}</button>
+    <button type="button" className={`${chipInfo} ${tk.projChip}`} title={L("Open the project", "Buka projek")}
+      onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{/* v1.247.1 - the project's name, not its number */}{t.link_label ? projName(t.link_label) : `${L("Project", "Projek")} #${t.link_id}`}</button>
   ) : t.link_kind && t.link_id ? (
     <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan") } as Record<string, string>)[t.link_kind] ?? t.link_kind} #{t.link_id}</span>
   ) : null;

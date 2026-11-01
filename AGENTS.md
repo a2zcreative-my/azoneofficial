@@ -7,7 +7,7 @@ Cursor, Gemini CLI, and any tool that reads `AGENTS.md`. Tool-specific files
 add only what is specific to that tool. When the rules disagree, this file and
 `CLAUDE.md` win over older guides.
 
-Last synchronised: 31 October 2026, version **1.247.1** (local, undeployed; 1.181.17 is on GitHub main).
+Last synchronised: 31 October 2026, version **1.247.2** (local, undeployed; 1.181.17 is on GitHub main).
 
 ## What this repository is
 

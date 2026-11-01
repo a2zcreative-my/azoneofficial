@@ -510,6 +510,10 @@ td .who > span:first-child { flex-shrink: 0; }
 }
 .col {
   display: grid;
+  /* v1.247.2 - one column the width of the board: a long chip used to size the
+     column to its own length and push the card off a phone screen */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   align-content: start;
   gap: 0.5rem;
   padding: 0.625rem;
@@ -552,7 +556,16 @@ td .who > span:first-child { flex-shrink: 0; }
 .dotDone {
   background: var(--success);
 }
+/* v1.247.2 - a project chip wraps inside its card instead of widening it */
+.projChip {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  height: auto;
+}
 .cardItem {
+  min-width: 0;
   display: grid;
   gap: 0.5rem;
   padding: 0.75rem;

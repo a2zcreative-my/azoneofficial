@@ -1632,7 +1632,7 @@ export function Dashboard({
                     <PunchIcon kind="out" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
                   </button>
                 ) : canClockIn ? (
-                  <button type="button" className={`erp-button erp-button-accent ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
+                  <button type="button" className={`erp-button ${shiftCss.punchBtn} ${shiftCss.punchIn}`} disabled={!!busy || holding || settling}
                     onClick={() => void press(() => punch("clock_in"))}>
                     <PunchIcon kind="in" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
                   </button>

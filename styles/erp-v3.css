@@ -853,6 +853,13 @@
     }
   }
   @media (min-width: 1024px) { .erp-topbar { flex-wrap: nowrap; } }
+  /* v1.247.2 - installed on a phone (the owner's PWA screenshot): the bar is
+     flush at the top since 1.246.2, so its content gets the 0.75rem back as
+     padding - the title sits where it did, clear of the status bar, and no
+     grey strip returns above it */
+  @media (display-mode: standalone) and (max-width: 767px) {
+    .erp-topbar { --hdr-pt: 1.25rem; }
+  }
   .erp-topbar-eyebrow {
     font-size: 0.6875rem;
     font-weight: 600;

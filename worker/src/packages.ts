@@ -31,6 +31,8 @@ import { audit, err, json, str } from "./shared";
 
 export const PACKAGE_ISSUERS = ["a2z", "azoo"] as const;
 export const PACKAGE_STATUSES = ["draft", "active", "archived"] as const;
+/** v1.247.2 - archiving (and deleting) a package is management's, by role, not by matrix grant */
+export const PACKAGE_ARCHIVE_ROLES = ["super_admin", "ceo", "coo", "cco"];
 const MAX_LINES = 60;
 const MAX_CENTS = 1_000_000_000; // RM 10 million, the cents() ceiling in shared.ts
 
@@ -254,6 +256,8 @@ export async function handlePackages(
       if (!cur) return err("not_found", "Package not found", 404);
       const idn = identity(body, cur);
       if ("error" in idn) return err("invalid_input", idn.error!, 400);
+      /* v1.247.2 - the editor's status menu is the same act: archiving is management's */
+      if (idn.status !== cur.status && (idn.status === "archived" || cur.status === "archived") && !PACKAGE_ARCHIVE_ROLES.includes(user.role)) return err("forbidden", "Only management (CEO, COO, CCO) archives a package or brings one back", 403);
       const ver = await env.DB.prepare(`SELECT * FROM sales_package_versions WHERE package_id = ?1 AND version = ?2`).bind(cur.id, cur.current_version).first<VerRow>();
       /* the lines change only when the request sends them; different lines,
          prices or discount write the next version - never an edit of this one */
@@ -298,6 +302,11 @@ export async function handlePackages(
   if (st && method === "POST") {
     const to = String(body?.status ?? "");
     if (!(PACKAGE_STATUSES as readonly string[]).includes(to)) return err("invalid_input", "Status is draft, active or archived", 400);
+    /* v1.247.2 (the owner, 01-11-2026): archiving is for management only - the CEO,
+       COO, CCO or super admin by ROLE. Somebody given "Manage sales packages" in the
+       permission matrix may create and edit, never archive or bring one back. */
+    const wasArchived = await env.DB.prepare(`SELECT status FROM sales_packages WHERE id = ?1`).bind(Number(st[1])).first<{ status: string }>().catch(() => null);
+    if ((to === "archived" || wasArchived?.status === "archived") && !PACKAGE_ARCHIVE_ROLES.includes(user.role)) return err("forbidden", "Only management (CEO, COO, CCO) archives a package or brings one back", 403);
     try {
       const cur = await env.DB.prepare(`SELECT id, name, status FROM sales_packages WHERE id = ?1`).bind(Number(st[1])).first<{ id: number; name: string; status: string }>();
       if (!cur) return err("not_found", "Package not found", 404);
@@ -311,6 +320,7 @@ export async function handlePackages(
   /* delete: a package no document was made from. Anything a quotation
      names is archived instead - its history must stay answerable. */
   if (one && method === "DELETE") {
+    if (!PACKAGE_ARCHIVE_ROLES.includes(user.role)) return err("forbidden", "Only management (CEO, COO, CCO) deletes a package", 403); // v1.247.2
     try {
       const cur = await env.DB.prepare(`SELECT id, name FROM sales_packages WHERE id = ?1`).bind(Number(one[1])).first<{ id: number; name: string }>();
       if (!cur) return err("not_found", "Package not found", 404);

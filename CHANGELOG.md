@@ -10,6 +10,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.247.2] - 2026-11-01 - Phone fixes: task card, header, Clock In colour
+
+The owner's PWA screenshots (Tasks, On Shift).
+
+- **Tasks board on a phone:** a task under a project no longer pushes past the screen. The project chip wraps inside its card (the column is the board's width), and the company is said once when the project's title already names it ("Madam Jariah - QT-AZO040926-3", not "... · Madam Jariah").
+- **Header on the installed app:** the title sits clear of the status bar again (1.246.2 moved the bar flush to the top; on the installed app its content now gets that space back as padding). Browser tabs and desktop unchanged.
+- **Clock In** is a calm solid green with a white label instead of gold. Clock Out is unchanged (navy).
+- **Packages: archiving is management's only** (the owner, 01-11-2026). Archive, bringing an archived package back, and Delete are for the CEO, COO, CCO (and the super admin) by role - enforced on the server for the Archive button, the editor's status menu and Delete. Somebody given "Manage sales packages" in the permission matrix can still create and edit. Tested by direct request (tests/sales-packages.mjs D9-D13, one more mutation).
+- No data or calculation change.
+- Not deployed.
+
 ## [1.247.1] - 2026-11-01 - Corrections: Tasks, project page, Companies
 
 The owner's screenshots ("seem incorrectly, do a correction for this portion" on Tasks and a project page, "do a correction on Companies too").
