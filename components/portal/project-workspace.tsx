@@ -410,6 +410,52 @@ function Problem({ text }: { text: string }) { return text ? <p className={pw.wa
 
 /** A project-level note (no task), or an offer to help. A task's own update
     is posted from the task (task-progress.tsx). */
+/* v1.246.3 - THE CUSTOMER AGREED (the owner, 01-11-2026: "there should be
+   a button first for acceptance Quotation before Start Project"). The
+   salesperson records who said yes and how; the row lands in the same
+   acceptance record the shared link writes, once per revision. */
+export function AcceptanceSheet({ quotationId, docNumber, company, contact, onClose, onDone }: {
+  quotationId: number; docNumber: string; company: string; contact?: string | null; onClose: () => void; onDone: (title: string, text: string) => void;
+}) {
+  const [f, setF] = useState({ accepted_name: contact ?? "", accepted_position: "", channel: "whatsapp", note: "" });
+  const [problem, setProblem] = useState("");
+  const { busy, run } = useBusy();
+  const submit = () => run(async () => {
+    setProblem("");
+    if (f.accepted_name.trim().length < 2) { setProblem(L("Name the person who agreed on the customer's side.", "Namakan orang yang bersetuju di pihak pelanggan.")); return; }
+    const r = await api<{ error?: { message?: string } }>(`/staff/docs/${quotationId}/acceptance`, { method: "POST", body: JSON.stringify({ ...f, accepted_name: f.accepted_name.trim(), accepted_position: f.accepted_position.trim() || undefined, note: f.note.trim() || undefined }) });
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not recorded - check the connection and try again.", "Tidak direkodkan - semak sambungan dan cuba lagi.")); return; }
+    onDone(L("Acceptance recorded", "Penerimaan direkodkan"), L(`${docNumber} is accepted by ${company}. The project can start now.`, `${docNumber} diterima oleh ${company}. Projek boleh bermula sekarang.`));
+  });
+  return (
+    <SideDrawer open onClose={onClose} title={L("Record the customer's acceptance", "Rekod penerimaan pelanggan")} subtitle={`${docNumber} · ${company}`}
+      footer={<button type="button" className={`${btnClass} ${pw.submit}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="record-acceptance">{busy ? L("Recording…", "Merekod…") : L("Record acceptance", "Rekod penerimaan")}</button>}>
+      <div className={pw.form} data-testid="acceptance-sheet">
+        <p className={pw.note}>{L("Use this when the customer has agreed to proceed outside the shared link - on WhatsApp, by email or phone, on a signed order, or in person. It is kept against this revision of the quotation, with your name and the time.", "Guna ini apabila pelanggan bersetuju meneruskan di luar pautan kongsi - di WhatsApp, melalui e-mel atau telefon, pada pesanan bertandatangan, atau secara bersemuka. Ia disimpan terhadap semakan sebut harga ini, dengan nama anda dan masa.")}</p>
+        <label className={fieldLabel}>{L("Who agreed (customer side)", "Siapa yang bersetuju (pihak pelanggan)")}
+          <input className={inputClass} value={f.accepted_name} maxLength={120} onChange={(e) => setF({ ...f, accepted_name: e.target.value })} />
+        </label>
+        <label className={fieldLabel}>{L("Their position (optional)", "Jawatan mereka (pilihan)")}
+          <input className={inputClass} value={f.accepted_position} maxLength={120} onChange={(e) => setF({ ...f, accepted_position: e.target.value })} />
+        </label>
+        <label className={fieldLabel}>{L("How they agreed", "Cara mereka bersetuju")}
+          <select className={selectClass} value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="email">{L("Email", "E-mel")}</option>
+            <option value="phone">{L("Phone call", "Panggilan telefon")}</option>
+            <option value="signed">{L("Signed quotation / purchase order", "Sebut harga / pesanan belian bertandatangan")}</option>
+            <option value="in_person">{L("In person", "Bersemuka")}</option>
+          </select>
+        </label>
+        <label className={fieldLabel}>{L("Reference or note (optional)", "Rujukan atau nota (pilihan)")}
+          <textarea className={textareaClass} rows={3} maxLength={500} value={f.note} placeholder={L("e.g. PO number, the date of the message", "cth. nombor PO, tarikh mesej")} onChange={(e) => setF({ ...f, note: e.target.value })} />
+        </label>
+        <Problem text={problem} />
+      </div>
+    </SideDrawer>
+  );
+}
+
 function NoteSheet({ w, assist, onClose, onDone }: { w: Workspace; assist: boolean; onClose: () => void; onDone: Done }) {
   const [kind, setKind] = useState<"note" | "done_request">("note");
   const [text, setText] = useState("");
@@ -669,13 +715,15 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
   /* v1.246.2 - the quotations with no project yet (mine, or every live one
      for the CEO, COO and CCO): a project starts from here too, not only from
      the quotation page in Sales */
-  const [unstarted, setUnstarted] = useState<{ id: number; doc_number: string; company: string; label: string }[]>([]);
+  const [unstarted, setUnstarted] = useState<{ id: number; doc_number: string; company: string; contact_person: string | null; label: string; can_start: boolean }[]>([]);
+  const [accepting, setAccepting] = useState<{ id: number; doc_number: string; company: string; contact_person: string | null } | null>(null);
+  const { show: showToast, node: toastNode } = useSaveToast();
   const [starting, setStarting] = useState<number | null>(null);
   const [startErr, setStartErr] = useState("");
   useEffect(() => {
     let alive = true;
     void api<{ projects: PRow[] }>(`/staff/projects?scope=${scope}`).then((r) => { if (alive) setRows(r.data?.projects ?? []); });
-    void api<{ quotations: { id: number; doc_number: string; company: string; label: string; project_id: number | null }[] }>(`/staff/projects/quotations`)
+    void api<{ quotations: { id: number; doc_number: string; company: string; contact_person: string | null; label: string; can_start: boolean; project_id: number | null }[] }>(`/staff/projects/quotations`)
       .then((r) => { if (alive) setUnstarted((r.data?.quotations ?? []).filter((q) => !q.project_id)); });
     return () => { alive = false; };
   }, [scope, tick]);
@@ -700,6 +748,9 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
   }
   return (
     <section className={card} aria-label={L("Projects", "Projek")} data-testid="projects-board">
+      {toastNode}
+      {accepting && <AcceptanceSheet quotationId={accepting.id} docNumber={accepting.doc_number} company={accepting.company} contact={accepting.contact_person} onClose={() => setAccepting(null)}
+        onDone={(t, x) => { setAccepting(null); showToast(t, x); setTick((n) => n + 1); }} />}
       <div className={pw.wrap}>
         <div className={pw.head}>
           <div className={pw.lead}>
@@ -727,14 +778,19 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
         {unstarted.length > 0 && (
           <div className={pw.unstarted} data-testid="unstarted-quotations">
             <p className={pw.pSub}>{L(`Quotations without a project (${unstarted.length})`, `Sebut harga tanpa projek (${unstarted.length})`)}</p>
+            <p className={pw.note}>{L("A project starts once the customer has agreed to proceed: accepted on the shared link, recorded here, or invoiced.", "Projek bermula apabila pelanggan bersetuju meneruskan: diterima melalui pautan kongsi, direkodkan di sini, atau telah diinvois.")}</p>
             {startErr && <p className={pw.problem} role="alert">{startErr}</p>}
             <div className={pw.plist}>
               {unstarted.map((q) => (
                 <div key={q.id} className={pw.pitem} data-quotation={q.id}>
-                  <span><p className={pw.pTitle}>{q.doc_number}</p><p className={pw.pSub}>{q.company} · {q.label}</p></span>
+                  <span><p className={pw.pTitle}>{q.doc_number}</p><p className={pw.pSub}>{q.company} · {q.label === "accepted" ? L("accepted", "diterima") : q.label === "invoiced" ? L("invoiced", "diinvois") : q.label === "expired" ? L("expired", "tamat tempoh") : L("awaiting the customer", "menunggu pelanggan")}</p></span>
                   <span />
                   <span />
-                  <span><button type="button" className={btnSm} disabled={starting === q.id} onClick={() => void start(q.id)}><AppIcon name="add" />{starting === q.id ? L("Starting…", "Memulakan…") : L("Start project", "Mulakan projek")}</button></span>
+                  <span>{q.can_start
+                    ? <button type="button" className={btnSmPrimary} disabled={starting === q.id} onClick={() => void start(q.id)}><AppIcon name="add" />{starting === q.id ? L("Starting…", "Memulakan…") : L("Start project", "Mulakan projek")}</button>
+                    : q.label === "expired"
+                      ? <span className={chipSmNeutral}>{L("Revise first", "Semak semula dahulu")}</span>
+                      : <button type="button" className={btnSm} onClick={() => setAccepting(q)}><AppIcon name="verify" />{L("Record acceptance", "Rekod penerimaan")}</button>}</span>
                 </div>
               ))}
             </div>
@@ -746,11 +802,14 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
 }
 
 /** The quotation page's Project Task tab when no brief exists yet (P-1). */
-export function CreateBrief({ quotationId, onCreated }: { quotationId: number; onCreated: (id: number) => void }) {
-  const [state, setState] = useState<{ can_create: boolean; suggested_owner: { name: string | null } | null } | null>(null);
+export function CreateBrief({ quotationId, docNumber, company, contact, onCreated }: { quotationId: number; docNumber?: string; company?: string; contact?: string | null; onCreated: (id: number) => void }) {
+  const [state, setState] = useState<{ can_create: boolean; can_record_acceptance?: boolean; quotation_state?: { label: string }; suggested_owner: { name: string | null } | null } | null>(null);
   const [problem, setProblem] = useState("");
+  const [accepting, setAccepting] = useState(false);
+  const [tick, setTick] = useState(0);
+  const { show: showToast, node: toastNode } = useSaveToast();
   const { busy, run } = useBusy();
-  useEffect(() => { void api<{ can_create: boolean; suggested_owner: { name: string | null } | null }>(`/staff/projects/by-quotation/${quotationId}`).then((r) => setState(r.data ?? null)); }, [quotationId]);
+  useEffect(() => { void api<{ can_create: boolean; can_record_acceptance?: boolean; quotation_state?: { label: string }; suggested_owner: { name: string | null } | null }>(`/staff/projects/by-quotation/${quotationId}`).then((r) => setState(r.data ?? null)); }, [quotationId, tick]);
   if (!state) return <SkelRows rows={2} />;
   const create = () => run(async () => {
     setProblem("");
@@ -766,8 +825,18 @@ export function CreateBrief({ quotationId, onCreated }: { quotationId: number; o
       {state.suggested_owner?.name && <p className={pw.note}>{L(`Suggested Project Owner: ${state.suggested_owner.name} (the CEO or COO confirms).`, `Cadangan Pemilik Projek: ${state.suggested_owner.name} (CEO atau COO mengesahkan).`)}</p>}
       {state.can_create
         ? <button type="button" className={btnClass} disabled={busy} aria-busy={busy || undefined} onClick={() => void create()}>{busy ? L("Creating…", "Mencipta…") : L("Create project brief", "Cipta ringkasan projek")}</button>
-        : <p className={pw.note}>{L("The quotation's salesperson or the CEO, COO or CCO create its project brief.", "Jurujual sebut harga atau CEO, COO atau CCO mencipta ringkasan projeknya.")}</p>}
+        : state.can_record_acceptance
+          ? <>
+            <p className={pw.note}>{L("The customer has not agreed to proceed yet. Record their acceptance first - the project starts after that.", "Pelanggan belum bersetuju meneruskan. Rekod penerimaan mereka dahulu - projek bermula selepas itu.")}</p>
+            <button type="button" className={btnClass} onClick={() => setAccepting(true)}><AppIcon name="verify" />{L("Record acceptance", "Rekod penerimaan")}</button>
+          </>
+          : state.quotation_state?.label === "expired"
+            ? <p className={pw.note}>{L("This quotation has expired and was not accepted - revise it first.", "Sebut harga ini telah tamat tempoh dan tidak diterima - semak semula dahulu.")}</p>
+            : <p className={pw.note}>{L("The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance and create its project brief.", "Jurujual sebut harga atau CEO, COO atau CCO merekod penerimaan pelanggan dan mencipta ringkasan projeknya.")}</p>}
       <Problem text={problem} />
+      {toastNode}
+      {accepting && <AcceptanceSheet quotationId={quotationId} docNumber={docNumber ?? `#${quotationId}`} company={company ?? ""} contact={contact} onClose={() => setAccepting(false)}
+        onDone={(t, x) => { setAccepting(false); showToast(t, x); setTick((n) => n + 1); }} />}
     </div>
   );
 }

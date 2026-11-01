@@ -103,7 +103,12 @@ async function runtime(workerBundle) {
   try {
     /* T1 / T2 - one brief per quotation, on a press (P-1) */
     const before = await call("/staff/projects/by-quotation/100", U.aina);
-    ok(before.status === 200 && before.j?.project === null && before.j?.can_create === true && before.j?.suggested_owner?.id === U.aina, "T1 a saved quotation has no project until its salesperson presses Create (P-1); the salesperson is the SUGGESTED owner", before.text.slice(0, 200));
+    /* v1.246.3 - the customer agrees first; until then the page offers Record acceptance, not Create */
+    ok(before.status === 200 && before.j?.project === null && before.j?.can_create === false && before.j?.can_record_acceptance === true && before.j?.suggested_owner?.id === U.aina, "T1 a saved quotation has no project; before the customer agrees it cannot be created - the page offers Record acceptance (v1.246.3); the salesperson is the SUGGESTED owner", before.text.slice(0, 200));
+    ok((await call("/staff/projects", U.aina, "POST", { quotation_id: 100 })).status === 409, "T1 the salesperson cannot start the project before the customer agreed (409 not_accepted)");
+    db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_position) VALUES (100, 0, 'Ahmad', 'Director')`);
+    const after = await call("/staff/projects/by-quotation/100", U.aina);
+    ok(after.j?.can_create === true && after.j?.can_record_acceptance === false, "T1 accepted on the link: Create is offered");
     ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 100 })).status === 403, "T1 another salesperson cannot create the brief for somebody else's quotation");
     const c1 = await call("/staff/projects", U.aina, "POST", { quotation_id: 100 });
     ok(c1.status === 201 && c1.j?.existing === false, "T1 the quotation's salesperson creates ONE draft brief", c1.text.slice(0, 160));
@@ -157,9 +162,6 @@ async function runtime(workerBundle) {
     /* T3 - the lifecycle */
     let s1 = await call(`/staff/projects/${pid}/status`, U.aina, "POST", { to: "ready" });
     ok(s1.status === 200, "the owner marks the brief Ready", s1.text.slice(0, 160));
-    s1 = await call(`/staff/projects/${pid}/status`, U.aina, "POST", { to: "in_progress" });
-    ok(s1.status === 409 && s1.j?.error?.code === "not_accepted", "T3 not accepted yet: the owner cannot start it", s1.text.slice(0, 160));
-    db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_position) VALUES (100, 0, 'Ahmad', 'Director')`);
     s1 = await call(`/staff/projects/${pid}/status`, U.aina, "POST", { to: "in_progress" });
     const row = db.prepare(`SELECT status, scope_snapshot, scope_revision, activated_at FROM projects WHERE id = ?`).get(pid ?? -1) ?? {};
     ok(s1.status === 200 && row.status === "in_progress" && row.activated_at && JSON.parse(row.scope_snapshot ?? "{}").lines?.length === 2 && JSON.parse(row.scope_snapshot ?? "{}").package_version === 1, "T3 accepted on the link: the project starts and the agreed scope is frozen", s1.text.slice(0, 160));
@@ -273,14 +275,15 @@ async function runtime(workerBundle) {
 
     /* an expired quotation never starts */
     const c3 = await call("/staff/projects", U.ceo, "POST", { quotation_id: 101 });
-    await call(`/staff/projects/${c3.j?.id}/owner`, U.ceo, "POST", { owner_id: U.aina });
-    const ex = await call(`/staff/projects/${c3.j?.id}/status`, U.ceo, "POST", { to: "in_progress", reason: "Customer agreed by phone last week" });
-    ok(ex.status === 409 && ex.j?.error?.code === "quotation_expired", "T3 an expired quotation that was never accepted cannot become an active project - not even by the CEO", ex.text.slice(0, 160));
+    ok(c3.status === 409 && (await call(`/staff/docs/101/acceptance`, U.ceo, "POST", { accepted_name: "Ahmad", channel: "phone" })).status === 409 && (await call("/staff/projects/by-quotation/101", U.ceo)).j?.can_record_acceptance === false, "T3 an expired quotation that was never accepted cannot become a project, nor be recorded as accepted - not even by the CEO (revise it first)", c3.text.slice(0, 160));
+    /* v1.246.3 - the yes came on WhatsApp: the salesperson records it, then the project */
+    ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 102 })).status === 409, "a valid, unaccepted quotation has no project yet either");
+    const rec = await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Puan Siti", accepted_position: "Owner", channel: "whatsapp", note: "Agreed 31-10" });
     const c4 = await call("/staff/projects", U.lia, "POST", { quotation_id: 102 });
     await call(`/staff/projects/${c4.j?.id}/owner`, U.ceo, "POST", { owner_id: U.lia });
-    ok((await call(`/staff/projects/${c4.j?.id}/status`, U.ceo, "POST", { to: "in_progress" })).status === 400 && (await call(`/staff/projects/${c4.j?.id}/status`, U.ceo, "POST", { to: "in_progress", reason: "Signed PO received by email" })).status === 200, "management starts an unaccepted (valid) quotation's project only with a written reason");
+    ok(rec.status === 201 && c4.status === 201 && (await call(`/staff/projects/${c4.j?.id}/status`, U.ceo, "POST", { to: "in_progress" })).status === 200, "the salesperson records the customer's acceptance (who, how, when), the project starts, no reason needed", `${rec.text.slice(0, 100)} ${c4.text.slice(0, 100)}`);
     const list = (await call(`/staff/projects?scope=mine`, U.lia)).j?.projects ?? [];
-    ok(list.length === 2 && list.every((p) => p.owner_id === U.lia), "the Tasks > Projects list: mine", JSON.stringify(list.map((p) => p.id)));
+    ok(list.length >= 1 && list.some((p) => p.id === c4.j?.id) && list.every((p) => p.owner_id === U.lia), "the Tasks > Projects list: mine", JSON.stringify(list.map((p) => p.id)));
 
     /* T20 + the boundaries */
     ok(money() === money0, "T12 nothing in Sales, Commission, Payroll, the cash book or part payments was written by any project action (T19 test edit aside)");
@@ -326,7 +329,8 @@ const MUT = [
   ["worker/src/tasks-progress.ts", "an assignee posts on other tasks", "  } else if (!a.update) {\n    return err(\"forbidden\", a.view", "  } else if (false) {\n    return err(\"forbidden\", a.view"],
   ["worker/src/projects.ts", "everyone sees prices and phones", "      client: cust ? { id: cust.id, company: cust.company, contact_person: cust.contact_person, ...(a.contact ? { phone: cust.phone, email: cust.email } : {}) } : null,", "      client: cust ? { id: cust.id, company: cust.company, contact_person: cust.contact_person, phone: cust.phone, email: cust.email } : null,"],
   ["worker/src/projects.ts", "the owner confirms Completed", "  if ([\"in_progress\", \"waiting_client\", \"on_hold\"].includes(from) && a.complete) out.push({ to: \"completed\", label: \"Confirm completed\" });", "  if ([\"in_progress\", \"waiting_client\", \"on_hold\"].includes(from) && (a.complete || m)) out.push({ to: \"completed\", label: \"Confirm completed\" });"],
-  ["worker/src/projects.ts", "an expired quotation starts", "    else if (st.expired) out.push({", "    else if (false) out.push({"],
+  /* v1.246.3 - an expired quotation cannot be recorded as accepted (so it never starts) */
+  ["worker/src/business.ts", "an expired quotation is recorded as accepted", "      if (d.valid_until && /^\\d{4}-\\d{2}-\\d{2}/.test(d.valid_until) && d.valid_until.slice(0, 10) < mytToday()) {\n        return err(\"expired\", `This quotation was valid until", "      if (false) {\n        return err(\"expired\", `This quotation was valid until"],
   ["worker/src/projects.ts", "the scope follows the live quotation", "    const lines = snap ? snap.lines : parseLines(qt.items);", "    const lines = parseLines(qt.items);"],
   /* both layers: the project rule and (v1.246.0) the kept-history rule */
   ["worker/src/staff.ts", "a project task is deleted", [["    if (await taskProject(env, id)) return err(\"project_task\",", "    if (false) return err(\"project_task\","], ["    if (Number(kept?.n ?? 0) > 0) return err(", "    if (false) return err("]]],

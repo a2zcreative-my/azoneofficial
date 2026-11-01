@@ -1368,8 +1368,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p0 === "/staff/photo-book") data = { people: staff.filter((u) => u.photo_key).map((u) => ({ id: u.id, name: u.name, full_name: u.full_name ?? null, photo_key: u.photo_key })) };
   /* v1.246.2 - the quotations a task can be set under / that have no project yet */
   if (p0 === "/staff/projects/quotations") data = { can_manage: ["super_admin", "ceo", "coo", "cco"].includes(ROLE), quotations: [
-    { id: 1, doc_number: "QT-AZO150926-1", company: "Fixture Trading", label: "accepted", project_id: process.env.PROJECT === "none" && !made ? null : 7, project_status: "in_progress", project_title: "Fixture project" },
-    { id: 2, doc_number: "QT-AZO160926-2", company: "Zainab Kitchen", label: "open", project_id: null, project_status: null, project_title: null }] };
+    { id: 1, doc_number: "QT-AZO150926-1", company: "Fixture Trading", contact_person: "Ahmad", label: "accepted", can_start: true, project_id: process.env.PROJECT === "none" && !made ? null : 7, project_status: "in_progress", project_title: "Fixture project" },
+    { id: 2, doc_number: "QT-AZO160926-2", company: "Zainab Kitchen", contact_person: "Siti Zainab", label: "open", can_start: false, project_id: null, project_status: null, project_title: null },
+    { id: 3, doc_number: "QT-AZO170926-3", company: "Nor Shah Enterprise", contact_person: "Nor Shah", label: "invoiced", can_start: true, project_id: null, project_status: null, project_title: null }] };
   else if (p0.startsWith("/staff/projects")) { const pj = projectFor(p0, made); if (pj !== undefined) data = pj; }
   if (/^\/staff\/tasks\/\d+/.test(p0)) { const tv = taskViewFor(p0); if (tv !== undefined) data = tv; }
   if (p0 === "/staff/tasks" && data?.tasks && process.env.TASKP) data = { ...data, tasks: [...taskListExtra(q.get("all") === "1"), ...data.tasks] };

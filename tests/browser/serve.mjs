@@ -219,6 +219,11 @@ const server = http.createServer((req, res) => {
           res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_input", message: "Invoices are voided with a reason, never deleted (Void invoice)." } })); return;
         }
       }
+      /* v1.246.3 - a staff-recorded quotation acceptance */
+      if (req.method === "POST" && /^\/staff\/docs\/\d+\/acceptance$/.test(p)) {
+        projectPosts.push({ p, body, key: req.headers["idempotency-key"] ?? null });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, revision: 0 })); return;
+      }
       if (req.method === "POST" && p === "/staff/projects") {
         projectMade = true; projectPosts.push({ p, body, key: req.headers["idempotency-key"] ?? null });
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: projectFixture.id, existing: false })); return;

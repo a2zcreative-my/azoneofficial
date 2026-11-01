@@ -164,7 +164,7 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
       <div hidden={tab !== "project"}>
         {tab === "project" && (project
           ? <ProjectWorkspace projectId={project.id} onChanged={reload} />
-          : qs ? <CreateBrief quotationId={d.id} onCreated={reload} /> : <SkelRows rows={3} />)}
+          : qs ? <CreateBrief quotationId={d.id} docNumber={d.doc_number} company={d.company} contact={d.contact_person} onCreated={reload} /> : <SkelRows rows={3} />)}
       </div>
 
       <div hidden={tab !== "activity"}>

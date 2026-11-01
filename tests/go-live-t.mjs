@@ -219,10 +219,12 @@ async function runtime(workerBundle) {
     ok((await call(`/staff/tasks/${T1}/updates`, U.farid, "POST", { kind: "progress", body: "late" })).status === 409, "a closed task takes nothing more");
 
     /* ---------- the project: S4 / S5 ---------- */
+    /* v1.246.3 - the customer agrees first (here on the shared link), then the project */
+    ok((await call("/staff/projects", U.aina, "POST", { quotation_id: 100 })).status === 409, "v1.246.3 no project before the customer has agreed to proceed");
+    db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_at) VALUES (100, 0, 'Mr. Ahmad', '2026-10-31 02:00:00')`);
     const p1 = await call("/staff/projects", U.aina, "POST", { quotation_id: 100 });
     const pid = p1.j?.id ?? 999999;
     await call(`/staff/projects/${pid}/owner`, U.ceo, "POST", { owner_id: U.aina });
-    db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_at) VALUES (100, 0, 'Mr. Ahmad', '2026-10-31 02:00:00')`);
     await call(`/staff/projects/${pid}/status`, U.aina, "POST", { to: "in_progress" });
     const pt = await call("/staff/tasks", U.aina, "POST", { title: "Design & content creation", assigned_to: U.mira, deadline: "2026-11-10", link_kind: "project", link_id: pid, items: ["Design concept", "Week 1", "Week 2", "Week 3", "Final graphics"] });
     const PT = pt.j?.id ?? 999999;
@@ -308,10 +310,20 @@ async function runtime(workerBundle) {
 
     /* ---------- v1.246.2 a task set UNDER A QUOTATION (the owner, 01-11-2026) ---------- */
     const lq = (await call("/staff/projects/quotations", U.lia)).j;
-    ok(lq?.can_manage === false && lq?.quotations?.some((q) => q.id === 102 && q.project_id === null) && !lq?.quotations?.some((q) => q.id === 100), "Q1 a salesperson sees their own live quotations to set a task under, not a colleague's", JSON.stringify(lq?.quotations?.map((q) => q.id)));
+    ok(lq?.can_manage === false && lq?.quotations?.some((q) => q.id === 102 && q.project_id === null && q.can_start === false && q.label === "open") && !lq?.quotations?.some((q) => q.id === 100), "Q1 a salesperson sees their own live quotations to set a task under, not a colleague's", JSON.stringify(lq?.quotations?.map((q) => q.id)));
     const cq = (await call("/staff/projects/quotations", U.ceo)).j;
     ok(cq?.can_manage === true && [100, 102].every((id) => cq?.quotations?.some((q) => q.id === id)) && !cq?.quotations?.some((q) => q.id === 101), "Q1 the CEO sees every live quotation; an expired one with no project is left out (revise it first)", JSON.stringify(cq?.quotations?.map((q) => q.id)));
     ok((await call("/staff/tasks", U.ed, "POST", { title: "Sneak in", quotation_id: 102 })).status === 403 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 0 && (await call("/staff/tasks", U.lia, "POST", { title: "Not mine", quotation_id: 100 })).status === 403, "Q2 a task under somebody else's quotation is refused, and no project appears for it (editor; a salesperson on a colleague's)");
+    ok((await call("/staff/tasks", U.lia, "POST", { title: "Too early", quotation_id: 102 })).status === 409 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 0, "Q2 before the customer agrees, no task under the quotation and no project (409 not_accepted)");
+    ok((await call(`/staff/docs/102/acceptance`, U.ed, "POST", { accepted_name: "Mr. Ahmad", channel: "whatsapp" })).status === 403 && (await call(`/staff/docs/102/acceptance`, U.aina, "POST", { accepted_name: "Mr. Ahmad", channel: "whatsapp" })).status === 403, "Q2 an editor, or a colleague who is not the quotation's salesperson, cannot record the acceptance");
+    ok((await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Mr. Ahmad" })).status === 400, "Q2 the acceptance says how the customer agreed");
+    const acc = await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Mr. Ahmad", accepted_position: "Director", channel: "whatsapp", note: "PO 4471" });
+    const accRow = db.prepare(`SELECT accepted_name, channel, recorded_by, note, revision FROM quotation_acceptances WHERE doc_id = 102`).get();
+    ok(acc.status === 201 && accRow?.channel === "whatsapp" && accRow?.recorded_by === U.lia && accRow?.note === "PO 4471" && accRow?.revision === 0 && lastAudit("doc.acceptance_recorded").doc_number === "QT-2026-0019", "Q2 the salesperson records the acceptance: who agreed, how, the reference, who recorded it - audited", `${acc.text.slice(0, 120)} ${JSON.stringify(accRow)}`);
+    ok((await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Again", channel: "email" })).status === 409, "Q2 a revision is accepted once");
+    const accList = (await call(`/staff/docs/102/acceptance`, U.ceo)).j?.acceptances ?? [];
+    ok(accList.length === 1 && accList[0]?.channel === "whatsapp" && accList[0]?.recorded_by_name === "Lia Seller", "Q2 the quotation shows it: accepted on WhatsApp, recorded by Lia");
+    { const i1 = await call(`/staff/docs/200/acceptance`, U.ceo, "POST", { accepted_name: "Mr. X", channel: "email" }); const i2 = await call(`/staff/docs/101/acceptance`, U.aina, "POST", { accepted_name: "Mr. X", channel: "email" }); ok(i1.status === 400 && i2.status === 409, "Q2 an invoice is not accepted; an expired quotation is revised first", `${i1.status} ${i1.text.slice(0, 80)} | ${i2.status} ${i2.text.slice(0, 80)}`); }
     const lt = await call("/staff/tasks", U.lia, "POST", { title: "Shoot day", quotation_id: 102, items: ["Book the studio", "Shoot"] });
     const LT = lt.j?.id ?? 999999;
     const lp = db.prepare(`SELECT id, owner_id, status FROM projects WHERE quotation_id = 102`).get();
@@ -392,6 +404,8 @@ const MUT = [
   ["worker/src/staff.ts", "the open tasks are cut at 200 again", "AND t.status != 'completed' ORDER BY t.created_at DESC`)", "AND t.status != 'completed' ORDER BY t.created_at DESC LIMIT 200`)"],
   ["worker/src/tasks-progress.ts", "an offer to help counts as the latest update", "export const LATEST_KINDS = [\"progress\",", "export const LATEST_KINDS = [\"assist_request\", \"progress\","],
   /* v1.246.2 */
+  ["worker/src/projects.ts", "a project starts before the customer agreed", "  if (!st.accepted && !st.invoiced) return err(\"not_accepted\",", "  if (false) return err(\"not_accepted\","],
+  ["worker/src/business.ts", "anybody records a customer's acceptance", "      if (!mine && !can(user.role, \"project_manage\")) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance\", 403);", "      if (false) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance\", 403);"],
   ["worker/src/projects.ts", "anybody sets a task under any quotation", "  if (!mayCreate) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO create its project brief\", 403);", "  if (false) return err(\"forbidden\", \"The quotation's salesperson or the CEO, COO or CCO create its project brief\", 403);"],
   ["worker/src/staff.ts", "anybody edits any task's checklist", "    if (!ta.assignee && !ta.creator && !ta.manage) return err(\"forbidden\", \"Only the assignee, the person who set the task, or a manager edits its checklist\", 403);", "    if (false) return err(\"forbidden\", \"Only the assignee, the person who set the task, or a manager edits its checklist\", 403);"],
   ["worker/src/staff.ts", "removing a deliverable leaves the old percentage", "      await env.DB.prepare(`UPDATE tasks SET progress = ?1, progress_source = CASE WHEN ?3 > 0 THEN 'checklist' ELSE progress_source END WHERE id = ?2`).bind(progress, t.id, Number(agg?.n ?? 0)).run();", "      if (method !== \"DELETE\") await env.DB.prepare(`UPDATE tasks SET progress = ?1, progress_source = CASE WHEN ?3 > 0 THEN 'checklist' ELSE progress_source END WHERE id = ?2`).bind(progress, t.id, Number(agg?.n ?? 0)).run();"],

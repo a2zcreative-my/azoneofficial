@@ -320,3 +320,7 @@ lands a replayed update once; a project task's rows also name the project),
 task_files (private evidence), task_assistants, nullable tasks.stage and
 tasks.progress_source, and task_comments.client_key and mentions. Project
 tasks stay rows of tasks with link_kind project. No row is changed.
+1.246.3 adds `0160_acceptance_recorded`: three nullable columns on
+quotation_acceptances (channel, recorded_by, note) so staff can record that
+the customer agreed outside the shared link; a project starts only once the
+quotation is accepted (on the link or recorded) or invoiced. No row is changed.

@@ -128,6 +128,11 @@ export async function ensureProject(env: Env, user: StaffUser, qid: number): Pro
   const manager = can(user.role, "project_manage");
   const mayCreate = manager || qt.salesperson_id === user.id || qt.created_by === user.id;
   if (!mayCreate) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO create its project brief", 403);
+  /* v1.246.3 - the owner, 01-11-2026: a project starts only once the
+     customer has agreed to proceed - accepted on the shared link, recorded
+     by staff (POST /docs/:id/acceptance), or already invoiced. */
+  const st = await quotationState(env, qt);
+  if (!st.accepted && !st.invoiced) return err("not_accepted", "Record the customer's acceptance of this quotation first - a project starts once the customer has agreed to proceed", 409);
   const cust = await env.DB.prepare(`SELECT id, company FROM customers WHERE id = ?1`).bind(qt.customer_id).first<{ id: number; company: string }>();
   if (!cust) return err("invalid_input", "The quotation's customer was not found", 409);
   let title = `${cust.company} - ${qt.doc_number}`;
@@ -257,7 +262,8 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const mayCreate = can(user.role, "project_manage") || qt.salesperson_id === user.id || qt.created_by === user.id;
     return json({
       project: p ?? null, quotation_state: st, events,
-      can_create: !p && mayCreate,
+      can_create: !p && mayCreate && (st.accepted || st.invoiced), // v1.246.3 - only once the customer agreed
+      can_record_acceptance: !p && mayCreate && !st.accepted && !st.invoiced && !st.expired,
       suggested_owner: qt.salesperson_id ? { id: qt.salesperson_id, name: await nameOf(env, qt.salesperson_id) } : null,
     });
   }
@@ -277,7 +283,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (path === "/projects/quotations" && method === "GET") {
     const all = can(user.role, "project_manage");
     const rows = (await env.DB.prepare(
-      `SELECT d.id, d.doc_number, d.valid_until, d.revision, d.salesperson_id, d.created_by, c.company,
+      `SELECT d.id, d.doc_number, d.valid_until, d.revision, d.salesperson_id, d.created_by, c.company, c.contact_person,
               p.id AS project_id, p.status AS project_status, p.title AS project_title
          FROM sales_documents d JOIN customers c ON c.id = d.customer_id
          LEFT JOIN projects p ON p.quotation_id = d.id
@@ -290,7 +296,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     for (const r of rows) {
       const st = await quotationState(env, r);
       if (st.expired && !r.project_id) continue; // an expired, unaccepted quotation is revised first
-      out.push({ id: r.id, doc_number: r.doc_number, company: r.company, label: st.label, project_id: r.project_id, project_status: r.project_status, project_title: r.project_title });
+      out.push({ id: r.id, doc_number: r.doc_number, company: r.company, contact_person: (r as { contact_person?: string | null }).contact_person ?? null, label: st.label, can_start: st.accepted || st.invoiced, project_id: r.project_id, project_status: r.project_status, project_title: r.project_title });
     }
     return json({ quotations: out, can_manage: all });
   }

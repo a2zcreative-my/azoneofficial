@@ -1185,11 +1185,61 @@ export async function handleBusiness(
   if (mAcc && method === "GET") {
     if (!canReadDocs(user)) return err("forbidden", "Sales access required", 403);
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT revision, accepted_name, accepted_position, accepted_at, ip FROM quotation_acceptances WHERE doc_id = ?1 ORDER BY revision DESC`,
-      ).bind(Number(mAcc[1])).all();
-      return json({ acceptances: results ?? [] });
+      let results: unknown[] = [];
+      try {
+        results = (await env.DB.prepare(
+          `SELECT a.revision, a.accepted_name, a.accepted_position, a.accepted_at, a.ip, a.channel, a.note, a.recorded_by,
+                  COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS recorded_by_name
+             FROM quotation_acceptances a LEFT JOIN users u ON u.id = a.recorded_by WHERE a.doc_id = ?1 ORDER BY a.revision DESC`,
+        ).bind(Number(mAcc[1])).all()).results ?? [];
+      } catch (e) {
+        if (!skew(e)) throw e; // pre-0160
+        results = (await env.DB.prepare(
+          `SELECT revision, accepted_name, accepted_position, accepted_at, ip FROM quotation_acceptances WHERE doc_id = ?1 ORDER BY revision DESC`,
+        ).bind(Number(mAcc[1])).all()).results ?? [];
+      }
+      return json({ acceptances: results });
     } catch (e) { if (skew(e)) return json({ acceptances: [], pending_migration: true }); throw e; }
+  }
+  /* v1.246.3 - THE CUSTOMER AGREED, AND STAFF RECORD IT (the owner,
+     01-11-2026: "once Quotation agreed to proceed by client/customer then
+     only start project"). The same acceptance table and the same
+     once-per-revision rule as the shared link; this row names who agreed,
+     how (WhatsApp, email, phone, a signed order, in person) and who at A2Z
+     recorded it. The quotation's salesperson, its creator, or management.
+     Nothing else moves: no status, no invoice, no money. */
+  if (mAcc && method === "POST") {
+    if (!canReadDocs(user)) return err("forbidden", "Sales access required", 403);
+    const id = Number(mAcc[1]);
+    const CHANNELS = ["whatsapp", "email", "phone", "signed", "in_person"];
+    const name = str(body?.accepted_name, 120) ? String(body!.accepted_name).trim() : "";
+    const position = str(body?.accepted_position, 120) ? String(body!.accepted_position).trim() || null : null;
+    const channel = typeof body?.channel === "string" && CHANNELS.includes(body.channel) ? body.channel : null;
+    const note = str(body?.note, 500) ? String(body!.note).trim() || null : null;
+    if (name.length < 2) return err("invalid_input", "Name the person who agreed on the customer's side", 400);
+    if (!channel) return err("invalid_input", "Say how the customer agreed: WhatsApp, email, phone, a signed order, or in person", 400);
+    try {
+      const d = await env.DB.prepare(`SELECT id, doc_type, COALESCE(revision, 0) AS revision, valid_until, salesperson_id, created_by, doc_number FROM sales_documents WHERE id = ?1`)
+        .bind(id).first<{ id: number; doc_type: string; revision: number; valid_until: string | null; salesperson_id: number | null; created_by: number | null; doc_number: string }>();
+      if (!d) return err("not_found", "Quotation not found", 404);
+      if (d.doc_type !== "QT") return err("invalid_input", "Only a quotation is accepted", 400);
+      const mine = d.salesperson_id === user.id || d.created_by === user.id;
+      if (!mine && !can(user.role, "project_manage")) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance", 403);
+      if (d.valid_until && /^\d{4}-\d{2}-\d{2}/.test(d.valid_until) && d.valid_until.slice(0, 10) < mytToday()) {
+        return err("expired", `This quotation was valid until ${d.valid_until.slice(0, 10)} - issue a revision with a new date, then record the acceptance on that`, 409);
+      }
+      const had = await env.DB.prepare(`SELECT accepted_name, accepted_at FROM quotation_acceptances WHERE doc_id = ?1 AND revision = ?2`)
+        .bind(d.id, d.revision).first<{ accepted_name: string; accepted_at: string }>();
+      if (had) return err("already_accepted", `This revision was already accepted by ${had.accepted_name} on ${had.accepted_at.slice(0, 10)}`, 409);
+      await env.DB.prepare(
+        `INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_position, channel, recorded_by, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(d.id, d.revision, name, position, channel, user.id, note).run();
+      await audit(env, user.id, "doc.acceptance_recorded", "sales_documents", String(d.id), { doc_number: d.doc_number, revision: d.revision, accepted_name: name, accepted_position: position, channel, note });
+      return json({ ok: true, revision: d.revision, accepted_name: name, channel }, 201);
+    } catch (e) {
+      if (skew(e)) return err("migration_missing", "Run the database migrations first (0160) - PUSH.bat does this", 503);
+      throw e;
+    }
   }
 
   /* ════════════════════════════════════════════════════════════════════

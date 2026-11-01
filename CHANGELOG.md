@@ -10,6 +10,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.246.3] - 2026-11-01 - A project starts only once the customer agreed
+
+The owner, 01-11-2026: "once Quotation agreed to proceed by client/customer then only start project button able to click. there should a button first for acceptance Quotation before Start Project".
+
+- **Record acceptance** (Tasks > Projects, and the quotation's Project & Tasks tab): the quotation's salesperson, its creator, or the CEO/COO/CCO record that the customer agreed - who agreed, their position, how (WhatsApp, email, phone, a signed order, in person) and a reference. It lands in the same acceptance record the customer's shared link writes, once per revision, with the staff member's name (`POST /docs/:id/acceptance`, audited `doc.acceptance_recorded`). An expired quotation cannot be recorded as accepted - it is revised first.
+- **Start project** appears only when the quotation is accepted (on the link or recorded) or invoiced. The server refuses a project otherwise (`409 not_accepted`) - from the board, the quotation page and the Create Task "For a quotation" path alike. The draft-brief-before-acceptance path of 1.245.0 is gone; management no longer starts an unaccepted project "with a reason".
+- The quotation's acceptance line in Sales says how the customer agreed and who recorded it.
+- Migration **0160**: three nullable columns on `quotation_acceptances` (`channel`, `recorded_by`, `note`). No existing row changed.
+- Evidence: go-live-t 94 checks / 18 mutations; go-live-p 78 / 12 (re-cut to the new order); browser task-progress.py (Record acceptance sheet, Start project only when accepted/invoiced).
+- Not deployed.
+
 ## [1.246.2] - 2026-11-01 - Tasks from a quotation, an editable checklist, staff photos, the header gap
 
 The owner's screenshots of 01-11-2026, after 1.246.0 went up.
