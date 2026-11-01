@@ -10,6 +10,20 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.249.0] - 2026-11-01 - The Agent role; task-update emails from the CEO
+
+The owner's request (01-11-2026), the audit claude/TASK-UPDATES-AGENT-AUDIT.md, his answers (agents in the staff portal with a small menu; a real agent role; commission for agents is a separate brief) and his "approved".
+
+- **Agent role** (migration **0164**): `users` is rebuilt to accept the role `agent`, the way Cloudflare D1 documents for a table others point at (foreign keys deferred, every column in the same order, every row copied, the two indexes recreated). A guard proves every row and column is byte-for-byte the same afterwards with foreign keys enforced. Only the company owner (or the super admin) gives the Agent role or creates an Agent account, and an agent may use a personal email. Two-factor sign-in is required, as for staff.
+- **What an agent sees:** a fixed menu - **Tasks** (only the tasks given to them; they cannot set tasks), **Agents** (the active packages to promote, with price and contents; **Submit a client** with the package the client wants; **My requests** with what happened to each) and **Profile**. Every other staff API answers 403 to an agent, whatever a menu shows (index.ts `AGENT_STAFF_PATHS`). Agents are never counted as staff: not in payroll, attendance, headcount, birthdays, the staff pickers or as a salesperson; they appear only where tasks are given.
+- **Agents tab for Sales and management:** Sales & Marketing see every agent's request (read only); the CEO, COO and CCO edit them - status (new, contacted, quoted, won, lost), who follows up, the quotation it became, a private note the agent never sees. Every change is kept (`agent_request_events`, the database refuses edits).
+- **Send a task update** (Tasks > Reports & Archive > Task Email Notifications): the CEO writes a subject and a message to everyone with open tasks or to chosen people (agents included); each person gets ONE email with the message and their own open tasks only; once per person per hour; preview first; audited. COO and CCO read the delivery log. Who may send is the new row "Send a task update email" in Roles & Permissions (default the CEO).
+- **Roles & Permissions** gains Agent as a role column and four rows (task update email, agent desk, see agents' requests, edit agents' requests); `/admin/permissions` and the /admin user roles list show the new role and rows.
+- Agent commission: not in this release (sales an agent brings in stay credited to the salesperson who closes them, as today) - waiting for the owner's rule.
+- No change to quotations, invoices, payments, commission, payroll or attendance.
+- Evidence: new runtime guard tests/go-live-g.mjs (59 checks, 10 mutations; the 1.248.0 worker fails 34 of its runtime checks - an agent account there could read the commission summary), browser tests/browser/agents.py, all guards.
+- Not deployed.
+
 ## [1.248.0] - 2026-11-01 - Signatures & Stamps per person and company; task start dates
 
 The owner's brief "A2Z OS - CEO signature management, company stamps & quotation signing" (01-11-2026), the audit claude/SIGNATURES-AUDIT.md and his answers (the person AND the owner confirm a signature; no approval rule until the owner sets one; the stamp prints with an authorised preparer's verified signature; sales documents only), his "approved", and his Tasks screenshot (a task reads start to end, not only a deadline).

@@ -24,6 +24,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Payroll": { en: "Payroll", ms: "Gaji" },
   "Expenses": { en: "Expenses", ms: "Perbelanjaan" },
   "Sales": { en: "Sales", ms: "Jualan" },
+  "Agents": { en: "Agents", ms: "Ejen" },
   /* v1.183.0 - Sales Performance, Hankei's, Enquiries, Web Orders and
      Commission retired; their labels with them. */
   "Inventory": { en: "Inventory", ms: "Inventori" },

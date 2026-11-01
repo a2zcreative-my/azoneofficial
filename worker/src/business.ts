@@ -1019,7 +1019,7 @@ export async function handleBusiness(
       const all = ((await env.DB.prepare(`SELECT DISTINCT tag FROM customer_tags ORDER BY tag LIMIT 200`).all<{ tag: string }>()).results ?? []).map((t) => t.tag);
       /* who may own a follow-up: the active sales team, by the same permission */
       const owners = ((await env.DB.prepare(
-        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users WHERE is_active = 1 AND role NOT IN ('customer') ORDER BY name`,
+        `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent') ORDER BY name`,
       ).all<{ id: number; name: string; role: string }>()).results ?? []).filter((u) => can(u.role, "sales")).map((u) => ({ id: u.id, name: u.name }));
       return json({ customer: c, contacts, tags, all_tags: all, terms_days: terms?.terms_days ?? null, followups, recurring, invoices, owners, me: user.id, today: mytToday(), can_write: CRM_WRITE });
     } catch (e) {
@@ -1270,7 +1270,7 @@ export async function handleBusiness(
     const today = mytToday();
     const staff = ((await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, position, department, employment_status, joined_on, left_on, onboarding_json
-         FROM users WHERE role NOT IN ('customer', 'super_admin', 'admin') AND (is_active = 1 OR left_on >= ?1) ORDER BY name`,
+         FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND (is_active = 1 OR left_on >= ?1) ORDER BY name`,
     ).bind(addDays(today, -60)).all<{ id: number; name: string; position: string | null; department: string | null; employment_status: string | null; joined_on: string | null; left_on: string | null; onboarding_json: string | null }>()).results ?? []);
     try {
       const leavingRows = ((await env.DB.prepare(`SELECT user_id, items FROM leaving_checklists`).all<{ user_id: number; items: string }>()).results ?? []);

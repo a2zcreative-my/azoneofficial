@@ -204,7 +204,7 @@ export async function morningBrief(env: Env): Promise<number> {
     try { return (await env.DB.prepare(sql).bind(...binds).first<{ c: number }>())?.c ?? 0; } catch { return null; }
   };
   const clockedIn = await n(`SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`);
-  const headcount = await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`);
+  const headcount = await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`);
   const yesterdayCents = await n(`SELECT COALESCE(SUM(COALESCE(booked_cents, total_cents)), 0) AS c FROM web_orders WHERE paid_seen_at IS NOT NULL AND date(paid_seen_at, '+8 hours') = date('now', '+8 hours', '-1 day')`);
   const yesterdayOrders = await n(`SELECT COUNT(*) AS c FROM web_orders WHERE paid_seen_at IS NOT NULL AND date(paid_seen_at, '+8 hours') = date('now', '+8 hours', '-1 day')`);
   const openWatch = await n(`SELECT COUNT(*) AS c FROM watcher_open`);

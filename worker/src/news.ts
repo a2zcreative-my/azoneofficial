@@ -57,7 +57,7 @@ export async function viewerOf(env: Env, user: { id: number; role: string }): Pr
 async function recipientsOf(env: Env, post: { created_by: number | null; created_at: string; audience: string | null }) {
   const { results } = await env.DB.prepare(
     `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, department, joined_on FROM users
-      WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1
+      WHERE role NOT IN ('customer', 'agent', 'super_admin') AND is_active = 1
         AND (left_on IS NULL OR left_on >= date('now', '+8 hours') OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours')))
         AND id != ?1
         AND (joined_on IS NULL OR joined_on = '' OR joined_on <= date(?2, '+8 hours'))
@@ -76,7 +76,7 @@ const audienceOf = (raw: string | null): string[] | null => {
 async function departments(env: Env): Promise<string[]> {
   const { results } = await env.DB.prepare(
     `SELECT DISTINCT TRIM(department) AS d FROM users
-      WHERE department IS NOT NULL AND TRIM(department) != '' AND is_active = 1 AND role NOT IN ('customer', 'super_admin')
+      WHERE department IS NOT NULL AND TRIM(department) != '' AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin')
       ORDER BY d`,
   ).all<{ d: string }>();
   return results.map((r) => r.d);
@@ -300,7 +300,7 @@ export async function handleNews(
     ).all<{ id: number; title: string; category: string; version: number; created_by: number | null; created_at: string; audience: string | null; important: number; pinned: number; publisher_name: string | null }>();
     const { results: staffRows } = await env.DB.prepare(
       `SELECT id, department, joined_on FROM users
-        WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1
+        WHERE role NOT IN ('customer', 'agent', 'super_admin') AND is_active = 1
           AND (left_on IS NULL OR left_on >= date('now', '+8 hours') OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours')))`,
     ).all<{ id: number; department: string | null; joined_on: string | null }>();
     const { results: k } = await env.DB.prepare(`SELECT announcement_id, user_id, version FROM announcement_acks`)

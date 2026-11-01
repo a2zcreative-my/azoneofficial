@@ -231,7 +231,7 @@ async function staffList(env: Env, from: string, to: string): Promise<{ id: numb
                   ORDER BY t.week_from DESC, t.id DESC LIMIT 1) IS NOT NULL`;
   const run = (inForce: string) => env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.department FROM users u
-      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
+      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
         AND (u.role IN (${SELLER_ROLES.map((r) => `'${r}'`).join(", ")})
              OR ${inForce}
              OR EXISTS (SELECT 1 FROM sales_documents d WHERE d.salesperson_id = u.id
@@ -256,7 +256,7 @@ async function staffList(env: Env, from: string, to: string): Promise<{ id: numb
 async function targetCandidates(env: Env, from: string, to: string): Promise<{ id: number; name: string; role: string }[]> {
   const { results } = await env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u
-      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
+      WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
       ORDER BY name`,
   ).bind(from, to).all<{ id: number; name: string; role: string }>();
   return results ?? [];
@@ -389,7 +389,7 @@ async function hodTeam(env: Env, uid: number): Promise<number[] | null> {
   let rows: OrgPerson[];
   try {
     rows = (await env.DB.prepare(
-      `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to FROM users WHERE role NOT IN ('customer', 'super_admin')`,
+      `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin')`,
     ).all<OrgPerson>()).results ?? [];
   } catch { return null; }
   const line = reportingLine(rows, uid);
@@ -469,7 +469,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
     if (ids && ids.length) {
       const members = await run<{ id: number; name: string; department: string | null }>(
         `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.department FROM users u
-          WHERE u.id IN (${[user.id, ...ids].map((x) => Number(x)).join(", ")}) AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
+          WHERE u.id IN (${[user.id, ...ids].map((x) => Number(x)).join(", ")}) AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${onStaffForWeekSql()}
           ORDER BY name`, from, to);
       const rows: Slim[] = [];
       for (const m of members) rows.push(slim(await weekFor(env, m.id, m.name, from, to, today, startDow), m.department));
@@ -599,7 +599,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     }
     const uid = scope === "person" ? Math.round(Number(body?.user_id)) : null;
     if (scope === "person") {
-      const u = await env.DB.prepare(`SELECT id FROM users WHERE id = ?3 AND is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin') AND ${onStaffForWeekSql("")}`)
+      const u = await env.DB.prepare(`SELECT id FROM users WHERE id = ?3 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${onStaffForWeekSql("")}`)
         .bind(week, addDays(week, 6), uid).first();
       if (!u) return err("not_found", "That person is not on staff for that week (resigned, or not found)", 404);
     }

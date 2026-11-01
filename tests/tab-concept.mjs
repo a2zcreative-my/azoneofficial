@@ -101,6 +101,7 @@ const BODY = {
   "On Shift": ["components/portal/dashboard.tsx"],
   "Ecommerce": ["components/portal/ecommerce-panel.tsx"], // v1.185.0 - the page is its own panel
   "Sales": ["components/portal/sales.tsx"],
+  "Agents": ["components/portal/agents-panel.tsx#AgentsPanel"], // v1.249.0 - the agent desk
   /* v1.183.0 - Enquiries, Sales Performance, Hankeis, Web Orders and
      Commission retired with their panels */
   "Inventory": ["components/portal/role-panels.tsx#InventoryPanel"],

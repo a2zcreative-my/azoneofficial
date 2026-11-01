@@ -15,8 +15,9 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleAgent } from "./agent"; // v1.249.0 - the agent desk
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
-import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS } from "./task-mail";
+import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
 import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
@@ -58,7 +59,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is simply that rule with a name. */
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can, allows, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
+import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
 import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
 import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
@@ -271,6 +272,10 @@ export async function isHourlyUserId(env: Env, userId: number): Promise<boolean>
  * because controlling the system is the job. It changes who the system
  * counts, pays, rosters and chases for a missing punch. */
 export const staffRolesSql = (alias = "") =>
+  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;
+/** v1.249.0 - the people WORK can be given to: staff, and agents for their own
+    tasks. Agents are never staff (payroll, attendance, headcount, leave). */
+export const taskPeopleSql = (alias = "") =>
   `${alias}role NOT IN ('customer', 'super_admin')`;
 
 /** THE SAME STAFF ORDER AS THE SCREEN, in SQL — v1.78.0.
@@ -1055,7 +1060,7 @@ export async function reconcileDerivedOt(env: Env, month: string): Promise<{ add
     .filter((h) => ["public", "replacement"].includes(h.kind ?? "public")).map((h) => h.holiday_date));
   const { results: people } = await env.DB.prepare(
     `SELECT id, role, employment_status FROM users
-      WHERE is_active = 1 AND role NOT IN ('customer','super_admin','admin','ceo','coo','cco')`,
+      WHERE is_active = 1 AND role NOT IN ('customer', 'agent','super_admin','admin','ceo','coo','cco')`,
   ).all<{ id: number; role: string; employment_status: string | null }>();
   const salaried = new Set((people ?? [])
     .filter((p) => p.employment_status !== "part_time" && !isHourlyUser(p.role, p.employment_status))
@@ -2595,7 +2600,7 @@ async function revokePaidConfirmation(env: Env, invoiceId: number, userId: numbe
 async function closerEligible(env: Env, id: number | null | undefined): Promise<boolean> {
   if (!id || !Number.isInteger(id) || id <= 0) return false;
   return Boolean(await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'admin', 'super_admin') AND ${currentStaffSql()}`,
+    `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'admin', 'super_admin') AND ${currentStaffSql()}`,
   ).bind(id).first());
 }
 
@@ -2789,6 +2794,12 @@ async function handleStaffRoutes(
     if (pj) return pj;
   }
 
+  /* ---- v1.249.0 the agent desk (agent.ts): packages to promote, agents' requests ---- */
+  if (path === "/agent" || path.startsWith("/agent/")) {
+    const ag = await handleAgent(env, path, method, body, user, new URL(request.url).searchParams);
+    if (ag) return ag;
+  }
+
   if (path === "/packages" || path.startsWith("/packages/")) {
     const pk = await handlePackages(env, path, method, body, user, new URL(request.url).searchParams);
     if (pk) return pk;
@@ -2911,8 +2922,12 @@ async function handleStaffRoutes(
   if (path === "/users" && method === "POST") {
     // HR-scoped staff creation. Deliberately cannot mint admin/super_admin,
     // executive, or customer accounts; those stay in /admin/super-admin flows.
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
-    const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing"];
+    /* v1.249.0 - an Agent account is made by whoever may give the Agent role
+       (the owner, mayGrant/role_any) and may use a personal email: agents are
+       partners, not employees */
+    const agentNew = body?.role === "agent";
+    if (agentNew ? !mayGrant(user, "agent") : !can(user.role, "hr_manage")) return err("forbidden", agentNew ? "Only the company owner creates Agent accounts" : "HR access required", 403);
+    const STAFF_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "agent"];
     if (
       !body || !str(body.email, 200) || !str(body.name, 120) ||
       !str(body.password, 200) || (body.password as string).length < 10 ||
@@ -2923,7 +2938,7 @@ async function handleStaffRoutes(
     const email = (body.email as string).toLowerCase().trim();
     // Domain policy (v1.4.42): staff roles require a company email —
     // personal emails (gmail etc.) belong to customer accounts.
-    if (!email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
+    if (!agentNew && !email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
       return err("domain_policy", `Staff roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer accounts`, 400);
     }
     const existing = await env.DB.prepare(`SELECT id FROM users WHERE email = ?1`)
@@ -3158,7 +3173,7 @@ async function handleStaffRoutes(
     // available to every staff role, nothing sensitive.
     const { results } = await env.DB.prepare(
       `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin') AND birthday IS NOT NULL`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND birthday IS NOT NULL`,
     ).all();
     return json({ birthdays: results });
   }
@@ -3228,7 +3243,7 @@ async function handleStaffRoutes(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.position,
               MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS first_in
          FROM attendance_records a
-         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours')
         GROUP BY u.id
         ORDER BY first_in`,
@@ -3241,7 +3256,7 @@ async function handleStaffRoutes(
                   AND date('now', '+8 hours') BETWEEN l.start_date AND l.end_date
                 LIMIT 1) AS leave_type
          FROM users u
-        WHERE u.is_active = 1 AND ${headcountSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        WHERE u.is_active = 1 AND ${headcountSql("u.")} AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
         ORDER BY ${STAFF_ORDER_SQL}`,
     ).all<{ id: number; name: string; position: string | null; leave_type: string | null }>();
     return json({
@@ -3278,7 +3293,7 @@ async function handleStaffRoutes(
          gesture rather than a control */
       lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
       /* v1.230.0 - headcount (started, on staff today), the Staff tab's Active */
-      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${headcountSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`),
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${headcountSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`),
 
       pending_leave: await gated(people, `SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
       pending_claims: await gated(can(user.role, "claims_decide"), `SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
@@ -3303,12 +3318,12 @@ async function handleStaffRoutes(
          same rule the punch flag uses), late (after 10:00). */
       attendance_on_time: await gated(people, `SELECT COUNT(*) AS c FROM (
         SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
-        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
       ) WHERE t <= '10:00'`),
       attendance_late: await gated(people, `SELECT COUNT(*) AS c FROM (
         SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
-        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
         WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
       ) WHERE t > '10:00'`),
 
@@ -3344,8 +3359,9 @@ async function handleStaffRoutes(
     const { results } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
        WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+         AND (u.role != 'agent' OR ?1 = 1)
        ORDER BY ${STAFF_ORDER_SQL}`,
-    ).all();
+    ).bind(new URL(request.url).searchParams.get("agents") === "1" ? 1 : 0).all(); // v1.249.0 - agents only in the task pickers, never as a salesperson
     return json({ staff: results });
   }
   if (path === "/users/activity" && method === "GET") {
@@ -3686,7 +3702,7 @@ async function handleStaffRoutes(
     try {
       rows = ((await env.DB.prepare(
         `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to
-           FROM users WHERE role NOT IN ('customer', 'super_admin')`,
+           FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin')`,
       ).all<OrgPerson>()).results ?? []);
     } catch (e) {
       if (e instanceof Error && e.message.includes("no such column")) return err("pending_migration", "Run the deploy so migration 0113 applies", 409);
@@ -4881,7 +4897,7 @@ async function handleStaffRoutes(
         const { results } = await env.DB.prepare(
           `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.photo_key
            FROM users u
-           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
              AND NOT EXISTS (SELECT 1 FROM live_sessions s2 WHERE s2.host_user_id = u.id
                                AND s2.session_date = ?1 AND s2.status != 'cancelled')
              AND NOT EXISTS (SELECT 1 FROM leave_requests l2 WHERE l2.user_id = u.id
@@ -4937,7 +4953,7 @@ async function handleStaffRoutes(
         const shiftAtW = await shiftResolver(env);
         const { results: people } = mgrR
           ? await env.DB.prepare(
-              `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+              `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
             ).all<{ id: number }>()
           : { results: [{ id: user.id }] };
         for (const p of people ?? []) {
@@ -6684,7 +6700,7 @@ async function handleStaffRoutes(
     let newPayee: number | null = null;
     if (pid > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer')`,
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
       ).bind(pid).first<{ id: number }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       newPayee = pu.id;
@@ -7069,7 +7085,7 @@ async function handleStaffRoutes(
     let payeeRole: string | null = null; // v1.4.175: drives conflict rerouting
     if (typeof body?.payee_user_id === "number" && body.payee_user_id > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer')`,
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
       ).bind(body.payee_user_id).first<{ id: number; role: string }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       payeeId = pu.id;
@@ -7364,7 +7380,7 @@ async function handleStaffRoutes(
                 p.worked_days, p.month_working_days, u.base_salary_cents, u.name AS uname
          FROM payroll_entries p JOIN users u ON u.id = p.user_id
          WHERE p.month = ?1 AND u.is_active = 1
-           AND u.role NOT IN ('customer', 'super_admin')
+           AND u.role NOT IN ('customer', 'agent', 'super_admin')
            AND NOT (u.left_on IS NOT NULL AND u.left_on < ?2
                     AND (u.rejoined_on IS NULL OR u.rejoined_on > ?3))`,
       ).bind(prevM, mStart, mEnd).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
@@ -7891,7 +7907,7 @@ async function handleStaffRoutes(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
   /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
      decides it (the same checks the routes make). A tab absent here has no
@@ -8184,6 +8200,7 @@ async function handleStaffRoutes(
     return json({ tasks: results, ...(archive ? { next_before: results.length === 300 && lastClosed ? lastClosed.id : null } : {}) });
   }
   if (path === "/tasks" && method === "POST") {
+    if (user.role === "agent") return err("forbidden", "Agents work on the tasks given to them - management sets tasks", 403); // v1.249.0
     // Staff create their own tasks (they know their work). Managers may also
     // assign to others; a plain staff member can only assign to themselves.
     if (!body || !str(body.title, 200)) {
@@ -8195,7 +8212,7 @@ async function handleStaffRoutes(
     }
     /* v1.243.0 (F2 / D9) - current staff only: no customer, no leaver */
     if (assignedTo !== user.id) {
-      const okA = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(assignedTo).first().catch(() => ({ x: 1 }));
+      const okA = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${taskPeopleSql()} AND ${currentStaffSql()}`).bind(assignedTo).first().catch(() => ({ x: 1 }));
       if (!okA) return err("invalid_input", "Tasks go to a current staff member - that person is not on staff (or has left).", 400);
     }
     /* v1.66.0 Track R — assigned FROM the roster, with a slot.
@@ -8836,7 +8853,39 @@ async function handleStaffRoutes(
       await audit(env, user.id, "tasks.mail_settings", "system_meta", "task_mail_settings", { from: cur, to: next });
     }
     const st = await readMailSettings(env);
-    return json({ settings: st, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null }, can_edit: mailAdmin });
+    return json({ settings: st, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null }, can_edit: mailAdmin, can_broadcast: can(user.role, "task_mail_send") });
+  }
+  /* v1.249.0 - SEND A TASK UPDATE (the owner, 01-11-2026): the CEO (task_mail_send,
+     editable in Roles & Permissions) writes a message; each chosen person gets
+     ONE email with it and THEIR OWN open tasks. COO and CCO read the log. */
+  if (path === "/tasks/mail-broadcast" && method === "POST") {
+    if (!can(user.role, "task_mail_send")) return err("forbidden", "Sending a task update is for the CEO (Roles & Permissions decides)", 403);
+    const subject = typeof body?.subject === "string" ? body.subject.trim().slice(0, 120) : "";
+    const message = typeof body?.message === "string" ? body.message.trim().slice(0, 1000) : "";
+    if (subject.length < 3 || message.length < 5) return err("invalid_input", "Write a subject and a message", 400);
+    let ids: number[] = [];
+    const to = body?.to;
+    if (to === "open_work") {
+      ids = ((await env.DB.prepare(`SELECT DISTINCT u.id FROM users u JOIN tasks t ON t.assigned_to = u.id WHERE u.is_active = 1 AND ${taskPeopleSql("u.")} AND ${currentStaffSql("u.")} AND t.status != 'completed' AND COALESCE(t.stage, '') != 'cancelled' LIMIT 300`).all<{ id: number }>()).results ?? []).map((r) => r.id);
+    } else if (to && typeof to === "object" && !Array.isArray(to) && typeof (to as { department?: unknown }).department === "string") {
+      ids = ((await env.DB.prepare(`SELECT u.id FROM users u WHERE u.is_active = 1 AND ${taskPeopleSql("u.")} AND ${currentStaffSql("u.")} AND u.department = ?1 LIMIT 300`).bind((to as { department: string }).department).all<{ id: number }>()).results ?? []).map((r) => r.id);
+    } else if (Array.isArray(to)) {
+      const want = [...new Set(to.map(Number).filter((x) => Number.isInteger(x) && x > 0))].slice(0, 300);
+      if (want.length) ids = ((await env.DB.prepare(`SELECT u.id FROM users u WHERE u.id IN (${want.map(() => "?").join(",")}) AND u.is_active = 1 AND ${taskPeopleSql("u.")} AND ${currentStaffSql("u.")}`).bind(...want).all<{ id: number }>()).results ?? []).map((r) => r.id);
+    }
+    ids = ids.filter((x) => x !== user.id);
+    if (!ids.length) return err("invalid_input", "Choose who receives it - nobody current matches", 400);
+    if (body?.preview === true) {
+      const first = await recipientFor(env, ids[0]!);
+      const lines = await openTaskLines(env, ids[0]!);
+      const sample = first.to ?? { id: ids[0]!, email: "", name: "", first: "there", role: "" };
+      const built = buildTaskMail(env, "broadcast", { task: { id: 0, title: subject }, by: user.name, summary: message, extra: lines.count ? lines.text : null, to: sample });
+      return json({ ok: true, recipients: ids.length, sample_for: sample.name || null, subject: built.subject, html: built.html, sender_ready: mailReady(env) });
+    }
+    if (!mailReady(env)) return err("invalid_state", "Email sending is not configured yet - onboard the domain in the Cloudflare dashboard and set MAIL_FROM (wrangler.toml), then PUSH.bat", 409);
+    const res = await broadcastTaskMail(env, { id: user.id, name: user.name }, subject, message, ids);
+    await audit(env, user.id, "task.mail_broadcast", "mail_outbox", subject, { recipients: ids.length, queued: res.queued, skipped: res.skipped.length });
+    return json({ ok: true, ...res, recipients: ids.length });
   }
   if (path === "/tasks/mail-log" && method === "GET") {
     const mine = mailUrl.searchParams.get("mine") === "1" || !mailMgr;
@@ -10687,7 +10736,7 @@ async function handleStaffRoutes(
     }
     if (cur === toId) return err("invalid_input", "That person is already the closer.", 400);
     const person = await env.DB.prepare(
-      `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer') AND ${currentStaffSql()}`,
+      `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent') AND ${currentStaffSql()}`,
     ).bind(toId).first<{ id: number }>();
     if (!person) return err("invalid_input", "That person is not on the current staff list.", 400);
     if (!(await closerEligible(env, toId))) return err("closer_required", "The closer must be a salesperson, not a system account.", 400);
@@ -12605,7 +12654,7 @@ async function handleStaffRoutes(
     clock: ["Clock-in failure", "high"], quotation: ["Quotation error", "normal"], system: ["System error", "normal"],
   };
   const supportAssignee = async (): Promise<{ id: number; name: string } | null> => {
-    const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
+    const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
     const set = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'support_assignee'`).first<{ value: string }>().catch(() => null);
     const a = await pick(Number(set?.value ?? 0)); if (a) return a;
     const o = await readOwner(env); const b = o ? await pick(o.user_id) : null; if (b) return b;
@@ -12614,13 +12663,13 @@ async function handleStaffRoutes(
   if (path === "/support/settings" && method === "GET") {
     const editor = user.role === "super_admin" || user.is_owner === true;
     const a = await supportAssignee();
-    const people = editor ? (await env.DB.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin') AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY ${STAFF_ORDER_SQL}`).all()).results : [];
+    const people = editor ? (await env.DB.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin') AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY ${STAFF_ORDER_SQL}`).all()).results : [];
     return json({ assignee: a, can_edit: editor, people, kinds: Object.fromEntries(Object.entries(SUPPORT_KINDS).map(([k, v]) => [k, v[0]])) });
   }
   if (path === "/support/settings" && method === "POST") {
     if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "The company owner or the super admin chooses who receives problem reports", 403);
     const id = Number(body?.user_id);
-    const ok = Number.isInteger(id) && id > 0 ? await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'super_admin')`).bind(id).first() : null;
+    const ok = Number.isInteger(id) && id > 0 ? await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin')`).bind(id).first() : null;
     if (!ok) return err("invalid_input", "Choose an active staff member", 400);
     await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('support_assignee', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(id)).run();
     await audit(env, user.id, "support.assignee_set", "users", String(id));
@@ -12785,7 +12834,7 @@ async function handleStaffRoutes(
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
     const people = await readPeople();
     const staffRows = ((await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, left_on, rejoined_on, employment_status FROM users WHERE role NOT IN ('customer', 'super_admin') ORDER BY id`,
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, left_on, rejoined_on, employment_status FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin') ORDER BY id`,
     ).all<{ id: number; name: string; role: string; is_active: number; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
     const byId = new Map(staffRows.map((u) => [u.id, u]));
     const exceptions: unknown[] = [];
@@ -13789,7 +13838,7 @@ async function handleStaffRoutes(
     if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id AS user_id, base_salary_cents FROM users
-       WHERE role NOT IN ('customer', 'super_admin') AND is_active = 1 AND ${payrollBaseStaffSql()}`,
+       WHERE role NOT IN ('customer', 'agent', 'super_admin') AND is_active = 1 AND ${payrollBaseStaffSql()}`,
     ).all();
     return json({ base: results });
   }
@@ -18125,7 +18174,7 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
 
     const { results: staff } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, photo_key FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'super_admin', 'admin')`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
     ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
 
     let earners = 0;
@@ -18179,7 +18228,7 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
        uses, so the two screens name the same people. */
     const { results: staff } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
-       WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month, "u.")} ORDER BY ${STAFF_ORDER_SQL}`,
+       WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month, "u.")} ORDER BY ${STAFF_ORDER_SQL}`,
     ).all();
     return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
   }

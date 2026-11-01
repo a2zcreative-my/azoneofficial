@@ -41,7 +41,7 @@ async function runtime(staffBundle) {
     first: async () => st.get(...b) ?? null, all: async () => ({ results: st.all(...b) }),
     run: async () => ({ meta: { changes: Number(st.run(...b).changes) } }), _run: () => st.run(...b) }; return o; };
   const env = { DB: { prepare: shim, batch: async (list) => { db.exec("BEGIN"); try { for (const s of list) s._run(); db.exec("COMMIT"); } catch (e) { db.exec("ROLLBACK"); throw e; } return []; } } };
-  const ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];
+  const ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "agent", "admin", "super_admin"]; // v1.249.0 - agent
   db.exec(`INSERT INTO users (id, name, email, role, is_active, password_hash, base_salary_cents) VALUES ${ROLES.map((r, i) => `(${i + 1},'${r}','${r}@x.t','${r}',1,'x',200000)`).join(",")}, (20,'Aina','aina@x.t','sales_marketing',1,'x',210000), (21,'Shop','shop@x.t','customer',1,'x',0)`);
   const ID = Object.fromEntries(ROLES.map((r, i) => [r, i + 1]));
   const roleOf = { ...Object.fromEntries(ROLES.map((r, i) => [i + 1, r])), 20: "sales_marketing", 21: "customer" };

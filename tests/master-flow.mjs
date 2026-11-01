@@ -48,7 +48,7 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 const sales = read("components/portal/sales.tsx");
 ok("Make quotation from an enquiry carries its consultant as the closer", /salesperson_id: e\.assigned_to \?\? undefined/.test(sales) && /salesperson_id: pf\.salesperson_id && staffList\.some\(\(u\) => u\.id === pf\.salesperson_id\)/.test(sales));
 ok("the browser's staff rule matches the worker's", /\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\)/.test(read("lib/staff-order.ts")));
-ok("payroll's base list keeps its own rule", /WHERE role NOT IN \('customer', 'super_admin'\) AND is_active = 1 AND \$\{payrollBaseStaffSql\(\)\}/.test(read("worker/src/staff.ts")));
+ok("payroll's base list keeps its own rule", /WHERE role NOT IN \('customer', 'agent', 'super_admin'\) AND is_active = 1 AND \$\{payrollBaseStaffSql\(\)\}/.test(read("worker/src/staff.ts")));
 ok("credit notes: the screen offers them only where the server says so", /canIssue && <button type="button" className=\{btnSm\} onClick=\{\(\) => void issueCreditNote\(inv\)\}>/.test(read("components/portal/documents-panel.tsx")));
 
 /* ---- runtime ---- */

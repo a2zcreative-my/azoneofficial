@@ -23,7 +23,7 @@
 import type { Env } from "./index";
 import { primaryOrigin } from "./index";
 import { mailReady, sendMailResult } from "./mail";
-import { currentStaffSql, staffRolesSql } from "./staff";
+import { currentStaffSql, taskPeopleSql } from "./staff"; // v1.249.0 - agents get the emails about their own tasks
 
 /* ---------------------------------------------------------------- settings */
 
@@ -41,13 +41,13 @@ export interface MailSettings {
   updated_by?: number | null;
   updated_at?: string | null;
 }
-export type MailKind = "assigned" | "moved" | "update" | "mention" | "review" | "decision" | "due" | "overdue" | "escalation" | "reminder" | "digest" | "test";
-export const MAIL_KINDS: MailKind[] = ["assigned", "moved", "update", "mention", "review", "decision", "due", "overdue", "escalation", "reminder", "digest", "test"];
+export type MailKind = "assigned" | "moved" | "update" | "mention" | "review" | "decision" | "due" | "overdue" | "escalation" | "reminder" | "digest" | "test" | "broadcast";
+export const MAIL_KINDS: MailKind[] = ["assigned", "moved", "update", "mention", "review", "decision", "due", "overdue", "escalation", "reminder", "digest", "test", "broadcast"];
 const SETTINGS_KEY = "task_mail_settings";
 
 export const DEFAULT_SETTINGS: MailSettings = {
   enabled: true,
-  triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true },
+  triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true, broadcast: true },
   lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30",
   quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8,
 };
@@ -99,7 +99,7 @@ export async function recipientFor(env: Env, userId: number | null | undefined, 
   if (!userId) return { to: null, why: "nobody" };
   try {
     const u = await env.DB.prepare(
-      `SELECT id, email, name, full_name, role, is_active, ${currentStaffSql()} AS current, ${staffRolesSql()} AS staff FROM users WHERE id = ?1`,
+      `SELECT id, email, name, full_name, role, is_active, ${currentStaffSql()} AS current, ${taskPeopleSql()} AS staff FROM users WHERE id = ?1`,
     ).bind(userId).first<{ id: number; email: string | null; name: string; full_name: string | null; role: string; is_active: number; current: number; staff: number }>();
     if (!u) return { to: null, why: "unknown user" };
     if (!u.staff) return { to: null, why: "not a staff account" };
@@ -165,6 +165,7 @@ const HEADLINE: Record<MailKind, string> = {
   assigned: "New task assigned", moved: "A task was moved to you", update: "Progress update", mention: "You were mentioned",
   review: "Ready for your review", decision: "Your task was reviewed", due: "Deadline reminder", overdue: "Task overdue",
   escalation: "Overdue task in your team", reminder: "Reminder from management", digest: "Your tasks today", test: "Test email",
+  broadcast: "Task update from management",
 };
 const INTRO: Record<MailKind, (d: TaskMailData) => string> = {
   assigned: (d) => `A new task has been assigned to you in A2Z OS${d.by ? ` by ${d.by}` : ""}.`,
@@ -179,13 +180,16 @@ const INTRO: Record<MailKind, (d: TaskMailData) => string> = {
   reminder: (d) => `${d.by ?? "Management"} asks you to update this task.`,
   digest: () => "Here is where your work stands this morning.",
   test: () => "This is a test of A2Z OS task emails. If you can read this, the sender is working.",
+  broadcast: (d) => `${d.by ?? "Management"} sent you this update about your tasks.`,
 };
 
 export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subject: string; text: string; html: string } {
   const origin = primaryOrigin(env);
-  const link = kind === "digest" ? `${origin}/portal?tab=Tasks` : `${origin}/portal?tab=Tasks&task=${d.task.id}`;
-  const subject = (kind === "digest" ? `[A2Z OS] Your tasks today — ${d.task.title}` : `[A2Z OS] ${HEADLINE[kind]} — ${d.task.title}`).slice(0, 180);
-  const rows: [string, string][] = kind === "digest" ? [] : [["Task", d.task.title]];
+  /* v1.249.0 - a broadcast is about the person's work as a whole, like the digest */
+  const whole = kind === "digest" || kind === "broadcast";
+  const link = whole ? `${origin}/portal?tab=Tasks` : `${origin}/portal?tab=Tasks&task=${d.task.id}`;
+  const subject = (kind === "digest" ? `[A2Z OS] Your tasks today — ${d.task.title}` : kind === "broadcast" ? `[A2Z OS] ${d.task.title}` : `[A2Z OS] ${HEADLINE[kind]} — ${d.task.title}`).slice(0, 180);
+  const rows: [string, string][] = whole ? [] : [["Task", d.task.title]];
   if (d.task.link_label) rows.push(["Project", d.task.link_label]);
   if (d.task.priority) rows.push(["Priority", cap(d.task.priority)]);
   if (d.task.deadline) rows.push(["Deadline", dmy(d.task.deadline) ?? d.task.deadline]);
@@ -197,7 +201,8 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
     if (st) rows.push(["Status", st]);
     if (typeof d.task.progress === "number") rows.push(["Progress", `${d.task.progress}%`]);
   }
-  if (d.summary) rows.push([kind === "mention" ? "Comment" : kind === "decision" || kind === "reminder" ? "Message" : "Latest update", d.summary.slice(0, 400)]);
+  if (d.summary) rows.push([kind === "mention" ? "Comment" : kind === "decision" || kind === "reminder" || kind === "broadcast" ? "Message" : "Latest update", d.summary.slice(0, kind === "broadcast" ? 1000 : 400)]);
+  if (kind === "broadcast") rows.push(["Your open tasks", d.extra ?? "No open tasks right now."]);
   if (d.next) rows.push(["Next action", d.next.slice(0, 200)]);
   if (d.task.description && (kind === "assigned" || kind === "moved")) rows.push(["Description", d.task.description.slice(0, 300)]);
   const intro = INTRO[kind](d);
@@ -205,7 +210,7 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
     `Hello ${d.to.first},`, "", intro, "",
     ...rows.map(([k, v]) => `${k}: ${v}`), "",
     kind === "test" ? "" : "Please review the task and provide progress updates as the work proceeds.",
-    `${kind === "digest" ? "Open My Tasks in A2Z OS" : "View the task in A2Z OS"}: ${link}`, "",
+    `${whole ? "Open My Tasks in A2Z OS" : "View the task in A2Z OS"}: ${link}`, "",
     "Regards,", "A2Z Creative Marketing", "hello@a2zcreative.my", "",
     "This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.",
   ].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
@@ -221,7 +226,7 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
 <p style="margin:0 0 16px;color:${INK};font-size:15px;line-height:1.5">${esc(intro)}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;background:#f8f9fb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin:0 0 20px"><tr><td><table role="presentation" cellspacing="0" cellpadding="0">${trs}</table></td></tr></table>
 ${kind === "test" ? "" : `<p style="margin:0 0 20px;color:${MUTED};font-size:13px;line-height:1.5">Please review the task and provide progress updates as the work proceeds.</p>`}
-<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="background:${GOLD};border-radius:8px"><a href="${esc(link)}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-weight:700;font-size:15px;text-decoration:none">${kind === "digest" ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS"} →</a></td></tr></table>
+<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="background:${GOLD};border-radius:8px"><a href="${esc(link)}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-weight:700;font-size:15px;text-decoration:none">${whole ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS"} →</a></td></tr></table>
 <p style="margin:20px 0 0;color:${MUTED};font-size:12px;line-height:1.5">You can update your progress, add comments and upload files directly in the task.</p>
 </td></tr>
 <tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;color:${MUTED};font-size:12px;line-height:1.5"><strong style="color:${INK}">A2Z Creative Marketing</strong> · hello@a2zcreative.my<br>This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.</td></tr>
@@ -243,7 +248,7 @@ export async function queueTaskMail(
     if (!mailReady(env)) return { queued: false, why: "sender not configured" };
     const s = opts.settings ?? await readMailSettings(env);
     if (!s.enabled) return { queued: false, why: "task emails are off" };
-    if (!s.triggers[kind]) return { queued: false, why: `${kind} emails are off` };
+    if (kind !== "broadcast" && !s.triggers[kind]) return { queued: false, why: `${kind} emails are off` }; // a broadcast is a deliberate send
     const { to, why } = await recipientFor(env, userId, kind === "digest" ? "email_digest" : "email_tasks");
     if (!to) return { queued: false, why };
     const dup = await env.DB.prepare(`SELECT id FROM mail_outbox WHERE ref = ?1`).bind(ref).first<{ id: number }>();
@@ -410,7 +415,7 @@ export async function taskDigest(env: Env, now = Date.now()): Promise<{ sent: nu
     const soon = mytDate(now + 3 * 86400000);
     const { results: people } = await env.DB.prepare(
       `SELECT DISTINCT u.id FROM users u JOIN tasks t ON t.assigned_to = u.id OR t.created_by = u.id
-        WHERE u.is_active = 1 AND ${staffRolesSql("u.")} AND ${currentStaffSql("u.")} AND t.status != 'completed' LIMIT 300`,
+        WHERE u.is_active = 1 AND ${taskPeopleSql("u.")} AND ${currentStaffSql("u.")} AND t.status != 'completed' LIMIT 300`,
     ).all<{ id: number }>();
     for (const p of people ?? []) {
       if (await offToday(env, p.id, today)) { out.skipped++; continue; }
@@ -436,5 +441,34 @@ export async function taskDigest(env: Env, now = Date.now()): Promise<{ sent: nu
       if (q.queued) out.sent++; else out.skipped++;
     }
   } catch { /* never fatal */ }
+  return out;
+}
+
+/* ---------------------------------------------------------------- broadcast (v1.249.0) */
+
+/** The open tasks one person holds, as the lines the broadcast lists. */
+export async function openTaskLines(env: Env, userId: number): Promise<{ count: number; text: string }> {
+  const rows = (await env.DB.prepare(
+    `SELECT title, status, progress, deadline FROM tasks WHERE assigned_to = ?1 AND status != 'completed' AND COALESCE(stage, '') != 'cancelled' ORDER BY COALESCE(deadline, '9999') LIMIT 25`,
+  ).bind(userId).all<{ title: string; status: string; progress: number | null; deadline: string | null }>().catch(() => ({ results: [] as { title: string; status: string; progress: number | null; deadline: string | null }[] }))).results ?? [];
+  const today = mytDate();
+  const text = rows.map((t) => `• ${t.title} - ${t.status === "in_progress" ? "in progress" : t.status}${typeof t.progress === "number" ? `, ${t.progress}%` : ""}${t.deadline ? `, ${t.deadline < today ? "was due" : "due"} ${dmy(t.deadline)}` : ""}`).join("\n");
+  return { count: rows.length, text };
+}
+
+/** The CEO writes to staff about their tasks: one email each - the message and
+    THEIR OWN open tasks, nobody else's. At most once per person per hour. */
+export async function broadcastTaskMail(env: Env, by: { id: number; name: string }, subject: string, message: string, ids: number[]): Promise<{ queued: number; skipped: { id: number; why: string }[] }> {
+  const out = { queued: 0, skipped: [] as { id: number; why: string }[] };
+  const s = await readMailSettings(env);
+  const batch = Date.now().toString(36);
+  for (const id of [...new Set(ids)]) {
+    const recent = await env.DB.prepare(`SELECT id FROM mail_outbox WHERE user_id = ?1 AND kind = 'broadcast' AND created_at >= ?2 LIMIT 1`)
+      .bind(id, sqlTime(Date.now() - 3600 * 1000)).first().catch(() => null);
+    if (recent) { out.skipped.push({ id, why: "already sent a task update this hour" }); continue; }
+    const lines = await openTaskLines(env, id);
+    const q = await queueTaskMail(env, "broadcast", id, `broadcast:${batch}:${id}`, { task: { id: 0, title: subject }, by: by.name, summary: message, extra: lines.count ? lines.text : null }, { settings: s, createdBy: by.id, reason: subject, urgent: true, skipCap: true });
+    if (q.queued) out.queued++; else out.skipped.push({ id, why: q.why ?? "not queued" });
+  }
   return out;
 }

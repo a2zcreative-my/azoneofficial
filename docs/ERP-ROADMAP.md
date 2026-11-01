@@ -339,3 +339,7 @@ approval (0144) carries the approver signature - no second approval table.
 No existing row is changed. It also adds `0163_task_dates`: tasks.start_date
 (nullable), so a task reads start to due like its project; deadline stays
 the due date every reminder and report reads. No row is changed.
+1.249.0 adds `0164_agent_role`: users rebuilt (same columns, same rows) so
+the role CHECK accepts agent, plus agent_requests (a client an agent brings
+in with the package wanted) and agent_request_events (append-only). Agents
+are never staff for payroll, attendance or headcount. No row is changed.

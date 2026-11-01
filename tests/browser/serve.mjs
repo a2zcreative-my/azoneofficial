@@ -178,6 +178,12 @@ const server = http.createServer((req, res) => {
          owner answer 401 totp_required until an authenticator code is sent
          (the worker's ownerStepUp / requireFreshTotp) */
       /* v1.237.0 - a matrix edit asks for the code too (owner or super admin) */
+      /* v1.249.0 - the task-update preview and send answer like the worker */
+      if (req.method === "POST" && p === "/staff/tasks/mail-broadcast") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, recipients: 4, sample_for: "Nur Aisyah binti Rahman", subject: "[A2Z OS] Week plan", html: "<!doctype html><html><body><h1>Task update from management</h1><p>Your open tasks</p></body></html>", queued: 4, skipped: [] }));
+        return;
+      }
       if (req.method === "POST" && p === "/staff/access/policy") {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }

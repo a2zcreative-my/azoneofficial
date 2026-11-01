@@ -41,3 +41,11 @@
 .nowrap { white-space: nowrap; }
 .subject { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .why { display: block; margin-top: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); overflow-wrap: anywhere; }
+
+/* v1.249.0 - Send a task update */
+.broadcast { display: grid; gap: 0.625rem; padding: 0.875rem 1rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--secondary); }
+.bcRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.bcPeople { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.25rem 0.75rem; max-height: 12rem; overflow-y: auto; }
+.bcField { display: grid; gap: 0.25rem; font-size: var(--type-caption-size); font-weight: 600; color: var(--foreground); }
+.warnLine { margin: 0; font-size: var(--type-body-sm-size); color: var(--warning); font-weight: 600; }
+.bcOpt { display: inline-flex; align-items: center; gap: 0.375rem; font-size: var(--type-body-sm-size); color: var(--foreground); }

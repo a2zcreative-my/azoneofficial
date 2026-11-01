@@ -695,7 +695,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const tabs = ALL_TABS.filter((t) => canSeeTab(user?.role, t, tabOverrides, myTabAccess));
   // v1.4.231 guard: a remembered tab this account can't see → Dashboard.
   useEffect(() => {
-    if (!tabs.includes(tab)) setTabState("Dashboard");
+    if (!tabs.includes(tab)) setTabState(tabs.includes("Dashboard") ? "Dashboard" : (tabs[0] ?? "Dashboard")); // v1.249.0 - an agent has no Dashboard: their first tab
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.join("|"), tab]);
   /* v1.159.9 (CEO, 14-09-2026: "check the sales all link to all the tabs").
@@ -919,7 +919,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,
      which can never name a tab outside this account's visible list. */
-  const activeTab: TabName = tabs.includes(tab) ? tab : "Dashboard";
+  const activeTab: TabName = tabs.includes(tab) ? tab : tabs.includes("Dashboard") ? "Dashboard" : (tabs[0] ?? "Dashboard");
   const navItems = tabs.map((tb) => ({ name: tb, label: tr(tb, lang) }));
   /* v1.175.0 — the person's own pinned modules. Read per account and clamped
      to `tabs`, the same permission-filtered list everything else here uses,

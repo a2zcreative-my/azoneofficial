@@ -63,6 +63,9 @@ export const ALL_TABS = [
      holds) are each one contiguous run of this list. The one move the new
      grouping needed; the phone thumb row (MOBILE_PRIMARY_TABS) is untouched. */
   "Sales",
+  /* v1.249.0 - the agent desk: for agents their whole job (packages to promote,
+     their requests); for Sales and management the list of agents' requests */
+  "Agents",
   /* v1.183.0 - Enquiries (v1.112.0), Sales Performance (v1.155.0) and
      Hankei's (v1.163.0) are RETIRED by the owner, 22-10-2026, the v1.172.0
      way: names, panels, role defaults, hints, icons, strings and guard checks
@@ -224,6 +227,8 @@ export function mobilePrimaryTabs(
 /** Home and identity. Never hidden, never overridable — clocking in and
     reading your own payslip are not permissions. */
 export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Desk", "Profile", "On Shift"];
+/** v1.249.0 - the whole menu of an agent */
+export const AGENT_TABS: readonly string[] = ["Tasks", "Agents", "Profile"];
 
 /**
  * PARKED — built, kept, and shown to nobody.
@@ -302,6 +307,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      how a special case earns its keep long after it stops meaning anything.
      Written out as an ordinary entry, it disappears. */
   Sales: SALES_ROLES,
+  Agents: ["sales_marketing", "ceo", "coo", "cco", "super_admin"], // agents see it through AGENT_TABS
   /* v1.183.0 - Sales Performance, Hankei's and Enquiries retired: no
      default here, so a saved override or grant naming one is ignored. */
   Inventory: [
@@ -418,6 +424,10 @@ export function canSeeTab(
   person: PersonAccess | null = null,
 ): boolean {
   if (!role) return true; // pre-auth render: the strip is skeleton anyway
+  /* v1.249.0 - an agent's menu is fixed: their tasks, the agent desk, their
+     account. Above every rail and override - the API closes everything else
+     to an agent anyway (index.ts AGENT_STAFF_PATHS). */
+  if (role === "agent") return AGENT_TABS.includes(tab);
   if (ALWAYS_VISIBLE.includes(tab)) return true;
   /* v1.102.0 - the parked rail, and it sits ABOVE the super_admin bypass on
      purpose. A tab the CEO has taken off the product should not still be
@@ -551,6 +561,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Desk: { slug: "desk" },
   Ecommerce: { slug: "ecommerce" },
   Sales: { slug: "sales" },
+  Agents: { slug: "agents" },
   Inventory: { slug: "inventory" },
   Assets: { slug: "assets" },
   Hotels: { slug: "hotels", record: "hotel", context: "detail" },

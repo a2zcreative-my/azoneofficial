@@ -57,7 +57,7 @@ export const ROLE_RANK_OTHER = 90;
  * super_admin holds. It had been appearing in the absence scan with nineteen
  * missing days because those queries asked for "not a customer" rather than
  * for staff. The worker has the matching predicate (`staffRolesSql`). */
-export const NON_STAFF_ROLES: readonly string[] = ["customer", "super_admin"];
+export const NON_STAFF_ROLES: readonly string[] = ["customer", "super_admin", "agent"]; // v1.249.0 - agents are partners, not staff
 
 export const isStaffRole = (role?: string | null): boolean =>
   Boolean(role) && !NON_STAFF_ROLES.includes(role as string);

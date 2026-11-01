@@ -691,7 +691,7 @@ interface AdminUser {
    part time - the alias means part time, a plain role means full staff, and
    a part-time account given a plain role becomes permanent (refine on the
    Staff tab). The confirmation below says so before it happens. */
-const ROLES =["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"] as const;
+const ROLES =["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"] as const; // v1.249.0 - agent
 
 function UsersPanel({ me }: { me: User }) {
   const { show: showToast, node: toastNode } = useSaveToast();
@@ -1013,7 +1013,7 @@ const ADMIN_SECTIONS = [
    SVG map (components/layout/nav-icons.tsx) alongside the portal's, so the
    surfaces speak one icon language and get tintable strokes. */
 
-const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
+const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent"];
 
 /** Plain-language purpose line shown under the tab bar. */
 const TAB_HELP: Record<Tab, string> = {

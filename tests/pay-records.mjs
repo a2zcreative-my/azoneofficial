@@ -118,7 +118,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("C1. on time is in by 10:00, like the donut", /r\.first_in <= "10:00"/.test(drill) && /r\.first_in > "10:00"/.test(drill)
     && /WHERE t <= '10:00'`\)/.test(staff) && /WHERE t > '10:00'`\)/.test(staff));
   ok("C1. the same staff filter as the donut's counts",
-    /JOIN users u ON u\.id = a\.user_id AND u\.is_active = 1 AND u\.role NOT IN \('customer', 'super_admin', 'admin'\)/.test(drill));
+    /JOIN users u ON u\.id = a\.user_id AND u\.is_active = 1 AND u\.role NOT IN \('customer', 'agent', 'super_admin', 'admin'\)/.test(drill));
   ok("C1. the card asks for the names", /api<AttWho>\("\/dashboard\/attendance-today"\)/.test(cards));
   ok("C1. the old do-nothing card button is gone", !/export function AttendanceDonutCard/.test(cards));
 }

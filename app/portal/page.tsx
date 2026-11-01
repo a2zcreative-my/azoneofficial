@@ -42,7 +42,7 @@ import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/compa
 import {
   CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, FinancePage,
-  HotelsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
+  HotelsPanel, AgentsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
   AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
   StaffDirectory,
@@ -245,6 +245,13 @@ export default function PortalPage() {
           {activeTab === "Assets" && <AssetsPanel focus={focusOf("Assets")} />}
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel focus={focusOf("Hotels")} />}
+          {activeTab === "Agents" && (
+            <TabPage>
+              <TabZone label={user.role === "agent" ? L("Packages and my clients", "Pakej dan pelanggan saya") : L("Agents' clients", "Pelanggan ejen")}>
+                <AgentsPanel role={user.role} />
+              </TabZone>
+            </TabPage>
+          )}
           {/* v1.129.0 - the three officers' cards. TAB_ROLES draws this tab
               for ceo/coo/cco only; the panel takes the role so it can put the
               signed-in officer's own card first. */}

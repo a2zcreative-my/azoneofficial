@@ -3,9 +3,18 @@ export type Role =
   | "editor" | "marketing" | "live_host"
   | "hr_admin" | "sales_marketing"
   | "ceo" | "coo" | "cco"
-  | "customer";
+  | "customer"
+  /* v1.249.0 - an Agent helps the sales team win clients: their own tasks, the
+     active packages, their own package requests - nothing else (0164) */
+  | "agent";
 
 export const PERMS: Record<string, readonly Role[]> = {
+  /* v1.249.0 - the Agent role (claude/TASK-UPDATES-AGENT-AUDIT.md, approved 01-11-2026) */
+  agent_portal: ["agent"],
+  agent_requests_view: ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
+  agent_requests_manage: ["super_admin", "ceo", "coo", "cco"],
+  /* v1.249.0 - the CEO writes to staff about their tasks; COO and CCO read the log (task_reports) */
+  task_mail_send: ["super_admin", "ceo"],
   company_review: ["super_admin", "ceo"],
   // === index.ts ===
   content_manage: ["super_admin", "admin"],
@@ -372,7 +381,7 @@ export const WORKING_ROLES: readonly string[] = ["editor", "marketing", "live_ho
 export function roleDoor(r: string): keyof typeof PERMS | "super_only" {
   if (r === "super_admin" || r === "ceo") return "super_only";
   if (r === "admin") return "tech_admin_grant";
-  if (r === "coo" || r === "cco" || r === "customer") return "role_any";
+  if (r === "coo" || r === "cco" || r === "customer" || r === "agent") return "role_any"; // v1.249.0 - the owner gives and takes the Agent role
   return "role_assign";
 }
 
@@ -427,6 +436,7 @@ export function can(role: Role | string | undefined | null, perm: keyof typeof P
 export const MANDATORY_2FA_ROLES: Role[] = [
   "ceo", "super_admin", "admin", "coo", "cco", "hr_admin",
   "editor", "marketing", "sales_marketing", "live_host",
+  "agent", // v1.249.0 - an agent sees tasks, packages and clients
 ];
 
 /* ------------------------------------------------------------------ */
@@ -481,6 +491,10 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Leave", key: "unpaid_leave", en: "Record unpaid days", ms: "Rekod hari tanpa gaji", cap: "unpaid_leave" },
   { module: "Attendance", key: "attendance_correct", en: "Correct attendance records", ms: "Betulkan rekod kehadiran", cap: "attendance_correct" },
   { module: "Attendance", key: "geofence", en: "Set the office geofence", ms: "Tetapkan geofence pejabat", cap: "geofence_admin" },
+  { module: "Tasks", key: "task_mail_send", en: "Send a task update email to staff", ms: "Hantar e-mel kemas kini tugasan kepada kakitangan", cap: "task_mail_send", note_en: "Each person gets their own open tasks; COO and CCO read the log", note_ms: "Setiap orang menerima tugasan terbuka sendiri; COO dan CCO membaca log" },
+  { module: "Agents", key: "agent_requests_view", en: "See agents' package requests", ms: "Lihat permintaan pakej ejen", cap: "agent_requests_view" },
+  { module: "Agents", key: "agent_requests_manage", en: "Edit agents' requests: status, follow-up person, notes", ms: "Sunting permintaan ejen: status, orang susulan, nota", cap: "agent_requests_manage" },
+  { module: "Agents", key: "agent_portal", en: "Agent: own tasks, packages to promote, submit clients", ms: "Ejen: tugasan sendiri, pakej untuk dipromosi, hantar pelanggan", cap: "agent_portal", note_en: "No other module, no staff data", note_ms: "Tiada modul lain, tiada data kakitangan" },
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
   { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete", note_en: "Never a project task (reassign or complete it)", note_ms: "Bukan tugasan projek (agih semula atau selesaikan)" },
   { module: "Projects", key: "project_view", en: "View shared project information", ms: "Lihat maklumat projek yang dikongsi", cap: "project_view", note_en: "Prices and contact details need more", note_ms: "Harga dan butiran hubungan memerlukan lebih" },
@@ -497,7 +511,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },
   { module: "ELFIA Store", key: "elfia_publish", en: "Publish, price, discount, bulk changes, Update the shop now", ms: "Terbit, harga, diskaun, perubahan pukal, Kemas kini kedai", cap: "elfia_publish" },
   { module: "ELFIA Store", key: "elfia_content", en: "Descriptions, collections and photos", ms: "Penerangan, koleksi dan foto", cap: "inventory" },
-  { module: "Users", key: "role_any", en: "Assign and revoke COO, CCO and customer roles", ms: "Tetapkan dan tarik balik peranan COO, CCO dan pelanggan", cap: "role_any", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
+  { module: "Users", key: "role_any", en: "Assign and revoke COO, CCO, Agent and customer roles", ms: "Tetapkan dan tarik balik peranan COO, CCO, Ejen dan pelanggan", cap: "role_any", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
   { module: "Users", key: "exec_accounts", en: "Create, edit, reset, offboard or sign out COO, CCO and Admin accounts", ms: "Cipta, sunting, set semula, tamatkan atau log keluar akaun COO, CCO dan Admin", cap: "exec_accounts", note_en: "Authenticator code for every change", note_ms: "Kod pengesah untuk setiap perubahan" },
   { module: "Users", key: "tech_admin", en: "Grant or revoke technical Admin access", ms: "Beri atau tarik balik akses Admin teknikal", cap: "tech_admin_grant", note_en: "Company email; authenticator code and a reason", note_ms: "E-mel syarikat; kod pengesah dan sebab" },
   { module: "Users", key: "account_email", en: "Change a staff login email", ms: "Tukar e-mel log masuk kakitangan", cap: "account_email", note_en: "Pending until the new address is verified; same account, history kept", note_ms: "Menunggu sehingga alamat baharu disahkan; akaun sama, sejarah kekal" },
@@ -509,4 +523,4 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
 ];
 /** The roles the policy view shows, in company order. Customers are never
     staff and hold none of these. */
-export const POLICY_ROLES: readonly Role[] = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];
+export const POLICY_ROLES: readonly Role[] = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "agent", "admin", "super_admin"];

@@ -93,7 +93,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      picker read /staff/users — EVERY account, dupes, Super Admin and
      all. /staff-list is the one picker source: active staff only,
      full_name preferred. Used by Content/Sales already; now here too. */
-  const roster = useCachedApi<{ staff: { id: number; name: string; role?: string; position?: string | null }[] }>("/staff/staff-list", canManage, ["users"]);
+  const roster = useCachedApi<{ staff: { id: number; name: string; role?: string; position?: string | null }[] }>("/staff/staff-list?agents=1", canManage, ["users"]); // v1.249.0 - agents can be given tasks
   const team = useMemo(() => roster.data?.staff ?? [], [roster.data]);
   const refreshBoard = board.refresh;
   const load = useCallback(async () => { refreshBoard(); }, [refreshBoard]);

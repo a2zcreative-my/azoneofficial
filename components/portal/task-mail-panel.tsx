@@ -27,7 +27,7 @@ interface Settings {
   enabled: boolean; triggers: Record<Kind, boolean>; lead_hours: number; escalation_days: number; overdue_days: number[];
   digest_on: boolean; digest_time: string; quiet_from: string; quiet_to: string; cap_per_day: number;
 }
-interface SettingsReply { settings: Settings; sender: { ready: boolean; from: string | null }; can_edit: boolean }
+interface SettingsReply { settings: Settings; sender: { ready: boolean; from: string | null }; can_edit: boolean; can_broadcast?: boolean }
 interface LogRow { id: number; to_email: string; to_name: string | null; kind: string; subject: string; status: string; attempts: number; last_error: string | null; not_before: string | null; created_at: string; sent_at: string | null; reason: string | null; created_by_name: string | null }
 
 const TRIGGERS: [Kind, string, string, string, string][] = [
@@ -177,6 +177,8 @@ export function TaskMailPanel() {
         </div>
       </div>
 
+      {cfg.can_broadcast && <BroadcastCard ready={cfg.sender.ready} onSent={() => setTick((n) => n + 1)} />}
+
       <div className={css.logHead}>
         <h3 className={css.h3}>{L("Delivery log", "Log penghantaran")}</h3>
         <span className={css.counts}>
@@ -206,5 +208,76 @@ export function TaskMailPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+/* v1.249.0 - SEND A TASK UPDATE (the owner, 01-11-2026): a subject and a message
+   to the people chosen; each gets ONE email with the message and their own open
+   tasks - nobody sees another person's work. Who may send is the
+   "Send a task update email" row of Roles & Permissions (default the CEO). */
+function BroadcastCard({ ready, onSent }: { ready: boolean; onSent: () => void }) {
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<"open_work" | "people">("open_work");
+  const [people, setPeople] = useState<{ id: number; name: string; role?: string }[] | null>(null);
+  const [chosen, setChosen] = useState<number[]>([]);
+  const [prev, setPrev] = useState<{ html: string; recipients: number; sample_for: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const { show, node } = useSaveToast();
+  const pick = async (m: "open_work" | "people") => {
+    setMode(m); setPrev(null);
+    if (m === "people" && !people) {
+      const r = await api<{ staff?: { id: number; name: string; role?: string }[] }>("/staff/staff-list?agents=1");
+      setPeople(r.data?.staff ?? []);
+    }
+  };
+  const payload = (preview: boolean) => JSON.stringify({ subject, message, to: mode === "open_work" ? "open_work" : chosen, ...(preview ? { preview: true } : {}) });
+  const ok = subject.trim().length >= 3 && message.trim().length >= 5 && (mode === "open_work" || chosen.length > 0);
+  const doPreview = async () => {
+    setBusy(true); setMsg("");
+    const r = await api<{ html?: string; recipients?: number; sample_for?: string | null; error?: { message?: string } }>("/staff/tasks/mail-broadcast", { method: "POST", body: payload(true) });
+    setBusy(false);
+    if (!r.ok || !r.data?.html) { setMsg(r.data?.error?.message ?? L("No preview", "Tiada pratonton")); return; }
+    setPrev({ html: r.data.html, recipients: r.data.recipients ?? 0, sample_for: r.data.sample_for ?? null });
+  };
+  const send = async () => {
+    setBusy(true); setMsg("");
+    const r = await api<{ queued?: number; skipped?: { id: number; why: string }[]; error?: { message?: string } }>("/staff/tasks/mail-broadcast", { method: "POST", body: payload(false) });
+    setBusy(false);
+    if (!r.ok) { setMsg(r.data?.error?.message ?? L("Not sent", "Tidak dihantar")); return; }
+    const skipped = r.data?.skipped?.length ?? 0;
+    show(L(`Queued for ${r.data?.queued ?? 0} people`, `Dalam giliran untuk ${r.data?.queued ?? 0} orang`), skipped > 0 ? L(`${skipped} skipped - see the log`, `${skipped} dilangkau - lihat log`) : L("It goes out on the next five-minute pass.", "Ia dihantar pada pusingan lima minit seterusnya."));
+    setSubject(""); setMessage(""); setPrev(null); setChosen([]);
+    onSent();
+  };
+  return (
+    <div className={css.broadcast} data-testid="task-broadcast">
+      {node}
+      <h3 className={css.h3}>{L("Send a task update", "Hantar kemas kini tugasan")}</h3>
+      <p className={css.note}>{L("Each person gets one email: your message, then their own open tasks (status, progress, due date). Nobody sees anybody else's work. Once per person per hour.", "Setiap orang menerima satu e-mel: mesej anda, kemudian tugasan terbuka mereka sendiri. Tiada siapa melihat kerja orang lain. Sekali sejam bagi setiap orang.")}</p>
+      <div className={css.bcRow} role="radiogroup" aria-label={L("Who receives it", "Siapa menerima")}>
+        <label className={css.bcOpt}><input type="radio" name="bc-to" checked={mode === "open_work"} onChange={() => void pick("open_work")} />{L("Everyone with open tasks", "Semua yang ada tugasan terbuka")}</label>
+        <label className={css.bcOpt}><input type="radio" name="bc-to" checked={mode === "people"} onChange={() => void pick("people")} />{L("Chosen people", "Orang dipilih")}</label>
+      </div>
+      {mode === "people" && (!people ? <SkelRows rows={2} /> : (
+        <div className={css.bcPeople}>
+          {people.map((p) => (
+            <label key={p.id} className={css.bcOpt}><input type="checkbox" checked={chosen.includes(p.id)} onChange={(e) => setChosen(e.target.checked ? [...chosen, p.id] : chosen.filter((x) => x !== p.id))} />{p.name}{p.role === "agent" ? ` · ${L("agent", "ejen")}` : ""}</label>
+          ))}
+        </div>
+      ))}
+      <label className={css.bcField}><span>{L("Subject", "Subjek")}</span><input className={inputClassSm} value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} placeholder={L("e.g. This week's priorities", "cth. Keutamaan minggu ini")} /></label>
+      <label className={css.bcField}><span>{L("Message", "Mesej")}</span><textarea className={inputClassSm} rows={4} value={message} maxLength={1000} onChange={(e) => setMessage(e.target.value)} /></label>
+      {msg && <p className={css.warnLine} role="alert">{msg}</p>}
+      <div className={css.bcRow}>
+        <button type="button" className={btnSm} disabled={!ok || busy} onClick={() => void doPreview()}>{L("Preview", "Pratonton")}</button>
+        <button type="button" className={btnSmPrimary} disabled={!ok || busy || !ready} title={!ready ? L("The sender is not set up yet", "Penghantar belum disediakan") : undefined} onClick={() => void send()}>{L("Send the update", "Hantar kemas kini")}</button>
+      </div>
+      {prev && (<>
+        <p className={css.note}>{L(`${prev.recipients} people · preview for ${prev.sample_for ?? "the first of them"}`, `${prev.recipients} orang · pratonton untuk ${prev.sample_for ?? "yang pertama"}`)}</p>
+        <iframe title={L("Task update preview", "Pratonton kemas kini tugasan")} sandbox="" srcDoc={prev.html} className={css.preview} />
+      </>)}
+    </div>
   );
 }

@@ -355,7 +355,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       const joinedSince = new Date(Date.now() + 8 * 3600 * 1000 - 60 * DAY_MS).toISOString().slice(0, 10);
       const { results: joined } = await env.DB.prepare(
         `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, joined_on, onboarding_json FROM users
-          WHERE is_active = 1 AND left_on IS NULL AND joined_on >= ?1 AND role NOT IN ('customer', 'super_admin', 'admin')`,
+          WHERE is_active = 1 AND left_on IS NULL AND joined_on >= ?1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
       ).bind(joinedSince).all<{ id: number; name: string; joined_on: string; onboarding_json: string | null }>();
       for (const u of joined) {
         let done: Record<string, boolean> = {};
@@ -372,7 +372,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
       const { results: leaving } = await env.DB.prepare(
         `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.left_on, k.items
            FROM users u LEFT JOIN leaving_checklists k ON k.user_id = u.id
-          WHERE u.left_on IS NOT NULL AND u.left_on >= ?1 AND u.role NOT IN ('customer', 'super_admin', 'admin')`,
+          WHERE u.left_on IS NOT NULL AND u.left_on >= ?1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
       ).bind(joinedSince).all<{ id: number; name: string; left_on: string; items: string | null }>();
       for (const u of leaving) {
         let done: Record<string, boolean> = {};

@@ -22,7 +22,7 @@
  */
 
 import {
-  AtSign, BadgePercent, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
+  AtSign, BadgePercent, Handshake, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck,
@@ -51,6 +51,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Payroll: Wallet,
   Expenses: TrendingDown,
   Sales: FileText,
+  Agents: Handshake, // v1.249.0 - the agent desk
   // v1.183.0 - Sales Performance (Target), Hankei's (ScanLine), Web Orders
   // (Globe, still admin's Website) and Commission (Percent) retired, their
   // glyphs with them. Enquiries below is admin's own tab and stays.

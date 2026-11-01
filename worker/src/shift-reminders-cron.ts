@@ -58,7 +58,7 @@ export async function runShiftReminders(env: Env, now = new Date()): Promise<Rem
   /* who works here today - one query, roles included so the operators can be
      left out without a second lookup */
   const { results: staff } = await env.DB.prepare(
-    `SELECT id, role FROM users WHERE is_active = 1 AND role NOT IN ('customer')`,
+    `SELECT id, role FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent')`,
   ).all<{ id: number; role: string }>();
   const people = (staff ?? []).filter((u) => !NOT_REMINDED.has(u.role));
   const push: PushTally = { sent: 0, failed: 0, pruned: 0, statuses: [] };

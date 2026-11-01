@@ -89,7 +89,7 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
      owner's authenticator code. */
   const superAdmin = role === "super_admin";
   const canEdit = superAdmin || owner;
-  const ROLE_OPTIONS = ["customer", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", ...(superAdmin ? ["ceo"] : [])];
+  const ROLE_OPTIONS = ["customer", "agent", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", ...(superAdmin ? ["ceo"] : [])]; // v1.249.0 - agent (the owner gives it)
   const PRIVILEGED = ["customer", "cco", "coo", "admin", "ceo"];
   const { prompt, node: promptNode } = usePrompt();
   const EMP_OPTIONS = ["permanent", "contract", "part_time", "probation"];

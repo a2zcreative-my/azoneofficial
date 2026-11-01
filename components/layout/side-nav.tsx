@@ -61,7 +61,7 @@ interface NavItem { name: string; label: string }
  */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Overview", tabs: ["Dashboard", "Desk"] },
-  { title: "Sales", tabs: ["Ecommerce", "Sales"] },
+  { title: "Sales", tabs: ["Ecommerce", "Sales", "Agents"] },
   { title: "Operations", tabs: ["Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "On Shift", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },

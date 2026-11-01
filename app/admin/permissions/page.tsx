@@ -25,7 +25,7 @@ export default function PermissionsPage() {
     load();
     void api<{ user: { name: string; role: string } }>("/auth/me").then((r) => { if (r.ok && r.data?.user) setMe(r.data.user); });
   }, []);
-  const ROLES: Role[] = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+  const ROLES: Role[] = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"];
   
   const PERMISSIONS = [
     { id: "hr_manage", label: "HR Administration" },
@@ -40,6 +40,11 @@ export default function PermissionsPage() {
     { id: "sales", label: "Sales" },
     { id: "enquiry_manage", label: "Manage Enquiries" },
     { id: "sync_manage", label: "Manage Integrations" },
+    /* v1.249.0 - the agent desk and the CEO's task-update email */
+    { id: "task_mail_send", label: "Send Task Update Email" },
+    { id: "agent_portal", label: "Agent Desk (own tasks, packages, own requests)" },
+    { id: "agent_requests_view", label: "See Agents' Requests" },
+    { id: "agent_requests_manage", label: "Edit Agents' Requests" },
   ];
 
   return (

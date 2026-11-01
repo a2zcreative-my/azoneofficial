@@ -296,7 +296,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0163_task_dates";
+const LATEST_MIGRATION = "0164_agent_role";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -1538,8 +1538,16 @@ async function enforce2fa(request: Request, env: Env, path: string): Promise<Res
   );
 }
 
+/* v1.249.0 - the staff API paths an agent may use (index.ts staff gate) */
+const AGENT_STAFF_PATHS: readonly RegExp[] = [
+  /^\/tasks$/, /^\/tasks\/\d+(\/(items(\/\d+(\/toggle)?)?|updates|review|comments|files(\/\d+)?|activity|ack))?$/,
+  /^\/agent(\/|$)/,
+  /^\/profile$/, /^\/prefs(\/|$)/, /^\/notifications(\/|$)/, /^\/push\//, /^\/versions$/, /^\/tabs\/access$/,
+  /^\/photo-book$/, /^\/support\//, /^\/debug\/overflow$/, /^\/responsibilities$/,
+];
 const ROLE_RANK: Record<Role, number> = {
   customer: 0,
+  agent: 0, // v1.249.0 - no content or admin rank
   live_host: 0,
   editor: 1,
   marketing: 1,
@@ -2303,7 +2311,7 @@ export default {
         const refR = `clockout2:${todayR}`;
         const { results: openShifts } = await env.DB.prepare(
           `SELECT u.id FROM users u
-           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'super_admin', 'admin')
+           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
              /* v1.139.0 - a day is OPEN when the LAST punch is a clock-in.
                 "has a clock-in and no clock-out" was the one-pair-a-day
                 shape v1.133.0 retired: somebody who worked 11-17 and then
@@ -2962,7 +2970,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      "Sync from TikTok" backfills the last 30 days via Get Order List. */
   if (path === "/api/v1/integrations/tiktok/status" && method === "GET") {
     const me = await getSessionUser(request, env);
-    if (!me || me.role === "customer") return errorResponse("unauthorized", "Sign in required", 401);
+    if (!me || me.role === "customer" || me.role === "agent") return errorResponse("unauthorized", "Sign in required", 401);
     const tok = await tiktokToken(env);
     const last = await env.DB.prepare(
       `SELECT created_at, verified FROM webhook_events WHERE provider = 'tiktok' ORDER BY id DESC LIMIT 1`,
@@ -4477,6 +4485,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
     if (user.role === "customer") return errorResponse("forbidden", "Staff access only", 403);
     const sub = path.slice("/api/v1/staff".length);
+    /* v1.249.0 - an AGENT reaches only their own tasks, the agent desk
+       (packages, their requests) and their own account. Everything else in
+       the staff API is closed to them, whatever a menu might show. */
+    if (user.role === "agent" && !AGENT_STAFF_PATHS.some((rx) => rx.test(sub))) {
+      return errorResponse("forbidden", "Agents use Tasks, the Agent desk and their own Profile", 403);
+    }
     /* v1.105.0 (roadmap phase 03) - a queueable write with an Idempotency-Key
        runs once and answers the same way forever after (worker/src/outbox.ts).
        Every other request passes straight through. */
@@ -4519,7 +4533,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      views never hammer TikTok. Any signed-in staff role may read (same
      motivation principle as /staff/gmv). */
   if (path === "/api/v1/live-analytics" && method === "GET") {
-    if (!user || user.role === "customer") return errorResponse("forbidden", "Staff access required", 403);
+    if (!user || user.role === "customer" || user.role === "agent") return errorResponse("forbidden", "Staff access required", 403);
     // 30-min cache
     try {
       const cached = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'live_analytics_cache'`)
@@ -5131,6 +5145,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0161 (task email outbox: one row per email, its delivery state)", `SELECT ref, status, attempts, last_error, not_before FROM mail_outbox INDEXED BY ux_mail_outbox_ref WHERE ref = '' LIMIT 1`],
       ["0162 (signatures and stamps per person and company, authority, approvals, issuances)", `SELECT s.user_id, s.kind, s.status, s.consented_at, s.approved_by, g.capacity, p.personal, a.signature_asset_id, i.content_sha256 FROM signature_assets s, signing_authorities g, signing_policies p, quotation_approvals a, document_issuances i LIMIT 0`],
       ["0163 (a task has a start date as well as its due date)", `SELECT start_date, deadline FROM tasks LIMIT 0`],
+      ["0164 (the agent role and agents' package requests)", `SELECT r.status, r.package_id, e.kind FROM agent_requests r, agent_request_events e LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5315,6 +5330,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0161_task_mail",
       "0162_signing",
       "0163_task_dates",
+      "0164_agent_role",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5394,7 +5410,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const toId = Number((bodyOb as { handover_to?: unknown }).handover_to ?? 0);
     if (toId) {
       const to = await env.DB.prepare(
-        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'super_admin') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
       ).bind(toId).first<{ id: number }>();
       if (to && to.id !== idOb) {
         const tr = await env.DB.prepare(`UPDATE tasks SET assigned_to = ?1 WHERE assigned_to = ?2 AND status != 'completed'`).bind(to.id, idOb).run();
@@ -5641,7 +5657,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        other prefix requires auth, and the sensitive ones check ownership. */
     const isPublic = key.startsWith("uploads/");
     if (!isPublic) {
-      if (!user || user.role === "customer") {
+      if (!user || user.role === "customer" || user.role === "agent") { // v1.249.0 - agents see no private staff files
         return errorResponse("forbidden", "Staff access required", 403);
       }
       /* v1.245.0 - a project file is opened through its project (team or

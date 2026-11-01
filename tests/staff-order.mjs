@@ -346,7 +346,7 @@ const page = readPortalSource(root);
      `${uses} — the shift resolver, the entitlement editor, the rest-day scan, the two ` +
      "attendance-days lists, the absence scan, birthdays, the task board and the two broadcasts");
   ok("the client agrees about who is staff",
-     /export const NON_STAFF_ROLES: readonly string\[\] = \["customer", "super_admin"\];/.test(read("lib/staff-order.ts"))
+     /export const NON_STAFF_ROLES: readonly string\[\] = \["customer", "super_admin", "agent"\];/.test(read("lib/staff-order.ts"))
        && /\.filter\(\(u\) => isStaffRole\(u\.role\)\)/.test(dir));
   /* v1.87.0 — this pinned the scan's WHERE clause verbatim, so adding the
      leaver rule to it failed a check about the SYSTEM ACCOUNT. The property
@@ -417,7 +417,7 @@ const page = readPortalSource(root);
   ok("every picker and fan-out uses it", uses >= 10,
      `${uses} uses — the task assignee check, the staff pickers, the birthday lists, the counts and the notification fan-outs`);
   ok("work cannot be assigned to somebody who has left",
-     /WHERE id = \?1 AND is_active = 1 AND \$\{currentStaffSql\(\)\} AND role NOT IN \('customer'\)/.test(w),
+     /WHERE id = \?1 AND is_active = 1 AND \$\{currentStaffSql\(\)\} AND role NOT IN \('customer', 'agent'\)/.test(w), // v1.249.0 - agents are never staff
      "hiding them from the dropdown is not the same as refusing the assignment");
 
   /* THE EXCEPTION THE CEO NAMED HIMSELF. */

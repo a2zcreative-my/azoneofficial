@@ -73,7 +73,7 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
   ok("the working roles are the five", JSON.stringify(working) === JSON.stringify(["editor", "hr_admin", "live_host", "marketing", "sales_marketing"]), working.join(","));
   ok("the client offers the same five", JSON.stringify(clientWorking) === JSON.stringify(working), clientWorking.join(","));
   ok("every other role sits behind its own door", /if \(r === "super_admin" \|\| r === "ceo"\) return "super_only";/.test(perms)
-    && /if \(r === "admin"\) return "tech_admin_grant";/.test(perms) && /if \(r === "coo" \|\| r === "cco" \|\| r === "customer"\) return "role_any";/.test(perms));
+    && /if \(r === "admin"\) return "tech_admin_grant";/.test(perms) && /if \(r === "coo" \|\| r === "cco" \|\| r === "customer" \|\| r === "agent"\) return "role_any";/.test(perms));
   ok("an executive ROLE may assign only the working roles - the other doors are the super admin's (and the verified owner's by grant)",
     /role_any: \["super_admin"\],/.test(perms) && /tech_admin_grant: \["super_admin"\],/.test(perms) && /if \(d === "super_only"\) return actor\.role === "super_admin";/.test(perms));
   ok("an executive may not touch an executive, customer or admin account - both the old and the new role are checked", /for \(const r of \[target\.role, to\]\) \{\s*if \(mayGrant\(actor, r\)\) continue;/.test(perms));
